@@ -92,17 +92,17 @@ public class StreamingTests(ITestOutputHelper output)
         Assert.Equal("c", back.GetValue<string>(2, "Name"));
     }
 
-    private sealed class SingleBatchStream(Apache.Arrow.RecordBatch batch) : Apache.Arrow.Ipc.IArrowArrayStream
+    private sealed class SingleBatchStream(RecordBatch batch) : IArrowArrayStream
     {
-        private Apache.Arrow.RecordBatch? _next = batch;
+        private RecordBatch _next = batch;
 
-        public Apache.Arrow.Schema Schema { get; } = batch.Schema;
+        public Schema Schema { get; } = batch.Schema;
 
-        public ValueTask<Apache.Arrow.RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
+        public ValueTask<RecordBatch> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
         {
             var current = _next;
             _next = null;
-            return new ValueTask<Apache.Arrow.RecordBatch?>(current);
+            return new ValueTask<RecordBatch>(current);
         }
 
         public void Dispose() { }

@@ -127,9 +127,9 @@ def write(spark, root):
     read_changes(spark, tables[0])
 
 
-def read_changes(spark, path):
-    """The change feed from version 0, without the commit time."""
-    df = (spark.read.format("delta").option("readChangeFeed", "true").option("startingVersion", 0).load(path)
+def read_changes(spark, path, start=0):
+    """The change feed from version start (0 by default), without the commit time."""
+    df = (spark.read.format("delta").option("readChangeFeed", "true").option("startingVersion", start).load(path)
           .drop("_commit_timestamp"))
     rows = [canonical(r) for r in df.collect()]
     rows.sort(key=lambda r: (r["_commit_version"], r["id"], r["_change_type"]))
@@ -147,6 +147,11 @@ def run(spark, command, args):
         for path in args:
             read(spark, path)
             read_changes(spark, path)
+    elif command == "read_changes_from":
+        # The table, then its change feed from the given version.
+        path, start = args[0], int(args[1])
+        read(spark, path)
+        read_changes(spark, path, start)
     elif command == "delete":
         # DELETE FROM the table WHERE the given SQL condition; then the table.
         path, condition = args[0], args[1]

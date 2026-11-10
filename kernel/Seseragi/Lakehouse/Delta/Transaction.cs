@@ -288,13 +288,19 @@ public sealed class Transaction
         if (_read is null) return now; // on from the first version
 
         if (!IsOn(_read.Metadata))
-            throw new DeltaProtocolException("Turning in-commit timestamps on for an existing table is not supported yet.");
+        {
+            // Turned on by this commit: the metadata names this version and its in-commit timestamp (as Spark does).
+            if (metadata.Configuration.TryGetValue(CommitTimeline.EnablementVersionKey, out string? v) && v == (previousVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                && metadata.Configuration.TryGetValue(CommitTimeline.EnablementTimestampKey, out string? t) && long.TryParse(t, out long enabledAt))
+                return enabledAt;
+            throw new DeltaProtocolException(
+                "Turning in-commit timestamps on for an existing table needs the enablement version and timestamp in the same commit; set the property through the table properties.");
+        }
 
         // Strictly after the previous commit's own in-commit timestamp, whatever the clock says.
         byte[] previous = _fileSystem.ReadAll(LogFile.CommitPath(previousVersion))
             ?? throw new DeltaException($"The commit of version {previousVersion} is missing.");
-        long? last = ActionParser.ParseCommit(previous).OfType<CommitInfoAction>().FirstOrDefault()?.InCommitTimestamp;
-        if (last is null) throw new DeltaException($"The commit of version {previousVersion} has no in-commit timestamp.");
+        long? last = (ActionParser.ParseCommit(previous).OfType<CommitInfoAction>().FirstOrDefault()?.InCommitTimestamp) ?? throw new DeltaException($"The commit of version {previousVersion} has no in-commit timestamp.");
         return Math.Max(now, last.Value + 1);
 
         static bool IsOn(MetadataAction m) =>

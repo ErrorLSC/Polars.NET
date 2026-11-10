@@ -1,5 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Kaminari.Seseragi.Lakehouse.Delta;
+using Kaminari.Seseragi.Lakehouse.Delta.Actions;
+using Kaminari.Seseragi.Lakehouse.Delta.Log;
+using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.CSharp;
 using Polars.NET.Core;
 using Polars.NET.Core.Delta;
@@ -680,6 +684,106 @@ public class SparkInteropTests
     }
 
     /// <summary>ids 1..4 east, 5..9 west (one file each), then 10 west (a file of one row).</summary>
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void TablePropertiesTheKernelSets_MatchSparks_AndSparkWritesWithThem()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            static ProtocolAction ProtocolOf(string path) => Snapshot.Load(new LocalFileSystem(path)).Protocol;
+            static void AssertSameProtocol(string what, ProtocolAction spark, ProtocolAction kernel)
+            {
+                Assert.True((spark.MinReaderVersion, spark.MinWriterVersion) == (kernel.MinReaderVersion, kernel.MinWriterVersion),
+                    $"{what}: Spark {spark.MinReaderVersion}/{spark.MinWriterVersion}, kernel {kernel.MinReaderVersion}/{kernel.MinWriterVersion}");
+                Assert.Equal(spark.ReaderFeatures?.Order(), kernel.ReaderFeatures?.Order());
+                Assert.Equal(spark.WriterFeatures?.Order(), kernel.WriterFeatures?.Order());
+            }
+
+            // The same ALTER on twin tables, once by Spark and once by the kernel: the same protocol.
+            (string Property, string Value)[] alters =
+            [
+                ("delta.enableDeletionVectors", "true"), ("delta.enableChangeDataFeed", "true"), ("delta.columnMapping.mode", "name"),
+                ("delta.enableInCommitTimestamps", "true"), ("delta.feature.timestampNtz", "supported"),
+            ];
+            foreach (var (property, value) in alters)
+            {
+                string name = property.Replace('.', '_');
+                string bySpark = Path.Combine(root, name + "_spark"), byKernel = Path.Combine(root, name + "_kernel");
+                CreateTable(bySpark, []);
+                CreateTable(byKernel, []);
+                LocalSpark.Run("sql", bySpark, $"ALTER TABLE {{table}} SET TBLPROPERTIES ('{property}' = '{value}')");
+                Assert.Equal(2, DeltaKernelAlter.SetTableProperties(byKernel, new Dictionary<string, string> { [property] = value }));
+                AssertSameProtocol(property, ProtocolOf(bySpark), ProtocolOf(byKernel));
+            }
+
+            // The tables below checkpoint every second version: the alter commits (v2) and v4 get checkpoints, which
+            // both sides then read.
+            Dictionary<string, string> Checkpointed() => new() { ["delta.checkpointInterval"] = "2" };
+            static void AssertCheckpointed(string path) =>
+                Assert.True(File.Exists(Path.Combine(path, "_delta_log", "00000000000000000002.checkpoint.parquet")), $"{path}: no checkpoint at v2");
+
+            // Deletion vectors added by the kernel: the kernel's delete and then Spark's write vectors, and both
+            // read the result.
+            string vectors = Path.Combine(root, "dv");
+            CreateTable(vectors, Checkpointed());
+            Assert.Equal(2, DeltaKernelAlter.AddFeature(vectors, "deletionVectors"));
+            DeltaKernelDelete.Delete(vectors, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2)));
+            Assert.Contains(Snapshot.Load(new LocalFileSystem(vectors), parquet: new EngineParquetReader(vectors)).Files, f => f.DeletionVector is not null);
+            JsonDocument afterDelete = LocalSpark.Run("delete", vectors, "id IN (1, 6)")[0];
+            AssertSameRows(vectors, afterDelete.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(vectors)));
+            Assert.Equal(7, afterDelete.RootElement.GetProperty("rows").GetArrayLength());
+            AssertCheckpointed(vectors);
+
+            // The change data feed turned on by the kernel: the kernel's delete and Spark's update feed it, and
+            // both read the same feed.
+            string changes = Path.Combine(root, "cdf");
+            CreateTable(changes, Checkpointed());
+            DeltaKernelAlter.SetTableProperties(changes, new Dictionary<string, string> { ["delta.enableChangeDataFeed"] = "true" });
+            DeltaKernelDelete.Delete(changes, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(3)));
+            LocalSpark.Run("update", changes, "price = 0", "id > 7");
+            List<JsonDocument> feed = LocalSpark.Run("read_changes_from", changes, "2");
+            AssertSameRows(changes, feed[0].RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(changes)));
+            AssertSameRows(changes + " (change feed)", feed[1].RootElement.GetProperty("rows"), KernelRows(ChangeFeedWithoutTime(changes, 2)));
+            Assert.Equal(7, feed[1].RootElement.GetProperty("rows").GetArrayLength()); // delete of 3; 8, 9, 10 pre and post images
+            AssertCheckpointed(changes);
+
+            // Column mapping turned on by the kernel: the kernel appends with a new column (schema evolution under
+            // mapping), Spark renames a column, and both read the old files by their physical names.
+            string mapped = Path.Combine(root, "mapping");
+            CreateTable(mapped, Checkpointed());
+            DeltaKernelAlter.SetTableProperties(mapped, new Dictionary<string, string> { ["delta.columnMapping.mode"] = "name" });
+            using (DataFrame typed = Typed([11], "east"))
+            using (DataFrame wider = typed.WithColumns(Polars.CSharp.Polars.Lit(7).Alias("extra")))
+                DeltaKernelWrite.Write(mapped, PolarsWrapper.LazyClone(wider.Lazy().Handle), KernelWriteMode.Append, canEvolve: true);
+            JsonDocument renamed = LocalSpark.Run("sql", mapped, "ALTER TABLE {table} RENAME COLUMN price TO cost")[0];
+            string sparkSchema = renamed.RootElement.GetProperty("schema").GetString()!;
+            Assert.Contains("cost", sparkSchema);
+            Assert.Contains("extra", sparkSchema);
+            AssertSameRows(mapped, renamed.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(mapped)));
+            Assert.Equal(11, renamed.RootElement.GetProperty("rows").GetArrayLength());
+            AssertCheckpointed(mapped);
+
+            // In-commit timestamps turned on by the kernel: the kernel and then Spark append after them, and time
+            // travel by the enablement timestamp finds the kernel's alter.
+            string timed = Path.Combine(root, "ict");
+            CreateTable(timed, Checkpointed());
+            DeltaKernelAlter.SetTableProperties(timed, new Dictionary<string, string> { ["delta.enableInCommitTimestamps"] = "true" });
+            Write(timed, Typed([11], "east"), KernelWriteMode.Append);
+            LocalSpark.Run("sql", timed, "INSERT INTO {table} SELECT * FROM {table} WHERE id = 1");
+            Snapshot afterInsert = Snapshot.Load(new LocalFileSystem(timed), parquet: new EngineParquetReader(timed));
+            long enabledAt = long.Parse(afterInsert.Metadata.Configuration[CommitTimeline.EnablementTimestampKey]);
+            Assert.Equal(2, Snapshot.LoadAsOf(new LocalFileSystem(timed), DateTimeOffset.FromUnixTimeMilliseconds(enabledAt), new EngineParquetReader(timed)).Version);
+            Assert.Contains("\"inCommitTimestamp\"", File.ReadAllText(Path.Combine(timed, "_delta_log", "00000000000000000003.json")));
+            Assert.Equal(12, LocalSpark.Run("read", timed)[0].RootElement.GetProperty("rows").GetArrayLength());
+            AssertCheckpointed(timed);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static void CreateTable(string path, Dictionary<string, string> properties)
     {
         using DataFrame east = Typed([1, 2, 3, 4], "east"), west = Typed([5, 6, 7, 8, 9], "west");
@@ -706,9 +810,9 @@ public class SparkInteropTests
             DeltaKernelWrite.Write(path, PolarsWrapper.LazyClone(df.Lazy().Handle), mode, partitionBy);
     }
 
-    private static LazyFrameHandle ChangeFeedWithoutTime(string path)
+    private static LazyFrameHandle ChangeFeedWithoutTime(string path, long start = 0)
     {
-        LazyFrameHandle lf = DeltaKernelScan.ReadChangeFeed(path, 0L);
+        LazyFrameHandle lf = DeltaKernelScan.ReadChangeFeed(path, start);
         string[] keep = [.. PolarsSchemaExtractor.GetColumnNames(lf).Where(c => c != DeltaKernelScan.CommitTimestampColumn)];
         return PolarsWrapper.LazySelect(lf, [.. keep.Select(PolarsWrapper.Col)]);
     }

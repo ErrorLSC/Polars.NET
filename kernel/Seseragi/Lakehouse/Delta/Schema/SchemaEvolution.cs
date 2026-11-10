@@ -277,6 +277,48 @@ public static class SchemaEvolution
         };
     }
 
+    /// <summary>
+    /// Metadata of a table switching from no column mapping to mapping by name: every field, nested ones included,
+    /// gets an id, and its physical name is its current name, since the data files already hold it under that name
+    /// (as Spark does). The mode property itself is the caller's to set.
+    /// </summary>
+    public static MetadataAction WithNameMapping(MetadataAction metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        int maxId = MaxColumnId(metadata, StructType.Parse(metadata.SchemaString));
+        var schema = (StructType)Named(StructType.Parse(metadata.SchemaString), ref maxId);
+        return WithSchema(metadata, schema, maxId);
+
+        static DeltaType Named(DeltaType type, ref int maxId)
+        {
+            switch (type)
+            {
+                case StructType s:
+                    var fields = new List<StructField>(s.Fields.Count);
+                    foreach (StructField field in s.Fields)
+                    {
+                        var fieldMetadata = new Dictionary<string, string>(field.Metadata);
+                        if (!fieldMetadata.ContainsKey(StructField.ColumnIdKey))
+                            fieldMetadata[StructField.ColumnIdKey] = (++maxId).ToString(CultureInfo.InvariantCulture);
+                        fieldMetadata.TryAdd(StructField.PhysicalNameKey, field.Name);
+                        fields.Add(new StructField
+                        {
+                            Name = field.Name, Type = Named(field.Type, ref maxId), Nullable = field.Nullable,
+                            Metadata = fieldMetadata, JsonMetadataKeys = field.JsonMetadataKeys,
+                        });
+                    }
+                    return new StructType(fields);
+                case ArrayType a:
+                    return new ArrayType(Named(a.ElementType, ref maxId), a.ContainsNull);
+                case MapType m:
+                    DeltaType key = Named(m.KeyType, ref maxId);
+                    return new MapType(key, Named(m.ValueType, ref maxId), m.ValueContainsNull);
+                default:
+                    return type;
+            }
+        }
+    }
+
     private static StructField Widened(StructField field, DeltaType to, string? fieldPath)
     {
         _ = fieldPath; // changes inside arrays and maps (fieldPath element/key/value) are not written yet

@@ -20,6 +20,18 @@ public static class JsonText
         });
     }
 
+    /// <summary>A JSON object with string values, such as <c>{"k":"v"}</c>, properties in the order given.</summary>
+    public static string Object(IEnumerable<KeyValuePair<string, string>> properties)
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+        return Write(json =>
+        {
+            json.WriteStartObject();
+            foreach (var (name, value) in properties) json.WriteString(name, value);
+            json.WriteEndObject();
+        });
+    }
+
     /// <summary>A JSON array of objects with string values, such as <c>[{"k":"v"}]</c>.</summary>
     public static string ObjectArray(IEnumerable<IEnumerable<KeyValuePair<string, string>>> objects)
     {

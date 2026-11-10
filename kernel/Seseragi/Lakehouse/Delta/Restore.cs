@@ -121,18 +121,9 @@ public static class Restore
     private static ProtocolAction? Protocol(ProtocolAction current, ProtocolAction target, bool downgradeAllowed)
     {
         if (downgradeAllowed) return SameProtocol(current, target) ? null : target;
-        // Never lower: the union of both.
-        var merged = new ProtocolAction
-        {
-            MinReaderVersion = Math.Max(current.MinReaderVersion, target.MinReaderVersion),
-            MinWriterVersion = Math.Max(current.MinWriterVersion, target.MinWriterVersion),
-            ReaderFeatures = Union(current.ReaderFeatures, target.ReaderFeatures),
-            WriterFeatures = Union(current.WriterFeatures, target.WriterFeatures),
-        };
+        // Never lower: what both support (listing what a legacy version implied when features come in).
+        ProtocolAction merged = TableFeatures.Union(current, target);
         return SameProtocol(current, merged) ? null : merged;
-
-        static IReadOnlyList<string>? Union(IReadOnlyList<string>? a, IReadOnlyList<string>? b) =>
-            a is null && b is null ? null : [.. (a ?? []).Concat(b ?? []).Distinct(StringComparer.Ordinal)];
     }
 
     private static bool SameProtocol(ProtocolAction a, ProtocolAction b) =>

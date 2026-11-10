@@ -55,8 +55,8 @@ let private commitInfo (path: string) (version: int64) =
 let private metric (info: JsonElement) (name: string) =
     Int64.Parse(info.GetProperty("operationMetrics").GetProperty(name).GetString())
 
-let private dvOn = [ TableFeatures.EnableDeletionVectorsKey, "true" ]
-let private cdfOn = [ ChangeFeed.EnableKey, "true" ]
+let private dvOn = [ (TableFeatures.EnableDeletionVectorsKey, "true" ) ]
+let private cdfOn = [ (ChangeFeed.EnableKey, "true" ) ]
 
 [<Fact>]
 let ``Delete rewrites files on a table without deletion vectors`` () =
@@ -187,7 +187,7 @@ let ``Delete writes change data on a partitioned change feed table`` (withVector
 let ``Delete on an append-only table is refused`` () =
     withTable "delete_append_only" (fun path ->
         use df = frame [ 1; 2 ] "east"
-        create path df [||] [ TableFeatures.AppendOnlyKey, "true" ]
+        create path df [||] [ (TableFeatures.AppendOnlyKey, "true") ]
         let e = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> delete path (pl.col "id" .== pl.lit 1) |> ignore)
         Assert.Contains("append-only", e.Message)
         Assert.Equal<int list>([ 1; 2 ], ids path))
@@ -263,7 +263,7 @@ let ``Update sets columns of matching rows, in place or through deletion vectors
         Assert.Equal(2L, metric info "numUpdatedRows")
 
         // No match: nothing committed.
-        let miss = update path (Some(pl.col "id" .> pl.lit 100)) [ "price", pl.lit 0.0 ]
+        let miss = update path (Some(pl.col "id" .> pl.lit 100)) [ ("price", pl.lit 0.0) ]
         Assert.False(miss.Version.HasValue))
 
 [<Fact>]
@@ -274,7 +274,7 @@ let ``Update moves rows between partitions and writes pre and post images`` () =
         use both = east.VStack west
         create path both [| "region" |] (cdfOn @ dvOn)
 
-        let r = update path (Some((pl.col "id" .== pl.lit 2) .|| (pl.col "id" .== pl.lit 4))) [ "region", pl.lit "north" ]
+        let r = update path (Some((pl.col "id" .== pl.lit 2) .|| (pl.col "id" .== pl.lit 4))) [ ("region", pl.lit "north") ]
         Assert.Equal(2L, r.UpdatedRows)
         Assert.Equal<(int * string * float) list>(
             [ (1, "east", 1.5); (2, "north", 3.0); (3, "east", 4.5); (4, "north", 6.0); (5, "west", 7.5) ], rowsOf path)
@@ -297,14 +297,14 @@ let ``Update without a predicate sets every row; unknown columns and values that
     withTable "update_all" (fun path ->
         use df = frame [ 1; 2; 3 ] "east"
         create path df [||] []
-        let r = update path None [ "price", pl.lit 1.0 ]
+        let r = update path None [ ("price", pl.lit 1.0) ]
         Assert.Equal(3L, r.UpdatedRows)
         Assert.All(rowsOf path, fun (_, _, p) -> Assert.Equal(1.0, p))
 
-        let unknown = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> update path None [ "nope", pl.lit 1 ] |> ignore)
+        let unknown = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> update path None [ ("nope", pl.lit 1) ] |> ignore)
         Assert.Contains("nope", unknown.Message)
         // Values that do not fit the column type fail instead of being changed.
-        Assert.ThrowsAny<exn>(fun () -> update path None [ "id", pl.lit "x" ] |> ignore) |> ignore
+        Assert.ThrowsAny<exn>(fun () -> update path None [ ("id", pl.lit "x") ] |> ignore) |> ignore
         Assert.Equal(1L, Snapshot.Load(LocalFileSystem path).Version))
 
 // ---- merge ----
@@ -528,7 +528,7 @@ let ``Optimize drops rows deleted through deletion vectors, only in the chosen p
         let before = Snapshot.Load(LocalFileSystem path)
         Assert.Equal(2, before.Files |> Seq.filter (fun f -> not (isNull f.DeletionVector)) |> Seq.length)
 
-        let r = optimize path (128L * 1024L * 1024L) [ "region", "east" ] []
+        let r = optimize path (128L * 1024L * 1024L) [ ("region", "east") ] []
 
         Assert.Equal((1, 1, 1), (r.RemovedFiles, r.AddedFiles, r.DeletionVectorsRemoved))
         let after = Snapshot.Load(LocalFileSystem path)
@@ -629,7 +629,7 @@ let ``Restore brings back an earlier version, by version or by time, and history
         use df = frame [ 1 .. 6 ] "east"
         create path df [||] dvOn                                                                   // v0
         delete path (pl.col "id" .< pl.lit 3) |> ignore                                            // v1
-        update path (Some(pl.col "id" .== pl.lit 6)) [ "price", pl.lit 0.0 ] |> ignore             // v2
+        update path (Some(pl.col "id" .== pl.lit 6)) [ ("price", pl.lit 0.0) ] |> ignore             // v2
         use source = frame [ 6; 7 ] "west"
         merge path source [ "id" ] [] false |> ignore                                              // v3
         let v1Time = (DeltaKernelHistory.Read(path) |> Seq.find (fun e -> e.Version = 1L)).Timestamp
@@ -680,7 +680,7 @@ let ``A failed operation deletes the files it wrote`` () =
         let before = files ()
         // The deletion vector of the old row is written first; then the new row fails the NOT NULL check.
         Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () ->
-            update path (Some(pl.col "v" .== pl.lit 1)) [ "id", pl.litNull () ] |> ignore) |> ignore
+            update path (Some(pl.col "v" .== pl.lit 1)) [ ("id", pl.litNull () ) ] |> ignore) |> ignore
 
         Assert.Equal<string[]>(before, files ())
         Assert.Equal(1L, Snapshot.Load(fs).Version)
@@ -695,7 +695,7 @@ let private writeWith (path: string) (df: DataFrame) (mode: KernelWriteMode) (pa
 let ``Appends cast up and fill missing columns; evolution adds columns and widens types`` () =
     withTable "evolve_append" (fun path ->
         use first = DataFrame.create [| Series.create("id", [ 1L; 2L ]); Series.create("name", [ "a"; "b" ]) |]
-        create path first [||] [ SchemaEvolution.EnableTypeWideningKey, "true" ]
+        create path first [||] [ (SchemaEvolution.EnableTypeWideningKey, "true") ]
         // The property brings the type widening feature with it.
         Assert.Contains(TableFeatures.TypeWidening, Snapshot.Load(LocalFileSystem path).Protocol.WriterFeatures)
 
@@ -715,7 +715,7 @@ let ``Appends cast up and fill missing columns; evolution adds columns and widen
         // Type widening: a table column of int32 widened to int64 by an evolving append; old files read as int64.
         withTable "evolve_widen" (fun widePath ->
             use small = DataFrame.create [| Series.create("v", [ 1; 2 ]) |]
-            create widePath small [||] [ SchemaEvolution.EnableTypeWideningKey, "true" ]
+            create widePath small [||] [ (SchemaEvolution.EnableTypeWideningKey, "true") ]
             let wfs = LocalFileSystem widePath
             use big = DataFrame.create [| Series.create("v", [ 5_000_000_000L ]) |]
             Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> writeWith widePath big KernelWriteMode.Append null false) |> ignore
@@ -753,7 +753,7 @@ let ``Overwrite with evolution replaces the schema and the partitioning`` () =
 let ``Merge adds columns to a table with column mapping`` () =
     withTable "evolve_merge_mapping" (fun path ->
         use first = products [ 1; 2 ] [ 10.0; 20.0 ] [ "a"; "b" ]
-        create path first [||] [ TableFeatures.ColumnMappingModeKey, "name" ]
+        create path first [||] [ (TableFeatures.ColumnMappingModeKey, "name") ]
         let fs = LocalFileSystem path
         let created = Snapshot.Load fs
         Assert.Equal((2, 5), (created.Protocol.MinReaderVersion, created.Protocol.MinWriterVersion))
@@ -765,7 +765,7 @@ let ``Merge adds columns to a table with column mapping`` () =
 
         Assert.True(r.SchemaEvolved)
         let stock = Snapshot.Load(fs).Schema.Field("stock")
-        Assert.NotNull(stock.FieldId)
+        Assert.NotNull(stock.FieldId) |> ignore
         Assert.StartsWith("col-", stock.PhysicalName)
         use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
         Assert.Equal<Nullable<int64> list>([ Nullable(); Nullable 5L; Nullable 6L ], df.["stock"].ToArray<Nullable<int64>>() |> List.ofArray)

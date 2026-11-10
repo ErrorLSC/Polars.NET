@@ -158,6 +158,118 @@ public static class TableFeatures
         }
     }
 
+    /// <summary>The features that are reader and writer features; every other known feature is a writer feature only.</summary>
+    private static readonly HashSet<string> ReaderWriterFeatures = new(StringComparer.Ordinal)
+    {
+        DeletionVectors, TimestampNtz, ColumnMapping, VacuumProtocolCheck, V2Checkpoint, TypeWidening, TypeWideningPreview,
+    };
+
+    /// <summary>Whether a feature is a reader (and writer) feature, not a writer feature only.</summary>
+    public static bool IsReaderWriterFeature(string feature) => ReaderWriterFeatures.Contains(feature);
+
+    /// <summary>
+    /// The protocol name of a feature this kernel can add to a table, matched without regard to case
+    /// (<c>TimestampWithoutTimezone</c> is taken for <c>timestampNtz</c>); null when it is not one.
+    /// </summary>
+    public static string? SupportedFeatureNamed(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (string.Equals(name, "TimestampWithoutTimezone", StringComparison.OrdinalIgnoreCase)) return TimestampNtz;
+        return SupportedWriterFeatures.FirstOrDefault(f => string.Equals(f, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The reader features a protocol puts in force: listed for version 3, column mapping for version 2.</summary>
+    public static IEnumerable<string> ReaderFeaturesOf(ProtocolAction protocol)
+    {
+        ArgumentNullException.ThrowIfNull(protocol);
+        if (protocol.MinReaderVersion >= 3) return protocol.ReaderFeatures ?? [];
+        return protocol.MinReaderVersion == 2 ? [ColumnMapping] : [];
+    }
+
+    /// <summary>
+    /// The lowest protocol at or above <paramref name="current"/> that supports <paramref name="features"/>, as Spark
+    /// upgrades a table: a feature the current versions do not put in force takes the writer to version 7, every
+    /// feature the old version implied listed; a reader feature takes the reader to version 3, except column mapping,
+    /// for which version 2 suffices. Returns <paramref name="current"/> itself when it already supports them all.
+    /// </summary>
+    public static ProtocolAction WithFeatures(ProtocolAction current, IEnumerable<string> features)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(features);
+        var writerNow = WriterFeaturesOf(current).ToList();
+        var readerNow = ReaderFeaturesOf(current).ToList();
+        var newWriter = new List<string>();
+        var newReader = new List<string>();
+        foreach (string feature in features.Distinct(StringComparer.Ordinal))
+        {
+            if (!writerNow.Contains(feature, StringComparer.Ordinal)) newWriter.Add(feature);
+            if (IsReaderWriterFeature(feature) && !readerNow.Contains(feature, StringComparer.Ordinal)) newReader.Add(feature);
+        }
+        if (newWriter.Count == 0 && newReader.Count == 0) return current;
+
+        int readerVersion = current.MinReaderVersion;
+        IReadOnlyList<string>? readerFeatures = current.ReaderFeatures;
+        if (newReader.Count > 0)
+        {
+            if (current.MinReaderVersion < 3 && newReader.All(f => f == ColumnMapping))
+            {
+                readerVersion = Math.Max(current.MinReaderVersion, 2);
+            }
+            else
+            {
+                readerVersion = 3;
+                readerFeatures = [.. readerNow, .. newReader];
+            }
+        }
+        return new ProtocolAction
+        {
+            MinReaderVersion = readerVersion,
+            MinWriterVersion = 7,
+            ReaderFeatures = readerVersion >= 3 ? readerFeatures ?? [] : null,
+            WriterFeatures = [.. writerNow, .. newWriter],
+        };
+    }
+
+    /// <summary>
+    /// <paramref name="current"/> raised to at least the given versions (the <c>delta.minReaderVersion</c> and
+    /// <c>delta.minWriterVersion</c> table properties); never lowered. Raising to the table-feature versions lists
+    /// the features the old versions implied. Returns <paramref name="current"/> itself when nothing is raised.
+    /// </summary>
+    /// <exception cref="DeltaProtocolException">A version is above what this kernel understands.</exception>
+    public static ProtocolAction WithVersions(ProtocolAction current, int? readerVersion, int? writerVersion)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        if (readerVersion > MaxReaderVersion)
+            throw new DeltaProtocolException($"The reader version {readerVersion} is above {MaxReaderVersion}, the highest this kernel reads.");
+        if (writerVersion > MaxWriterVersion)
+            throw new DeltaProtocolException($"The writer version {writerVersion} is above {MaxWriterVersion}, the highest this kernel writes.");
+        int reader = Math.Max(current.MinReaderVersion, readerVersion ?? 0);
+        int writer = Math.Max(current.MinWriterVersion, writerVersion ?? 0);
+        if (reader == 3) writer = 7; // reader features need writer features
+        if (reader == current.MinReaderVersion && writer == current.MinWriterVersion) return current;
+        return new ProtocolAction
+        {
+            MinReaderVersion = reader,
+            MinWriterVersion = writer,
+            ReaderFeatures = reader >= 3 ? [.. ReaderFeaturesOf(current)] : null,
+            WriterFeatures = writer >= 7 ? [.. WriterFeaturesOf(current)] : null,
+        };
+    }
+
+    /// <summary>
+    /// The lowest protocol supporting everything <paramref name="a"/> and <paramref name="b"/> support: the higher
+    /// versions, and when features are listed, the features both put in force.
+    /// </summary>
+    public static ProtocolAction Union(ProtocolAction a, ProtocolAction b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        ProtocolAction raised = WithVersions(a, b.MinReaderVersion, b.MinWriterVersion);
+        // Features b lists; for legacy versions, the versions above carry what they imply.
+        IEnumerable<string> features = b.MinWriterVersion >= 7 ? WriterFeaturesOf(b).Concat(ReaderFeaturesOf(b)) : [];
+        return WithFeatures(raised, features);
+    }
+
     private static bool AnyField(StructType schema, Func<StructField, bool> test)
     {
         foreach (StructField field in schema.Fields)

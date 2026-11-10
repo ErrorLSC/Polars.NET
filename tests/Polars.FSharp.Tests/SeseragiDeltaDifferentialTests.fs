@@ -602,7 +602,7 @@ let ``Nested column mapping gets logical names back at every depth`` () =
         let lf = Polars.NET.Core.Wrappers.PolarsWrapper.LazySelect(source.Lazy().CloneHandle(), [| W(col "id", "col-id"); W(s, "col-s"); W(m, "col-m") |])
         use physical = new DataFrame(Polars.NET.Core.Wrappers.PolarsWrapper.LazyCollect(lf, Polars.NET.Core.Enums.PlEngine.Auto))
         let dataFile = Path.Combine(path, "part-0.parquet")
-        physical.WriteParquet dataFile
+        physical.WriteParquet dataFile |> ignore
 
         let field name physicalName id (typeJson: string) =
             $"{{\"name\":\"{name}\",\"type\":{typeJson},\"nullable\":true,\"metadata\":{{\"delta.columnMapping.id\":{id},\"delta.columnMapping.physicalName\":\"{physicalName}\"}}}}"
@@ -651,10 +651,10 @@ let private dataFile (tableRoot: string) (ids: int list) (region: string) =
     Directory.CreateDirectory(Path.GetDirectoryName full) |> ignore
     use df = frame ids region
     use data = df.Select([ pl.col "id"; pl.col "price" ])
-    data.WriteParquet full
+    data.WriteParquet full |> ignore
     Actions.AddAction(
         Path = relative,
-        PartitionValues = (readOnlyDict [ "region", region ] :> Collections.Generic.IReadOnlyDictionary<string, string>),
+        PartitionValues = readOnlyDict [ ("region", region) ],
         Size = FileInfo(full).Length,
         ModificationTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         Stats = $"{{\"numRecords\":{ids.Length}}}")

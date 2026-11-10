@@ -12,7 +12,10 @@ public sealed class CommitTimeline
 {
     /// <summary>The table property that turns in-commit timestamps on.</summary>
     public const string InCommitTimestampsKey = "delta.enableInCommitTimestamps";
-    private const string EnablementVersionKey = "delta.inCommitTimestampEnablementVersion";
+    /// <summary>The table property naming the version that turned in-commit timestamps on (absent: from version 0).</summary>
+    public const string EnablementVersionKey = "delta.inCommitTimestampEnablementVersion";
+    /// <summary>The table property holding the in-commit timestamp of the version that turned them on.</summary>
+    public const string EnablementTimestampKey = "delta.inCommitTimestampEnablementTimestamp";
 
     private readonly IFileSystem _fileSystem;
     private readonly List<LogFile> _commits;

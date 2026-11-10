@@ -37,7 +37,7 @@ module JoinReorderingTests =
     let private join l r lk rk = LogicalPlan.Join(l, r, [ col lk ], [ col rk ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
     let private sum name = ScalarExpr.Aggregation(AggKind.Sum, Some(col name), false)
     /// One row of order-free aggregates: nothing observes its input's order.
-    let private total name input = LogicalPlan.Project(input, [ "total", sum name ])
+    let private total name input = LogicalPlan.Project(input, [ ("total", sum name) ])
 
     /// Slots in left-to-right leaf order: the order of a left-deep join tree.
     let rec private slots (plan: LogicalPlan) : int list =
@@ -71,15 +71,15 @@ module JoinReorderingTests =
 
     /// fact ⋈ σ(a) ⋈ σ(b) ⋈ c: a's filter keeps 0.1% of a, b's keeps 5% of b.
     let private measuredSources (factKeyHigh: float option) =
-        let wide = Map.ofList [ "a", (0.0, 1000.0) ]
+        let wide = Map.ofList [ ("a", (0.0, 1000.0)) ]
         let factRanges =
             match factKeyHigh with
-            | Some high -> Map.ofList [ "a_key", (0.0, high) ]
+            | Some high -> Map.ofList [ ("a_key", (0.0, high)) ]
             | None -> Map.empty
         [|
             SourceBinding.Table(MeasuredTable(5_000_000L, factSchema, Map.empty, factRanges))
-            SourceBinding.Table(MeasuredTable(10_000L, aSchema, Map.ofList [ "a_v", distinct 1000.0 ], wide))
-            SourceBinding.Table(MeasuredTable(10_000L, bSchema, Map.ofList [ "b_v", distinct 20.0 ], Map.empty))
+            SourceBinding.Table(MeasuredTable(10_000L, aSchema, Map.ofList [ ("a_v", distinct 1000.0) ], wide))
+            SourceBinding.Table(MeasuredTable(10_000L, bSchema, Map.ofList [ ("b_v", distinct 20.0) ], Map.empty))
             SourceBinding.Table(Table(Some 10_000L, cSchema))
         |]
 
@@ -182,7 +182,7 @@ module JoinReorderingTests =
     // --- the order analysis that frees joins beneath windows ---
 
     let private partitioned = ints [ "p"; "y"; "v" ]
-    let private groups = LogicalPlan.GroupBy(scan 0 partitioned, [ col "p"; col "y" ], [ "s", sum "v" ], None, true)
+    let private groups = LogicalPlan.GroupBy(scan 0 partitioned, [ col "p"; col "y" ], [ ("s", sum "v") ], None, true)
     let private asc name = { SortOrder.Expr = col name; Descending = false; NullsLast = false }
 
     let rec private groupFlags (plan: LogicalPlan) : bool list =
@@ -195,13 +195,13 @@ module JoinReorderingTests =
     [<Fact>]
     let ``A window reading order inside partitions frees groups covered by its partition and the sort`` () =
         let shift = ScalarExpr.Window(col "s", [ col "p" ], [])
-        let plan = LogicalPlan.WithColumns(LogicalPlan.Sort(groups, [ asc "y" ]), [ "prev", shift ])
+        let plan = LogicalPlan.WithColumns(LogicalPlan.Sort(groups, [ asc "y" ]), [ ("prev", shift) ])
         let outer = LogicalPlan.Sort(plan, [ asc "p"; asc "y" ])
         Assert.Equal<bool list>([ false ], groupFlags (Kaminari.Samidare.IR.Passes.GroupOrderRelaxation.apply outer))
 
     [<Fact>]
     let ``A partition that does not cover the keys keeps the group order`` () =
         let shift = ScalarExpr.Window(col "s", [ col "y" ], [])
-        let plan = LogicalPlan.WithColumns(LogicalPlan.Sort(groups, [ asc "y" ]), [ "prev", shift ])
+        let plan = LogicalPlan.WithColumns(LogicalPlan.Sort(groups, [ asc "y" ]), [ ("prev", shift) ])
         let outer = LogicalPlan.Sort(plan, [ asc "y" ])
         Assert.Equal<bool list>([ true ], groupFlags (Kaminari.Samidare.IR.Passes.GroupOrderRelaxation.apply outer))
