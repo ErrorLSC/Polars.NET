@@ -104,5 +104,8 @@ public class DeltaKernelCloudTests(MinioFixture minio) : IClassFixture<MinioFixt
         using var otherFs = new ObjectStoreFileSystem(other, args);
         Assert.Equal(otherFs.ReadAll("_delta_log/00000000000000000000.json"), fs.ReadAll($"{other}/_delta_log/00000000000000000000.json"));
         Assert.Equal(otherFs.ReadRange("_delta_log/00000000000000000000.json", 3, 7), fs.ReadRange($"{other}/_delta_log/00000000000000000000.json", 3, 7));
+
+        // Conditional writes (If-None-Match) and kernel commits on S3.
+        KernelObjectStoreCheck.PutIfAbsentHolds($"s3://{minio.BucketName}/writes", args);
     }
 }

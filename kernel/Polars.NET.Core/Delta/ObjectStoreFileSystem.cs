@@ -34,7 +34,7 @@ public sealed record CloudArgs(
 /// A table on an object store (or a local path), reached through the store the engine itself uses, so the same
 /// credentials and retry settings apply to the log as to the data.
 /// </summary>
-public sealed class ObjectStoreFileSystem : IFileSystem, IDisposable
+public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
 {
     private readonly StorageHandle _handle;
     private readonly string _root;
@@ -114,6 +114,23 @@ public sealed class ObjectStoreFileSystem : IFileSystem, IDisposable
         byte[] bytes = NativeBuffer.TakeToArray(raw);
         ErrorHelper.CheckVoid();
         return found ? bytes : null;
+    }
+
+    /// <inheritdoc/>
+    public bool TryCreate(string path, ReadOnlyMemory<byte> content) => Put(path, content, createOnly: true);
+
+    /// <inheritdoc/>
+    public void Overwrite(string path, ReadOnlyMemory<byte> content) => Put(path, content, createOnly: false);
+
+    private unsafe bool Put(string path, ReadOnlyMemory<byte> content, bool createOnly)
+    {
+        bool created;
+        fixed (byte* data = content.Span)
+        {
+            NativeBindings.pl_storage_put(_handle, path, data, (nuint)content.Length, createOnly, out created);
+        }
+        ErrorHelper.CheckVoid();
+        return created;
     }
 
     /// <summary>Closes the store.</summary>

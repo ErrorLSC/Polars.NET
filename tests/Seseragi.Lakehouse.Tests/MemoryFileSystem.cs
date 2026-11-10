@@ -5,7 +5,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Log;
 namespace Seseragi.Lakehouse.Tests;
 
 /// <summary>A table held in memory, built commit by commit.</summary>
-internal sealed class MemoryFileSystem : IFileSystem
+internal sealed class MemoryFileSystem : IWritableFileSystem
 {
     private readonly SortedDictionary<string, (byte[] Content, DateTimeOffset Modified)> _files = new(StringComparer.Ordinal);
 
@@ -31,6 +31,21 @@ internal sealed class MemoryFileSystem : IFileSystem
             result.Add(new FileEntry(path, file.Content.Length, file.Modified));
         }
         return result;
+    }
+
+    public bool TryCreate(string path, ReadOnlyMemory<byte> content)
+    {
+        lock (_files)
+        {
+            if (_files.ContainsKey(path)) return false;
+            _files[path] = (content.ToArray(), DateTimeOffset.UtcNow);
+            return true;
+        }
+    }
+
+    public void Overwrite(string path, ReadOnlyMemory<byte> content)
+    {
+        lock (_files) _files[path] = (content.ToArray(), DateTimeOffset.UtcNow);
     }
 
     public MemoryFileSystem PutBytes(string path, byte[] content)

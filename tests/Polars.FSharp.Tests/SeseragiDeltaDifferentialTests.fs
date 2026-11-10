@@ -639,3 +639,71 @@ let ``Nested column mapping gets logical names back at every depth`` () =
                """{"id":2,"s":{"x":20,"l":[{"z":"b"}]},"m":[{"key":"b","value":{"v":20}}]}"""
                """{"id":3,"s":null,"m":[{"key":"c","value":{"v":30}}]}""" |],
             lines))
+
+// ---------------------------------------------------------------------------------------------------------------
+// Commits written by the kernel
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Writes the rows of one partition as a data file and returns the add action for it.
+let private dataFile (tableRoot: string) (ids: int list) (region: string) =
+    let relative = $"region={region}/part-{Guid.NewGuid():N}.parquet"
+    let full = Path.Combine(tableRoot, relative)
+    Directory.CreateDirectory(Path.GetDirectoryName full) |> ignore
+    use df = frame ids region
+    use data = df.Select([ pl.col "id"; pl.col "price" ])
+    data.WriteParquet full
+    Actions.AddAction(
+        Path = relative,
+        PartitionValues = (readOnlyDict [ "region", region ] :> Collections.Generic.IReadOnlyDictionary<string, string>),
+        Size = FileInfo(full).Length,
+        ModificationTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        Stats = $"{{\"numRecords\":{ids.Length}}}")
+
+[<Fact>]
+let ``Tables the kernel commits are read by the engine at every version`` () =
+    withTable "kernel_commit" (fun path ->
+        let fs = LocalFileSystem path
+        let schema =
+            """{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"region","type":"string","nullable":true,"metadata":{}},{"name":"price","type":"double","nullable":true,"metadata":{}}]}"""
+        let metadata =
+            Actions.MetadataAction(Id = Guid.NewGuid().ToString(), SchemaString = schema, PartitionColumns = [| "region" |], CreatedTime = Nullable 1L)
+        let protocol = Actions.ProtocolAction(MinReaderVersion = 1, MinWriterVersion = 2)
+
+        let east = dataFile path [ 1; 2; 3 ] "east"
+        Assert.Equal(0L, Transaction.Create(fs, protocol, metadata).Add(east).Commit())
+        Assert.Equal(1L, Transaction.Start(fs, Snapshot.Load fs, "WRITE").Add(dataFile path [ 4; 5 ] "west").Commit())
+        let remove = Actions.RemoveAction(Path = east.Path, DeletionTimestamp = Nullable(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+        Assert.Equal(2L, Transaction.Start(fs, Snapshot.Load fs, "DELETE").Add(remove).Commit())
+
+        let expected = [ [ 1; 2; 3 ]; [ 1; 2; 3; 4; 5 ]; [ 4; 5 ] ]
+        for version, ids in List.indexed expected do
+            use viaEngine = LazyFrame.ScanDelta(path, version = uint64 version).Collect()
+            use sorted = viaEngine.Sort(pl.col "id")
+            Assert.Equal<int list>(ids, sorted.["id"].ToArray<int>() |> List.ofArray)
+            Assert.Equal<string list>([ "id"; "region"; "price" ] |> List.sort, viaEngine.ColumnNames |> Seq.sort |> List.ofSeq)
+        assertKernelAgrees path [ "region" ] |> ignore)
+
+[<Fact>]
+let ``Concurrent kernel commits on the local disk: one winner per version`` () =
+    withTable "kernel_race" (fun path ->
+        let fs = LocalFileSystem path
+        let schema = """{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"region","type":"string","nullable":true,"metadata":{}},{"name":"price","type":"double","nullable":true,"metadata":{}}]}"""
+        let metadata = Actions.MetadataAction(Id = "race", SchemaString = schema, PartitionColumns = [| "region" |])
+        Transaction.Create(fs, Actions.ProtocolAction(MinReaderVersion = 1, MinWriterVersion = 2), metadata).Commit() |> ignore
+        let read = Snapshot.Load fs
+        let files = [ for i in 0..7 -> dataFile path [ i ] "east" ]
+        let wins =
+            files
+            |> List.toArray
+            |> Array.Parallel.map (fun add ->
+                try
+                    Transaction.Start(LocalFileSystem path, read, "WRITE").Add(add).Commit() |> ignore
+                    1
+                with :? DeltaCommitConflictException -> 0)
+        Assert.Equal(1, Array.sum wins)
+        let latest = Snapshot.Load fs
+        Assert.Equal(1L, latest.Version)
+        Assert.Single(latest.Files) |> ignore
+        // No temporary file is left in the log.
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "_delta_log"), "*.tmp", SearchOption.AllDirectories))
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(path, "_delta_log")).Length))

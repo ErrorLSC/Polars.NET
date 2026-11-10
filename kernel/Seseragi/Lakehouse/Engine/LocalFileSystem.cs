@@ -1,7 +1,7 @@
 namespace Kaminari.Seseragi.Lakehouse.Engine;
 
 /// <summary>A table on the local disk.</summary>
-public sealed class LocalFileSystem : IFileSystem
+public sealed class LocalFileSystem : IWritableFileSystem
 {
     private readonly string _root;
 
@@ -80,5 +80,84 @@ public sealed class LocalFileSystem : IFileSystem
         {
             return null;
         }
+    }
+
+    /// <inheritdoc/>
+    public bool TryCreate(string path, ReadOnlyMemory<byte> content)
+    {
+        string target = Resolve(path);
+        string temp = WriteTemp(target, content);
+        try
+        {
+            // The whole file is written under a temporary name, then given its name in one step that fails when
+            // the name is taken, so the file appears complete and only one of two writers gets it. File.Move
+            // without overwrite does not do that on Unix (it checks, then renames), so a hard link is made there.
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    File.Move(temp, target, overwrite: false); // MoveFileEx without replacing: atomic
+                    return true;
+                }
+                catch (IOException) when (File.Exists(target))
+                {
+                    return false;
+                }
+            }
+            return NoReplace.Link(temp, target);
+        }
+        finally
+        {
+            File.Delete(temp);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void Overwrite(string path, ReadOnlyMemory<byte> content)
+    {
+        string target = Resolve(path);
+        string temp = WriteTemp(target, content);
+        try
+        {
+            File.Move(temp, target, overwrite: true);
+        }
+        catch
+        {
+            File.Delete(temp);
+            throw;
+        }
+    }
+
+    /// <summary>Writes the content to a hidden file beside the target, so that the final step is a rename.</summary>
+    private static string WriteTemp(string target, ReadOnlyMemory<byte> content)
+    {
+        string directory = Path.GetDirectoryName(target)!;
+        Directory.CreateDirectory(directory);
+        string temp = Path.Combine(directory, $".{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
+        using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write))
+        {
+            stream.Write(content.Span);
+            stream.Flush(flushToDisk: true);
+        }
+        return temp;
+    }
+}
+
+/// <summary>Creates a name for a file only when the name is free, atomically, through the system call.</summary>
+internal static partial class NoReplace
+{
+    private const int EEXIST = 17; // the same value on Linux and macOS
+
+    [System.Runtime.InteropServices.LibraryImport("libc", EntryPoint = "link", SetLastError = true,
+        StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf8)]
+    private static partial int link(string existing, string created);
+
+    /// <summary>Links <paramref name="existing"/> under <paramref name="created"/>; false when that name exists.</summary>
+    public static bool Link(string existing, string created)
+    {
+        if (link(existing, created) == 0) return true;
+        int errno = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+        if (errno == EEXIST) return false;
+        throw new IOException($"Could not create '{created}' (errno {errno}). The file system must support hard links for commits.");
     }
 }

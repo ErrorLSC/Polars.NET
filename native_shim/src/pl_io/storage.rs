@@ -200,3 +200,46 @@ pub extern "C" fn pl_storage_read(
         }
     })
 }
+
+/// Writes a file (relative to the root, or an absolute URI inside the root). With `create_only` the write is a
+/// put-if-absent: it succeeds only when no file exists at the path, and `out_created` is false otherwise (the
+/// commit protocol of a table log). Without it an existing file is replaced. Either way a reader sees the old
+/// state or the whole new file, never a part of it.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_storage_put(
+    ctx_ptr: *mut StorageContext,
+    path_ptr: *const c_char,
+    data: *const u8,
+    len: usize,
+    create_only: bool,
+    out_created: *mut bool,
+) {
+    ffi_try_void!({
+        if ctx_ptr.is_null() || out_created.is_null() || (data.is_null() && len > 0) {
+            return Err(compute_err("storage context, data or output pointer is null"));
+        }
+        let ctx = unsafe { &*ctx_ptr };
+        let relative = ptr_to_str(path_ptr).map_err(compute_err)?;
+        let path = ctx.path(relative)?;
+        let bytes = if len == 0 { Vec::new() } else { unsafe { std::slice::from_raw_parts(data, len) }.to_vec() };
+
+        let mode = if create_only { object_store::PutMode::Create } else { object_store::PutMode::Overwrite };
+        let options = object_store::PutOptions { mode, ..Default::default() };
+        let result = ASYNC.block_on(async {
+            let store = ctx.store.to_dyn_object_store().await;
+            store.put_opts(&path, object_store::PutPayload::from(bytes), options).await
+        });
+
+        match result {
+            Ok(_) => {
+                unsafe { *out_created = true };
+                Ok(())
+            },
+            Err(object_store::Error::AlreadyExists { .. }) if create_only => {
+                unsafe { *out_created = false };
+                Ok(())
+            },
+            Err(e) => Err(compute_err(format!("Failed to write '{}': {}", path, e))),
+        }
+    })
+}
