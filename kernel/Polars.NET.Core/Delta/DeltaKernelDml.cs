@@ -167,7 +167,7 @@ internal sealed class DmlTable : IDisposable
     public static LazyFrameHandle WithChangeType(LazyFrameHandle lf, string changeType) =>
         PolarsWrapper.LazyWithColumns(lf, [PolarsWrapper.Alias(PolarsWrapper.Lit(changeType), DeltaKernelScan.ChangeTypeColumn)]);
 
-    private static int[] Int32Column(DataFrameHandle df, string name)
+    internal static int[] Int32Column(DataFrameHandle df, string name)
     {
         using SeriesHandle column = PolarsWrapper.DataFrameGetColumn(df, name);
         using SeriesHandle chunked = PolarsWrapper.SeriesRechunk(column);
@@ -175,7 +175,7 @@ internal sealed class DmlTable : IDisposable
         using (array) return array.Values.ToArray();
     }
 
-    private static long[] Int64Column(DataFrameHandle df, string name)
+    internal static long[] Int64Column(DataFrameHandle df, string name)
     {
         using SeriesHandle column = PolarsWrapper.DataFrameGetColumn(df, name);
         using SeriesHandle chunked = PolarsWrapper.SeriesRechunk(column);

@@ -305,3 +305,170 @@ let ``Update without a predicate sets every row; unknown columns and values that
         // Values that do not fit the column type fail instead of being changed.
         Assert.ThrowsAny<exn>(fun () -> update path None [ "id", pl.lit "x" ] |> ignore) |> ignore
         Assert.Equal(1L, Snapshot.Load(LocalFileSystem path).Version))
+
+// ---- merge ----
+
+let private src (name: string) = pl.col (name + DeltaKernelMerge.SourceSuffix)
+
+let private merge (path: string) (source: DataFrame) (keys: string list) (clauses: (MergeClauseKind * Expr) list) (canEvolve: bool) =
+    let list = ResizeArray(clauses |> List.map (fun (k, c) -> MergeClause(k, c.CloneHandle())))
+    DeltaKernelMerge.Merge(path, source.Lazy().CloneHandle(), Array.ofList keys, list, canEvolve)
+
+let private products (ids: int list) (prices: float list) (categories: string list) =
+    DataFrame.create [|
+        Series.create("id", ids)
+        Series.create("price", prices)
+        Series.create("category", categories)
+    |]
+
+let private productRows (path: string) =
+    use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+    List.zip3 (df.["id"].ToArray<int>() |> List.ofArray) (df.["price"].ToArray<float>() |> List.ofArray) (df.["category"].ToArray<string>() |> List.ofArray)
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``Merge without clauses upserts`` (withVectors: bool) =
+    withTable "merge_upsert" (fun path ->
+        use target = products [ 1; 2; 3 ] [ 10.0; 20.0; 30.0 ] [ "a"; "a"; "b" ]
+        create path target [||] (if withVectors then dvOn else [])
+        use source = products [ 2; 4 ] [ 25.0; 40.0 ] [ "a"; "c" ]
+
+        let r = merge path source [ "id" ] [] false
+
+        Assert.Equal((1L, 1L, 0L), (r.InsertedRows, r.UpdatedRows, r.DeletedRows))
+        Assert.Equal((if withVectors then 0L else 2L), r.CopiedRows)
+        Assert.Equal<(int * float * string) list>(
+            [ (1, 10.0, "a"); (2, 25.0, "a"); (3, 30.0, "b"); (4, 40.0, "c") ], productRows path)
+        let info = commitInfo path r.Version.Value
+        Assert.Equal("MERGE", info.GetProperty("operation").GetString())
+        Assert.Equal(1L, metric info "numTargetRowsInserted")
+        Assert.Equal(1L, metric info "numTargetRowsUpdated")
+        Assert.Equal(2L, metric info "numSourceRows")
+        if not withVectors then
+            use viaEngine = LazyFrame.ScanDelta(path).Collect()
+            Assert.Equal(4L, viaEngine.Height))
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``Merge takes the first clause that holds, and not-matched-by-source sees the whole table`` (withVectors: bool) =
+    withTable "merge_ordered" (fun path ->
+        // Two files: ids 1..4 and, far from the source's keys, ids 100..101.
+        use first = products [ 1; 2; 3; 4 ] [ 10.0; 20.0; 30.0; 100.0 ] [ "regular"; "seasonal"; "regular"; "regular" ]
+        create path first [||] (if withVectors then dvOn else [])
+        use far = products [ 100; 101 ] [ 1.0; 2.0 ] [ "seasonal"; "regular" ]
+        append path far
+
+        use source =
+            DataFrame.create [|
+                Series.create("id", [ 1; 3; 4; 5; 6 ])
+                Series.create("price", [ 5.0; 35.0; 120.0; -1.0; 50.0 ])
+                Series.create("category", [ "regular"; "regular"; "regular"; "new"; "new" ])
+                Series.create("discontinued", [ true; false; false; false; false ])
+            |]
+        let clauses =
+            [ MergeClauseKind.MatchedDelete, src "discontinued"
+              MergeClauseKind.MatchedUpdate, src "price" .> pl.col "price"
+              MergeClauseKind.NotMatchedInsert, src "price" .> pl.lit 0.0
+              MergeClauseKind.NotMatchedBySourceDelete, pl.col "category" .== pl.lit "seasonal" ]
+        // discontinued is not a table column: refused without evolution.
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> merge path source [ "id" ] clauses false |> ignore) |> ignore
+        use narrow = source.Drop("discontinued")
+        let clausesNarrow =
+            [ MergeClauseKind.MatchedDelete, src "price" .< pl.lit 6.0
+              MergeClauseKind.MatchedUpdate, src "price" .> pl.col "price"
+              MergeClauseKind.NotMatchedInsert, src "price" .> pl.lit 0.0
+              MergeClauseKind.NotMatchedBySourceDelete, pl.col "category" .== pl.lit "seasonal" ]
+
+        let r = merge path narrow [ "id" ] clausesNarrow false
+
+        // 1: deleted (first clause). 2: seasonal, not in source: deleted. 3: 35 > 30, updated. 4: 120 > 100, updated.
+        // 5: price -1, not inserted. 6: inserted. 100: seasonal in a file outside the source's keys: deleted. 101 stays.
+        Assert.Equal<(int * float * string) list>(
+            [ (3, 35.0, "regular"); (4, 120.0, "regular"); (6, 50.0, "new"); (101, 2.0, "regular") ], productRows path)
+        Assert.Equal((1L, 2L, 3L), (r.InsertedRows, r.UpdatedRows, r.DeletedRows)))
+
+[<Fact>]
+let ``Merge keys: null keys match nothing, and a target row matched twice is an error`` () =
+    withTable "merge_keys" (fun path ->
+        use target = products [ 1; 2 ] [ 10.0; 20.0 ] [ "a"; "a" ]
+        create path target [||] []
+
+        use withNull =
+            DataFrame.create [|
+                Series.create("id", [ Nullable 1; Nullable() ])
+                Series.create("price", [ 11.0; 99.0 ])
+                Series.create("category", [ "a"; "z" ])
+            |]
+        let r = merge path withNull [ "id" ] [] false
+        Assert.Equal((1L, 1L), (r.InsertedRows, r.UpdatedRows))
+        use all = (new LazyFrame(DeltaKernelScan.Scan path)).Collect()
+        Assert.Equal(3L, all.Height)
+
+        use twice = products [ 2; 2 ] [ 21.0; 22.0 ] [ "a"; "a" ]
+        let e = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> merge path twice [ "id" ] [] false |> ignore)
+        Assert.Contains("more than one source row", e.Message)
+
+        // Duplicate keys among rows that only insert are fine.
+        use newTwice = products [ 7; 7 ] [ 1.0; 2.0 ] [ "n"; "n" ]
+        let r2 = merge path newTwice [ "id" ] [] false
+        Assert.Equal(2L, r2.InsertedRows))
+
+[<Fact>]
+let ``Merge evolves the schema, and keeps target values of columns the source lacks`` () =
+    withTable "merge_evolve" (fun path ->
+        use target = products [ 1; 2 ] [ 10.0; 20.0 ] [ "a"; "b" ]
+        create path target [||] []
+
+        // No category: an update keeps it, an insert has none. A new column: added with evolution.
+        use source =
+            DataFrame.create [|
+                Series.create("id", [ 2; 3 ])
+                Series.create("price", [ 25.0; 30.0 ])
+                Series.create("stock", [ 5L; 6L ])
+            |]
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> merge path source [ "id" ] [] false |> ignore) |> ignore
+        let r = merge path source [ "id" ] [] true
+
+        Assert.True(r.SchemaEvolved)
+        let snapshot = Snapshot.Load(LocalFileSystem path)
+        Assert.Equal<string list>([ "id"; "price"; "category"; "stock" ], snapshot.Schema.Fields |> Seq.map (fun f -> f.Name) |> List.ofSeq)
+        use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.Equal<string list>([ "a"; "b"; null ], df.["category"].ToArray<string>() |> List.ofArray)
+        Assert.Equal<Nullable<int64> list>([ Nullable(); Nullable 5L; Nullable 6L ], df.["stock"].ToArray<Nullable<int64>>() |> List.ofArray))
+
+[<Fact>]
+let ``Merge into a partitioned change feed table writes every change type`` () =
+    withTable "merge_cdf" (fun path ->
+        use target = products [ 1; 2; 3 ] [ 10.0; 20.0; 30.0 ] [ "a"; "a"; "b" ]
+        create path target [| "category" |] (cdfOn @ dvOn)
+
+        use source = products [ 1; 2; 9 ] [ 0.0; 21.0; 90.0 ] [ "a"; "b"; "c" ]
+        let clauses =
+            [ MergeClauseKind.MatchedDelete, src "price" .== pl.lit 0.0
+              MergeClauseKind.MatchedUpdate, pl.lit true
+              MergeClauseKind.NotMatchedInsert, pl.lit true ]
+        let r = merge path source [ "id" ] clauses false
+        Assert.Equal((1L, 1L, 1L), (r.InsertedRows, r.UpdatedRows, r.DeletedRows))
+        Assert.Equal<(int * float * string) list>([ (2, 21.0, "b"); (3, 30.0, "b"); (9, 90.0, "c") ], productRows path)
+
+        use changes = (new LazyFrame(DeltaKernelScan.ReadChangeFeed(path, 1L))).Collect().Sort([ pl.col "id"; pl.col "_change_type" ])
+        let seen =
+            List.zip3
+                (changes.["id"].ToArray<int>() |> List.ofArray)
+                (changes.["category"].ToArray<string>() |> List.ofArray)
+                (changes.["_change_type"].ToArray<string>() |> List.ofArray)
+        Assert.Equal<(int * string * string) list>(
+            [ (1, "a", "delete"); (2, "b", "update_postimage"); (2, "a", "update_preimage"); (9, "c", "insert") ], seen))
+
+[<Fact>]
+let ``Merge into an empty table inserts`` () =
+    withTable "merge_empty" (fun path ->
+        use target = products [ 1 ] [ 1.0 ] [ "a" ]
+        create path target [||] []
+        DeltaKernelDelete.Delete(path, null) |> ignore
+        use source = products [ 5; 6 ] [ 5.0; 6.0 ] [ "x"; "y" ]
+        let r = merge path source [ "id" ] [] false
+        Assert.Equal(2L, r.InsertedRows)
+        Assert.Equal<(int * float * string) list>([ (5, 5.0, "x"); (6, 6.0, "y") ], productRows path))

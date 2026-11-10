@@ -218,7 +218,7 @@ internal static class DeltaKernelWrite
     // Schema: engine types to Delta types
     // ------------------------------------------------------------------
 
-    private static StructType SchemaOf(DataFrameHandle df)
+    internal static StructType SchemaOf(DataFrameHandle df)
     {
         using LazyFrameHandle lf = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df));
         var fields = new List<StructField>();
@@ -577,7 +577,7 @@ internal static class DeltaKernelWrite
         }
     }
 
-    private static JsonDocument OneRow(DataFrameHandle df, ExprHandle[] exprs)
+    internal static JsonDocument OneRow(DataFrameHandle df, ExprHandle[] exprs)
     {
         LazyFrameHandle lf = PolarsWrapper.LazySelect(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df)), exprs);
         using DataFrameHandle result = PolarsWrapper.LazyCollect(lf, PlEngine.Auto);

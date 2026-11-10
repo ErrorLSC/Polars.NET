@@ -301,6 +301,65 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void Spark_ReadsMerges_TheKernelCommits_AndMergesOnTop()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            static ExprHandle Src(string column) => PolarsWrapper.Col(column + DeltaKernelMerge.SourceSuffix);
+            MergeClause[] Clauses() =>
+            [
+                new(MergeClauseKind.MatchedDelete, PolarsWrapper.Lt(Src("price"), PolarsWrapper.Lit(0.0))),
+                new(MergeClauseKind.MatchedUpdate, PolarsWrapper.Lit(true)),
+                new(MergeClauseKind.NotMatchedInsert, PolarsWrapper.Lit(true)),
+                new(MergeClauseKind.NotMatchedBySourceDelete, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(10))),
+            ];
+
+            // ids 2 and 7 updated (7 moves to another partition), 3 deleted, 10 deleted by source, 11 and 12 inserted.
+            static DataFrame Source()
+            {
+                using DataFrame rows = Typed([2, 3, 7, 11, 12], "north");
+                return rows.WithColumns(
+                    Polars.CSharp.Polars.When(Polars.CSharp.Polars.Col("id") == 3).Then(Polars.CSharp.Polars.Lit(-1.0)).Otherwise(Polars.CSharp.Polars.Col("price")).Alias("price"),
+                    Polars.CSharp.Polars.When(Polars.CSharp.Polars.Col("id") == 2).Then(Polars.CSharp.Polars.Lit("east")).Otherwise(Polars.CSharp.Polars.Col("region")).Alias("region"));
+            }
+
+            string vectors = Path.Combine(root, "dv_cdf");
+            CreateTable(vectors, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" });
+            using (DataFrame source = Source())
+                DeltaKernelMerge.Merge(vectors, PolarsWrapper.LazyClone(source.Lazy().Handle), ["id"], Clauses());
+
+            string rewritten = Path.Combine(root, "rewrite_cdf");
+            CreateTable(rewritten, new() { ["delta.enableChangeDataFeed"] = "true" });
+            using (DataFrame source = Source())
+                DeltaKernelMerge.Merge(rewritten, PolarsWrapper.LazyClone(source.Lazy().Handle), ["id"], Clauses());
+
+            List<JsonDocument> spark = LocalSpark.Run("read_changes", vectors, rewritten);
+            Assert.Equal(4, spark.Count);
+            foreach (JsonDocument table in spark)
+            {
+                string path = table.RootElement.GetProperty("path").GetString()!;
+                bool changes = table.RootElement.TryGetProperty("changes", out _);
+                AssertSameRows(changes ? path + " (change feed)" : path, table.RootElement.GetProperty("rows"),
+                    KernelRows(changes ? ChangeFeedWithoutTime(path) : DeltaKernelScan.Scan(path)));
+            }
+            Assert.Equal(10, spark[0].RootElement.GetProperty("rows").GetArrayLength());
+
+            // Spark merges on top of the kernel's vectors and files.
+            JsonDocument afterSpark = LocalSpark.Run("sql", vectors,
+                "MERGE INTO {table} t USING (SELECT * FROM VALUES (1, 99.0), (11, 0.5), (50, 1.0) AS s(id, price)) s ON t.id = s.id " +
+                "WHEN MATCHED THEN UPDATE SET t.price = s.price WHEN NOT MATCHED THEN INSERT (id, region, price) VALUES (s.id, 'south', s.price)")[0];
+            AssertSameRows(vectors, afterSpark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(vectors)));
+            Assert.Equal(11, afterSpark.RootElement.GetProperty("rows").GetArrayLength());
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void Kernel_ReadsWidenedColumns_SkipsSafely_AndRewritesOldFiles()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

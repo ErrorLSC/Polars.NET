@@ -156,6 +156,11 @@ def main():
         path, assignments, condition = args[0], args[1], args[2]
         spark.sql(f"UPDATE delta.`{path}` SET {assignments} WHERE {condition}")
         read(spark, path)
+    elif command == "sql":
+        # Runs a statement, {table} standing for the table; then the table.
+        path, statement = args[0], args[1]
+        spark.sql(statement.replace("{table}", f"delta.`{path}`"))
+        read(spark, path)
     elif command == "create_widened":
         # A table whose columns were widened after a first insert, so its first file holds the older types.
         path = args[0]
