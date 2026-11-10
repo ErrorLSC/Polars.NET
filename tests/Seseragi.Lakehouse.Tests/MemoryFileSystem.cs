@@ -48,6 +48,11 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
         }
     }
 
+    public bool Delete(string path)
+    {
+        lock (_files) return _files.Remove(path);
+    }
+
     public void Overwrite(string path, ReadOnlyMemory<byte> content)
     {
         lock (_files) _files[path] = (content.ToArray(), DateTimeOffset.UtcNow);

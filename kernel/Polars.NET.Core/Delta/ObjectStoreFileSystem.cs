@@ -122,6 +122,14 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
     /// <inheritdoc/>
     public void Overwrite(string path, ReadOnlyMemory<byte> content) => Put(path, content, createOnly: false);
 
+    /// <inheritdoc/>
+    public bool Delete(string path)
+    {
+        NativeBindings.pl_storage_delete(_handle, path, out bool deleted);
+        ErrorHelper.CheckVoid();
+        return deleted;
+    }
+
     private unsafe bool Put(string path, ReadOnlyMemory<byte> content, bool createOnly)
     {
         bool created;

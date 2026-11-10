@@ -139,7 +139,10 @@ internal static class DeltaKernelWrite
         {
             string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
             Snapshot snapshot = Snapshot.Load(fileSystem, version, new EngineParquetReader(root, cloud));
-            if (Checkpoints.IsDue(snapshot)) Checkpoints.Write(fileSystem, snapshot);
+            if (!Checkpoints.IsDue(snapshot)) return;
+            Checkpoints.Write(fileSystem, snapshot);
+            // With a new checkpoint, older log files may have become unnecessary.
+            LogCleanup.Run(fileSystem, snapshot);
         }
         catch (Exception e) when (e is DeltaException or PolarsException or IOException)
         {

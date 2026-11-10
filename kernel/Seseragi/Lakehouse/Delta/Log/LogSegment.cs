@@ -55,7 +55,7 @@ internal sealed class LogSegment
         return commits;
     }
 
-    private static List<LogFile> ListLog(IFileSystem fileSystem, string? startFrom)
+    internal static List<LogFile> ListLog(IFileSystem fileSystem, string? startFrom)
     {
         var files = new List<LogFile>();
         foreach (FileEntry entry in fileSystem.List(LogFile.LogDirectory, startFrom))
@@ -211,7 +211,7 @@ internal sealed class LogSegment
     }
 
     /// <summary>Of the checkpoint files of one version, picks a set that forms a whole checkpoint, or null.</summary>
-    private static List<LogFile>? ChooseComplete(List<LogFile> candidates)
+    internal static List<LogFile>? ChooseComplete(List<LogFile> candidates)
     {
         foreach (LogFile file in candidates)
         {

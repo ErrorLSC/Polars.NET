@@ -15,4 +15,7 @@ public interface IWritableFileSystem : IFileSystem
 
     /// <summary>Writes a file, replacing the one at the path if there is one.</summary>
     void Overwrite(string path, ReadOnlyMemory<byte> content);
+
+    /// <summary>Deletes a file; returns false when there was none.</summary>
+    bool Delete(string path);
 }

@@ -54,13 +54,29 @@ public sealed class CommitTimeline
         while (first > 0 && commits[first - 1].Version == commits[first].Version - 1) first--;
         if (first > 0) commits.RemoveRange(0, first);
 
+        return Build(fileSystem, commits, Snapshot.Load(fileSystem, null, parquet).Metadata);
+    }
+
+    /// <summary>The timeline of a table whose latest metadata is already known.</summary>
+    internal static CommitTimeline Load(IFileSystem fileSystem, MetadataAction latestMetadata)
+    {
+        List<LogFile> commits = LogSegment.ListCommits(fileSystem);
+        if (commits.Count == 0)
+            throw new DeltaTableNotFoundException("No Delta table found: the log directory holds no commit.");
+        int first = commits.Count - 1;
+        while (first > 0 && commits[first - 1].Version == commits[first].Version - 1) first--;
+        if (first > 0) commits.RemoveRange(0, first);
+        return Build(fileSystem, commits, latestMetadata);
+    }
+
+    private static CommitTimeline Build(IFileSystem fileSystem, List<LogFile> commits, MetadataAction latestMetadata)
+    {
         long inCommitFrom = long.MaxValue;
-        Snapshot latest = Snapshot.Load(fileSystem, null, parquet);
-        if (latest.Metadata.Configuration.TryGetValue(InCommitTimestampsKey, out string? enabled)
+        if (latestMetadata.Configuration.TryGetValue(InCommitTimestampsKey, out string? enabled)
             && string.Equals(enabled, "true", StringComparison.OrdinalIgnoreCase))
         {
             // Without an enablement version the feature was on from the table's first commit.
-            inCommitFrom = latest.Metadata.Configuration.TryGetValue(EnablementVersionKey, out string? v) && long.TryParse(v, out long from)
+            inCommitFrom = latestMetadata.Configuration.TryGetValue(EnablementVersionKey, out string? v) && long.TryParse(v, out long from)
                 ? from
                 : 0;
         }

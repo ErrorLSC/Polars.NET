@@ -97,25 +97,32 @@ public static class Checkpoints
     }
 
     /// <summary>The tombstone retention: <c>interval N unit</c> as Delta writes it, 7 days when unset or unreadable.</summary>
-    internal static TimeSpan Retention(MetadataAction metadata)
+    internal static TimeSpan Retention(MetadataAction metadata) =>
+        metadata.Configuration.TryGetValue(TombstoneRetentionKey, out string? text) && TryParseInterval(text, out TimeSpan value)
+            ? value
+            : DefaultRetention;
+
+    /// <summary>Reads a duration property such as <c>interval 7 days</c>.</summary>
+    internal static bool TryParseInterval(string text, out TimeSpan value)
     {
-        if (!metadata.Configuration.TryGetValue(TombstoneRetentionKey, out string? text)) return DefaultRetention;
+        value = default;
         string[] parts = text.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 3 && parts[0] == "interval" && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+        if (parts.Length != 3 || parts[0] != "interval"
+            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+            return false;
+        TimeSpan? unit = parts[2].TrimEnd('s') switch
         {
-            TimeSpan? unit = parts[2].TrimEnd('s') switch
-            {
-                "millisecond" => TimeSpan.FromMilliseconds(1),
-                "second" => TimeSpan.FromSeconds(1),
-                "minute" => TimeSpan.FromMinutes(1),
-                "hour" => TimeSpan.FromHours(1),
-                "day" => TimeSpan.FromDays(1),
-                "week" => TimeSpan.FromDays(7),
-                _ => null,
-            };
-            if (unit is TimeSpan u) return u * n;
-        }
-        return DefaultRetention;
+            "millisecond" => TimeSpan.FromMilliseconds(1),
+            "second" => TimeSpan.FromSeconds(1),
+            "minute" => TimeSpan.FromMinutes(1),
+            "hour" => TimeSpan.FromHours(1),
+            "day" => TimeSpan.FromDays(1),
+            "week" => TimeSpan.FromDays(7),
+            _ => null,
+        };
+        if (unit is not TimeSpan u) return false;
+        value = u * n;
+        return true;
     }
 
     // ------------------------------------------------------------------

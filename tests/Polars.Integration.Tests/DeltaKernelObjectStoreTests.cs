@@ -38,6 +38,9 @@ public static class KernelObjectStoreCheck
 
         reader.Overwrite(path, "replaced"u8.ToArray());
         Assert.Equal("replaced", System.Text.Encoding.UTF8.GetString(reader.ReadAll(path)!));
+        Assert.True(reader.Delete(path));
+        Assert.Null(reader.ReadAll(path));
+        Assert.False(reader.Delete(path));
 
         // A table created and appended to by the kernel on the store.
         string table = $"kernel_commit_{Guid.NewGuid():N}";
@@ -51,8 +54,10 @@ public static class KernelObjectStoreCheck
         Assert.Equal(0, Transaction.Create(tableFs, protocol, metadata).Commit());
         Snapshot created = Snapshot.Load(tableFs);
         Assert.Equal(1, Transaction.Start(tableFs, created, "WRITE").Commit());
-        Assert.Throws<DeltaCommitConflictException>(() => Transaction.Start(tableFs, created, "WRITE").Commit());
+        // Without retries the taken version is a conflict; with them the commit lands after the other.
+        Assert.Throws<DeltaCommitConflictException>(() => Transaction.Start(tableFs, created, "WRITE").Commit(maxRetries: 0));
         Assert.Equal(1, Snapshot.Load(tableFs).Version);
+        Assert.Equal(2, Transaction.Start(tableFs, created, "WRITE").Commit());
     }
 
     /// <summary>Snapshot and rows of the table at <paramref name="url"/> equal those of the local copy.</summary>

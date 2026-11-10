@@ -306,6 +306,9 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] out bool out_created);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_storage_delete(StorageHandle storage, string path, [MarshalAs(UnmanagedType.U1)] out bool out_deleted);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet_files(
         string[] paths,
         UIntPtr paths_len,

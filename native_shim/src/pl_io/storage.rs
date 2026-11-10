@@ -243,3 +243,36 @@ pub extern "C" fn pl_storage_put(
         }
     })
 }
+
+/// Deletes a file (relative to the root). `out_deleted` is false when there was no file.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_storage_delete(ctx_ptr: *mut StorageContext, path_ptr: *const c_char, out_deleted: *mut bool) {
+    ffi_try_void!({
+        if ctx_ptr.is_null() || out_deleted.is_null() {
+            return Err(compute_err("storage context or output pointer is null"));
+        }
+        let ctx = unsafe { &*ctx_ptr };
+        let relative = ptr_to_str(path_ptr).map_err(compute_err)?;
+        let path = ctx.path(relative)?;
+        let result = ASYNC.block_on(async {
+            let store = ctx.store.to_dyn_object_store().await;
+            // Some stores report success for a missing object; ask first so the answer is the same everywhere.
+            match store.head(&path).await {
+                Ok(_) => store.delete(&path).await.map(|_| true),
+                Err(object_store::Error::NotFound { .. }) => Ok(false),
+                Err(e) => Err(e),
+            }
+        });
+        match result {
+            Ok(deleted) => {
+                unsafe { *out_deleted = deleted };
+                Ok(())
+            },
+            Err(object_store::Error::NotFound { .. }) => {
+                unsafe { *out_deleted = false };
+                Ok(())
+            },
+            Err(e) => Err(compute_err(format!("Failed to delete '{}': {}", path, e))),
+        }
+    })
+}

@@ -120,6 +120,15 @@ public sealed class LocalFileSystem : IWritableFileSystem
     }
 
     /// <inheritdoc/>
+    public bool Delete(string path)
+    {
+        string target = Resolve(path);
+        if (!File.Exists(target)) return false;
+        File.Delete(target);
+        return true;
+    }
+
+    /// <inheritdoc/>
     public void Overwrite(string path, ReadOnlyMemory<byte> content)
     {
         string target = Resolve(path);

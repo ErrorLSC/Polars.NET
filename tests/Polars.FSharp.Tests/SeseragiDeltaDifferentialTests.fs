@@ -853,3 +853,32 @@ let ``Kernel checkpoints give the state of the log, and other readers use them``
         for v in 0..8 do File.Delete(Path.Combine(logDir, $"{v:D20}.json"))
         use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
         Assert.Equal<int list>([ 20; 21; 22 ], viaKernel.["id"].ToArray<int>() |> List.ofArray))
+
+[<Fact>]
+let ``Kernel cleans up the expired log after a checkpoint, and the table stays readable`` () =
+    withTable "kernel_cleanup" (fun path ->
+        let properties = readOnlyDict [ "delta.checkpointInterval", "3"; "delta.logRetentionDuration", "interval 0 seconds" ]
+        let write (df: DataFrame) mode =
+            Polars.NET.Core.Delta.DeltaKernelWrite.Write(path, df.Lazy().CloneHandle(), mode, null, null, properties) |> ignore
+        use first = frame [ 1 ] "east"
+        write first Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists
+        for i in 2..8 do
+            use more = frame [ i ] "east"
+            write more Polars.NET.Core.Delta.KernelWriteMode.Append
+
+        // Version 6 is the newest checkpoint; with no retention everything before it went.
+        let log = Directory.GetFiles(Path.Combine(path, "_delta_log")) |> Array.map Path.GetFileName |> Array.sort
+        Assert.Equal<string[]>(
+            [| "00000000000000000006.checkpoint.parquet"; "00000000000000000006.json"; "00000000000000000007.json"; "_last_checkpoint" |],
+            log)
+
+        use latest = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.Equal<int list>([ 1 .. 8 ], latest.["id"].ToArray<int>() |> List.ofArray)
+        use atSix = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan(path, Nullable 6L))).Collect()
+        Assert.Equal(7L, atSix.Height)
+        // A version whose log is gone cannot be read any more.
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () ->
+            Polars.NET.Core.Delta.DeltaKernelScan.Scan(path, Nullable 2L) |> ignore) |> ignore
+        // The current engine reads the cleaned table too.
+        use viaEngine = LazyFrame.ScanDelta(path).Collect()
+        Assert.Equal(8L, viaEngine.Height))

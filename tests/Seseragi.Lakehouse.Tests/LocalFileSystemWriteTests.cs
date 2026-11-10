@@ -5,7 +5,7 @@ namespace Seseragi.Lakehouse.Tests;
 public class LocalFileSystemWriteTests
 {
     [Fact]
-    public void Listing_ToleratesFilesThatVanish_WhileOthersWrite()
+    public async Task Listing_ToleratesFilesThatVanish_WhileOthersWrite()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_fs_{Guid.NewGuid():N}");
         try
@@ -22,7 +22,7 @@ public class LocalFileSystemWriteTests
             }))];
             while (!writers.All(t => t.IsCompleted))
                 Assert.Contains(fs.List("log"), f => f.Path == "log/seed.json");
-            Task.WaitAll(writers);
+            await Task.WhenAll(writers);
             Assert.Equal(1 + 4 * perWriter, fs.List("log").Count);
         }
         finally
