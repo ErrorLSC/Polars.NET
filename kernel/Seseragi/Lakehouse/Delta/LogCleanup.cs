@@ -31,9 +31,6 @@ public static class LogCleanup
         if (snapshot.Metadata.Configuration.TryGetValue(EnabledKey, out string? enabled)
             && string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
             return [];
-        // V2 checkpoints reference sidecars, which need their own cleanup; not done by this kernel yet.
-        if ((snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint)) return [];
-
         DateTimeOffset cutoff = (now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata);
         List<LogFile> files = LogSegment.ListLog(fileSystem, null);
         CommitTimeline timeline = CommitTimeline.Load(fileSystem, snapshot.Metadata);
@@ -41,7 +38,8 @@ public static class LogCleanup
         // The newest complete checkpoint, at or before the snapshot, whose commit is past the retention.
         long keepFrom = -1;
         foreach (IGrouping<long, LogFile> checkpoint in files
-            .Where(f => f.Kind is LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint && f.Version <= snapshot.Version)
+            .Where(f => f.Kind is LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint or LogFileKind.V2Checkpoint
+                && f.Version <= snapshot.Version)
             .GroupBy(f => f.Version)
             .OrderByDescending(g => g.Key))
         {
@@ -57,11 +55,38 @@ public static class LogCleanup
         {
             bool before = file.Kind switch
             {
-                LogFileKind.Commit or LogFileKind.Checksum or LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint => file.Version < keepFrom,
+                LogFileKind.Commit or LogFileKind.Checksum or LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint
+                    or LogFileKind.V2Checkpoint => file.Version < keepFrom,
                 LogFileKind.CompactedCommit => file.EndVersion < keepFrom,
-                _ => false, // _last_checkpoint, V2 checkpoints and anything unknown stay
+                _ => false, // _last_checkpoint and anything unknown stay
             };
             if (before && fileSystem.Delete(file.Entry.Path)) deleted.Add(file.Entry.Path);
+        }
+        deleted.AddRange(CleanSidecars(fileSystem, files.Where(f => f.Kind == LogFileKind.V2Checkpoint && f.Version >= keepFrom), cutoff));
+        return deleted;
+    }
+
+    /// <summary>
+    /// Deletes sidecar files no remaining V2 checkpoint refers to, once they are past the retention. Only when every
+    /// remaining V2 checkpoint is JSON, so its references can be read here; otherwise sidecars are left alone.
+    /// </summary>
+    private static List<string> CleanSidecars(IWritableFileSystem fileSystem, IEnumerable<LogFile> remaining, DateTimeOffset cutoff)
+    {
+        var deleted = new List<string>();
+        var referenced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (LogFile checkpoint in remaining)
+        {
+            if (!checkpoint.Entry.Path.EndsWith(".json", StringComparison.Ordinal)) return deleted;
+            byte[]? content = fileSystem.ReadAll(checkpoint.Entry.Path);
+            if (content is null) return deleted;
+            foreach (SidecarAction sidecar in ActionParser.ParseCommit(content).OfType<SidecarAction>())
+                referenced.Add(sidecar.Path);
+        }
+        foreach (FileEntry entry in fileSystem.List($"{LogFile.LogDirectory}/_sidecars"))
+        {
+            string name = entry.Path[(LogFile.LogDirectory.Length + "/_sidecars/".Length)..];
+            if (referenced.Contains(name) || entry.LastModified > cutoff) continue;
+            if (fileSystem.Delete(entry.Path)) deleted.Add(entry.Path);
         }
         return deleted;
     }

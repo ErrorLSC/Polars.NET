@@ -54,4 +54,43 @@ public class LogCleanupTests
         Assert.Empty(LogCleanup.Run(shortRetention, latest, DateTimeOffset.UtcNow.AddMinutes(30)));
         Assert.NotEmpty(LogCleanup.Run(shortRetention, latest, DateTimeOffset.UtcNow.AddHours(2)));
     }
+
+    [Fact]
+    public void V2Checkpoints_AreBoundaries_AndUnreferencedOldSidecarsGo()
+    {
+        var fs = new MemoryFileSystem();
+        var protocol = new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = ["v2Checkpoint"], WriterFeatures = ["v2Checkpoint"] };
+        var metadata = new MetadataAction
+        {
+            Id = "t",
+            SchemaString = """{"type":"struct","fields":[{"name":"id","type":"long","nullable":true,"metadata":{}}]}""",
+            Configuration = new Dictionary<string, string> { [Checkpoints.IntervalKey] = "2" },
+        };
+        Transaction.Create(fs, protocol, metadata).Commit();
+        string? latestCheckpoint = null;
+        for (int v = 1; v <= 5; v++)
+        {
+            Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(new AddAction { Path = $"f{v}.parquet" }).Commit();
+            Snapshot s = Snapshot.Load(fs);
+            if (Checkpoints.IsDue(s)) latestCheckpoint = Checkpoints.Write(fs, s);
+        }
+        // A sidecar a remaining checkpoint refers to, and two nobody refers to: one old, one recent.
+        string referencing = "_delta_log/00000000000000000004.checkpoint.11111111-1111-1111-1111-111111111111.json";
+        fs.Put(referencing, """{"checkpointMetadata":{"version":4}}""" + "\n" + """{"sidecar":{"path":"kept.parquet","sizeInBytes":1,"modificationTime":1}}""");
+        fs.Put("_delta_log/_sidecars/kept.parquet", "x");
+        fs.Put("_delta_log/_sidecars/orphan.parquet", "x");
+        fs.Put("_delta_log/_sidecars/fresh.parquet", "x", DateTimeOffset.UtcNow.AddDays(40));
+
+        IReadOnlyList<string> deleted = LogCleanup.Run(fs, Snapshot.Load(fs), DateTimeOffset.UtcNow.AddDays(31));
+
+        string[] log = [.. fs.List("_delta_log").Select(f => f.Path)];
+        Assert.Contains(latestCheckpoint!, log);           // the boundary (version 4) stays
+        Assert.Contains(referencing, log);
+        Assert.DoesNotContain(log, p => p.Contains(".checkpoint.") && p.Contains("00000000000000000002"));
+        Assert.DoesNotContain("_delta_log/00000000000000000003.json", log);
+        Assert.Contains("_delta_log/00000000000000000004.json", log);
+        string[] sidecars = [.. fs.List("_delta_log/_sidecars").Select(f => f.Path)];
+        Assert.Equal(["_delta_log/_sidecars/fresh.parquet", "_delta_log/_sidecars/kept.parquet"], sidecars);
+        Assert.Contains("_delta_log/_sidecars/orphan.parquet", deleted);
+    }
 }

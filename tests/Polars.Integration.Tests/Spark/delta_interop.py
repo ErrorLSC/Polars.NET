@@ -3,6 +3,7 @@
   read <table>...   print, per table, one JSON line: {"path", "schema", "rows"} as Spark reads it
   write <dir>       create Spark tables that use Delta features under <dir>, then read them as above
   append <table> n  append n rows, one commit each, then read the table as above
+  create_v2 <table> create an empty table with V2 checkpoints every two commits
 
 Values are canonical so that another engine can compare: dates as days since the epoch, timestamps as
 microseconds since the epoch (UTC), decimals as text, binary as base64, structs as objects, arrays as lists.
@@ -136,6 +137,13 @@ def main():
             read(spark, path)
     elif command == "write":
         write(spark, args[0])
+    elif command == "create_v2":
+        # A table that takes V2 checkpoints every two commits; columns (id BIGINT, src STRING) as "append" writes.
+        spark.sql(
+            f"CREATE TABLE delta.`{args[0]}` (id BIGINT, src STRING) USING delta "
+            "TBLPROPERTIES ('delta.checkpointPolicy'='v2', 'delta.checkpointInterval'='2')"
+        )
+        read(spark, args[0])
     elif command == "append":
         # Appends one row per commit, while another writer commits to the same table.
         path, count = args[0], int(args[1])

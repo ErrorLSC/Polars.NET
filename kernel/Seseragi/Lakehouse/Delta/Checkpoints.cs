@@ -24,62 +24,112 @@ public static class Checkpoints
 
     /// <summary>
     /// Whether a checkpoint is due at this snapshot's version: every <c>delta.checkpointInterval</c> commits (10 by
-    /// default). Tables with V2 checkpoints are not checkpointed by this kernel yet.
+    /// default).
     /// </summary>
     public static bool IsDue(Snapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (snapshot.Version <= 0) return false;
-        if ((snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint)) return false;
         int interval = snapshot.Metadata.Configuration.TryGetValue(IntervalKey, out string? text)
             && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) && n > 0 ? n : DefaultInterval;
         return snapshot.Version % interval == 0;
     }
 
-    /// <summary>Writes the checkpoint of the snapshot's version and points <c>_last_checkpoint</c> at it.</summary>
+    /// <summary>
+    /// Writes the checkpoint of the snapshot's version and points <c>_last_checkpoint</c> at it. A table with the
+    /// <c>v2Checkpoint</c> feature gets a V2 checkpoint (<c>n.checkpoint.UUID.json</c> holding its file actions
+    /// inline); any other a classic one (<c>n.checkpoint.parquet</c>).
+    /// </summary>
     /// <param name="fileSystem">The table storage.</param>
     /// <param name="snapshot">The state to write.</param>
     /// <param name="now">The clock that decides which tombstones have expired; the current time when null.</param>
-    /// <exception cref="DeltaProtocolException">The table uses V2 checkpoints.</exception>
-    public static void Write(IWritableFileSystem fileSystem, Snapshot snapshot, DateTimeOffset? now = null)
+    /// <returns>The table-relative path of the checkpoint.</returns>
+    public static string Write(IWritableFileSystem fileSystem, Snapshot snapshot, DateTimeOffset? now = null)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(snapshot);
-        if ((snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint))
-            throw new DeltaProtocolException("The table uses V2 checkpoints, which this kernel does not write yet.");
 
         long expiredBefore = ((now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata)).ToUnixTimeMilliseconds();
-        var rows = new List<IReadOnlyDictionary<string, object?>>
-        {
-            Row("protocol", Protocol(snapshot.Protocol)),
-            Row("metaData", Metadata(snapshot.Metadata)),
-        };
-        rows.AddRange(snapshot.AppTransactions.Values.Select(t => Row("txn", Txn(t))));
-        rows.AddRange(snapshot.DomainMetadata.Values.Select(d => Row("domainMetadata", Domain(d))));
-        rows.AddRange(snapshot.Files.Select(a => Row("add", Add(a))));
-        rows.AddRange(snapshot.Tombstones
-            .Where(r => r.DeletionTimestamp is null || r.DeletionTimestamp >= expiredBefore)
-            .Select(r => Row("remove", Remove(r))));
+        RemoveAction[] tombstones = [.. snapshot.Tombstones.Where(r => r.DeletionTimestamp is null || r.DeletionTimestamp >= expiredBefore)];
+        bool v2 = (snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint);
 
-        byte[] parquet = MinimalParquetWriter.Write(Schema, rows);
-        string path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.parquet";
-        // The same version always gives the same checkpoint, so replacing one written concurrently is harmless.
-        fileSystem.Overwrite(path, parquet);
+        string path;
+        byte[] content;
+        int actionCount;
+        if (v2)
+        {
+            var actions = new List<DeltaAction>
+            {
+                new CheckpointMetadataAction { Version = snapshot.Version },
+                snapshot.Protocol,
+                snapshot.Metadata,
+            };
+            actions.AddRange(snapshot.AppTransactions.Values);
+            actions.AddRange(snapshot.DomainMetadata.Values);
+            actions.AddRange(snapshot.Files.Select(WithoutDataChange));
+            actions.AddRange(tombstones.Select(WithoutDataChange));
+            content = ActionWriter.WriteCommit(actions);
+            actionCount = actions.Count;
+            // A V2 checkpoint has a unique name, so writers checkpointing the same version never collide.
+            path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.{Guid.NewGuid()}.json";
+            if (!fileSystem.TryCreate(path, content)) throw new DeltaException($"The checkpoint {path} already exists.");
+        }
+        else
+        {
+            var rows = new List<IReadOnlyDictionary<string, object?>>
+            {
+                Row("protocol", Protocol(snapshot.Protocol)),
+                Row("metaData", Metadata(snapshot.Metadata)),
+            };
+            rows.AddRange(snapshot.AppTransactions.Values.Select(t => Row("txn", Txn(t))));
+            rows.AddRange(snapshot.DomainMetadata.Values.Select(d => Row("domainMetadata", Domain(d))));
+            rows.AddRange(snapshot.Files.Select(a => Row("add", Add(a))));
+            rows.AddRange(tombstones.Select(r => Row("remove", Remove(r))));
+            content = MinimalParquetWriter.Write(Schema, rows);
+            actionCount = rows.Count;
+            path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.parquet";
+            // The same version always gives the same checkpoint, so replacing one written concurrently is harmless.
+            fileSystem.Overwrite(path, content);
+        }
 
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, ActionWriter.JsonOptions))
         {
             json.WriteStartObject();
             json.WriteNumber("version", snapshot.Version);
-            json.WriteNumber("size", rows.Count);
-            json.WriteNumber("sizeInBytes", parquet.Length);
+            json.WriteNumber("size", actionCount);
+            json.WriteNumber("sizeInBytes", content.Length);
             json.WriteNumber("numOfAddFiles", snapshot.Files.Count);
+            if (v2)
+            {
+                json.WriteStartObject("v2Checkpoint");
+                json.WriteString("path", path[(LogFile.LogDirectory.Length + 1)..]);
+                json.WriteNumber("sizeInBytes", content.Length);
+                json.WriteNumber("modificationTime", (now ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds());
+                json.WriteEndObject();
+            }
             json.WriteEndObject();
         }
         // The hint only ever moves forward; a stale or missing one costs readers a longer listing, nothing more.
         if (LastCheckpointVersion(fileSystem) < snapshot.Version)
             fileSystem.Overwrite($"{LogFile.LogDirectory}/_last_checkpoint", stream.ToArray());
+        return path;
     }
+
+    /// <summary>Files in a checkpoint do not change data; they are the table as it is.</summary>
+    private static AddAction WithoutDataChange(AddAction a) => new()
+    {
+        Path = a.Path, PartitionValues = a.PartitionValues, Size = a.Size, ModificationTime = a.ModificationTime, DataChange = false,
+        Stats = a.Stats, Tags = a.Tags, DeletionVector = a.DeletionVector, BaseRowId = a.BaseRowId,
+        DefaultRowCommitVersion = a.DefaultRowCommitVersion, ClusteringProvider = a.ClusteringProvider,
+    };
+
+    private static RemoveAction WithoutDataChange(RemoveAction r) => new()
+    {
+        Path = r.Path, DeletionTimestamp = r.DeletionTimestamp, DataChange = false, ExtendedFileMetadata = r.ExtendedFileMetadata,
+        PartitionValues = r.PartitionValues, Size = r.Size, DeletionVector = r.DeletionVector, BaseRowId = r.BaseRowId,
+        DefaultRowCommitVersion = r.DefaultRowCommitVersion,
+    };
 
     private static long LastCheckpointVersion(IFileSystem fileSystem)
     {

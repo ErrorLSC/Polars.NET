@@ -172,6 +172,44 @@ public class SparkInteropTests
         }
     }
 
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void V2Checkpoints_WrittenByEither_AreReadByTheOther()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            string table = Path.Combine(root, "v2");
+            LocalSpark.Run("create_v2", table);
+            string log = Path.Combine(table, "_delta_log");
+
+            // The kernel appends; at version 2 it writes a V2 checkpoint (JSON, file actions inline).
+            for (int i = 1; i <= 3; i++)
+            {
+                using var row = DataFrame.FromColumns(new { id = new[] { (long)i }, src = new[] { "kernel" } });
+                DeltaKernelWrite.Write(table, PolarsWrapper.LazyClone(row.Lazy().Handle), KernelWriteMode.Append);
+            }
+            string ours = Assert.Single(Directory.GetFiles(log, $"{2:D20}.checkpoint.*.json"));
+
+            // Without the commits before it, Spark has to start from that checkpoint.
+            for (int v = 0; v <= 2; v++) File.Delete(Path.Combine(log, $"{v:D20}.json"));
+            JsonDocument spark = LocalSpark.Run("read", table)[0];
+            AssertSameRows(table, spark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+
+            // Spark appends and checkpoints at version 4 its own way (sidecars); the kernel reads that.
+            JsonDocument afterSpark = LocalSpark.Run("append", table, "1")[0];
+            Assert.NotEmpty(Directory.GetFiles(log, $"{4:D20}.checkpoint.*"));
+            for (int v = 3; v <= 4; v++) File.Delete(Path.Combine(log, $"{v:D20}.json"));
+            File.Delete(ours);
+            AssertSameRows(table, afterSpark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            Assert.Equal(4, afterSpark.RootElement.GetProperty("rows").GetArrayLength());
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static DataFrame Typed(int[] ids, string region) => DataFrame.FromColumns(new
     {
         id = ids,

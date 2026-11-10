@@ -49,14 +49,33 @@ public class CheckpointWriteTests
         string hint = System.Text.Encoding.UTF8.GetString(fs.ReadAll("_delta_log/_last_checkpoint")!);
         // protocol + metaData + one add + the one unexpired tombstone
         Assert.Contains("\"version\":2,\"size\":4", hint);
+    }
 
-        // V2 checkpoint tables are not checkpointed by this kernel.
-        var v2Protocol = new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = ["v2Checkpoint"], WriterFeatures = ["v2Checkpoint"] };
-        var other = new MemoryFileSystem();
-        Transaction.Create(other, v2Protocol, Metadata((Checkpoints.IntervalKey, "1"))).Commit();
-        Transaction.Start(other, Snapshot.Load(other), "WRITE").Commit();
-        Snapshot withV2 = Snapshot.Load(other);
-        Assert.False(Checkpoints.IsDue(withV2));
-        Assert.Throws<DeltaProtocolException>(() => Checkpoints.Write(other, withV2));
+    [Fact]
+    public void V2Tables_GetAJsonV2Checkpoint_WithTheirFileActionsInline()
+    {
+        var fs = new MemoryFileSystem();
+        var protocol = new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = ["v2Checkpoint"], WriterFeatures = ["v2Checkpoint"] };
+        Transaction.Create(fs, protocol, Metadata((Checkpoints.IntervalKey, "2"))).Add(new AddAction { Path = "a.parquet" }).Commit();
+        Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(new TxnAction { AppId = "app", Version = 3 }).Add(new AddAction { Path = "b.parquet" }).Commit();
+        Transaction.Start(fs, Snapshot.Load(fs), "DELETE").Add(new RemoveAction { Path = "a.parquet", DeletionTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }).Commit();
+        Snapshot v2 = Snapshot.Load(fs);
+        Assert.True(Checkpoints.IsDue(v2));
+
+        string path = Checkpoints.Write(fs, v2);
+        Assert.Matches(@"^_delta_log/00000000000000000002\.checkpoint\.[0-9a-f-]{36}\.json$", path);
+        string text = System.Text.Encoding.UTF8.GetString(fs.ReadAll(path)!);
+        Assert.StartsWith("{\"checkpointMetadata\":{\"version\":2}}", text);
+        Assert.Contains("\"v2Checkpoint\":{\"path\":\"" + path["_delta_log/".Length..] + "\"",
+            System.Text.Encoding.UTF8.GetString(fs.ReadAll("_delta_log/_last_checkpoint")!));
+
+        // With the commits gone, the checkpoint alone gives the state (a JSON checkpoint needs no Parquet reader
+        // to be parsed, but checkpoints are only used when one is given).
+        for (int v = 0; v <= 2; v++) fs.Delete($"_delta_log/{v:D20}.json");
+        Snapshot fromCheckpoint = Snapshot.Load(fs, parquet: new FakeParquetReader(fs));
+        Assert.Equal(2, fromCheckpoint.Version);
+        Assert.Equal(["b.parquet"], fromCheckpoint.Files.Select(f => f.Path));
+        Assert.Equal(3, fromCheckpoint.AppTransactions["app"].Version);
+        Assert.Equal(["a.parquet"], fromCheckpoint.Tombstones.Select(t => t.Path));
     }
 }

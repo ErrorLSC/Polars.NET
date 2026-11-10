@@ -42,6 +42,12 @@ public static class ActionWriter
                 json.WriteRawValue(info.Json);
                 break;
 
+            case CheckpointMetadataAction c:
+                json.WriteStartObject("checkpointMetadata");
+                json.WriteNumber("version", c.Version);
+                json.WriteEndObject();
+                break;
+
             case ProtocolAction p:
                 json.WriteStartObject("protocol");
                 json.WriteNumber("minReaderVersion", p.MinReaderVersion);
