@@ -933,6 +933,15 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | Shared of id: int * input: LogicalPlan
     | Empty of schema: LogicalSchema
 
+/// A table source that can read less when told which rows the query keeps: a table format kernel skips files or
+/// partitions whose statistics rule the rows out. The filter is a hint, never a promise to filter: the plan keeps
+/// its Filter and still runs it on whatever the source yields.
+type IFilterAwareSource =
+    inherit ILogicalTableSource
+    /// A source that yields at least every row of this one for which `predicate` is true (over this source's
+    /// columns). Return this source itself to ignore the hint.
+    abstract WithFilterHint: predicate: ScalarExpr -> ILogicalTableSource
+
 /// One managed row operation applied after the native plan, in pipeline order.
 [<RequireQualifiedAccess>]
 type ClientRowOp =

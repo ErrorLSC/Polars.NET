@@ -503,3 +503,55 @@ let ``Change feed needs the feature unless waived, and then matches the engine``
 
         let columns = [ "id"; "region"; "price"; "_change_type"; "_commit_version" ]
         Assert.Equal<string list>(rowKeys viaEngine columns |> List.sort, rowKeys viaKernel columns |> List.sort))
+
+// ---------------------------------------------------------------------------------------------------------------
+// File skipping from LINQ filters (Samidare IR -> kernel predicate, through IFilterAwareSource)
+// ---------------------------------------------------------------------------------------------------------------
+
+type KernelRow = { id: int; region: string; price: float }
+
+/// A LINQ query over the table read by the kernel; `scanned` receives the number of data files of each scan.
+let private kernelQuery (path: string) (scanned: ResizeArray<int>) =
+    let source = Polars.NET.Linq.Backend.Polars.DeltaKernelSource(path, Nullable(), Action<int>(scanned.Add))
+    Polars.NET.Linq.PolarsQuery<KernelRow>(source, FSharpRowCursorMaterializer(), Polars.NET.Linq.QueryLanguage.FSharp)
+
+let private assertScanned (expected: int) (scanned: ResizeArray<int>) =
+    Assert.NotEmpty scanned
+    Assert.All(scanned, fun n -> Assert.Equal(expected, n))
+    scanned.Clear()
+
+[<Fact>]
+let ``LINQ filters reach the kernel and skip files`` () =
+    withTable "skip" (fun path ->
+        (frame [ 1..10 ] "east").WriteDelta(path, mode = DeltaSaveMode.Overwrite, mkdir = true)
+        (frame [ 11..20 ] "west").WriteDelta(path, mode = DeltaSaveMode.Append)
+        (frame [ 21..30 ] "north").WriteDelta(path, mode = DeltaSaveMode.Append)
+        Assert.Equal(3, (Snapshot.Load(LocalFileSystem path)).Files.Count)
+
+        let scanned = ResizeArray<int>()
+        let q = kernelQuery path scanned
+        let ids (rows: KernelRow seq) = rows |> Seq.map (fun r -> r.id) |> Seq.sort |> List.ofSeq
+
+        // One file holds ids above 25.
+        Assert.Equal<int list>([ 26..30 ], query { for r in q do where (r.id > 25); select r } |> ids)
+        assertScanned 1 scanned
+
+        // A disjunction over two files.
+        Assert.Equal<int list>([ 1; 2; 29; 30 ], query { for r in q do where (r.id < 3 || r.id > 28); select r } |> ids)
+        assertScanned 2 scanned
+
+        // Nothing matches: no file is read, and the result is empty.
+        Assert.Empty(query { for r in q do where (r.id > 100); select r } |> List.ofSeq)
+        assertScanned 0 scanned
+
+        // A condition the kernel cannot read: every file is scanned, the rows are still filtered.
+        Assert.Equal<int list>([ 11..20 ], query { for r in q do where (r.region.ToUpper() = "WEST"); select r } |> ids)
+        assertScanned 3 scanned
+
+        // A floating comparison: the frontend's NaN guard lets it through.
+        Assert.Equal<int list>([ 27..30 ], query { for r in q do where (r.price > 40.0); select r } |> ids)
+        assertScanned 1 scanned
+
+        // No filter at all.
+        Assert.Equal(30, query { for r in q do select r } |> Seq.length)
+        assertScanned 3 scanned)

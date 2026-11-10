@@ -40,6 +40,7 @@
     <Compile Include="PredicatePushdownTests.fs" />
     <Compile Include="JoinReorderingTests.fs" />
     <Compile Include="SemiJoinReductionTests.fs" />
+    <Compile Include="ScanFilterHintsTests.fs" />
     <Compile Include="AntiJoinRecognitionTests.fs" />
     <Compile Include="OuterJoinSimplificationTests.fs" />
     <Compile Include="ColumnStatisticsTests.fs" />

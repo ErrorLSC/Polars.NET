@@ -49,7 +49,12 @@ public static class DeltaKernelScan
     /// <param name="filter">Leaves out files that cannot hold a matching row. It does not filter rows.</param>
     /// <param name="cloud">Cloud settings for a cloud URL; null for a local table.</param>
     public static LazyFrameHandle Scan(
-        string tablePath, long? version = null, DateTimeOffset? asOf = null, Predicate? filter = null, CloudArgs? cloud = null)
+        string tablePath, long? version = null, DateTimeOffset? asOf = null, Predicate? filter = null, CloudArgs? cloud = null) =>
+        ScanPath(tablePath, version, asOf, filter, cloud, scannedFiles: null);
+
+    /// <summary>As <see cref="Scan(string, long?, DateTimeOffset?, Predicate?, CloudArgs?)"/>, reporting how many data files are scanned.</summary>
+    internal static LazyFrameHandle ScanPath(
+        string tablePath, long? version, DateTimeOffset? asOf, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles)
     {
         if (version.HasValue && asOf.HasValue)
             throw new ArgumentException("Give a version or a time, not both.");
@@ -76,7 +81,7 @@ public static class DeltaKernelScan
             Snapshot snapshot = asOf is DateTimeOffset time
                 ? Snapshot.LoadAsOf(fileSystem, time, parquet)
                 : Snapshot.Load(fileSystem, version, parquet);
-            return Scan(fileSystem, root, snapshot, filter, cloud);
+            return ScanSnapshot(fileSystem, root, snapshot, filter, cloud, scannedFiles);
         }
         catch (DeltaException e)
         {
@@ -263,11 +268,16 @@ public static class DeltaKernelScan
     /// <param name="snapshot">The table state to read.</param>
     /// <param name="filter">Leaves out files that cannot hold a matching row. It does not filter rows.</param>
     /// <param name="cloud">Cloud settings used to read the data files; null for a local table.</param>
-    public static LazyFrameHandle Scan(IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter = null, CloudArgs? cloud = null)
+    public static LazyFrameHandle Scan(IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter = null, CloudArgs? cloud = null) =>
+        ScanSnapshot(fileSystem, tableRoot, snapshot, filter, cloud, scannedFiles: null);
+
+    private static LazyFrameHandle ScanSnapshot(
+        IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles)
     {
         cloud ??= CloudArgs.Local;
         StructType schema = snapshot.Schema;
         IReadOnlyList<AddAction> files = filter is null ? snapshot.Files : snapshot.FilesMatching(filter);
+        scannedFiles?.Invoke(files.Count);
 
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
         if (snapshot.ColumnMappingMode != ColumnMappingMode.None)

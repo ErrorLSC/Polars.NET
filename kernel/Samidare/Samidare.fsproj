@@ -79,6 +79,7 @@
     <Compile Include="IR/Passes/UnionAggregateFlattening.fs" />
     <Compile Include="IR/Passes/GroupingSetsCascade.fs" />
     <Compile Include="IR/Passes/LogicalOptimizer.fs" />
+    <Compile Include="IR/ScanFilterHints.fs" />
     <Compile Include="ScalarPlanner.fs" />
   </ItemGroup>
 

@@ -21,6 +21,7 @@
     <Compile Include="Backend/Polars/PolarsVocabulary.fs" />
     <Compile Include="Backend/Polars/PolarsScalarLowerer.fs" />
     <Compile Include="Backend/Polars/PolarsColumnStatistics.fs" />
+    <Compile Include="Backend/Polars/DeltaKernelSource.fs" />
     <Compile Include="Backend/Polars/PolarsPhysicalLowerer.fs" />
     <Compile Include="Backend/Polars/PolarsObjectConverter.fs" />
     <Compile Include="Backend/Polars/PolarsQueryBackend.fs" />

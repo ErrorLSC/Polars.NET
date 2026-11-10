@@ -140,6 +140,7 @@ module internal PolarsPhysicalLowerer =
                     failwithf "[Polars.NET.Linq Bug] Scan slot %d has no source binding (%d bound)." index sources.Length
                 match sources.[index] with
                 | SourceBinding.Table(:? PolarsTableSource as pts) -> PolarsWrapper.LazyClone pts.Handle
+                | SourceBinding.Table(:? DeltaKernelSource as delta) -> delta.Open()
                 | SourceBinding.Table other -> failwithf "Unsupported table source in PolarsPhysicalLowerer: %s" other.Name
                 | SourceBinding.InMemory(rows, elemType) -> materializeInMemory rows elemType schema
             | LogicalPlanSource.SubqueryRef id -> failwithf "Unresolved SubqueryRef: %s" id
@@ -486,6 +487,8 @@ module internal PolarsPhysicalLowerer =
     /// Recursively lowers a LogicalPlan into a LazyFrameHandle, reading each Scan slot from `sources`.
     let lowerPlan (sources: SourceBinding array) (plan: LogicalPlan) : LazyFrameHandle =
         let shared = Collections.Generic.Dictionary<int, LazyFrameHandle>()
+        // Filter-aware sources (a table format kernel) learn which rows the plan keeps and skip what they can.
+        let sources = ScanFilterHints.apply sources plan
         try
             lowerNode sources shared plan
         finally

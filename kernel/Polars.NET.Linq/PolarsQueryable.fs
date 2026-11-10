@@ -41,11 +41,12 @@ type internal PreparedQuery<'T>
         member _.Dispose() = nativeLf.Dispose()
 
 /// Strongly-typed IQueryProvider backed by Polars.NET.Core
-type internal PolarsQueryProvider(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
+type internal PolarsQueryProvider(rootSource: Lazy<ILogicalTableSource>, materializer: IDataFrameMaterializer, language: QueryLanguage) =
     do PolarsRuntimeConfig.EnsureImported()
 
     // The root frame's schema is read once per provider. Lowering clones the handle, so the binding never hands it out.
-    let rootSource = lazy (PolarsPhysicalLowerer.tableSourceOfLazyFrame initialLazyFrame)
+    new(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
+        PolarsQueryProvider(lazy (PolarsPhysicalLowerer.tableSourceOfLazyFrame initialLazyFrame), materializer, language)
 
     /// Root table source, bound to slot 0 of every query this provider compiles.
     member _.RootSource : ILogicalTableSource = rootSource.Value
@@ -159,6 +160,11 @@ and PolarsQuery<'T>
     [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
     new(lazyFrameHandle: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
         PolarsQuery<'T>(PolarsQueryProvider(lazyFrameHandle, materializer, language), None)
+
+    /// A query over any table source the backend lowers (for instance a Delta table read by the managed kernel).
+    [<RequiresDynamicCode(AotMessages.LinqProvider); RequiresUnreferencedCode(AotMessages.LinqProvider)>]
+    internal new(source: ILogicalTableSource, materializer: IDataFrameMaterializer, language: QueryLanguage) =
+        PolarsQuery<'T>(PolarsQueryProvider(Lazy<ILogicalTableSource>.CreateFromValue source, materializer, language), None)
 
     /// Compiles the pipeline to optimized IR (see PipelineCompilation.compile).
     member private _.CompilePipeline(mergeDiagnostics: bool) : CompiledPipeline =
