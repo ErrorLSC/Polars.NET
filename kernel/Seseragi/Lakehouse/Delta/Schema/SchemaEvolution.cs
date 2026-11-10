@@ -84,55 +84,155 @@ public static class SchemaEvolution
         ColumnMappingMode mapping = TableFeatures.ColumnMappingModeOf(metadata);
         int maxId = MaxColumnId(metadata, table);
 
+        var context = new MergeContext(evolve, widening, mapping, allowMissingColumns, maxId);
+        var merged = (StructType)MergeStruct(table, incoming, context, path: null, topLevel: true);
+        bool schemaChanged = context.Changed;
+        maxId = context.MaxId;
+        if (schemaChanged) EnsureSupported(protocol, merged);
+        changed = schemaChanged ? WithSchema(metadata, merged, mapping == ColumnMappingMode.None ? null : maxId) : null;
+        return merged;
+    }
+
+
+    private sealed class MergeContext(bool evolve, bool widening, ColumnMappingMode mapping, bool allowMissing, int maxId)
+    {
+        public bool Evolve { get; } = evolve;
+        public bool Widening { get; } = widening;
+        public ColumnMappingMode Mapping { get; } = mapping;
+        public bool AllowMissing { get; } = allowMissing;
+        public int MaxId = maxId;
+        public bool Changed;
+    }
+
+    /// <summary>
+    /// Merges the data's struct into the table's, field by field and at any depth (inside structs, array elements
+    /// and map values), as Spark's mergeSchema: fields the data lacks stay (null), new ones are added at the end,
+    /// types cast up or widen.
+    /// </summary>
+    private static DeltaType MergeStruct(StructType table, StructType incoming, MergeContext context, string? path, bool topLevel)
+    {
         var fields = new List<StructField>();
-        bool schemaChanged = false;
         foreach (StructField field in table.Fields)
         {
+            string name = path is null ? field.Name : $"{path}.{field.Name}";
             StructField? given = incoming.Field(field.Name);
             if (given is null)
             {
-                if (!field.Nullable && !allowMissingColumns)
-                    throw new DeltaException($"The data has no column '{field.Name}', which the table declares NOT NULL.");
+                if (!field.Nullable && !context.AllowMissing)
+                    throw new DeltaException($"The data has no column '{name}', which the table declares NOT NULL.");
                 fields.Add(field); // filled with null
                 continue;
             }
-            if (CastsImplicitly(given.Type, field.Type))
-            {
-                fields.Add(field);
-                continue;
-            }
-            if (evolve && widening && CanWiden(field.Type, given.Type))
-            {
-                fields.Add(Widened(field, given.Type));
-                schemaChanged = true;
-                continue;
-            }
-            throw new DeltaException(
-                $"The column '{field.Name}' is {field.Type} in the table but {given.Type} in the data" +
-                (CanWiden(field.Type, given.Type)
-                    ? evolve ? "; widening it needs type widening on the table (delta.enableTypeWidening)." : "; allow schema evolution to widen it."
-                    : "."));
+            fields.Add(MergeField(field, given.Type, context, name, topLevel));
         }
 
         StructField[] added = [.. incoming.Fields.Where(f => table.Field(f.Name) is null)];
         if (added.Length > 0)
         {
-            if (!evolve)
-                throw new DeltaException(
-                    $"The data has columns the table does not: {string.Join(", ", added.Select(f => f.Name))}. Allow schema evolution to add them.");
+            string names = string.Join(", ", added.Select(f => path is null ? f.Name : $"{path}.{f.Name}"));
+            if (!context.Evolve)
+                throw new DeltaException($"The data has columns the table does not: {names}. Allow schema evolution to add them.");
+            if (!topLevel && context.Mapping != ColumnMappingMode.None)
+                throw new DeltaException($"Adding nested fields ({names}) to a table with column mapping is not supported yet.");
             foreach (StructField field in added)
             {
-                var plain = new StructField { Name = field.Name, Type = field.Type, Nullable = true };
-                fields.Add(mapping == ColumnMappingMode.None ? plain : Mapped(plain, ref maxId));
+                var plain = new StructField { Name = field.Name, Type = Nullable(field.Type), Nullable = true };
+                fields.Add(context.Mapping == ColumnMappingMode.None ? plain : Mapped(plain, ref context.MaxId));
             }
-            schemaChanged = true;
+            context.Changed = true;
         }
-
-        var merged = new StructType(fields);
-        if (schemaChanged) EnsureSupported(protocol, merged);
-        changed = schemaChanged ? WithSchema(metadata, merged, mapping == ColumnMappingMode.None ? null : maxId) : null;
-        return merged;
+        return new StructType(fields);
     }
+
+    private static StructField MergeField(StructField field, DeltaType given, MergeContext context, string name, bool topLevel)
+    {
+        DeltaType? nested = MergeNested(field.Type, given, context, name);
+        if (nested is not null)
+            return ReferenceEquals(nested, field.Type) ? field : With(field, nested);
+        if (CastsImplicitly(given, field.Type)) return field;
+        if (context.Evolve && context.Widening && CanWiden(field.Type, given))
+        {
+            // Below the top level the scan casts integers up and float to double only: allow just those there.
+            if (!topLevel && !ScanWidens(field.Type, given))
+                throw new DeltaException($"Widening the nested field '{name}' from {field.Type} to {given} is not supported yet.");
+            context.Changed = true;
+            return Widened(field, given, fieldPath: null);
+        }
+        throw new DeltaException(
+            $"The column '{name}' is {field.Type} in the table but {given} in the data" +
+            (CanWiden(field.Type, given)
+                ? context.Evolve ? "; widening it needs type widening on the table (delta.enableTypeWidening)." : "; allow schema evolution to widen it."
+                : "."));
+    }
+
+    /// <summary>The merged type when both are structs, arrays or maps; null for other types.</summary>
+    private static DeltaType? MergeNested(DeltaType table, DeltaType given, MergeContext context, string name)
+    {
+        switch (table, given)
+        {
+            case (StructType t, StructType g):
+            {
+                bool before = context.Changed;
+                context.Changed = false;
+                var merged = (StructType)MergeStruct(t, g, context, name, topLevel: false);
+                bool changed = context.Changed;
+                context.Changed = before || changed;
+                return changed ? merged : table;
+            }
+            case (ArrayType t, ArrayType g):
+            {
+                DeltaType element = MergeContainedType(t.ElementType, g.ElementType, context, $"{name}.element");
+                return ReferenceEquals(element, t.ElementType) ? table : new ArrayType(element, t.ContainsNull);
+            }
+            case (MapType t, MapType g):
+            {
+                if (t.KeyType.ToString() != g.KeyType.ToString() && !CastsImplicitly(g.KeyType, t.KeyType))
+                    throw new DeltaException($"The keys of '{name}' are {t.KeyType} in the table but {g.KeyType} in the data.");
+                DeltaType value = MergeContainedType(t.ValueType, g.ValueType, context, $"{name}.value");
+                return ReferenceEquals(value, t.ValueType) ? table : new MapType(t.KeyType, value, t.ValueContainsNull);
+            }
+            case (StructType or ArrayType or MapType, _) or (_, StructType or ArrayType or MapType):
+                throw new DeltaException($"The column '{name}' is {table} in the table but {given} in the data.");
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>An array element or map value: merged when nested, else it must cast implicitly (no widening there yet).</summary>
+    private static DeltaType MergeContainedType(DeltaType table, DeltaType given, MergeContext context, string name)
+    {
+        DeltaType? nested = MergeNested(table, given, context, name);
+        if (nested is not null) return nested;
+        if (CastsImplicitly(given, table)) return table;
+        throw new DeltaException(
+            $"'{name}' is {table} in the table but {given} in the data" +
+            (CanWiden(table, given) ? "; widening array elements and map values is not supported yet." : "."));
+    }
+
+    private static bool ScanWidens(DeltaType from, DeltaType to) =>
+        (from, to) switch
+        {
+            (PrimitiveType f, PrimitiveType t) when IntegerRank(f) is int a && IntegerRank(t) is int b => a < b,
+            (PrimitiveType { Name: PrimitiveType.Float }, PrimitiveType { Name: PrimitiveType.Double }) => true,
+            _ => false,
+        };
+
+    /// <summary>A type with every nested field made nullable (a field added to a table holds null in older rows).</summary>
+    private static DeltaType Nullable(DeltaType type) => type switch
+    {
+        StructType s => new StructType([.. s.Fields.Select(f => new StructField
+        {
+            Name = f.Name, Type = Nullable(f.Type), Nullable = true, Metadata = f.Metadata, JsonMetadataKeys = f.JsonMetadataKeys,
+        })]),
+        ArrayType a => new ArrayType(Nullable(a.ElementType), true),
+        MapType m => new MapType(m.KeyType, Nullable(m.ValueType), true),
+        _ => type,
+    };
+
+    private static StructField With(StructField field, DeltaType type) => new()
+    {
+        Name = field.Name, Type = type, Nullable = field.Nullable, Metadata = field.Metadata, JsonMetadataKeys = field.JsonMetadataKeys,
+    };
 
     /// <summary>Whether the table lets writers widen column types: the property is on and the protocol has the feature.</summary>
     public static bool WideningEnabled(MetadataAction metadata, ProtocolAction protocol) =>
@@ -177,8 +277,9 @@ public static class SchemaEvolution
         };
     }
 
-    private static StructField Widened(StructField field, DeltaType to)
+    private static StructField Widened(StructField field, DeltaType to, string? fieldPath)
     {
+        _ = fieldPath; // changes inside arrays and maps (fieldPath element/key/value) are not written yet
         // Append {"toType", "fromType"} to the field's history, earlier entries kept as written.
         field.Metadata.TryGetValue(TypeChangesKey, out string? history);
         string changes = JsonText.Append(history, [new("toType", to.ToString()), new("fromType", field.Type.ToString())]);

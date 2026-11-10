@@ -93,10 +93,11 @@ internal static class DeltaKernelWrite
             {
                 transaction = Transaction.Start(fileSystem, existing, "WRITE");
                 MetadataAction? changed;
-                if (mode == KernelWriteMode.Overwrite && canEvolve && !SameShape(existing, incoming, partitionBy))
+                if (mode == KernelWriteMode.Overwrite && canEvolve && !SameShape(existing, incoming, partitionBy ?? []))
                 {
-                    // The data's schema replaces the table's; partitioning becomes partitionBy, or stays when it is not given.
-                    partitions = partitionBy ?? [.. existing.PartitionColumns];
+                    // overwriteSchema, as Spark: the data's schema replaces the table's, and so does the partitioning:
+                    // partitionBy, or none when it is not given (checked against delta-spark 4.1).
+                    partitions = partitionBy ?? [];
                     foreach (string column in partitions)
                     {
                         StructField field = incoming.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");
@@ -202,8 +203,8 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>Whether data of <paramref name="incoming"/> written with <paramref name="partitionBy"/> leaves the table as it is.</summary>
-    private static bool SameShape(Snapshot existing, StructType incoming, string[]? partitionBy) =>
-        (partitionBy is null || partitionBy.SequenceEqual(existing.PartitionColumns))
+    private static bool SameShape(Snapshot existing, StructType incoming, string[] partitionBy) =>
+        partitionBy.SequenceEqual(existing.PartitionColumns)
         && incoming.Fields.Count == existing.Schema.Fields.Count
         && incoming.Fields.Zip(existing.Schema.Fields).All(p => p.First.Name == p.Second.Name && p.First.Type.ToString() == p.Second.Type.ToString());
 

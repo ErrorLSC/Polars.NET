@@ -7,6 +7,7 @@ namespace Polars.NET.Core.Helpers;
 
 public static class StructPacker
 {
+    [RequiresDynamicCode("Builds a column packer per property type at run time; with native AOT, build structs from typed columns.")]
     private static class PackerCache<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>
     {
         public static readonly Func<T[], SeriesHandle>[] ColumnPackers;
@@ -27,6 +28,7 @@ public static class StructPacker
         }
     }
 
+    [RequiresDynamicCode("Builds a column packer per property type at run time; with native AOT, build structs from typed columns.")]
     public static SeriesHandle Pack<T>(string name, T[] rows)
     {
         var packers = PackerCache<T>.ColumnPackers;
@@ -52,6 +54,7 @@ public static class StructPacker
         }
     }
 
+    [RequiresDynamicCode("Builds a column packer per property type at run time; with native AOT, build structs from typed columns.")]
     private static Func<T[], SeriesHandle> BuildColumnPacker<T, TProp>(PropertyInfo prop)
     {
         Func<T, TProp> getter = CreateGetter<T, TProp>(prop);

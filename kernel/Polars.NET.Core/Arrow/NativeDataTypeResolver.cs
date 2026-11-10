@@ -13,6 +13,8 @@ public static class NativeDataTypeResolver
     /// <summary>
     /// Gets a native Polars DataTypeHandle for a .NET type.
     /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2072",
+        Justification = "Enum.GetUnderlyingType returns a primitive integer type, whose members are never trimmed.")]
     public static DataTypeHandle GetDataTypeHandle([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
         // An enum is the Enum of its members, or the underlying integer of a [Flags] enum.

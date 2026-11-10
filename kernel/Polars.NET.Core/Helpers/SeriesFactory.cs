@@ -25,6 +25,7 @@ public static class SeriesFactory
     /// by dispatching to <see cref="CreateGenericType{T}"/>. Replaces <c>dynamic</c> dispatch,
     /// whose runtime binder is unavailable under Native AOT. Still reflection-based (MakeGenericMethod).
     /// </summary>
+    [RequiresDynamicCode("Builds generic code for element types only known at run time; with native AOT, use the typed overloads.")]
     internal static SeriesHandle CreateFromBoxedEnumerable(string name, object data)
     {
         Type elemType = ClrTypeHelper.TryGetEnumerableElementType(data.GetType())
@@ -32,6 +33,7 @@ public static class SeriesFactory
         return InvokeCreateGenericType(elemType, name, data);
     }
 
+    [RequiresDynamicCode("Builds generic code for element types only known at run time; with native AOT, use the typed overloads.")]
     private static SeriesHandle InvokeCreateGenericType(Type elemType, string name, object data)
     {
         try
@@ -69,7 +71,8 @@ public static class SeriesFactory
         }
         else if (data is Array arr && arr.Rank > 1)
         {
-            var fixedHandle = Create(name, arr);
+            // Not Create(string, Array): an array of rank 2 never takes its run-time generic path (enums are rank 1).
+            var fixedHandle = CreateFixedArray(name, arr) ?? CreateFromArrowViaReflection(name, arr);
             if (fixedHandle != null && !fixedHandle.IsInvalid)
             {
                 return fixedHandle;
@@ -634,18 +637,20 @@ public static class SeriesFactory
 
         if (!EnumCategories.UsesEnumDataType(enumType))
         {
-            Type underlying = Enum.GetUnderlyingType(enumType);
-            Type nullableUnderlying = typeof(Nullable<>).MakeGenericType(underlying);
-            var raw = Array.CreateInstance(nullableUnderlying, values.Length);
-            for (int i = 0; i < values.Length; i++)
+            // A [Flags] enum is its underlying integer: one of eight types, each a closed generic call (no
+            // runtime generic instantiation, so native AOT keeps working).
+            return Type.GetTypeCode(Enum.GetUnderlyingType(enumType)) switch
             {
-                if (values[i] is { } v)
-                {
-                    raw.SetValue(Convert.ChangeType(v, underlying), i);
-                }
-            }
-
-            return InvokeCreateGenericType(nullableUnderlying, name, raw);
+                TypeCode.SByte => CreateGenericType(name, Underlying<sbyte>(values)),
+                TypeCode.Byte => CreateGenericType(name, Underlying<byte>(values)),
+                TypeCode.Int16 => CreateGenericType(name, Underlying<short>(values)),
+                TypeCode.UInt16 => CreateGenericType(name, Underlying<ushort>(values)),
+                TypeCode.Int32 => CreateGenericType(name, Underlying<int>(values)),
+                TypeCode.UInt32 => CreateGenericType(name, Underlying<uint>(values)),
+                TypeCode.Int64 => CreateGenericType(name, Underlying<long>(values)),
+                TypeCode.UInt64 => CreateGenericType(name, Underlying<ulong>(values)),
+                var other => throw new NotSupportedException($"The enum {enumType} has the underlying type {other}."),
+            };
         }
 
         var categories = new string?[values.Length];
@@ -663,13 +668,39 @@ public static class SeriesFactory
         return PolarsWrapper.SeriesCast(strings, enumDataType, strict: true, wrapNumerical: false);
     }
 
-    /// <summary>
-    /// Creates a SeriesHandle from a generic Array.
-    /// Uses pattern matching to dispatch to the correct PolarsWrapper method.
-    /// </summary>
-    public static SeriesHandle Create(string name, Array array)
+    /// <summary>Boxed enum values as their underlying integers; null stays null.</summary>
+    private static TInt?[] Underlying<TInt>(object?[] values) where TInt : struct
     {
-        var handle = array switch
+        var result = new TInt?[values.Length];
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (values[i] is { } v) result[i] = (TInt)Convert.ChangeType(v, typeof(TInt), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        return result;
+    }
+
+    // Typed fixed-size arrays: chosen over Create(string, Array) by overload resolution, no run-time dispatch.
+#pragma warning disable CS1591
+    public static SeriesHandle Create(string name, sbyte[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, byte[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, short[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, ushort[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, int[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, uint[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, long[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, ulong[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, Half[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, float[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, double[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, decimal[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, Int128[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+    public static SeriesHandle Create(string name, UInt128[,] data) => PolarsWrapper.SeriesNewFixedArray(name, data);
+#pragma warning restore CS1591
+
+    /// <summary>A fixed-size array column from a two-dimensional array of a primitive type; null for other arrays.</summary>
+    internal static SeriesHandle? CreateFixedArray(string name, Array array)
+    {
+        return array switch
         {
             // ==========================================
             // Fixed Size Arrays (2D)
@@ -691,6 +722,16 @@ public static class SeriesFactory
 
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Creates a SeriesHandle from a generic Array.
+    /// Uses pattern matching to dispatch to the correct PolarsWrapper method.
+    /// </summary>
+    [RequiresDynamicCode("Arrays of element types only known at run time (enums, nested types) build generic code; with native AOT, use the typed overloads.")]
+    public static SeriesHandle Create(string name, Array array)
+    {
+        var handle = CreateFixedArray(name, array);
 
         if (handle != null && !handle.IsInvalid)
         {

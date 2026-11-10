@@ -127,4 +127,45 @@ public class SchemaEvolutionTests
         Assert.Contains("timestampNtz", Assert.Throws<DeltaException>(() =>
             SchemaEvolution.Merge(Meta(table, (SchemaEvolution.EnableTypeWideningKey, "true")), Widening, data, true, out _)).Message);
     }
+
+    [Fact]
+    public void NestedFields_AreMerged_InStructsArraysAndMaps()
+    {
+        StructType S(params StructField[] f) => new(f);
+        var table = S(F("s", S(F("a", Int))), F("arr", new ArrayType(S(F("x", Int)), true)), F("m", new MapType(Str, S(F("v", Int)), true)));
+        var data = S(F("s", S(F("a", Int), F("b", Str))), F("arr", new ArrayType(S(F("x", Int), F("y", Str)), true)),
+            F("m", new MapType(Str, S(F("v", Int), F("w", Str)), true)));
+
+        Assert.Contains("s.b", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(Meta(table), Basic, data, false, out _)).Message);
+        StructType merged = SchemaEvolution.Merge(Meta(table), Basic, data, true, out MetadataAction? changed);
+
+        Assert.NotNull(changed);
+        Assert.Equal("struct<a:integer,b:string>", merged.Field("s")!.Type.ToString().Replace(" ", ""));
+        Assert.Equal("array<struct<x:integer,y:string>>", merged.Field("arr")!.Type.ToString().Replace(" ", ""));
+        Assert.Equal("map<string,struct<v:integer,w:string>>", merged.Field("m")!.Type.ToString().Replace(" ", ""));
+        // Data without the new fields fits the merged table: nothing changes.
+        SchemaEvolution.Merge(Meta(merged), Basic, table, false, out MetadataAction? none);
+        Assert.Null(none);
+    }
+
+    [Fact]
+    public void NestedWidening_OnlyWhatTheScanReads_AndNotUnderColumnMapping()
+    {
+        var table = new StructType([F("s", new StructType([F("n", Int), F("d", new PrimitiveType(PrimitiveType.Date))]))]);
+        var meta = Meta(table, (SchemaEvolution.EnableTypeWideningKey, "true"));
+
+        StructType widened = SchemaEvolution.Merge(meta, Widening,
+            new StructType([F("s", new StructType([F("n", Long), F("d", new PrimitiveType(PrimitiveType.Date))]))]), true, out _);
+        var n = ((StructType)widened.Field("s")!.Type).Field("n")!;
+        Assert.Equal("long", n.Type.ToString());
+        Assert.Contains("\"fromType\":\"integer\"", n.Metadata[SchemaEvolution.TypeChangesKey]);
+
+        Assert.Contains("not supported yet", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(meta, Widening,
+            new StructType([F("s", new StructType([F("n", Int), F("d", new PrimitiveType(PrimitiveType.TimestampNtz))]))]), true, out _)).Message);
+
+        string mapped = """{"type":"struct","fields":[{"name":"s","type":{"type":"struct","fields":[{"name":"a","type":"integer","nullable":true,"metadata":{"delta.columnMapping.id":2,"delta.columnMapping.physicalName":"col-b"}}]},"nullable":true,"metadata":{"delta.columnMapping.id":1,"delta.columnMapping.physicalName":"col-a"}}]}""";
+        var mappedMeta = new MetadataAction { Id = "t", SchemaString = mapped, Configuration = new Dictionary<string, string> { [TableFeatures.ColumnMappingModeKey] = "name" } };
+        Assert.Contains("column mapping", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(mappedMeta, Basic,
+            new StructType([F("s", new StructType([F("a", Int), F("b", Str)]))]), true, out _)).Message);
+    }
 }

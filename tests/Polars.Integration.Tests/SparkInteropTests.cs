@@ -598,7 +598,27 @@ public class SparkInteropTests
             Write(replaced, DataFrame.FromColumns(new { id = new[] { 1 }, old = new[] { "x" } }), KernelWriteMode.ErrorIfExists);
             Write(replaced, DataFrame.FromColumns(new { id = new[] { 7L }, fresh = new[] { true } }), KernelWriteMode.Overwrite, evolve: true);
 
-            List<JsonDocument> spark = LocalSpark.Run("read", mapped, widened, replaced);
+            // Nested fields added by evolution: in a struct and in an array of structs.
+            string nested = Path.Combine(root, "nested");
+            static DataFrame Nested(int id, bool withNew)
+            {
+                using var flat = DataFrame.FromColumns(new { id = new[] { id }, a = new[] { id }, b = new[] { $"new{id}" } });
+                ExprHandle[] sFields = withNew ? [PolarsWrapper.Col("a"), PolarsWrapper.Col("b")] : [PolarsWrapper.Col("a")];
+                ExprHandle[] eFields = withNew
+                    ? [PolarsWrapper.Alias(PolarsWrapper.Col("a"), "x"), PolarsWrapper.Alias(PolarsWrapper.Col("b"), "y")]
+                    : [PolarsWrapper.Alias(PolarsWrapper.Col("a"), "x")];
+                var lf = PolarsWrapper.LazySelect(PolarsWrapper.LazyClone(flat.Lazy().Handle),
+                [
+                    PolarsWrapper.Col("id"),
+                    PolarsWrapper.Alias(PolarsWrapper.AsStruct(sFields), "s"),
+                    PolarsWrapper.Alias(PolarsWrapper.Implode(PolarsWrapper.AsStruct(eFields), maintainOrder: true), "arr"),
+                ]);
+                return new DataFrame(PolarsWrapper.LazyCollect(lf, PlEngine.Auto));
+            }
+            Write(nested, Nested(1, false), KernelWriteMode.ErrorIfExists);
+            Write(nested, Nested(2, true), KernelWriteMode.Append, evolve: true);
+
+            List<JsonDocument> spark = LocalSpark.Run("read", mapped, widened, replaced, nested);
             foreach (JsonDocument table in spark)
             {
                 string path = table.RootElement.GetProperty("path").GetString()!;
@@ -606,6 +626,8 @@ public class SparkInteropTests
             }
             Assert.Contains("score", spark[0].RootElement.GetProperty("schema").GetString());
             Assert.Contains("id:bigint", spark[1].RootElement.GetProperty("schema").GetString());
+            Assert.Contains("s:struct<a:int,b:string>", spark[3].RootElement.GetProperty("schema").GetString());
+            Assert.Contains("arr:array<struct<x:int,y:string>>", spark[3].RootElement.GetProperty("schema").GetString());
 
             // Spark writes on top: the kernel reads what it wrote.
             foreach (var (path, statement) in new[]
@@ -613,6 +635,7 @@ public class SparkInteropTests
                          (mapped, "INSERT INTO {table} (id, name, score) VALUES (9, 'z', 9.5)"),
                          (widened, "INSERT INTO {table} VALUES (6000000000)"),
                          (replaced, "INSERT INTO {table} VALUES (8, false)"),
+                         (nested, "INSERT INTO {table} VALUES (3, named_struct('a', 3, 'b', 'spark'), array(named_struct('x', 3, 'y', 'spark')))"),
                      })
             {
                 JsonDocument after = LocalSpark.Run("sql", path, statement)[0];

@@ -770,3 +770,49 @@ let ``Merge adds columns to a table with column mapping`` () =
         use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
         Assert.Equal<Nullable<int64> list>([ Nullable(); Nullable 5L; Nullable 6L ], df.["stock"].ToArray<Nullable<int64>>() |> List.ofArray)
         Assert.Equal<string list>([ "a"; "b"; null ], df.["category"].ToArray<string>() |> List.ofArray))
+
+[<Fact>]
+let ``Evolution adds nested fields, in structs and in arrays of structs, as Spark's mergeSchema`` () =
+    withTable "evolve_nested" (fun path ->
+        let rows (ids: int list) (withNew: bool) =
+            use df =
+                DataFrame.create [|
+                    Series.create("id", ids)
+                    Series.create("a", ids)
+                    Series.create("b", ids |> List.map (fun i -> $"new{i}"))
+                |]
+            let sFields = if withNew then [ pl.col "a"; pl.col "b" ] else [ pl.col "a" ]
+            let elementFields = if withNew then [ pl.col "a" |> pl.alias "x"; pl.col "b" |> pl.alias "y" ] else [ pl.col "a" |> pl.alias "x" ]
+            df.Select([ pl.col "id"; pl.asStruct sFields |> pl.alias "s"; (pl.asStruct elementFields).Implode() |> pl.alias "arr" ])
+        use first = rows [ 1 ] false
+        create path first [||] []
+
+        use wider = rows [ 2 ] true
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> writeWith path wider KernelWriteMode.Append null false) |> ignore
+        writeWith path wider KernelWriteMode.Append null true
+        // Data of the old shape still goes in: the new nested fields are null.
+        use older = rows [ 3 ] false
+        writeWith path older KernelWriteMode.Append null false
+
+        let schema = Snapshot.Load(LocalFileSystem path).Schema
+        Assert.Equal("struct<a:integer,b:string>", schema.Field("s").Type.ToString().Replace(" ", ""))
+        use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        use flat =
+            df.Select([ pl.col "id"
+                        pl.col("s").Struct.Field("b") |> pl.alias "sb"
+                        pl.col("arr").List.First().Struct.Field("y") |> pl.alias "ay" ])
+        Assert.Equal<string list>([ null; "new2"; null ], flat.["sb"].ToArray<string>() |> List.ofArray)
+        Assert.Equal<string list>([ null; "new2"; null ], flat.["ay"].ToArray<string>() |> List.ofArray))
+
+[<Fact>]
+let ``Overwrite with evolution and no partitionBy leaves the table unpartitioned, as Spark`` () =
+    withTable "evolve_unpartition" (fun path ->
+        use first = frame [ 1; 2 ] "east"
+        create path first [| "region" |] []
+        use again = frame [ 3 ] "west"
+        // Without evolution the partitioning stays; with it and no partitionBy it goes (delta-spark 4.1).
+        writeWith path again KernelWriteMode.Overwrite null false
+        Assert.Equal<string list>([ "region" ], Snapshot.Load(LocalFileSystem path).PartitionColumns |> List.ofSeq)
+        writeWith path again KernelWriteMode.Overwrite null true
+        Assert.Empty(Snapshot.Load(LocalFileSystem path).PartitionColumns)
+        Assert.Equal<int list>([ 3 ], ids path))

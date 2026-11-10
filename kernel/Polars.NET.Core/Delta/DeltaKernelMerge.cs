@@ -155,10 +155,12 @@ internal static class DeltaKernelMerge
             if (table.Field(key) is null) throw new PolarsException($"The merge key '{key}' is not a column of the table.");
             if (source.Field(key) is null) throw new PolarsException($"The merge key '{key}' is not a column of the source.");
         }
-        // Shared columns that would not widen are taken in the table's type: the merge casts them.
+        // Shared scalar columns that would not widen are taken in the table's type: the merge casts them. Nested
+        // columns are merged field by field (new nested fields added with evolution).
         bool widening = canEvolve && SchemaEvolution.WideningEnabled(snapshot.Metadata, snapshot.Protocol);
         var adjusted = new StructType([.. source.Fields.Select(f =>
-            table.Field(f.Name) is StructField t && !(widening && SchemaEvolution.CanWiden(t.Type, f.Type))
+            table.Field(f.Name) is StructField t && t.Type is PrimitiveType or DecimalType
+                && !(widening && SchemaEvolution.CanWiden(t.Type, f.Type))
                 ? new StructField { Name = f.Name, Type = t.Type, Nullable = true }
                 : f)]);
         try

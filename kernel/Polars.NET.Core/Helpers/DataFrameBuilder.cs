@@ -158,6 +158,7 @@ public static class DataFrameBuilder
     /// Non-generic reflection-based fallback for column container objects.
     /// </summary>
     [RequiresUnreferencedCode("Uses reflection to extract properties from unconstrained objects.")]
+    [RequiresDynamicCode("Builds generic code for element types only known at run time; with native AOT, use the typed overloads.")]
     public static DataFrameHandle FromColumns(object columns)
     {
         ArgumentNullException.ThrowIfNull(columns);
@@ -192,6 +193,7 @@ public static class DataFrameBuilder
     /// <summary>
     /// Ingests an explicit sequence of named column enumerables into a native DataFrameHandle.
     /// </summary>
+    [RequiresDynamicCode("Arrays of element types only known at run time (enums, nested types) build generic code; with native AOT, use typed columns.")]
     public static DataFrameHandle FromColumns(IEnumerable<(string Name, Array Data)> columns)
     {
         ArgumentNullException.ThrowIfNull(columns);
