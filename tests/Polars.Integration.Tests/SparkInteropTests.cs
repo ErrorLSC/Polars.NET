@@ -360,6 +360,39 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void Spark_ReadsOptimizedTables_AndTheKernelReadsSparksOptimize()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            // Deletion vectors and small files, compacted; then Z-ordered.
+            string table = Path.Combine(root, "optimized");
+            CreateTable(table, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" });
+            for (int i = 11; i <= 14; i++) Write(table, Typed([i], "west"), KernelWriteMode.Append);
+            DeltaKernelDelete.Delete(table, PolarsWrapper.Or(
+                PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2)), PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(6))));
+            var compacted = DeltaKernelOptimize.Optimize(table);
+            Assert.True(compacted.DeletionVectorsRemoved >= 2);
+            DeltaKernelOptimize.Optimize(table, zOrderColumns: ["price", "day"]);
+
+            JsonDocument spark = LocalSpark.Run("read_changes", table)[0];
+            AssertSameRows(table, spark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            Assert.Equal(12, spark.RootElement.GetProperty("rows").GetArrayLength());
+
+            // Spark's own OPTIMIZE ZORDER BY on top; the kernel reads the result and the change feed stays the same.
+            JsonDocument afterSpark = LocalSpark.Run("sql", table, "OPTIMIZE {table} ZORDER BY (id)")[0];
+            AssertSameRows(table, afterSpark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            List<JsonDocument> changes = LocalSpark.Run("read_changes", table);
+            AssertSameRows(table + " (change feed)", changes[1].RootElement.GetProperty("rows"), KernelRows(ChangeFeedWithoutTime(table)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void Kernel_ReadsWidenedColumns_SkipsSafely_AndRewritesOldFiles()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

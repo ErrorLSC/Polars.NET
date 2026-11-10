@@ -175,6 +175,14 @@ internal sealed class DmlTable : IDisposable
         using (array) return array.Values.ToArray();
     }
 
+    internal static ulong[] UInt64Column(DataFrameHandle df, string name)
+    {
+        using SeriesHandle column = PolarsWrapper.DataFrameGetColumn(df, name);
+        using SeriesHandle chunked = PolarsWrapper.SeriesRechunk(column);
+        var array = (UInt64Array)PolarsWrapper.SeriesToArrow(chunked);
+        using (array) return array.Values.ToArray();
+    }
+
     internal static long[] Int64Column(DataFrameHandle df, string name)
     {
         using SeriesHandle column = PolarsWrapper.DataFrameGetColumn(df, name);
@@ -198,11 +206,13 @@ internal sealed class DmlPlan(long now)
     public bool IsEmpty => Removes.Count == 0 && Adds.Count == 0;
 
     /// <summary>Removes a data file (as it is now, deletion vector included).</summary>
-    public void Remove(AddAction file) => Removes.Add(new RemoveAction
+    /// <param name="file">The file.</param>
+    /// <param name="dataChange">False when the rows stay in the table, rewritten elsewhere (optimize).</param>
+    public void Remove(AddAction file, bool dataChange = true) => Removes.Add(new RemoveAction
     {
         Path = file.Path,
         DeletionTimestamp = now,
-        DataChange = true,
+        DataChange = dataChange,
         ExtendedFileMetadata = true,
         PartitionValues = file.PartitionValues,
         Size = file.Size,

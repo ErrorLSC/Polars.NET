@@ -4,6 +4,10 @@
   <Project Path="tests/Seseragi.Catalog.Tests/Seseragi.Catalog.Tests.csproj" />
   <Project Path="tests/Seseragi.Lakehouse.Tests/Seseragi.Lakehouse.Tests.csproj" />
   <Project Path="tests/Polars.CSharp.Tests/Polars.CSharp.Tests.csproj" />
+  <Folder Name="/kernel/" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Sazanami.Tests/Sazanami.Tests.csproj" />
+  </Folder>
   <Project Path="api/Polars.CSharp/Polars.CSharp.csproj" />
   <Project Path="tests/Polars.FSharp.Nullness.Tests/Polars.FSharp.Nullness.Tests.fsproj" />
   <Project Path="tests/Polars.FSharp.Tests/Polars.FSharp.Tests.fsproj" />

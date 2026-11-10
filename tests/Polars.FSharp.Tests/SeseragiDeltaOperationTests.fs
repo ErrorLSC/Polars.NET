@@ -472,3 +472,105 @@ let ``Merge into an empty table inserts`` () =
         let r = merge path source [ "id" ] [] false
         Assert.Equal(2L, r.InsertedRows)
         Assert.Equal<(int * float * string) list>([ (5, 5.0, "x"); (6, 6.0, "y") ], productRows path))
+
+// ---- optimize ----
+
+let private optimize (path: string) (target: int64) (filters: (string * string) list) (zOrder: string list) =
+    let f =
+        if filters.IsEmpty then null
+        else
+            let d = Dictionary<string, string>()
+            for k, v in filters do d[k] <- v
+            d :> IReadOnlyDictionary<string, string>
+    DeltaKernelOptimize.Optimize(path, target, f, (if zOrder.IsEmpty then null else Array.ofList zOrder))
+
+let private logActions (path: string) (version: int64) (kind: string) =
+    File.ReadLines(Path.Combine(path, "_delta_log", $"{version:D20}.json"))
+    |> Seq.filter (fun l -> l.StartsWith($"{{\"{kind}\"", StringComparison.Ordinal))
+    |> Seq.map (fun l -> JsonDocument.Parse(l).RootElement.GetProperty(kind).Clone())
+    |> List.ofSeq
+
+[<Fact>]
+let ``Optimize compacts small files into one, as rows rearranged, and then has nothing to do`` () =
+    withTable "optimize_compact" (fun path ->
+        use first = frame [ 1; 2 ] "east"
+        create path first [||] []
+        for i in 3 .. 6 do
+            use more = frame [ i ] "east"
+            append path more
+        Assert.Equal(5, Snapshot.Load(LocalFileSystem path).Files.Count)
+
+        let r = optimize path (128L * 1024L * 1024L) [] []
+
+        Assert.Equal((5, 1), (r.RemovedFiles, r.AddedFiles))
+        Assert.Equal<int list>([ 1 .. 6 ], ids path)
+        Assert.Single(Snapshot.Load(LocalFileSystem path).Files) |> ignore
+        let v = r.Version.Value
+        Assert.All(logActions path v "add", fun a -> Assert.False(a.GetProperty("dataChange").GetBoolean()))
+        Assert.All(logActions path v "remove", fun a -> Assert.False(a.GetProperty("dataChange").GetBoolean()))
+        let info = commitInfo path v
+        Assert.Equal("OPTIMIZE", info.GetProperty("operation").GetString())
+        Assert.Equal(5L, metric info "numRemovedFiles")
+
+        Assert.False((optimize path (128L * 1024L * 1024L) [] []).Version.HasValue)
+        use viaEngine = LazyFrame.ScanDelta(path).Collect()
+        Assert.Equal(6L, viaEngine.Height))
+
+[<Fact>]
+let ``Optimize drops rows deleted through deletion vectors, only in the chosen partitions`` () =
+    withTable "optimize_dv" (fun path ->
+        use east = frame [ 1 .. 4 ] "east"
+        use west = frame [ 5 .. 8 ] "west"
+        use both = east.VStack west
+        create path both [| "region" |] (dvOn @ cdfOn)
+        delete path ((pl.col "id" .== pl.lit 2) .|| (pl.col "id" .== pl.lit 6)) |> ignore
+        let before = Snapshot.Load(LocalFileSystem path)
+        Assert.Equal(2, before.Files |> Seq.filter (fun f -> not (isNull f.DeletionVector)) |> Seq.length)
+
+        let r = optimize path (128L * 1024L * 1024L) [ "region", "east" ] []
+
+        Assert.Equal((1, 1, 1), (r.RemovedFiles, r.AddedFiles, r.DeletionVectorsRemoved))
+        let after = Snapshot.Load(LocalFileSystem path)
+        let byRegion region = after.Files |> Seq.find (fun f -> f.PartitionValues["region"] = region)
+        Assert.Null((byRegion "east").DeletionVector)
+        Assert.NotNull((byRegion "west").DeletionVector)
+        Assert.Equal(Nullable 3L, (byRegion "east").ParsedStats.NumRecords)
+        Assert.Equal<int list>([ 1; 3; 4; 5; 7; 8 ], ids path)
+
+        // Nothing changed for the change data feed.
+        use changes = (new LazyFrame(DeltaKernelScan.ReadChangeFeed(path, r.Version.Value))).Collect()
+        Assert.Equal(0L, changes.Height))
+
+[<Fact>]
+let ``Optimize Z-orders rows so files cluster on every column`` () =
+    withTable "optimize_zorder" (fun path ->
+        // A 16 x 16 grid in four files written in x order: each file spans every y.
+        let points = [ for x in 0 .. 15 do for y in 0 .. 15 -> (x, y) ]
+        use grid =
+            DataFrame.create [|
+                Series.create("id", points |> List.mapi (fun i _ -> i))
+                Series.create("x", points |> List.map fst)
+                Series.create("y", points |> List.map snd)
+            |]
+        create path grid [||] []
+        let total = Snapshot.Load(LocalFileSystem path).Files |> Seq.sumBy (fun f -> f.Size)
+
+        let r = optimize path ((total + 3L) / 4L) [] [ "x"; "y" ]
+
+        Assert.Equal(4, r.AddedFiles)
+        use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect()
+        Assert.Equal(256L, df.Height)
+        let span (f: AddAction) (column: string) =
+            let ok1, lo = f.ParsedStats.TryGetMin(ReadOnlySpan<string>([| column |]))
+            let ok2, hi = f.ParsedStats.TryGetMax(ReadOnlySpan<string>([| column |]))
+            Assert.True(ok1 && ok2)
+            hi.GetInt32() - lo.GetInt32()
+        let files = Snapshot.Load(LocalFileSystem path).Files
+        // Each output file is a block of the grid, narrow in both x and y.
+        Assert.All(files, fun f ->
+            let sx, sy = span f "x", span f "y"
+            Assert.True(sx < 15 && sy < 15, $"x span {sx}, y span {sy}"))
+        let info = commitInfo path r.Version.Value
+        Assert.Equal("[\"x\",\"y\"]", info.GetProperty("operationParameters").GetProperty("zOrderBy").GetString())
+
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> optimize path 1000L [] [ "nope" ] |> ignore) |> ignore)
