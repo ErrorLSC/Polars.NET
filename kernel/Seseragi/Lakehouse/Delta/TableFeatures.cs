@@ -68,6 +68,10 @@ public static class TableFeatures
         TimestampNtz,
         VacuumProtocolCheck,
         V2Checkpoint,
+        // Files written before a column was widened hold the older type; the engine reads them as the table type,
+        // and data skipping allows for statistics in the older type (see Skipping.FileFilter).
+        TypeWidening,
+        TypeWideningPreview,
     };
 
     /// <summary>Throws when reading the table needs something this kernel does not implement.</summary>

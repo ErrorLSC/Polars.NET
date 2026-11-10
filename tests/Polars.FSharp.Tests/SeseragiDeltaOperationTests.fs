@@ -1,4 +1,4 @@
-/// Operations on Delta tables through the managed kernel (Phase 3): delete, and the write-side checks they share.
+/// Operations on Delta tables through the managed kernel (Phase 3): delete, update, and the write-side checks they share.
 module Polars.FSharp.Tests.SeseragiDeltaOperationTests
 
 open System
@@ -223,3 +223,85 @@ let ``Writes reject nulls in NOT NULL columns, nested fields included`` () =
         let e2 = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> append path nullKey)
         Assert.Contains("s.k", e2.Message)
         Assert.Equal(1L, Snapshot.Load(fs).Version))
+
+// ---- update ----
+
+let private update (path: string) (predicate: Expr option) (assignments: (string * Expr) list) =
+    let pairs = assignments |> List.map (fun (c, e) -> System.ValueTuple.Create(c, e.CloneHandle()))
+    DeltaKernelUpdate.Update(
+        path,
+        (match predicate with Some p -> p.CloneHandle() | None -> null),
+        ResizeArray(pairs))
+
+let private rowsOf (path: string) =
+    use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+    List.zip3 (df.["id"].ToArray<int>() |> List.ofArray) (df.["region"].ToArray<string>() |> List.ofArray) (df.["price"].ToArray<float>() |> List.ofArray)
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``Update sets columns of matching rows, in place or through deletion vectors`` (withVectors: bool) =
+    withTable "update" (fun path ->
+        use df = frame [ 1 .. 6 ] "east"
+        create path df [||] (if withVectors then dvOn else [])
+
+        // price from the old row; a null-predicate row (none here) would be kept.
+        let r = update path (Some(pl.col "id" .>= pl.lit 5)) [ "price", pl.col "price" * pl.lit 10.0; "region", pl.lit "west" ]
+
+        Assert.Equal(Nullable 1L, r.Version)
+        Assert.Equal(2L, r.UpdatedRows)
+        if withVectors then
+            Assert.Equal((1, 0, 0L), (r.DeletionVectorsAdded, r.RewrittenFiles, r.CopiedRows))
+        else
+            Assert.Equal((0, 1, 4L), (r.DeletionVectorsAdded, r.RewrittenFiles, r.CopiedRows))
+        let expected =
+            [ for i in 1 .. 6 -> if i >= 5 then (i, "west", float i * 15.0) else (i, "east", float i * 1.5) ]
+        Assert.Equal<(int * string * float) list>(expected, rowsOf path)
+        let info = commitInfo path 1L
+        Assert.Equal("UPDATE", info.GetProperty("operation").GetString())
+        Assert.Equal(2L, metric info "numUpdatedRows")
+
+        // No match: nothing committed.
+        let miss = update path (Some(pl.col "id" .> pl.lit 100)) [ "price", pl.lit 0.0 ]
+        Assert.False(miss.Version.HasValue))
+
+[<Fact>]
+let ``Update moves rows between partitions and writes pre and post images`` () =
+    withTable "update_cdf" (fun path ->
+        use east = frame [ 1 .. 3 ] "east"
+        use west = frame [ 4 .. 5 ] "west"
+        use both = east.VStack west
+        create path both [| "region" |] (cdfOn @ dvOn)
+
+        let r = update path (Some((pl.col "id" .== pl.lit 2) .|| (pl.col "id" .== pl.lit 4))) [ "region", pl.lit "north" ]
+        Assert.Equal(2L, r.UpdatedRows)
+        Assert.Equal<(int * string * float) list>(
+            [ (1, "east", 1.5); (2, "north", 3.0); (3, "east", 4.5); (4, "north", 6.0); (5, "west", 7.5) ], rowsOf path)
+        let snapshot = Snapshot.Load(LocalFileSystem path)
+        Assert.Contains(snapshot.Files, fun f -> f.PartitionValues["region"] = "north")
+
+        use changes = (new LazyFrame(DeltaKernelScan.ReadChangeFeed(path, 1L))).Collect().Sort([ pl.col "id"; pl.col "_change_type" ])
+        let seen =
+            List.zip3
+                (changes.["id"].ToArray<int>() |> List.ofArray)
+                (changes.["region"].ToArray<string>() |> List.ofArray)
+                (changes.["_change_type"].ToArray<string>() |> List.ofArray)
+        Assert.Equal<(int * string * string) list>(
+            // sorted by id, then change type: postimage before preimage
+            [ (2, "north", "update_postimage"); (2, "east", "update_preimage"); (4, "north", "update_postimage"); (4, "west", "update_preimage") ],
+            seen))
+
+[<Fact>]
+let ``Update without a predicate sets every row; unknown columns and values that do not fit are refused`` () =
+    withTable "update_all" (fun path ->
+        use df = frame [ 1; 2; 3 ] "east"
+        create path df [||] []
+        let r = update path None [ "price", pl.lit 1.0 ]
+        Assert.Equal(3L, r.UpdatedRows)
+        Assert.All(rowsOf path, fun (_, _, p) -> Assert.Equal(1.0, p))
+
+        let unknown = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> update path None [ "nope", pl.lit 1 ] |> ignore)
+        Assert.Contains("nope", unknown.Message)
+        // Values that do not fit the column type fail instead of being changed.
+        Assert.ThrowsAny<exn>(fun () -> update path None [ "id", pl.lit "x" ] |> ignore) |> ignore
+        Assert.Equal(1L, Snapshot.Load(LocalFileSystem path).Version))

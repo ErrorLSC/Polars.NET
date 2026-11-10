@@ -223,14 +223,14 @@ public class SparkInteropTests
             // Deletion vectors and the change data feed: partial deletes give vectors (one merged with an earlier
             // one), deleting the last live row of a file removes it.
             string vectors = Path.Combine(root, "dv_cdf");
-            Create(vectors, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" });
+            CreateTable(vectors, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" });
             DeltaKernelDelete.Delete(vectors, PolarsWrapper.Or(Id(PolarsWrapper.Eq, 2), Id(PolarsWrapper.GtEq, 7)));
             DeltaKernelDelete.Delete(vectors, Id(PolarsWrapper.Eq, 5));
             DeltaKernelDelete.Delete(vectors, Id(PolarsWrapper.Eq, 6)); // the last live row of its file
 
             // The change data feed without vectors: files are rewritten.
             string rewritten = Path.Combine(root, "rewrite_cdf");
-            Create(rewritten, new() { ["delta.enableChangeDataFeed"] = "true" });
+            CreateTable(rewritten, new() { ["delta.enableChangeDataFeed"] = "true" });
             DeltaKernelDelete.Delete(rewritten, PolarsWrapper.Or(Id(PolarsWrapper.Eq, 3), Id(PolarsWrapper.Eq, 6)));
 
             List<JsonDocument> spark = LocalSpark.Run("read_changes", vectors, rewritten);
@@ -255,14 +255,88 @@ public class SparkInteropTests
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
 
-        // ids 1..4 east, 5..9 west (one file each), then 10 west (a file of one row).
-        static void Create(string path, Dictionary<string, string> properties)
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void Spark_ReadsUpdates_TheKernelCommits_AndUpdatesOnTop()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
         {
-            using DataFrame east = Typed([1, 2, 3, 4], "east"), west = Typed([5, 6, 7, 8, 9], "west");
-            using DataFrame first = east.VStack(west);
-            DeltaKernelWrite.Write(path, PolarsWrapper.LazyClone(first.Lazy().Handle), KernelWriteMode.ErrorIfExists, ["region"], null, properties);
-            Write(path, Typed([10], "west"), KernelWriteMode.Append);
+            static ExprHandle IdIs(int value) => PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(value));
+            static ExprHandle Times(string column, double factor) => PolarsWrapper.Mul(PolarsWrapper.Col(column), PolarsWrapper.Lit(factor));
+
+            // Deletion vectors and the change data feed: updated rows move to new files, one to another partition.
+            string vectors = Path.Combine(root, "dv_cdf");
+            CreateTable(vectors, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" });
+            DeltaKernelUpdate.Update(vectors, PolarsWrapper.Or(IdIs(2), IdIs(7)), [("price", Times("price", 10)), ("note", PolarsWrapper.Lit("changed"))]);
+            DeltaKernelUpdate.Update(vectors, IdIs(3), [("region", PolarsWrapper.Lit("north"))]);
+
+            // The change data feed without vectors: files are rewritten with the rows in place.
+            string rewritten = Path.Combine(root, "rewrite_cdf");
+            CreateTable(rewritten, new() { ["delta.enableChangeDataFeed"] = "true" });
+            DeltaKernelUpdate.Update(rewritten, PolarsWrapper.Or(IdIs(3), IdIs(6)), [("amount", PolarsWrapper.Lit(0.5m))]);
+
+            List<JsonDocument> spark = LocalSpark.Run("read_changes", vectors, rewritten);
+            Assert.Equal(4, spark.Count);
+            foreach (JsonDocument table in spark)
+            {
+                string path = table.RootElement.GetProperty("path").GetString()!;
+                bool changes = table.RootElement.TryGetProperty("changes", out _);
+                AssertSameRows(changes ? path + " (change feed)" : path, table.RootElement.GetProperty("rows"),
+                    KernelRows(changes ? ChangeFeedWithoutTime(path) : DeltaKernelScan.Scan(path)));
+            }
+
+            // Spark updates on top of the kernel's vectors.
+            JsonDocument afterSpark = LocalSpark.Run("update", vectors, "price = -1", "id IN (1, 2, 8)")[0];
+            AssertSameRows(vectors, afterSpark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(vectors)));
+            Assert.Equal(10, afterSpark.RootElement.GetProperty("rows").GetArrayLength());
         }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void Kernel_ReadsWidenedColumns_SkipsSafely_AndRewritesOldFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            // Spark widens every kind of column after the first insert: the first file holds the older types.
+            string table = Path.Combine(root, "widened");
+            JsonDocument spark = LocalSpark.Run("create_widened", table)[0];
+            AssertSameRows(table, spark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            Assert.Contains("\"typeWidening\"", string.Concat(Directory.GetFiles(Path.Combine(table, "_delta_log"), "*.json").Select(File.ReadAllText)));
+
+            // The first file's largest f is the float 0.1, a little above the double 0.1: f > 0.1 must keep it.
+            var kept = KernelRows(DeltaKernelScan.Scan(table,
+                filter: Kaminari.Seseragi.Lakehouse.Skipping.Predicate.Gt(new Kaminari.Seseragi.Lakehouse.Skipping.ColumnPath("f"), 0.1)));
+            Assert.Contains(kept.EnumerateArray(), row => row.GetProperty("id").GetInt64() == 1);
+
+            // Deleting a row rewrites the old file in the table's current types; Spark reads the result.
+            var result = DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2L)));
+            Assert.Equal(1, result.RewrittenFiles);
+            JsonDocument after = LocalSpark.Run("read", table)[0];
+            AssertSameRows(table, after.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            Assert.Equal(2, after.RootElement.GetProperty("rows").GetArrayLength());
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    /// <summary>ids 1..4 east, 5..9 west (one file each), then 10 west (a file of one row).</summary>
+    private static void CreateTable(string path, Dictionary<string, string> properties)
+    {
+        using DataFrame east = Typed([1, 2, 3, 4], "east"), west = Typed([5, 6, 7, 8, 9], "west");
+        using DataFrame first = east.VStack(west);
+        DeltaKernelWrite.Write(path, PolarsWrapper.LazyClone(first.Lazy().Handle), KernelWriteMode.ErrorIfExists, ["region"], null, properties);
+        Write(path, Typed([10], "west"), KernelWriteMode.Append);
     }
 
     private static DataFrame Typed(int[] ids, string region) => DataFrame.FromColumns(new

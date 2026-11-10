@@ -85,7 +85,12 @@ public sealed class FileFilter
     private enum Kind { Integer, Float, Decimal, String, Boolean, Date, Timestamp }
 
     /// <summary>A column of the table as the log knows it: by physical names.</summary>
-    private sealed record Column(string[] PhysicalPath, Kind Kind, bool IsPartition);
+    /// <param name="PhysicalPath">The column by physical names.</param>
+    /// <param name="Kind">How its values compare.</param>
+    /// <param name="IsPartition">Whether it is a partition column, its value in the file's partition values.</param>
+    /// <param name="Float32Stats">The column was widened from float: statistics of older files are float values
+    /// printed in decimal, so a bound is only known to within one float step.</param>
+    private sealed record Column(string[] PhysicalPath, Kind Kind, bool IsPartition, bool Float32Stats = false);
 
     private static Column? Resolve(StructType schema, IReadOnlyList<string> partitionColumns, ColumnPath path)
     {
@@ -122,9 +127,36 @@ public sealed class FileFilter
             };
             if (kind is null) return null;
             bool isPartition = path.Segments.Length == 1 && partitionColumns.Contains(path.Segments[0]);
-            return new Column(physical, kind.Value, isPartition);
+            bool float32Stats = kind == Kind.Float && WidenedFrom(field, PrimitiveType.Float);
+            return new Column(physical, kind.Value, isPartition, float32Stats);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Whether the field itself (not an element or entry inside it) once had the type <paramref name="fromType"/>,
+    /// as its type widening history (<c>delta.typeChanges</c>) records.
+    /// </summary>
+    private static bool WidenedFrom(StructField field, string fromType)
+    {
+        if (!field.Metadata.TryGetValue("delta.typeChanges", out string? json)) return false;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return true; // unreadable history: assume the worst
+            foreach (JsonElement change in doc.RootElement.EnumerateArray())
+            {
+                if (change.ValueKind != JsonValueKind.Object) return true;
+                if (change.TryGetProperty("fieldPath", out _)) continue; // a change inside an array or map
+                if (change.TryGetProperty("fromType", out JsonElement from) && from.ValueKind == JsonValueKind.String && from.GetString() == fromType)
+                    return true;
+            }
+            return false;
+        }
+        catch (JsonException)
+        {
+            return true;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -334,6 +366,13 @@ public sealed class FileFilter
                 TryParseStat(maxJson, column.Kind, out max);
                 // Timestamps in statistics are cut to milliseconds, so the true maximum may be up to 999 microseconds later.
                 if (column.Kind == Kind.Timestamp) max = L(Kind.Timestamp, max.Long + MicrosPerMilli - 1);
+            }
+            if (column.Float32Stats)
+            {
+                // A file from before the widening holds float values, its statistics their decimal text.
+                if (hasMin) min = min with { Double = MathF.BitDecrement((float)min.Double) };
+                if (hasMax) max = max with { Double = MathF.BitIncrement((float)max.Double) };
+                if (op == CompareOp.Ne) return true;
             }
 
             switch (op)

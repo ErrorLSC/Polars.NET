@@ -6,6 +6,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Skipping;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
+using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Delta;
@@ -165,6 +166,7 @@ public static class DeltaKernelScan
     {
         StructType schema = snapshot.Schema;
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
+        string[] widened = WidenedColumns(snapshot);
 
         var frames = new List<LazyFrameHandle>();
         try
@@ -176,13 +178,14 @@ public static class DeltaKernelScan
                         $"The commit of version {change.Version} removed '{change.Path}' without recording its partition values, so its rows cannot be reported.");
 
                 string path = Combine(tableRoot, change.DecodedPath);
+                IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, widened);
                 switch (change.Kind)
                 {
                     case ChangeFileKind.Cdc:
                     {
-                        using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, withChangeType: true);
+                        using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, withChangeType: true, oldTypes);
                         LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, null);
-                        frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType: null));
+                        frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType: null, oldTypes));
                         break;
                     }
 
@@ -190,10 +193,10 @@ public static class DeltaKernelScan
                     {
                         // Rows the deletion vector marks were not live: not inserted by an add, already gone at a remove.
                         long[] dead = change.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, change.DeletionVector).DeletedRows;
-                        using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
+                        using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
                         LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, dead.Length > 0 ? RowIndexColumn : null);
                         if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
-                        frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, change.Kind == ChangeFileKind.Insert ? "insert" : "delete"));
+                        frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, change.Kind == ChangeFileKind.Insert ? "insert" : "delete", oldTypes));
                         break;
                     }
 
@@ -203,9 +206,9 @@ public static class DeltaKernelScan
                         foreach (var (rows, changeType) in new[] { (deleted, "delete"), (restored, "insert") })
                         {
                             if (rows.Length == 0) continue;
-                            using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
+                            using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
                             LazyFrameHandle lf = FilterRows(ScanFiles([path], cloud, fileSchema, RowIndexColumn), rows, keep: true);
-                            frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType));
+                            frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType, oldTypes));
                         }
                         break;
                     }
@@ -237,8 +240,9 @@ public static class DeltaKernelScan
 
     /// <summary>The table columns, then the change type (from the file when <paramref name="changeType"/> is null), version and time.</summary>
     private static LazyFrameHandle ProjectChange(
-        LazyFrameHandle lf, Snapshot snapshot, ChangeFile change, HashSet<string> partitionColumns, string? changeType) =>
-        Project(lf, snapshot, change.PartitionValues, partitionColumns, exprs =>
+        LazyFrameHandle lf, Snapshot snapshot, ChangeFile change, HashSet<string> partitionColumns, string? changeType,
+        IReadOnlyDictionary<string, DeltaType> oldTypes) =>
+        Project(lf, snapshot, change.PartitionValues, partitionColumns, oldTypes, exprs =>
         {
             exprs.Add(changeType is null
                 ? PolarsWrapper.Col(ChangeTypeColumn)
@@ -269,9 +273,11 @@ public static class DeltaKernelScan
         scannedFiles?.Invoke(files.Count);
 
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
+        string[] widened = WidenedColumns(snapshot);
 
-        // Files that share their partition values are scanned together; a file with a deletion vector on its own.
-        var groups = new Dictionary<string, List<AddAction>>(StringComparer.Ordinal);
+        // Files that share their partition values (and, after a date column was widened, their physical type for
+        // it) are scanned together; a file with a deletion vector on its own.
+        var groups = new Dictionary<string, (List<AddAction> Files, IReadOnlyDictionary<string, DeltaType> AsDate)>(StringComparer.Ordinal);
         var withVectors = new List<AddAction>();
         foreach (AddAction file in files)
         {
@@ -280,31 +286,25 @@ public static class DeltaKernelScan
                 withVectors.Add(file);
                 continue;
             }
-            string key = PartitionKey(snapshot, file);
-            if (!groups.TryGetValue(key, out List<AddAction>? group)) groups[key] = group = [];
-            group.Add(file);
+            IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(Combine(tableRoot, file.DecodedPath), cloud, widened);
+            string key = PartitionKey(snapshot, file) + "|" + string.Join(",", oldTypes.OrderBy(t => t.Key, StringComparer.Ordinal).Select(t => $"{t.Key}:{t.Value}"));
+            if (!groups.TryGetValue(key, out var group)) groups[key] = group = ([], oldTypes);
+            group.Files.Add(file);
         }
 
         var frames = new List<LazyFrameHandle>();
         try
         {
-            foreach (List<AddAction> group in groups.Values)
+            foreach (var (group, oldTypes) in groups.Values)
             {
-                using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
+                using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
                 string[] paths = [.. group.Select(f => Combine(tableRoot, f.DecodedPath))];
                 LazyFrameHandle lf = ScanFiles(paths, cloud, fileSchema, null);
-                frames.Add(Project(lf, snapshot, group[0].PartitionValues, partitionColumns));
+                frames.Add(Project(lf, snapshot, group[0].PartitionValues, partitionColumns, oldTypes));
             }
 
             foreach (AddAction file in withVectors)
-            {
-                long[] deleted = DeletionVector.Read(fileSystem, file.DeletionVector!).DeletedRows;
-                using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
-                LazyFrameHandle lf = ScanFiles([Combine(tableRoot, file.DecodedPath)], cloud, fileSchema, RowIndexColumn);
-
-                if (deleted.Length > 0) lf = FilterRows(lf, deleted, keep: false);
-                frames.Add(Project(lf, snapshot, file.PartitionValues, partitionColumns));
-            }
+                frames.Add(ScanFile(fileSystem, tableRoot, snapshot, file, cloud));
 
             if (frames.Count == 0)
             {
@@ -342,19 +342,109 @@ public static class DeltaKernelScan
         if (dropRows is { Length: > 0 }) dead = DeletionVector.FromRows(dead.Concat(dropRows)).DeletedRows;
         bool needIndex = withRowIndex || dead.Length > 0 || onlyRows is not null;
 
-        using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns);
-        LazyFrameHandle lf = ScanFiles([Combine(tableRoot, file.DecodedPath)], cloud, fileSchema, needIndex ? RowIndexColumn : null);
+        string path = Combine(tableRoot, file.DecodedPath);
+        IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, WidenedColumns(snapshot));
+        using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns, oldTypes: oldTypes);
+        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, needIndex ? RowIndexColumn : null);
         if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
         if (onlyRows is not null) lf = FilterRows(lf, onlyRows, keep: true);
-        if (!withRowIndex) return Project(lf, snapshot, file.PartitionValues, partitionColumns);
+        if (!withRowIndex) return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes);
 
-        return Project(lf, snapshot, file.PartitionValues, partitionColumns, exprs =>
+        return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes, exprs =>
         {
             using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
             exprs.Add(PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false),
                 RowIndexColumn));
         });
+    }
+
+    private static readonly IReadOnlyDictionary<string, DeltaType> NoOldTypes = new Dictionary<string, DeltaType>();
+
+    /// <summary>
+    /// The physical names of the top-level data columns whose type was widened (type widening). The engine casts
+    /// only some types up while scanning (not decimals, not dates to timestamps), so for these the scan reads each
+    /// file's own type and casts it to the table's.
+    /// </summary>
+    /// <exception cref="DeltaException">A widening inside a nested column that the scan cannot cast.</exception>
+    private static string[] WidenedColumns(Snapshot snapshot)
+    {
+        var columns = new List<string>();
+        foreach (StructField field in snapshot.Schema.Fields)
+        {
+            if (snapshot.PartitionColumns.Contains(field.Name)) continue; // partition values are text
+            var changes = TypeChanges(field);
+            if (changes.Any(c => c.FieldPath is null)) columns.Add(field.PhysicalName);
+            if (changes.Any(c => c.FieldPath is not null && !CastWhileScanning(c)) || NestedUncastable(field.Type))
+                throw new DeltaException(
+                    $"The column '{field.Name}' holds a field widened from one type to another that cannot be read yet inside a nested column.");
+        }
+        return [.. columns];
+
+        static bool NestedUncastable(DeltaType type) => type switch
+        {
+            StructType s => s.Fields.Any(f => TypeChanges(f).Any(c => !CastWhileScanning(c)) || NestedUncastable(f.Type)),
+            ArrayType a => NestedUncastable(a.ElementType),
+            MapType m => NestedUncastable(m.KeyType) || NestedUncastable(m.ValueType),
+            _ => false,
+        };
+
+        // Integer to a wider integer and float to double: the scan's lenient casts do these at any depth.
+        static bool CastWhileScanning((string From, string To, string? FieldPath) c) =>
+            (IsInteger(c.From) && IsInteger(c.To)) || (c.From == PrimitiveType.Float && c.To == PrimitiveType.Double);
+
+        static bool IsInteger(string t) => t is PrimitiveType.Byte or PrimitiveType.Short or PrimitiveType.Integer or PrimitiveType.Long;
+    }
+
+    /// <summary>The field's type widening history (<c>delta.typeChanges</c>).</summary>
+    private static List<(string From, string To, string? FieldPath)> TypeChanges(StructField field)
+    {
+        var result = new List<(string, string, string?)>();
+        if (!field.Metadata.TryGetValue("delta.typeChanges", out string? json)) return result;
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return result;
+        foreach (var change in doc.RootElement.EnumerateArray())
+        {
+            string? Text(string name) => change.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
+            result.Add((Text("fromType") ?? "", Text("toType") ?? "", Text("fieldPath")));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Of <paramref name="candidates"/>, the columns the file at <paramref name="path"/> holds in another type than
+    /// the table's, with that type. Reads the file's schema only when there are candidates.
+    /// </summary>
+    private static IReadOnlyDictionary<string, DeltaType> OldTypes(string path, CloudArgs cloud, string[] candidates)
+    {
+        if (candidates.Length == 0) return NoOldTypes;
+        using LazyFrameHandle lf = ScanFiles([path], cloud, null, null);
+        var result = new Dictionary<string, DeltaType>(StringComparer.Ordinal);
+        foreach (var (name, type) in PolarsSchemaExtractor.GetFields(lf))
+        {
+            using (type)
+            {
+                if (!candidates.Contains(name)) continue;
+                DeltaType? old = PolarsWrapper.GetDataTypeKind(type) switch
+                {
+                    PlDataType.Int8 => new PrimitiveType(PrimitiveType.Byte),
+                    PlDataType.Int16 => new PrimitiveType(PrimitiveType.Short),
+                    PlDataType.Int32 => new PrimitiveType(PrimitiveType.Integer),
+                    PlDataType.Float32 => new PrimitiveType(PrimitiveType.Float),
+                    PlDataType.Date => new PrimitiveType(PrimitiveType.Date),
+                    PlDataType.Decimal => DecimalOf(type),
+                    _ => null, // the table's own type, or one the scan casts anyway
+                };
+                if (old is not null) result[name] = old;
+            }
+        }
+        return result;
+
+        static DecimalType DecimalOf(DataTypeHandle type)
+        {
+            PolarsWrapper.GetDecimalInfo(type, out int precision, out int scale);
+            return new DecimalType(precision, scale);
+        }
     }
 
     internal static LazyFrameHandle ScanFiles(string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName) =>
@@ -401,7 +491,7 @@ public static class DeltaKernelScan
     /// </summary>
     private static LazyFrameHandle Project(
         LazyFrameHandle lf, Snapshot snapshot, IReadOnlyDictionary<string, string?>? loggedPartitionValues,
-        HashSet<string> partitionColumns, Action<List<ExprHandle>>? extra = null)
+        HashSet<string> partitionColumns, IReadOnlyDictionary<string, DeltaType>? oldTypes = null, Action<List<ExprHandle>>? extra = null)
     {
         Dictionary<string, string?>? partitionValues =
             partitionColumns.Count > 0 ? snapshot.LogicalPartitionValues(loggedPartitionValues ?? EmptyValues) : null;
@@ -412,7 +502,15 @@ public static class DeltaKernelScan
             {
                 if (!partitionColumns.Contains(field.Name))
                 {
-                    exprs.Add(PolarsWrapper.Alias(ToLogical(PolarsWrapper.Col(field.PhysicalName), field.Type), field.Name));
+                    ExprHandle column = PolarsWrapper.Col(field.PhysicalName);
+                    if (oldTypes is not null && oldTypes.ContainsKey(field.PhysicalName))
+                    {
+                        // A file from before the column was widened: its values in the older type, cast up
+                        // (a date becomes midnight of that day).
+                        using DataTypeHandle target = ToEngineType(field.Type, physicalNames: false);
+                        column = PolarsWrapper.ExprCast(column, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false);
+                    }
+                    exprs.Add(PolarsWrapper.Alias(ToLogical(column, field.Type), field.Name));
                     continue;
                 }
 
@@ -523,7 +621,8 @@ public static class DeltaKernelScan
     }
 
     /// <summary>The columns expected in a data file: every non-partition column under its physical name.</summary>
-    private static SchemaHandle PhysicalFileSchema(StructType schema, HashSet<string> partitionColumns, bool withChangeType = false)
+    private static SchemaHandle PhysicalFileSchema(
+        StructType schema, HashSet<string> partitionColumns, bool withChangeType = false, IReadOnlyDictionary<string, DeltaType>? oldTypes = null)
     {
         SchemaHandle handle = PolarsWrapper.SchemaCreate();
         if (withChangeType)
@@ -534,7 +633,9 @@ public static class DeltaKernelScan
         foreach (StructField field in schema.Fields)
         {
             if (partitionColumns.Contains(field.Name)) continue;
-            using DataTypeHandle type = ToEngineType(field.Type, physicalNames: true);
+            using DataTypeHandle type = oldTypes is not null && oldTypes.TryGetValue(field.PhysicalName, out DeltaType? old)
+                ? ToEngineType(old, physicalNames: true)
+                : ToEngineType(field.Type, physicalNames: true);
             PolarsWrapper.SchemaAddField(handle, field.PhysicalName, type);
         }
         return handle;

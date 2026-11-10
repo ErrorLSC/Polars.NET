@@ -151,6 +151,32 @@ def main():
         path, condition = args[0], args[1]
         spark.sql(f"DELETE FROM delta.`{path}` WHERE {condition}")
         read(spark, path)
+    elif command == "update":
+        # UPDATE the table SET the given assignments WHERE the given SQL condition; then the table.
+        path, assignments, condition = args[0], args[1], args[2]
+        spark.sql(f"UPDATE delta.`{path}` SET {assignments} WHERE {condition}")
+        read(spark, path)
+    elif command == "create_widened":
+        # A table whose columns were widened after a first insert, so its first file holds the older types.
+        path = args[0]
+        spark.sql(
+            f"CREATE TABLE delta.`{path}` (id INT, b BYTE, f FLOAT, d DATE, m DECIMAL(5,2), s STRUCT<x: SHORT>, arr ARRAY<INT>) "
+            "USING delta TBLPROPERTIES ('delta.enableTypeWidening'='true', 'delta.feature.timestampNtz'='supported')"
+        )
+        spark.sql(
+            # One file holding both rows.
+            f"INSERT INTO delta.`{path}` SELECT /*+ COALESCE(1) */ * FROM VALUES "
+            "(1, 1, 0.1, DATE'2024-01-02', 1.25, named_struct('x', 3), array(1, 2)), "
+            "(2, -5, 0.05, DATE'2024-03-04', -99.99, NULL, NULL)"
+        )
+        for column, target in [("id", "BIGINT"), ("b", "INT"), ("f", "DOUBLE"), ("d", "TIMESTAMP_NTZ"),
+                               ("m", "DECIMAL(10,4)"), ("s.x", "INT"), ("arr.element", "BIGINT")]:
+            spark.sql(f"ALTER TABLE delta.`{path}` CHANGE COLUMN {column} TYPE {target}")
+        spark.sql(
+            f"INSERT INTO delta.`{path}` VALUES "
+            "(3, 300000, 0.2, TIMESTAMP_NTZ'2024-05-06 07:08:09', 123456.7891, named_struct('x', 70000), array(5000000000))"
+        )
+        read(spark, path)
     elif command == "create_v2":
         # A table that takes V2 checkpoints every two commits; columns (id BIGINT, src STRING) as "append" writes.
         spark.sql(

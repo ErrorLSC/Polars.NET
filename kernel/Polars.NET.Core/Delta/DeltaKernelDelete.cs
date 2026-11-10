@@ -1,9 +1,7 @@
 using System.Text.Json;
-using Apache.Arrow;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
-using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Skipping;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
@@ -30,8 +28,6 @@ internal sealed record DeltaDeleteResult(
 /// </summary>
 internal static class DeltaKernelDelete
 {
-    private const string FileColumn = "__seseragi_file";
-
     /// <summary>Deletes the rows matching <paramref name="predicate"/>; with no predicate, every row.</summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="predicate">The rows to delete, over the table's logical columns; consumed. A row for which it is
@@ -41,56 +37,47 @@ internal static class DeltaKernelDelete
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     public static DeltaDeleteResult Delete(string tablePath, ExprHandle? predicate, Predicate? fileFilter = null, CloudArgs? cloud = null)
     {
-        if (predicate is null && fileFilter is not null)
-            throw new ArgumentException("A file filter narrows a predicate; without a predicate every row is deleted.", nameof(fileFilter));
-
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IWritableFileSystem fileSystem = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
-        string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
-        CloudArgs engineCloud = cloud ?? CloudArgs.Local;
         try
         {
-            Snapshot snapshot = DeltaKernelWrite.TryLoad(fileSystem, tablePath, cloud)
-                ?? throw new PolarsException($"No Delta table at {tablePath}.");
+            if (predicate is null && fileFilter is not null)
+                throw new ArgumentException("A file filter narrows a predicate; without a predicate every row is deleted.", nameof(fileFilter));
+
+            using DmlTable table = DmlTable.Open(tablePath, cloud);
+            Snapshot snapshot = table.Snapshot;
             IReadOnlyList<AddAction> candidates = fileFilter is null ? snapshot.Files : snapshot.FilesMatching(fileFilter);
 
-            var transaction = Transaction.Start(fileSystem, snapshot, "DELETE");
+            var transaction = Transaction.Start(table.FileSystem, snapshot, "DELETE");
             transaction.ReadPredicate(fileFilter).ReadFiles(candidates);
             string predicateText = predicate is null ? "true" : PolarsWrapper.ExprToString(predicate);
             transaction.WithParameter("predicate", JsonSerializer.Serialize(new[] { predicateText }));
 
-            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var plan = new Plan(snapshot, now);
-
+            var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            long deleted = 0;
             if (predicate is null)
             {
-                foreach (AddAction file in candidates) plan.RemoveWhole(file, LiveRows(fileSystem, root, snapshot, file, engineCloud));
+                // Every row: remove every file. The change data feed derives the deleted rows from the removes.
+                foreach (AddAction file in candidates)
+                {
+                    plan.Remove(file);
+                    deleted += table.LiveRows(file);
+                }
             }
             else
             {
-                Dictionary<int, long[]> hits = MatchingRows(fileSystem, root, snapshot, candidates, predicate, engineCloud);
+                Dictionary<int, long[]> hits = table.MatchingRows(candidates, predicate);
                 predicate = null; // consumed
-                PlanFiles(fileSystem, root, snapshot, candidates, hits, plan, engineCloud);
+                deleted = hits.Values.Sum(r => (long)r.Length);
+                PlanFiles(table, candidates, hits, plan);
             }
 
-            if (plan.DeletedRows == 0 && plan.Removes.Count == 0)
-                return new DeltaDeleteResult(null, 0, 0, 0, 0, 0, 0);
+            if (plan.IsEmpty) return new DeltaDeleteResult(null, 0, 0, 0, 0, 0, 0);
 
-            foreach (RemoveAction remove in plan.Removes) transaction.Add(remove);
-            foreach (AddAction add in plan.Adds) transaction.Add(add);
-            foreach (CdcAction cdc in plan.ChangeFiles) transaction.Add(cdc);
-
-            transaction.WithMetric("numDeletedRows", plan.DeletedRows)
-                       .WithMetric("numRemovedFiles", plan.Removes.Count)
-                       .WithMetric("numAddedFiles", plan.Adds.Count)
-                       .WithMetric("numDeletionVectorsAdded", plan.VectorsAdded)
-                       .WithMetric("numDeletionVectorsRemoved", plan.Removes.Count(r => r.DeletionVector is not null))
-                       .WithMetric("numAddedChangeFiles", plan.ChangeFiles.Count)
-                       .WithMetric("numCopiedRows", plan.CopiedRows);
+            plan.AddTo(transaction);
+            transaction.WithMetric("numDeletedRows", deleted);
             long version = transaction.Commit();
-            DeltaKernelWrite.TryCheckpoint(fileSystem, tablePath, version, cloud);
+            DeltaKernelWrite.TryCheckpoint(table.FileSystem, tablePath, version, cloud);
             return new DeltaDeleteResult(
-                version, plan.DeletedRows, plan.Removes.Count, plan.Adds.Count, plan.VectorsAdded, plan.Rewritten, plan.ChangeFiles.Count);
+                version, deleted, plan.Removes.Count, plan.Adds.Count, plan.VectorsAdded, plan.Rewritten, plan.ChangeFiles.Count);
         }
         catch (DeltaException e)
         {
@@ -99,217 +86,54 @@ internal static class DeltaKernelDelete
         finally
         {
             predicate?.Dispose();
-            (fileSystem as IDisposable)?.Dispose();
         }
     }
 
-    /// <summary>The actions a delete commits, collected file by file.</summary>
-    private sealed class Plan(Snapshot snapshot, long now)
+    private static void PlanFiles(DmlTable table, IReadOnlyList<AddAction> candidates, Dictionary<int, long[]> hits, DmlPlan plan)
     {
-        public List<RemoveAction> Removes { get; } = [];
-        public List<AddAction> Adds { get; } = [];
-        public List<CdcAction> ChangeFiles { get; } = [];
-        public long DeletedRows { get; set; }
-        public long CopiedRows { get; set; }
-        public int VectorsAdded { get; set; }
-        public int Rewritten { get; set; }
-
-        public void Remove(AddAction file) => Removes.Add(new RemoveAction
-        {
-            Path = file.Path,
-            DeletionTimestamp = now,
-            DataChange = true,
-            ExtendedFileMetadata = true,
-            PartitionValues = file.PartitionValues,
-            Size = file.Size,
-            DeletionVector = file.DeletionVector,
-            BaseRowId = file.BaseRowId,
-            DefaultRowCommitVersion = file.DefaultRowCommitVersion,
-        });
-
-        public void RemoveWhole(AddAction file, long liveRows)
-        {
-            Remove(file);
-            DeletedRows += liveRows;
-        }
-
-        public Snapshot Snapshot => snapshot;
-    }
-
-    /// <summary>
-    /// The live rows of each candidate file that match the predicate, as row positions in the file, keyed by the
-    /// candidate's index. Files without a match are absent. One engine query over all candidates.
-    /// </summary>
-    private static Dictionary<int, long[]> MatchingRows(
-        IFileSystem fileSystem, string root, Snapshot snapshot, IReadOnlyList<AddAction> candidates, ExprHandle predicate, CloudArgs cloud)
-    {
-        var result = new Dictionary<int, long[]>();
-        if (candidates.Count == 0)
-        {
-            predicate.Dispose();
-            return result;
-        }
-
-        var frames = new List<LazyFrameHandle>(candidates.Count);
-        try
-        {
-            for (int i = 0; i < candidates.Count; i++)
-            {
-                LazyFrameHandle lf = DeltaKernelScan.ScanFile(fileSystem, root, snapshot, candidates[i], cloud, withRowIndex: true);
-                frames.Add(PolarsWrapper.LazyWithColumns(lf, [PolarsWrapper.Alias(PolarsWrapper.Lit(i), FileColumn)]));
-            }
-            LazyFrameHandle all = frames.Count == 1
-                ? frames[0]
-                : PolarsWrapper.LazyConcat([.. frames], PlConcatType.Vertical, rechunk: false, parallel: true, toSupertypes: false, maintainOrder: false);
-            frames.Clear(); // owned by the query now
-            LazyFrameHandle matched = PolarsWrapper.LazySelect(
-                PolarsWrapper.LazyFilter(all, predicate),
-                [PolarsWrapper.Col(FileColumn), PolarsWrapper.Col(DeltaKernelScan.RowIndexColumn)]);
-
-            using DataFrameHandle df = PolarsWrapper.LazyCollect(matched, PlEngine.Auto);
-            if (PolarsWrapper.DataFrameHeight(df) == 0) return result;
-            int[] files = Int32Column(df, FileColumn);
-            long[] rows = Int64Column(df, DeltaKernelScan.RowIndexColumn);
-
-            var byFile = new Dictionary<int, List<long>>();
-            for (int k = 0; k < files.Length; k++)
-            {
-                if (!byFile.TryGetValue(files[k], out List<long>? list)) byFile[files[k]] = list = [];
-                list.Add(rows[k]);
-            }
-            foreach (var (file, list) in byFile) result[file] = DeletionVector.FromRows(list).DeletedRows;
-            return result;
-        }
-        finally
-        {
-            foreach (LazyFrameHandle frame in frames) frame.Dispose();
-        }
-    }
-
-    private static void PlanFiles(
-        IWritableFileSystem fileSystem, string root, Snapshot snapshot, IReadOnlyList<AddAction> candidates,
-        Dictionary<int, long[]> hits, Plan plan, CloudArgs cloud)
-    {
-        bool useVectors = DeletionVectorsEnabled(snapshot);
-        string[] partitions = [.. snapshot.PartitionColumns];
-        var vectorFiles = new List<(AddAction File, DeletionVector Vector)>();
+        Snapshot snapshot = table.Snapshot;
+        bool useVectors = table.DeletionVectorsEnabled;
+        var marked = new List<(AddAction File, long[] Rows)>();
         var deletedFrames = new List<LazyFrameHandle>();
-        bool changeFeed = ChangeFeedEnabled(snapshot);
         try
         {
             foreach (var (index, rows) in hits.OrderBy(h => h.Key))
             {
                 AddAction file = candidates[index];
-                plan.DeletedRows += rows.Length;
-                if (changeFeed)
-                    deletedFrames.Add(DeltaKernelScan.ScanFile(fileSystem, root, snapshot, file, cloud, onlyRows: rows));
+                if (table.ChangeFeedEnabled) deletedFrames.Add(table.ScanFile(file, onlyRows: rows));
 
-                long live = LiveRows(fileSystem, root, snapshot, file, cloud);
-                if (rows.Length >= live)
+                if (rows.Length >= table.LiveRows(file))
                 {
                     plan.Remove(file);
                 }
                 else if (useVectors)
                 {
-                    DeletionVector old = file.DeletionVector is null
-                        ? DeletionVector.FromRows([])
-                        : DeletionVector.Read(fileSystem, file.DeletionVector);
-                    vectorFiles.Add((file, old.Union(DeletionVector.FromRows(rows))));
+                    marked.Add((file, rows));
                 }
                 else
                 {
-                    if (snapshot.ColumnMappingMode != ColumnMappingMode.None && snapshot.Schema.Fields.Any(f => DeltaKernelWrite.NeedsMapping(f.Type)))
-                        throw new PolarsException("Rewriting files of a table with column mapping inside nested columns is not supported yet.");
-                    using DataFrameHandle kept = PolarsWrapper.LazyCollect(
-                        DeltaKernelScan.ScanFile(fileSystem, root, snapshot, file, cloud, dropRows: rows), PlEngine.Auto);
+                    table.EnsureFilesWritable();
+                    using DataFrameHandle kept = PolarsWrapper.LazyCollect(table.ScanFile(file, dropRows: rows), PlEngine.Auto);
                     plan.CopiedRows += PolarsWrapper.DataFrameHeight(kept);
                     plan.Remove(file);
-                    plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(fileSystem, kept, snapshot.Schema, partitions, plan.Removes[^1].DeletionTimestamp!.Value));
+                    plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, kept, snapshot.Schema, table.PartitionColumns, plan.Now));
                     plan.Rewritten++;
                 }
             }
 
-            if (vectorFiles.Count > 0)
-            {
-                IReadOnlyList<DeletionVectorDescriptor> descriptors =
-                    DeletionVector.WriteFile(fileSystem, [.. vectorFiles.Select(v => v.Vector)]);
-                for (int i = 0; i < vectorFiles.Count; i++)
-                {
-                    AddAction file = vectorFiles[i].File;
-                    plan.Remove(file);
-                    plan.Adds.Add(new AddAction
-                    {
-                        Path = file.Path,
-                        PartitionValues = file.PartitionValues,
-                        Size = file.Size,
-                        ModificationTime = file.ModificationTime,
-                        DataChange = true,
-                        Stats = FileStats.WithLooseBounds(file.Stats),
-                        Tags = file.Tags,
-                        DeletionVector = descriptors[i],
-                        BaseRowId = file.BaseRowId,
-                        DefaultRowCommitVersion = file.DefaultRowCommitVersion,
-                        ClusteringProvider = file.ClusteringProvider,
-                    });
-                    plan.VectorsAdded++;
-                }
-            }
+            plan.MarkDeleted(table, marked);
 
-            if (deletedFrames.Count > 0)
+            // On a table with the change data feed, every deleted row is written as change data.
+            LazyFrameHandle? all = DmlTable.Concat(deletedFrames);
+            if (all is not null)
             {
-                LazyFrameHandle all = deletedFrames.Count == 1
-                    ? deletedFrames[0]
-                    : PolarsWrapper.LazyConcat([.. deletedFrames], PlConcatType.Vertical, rechunk: false, parallel: true, toSupertypes: false, maintainOrder: true);
-                deletedFrames.Clear();
-                LazyFrameHandle withType = PolarsWrapper.LazyWithColumns(all,
-                    [PolarsWrapper.Alias(PolarsWrapper.Lit("delete"), DeltaKernelScan.ChangeTypeColumn)]);
-                using DataFrameHandle deleted = PolarsWrapper.LazyCollect(withType, PlEngine.Auto);
-                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(fileSystem, deleted, snapshot.Schema, partitions));
+                using DataFrameHandle df = PolarsWrapper.LazyCollect(DmlTable.WithChangeType(all, "delete"), PlEngine.Auto);
+                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table.FileSystem, df, snapshot.Schema, table.PartitionColumns));
             }
         }
         finally
         {
             foreach (LazyFrameHandle frame in deletedFrames) frame.Dispose();
         }
-    }
-
-    /// <summary>The rows of a file that are not deleted: from its statistics when recorded, else counted.</summary>
-    private static long LiveRows(IFileSystem fileSystem, string root, Snapshot snapshot, AddAction file, CloudArgs cloud)
-    {
-        if (file.ParsedStats?.NumRecords is long records)
-            return records - (file.DeletionVector?.Cardinality ?? 0);
-        LazyFrameHandle count = PolarsWrapper.LazySelect(
-            DeltaKernelScan.ScanFile(fileSystem, root, snapshot, file, cloud), [PolarsWrapper.Alias(PolarsWrapper.Len(), "n")]);
-        using DataFrameHandle df = PolarsWrapper.LazyCollect(count, PlEngine.Auto);
-        using SeriesHandle n = PolarsWrapper.DataFrameGetColumn(df, "n");
-        using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
-        using SeriesHandle asLong = PolarsWrapper.SeriesCast(n, int64, strict: true, wrapNumerical: false);
-        return PolarsWrapper.SeriesGetInt64Fast(asLong, 0);
-    }
-
-    private static bool DeletionVectorsEnabled(Snapshot snapshot) =>
-        snapshot.Protocol.MinWriterVersion >= 7
-        && (snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.DeletionVectors)
-        && IsTrue(snapshot, TableFeatures.EnableDeletionVectorsKey);
-
-    private static bool ChangeFeedEnabled(Snapshot snapshot) => IsTrue(snapshot, ChangeFeed.EnableKey);
-
-    private static bool IsTrue(Snapshot snapshot, string key) =>
-        snapshot.Metadata.Configuration.TryGetValue(key, out string? value) && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
-
-    private static int[] Int32Column(DataFrameHandle df, string name)
-    {
-        using SeriesHandle column = PolarsWrapper.DataFrameGetColumn(df, name);
-        using SeriesHandle chunked = PolarsWrapper.SeriesRechunk(column);
-        var array = (Int32Array)PolarsWrapper.SeriesToArrow(chunked);
-        using (array) return array.Values.ToArray();
-    }
-
-    private static long[] Int64Column(DataFrameHandle df, string name)
-    {
-        using SeriesHandle column = PolarsWrapper.DataFrameGetColumn(df, name);
-        using SeriesHandle chunked = PolarsWrapper.SeriesRechunk(column);
-        var array = (Int64Array)PolarsWrapper.SeriesToArrow(chunked);
-        using (array) return array.Values.ToArray();
     }
 }

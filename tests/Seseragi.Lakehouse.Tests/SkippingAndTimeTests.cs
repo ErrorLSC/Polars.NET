@@ -202,6 +202,49 @@ public class FileFilterTests
         Assert.False(stats.TryGetMin(["flag"], out _));
         Assert.False(FileStats.Parse("""{"numRecords":1,"tightBounds":false}""")!.TightBounds);
     }
+
+    [Fact]
+    public void WidenedColumns_UseStatisticsOfTheOlderType()
+    {
+        // f was float and is double now; i was int, d was date, m was decimal(5,2).
+        StructType schema = StructType.Parse("""
+            {"type":"struct","fields":[
+              {"name":"f","type":"double","nullable":true,"metadata":{"delta.typeChanges":[{"fromType":"float","toType":"double"}]}},
+              {"name":"i","type":"long","nullable":true,"metadata":{"delta.typeChanges":[{"fromType":"integer","toType":"long"}]}},
+              {"name":"d","type":"timestamp_ntz","nullable":true,"metadata":{"delta.typeChanges":[{"fromType":"date","toType":"timestamp_ntz"}]}},
+              {"name":"m","type":"decimal(10,4)","nullable":true,"metadata":{"delta.typeChanges":[{"fromType":"decimal(5,2)","toType":"decimal(10,4)"}]}},
+              {"name":"g","type":"double","nullable":true,"metadata":{}}
+            ]}
+            """);
+        // A file from before the change: 0.1f is 0.100000001490116..., printed as 0.1.
+        var old = new AddAction
+        {
+            Path = "old.parquet",
+            Stats = """{"numRecords":1,"minValues":{"f":0.1,"i":7,"d":"2024-01-02","m":1.25,"g":0.1},"maxValues":{"f":0.1,"i":7,"d":"2024-01-02","m":1.25,"g":0.1},"nullCount":{"f":0,"i":0,"d":0,"m":0,"g":0}}""",
+        };
+        bool Might(Predicate p) => new FileFilter(schema, [], p).MightMatch(old);
+
+        Assert.True(Might(P.Gt(new ColumnPath("f"), 0.1)), "the float value is above the double 0.1");
+        Assert.True(Might(P.Ne(new ColumnPath("f"), 0.1)));
+        Assert.False(Might(P.Gt(new ColumnPath("f"), 0.1000001)));
+        Assert.False(Might(P.Lt(new ColumnPath("f"), 0.0999999)));
+        Assert.False(Might(P.Gt(new ColumnPath("g"), 0.1)), "an unwidened double keeps exact bounds");
+
+        Assert.True(Might(P.Eq(new ColumnPath("i"), 7L)));
+        Assert.False(Might(P.Gt(new ColumnPath("i"), 7L)));
+        Assert.True(Might(P.Eq(new ColumnPath("d"), new DateTime(2024, 1, 2))));
+        Assert.False(Might(P.Gt(new ColumnPath("d"), new DateTime(2024, 1, 2, 0, 0, 1))));
+        Assert.True(Might(P.Eq(new ColumnPath("m"), 1.25m)));
+        Assert.False(Might(P.Gt(new ColumnPath("m"), 1.25m)));
+    }
+
+    [Fact]
+    public void TypeWidening_IsAReaderFeatureTheKernelReads()
+    {
+        var metadata = new MetadataAction { Id = "t", SchemaString = """{"type":"struct","fields":[]}""" };
+        foreach (string feature in new[] { TableFeatures.TypeWidening, TableFeatures.TypeWideningPreview })
+            TableFeatures.EnsureReadable(new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = [feature], WriterFeatures = [feature] }, metadata);
+    }
 }
 
 public class TimeTravelTests
