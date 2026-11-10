@@ -25,6 +25,7 @@
     <Compile Include="IOTests.fs" />
     <Compile Include="ExcelTests.fs" />
     <Compile Include="DeltaTests.fs" />
+    <Compile Include="SeseragiDeltaDifferentialTests.fs" />
     <Compile Include="QueryTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />
@@ -66,6 +67,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.FSharp\Polars.FSharp.fsproj" />
+    <ProjectReference Include="..\..\kernel\Seseragi\Delta\Seseragi.Delta.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
