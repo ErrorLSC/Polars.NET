@@ -588,6 +588,9 @@ let ``Vacuum deletes replaced and orphan files on disk, and the table reads the 
         optimize path (128L * 1024L * 1024L) [] [] |> ignore       // replaces the east file and drops its vector
         File.WriteAllText(Path.Combine(path, "region=west", "orphan.parquet"), "never committed")
         File.SetLastWriteTimeUtc(Path.Combine(path, "region=west", "orphan.parquet"), DateTime.UtcNow.AddDays(-30.0))
+        delete path (pl.col "region" .== pl.lit "west") |> ignore   // the whole west file goes: its directory empties
+        Directory.CreateDirectory(Path.Combine(path, "region=north", "nested")) |> ignore
+        Directory.CreateDirectory(Path.Combine(path, ".staging")) |> ignore
         let before = Directory.GetFiles(path, "*", SearchOption.AllDirectories) |> Array.filter (fun f -> not (f.Contains "_delta_log"))
 
         // Removed moments ago: within the default 7 days only the month-old orphan would go, and a shorter
@@ -600,12 +603,84 @@ let ``Vacuum deletes replaced and orphan files on disk, and the table reads the 
         let r = DeltaKernelVacuum.Vacuum(path, 0.0, enforceRetention = false, full = true)
 
         Assert.Equal<string seq>(dry.Files, r.Files)
-        // The old east file, its deletion vector file, and the orphan.
-        Assert.Equal(3, r.Files.Count)
+        // The old east file, its deletion vector file, the west file and the orphan.
+        Assert.Equal(4, r.Files.Count)
         Assert.Contains("region=west/orphan.parquet", r.Files)
         Assert.Contains(r.Files, fun f -> f.StartsWith("deletion_vector_", StringComparison.Ordinal))
         let after = Directory.GetFiles(path, "*", SearchOption.AllDirectories) |> Array.filter (fun f -> not (f.Contains "_delta_log"))
-        Assert.Equal(before.Length - 3, after.Length)
-        Assert.Equal<int list>([ 1; 3; 4; 5; 6; 7; 8 ], ids path)
+        Assert.Equal(before.Length - 4, after.Length)
+        Assert.Equal<int list>([ 1; 3; 4 ], ids path)
+        // As Spark: directories left without files go, hidden ones stay.
+        Assert.Equal(3, r.Directories)
+        Assert.False(Directory.Exists(Path.Combine(path, "region=west")))
+        Assert.False(Directory.Exists(Path.Combine(path, "region=north")))
+        Assert.True(Directory.Exists(Path.Combine(path, ".staging")))
+        Assert.True(Directory.Exists(Path.Combine(path, "region=east")))
+        Assert.Equal(3L, metric (commitInfo path (Snapshot.Load(LocalFileSystem path)).Version) "numVacuumedDirectories")
         let history = Snapshot.Load(LocalFileSystem path)
         Assert.Equal("VACUUM END", (commitInfo path history.Version).GetProperty("operation").GetString()))
+
+// ---- restore and history ----
+
+[<Fact>]
+let ``Restore brings back an earlier version, by version or by time, and history lists every operation`` () =
+    withTable "restore" (fun path ->
+        use df = frame [ 1 .. 6 ] "east"
+        create path df [||] dvOn                                                                   // v0
+        delete path (pl.col "id" .< pl.lit 3) |> ignore                                            // v1
+        update path (Some(pl.col "id" .== pl.lit 6)) [ "price", pl.lit 0.0 ] |> ignore             // v2
+        use source = frame [ 6; 7 ] "west"
+        merge path source [ "id" ] [] false |> ignore                                              // v3
+        let v1Time = (DeltaKernelHistory.Read(path) |> Seq.find (fun e -> e.Version = 1L)).Timestamp
+
+        let r = DeltaKernelHistory.Restore(path, version = Nullable 1L)
+
+        Assert.Equal(Nullable 4L, r.Version)
+        Assert.Equal<int list>([ 3 .. 6 ], ids path)
+        use atOne = (new LazyFrame(DeltaKernelScan.Scan(path, Nullable 1L))).Collect().Sort(pl.col "id")
+        use now = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.True(now.Equals(atOne))
+
+        // By time: back to v0, all six rows; restoring to where the table already is commits nothing.
+        let r0 = DeltaKernelHistory.Restore(path, timestamp = Nullable(v1Time.AddMilliseconds(-1.0)))
+        Assert.Equal<int list>([ 1 .. 6 ], ids path)
+        Assert.False((DeltaKernelHistory.Restore(path, version = Nullable 0L)).Version.HasValue)
+
+        let history = DeltaKernelHistory.Read(path)
+        Assert.Equal<int64 list>([ 5L; 4L; 3L; 2L; 1L; 0L ], history |> Seq.map (fun e -> e.Version) |> List.ofSeq)
+        Assert.Equal<string list>(
+            [ "RESTORE"; "RESTORE"; "MERGE"; "UPDATE"; "DELETE"; "WRITE" ],
+            history |> Seq.map (fun e -> e.CommitInfo.Operation) |> List.ofSeq)
+        Assert.Equal(r0.Version, Nullable 5L)
+
+        // The JSON the public history reads: one object per commit, version and time set by the log.
+        use doc = JsonDocument.Parse(DeltaKernelHistory.ToJson(DeltaKernelHistory.Read(path, 2)))
+        let rows = doc.RootElement.EnumerateArray() |> List.ofSeq
+        Assert.Equal(2, rows.Length)
+        Assert.Equal(5L, rows[0].GetProperty("version").GetInt64())
+        Assert.Equal("0", rows[0].GetProperty("operationParameters").GetProperty("version").GetString())
+        Assert.True(rows[0].GetProperty("operationMetrics").TryGetProperty("numRestoredFiles") |> fst))
+
+// ---- failed operations ----
+
+[<Fact>]
+let ``A failed operation deletes the files it wrote`` () =
+    withTable "failed_write" (fun path ->
+        // id NOT NULL, deletion vectors on.
+        let schema = """{"type":"struct","fields":[{"name":"id","type":"integer","nullable":false,"metadata":{}},{"name":"v","type":"integer","nullable":true,"metadata":{}}]}"""
+        let fs = LocalFileSystem path
+        let protocol = ProtocolAction(MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = [| TableFeatures.DeletionVectors |], WriterFeatures = [| TableFeatures.DeletionVectors |])
+        let metadata = MetadataAction(Id = Guid.NewGuid().ToString(), SchemaString = schema, Configuration = config dvOn)
+        Transaction.Create(fs, protocol, metadata).Commit() |> ignore
+        use df = DataFrame.create [| Series.create("id", [ 1; 2; 3 ]); Series.create("v", [ 1; 2; 3 ]) |]
+        append path df
+        let files () = Directory.GetFiles(path, "*", SearchOption.AllDirectories) |> Array.filter (fun f -> not (f.Contains "_delta_log")) |> Array.sort
+
+        let before = files ()
+        // The deletion vector of the old row is written first; then the new row fails the NOT NULL check.
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () ->
+            update path (Some(pl.col "v" .== pl.lit 1)) [ "id", pl.litNull () ] |> ignore) |> ignore
+
+        Assert.Equal<string[]>(before, files ())
+        Assert.Equal(1L, Snapshot.Load(fs).Version)
+        Assert.Equal<int list>([ 1; 2; 3 ], ids path))

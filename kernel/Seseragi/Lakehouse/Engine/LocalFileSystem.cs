@@ -142,6 +142,34 @@ public sealed class LocalFileSystem : IWritableFileSystem
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<string> ListDirectories(string directory)
+    {
+        var dir = new DirectoryInfo(Resolve(directory));
+        if (!dir.Exists) return [];
+        var result = new List<string>();
+        foreach (DirectoryInfo sub in dir.EnumerateDirectories("*", SearchOption.AllDirectories))
+            result.Add(Path.GetRelativePath(Root, sub.FullName).Replace(Path.DirectorySeparatorChar, '/'));
+        result.Sort(StringComparer.Ordinal);
+        return result;
+    }
+
+    /// <inheritdoc/>
+    public bool DeleteDirectoryIfEmpty(string directory)
+    {
+        string target = Resolve(directory);
+        if (directory.Length == 0 || !Directory.Exists(target) || Directory.EnumerateFileSystemEntries(target).Any()) return false;
+        try
+        {
+            Directory.Delete(target, recursive: false);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false; // something was written into it meanwhile
+        }
+    }
+
+    /// <inheritdoc/>
     public bool Delete(string path)
     {
         string target = Resolve(path);

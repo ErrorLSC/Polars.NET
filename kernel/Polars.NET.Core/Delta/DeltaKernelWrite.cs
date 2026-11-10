@@ -44,7 +44,9 @@ internal static class DeltaKernelWrite
         IReadOnlyDictionary<string, string>? configuration = null)
     {
         bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IWritableFileSystem fileSystem = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        // Data files are deleted again if the write fails before its commit lands.
+        var fileSystem = new TrackingFileSystem(store);
         try
         {
             Snapshot? existing = TryLoad(fileSystem, tablePath, cloud);
@@ -126,7 +128,14 @@ internal static class DeltaKernelWrite
         }
         finally
         {
-            (fileSystem as IDisposable)?.Dispose();
+            try
+            {
+                fileSystem.Rollback();
+            }
+            finally
+            {
+                fileSystem.Dispose();
+            }
         }
     }
 
@@ -138,8 +147,7 @@ internal static class DeltaKernelWrite
     {
         try
         {
-            string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
-            Snapshot snapshot = Snapshot.Load(fileSystem, version, new EngineParquetReader(root, cloud));
+            Snapshot snapshot = Snapshot.Load(fileSystem, version, new EngineParquetReader(RootOf(fileSystem, tablePath), cloud));
             if (!Checkpoints.IsDue(snapshot)) return;
             Checkpoints.Write(fileSystem, snapshot);
             // With a new checkpoint, older log files may have become unnecessary.
@@ -155,14 +163,17 @@ internal static class DeltaKernelWrite
     {
         try
         {
-            string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
-            return Snapshot.Load(fileSystem, parquet: new EngineParquetReader(root, cloud));
+            return Snapshot.Load(fileSystem, parquet: new EngineParquetReader(RootOf(fileSystem, tablePath), cloud));
         }
         catch (DeltaTableNotFoundException)
         {
             return null;
         }
     }
+
+    /// <summary>The location data file paths are relative to: the local directory, or the URL.</summary>
+    internal static string RootOf(IFileSystem fileSystem, string tablePath) =>
+        (fileSystem is TrackingFileSystem tracking ? tracking.Inner : fileSystem) is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
 
     /// <summary>
     /// The lowest protocol for the schema and table properties: reader 1 / writer 2, writer 4 for the change data
@@ -315,7 +326,7 @@ internal static class DeltaKernelWrite
 
         void Collect(StructField field, string[] path, Func<ExprHandle>? parentsPresent)
         {
-            Func<ExprHandle> column = () => Access(path);
+            ExprHandle column() => Access(path);
             if (!field.Nullable)
             {
                 Func<ExprHandle>? present = parentsPresent;

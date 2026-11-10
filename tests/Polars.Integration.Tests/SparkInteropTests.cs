@@ -428,6 +428,40 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void Restore_ByEither_AndTheKernelReadsSparksHistory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            string table = Path.Combine(root, "restored");
+            CreateTable(table, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" }); // v0, v1
+            DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2)));             // v2
+            LocalSpark.Run("sql", table, "UPDATE {table} SET price = 0 WHERE id > 7");                                    // v3
+
+            // The kernel restores to v1 (before both deletes and updates); Spark reads the result and its change feed.
+            Assert.Equal(4, DeltaKernelHistory.Restore(table, version: 1).Version);
+            List<JsonDocument> spark = LocalSpark.Run("read_changes", table);
+            AssertSameRows(table, spark[0].RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            AssertSameRows(table + " (change feed)", spark[1].RootElement.GetProperty("rows"), KernelRows(ChangeFeedWithoutTime(table)));
+            Assert.Equal(10, spark[0].RootElement.GetProperty("rows").GetArrayLength());
+
+            // Spark restores to v2; the kernel reads it, and its history has Spark's operations as Spark wrote them.
+            JsonDocument afterSpark = LocalSpark.Run("sql", table, "RESTORE TABLE {table} TO VERSION AS OF 2")[0];
+            AssertSameRows(table, afterSpark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            var history = DeltaKernelHistory.Read(table);
+            Assert.Equal([5L, 4, 3, 2, 1, 0], history.Select(e => e.Version));
+            Assert.Equal(["RESTORE", "RESTORE", "UPDATE", "DELETE", "WRITE", "WRITE"], history.Select(e => e.CommitInfo!.Operation));
+            Assert.Contains("Apache-Spark", history[0].CommitInfo!.Json);
+            Assert.Contains(Kaminari.Seseragi.Lakehouse.Delta.Transaction.EngineInfo, history[1].CommitInfo!.Json);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void Kernel_ReadsWidenedColumns_SkipsSafely_AndRewritesOldFiles()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

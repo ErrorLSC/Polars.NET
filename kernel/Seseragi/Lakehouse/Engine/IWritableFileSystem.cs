@@ -25,4 +25,13 @@ public interface IWritableFileSystem : IFileSystem
     /// longer references.
     /// </summary>
     IReadOnlyList<FileEntry> ListAll(string directory);
+
+    /// <summary>
+    /// Every directory under <paramref name="directory"/> at any depth, relative to the table root. Stores without
+    /// real directories (object stores) have none.
+    /// </summary>
+    IReadOnlyList<string> ListDirectories(string directory) => [];
+
+    /// <summary>Deletes a directory when it is empty; returns whether it did. Stores without real directories never do.</summary>
+    bool DeleteDirectoryIfEmpty(string directory) => false;
 }

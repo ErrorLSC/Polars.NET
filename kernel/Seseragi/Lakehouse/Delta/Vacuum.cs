@@ -17,13 +17,15 @@ public enum VacuumMode
 /// <param name="Files">The files, relative to the table root.</param>
 /// <param name="Bytes">Their total size, when known (a lite vacuum knows the size the log recorded).</param>
 /// <param name="DryRun">Whether nothing was deleted.</param>
-public sealed record VacuumResult(IReadOnlyList<string> Files, long Bytes, bool DryRun);
+/// <param name="Directories">Empty directories removed (stores with real directories, full mode).</param>
+public sealed record VacuumResult(IReadOnlyList<string> Files, long Bytes, bool DryRun, int Directories = 0);
 
 /// <summary>
 /// Deletes data files the table no longer needs: not part of the latest version, and removed longer ago than the
 /// retention (<c>delta.deletedFileRetentionDuration</c>, 7 days by default), so time travel within the retention
 /// keeps working. Files written more recently than the retention are never deleted, since a writer may be about
-/// to commit them. The log itself is not touched (see <see cref="LogCleanup"/>).
+/// to commit them. As Spark, a full vacuum also removes directories left without files (not hidden ones). The log
+/// itself is not touched (see <see cref="LogCleanup"/>).
 /// </summary>
 public static class Vacuum
 {
@@ -90,7 +92,13 @@ public static class Vacuum
         }
         victims.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
         long bytes = victims.Sum(v => v.Size);
-        if (dryRun || victims.Count == 0) return new VacuumResult([.. victims.Select(v => v.Path)], bytes, dryRun);
+        if (dryRun) return new VacuumResult([.. victims.Select(v => v.Path)], bytes, DryRun: true);
+        // Directories that hold no file (any more): deepest first, so a parent empties after its children.
+        string[] emptyCandidates = mode == VacuumMode.Full
+            ? [.. fileSystem.ListDirectories("").Where(d => !IsHidden(d + "/f")).OrderByDescending(d => d.Count(c => c == '/')).ThenBy(d => d, StringComparer.Ordinal)]
+            : [];
+        if (victims.Count == 0)
+            return new VacuumResult([], 0, DryRun: false, emptyCandidates.Count(fileSystem.DeleteDirectoryIfEmpty));
 
         // As Spark: a commit before and after, without actions, so the history shows the vacuum.
         string Millis(TimeSpan t) => ((long)t.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
@@ -111,12 +119,14 @@ public static class Vacuum
             deletedBytes += size;
         }
 
+        int directories = emptyCandidates.Count(fileSystem.DeleteDirectoryIfEmpty);
+
         Transaction.Start(fileSystem, snapshot, "VACUUM END")
             .WithParameter("status", "COMPLETED")
             .WithMetric("numDeletedFiles", deleted.Count)
-            .WithMetric("numVacuumedDirectories", 0)
+            .WithMetric("numVacuumedDirectories", directories)
             .Commit(clock);
-        return new VacuumResult(deleted, deletedBytes, DryRun: false);
+        return new VacuumResult(deleted, deletedBytes, DryRun: false, directories);
     }
 
     private static void Reference(HashSet<string> referenced, string path, DeletionVectorDescriptor? vector)

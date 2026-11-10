@@ -42,22 +42,38 @@ internal sealed class DmlTable : IDisposable
     public static DmlTable Open(string tablePath, CloudArgs? cloud)
     {
         bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IWritableFileSystem fileSystem = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        // Files the operation writes are deleted again if it fails before its commit lands (see TrackingFileSystem).
+        var fileSystem = new TrackingFileSystem(store);
         try
         {
-            string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
+            string root = store is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
             Snapshot snapshot = DeltaKernelWrite.TryLoad(fileSystem, tablePath, cloud)
                 ?? throw new PolarsException($"No Delta table at {tablePath}.");
             return new DmlTable(tablePath, fileSystem, root, cloud, snapshot);
         }
         catch
         {
-            (fileSystem as IDisposable)?.Dispose();
+            fileSystem.Dispose();
             throw;
         }
     }
 
-    public void Dispose() => (FileSystem as IDisposable)?.Dispose();
+    /// <summary>
+    /// Ends the operation: files it wrote are deleted when its commit certainly did not land (it failed, or never
+    /// committed); after a commit, or when its fate is unknown, they stay. Then releases the storage.
+    /// </summary>
+    public void Dispose()
+    {
+        try
+        {
+            ((TrackingFileSystem)FileSystem).Rollback();
+        }
+        finally
+        {
+            ((TrackingFileSystem)FileSystem).Dispose();
+        }
+    }
 
     /// <summary>Whether new deleted rows are marked in deletion vectors: the feature is supported and turned on.</summary>
     public bool DeletionVectorsEnabled =>
