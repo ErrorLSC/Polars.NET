@@ -99,6 +99,8 @@ internal static class DeltaKernelWrite
 
             if (mode == KernelWriteMode.Overwrite && existing is not null)
             {
+                // Replacing the table depends on all of it: a concurrent change to it is a conflict.
+                transaction.ReadPredicate(null).ReadFiles(existing.Files);
                 foreach (AddAction old in existing.Files)
                 {
                     transaction.Add(new RemoveAction

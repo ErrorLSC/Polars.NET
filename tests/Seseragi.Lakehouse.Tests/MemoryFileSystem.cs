@@ -20,6 +20,11 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
 
     public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null)
     {
+        lock (_files) return ListLocked(directory, startFrom);
+    }
+
+    private List<FileEntry> ListLocked(string directory, string? startFrom)
+    {
         string prefix = directory.Length == 0 ? "" : directory.TrimEnd('/') + "/";
         var result = new List<FileEntry>();
         foreach (var (path, file) in _files)
@@ -59,8 +64,11 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
 
     public byte[]? ReadAll(string path)
     {
-        Reads.Add(path);
-        return _files.TryGetValue(path, out var file) ? file.Content : null;
+        lock (_files)
+        {
+            Reads.Add(path);
+            return _files.TryGetValue(path, out var file) ? file.Content : null;
+        }
     }
 
     public byte[]? ReadRange(string path, long offset, int length)

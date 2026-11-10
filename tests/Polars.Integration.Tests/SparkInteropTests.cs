@@ -126,6 +126,41 @@ public class SparkInteropTests
         }
     }
 
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void Spark_AndTheKernel_AppendConcurrently_WithoutLosingACommit()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            string table = Path.Combine(root, "shared");
+            using (var seed = DataFrame.FromColumns(new { id = new[] { 0 }, src = new[] { "seed" } }))
+                Write(table, seed, KernelWriteMode.ErrorIfExists);
+
+            const int sparkCommits = 12, kernelCommits = 24;
+            Task<List<JsonDocument>> spark = Task.Run(() => LocalSpark.Run("append", table, sparkCommits.ToString()));
+            // Kernel appends from several threads while Spark appends from its own process.
+            Parallel.For(0, kernelCommits, new ParallelOptions { MaxDegreeOfParallelism = 4 }, i =>
+            {
+                using var row = DataFrame.FromColumns(new { id = new[] { 1 + i }, src = new[] { "kernel" } });
+                DeltaKernelWrite.Write(table, PolarsWrapper.LazyClone(row.Lazy().Handle), KernelWriteMode.Append);
+            });
+            spark.Wait();
+
+            // Every commit landed, in one version each, and both readers see all rows.
+            var log = Directory.GetFiles(Path.Combine(table, "_delta_log"), "*.json").Select(Path.GetFileName).Order().ToList();
+            Assert.Equal(Enumerable.Range(0, 1 + sparkCommits + kernelCommits).Select(v => $"{v:D20}.json"), log);
+            JsonElement kernelRows = KernelRows(DeltaKernelScan.Scan(table));
+            Assert.Equal(1 + sparkCommits + kernelCommits, kernelRows.GetArrayLength());
+            List<JsonDocument> sparkFinal = LocalSpark.Run("read", table);
+            AssertSameRows(table, sparkFinal[0].RootElement.GetProperty("rows"), kernelRows);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static DataFrame Typed(int[] ids, string region) => DataFrame.FromColumns(new
     {
         id = ids,

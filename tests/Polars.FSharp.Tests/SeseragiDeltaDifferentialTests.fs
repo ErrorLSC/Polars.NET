@@ -684,29 +684,36 @@ let ``Tables the kernel commits are read by the engine at every version`` () =
         assertKernelAgrees path [ "region" ] |> ignore)
 
 [<Fact>]
-let ``Concurrent kernel commits on the local disk: one winner per version`` () =
+let ``Concurrent kernel commits on the local disk: appends all land, one per version`` () =
     withTable "kernel_race" (fun path ->
         let fs = LocalFileSystem path
         let schema = """{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"region","type":"string","nullable":true,"metadata":{}},{"name":"price","type":"double","nullable":true,"metadata":{}}]}"""
         let metadata = Actions.MetadataAction(Id = "race", SchemaString = schema, PartitionColumns = [| "region" |])
         Transaction.Create(fs, Actions.ProtocolAction(MinReaderVersion = 1, MinWriterVersion = 2), metadata).Commit() |> ignore
         let read = Snapshot.Load fs
-        let files = [ for i in 0..7 -> dataFile path [ i ] "east" ]
-        let wins =
-            files
-            |> List.toArray
+
+        // Without retries exactly one of the writers of version 1 wins.
+        let attempts =
+            [| for i in 0..7 -> dataFile path [ i ] "east" |]
             |> Array.Parallel.map (fun add ->
                 try
-                    Transaction.Start(LocalFileSystem path, read, "WRITE").Add(add).Commit() |> ignore
+                    Transaction.Start(LocalFileSystem path, read, "WRITE").Add(add).Commit(maxRetries = 0) |> ignore
                     1
                 with :? DeltaCommitConflictException -> 0)
-        Assert.Equal(1, Array.sum wins)
+        Assert.Equal(1, Array.sum attempts)
+
+        // With retries every blind append lands, each in its own version.
+        let versions =
+            [| for i in 10..17 -> dataFile path [ i ] "west" |]
+            |> Array.Parallel.map (fun add -> Transaction.Start(LocalFileSystem path, read, "WRITE").Add(add).Commit())
+        Assert.Equal<int64 list>([ 2L .. 9L ], versions |> Array.sort |> List.ofArray)
         let latest = Snapshot.Load fs
-        Assert.Equal(1L, latest.Version)
-        Assert.Single(latest.Files) |> ignore
+        Assert.Equal(9L, latest.Version)
+        Assert.Equal(9, latest.Files.Count)
         // No temporary file is left in the log.
         Assert.Empty(Directory.GetFiles(Path.Combine(path, "_delta_log"), "*.tmp", SearchOption.AllDirectories))
-        Assert.Equal(2, Directory.GetFiles(Path.Combine(path, "_delta_log")).Length))
+        Assert.Equal(10, Directory.GetFiles(Path.Combine(path, "_delta_log")).Length)
+        assertKernelAgrees path [ "region" ] |> ignore)
 
 // ---------------------------------------------------------------------------------------------------------------
 // Data written through the kernel

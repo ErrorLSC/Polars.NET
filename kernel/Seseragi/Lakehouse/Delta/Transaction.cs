@@ -6,14 +6,31 @@ using Kaminari.Seseragi.Lakehouse.Engine;
 namespace Kaminari.Seseragi.Lakehouse.Delta;
 
 /// <summary>
-/// Another writer committed the version this transaction meant to write. The transaction did not happen; whether
-/// it may be retried on the newer state is for the conflict check to decide.
+/// Another writer committed first, in a way this transaction cannot be moved past: what it committed conflicts with
+/// what this transaction read or changes (or a table was created where one now exists, or the retries ran out).
+/// The transaction did not happen.
 /// </summary>
-public sealed class DeltaCommitConflictException(long version)
-    : DeltaException($"Version {version} was committed by another writer first.")
+public sealed class DeltaCommitConflictException(long version, string reason)
+    : DeltaException($"The commit conflicts with version {version}, written by another writer: {reason}.")
 {
-    /// <summary>The version that was taken.</summary>
+    /// <summary>The version of the other writer's commit.</summary>
     public long Version { get; } = version;
+
+    /// <summary>What conflicts.</summary>
+    public string Reason { get; } = reason;
+}
+
+/// <summary>Which concurrent commits a transaction tolerates (the isolation levels of Delta).</summary>
+public enum DeltaIsolationLevel
+{
+    /// <summary>
+    /// The default: files another writer appended blindly (without reading the table) may be committed alongside
+    /// this transaction even where this transaction read; everything else as <see cref="Serializable"/>.
+    /// </summary>
+    WriteSerializable,
+
+    /// <summary>Any file another writer added where this transaction read is a conflict.</summary>
+    Serializable,
 }
 
 /// <summary>
@@ -37,6 +54,9 @@ public sealed class Transaction
     private readonly Dictionary<string, string> _operationParameters = new(StringComparer.Ordinal);
     private ProtocolAction? _protocol;
     private MetadataAction? _metadata;
+    private readonly List<Kaminari.Seseragi.Lakehouse.Skipping.Predicate> _readPredicates = [];
+    private bool _readWholeTable;
+    private readonly HashSet<(string Path, string? Dv)> _readFiles = [];
 
     private Transaction(IWritableFileSystem fileSystem, Snapshot? read, string operation)
     {
@@ -65,6 +85,30 @@ public sealed class Transaction
         TableFeatures.EnsureWritable(read.Protocol, read.Metadata);
         return new Transaction(fileSystem, read, operation);
     }
+
+    /// <summary>How strictly concurrent commits are checked; WriteSerializable by default.</summary>
+    public DeltaIsolationLevel IsolationLevel { get; set; } = DeltaIsolationLevel.WriteSerializable;
+
+    /// <summary>
+    /// Records that the transaction read the rows matching <paramref name="predicate"/> (null: the whole table), so a
+    /// concurrent commit adding such rows is a conflict. A transaction that records no read is a blind append.
+    /// </summary>
+    public Transaction ReadPredicate(Kaminari.Seseragi.Lakehouse.Skipping.Predicate? predicate)
+    {
+        if (predicate is null) _readWholeTable = true;
+        else _readPredicates.Add(predicate);
+        return this;
+    }
+
+    /// <summary>Records data files the transaction read, so a concurrent commit removing one of them is a conflict.</summary>
+    public Transaction ReadFiles(IEnumerable<AddAction> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        foreach (AddAction file in files) _readFiles.Add((file.Path, file.DeletionVector?.UniqueId));
+        return this;
+    }
+
+    private bool ReadAnything => _readWholeTable || _readPredicates.Count > 0 || _readFiles.Count > 0;
 
     /// <summary>The operation name recorded in <c>commitInfo</c>, such as WRITE or DELETE.</summary>
     public string Operation { get; set; }
@@ -117,34 +161,94 @@ public sealed class Transaction
         return this;
     }
 
-    /// <summary>Writes the commit. Returns the version it became.</summary>
+    /// <summary>
+    /// Writes the commit. Returns the version it became. When another writer committed the next version first, the
+    /// commits in between are checked against this transaction; if none conflicts, the transaction is committed
+    /// after them.
+    /// </summary>
     /// <param name="now">The writer's clock; the current time when null.</param>
-    /// <exception cref="DeltaCommitConflictException">Another writer committed that version first.</exception>
+    /// <param name="maxRetries">How often to move past concurrent commits before giving up.</param>
+    /// <exception cref="DeltaCommitConflictException">A concurrent commit conflicts, or the retries ran out.</exception>
     /// <exception cref="DeltaProtocolException">The commit would break a rule of the protocol or of the table.</exception>
-    public long Commit(DateTimeOffset? now = null)
+    public long Commit(DateTimeOffset? now = null, int maxRetries = 20)
     {
-        long version = ReadVersion + 1;
         ProtocolAction protocol = _protocol ?? _read?.Protocol ?? throw new DeltaProtocolException("A new table needs a protocol action.");
         MetadataAction metadata = _metadata ?? _read?.Metadata ?? throw new DeltaProtocolException("A new table needs a metaData action.");
         TableFeatures.EnsureWritable(protocol, metadata);
         Validate(metadata);
-
         long timestamp = (now ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
-        long? inCommitTimestamp = InCommitTimestamp(metadata, timestamp);
 
-        var actions = new List<DeltaAction>(_actions.Count + 3)
+        long version = ReadVersion + 1;
+        for (int attempt = 0; ; attempt++)
         {
-            // The commitInfo goes first: with in-commit timestamps the protocol requires it there.
-            CommitInfo(timestamp, inCommitTimestamp),
-        };
-        if (_protocol is not null) actions.Add(_protocol);
-        if (_metadata is not null) actions.Add(_metadata);
-        actions.AddRange(_actions);
+            long? inCommitTimestamp = InCommitTimestamp(metadata, timestamp, version - 1);
+            var actions = new List<DeltaAction>(_actions.Count + 3)
+            {
+                // The commitInfo goes first: with in-commit timestamps the protocol requires it there.
+                CommitInfo(timestamp, inCommitTimestamp),
+            };
+            if (_protocol is not null) actions.Add(_protocol);
+            if (_metadata is not null) actions.Add(_metadata);
+            actions.AddRange(_actions);
 
-        byte[] content = ActionWriter.WriteCommit(actions);
-        if (!_fileSystem.TryCreate(LogFile.CommitPath(version), content))
-            throw new DeltaCommitConflictException(version);
-        return version;
+            if (_fileSystem.TryCreate(LogFile.CommitPath(version), ActionWriter.WriteCommit(actions)))
+                return version;
+
+            if (_read is null) throw new DeltaCommitConflictException(version, "the table was created concurrently");
+            if (attempt >= maxRetries) throw new DeltaCommitConflictException(version, $"still behind after {maxRetries} retries");
+
+            // Check every commit made since the last attempt, then try after the newest of them.
+            while (_fileSystem.ReadAll(LogFile.CommitPath(version)) is byte[] winner)
+            {
+                CheckConflicts(version, ActionParser.ParseCommit(winner));
+                version++;
+            }
+        }
+    }
+
+    /// <summary>Throws when a concurrent commit conflicts with what this transaction read or changes.</summary>
+    private void CheckConflicts(long version, List<DeltaAction> winner)
+    {
+        var info = winner.OfType<CommitInfoAction>().FirstOrDefault();
+        bool winnerBlindAppend = info is not null && IsBlindAppend(info);
+
+        var ourRemoves = _actions.OfType<RemoveAction>().Select(r => (r.Path, r.DeletionVector?.UniqueId)).ToHashSet();
+        var ourApps = _actions.OfType<TxnAction>().Select(t => t.AppId).ToHashSet(StringComparer.Ordinal);
+        var ourDomains = _actions.OfType<DomainMetadataAction>().Select(d => d.Domain).ToHashSet(StringComparer.Ordinal);
+        Skipping.FileFilter[] filters = [.. _readPredicates.Select(p => new Skipping.FileFilter(_read!.Schema, _read.PartitionColumns, p))];
+
+        foreach (DeltaAction action in winner)
+        {
+            switch (action)
+            {
+                case ProtocolAction:
+                    throw new DeltaCommitConflictException(version, "it changed the protocol");
+                case MetadataAction:
+                    throw new DeltaCommitConflictException(version, "it changed the table metadata");
+                case TxnAction txn when ourApps.Contains(txn.AppId):
+                    throw new DeltaCommitConflictException(version, $"it also committed for application '{txn.AppId}'");
+                case DomainMetadataAction domain when ourDomains.Contains(domain.Domain):
+                    throw new DeltaCommitConflictException(version, $"it also changed the domain '{domain.Domain}'");
+                case RemoveAction remove when _readFiles.Contains((remove.Path, remove.DeletionVector?.UniqueId)):
+                    throw new DeltaCommitConflictException(version, $"it removed the file {remove.Path}, which this transaction read");
+                case RemoveAction remove when ourRemoves.Contains((remove.Path, remove.DeletionVector?.UniqueId)):
+                    throw new DeltaCommitConflictException(version, $"it removed the file {remove.Path}, which this transaction removes too");
+                case AddAction { DataChange: true } add when !(winnerBlindAppend && IsolationLevel == DeltaIsolationLevel.WriteSerializable):
+                    if (_readWholeTable || filters.Any(f => f.MightMatch(add)))
+                        throw new DeltaCommitConflictException(version, $"it added the file {add.Path}, where this transaction read");
+                    break;
+            }
+        }
+
+        // A transaction that changes the protocol or metadata does not move past any concurrent commit.
+        if ((_protocol is not null || _metadata is not null) && winner.Any(a => a is not CommitInfoAction))
+            throw new DeltaCommitConflictException(version, "this transaction changes the protocol or metadata");
+    }
+
+    private static bool IsBlindAppend(CommitInfoAction info)
+    {
+        using JsonDocument doc = JsonDocument.Parse(info.Json);
+        return doc.RootElement.TryGetProperty("isBlindAppend", out JsonElement v) && v.ValueKind == JsonValueKind.True;
     }
 
     private void Validate(MetadataAction metadata)
@@ -170,7 +274,7 @@ public sealed class Transaction
         protocol.MinWriterVersion >= 7 && (protocol.WriterFeatures ?? []).Contains(TableFeatures.DeletionVectors);
 
     /// <summary>The in-commit timestamp to write, or null when the table does not use them.</summary>
-    private long? InCommitTimestamp(MetadataAction metadata, long now)
+    private long? InCommitTimestamp(MetadataAction metadata, long now, long previousVersion)
     {
         if (!IsOn(metadata)) return null;
         if (_read is null) return now; // on from the first version
@@ -179,10 +283,10 @@ public sealed class Transaction
             throw new DeltaProtocolException("Turning in-commit timestamps on for an existing table is not supported yet.");
 
         // Strictly after the previous commit's own in-commit timestamp, whatever the clock says.
-        byte[] previous = _fileSystem.ReadAll(LogFile.CommitPath(_read.Version))
-            ?? throw new DeltaException($"The commit of version {_read.Version} is missing.");
+        byte[] previous = _fileSystem.ReadAll(LogFile.CommitPath(previousVersion))
+            ?? throw new DeltaException($"The commit of version {previousVersion} is missing.");
         long? last = ActionParser.ParseCommit(previous).OfType<CommitInfoAction>().FirstOrDefault()?.InCommitTimestamp;
-        if (last is null) throw new DeltaException($"The commit of version {_read.Version} has no in-commit timestamp.");
+        if (last is null) throw new DeltaException($"The commit of version {previousVersion} has no in-commit timestamp.");
         return Math.Max(now, last.Value + 1);
 
         static bool IsOn(MetadataAction m) =>
@@ -192,7 +296,8 @@ public sealed class Transaction
 
     private CommitInfoAction CommitInfo(long timestamp, long? inCommitTimestamp)
     {
-        bool blindAppend = _read is not null && _actions.All(a => a is AddAction { DataChange: true } or CdcAction or TxnAction);
+        bool blindAppend = _read is not null && !ReadAnything && _protocol is null && _metadata is null
+            && _actions.All(a => a is AddAction { DataChange: true } or CdcAction or TxnAction);
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
         {

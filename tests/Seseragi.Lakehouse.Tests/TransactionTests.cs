@@ -93,32 +93,137 @@ public class TransactionTests
     }
 
     [Fact]
-    public void TwoWritersOfOneVersion_OnlyOneWins()
+    public void ConcurrentBlindAppends_AllCommit_OneVersionEach()
     {
         var fs = new MemoryFileSystem();
         Transaction.Create(fs, s_protocol, Metadata()).Commit();
         Snapshot read = Snapshot.Load(fs);
 
-        var outcomes = new int[16];
-        Parallel.For(0, outcomes.Length, i =>
+        var versions = new long[16];
+        Parallel.For(0, versions.Length, i => versions[i] = Transaction.Start(fs, read, "WRITE").Add(Add($"f{i}.parquet")).Commit());
+
+        Assert.Equal(Enumerable.Range(1, versions.Length).Select(v => (long)v), versions.Order());
+        Snapshot latest = Snapshot.Load(fs);
+        Assert.Equal(versions.Length, latest.Version);
+        Assert.Equal(versions.Length, latest.Files.Count);
+        // Every commit still says which version it read.
+        using JsonDocument last = CommitInfo(fs, versions.Length);
+        Assert.Equal(0, last.RootElement.GetProperty("readVersion").GetInt64());
+    }
+
+    [Fact]
+    public void WithoutRetries_OnlyOneWriterOfAVersionWins()
+    {
+        var fs = new MemoryFileSystem();
+        Transaction.Create(fs, s_protocol, Metadata()).Commit();
+        Snapshot read = Snapshot.Load(fs);
+
+        var wins = new bool[8];
+        Parallel.For(0, wins.Length, i =>
         {
             try
             {
-                Transaction.Start(fs, read, "WRITE").Add(Add($"f{i}.parquet")).Commit();
-                outcomes[i] = 1;
+                Transaction.Start(fs, read, "WRITE").Add(Add($"f{i}.parquet")).Commit(maxRetries: 0);
+                wins[i] = true;
             }
             catch (DeltaCommitConflictException e)
             {
                 Assert.Equal(1, e.Version);
-                outcomes[i] = 2;
             }
         });
-        Assert.Equal(1, outcomes.Count(o => o == 1));
-        Assert.Equal(outcomes.Length - 1, outcomes.Count(o => o == 2));
+        Assert.Equal(1, wins.Count(w => w));
         Assert.Single(Snapshot.Load(fs).Files);
 
-        // Creating a table where one exists is a conflict too.
+        // Creating a table where one exists is a conflict, never retried.
         Assert.Throws<DeltaCommitConflictException>(() => Transaction.Create(fs, s_protocol, Metadata()).Commit());
+    }
+
+    /// <summary>A table with files in partitions x and y; two transactions start from the same version.</summary>
+    private static (MemoryFileSystem Fs, Snapshot Read) TwoPartitions()
+    {
+        var fs = new MemoryFileSystem();
+        Transaction.Create(fs, s_protocol, Metadata()).Add(Add("x1.parquet", "x")).Add(Add("y1.parquet", "y")).Commit();
+        return (fs, Snapshot.Load(fs));
+    }
+
+    private static Kaminari.Seseragi.Lakehouse.Skipping.Predicate InPartition(string p) =>
+        Kaminari.Seseragi.Lakehouse.Skipping.Predicate.Eq("p", p);
+
+    [Fact]
+    public void ReadPartition_ConflictsOnlyWithDataAddedThere()
+    {
+        // The winner read the table (not a blind append) and added to y; this transaction read only x.
+        var (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "MERGE").ReadPredicate(null).Add(Add("y2.parquet", "y")).Commit();
+        long v = Transaction.Start(fs, read, "UPDATE").ReadPredicate(InPartition("x")).ReadFiles(read.Files.Where(f => f.Path == "x1.parquet"))
+            .Add(new RemoveAction { Path = "x1.parquet" }).Add(Add("x2.parquet", "x")).Commit();
+        Assert.Equal(2, v);
+
+        // Now a winner adds to x, which this transaction read.
+        (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "MERGE").ReadPredicate(null).Add(Add("x3.parquet", "x")).Commit();
+        var e = Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "UPDATE").ReadPredicate(InPartition("x")).Add(Add("x4.parquet", "x")).Commit());
+        Assert.Equal(1, e.Version);
+        Assert.Contains("x3.parquet", e.Reason);
+    }
+
+    [Fact]
+    public void BlindAppends_ConflictOnlyUnderSerializable()
+    {
+        var (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "WRITE").Add(Add("x5.parquet", "x")).Commit(); // blind
+        Transaction.Start(fs, read, "DELETE").ReadPredicate(InPartition("x")).Add(Add("x6.parquet", "x")).Commit();
+
+        (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "WRITE").Add(Add("x5.parquet", "x")).Commit();
+        var strict = Transaction.Start(fs, read, "DELETE").ReadPredicate(InPartition("x")).Add(Add("x6.parquet", "x"));
+        strict.IsolationLevel = DeltaIsolationLevel.Serializable;
+        Assert.Throws<DeltaCommitConflictException>(() => strict.Commit());
+    }
+
+    [Fact]
+    public void RemovedFiles_ConflictWithReadersAndOtherRemovers()
+    {
+        var (fs, read) = TwoPartitions();
+        AddAction x1 = read.Files.Single(f => f.Path == "x1.parquet");
+        Transaction.Start(fs, read, "DELETE").ReadFiles([x1]).Add(new RemoveAction { Path = "x1.parquet" }).Commit();
+
+        // Read the removed file: conflict, even when only reading.
+        Assert.Contains("read", Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "UPDATE").ReadFiles([x1]).Add(Add("x9.parquet", "x")).Commit()).Reason);
+        // Remove it again: conflict.
+        Assert.Contains("removes too", Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "DELETE").Add(new RemoveAction { Path = "x1.parquet" }).Commit()).Reason);
+        // A file nobody else touched may still be removed.
+        Transaction.Start(fs, read, "DELETE").ReadFiles(read.Files.Where(f => f.Path == "y1.parquet"))
+            .Add(new RemoveAction { Path = "y1.parquet" }).Commit();
+    }
+
+    [Fact]
+    public void MetadataProtocolAppIdsAndDomains_Conflict()
+    {
+        var (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "SET TBLPROPERTIES").Add(Metadata(("k", "v"))).Commit();
+        Assert.Contains("metadata", Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "WRITE").Add(Add("z.parquet")).Commit()).Reason);
+
+        (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "WRITE").Add(Add("z1.parquet")).Commit();
+        Assert.Contains("protocol or metadata", Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "SET TBLPROPERTIES").Add(Metadata(("k", "v"))).Commit()).Reason);
+
+        (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "WRITE").Add(new TxnAction { AppId = "stream", Version = 5 }).Add(Add("z2.parquet")).Commit();
+        Assert.Contains("stream", Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "WRITE").Add(new TxnAction { AppId = "stream", Version = 5 }).Add(Add("z3.parquet")).Commit()).Reason);
+        // Another application's progress is not a conflict.
+        Transaction.Start(fs, read, "WRITE").Add(new TxnAction { AppId = "other", Version = 1 }).Add(Add("z4.parquet")).Commit();
+
+        (fs, read) = TwoPartitions();
+        Transaction.Start(fs, read, "CLUSTER").Add(new DomainMetadataAction { Domain = "d", Configuration = "{}" }).Commit();
+        Assert.Throws<DeltaCommitConflictException>(() =>
+            Transaction.Start(fs, read, "CLUSTER").Add(new DomainMetadataAction { Domain = "d", Configuration = "{\"x\":1}" }).Commit());
     }
 
     [Fact]
@@ -144,7 +249,11 @@ public class TransactionTests
         Transaction.Create(fs, protocol, Metadata(("delta.enableInCommitTimestamps", "true"))).Commit(at);
 
         // A clock that went backwards still gives a later timestamp.
-        Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("a.parquet")).Commit(at.AddSeconds(-30));
+        Snapshot v0 = Snapshot.Load(fs);
+        Transaction.Start(fs, v0, "WRITE").Add(Add("a.parquet")).Commit(at.AddSeconds(-30));
+        // A transaction moved past a concurrent commit takes its timestamp from that commit.
+        Transaction.Start(fs, v0, "WRITE").Add(Add("b.parquet")).Commit(at.AddSeconds(-60));
+        using JsonDocument third = CommitInfo(fs, 2);
 
         using JsonDocument first = CommitInfo(fs, 0);
         using JsonDocument second = CommitInfo(fs, 1);
@@ -152,6 +261,7 @@ public class TransactionTests
         long t1 = second.RootElement.GetProperty("inCommitTimestamp").GetInt64();
         Assert.Equal(at.ToUnixTimeMilliseconds(), t0);
         Assert.Equal(t0 + 1, t1);
+        Assert.Equal(t1 + 1, third.RootElement.GetProperty("inCommitTimestamp").GetInt64());
 
         // The reader's timeline sees them.
         var timeline = CommitTimeline.Load(fs);

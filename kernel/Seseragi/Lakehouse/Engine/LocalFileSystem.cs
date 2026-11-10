@@ -38,7 +38,14 @@ public sealed class LocalFileSystem : IWritableFileSystem
         foreach (FileInfo file in dir.EnumerateFiles())
         {
             if (startFrom is not null && string.CompareOrdinal(file.Name, startFrom) < 0) continue;
-            result.Add(new FileEntry(prefix + file.Name, file.Length, file.LastWriteTimeUtc));
+            try
+            {
+                result.Add(new FileEntry(prefix + file.Name, file.Length, file.LastWriteTimeUtc));
+            }
+            catch (FileNotFoundException)
+            {
+                // Gone since it was listed, such as another writer's temporary file: not part of the listing.
+            }
         }
         result.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
         return result;
