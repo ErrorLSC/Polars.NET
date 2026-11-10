@@ -2,7 +2,6 @@ namespace Polars.FSharp.Tests
 
 open Xunit
 open Kaminari.Samidare.IR
-open Kaminari.Samidare.IR.ScalarExprOps
 
 /// Join reordering over hand-built plans, through the complete optimizer (it reorders only what the order analysis frees).
 module JoinReorderingTests =

@@ -467,6 +467,33 @@ unsafe internal partial class NativeBindings
         // --- Unified Options ---
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_lazyframe_sink_parquet_host_paths(
+        LazyFrameHandle lf,
+        string base_path,
+        string[] key_names,
+        nuint key_len,
+        [MarshalAs(UnmanagedType.U1)] bool keys_pre_grouped,
+        nuint max_rows_per_file,
+        ulong approx_bytes_per_file,
+        nint path_callback,
+        nint path_user,
+        PlParquetCompression compression,
+        int compression_level,
+        nuint row_group_size,
+        nuint data_page_size,
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order,
+        PlSyncOnClose sync_on_close,
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len
+    );
     [LibraryImport(LibName)]
     public static partial void pl_lazyframe_sink_parquet_callback(
         LazyFrameHandle lf,

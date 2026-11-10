@@ -332,3 +332,142 @@ pub extern "C" fn pl_lazyframe_sink_parquet_callback(
         })
     })
 }
+
+// ==========================================
+// Partitioned sink whose file paths the host chooses
+// ==========================================
+
+/// Host callback naming the next file of a partition.
+///
+/// * `user`      - opaque host state
+/// * `keys`      - the partition key values (one row, key columns only); owned by the host from here on
+/// * `index`     - the index of the file within its partition
+/// * `out_path`  - buffer of `capacity` bytes for the UTF-8 path, relative to the base path
+/// * `out_len`   - receives the path length
+///
+/// Returns 0 on success, non-zero on failure (the host keeps the actual exception).
+pub type FfiFilePathCallback = extern "C" fn(
+    user: *mut c_void,
+    keys: *mut crate::types::DataFrameContext,
+    index: usize,
+    out_path: *mut u8,
+    capacity: usize,
+    out_len: *mut usize,
+) -> i32;
+
+/// The host state, disabled once the FFI call returns: Polars may keep the callback beyond it.
+struct HostPathProvider {
+    callback: FfiFilePathCallback,
+    user: *mut c_void,
+    active: bool,
+}
+
+// The host callback may be invoked from any thread; calls are serialized by the Mutex around this.
+unsafe impl Send for HostPathProvider {}
+
+/// Sinks `lf` as Parquet files under `base_path` (local directory or cloud URL), split by the partition key
+/// columns (left out of the files) and by size, streaming. Every file's path comes from the host callback.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_sink_parquet_host_paths(
+    lf_ptr: *mut LazyFrameContext,
+    base_path_ptr: *const c_char,
+    key_names: *const *const c_char,
+    key_len: usize,
+    keys_pre_grouped: bool,
+    max_rows_per_file: usize,
+    approx_bytes_per_file: u64,
+    path_callback: FfiFilePathCallback,
+    path_user: *mut c_void,
+
+    // --- Parquet Options ---
+    compression: u8,
+    compression_level: i32,
+    row_group_size: usize,
+    data_page_size: usize,
+
+    // --- Unified Options ---
+    maintain_order: bool,
+    sync_on_close: u8,
+
+    // --- Cloud Params ---
+    cloud_provider: u8,
+    cloud_retries: usize,
+    cloud_retry_timeout_ms: u64,
+    cloud_retry_init_backoff_ms: u64,
+    cloud_retry_max_backoff_ms: u64,
+    cloud_cache_ttl: u64,
+    cloud_keys: *const *const c_char,
+    cloud_values: *const *const c_char,
+    cloud_len: usize,
+) {
+    ffi_try_void!({
+        let provider = Arc::new(std::sync::Mutex::new(HostPathProvider { callback: path_callback, user: path_user, active: true }));
+        // On every way out (also a panic), the host state may be freed: Polars must not call back any more.
+        let _disable = DisableOnDrop(provider.clone());
+        if lf_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Null pointer passed to the host-path sink".into()));
+        }
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let base_path = ptr_to_str(base_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+
+        let mut keys: Vec<Expr> = Vec::with_capacity(key_len);
+        for i in 0..key_len {
+            let name = unsafe { ptr_to_str(*key_names.add(i)) }.map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+            keys.push(col(name));
+        }
+        let partition_strategy = if keys.is_empty() {
+            PartitionStrategy::FileSize
+        } else {
+            PartitionStrategy::Keyed { keys, include_keys: false, keys_pre_grouped }
+        };
+
+        let for_polars = provider.clone();
+        let function: file_provider::FileProviderFunction = PlanCallback::Rust(SpecialEq::new(Arc::new(
+            move |args: file_provider::FileProviderArgs| -> PolarsResult<file_provider::FileProviderReturn> {
+                let guard = for_polars.lock().unwrap_or_else(|p| p.into_inner());
+                if !guard.active {
+                    return Err(PolarsError::ComputeError("The host path callback was used after the sink returned".into()));
+                }
+                let keys = Box::into_raw(Box::new(crate::types::DataFrameContext { df: args.partition_keys.as_ref().clone() }));
+                let mut buffer = vec![0u8; 4096];
+                let mut len: usize = 0;
+                let code = (guard.callback)(guard.user, keys, args.index_in_partition, buffer.as_mut_ptr(), buffer.len(), &mut len);
+                if code != 0 {
+                    return Err(PolarsError::ComputeError(format!("The host path callback failed (code {code})").into()));
+                }
+                buffer.truncate(len.min(4096));
+                let path = String::from_utf8(buffer).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+                Ok(file_provider::FileProviderReturn::Path(path))
+            },
+        )));
+
+        let destination = SinkDestination::Partitioned {
+            base_path: PlRefPath::from(base_path),
+            file_path_provider: Some(file_provider::FileProviderType::Function(function)),
+            partition_strategy,
+            max_rows_per_file: if max_rows_per_file == 0 { IdxSize::MAX } else { max_rows_per_file as IdxSize },
+            approximate_bytes_per_file: if approx_bytes_per_file == 0 { u64::MAX } else { approx_bytes_per_file },
+        };
+
+        // Statistics always on: the host reads them back from the footers.
+        let write_options = build_parquet_write_options(compression, compression_level, true, row_group_size, data_page_size, 0)?;
+        let unified_args = unsafe {
+            build_unified_sink_args(
+                false, maintain_order, sync_on_close, cloud_provider, cloud_retries, cloud_retry_timeout_ms,
+                cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl, cloud_keys, cloud_values, cloud_len,
+            )
+        };
+        lf_ctx.inner
+            .sink(destination, FileWriteFormat::Parquet(write_options), unified_args)?
+            .collect_with_engine(Engine::Streaming)?;
+        Ok(())
+    })
+}
+
+struct DisableOnDrop(Arc<std::sync::Mutex<HostPathProvider>>);
+
+impl Drop for DisableOnDrop {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).active = false;
+    }
+}

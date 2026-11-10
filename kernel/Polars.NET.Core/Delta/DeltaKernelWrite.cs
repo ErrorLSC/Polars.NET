@@ -5,6 +5,7 @@ using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Lakehouse.Parquet;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Helpers;
@@ -21,6 +22,37 @@ internal enum KernelWriteMode
     Append,
     /// <summary>Replace the rows of the table.</summary>
     Overwrite,
+    /// <summary>Write nothing when the table exists.</summary>
+    Ignore,
+}
+
+/// <summary>How a write lays out its data files.</summary>
+/// <param name="MaxRowsPerFile">The most rows in one file; 0 for no limit.</param>
+/// <param name="ApproxBytesPerFile">The approximate in-memory size of the rows of one file (on disk the file is
+/// smaller, being compressed); null for the table's <c>delta.targetFileSize</c>, else 128 MiB; 0 for no limit.</param>
+/// <param name="Compression">The Parquet compression.</param>
+/// <param name="CompressionLevel">The compression level; -1 for the codec's default.</param>
+/// <param name="RowGroupSize">Rows per row group; 0 for the engine's default.</param>
+/// <param name="DataPageSize">Bytes per data page; 0 for the engine's default.</param>
+/// <param name="KeysPreGrouped">The rows come grouped by partition already (lets the sink buffer less).</param>
+/// <param name="MaintainOrder">Keep the order of the rows within each file.</param>
+/// <param name="SyncOnClose">Sync local files to disk when they are closed.</param>
+internal sealed record KernelWriteOptions(
+    ulong MaxRowsPerFile = 0,
+    ulong? ApproxBytesPerFile = null,
+    PlParquetCompression Compression = PlParquetCompression.Snappy,
+    int CompressionLevel = -1,
+    int RowGroupSize = 0,
+    int DataPageSize = 0,
+    bool KeysPreGrouped = false,
+    bool MaintainOrder = true,
+    PlSyncOnClose SyncOnClose = PlSyncOnClose.None)
+{
+    /// <summary>The defaults.</summary>
+    public static KernelWriteOptions Default { get; } = new();
+
+    /// <summary>The file size Spark compacts toward, and the default here.</summary>
+    public const long DefaultTargetFileSize = 128L * 1024 * 1024;
 }
 
 /// <summary>
@@ -43,8 +75,10 @@ internal static class DeltaKernelWrite
     /// widening on, widens column types); an overwrite replaces the schema and partitioning with the data's.</param>
     public static long Write(
         string tablePath, LazyFrameHandle data, KernelWriteMode mode, string[]? partitionBy = null, CloudArgs? cloud = null,
-        IReadOnlyDictionary<string, string>? configuration = null, bool canEvolve = false)
+        IReadOnlyDictionary<string, string>? configuration = null, bool canEvolve = false, KernelWriteOptions? options = null)
     {
+        options ??= KernelWriteOptions.Default;
+        using LazyFrameHandle owned = data; // consumed by the sink; disposed here when the write fails before it
         bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
         IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
         // Data files are deleted again if the write fails before its commit lands.
@@ -55,8 +89,8 @@ internal static class DeltaKernelWrite
             if (existing is not null && mode == KernelWriteMode.ErrorIfExists)
                 throw new PolarsException($"A Delta table already exists at {tablePath}.");
 
-            using DataFrameHandle collected = PolarsWrapper.LazyCollect(data, PlEngine.Auto);
-            StructType incoming = SchemaOf(collected);
+            if (existing is not null && mode == KernelWriteMode.Ignore) return existing.Version;
+            StructType incoming = SchemaOf(data);
 
             StructType schema;
             string[] partitions;
@@ -121,14 +155,19 @@ internal static class DeltaKernelWrite
                 if (existing.ColumnMappingMode != ColumnMappingMode.None && schema.Fields.Any(f => NeedsMapping(f.Type)))
                     throw new PolarsException("Writing to a table with column mapping inside nested columns is not supported yet.");
             }
-            transaction.WithParameter("mode", mode == KernelWriteMode.Overwrite ? "Overwrite" : mode == KernelWriteMode.Append ? "Append" : "ErrorIfExists")
+            transaction.WithParameter("mode", mode switch
+            {
+                KernelWriteMode.Overwrite => "Overwrite",
+                KernelWriteMode.Append => "Append",
+                KernelWriteMode.Ignore => "Ignore",
+                _ => "ErrorIfExists",
+            })
                        .WithParameter("partitionBy", JsonText.StringArray(partitions));
 
-            // Rows in the table's column order and exact types, then one data file per partition.
-            using DataFrameHandle normalized = Normalize(collected, schema);
-            EnsureNotNull(normalized, schema);
+            // The rows streamed in the table's column order and exact types, split by partition and size.
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            foreach (AddAction add in WriteFiles(fileSystem, normalized, schema, partitions, now))
+            IReadOnlyDictionary<string, string>? tableProperties = existing?.Metadata.Configuration ?? configuration;
+            foreach (AddAction add in StreamFiles(fileSystem, tablePath, data, schema, partitions, now, options, tableProperties, cloud))
                 transaction.Add(add);
 
             if (mode == KernelWriteMode.Overwrite && existing is not null)
@@ -224,37 +263,25 @@ internal static class DeltaKernelWrite
         bool changeFeed = On(ChangeFeed.EnableKey);
         bool mapping = configuration.TryGetValue(TableFeatures.ColumnMappingModeKey, out string? mode) && mode is "name" or "id";
         bool widening = On(SchemaEvolution.EnableTypeWideningKey);
+        bool inCommitTimestamps = On(Kaminari.Seseragi.Lakehouse.Delta.Log.CommitTimeline.InCommitTimestampsKey);
+        bool v2Checkpoint = configuration.TryGetValue("delta.checkpointPolicy", out string? policy) && policy == "v2";
 
-        if (!ntz && !vectors && !widening)
+        if (!ntz && !vectors && !widening && !inCommitTimestamps && !v2Checkpoint)
             return mapping
                 ? new ProtocolAction { MinReaderVersion = 2, MinWriterVersion = 5 } // column mapping implies the change data feed's writer 4
                 : new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = changeFeed ? 4 : 2 };
 
-        var reader = new List<string>();
-        // Writer 7 lists every feature, the ones writer 2 implied included.
-        var writer = new List<string> { TableFeatures.AppendOnly, TableFeatures.Invariants };
-        if (changeFeed) writer.Add(TableFeatures.ChangeDataFeed);
-        if (ntz)
-        {
-            reader.Add(TableFeatures.TimestampNtz);
-            writer.Add(TableFeatures.TimestampNtz);
-        }
-        if (vectors)
-        {
-            reader.Add(TableFeatures.DeletionVectors);
-            writer.Add(TableFeatures.DeletionVectors);
-        }
-        if (mapping)
-        {
-            reader.Add(TableFeatures.ColumnMapping);
-            writer.Add(TableFeatures.ColumnMapping);
-        }
-        if (widening)
-        {
-            reader.Add(TableFeatures.TypeWidening);
-            writer.Add(TableFeatures.TypeWidening);
-        }
-        return new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = reader, WriterFeatures = writer };
+        // A feature no legacy version implies: table features, listed from 1/2 up as an ALTER would list them
+        // (writer-only features keep reader 1, column mapping alone reader 2).
+        var features = new List<string>();
+        if (changeFeed) features.Add(TableFeatures.ChangeDataFeed);
+        if (ntz) features.Add(TableFeatures.TimestampNtz);
+        if (vectors) features.Add(TableFeatures.DeletionVectors);
+        if (mapping) features.Add(TableFeatures.ColumnMapping);
+        if (widening) features.Add(TableFeatures.TypeWidening);
+        if (inCommitTimestamps) features.Add(TableFeatures.InCommitTimestamp);
+        if (v2Checkpoint) features.Add(TableFeatures.V2Checkpoint);
+        return TableFeatures.WithFeatures(new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, features);
     }
 
     private static bool AnyType(DeltaType type, Func<DeltaType, bool> test) => test(type) || type switch
@@ -283,6 +310,12 @@ internal static class DeltaKernelWrite
     internal static StructType SchemaOf(DataFrameHandle df)
     {
         using LazyFrameHandle lf = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df));
+        return SchemaOf(lf);
+    }
+
+    /// <summary>The Delta schema of a lazy frame's columns, from its plan (nothing is computed).</summary>
+    internal static StructType SchemaOf(LazyFrameHandle lf)
+    {
         var fields = new List<StructField>();
         foreach (var (name, type) in PolarsSchemaExtractor.GetFields(lf))
         {
@@ -386,7 +419,7 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>The rows in the table's column order, every column cast to the exact type the table reads.</summary>
-    private static DataFrameHandle Normalize(DataFrameHandle df, StructType schema)
+    internal static DataFrameHandle Normalize(DataFrameHandle df, StructType schema)
     {
         var present = SchemaOf(df).Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         var exprs = new ExprHandle[schema.Fields.Count];
@@ -407,6 +440,134 @@ internal static class DeltaKernelWrite
     // ------------------------------------------------------------------
     // Data files
     // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Streams the rows of <paramref name="data"/> (consumed) into data files: the engine's partitioned sink splits
+    /// them by partition and size and writes each file at a path chosen here; the statistics come from the file
+    /// footers afterwards. Nothing is collected, except to check NOT NULL fields inside structs.
+    /// </summary>
+    private static List<AddAction> StreamFiles(
+        TrackingFileSystem fileSystem, string tablePath, LazyFrameHandle data, StructType schema, string[] partitions, long now,
+        KernelWriteOptions options, IReadOnlyDictionary<string, string>? tableProperties, CloudArgs? cloud)
+    {
+        LazyFrameHandle rows = NormalizeLazy(data, schema);
+        if (schema.Fields.Any(f => f.Type is StructType s && HasNotNullInside(s)))
+        {
+            // A null inside a null struct is fine, which file statistics cannot tell apart: check the rows.
+            using DataFrameHandle collected = PolarsWrapper.LazyCollect(rows, PlEngine.Auto);
+            EnsureNotNull(collected, schema);
+            rows = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(collected));
+        }
+
+        StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
+        // Partition columns under their names (the sink keys on them and leaves them out of the files), data
+        // columns under their physical names.
+        ExprHandle[] columns =
+        [
+            .. partitions.Select(PolarsWrapper.Col),
+            .. dataFields.Select(f => PolarsWrapper.Alias(PolarsWrapper.Col(f.Name), f.PhysicalName)),
+        ];
+        using LazyFrameHandle shaped = PolarsWrapper.LazySelect(rows, columns); // consumed by the sink
+
+        var written = new List<(string Relative, Dictionary<string, string?> Values)>();
+        string suffix = CodecSuffix(options.Compression);
+        string[] notNullPartitions = [.. partitions.Where(p => !schema.Field(p)!.Nullable)];
+        HostPathSink.Sink(
+            shaped, RootOf(fileSystem, tablePath), partitions, options.KeysPreGrouped, options.MaxRowsPerFile,
+            options.ApproxBytesPerFile ?? TargetFileSize(tableProperties),
+            (keys, index) =>
+            {
+                Dictionary<string, string?> values = PartitionValues(keys, schema, partitions);
+                foreach (string p in notNullPartitions)
+                {
+                    if (values[p] is null)
+                        throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {p}.");
+                }
+                string directory = string.Concat(partitions.Select(p =>
+                    $"{EscapePartitionName(schema.Field(p)!.PhysicalName)}={EscapePartitionName(values[p] ?? HiveDefaultPartition)}/"));
+                // Spark's names: part-00000-UUID-c000.snappy.parquet.
+                string relative = $"{directory}part-{index:D5}-{Guid.NewGuid()}-c000{suffix}";
+                fileSystem.Track(relative); // deleted again if the write fails
+                written.Add((relative, values));
+                return relative;
+            },
+            options.Compression, options.CompressionLevel, options.RowGroupSize, options.DataPageSize, options.MaintainOrder,
+            options.SyncOnClose, cloud);
+
+        // Sizes from one listing per directory (the store has no per-file size call), then each footer.
+        var sizes = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (string directory in written.Select(w => DirectoryOf(w.Relative)).Distinct(StringComparer.Ordinal))
+        {
+            foreach (FileEntry entry in fileSystem.List(directory)) sizes[entry.Path] = entry.Size;
+        }
+        string[] notNullColumns = [.. dataFields.Where(f => !f.Nullable).Select(f => f.PhysicalName)];
+        var adds = new List<AddAction>(written.Count);
+        foreach (var (relative, values) in written)
+        {
+            if (!sizes.TryGetValue(relative, out long size))
+                throw new PolarsException($"The data file {relative} was not found after it was written.");
+            ParquetMetadata footer = ParquetMetadata.Read(fileSystem, relative, size);
+            if (notNullColumns.Length > 0)
+            {
+                IReadOnlyDictionary<string, long> nulls = FileStatistics.NullCounts(footer);
+                string[] violated = [.. dataFields.Where(f => !f.Nullable && (!nulls.TryGetValue(f.PhysicalName, out long n) || n > 0)).Select(f => f.Name)];
+                if (violated.Length > 0)
+                    throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {string.Join(", ", violated)}.");
+            }
+            adds.Add(new AddAction
+            {
+                Path = EncodeLogPath(relative),
+                PartitionValues = partitions.ToDictionary(p => schema.Field(p)!.PhysicalName, p => values[p]),
+                Size = size,
+                ModificationTime = now,
+                DataChange = true,
+                Stats = FileStatistics.FromParquet(footer, dataFields),
+            });
+        }
+        return adds;
+
+        static string DirectoryOf(string relative) => relative.LastIndexOf('/') is int i and >= 0 ? relative[..i] : "";
+    }
+
+    private static bool HasNotNullInside(StructType type) =>
+        type.Fields.Any(f => !f.Nullable || (f.Type is StructType s && HasNotNullInside(s)));
+
+    /// <summary>The file size the table compacts toward (<c>delta.targetFileSize</c>, in bytes), else 128 MiB.</summary>
+    private static ulong TargetFileSize(IReadOnlyDictionary<string, string>? properties) =>
+        properties is not null && properties.TryGetValue("delta.targetFileSize", out string? text)
+            && ulong.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out ulong bytes) && bytes > 0
+            ? bytes
+            : (ulong)KernelWriteOptions.DefaultTargetFileSize;
+
+    /// <summary>The file name ending Spark gives a codec.</summary>
+    private static string CodecSuffix(PlParquetCompression compression) => compression switch
+    {
+        PlParquetCompression.Uncompressed => ".parquet",
+        PlParquetCompression.Snappy => ".snappy.parquet",
+        PlParquetCompression.Gzip => ".gz.parquet",
+        PlParquetCompression.Brotli => ".br.parquet",
+        PlParquetCompression.ZSTD => ".zstd.parquet",
+        PlParquetCompression.Lz4Raw => ".lz4raw.parquet",
+        _ => ".parquet",
+    };
+
+    /// <summary>The rows (consumed) in the table's column order, every column cast to the exact type the table reads.</summary>
+    internal static LazyFrameHandle NormalizeLazy(LazyFrameHandle lf, StructType schema)
+    {
+        var present = SchemaOf(lf).Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        var exprs = new ExprHandle[schema.Fields.Count];
+        for (int i = 0; i < exprs.Length; i++)
+        {
+            StructField field = schema.Fields[i];
+            using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
+            // A column the data lacks is null (the schema check allowed it).
+            ExprHandle value = present.Contains(field.Name) ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
+            exprs[i] = PolarsWrapper.Alias(
+                PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
+                field.Name);
+        }
+        return PolarsWrapper.LazySelect(lf, exprs);
+    }
 
     /// <summary>Writes rows (table columns, logical names) as data files, one per partition.</summary>
     internal static List<AddAction> WriteFiles(IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, long now) =>
@@ -512,7 +673,7 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>The <c>stats</c> JSON of a data file: row count, and per column minimum, maximum and null count.</summary>
-    private static string Statistics(DataFrameHandle group, StructField[] fields)
+    internal static string Statistics(DataFrameHandle group, StructField[] fields)
     {
         var exprs = new List<ExprHandle>();
         var withBounds = new List<StructField>();

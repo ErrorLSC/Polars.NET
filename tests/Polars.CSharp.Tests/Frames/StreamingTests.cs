@@ -2,7 +2,6 @@ using System.Diagnostics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Pl = Polars.CSharp.Polars;
-using Polars.NET.Core.Data;
 using Xunit.Abstractions;
 using Apache.Arrow.Ipc;
 using System.Data;

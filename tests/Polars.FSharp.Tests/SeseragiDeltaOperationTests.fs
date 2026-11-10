@@ -816,3 +816,22 @@ let ``Overwrite with evolution and no partitionBy leaves the table unpartitioned
         writeWith path again KernelWriteMode.Overwrite null true
         Assert.Empty(Snapshot.Load(LocalFileSystem path).PartitionColumns)
         Assert.Equal<int list>([ 3 ], ids path))
+
+[<Fact>]
+let ``Creating a table with in-commit timestamps or v2 checkpoints brings their features`` () =
+    withTable "create_features" (fun path ->
+        let ictPath = Path.Combine(path, "ict")
+        create ictPath (frame [ 1; 2 ] "east") [||] [ ("delta.enableInCommitTimestamps", "true") ]
+        let ict = Snapshot.Load(LocalFileSystem ictPath)
+        Assert.Equal((1, 7), (ict.Protocol.MinReaderVersion, ict.Protocol.MinWriterVersion))
+        Assert.Contains(TableFeatures.InCommitTimestamp, ict.Protocol.WriterFeatures)
+        Assert.Contains("\"inCommitTimestamp\"", File.ReadAllText(Path.Combine(ictPath, "_delta_log", "00000000000000000000.json")))
+        append ictPath (frame [ 3 ] "west")
+        Assert.Equal<int list>([ 1; 2; 3 ], ids ictPath)
+
+        let v2Path = Path.Combine(path, "v2")
+        create v2Path (frame [ 1; 2 ] "east") [||] [ ("delta.checkpointPolicy", "v2") ]
+        let v2 = Snapshot.Load(LocalFileSystem v2Path)
+        Assert.Equal((3, 7), (v2.Protocol.MinReaderVersion, v2.Protocol.MinWriterVersion))
+        Assert.Contains(TableFeatures.V2Checkpoint, v2.Protocol.ReaderFeatures)
+        Assert.Contains(TableFeatures.V2Checkpoint, v2.Protocol.WriterFeatures))

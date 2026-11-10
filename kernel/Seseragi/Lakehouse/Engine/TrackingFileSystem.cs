@@ -25,6 +25,16 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
     /// <summary>The wrapped storage.</summary>
     public IWritableFileSystem Inner { get; } = inner ?? throw new ArgumentNullException(nameof(inner));
 
+    /// <summary>
+    /// Records a file about to be written to this storage by another writer (the engine's own), so a rollback deletes
+    /// it too. Rollback tolerates a tracked file that never appeared.
+    /// </summary>
+    public void Track(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        lock (_created) _created.Add(path);
+    }
+
     /// <summary>The files created so far, outside the log.</summary>
     public IReadOnlyList<string> Created => _created;
 
@@ -57,7 +67,10 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
         if (!IsCommit(path))
         {
             bool created = Inner.TryCreate(path, content);
-            if (created && !path.StartsWith("_delta_log/", StringComparison.Ordinal)) _created.Add(path);
+            if (created && !path.StartsWith("_delta_log/", StringComparison.Ordinal))
+            {
+                lock (_created) _created.Add(path);
+            }
             return created;
         }
         try

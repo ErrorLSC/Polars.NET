@@ -52,11 +52,6 @@ public static class DeltaTableFeatures
     // /// Enables V2 Checkpointing (JSON + Parquet sidecars).
     // /// </summary>
     // public const string V2Checkpoint = "v2Checkpoint";
-
-    /// <summary>
-    /// Enables IcebergCompatV1
-    /// </summary>
-    public const string IcebergCompatV1 = "IcebergCompatV1";
 }
 
 /// <summary>

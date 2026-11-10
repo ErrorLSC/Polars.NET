@@ -47,12 +47,6 @@ module DeltaTableFeatures =
     [<Literal>]
     let TimestampWithoutTimezone = "TimestampWithoutTimezone"
 
-    /// <summary>
-    /// Enables IcebergCompatV1
-    /// </summary>
-    [<Literal>]
-    let IcebergCompatV1 = "IcebergCompatV1"
-
 /// <summary>
 /// Common configuration keys for Delta Tables.
 /// </summary>
