@@ -5,7 +5,7 @@ namespace Polars.NET.Core.Delta;
 
 /// <summary>
 /// Table properties and table features of a Delta table through the managed kernel (see
-/// <see cref="AlterTable"/>). Not reachable from the public API yet.
+/// <see cref="AlterTable"/>). The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelAlter
 {

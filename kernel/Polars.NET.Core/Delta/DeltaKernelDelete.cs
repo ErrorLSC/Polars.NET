@@ -22,7 +22,7 @@ internal sealed record DeltaDeleteResult(
 /// Deletes rows from a Delta table through the managed kernel. The engine finds the matching rows file by file; per
 /// file the kernel removes it (every live row matched), marks the rows in a deletion vector (the table has them
 /// enabled), or has the engine rewrite it without them. On a table with the change data feed, the deleted rows are
-/// also written as change data. Not reachable from the public API yet.
+/// also written as change data. The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelDelete
 {

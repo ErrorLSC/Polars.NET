@@ -37,7 +37,7 @@ Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programmi
 - [Expressions & Computations]({baseUrl}/articles/expressions): Column selection, arithmetic, Boolean logic, type casting, string transformations, temporal parsing, and list operations.
 - [LazyFrame & Query Optimization]({baseUrl}/articles/lazy): Execution plans (`Explain()`), logical optimization, predicate & projection pushdown, common subplan elimination, and streaming out-of-core execution.
 - [Time Series & Temporal Analytics]({baseUrl}/articles/timeseries): Temporal types (`Date`, `Datetime`, `Duration`), `Expr.Dt` namespaces, timezone conversions, rolling window aggregations, and dynamic group-by.
-- [Delta Lake & ACID Lakehouse]({baseUrl}/articles/delta): Native `delta-rs` ACID transactions, Time Travel, metadata history, file vacuuming/compaction, CDC feed, and SQL MERGE.
+- [Delta Lake & ACID Lakehouse]({baseUrl}/articles/delta): Managed Delta kernel (checked against Spark): ACID transactions, Time Travel, metadata history, file vacuuming/compaction, Change Data Feed, and SQL MERGE.
 
 ## Language Paradigms & Idioms
 
@@ -166,10 +166,10 @@ sb.AppendLine("   - `.SemiJoin` and `.AntiJoin` do not exist on `IQueryable`; us
 sb.AppendLine("   - To extract back to DataFrame: `.ToDataFrame()` or `.ToLazyFrame()`.") |> ignore
 sb.AppendLine() |> ignore
 sb.AppendLine("7. **Delta Lake Storage**:") |> ignore
-sb.AppendLine("   - Read: `DataFrame.ReadDelta(path, version = 2L)` or `DataFrame.ScanDelta(path)`.") |> ignore
-sb.AppendLine("   - Write: `df.WriteDelta(path, mode = SaveMode.Append)`.") |> ignore
-sb.AppendLine("   - Maintenance: `Delta.History(path)`, `Delta.Optimize(path)`, `Delta.Vacuum(path, retentionHours = 168.0)`.") |> ignore
-sb.AppendLine("   - Change Data Feed is read-only: `Delta.ReadChangeDataFeed` works, but Polars.NET does not write to a table with `delta.enableChangeDataFeed` set (`Unsupported table features required`). This is by design: the native library is built without DataFusion.") |> ignore
+sb.AppendLine("   - Read: `DataFrame.ReadDelta(path, version = 2UL)` or `LazyFrame.ScanDelta(path)`.") |> ignore
+sb.AppendLine("   - Write: `df.WriteDelta(path, mode = DeltaSaveMode.Append)`.") |> ignore
+sb.AppendLine("   - Maintenance: `Delta.History(path)`, `Delta.Optimize(path)`, `Delta.Vacuum(path, retentionHours = 168)`.") |> ignore
+sb.AppendLine("   - Change Data Feed: writers feed it on tables with `delta.enableChangeDataFeed`; `Delta.ReadChangeDataFeed` reads only versions where it was on (as Spark). A new table's first write is version 0.") |> ignore
 sb.AppendLine() |> ignore
 sb.AppendLine("8. **Literal Strings in `When / Then / Otherwise`**:") |> ignore
 sb.AppendLine("   - In C#, `.Then(\"x\")` and `.Otherwise(\"x\")` take a bare string as a column name. Write `.Then(Lit(\"x\"))` for a text value.") |> ignore

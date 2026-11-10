@@ -2,15 +2,18 @@
 
 [Delta Lake](https://delta.io/) is an open storage format that brings **ACID transactions**, **Time Travel**, **metadata versioning**, and **high-throughput MERGE/Upsert** capabilities on top of Apache Parquet data files.
 
-Traditional .NET applications accessing Delta Lake often rely on external JVM bridges, Apache Spark clusters, or REST services. **Polars.NET integrates native Rust `delta-rs` bindings**, allowing you to read, write, time-travel, and maintain Delta Lake tables directly within a single .NET process without any JVM dependencies.
+Traditional .NET applications accessing Delta Lake often rely on external JVM bridges, Apache Spark clusters, or REST services. **Polars.NET implements the Delta protocol in managed code** (the Seseragi kernel): it reads and commits the transaction log itself and lets the Polars engine read and write the Parquet data files, so you can read, write, time-travel, and maintain Delta Lake tables within a single .NET process without any JVM dependencies. Its behaviour is checked against Apache Spark with delta-spark, in both directions: tables either one writes, the other reads and writes.
 
 ---
 
 ## 1. Reading, Writing & Partitioning
 
 Polars.NET supports both Eager (`DataFrame`) and Lazy (`LazyFrame`) modes for Delta Lake tables:
-* **Reading**: Automatically parses the `_delta_log` transaction protocol and pushes down partition filters.
-* **Writing**: Atomically writes Parquet files and commits ACID transactions to the Delta transaction log.
+* **Reading**: Resolves the table from the `_delta_log` (checkpoints, deletion vectors, column mapping, type widening) and scans its files; LINQ queries also skip files by their statistics.
+* **Writing**: Streams the rows into Parquet files (nothing is collected in memory), split by partition and by size, and commits them as one ACID transaction. Statistics for data skipping come from the files' footers.
+
+> [!NOTE] File sizes
+> `approxBytesPerFile` and the table's `delta.targetFileSize` (128 MB when unset) are measured the way the engine estimates rows **in memory**. Files on disk are smaller, being compressed: often several times smaller.
 
 <div class="pl-pipeline">
   <div class="pl-step">
@@ -89,7 +92,7 @@ let collected =
 
 ## 2. Time Travel & Point-in-Time Auditing
 
-Every commit to a Delta table records a discrete snapshot in the transaction log. You can query any prior snapshot by **Version** or by ISO-8601 **Timestamp**:
+Every commit to a Delta table records a discrete snapshot in the transaction log; the first write to a new table is version 0. You can query any prior snapshot by **Version** or by ISO-8601 **Timestamp** (a time without an offset is UTC; a commit's time is the time its log file was written, or its in-commit timestamp when the table has them):
 
 ::: code-group
 
@@ -158,8 +161,8 @@ let newVersion = Delta.Restore("./lake/devices", version = 1UL)
 Frequent incremental writes create many small Parquet files. This fragmentation degrades read performance.
 
 Polars.NET provides native table maintenance operations:
-* **Bin-packing**: Merges small files into target sizes (e.g. 128 MB).
-* **Z-Order Clustering**: Constructs multidimensional Space-Filling curves across high-cardinality filter columns to accelerate Parquet data skipping.
+* **Bin-packing**: Merges small files into target sizes (e.g. 128 MB), and materializes deletion vectors.
+* **Z-Order Clustering**: Constructs multidimensional Space-Filling curves across high-cardinality filter columns to accelerate Parquet data skipping. As in Spark, partition filters may name partition columns only, and Z-order columns may not be partition columns.
 * **Vacuum**: Purges obsolete data files older than the configured retention threshold.
 
 ::: code-group
@@ -204,10 +207,10 @@ let deletedFiles =
 
 ## 5. Change Data Feed (CDC)
 
-When `DeltaTableProperties.EnableChangeDataFeed` is enabled, row-level mutations are recorded in the Delta log. Consumers can subscribe to these mutations incrementally without scanning the full table:
+When `DeltaTableProperties.EnableChangeDataFeed` is enabled, row-level mutations are recorded in the Delta log: writes, deletes, merges and restores feed it. Consumers can subscribe to these mutations incrementally without scanning the full table.
 
-> [!WARNING] Writing to a CDF-Enabled Table
-> Polars.NET reads the change data feed but does not write to a table with `delta.enableChangeDataFeed` set. By design, the native library is built without DataFusion, which delta-rs requires to commit to such a table, so `WriteDelta` and the other writers fail with `Unsupported table features required`. Enable the property only on tables that another engine, such as Spark, writes to.
+> [!NOTE] Reading the feed
+> As in Spark, the feed can be read only for versions at which it was enabled; a range that starts earlier is refused. `_commit_version` is `Int64` and `_commit_timestamp` is `Datetime(us, UTC)`.
 
 ::: code-group
 
@@ -252,7 +255,7 @@ let changes = cdcStream.Collect()
 
 In complex ETL pipelines, out-of-order evaluations of matched and non-matched conditions can cause unexpected data overwrites.
 
-Polars.NET provides `MergeDeltaOrdered`, ensuring strict evaluation matching ANSI SQL MERGE semantics:
+Polars.NET provides `MergeDeltaOrdered`, ensuring strict evaluation matching ANSI SQL MERGE semantics. As in Spark: a source row with a null key matches nothing, several source rows matching one target row are an error only when that row is updated or deleted, and source values are cast to the table's column types:
 
 ::: code-group
 
@@ -307,4 +310,11 @@ sourceBatch.MergeDeltaOrdered("./lake/devices", [| "Id" |], canEvolve = true)
 > [!TIP] High-Throughput Updates and Deletions
 > By default, Delta Lake uses **Copy-on-Write (CoW)**: updating or deleting a single row requires rewriting the entire containing Parquet file.
 > 
-> When Deletion Vectors are enabled via `Delta.AddFeature(path, DeltaTableFeatures.DeletionVectors)`, Polars.NET switches to **Merge-on-Read (MoR)**. Deleted rows are recorded in lightweight bitmap vector files without rewriting underlying Parquet files. During subsequent `Delta.Optimize` operations, affected partitions are compacted and rewritten cleanly in the background.
+> When Deletion Vectors are enabled via `Delta.AddFeature(path, DeltaTableFeatures.DeletionVectors)` (which also sets `delta.enableDeletionVectors`), Polars.NET switches to **Merge-on-Read (MoR)**. Deleted rows are recorded in lightweight bitmap vector files without rewriting underlying Parquet files. During subsequent `Delta.Optimize` operations, affected partitions are compacted and rewritten cleanly in the background.
+
+---
+
+## 7. Concurrency
+
+Writers coordinate through the log alone: a commit is a put-if-absent of the next log file. When another writer committed first, a commit that does not conflict with it lands after it; a delete, update, merge or optimize that does conflict is planned again from the new table state and retried, up to `POLARS_DELTA_MAX_RETRIES` times (5 by default). Files written by a failed attempt are removed again.
+

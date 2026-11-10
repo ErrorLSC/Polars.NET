@@ -4,7 +4,6 @@ mod utils;
 mod types;
 mod expr;
 mod pl_io;
-mod delta;
 mod eager;
 mod lazy;
 mod udf;

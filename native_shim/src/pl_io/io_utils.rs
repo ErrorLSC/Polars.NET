@@ -60,36 +60,6 @@ pub(crate) fn build_cloud_options_from_params(
     Some(opts)
 }
 
-/// Builds `CloudOptions` directly from an options HashMap.
-/// Output type matches `polars_lazy::scan::parquet::ScanArgsParquet.cloud_options` (`Option<CloudOptions>`).
-pub(crate) fn build_cloud_options_from_map(
-    provider_code: u8,
-    retries: usize,
-    retry_timeout_ms: u64,      
-    retry_init_backoff_ms: u64, 
-    retry_max_backoff_ms: u64,  
-    cache_ttl: u64,
-    options: &std::collections::HashMap<String, String>,
-) -> Option<CloudOptions> {
-    if provider_code == 0 {
-        return None;
-    }
-
-    let params: Vec<(String, String)> = options
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-
-    build_cloud_options_from_params(
-        provider_code,
-        retries,
-        retry_timeout_ms,
-        retry_init_backoff_ms,
-        retry_max_backoff_ms,
-        cache_ttl,
-        params,
-    )
-}
 
 /// FFI helper: Parses C raw pointers and delegates to the core builder.
 pub(crate) unsafe fn build_cloud_options(
@@ -134,40 +104,6 @@ pub(crate) unsafe fn build_cloud_options(
     )
 }
 
-/// Builds `UnifiedSinkArgs` from an options HashMap, wrapping `CloudOptions` in `Arc` for sinks.
-pub(crate) fn build_unified_sink_args_from_map(
-    mkdir: bool,
-    maintain_order: bool,
-    sync_on_close_code: u8,
-    cloud_provider: u8,
-    cloud_retries: usize,
-    cloud_retry_timeout_ms: u64,
-    cloud_retry_init_backoff_ms: u64,
-    cloud_retry_max_backoff_ms: u64,
-    cloud_cache_ttl: u64,
-    options: &std::collections::HashMap<String, String>,
-) -> UnifiedSinkArgs {
-    let cloud_options = build_cloud_options_from_map(
-        cloud_provider,
-        cloud_retries,
-        cloud_retry_timeout_ms,
-        cloud_retry_init_backoff_ms,
-        cloud_retry_max_backoff_ms,
-        cloud_cache_ttl,
-        options,
-    )
-    .map(Arc::new);
-
-    let sync_on_close = map_sync_on_close(sync_on_close_code);
-
-    UnifiedSinkArgs {
-        mkdir,
-        maintain_order,
-        sync_on_close,
-        cloud_options,
-        sinked_paths_callback: None,
-    }
-}
 
 /// FFI helper: Builds `UnifiedSinkArgs` from raw pointers.
 #[inline]

@@ -22,7 +22,7 @@ internal sealed record DeltaOptimizeResult(
 /// Rewrites the data files of a Delta table through the managed kernel without changing its rows: compaction of
 /// small files and of files with deletion vectors (whose deleted rows are dropped), or Z-ordering. Every change is
 /// committed at once, as data that did not change (<c>dataChange</c> false), so readers of the change data feed and
-/// streams see nothing. Not reachable from the public API yet.
+/// streams see nothing. The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelOptimize
 {

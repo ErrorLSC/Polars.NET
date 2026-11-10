@@ -7,7 +7,7 @@ namespace Polars.NET.Core.Delta;
 
 /// <summary>
 /// Restore and history of a Delta table through the managed kernel (see <see cref="Kaminari.Seseragi.Lakehouse.Delta.Restore"/>
-/// and <see cref="Kaminari.Seseragi.Lakehouse.Delta.History"/>). Not reachable from the public API yet.
+/// and <see cref="Kaminari.Seseragi.Lakehouse.Delta.History"/>). The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelHistory
 {

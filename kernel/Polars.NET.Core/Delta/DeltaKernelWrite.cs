@@ -57,7 +57,7 @@ internal sealed record KernelWriteOptions(
 
 /// <summary>
 /// Writes rows to a Delta table through the managed kernel: the engine writes the data files (one per partition)
-/// and computes their statistics, the kernel commits them. Not reachable from the public API yet.
+/// and computes their statistics, the kernel commits them. The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelWrite
 {

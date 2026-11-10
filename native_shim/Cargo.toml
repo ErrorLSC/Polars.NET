@@ -1,6 +1,6 @@
 [package]
 name = "native_shim"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 license = "MIT"
 
@@ -24,20 +24,12 @@ polars-ops = {version="0.55.2"}
 polars-async = {version="0.55.2"}
 polars-config = {version="0.55.2"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }
-serde_json = "*"
 calamine = { version = "0.37.0", features = ["dates","chrono"] }
 chrono = "*"
 rust_xlsxwriter = { version = "0.101.0", features = ["chrono"] }
-deltalake = { version = "1.0.0", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
-tokio = { version = "1.52.3"}
 object_store = "0.13"
-url = "*"
-uuid = {version="*", features=["v4"]}
 futures = "*"
-urlencoding = "*"
 rand = "*"
-roaring = "*"
-z85 = "*"
 regex-syntax = "*"
 [lib]
 crate-type = ["cdylib"]

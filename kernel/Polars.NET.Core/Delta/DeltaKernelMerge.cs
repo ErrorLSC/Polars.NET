@@ -36,7 +36,7 @@ internal sealed record DeltaMergeResult(
 /// full join of target and source takes the first clause, in the order given, whose state (matched, not matched,
 /// not matched by source) and condition hold; a row no clause takes stays as it is (a source row is not inserted).
 /// Conditions see the target's columns by name and the source's as name + <see cref="SourceSuffix"/>.
-/// Not reachable from the public API yet.
+/// The public Delta API calls it.
 /// </summary>
 /// <remarks>
 /// As SQL MERGE: a source row whose key is null matches nothing; a target row matched by more than one source row

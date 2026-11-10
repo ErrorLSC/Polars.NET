@@ -245,7 +245,7 @@ F# developers have three complementary styles that interoperate seamlessly:
   - `LazyFrame.CollectBatchesAsync()` emits native DataFrame batches as soon as computed by Rust.
   - LINQ queries support `query.AsAsyncEnumerable()` and `IAsyncEnumerable<T>.ToDataFrameAsync()`.
   - F# supports `df.RowsAsync<'T>()`, `lf.RowsAsync<'T>()`, and `RowsAsync.*` pipeline operators (`toList`, `fold`, `filter`, `map`).
-- **Delta Change Data Feed is read-only**: `Delta.ReadChangeDataFeed` works, but writers fail on a table with `delta.enableChangeDataFeed` set (`Unsupported table features required`). This is by design: the native library is built without DataFusion.
+- **Delta Lake runs on a managed kernel** (since 1.2.0): Spark semantics for MERGE, schema evolution and the change data feed (readable only for versions where `delta.enableChangeDataFeed` was on). A new table's first write is version 0. `ScanDelta`'s glob/hive options and `SinkDelta`'s `includeKeys`/`statistics`/`compatLevel`/`mkdir` are ignored. `approxBytesPerFile` / `delta.targetFileSize` are in-memory sizes (files on disk are smaller).
 - **Off-Heap Serialization**:
   - `df.WriteIpcStreamNativeMemory()` and its Parquet, IPC, CSV, JSON and Avro siblings return a `NativeBuffer` of Rust-owned bytes, without a managed `byte[]`. Dispose it, and do not use its spans afterwards.
   - Every `Write*Async` / `Sink*Async` has a `PipeWriter` overload that streams with backpressure. It flushes the writer but never completes it, so complete it yourself.

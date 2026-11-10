@@ -54,7 +54,7 @@ public sealed record KernelScanOptions(
 /// Builds a scan of a Delta table from a snapshot the managed kernel resolved. The kernel decides which files make
 /// up the table; this turns them into one lazy frame: partition values become columns, deletion vectors remove
 /// their rows, mapped columns get their logical names back.
-/// Not used by the public API yet: the path-based Delta functions still go through the native implementation.
+/// The public Delta API (and Unity Catalog tables) read through it.
 /// </summary>
 public static class DeltaKernelScan
 {

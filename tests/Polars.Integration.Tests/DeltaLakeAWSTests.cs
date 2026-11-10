@@ -105,7 +105,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             .WithObjectSize(stream.Length)
             .WithContentType("application/json"));
 
-        // pl_scan_delta -> deltalake::open_table -> Polars Scan
+        // The managed Delta kernel resolves the log; the engine scans the files
         using var lfRead = LazyFrame.ScanDelta(rootUrl, cloudOptions: options);
         using var dfRead = lfRead.Collect();
 

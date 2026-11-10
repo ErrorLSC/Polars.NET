@@ -5,7 +5,7 @@ namespace Polars.NET.Core.Delta;
 
 /// <summary>
 /// Vacuums a Delta table through the managed kernel (see <see cref="Kaminari.Seseragi.Lakehouse.Delta.Vacuum"/>).
-/// Not reachable from the public API yet.
+/// The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelVacuum
 {
