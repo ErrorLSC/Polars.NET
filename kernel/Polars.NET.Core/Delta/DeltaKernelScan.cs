@@ -35,6 +35,13 @@ public static class DeltaKernelScan
 {
     private const string RowIndexColumn = "__seseragi_row_index";
 
+    /// <summary>The change feed column saying what happened to the row: insert, delete, update_preimage or update_postimage.</summary>
+    public const string ChangeTypeColumn = "_change_type";
+    /// <summary>The change feed column holding the version of the commit that made the change.</summary>
+    public const string CommitVersionColumn = "_commit_version";
+    /// <summary>The change feed column holding the time of the commit that made the change.</summary>
+    public const string CommitTimestampColumn = "_commit_timestamp";
+
     /// <summary>Scans a table at its latest version, at a version, or as of a time.</summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="version">The version to read; null for the latest.</param>
@@ -78,6 +85,175 @@ public static class DeltaKernelScan
         finally
         {
             (fileSystem as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Reads the row-level changes of the commits from <paramref name="startVersion"/> to
+    /// <paramref name="endVersion"/>, both included: the table's columns followed by
+    /// <see cref="ChangeTypeColumn"/>, <see cref="CommitVersionColumn"/> and <see cref="CommitTimestampColumn"/>.
+    /// The columns are those of the table at the end version.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="startVersion">The first commit to report.</param>
+    /// <param name="endVersion">The last commit to report; null for the latest.</param>
+    /// <param name="requireEnabled">Fail unless the change data feed was enabled for the whole range.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL; null for a local table.</param>
+    public static LazyFrameHandle ReadChangeFeed(
+        string tablePath, long startVersion, long? endVersion = null, bool requireEnabled = true, CloudArgs? cloud = null) =>
+        WithTable(tablePath, cloud, (fileSystem, root, parquet) =>
+        {
+            List<ChangeFile> changes = ChangeFeed.Read(fileSystem, startVersion, endVersion, requireEnabled, parquet);
+            Snapshot snapshot = Snapshot.Load(fileSystem, endVersion, parquet);
+            return ChangeFrame(fileSystem, root, snapshot, changes, cloud ?? CloudArgs.Local);
+        });
+
+    /// <summary>
+    /// Reads the row-level changes of the commits made from <paramref name="start"/> to <paramref name="end"/>,
+    /// both included. See <see cref="ReadChangeFeed(string, long, long?, bool, CloudArgs?)"/>.
+    /// </summary>
+    public static LazyFrameHandle ReadChangeFeed(
+        string tablePath, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, CloudArgs? cloud = null) =>
+        WithTable(tablePath, cloud, (fileSystem, root, parquet) =>
+        {
+            List<ChangeFile> changes = ChangeFeed.ReadBetween(fileSystem, start, end, requireEnabled, parquet);
+            Snapshot snapshot = changes.Count > 0
+                ? Snapshot.Load(fileSystem, changes[^1].Version, parquet)
+                : Snapshot.Load(fileSystem, null, parquet);
+            return ChangeFrame(fileSystem, root, snapshot, changes, cloud ?? CloudArgs.Local);
+        });
+
+    private static LazyFrameHandle WithTable(
+        string tablePath, CloudArgs? cloud, Func<IFileSystem, string, IParquetReader, LazyFrameHandle> body)
+    {
+        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
+        IFileSystem fileSystem;
+        string root;
+        if (isUrl)
+        {
+            root = tablePath.TrimEnd('/');
+            fileSystem = new ObjectStoreFileSystem(root, cloud);
+        }
+        else
+        {
+            var local = new LocalFileSystem(tablePath);
+            root = local.Root;
+            fileSystem = local;
+        }
+
+        try
+        {
+            return body(fileSystem, root, new EngineParquetReader(root, cloud));
+        }
+        catch (DeltaException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+        finally
+        {
+            (fileSystem as IDisposable)?.Dispose();
+        }
+    }
+
+    private static LazyFrameHandle ChangeFrame(
+        IFileSystem fileSystem, string tableRoot, Snapshot snapshot, List<ChangeFile> changes, CloudArgs cloud)
+    {
+        StructType schema = snapshot.Schema;
+        var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
+        EnsureNoNestedMapping(snapshot);
+
+        var frames = new List<LazyFrameHandle>();
+        try
+        {
+            foreach (ChangeFile change in changes)
+            {
+                if (partitionColumns.Count > 0 && change.PartitionValues is null)
+                    throw new PolarsException(
+                        $"The commit of version {change.Version} removed '{change.Path}' without recording its partition values, so its rows cannot be reported.");
+
+                string path = Combine(tableRoot, change.DecodedPath);
+                switch (change.Kind)
+                {
+                    case ChangeFileKind.Cdc:
+                    {
+                        using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, withChangeType: true);
+                        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, null);
+                        frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType: null));
+                        break;
+                    }
+
+                    case ChangeFileKind.Insert or ChangeFileKind.Delete:
+                    {
+                        // Rows the deletion vector marks were not live: not inserted by an add, already gone at a remove.
+                        long[] dead = change.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, change.DeletionVector).DeletedRows;
+                        using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
+                        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, dead.Length > 0 ? RowIndexColumn : null);
+                        if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
+                        frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, change.Kind == ChangeFileKind.Insert ? "insert" : "delete"));
+                        break;
+                    }
+
+                    case ChangeFileKind.DeletionVectorChange:
+                    {
+                        var (deleted, restored) = change.ChangedRows(fileSystem);
+                        foreach (var (rows, changeType) in new[] { (deleted, "delete"), (restored, "insert") })
+                        {
+                            if (rows.Length == 0) continue;
+                            using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
+                            LazyFrameHandle lf = FilterRows(ScanFiles([path], cloud, fileSchema, RowIndexColumn), rows, keep: true);
+                            frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (frames.Count == 0)
+            {
+                using SchemaHandle logical = LogicalSchema(schema, withChangeColumns: true);
+                using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(logical, 0);
+                return PolarsWrapper.DataFrameToLazy(empty);
+            }
+
+            LazyFrameHandle[] all = [.. frames];
+            frames.Clear(); // from here the result owns them
+            if (all.Length == 1) return all[0];
+            // Keep the order of the commits.
+            return PolarsWrapper.LazyConcat(all, PlConcatType.Vertical, rechunk: false, parallel: true, toSupertypes: false, maintainOrder: true);
+        }
+        catch (DeltaException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+        finally
+        {
+            foreach (LazyFrameHandle frame in frames) frame.Dispose();
+        }
+    }
+
+    /// <summary>The table columns, then the change type (from the file when <paramref name="changeType"/> is null), version and time.</summary>
+    private static LazyFrameHandle ProjectChange(
+        LazyFrameHandle lf, Snapshot snapshot, ChangeFile change, HashSet<string> partitionColumns, string? changeType) =>
+        Project(lf, snapshot, change.PartitionValues, partitionColumns, exprs =>
+        {
+            exprs.Add(changeType is null
+                ? PolarsWrapper.Col(ChangeTypeColumn)
+                : PolarsWrapper.Alias(PolarsWrapper.Lit(changeType), ChangeTypeColumn));
+            exprs.Add(PolarsWrapper.Alias(PolarsWrapper.Lit(change.Version), CommitVersionColumn));
+
+            using DataTypeHandle timestamp = PolarsWrapper.NewDateTimeType((byte)PlTimeUnit.Microseconds, "UTC");
+            ExprHandle time = PolarsWrapper.ExprCast(
+                PolarsWrapper.Lit(change.Timestamp.UtcDateTime), PolarsWrapper.DataTypeExprFromDataType(timestamp), strict: true, wrapNumerical: false);
+            exprs.Add(PolarsWrapper.Alias(time, CommitTimestampColumn));
+        });
+
+    private static void EnsureNoNestedMapping(Snapshot snapshot)
+    {
+        if (snapshot.ColumnMappingMode == ColumnMappingMode.None) return;
+        foreach (StructField field in snapshot.Schema.Fields)
+        {
+            if (HasNestedStruct(field.Type))
+                throw new PolarsException($"Column mapping on the nested column '{field.Name}' is not supported yet.");
         }
     }
 
@@ -126,7 +302,7 @@ public static class DeltaKernelScan
                 using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
                 string[] paths = [.. group.Select(f => Combine(tableRoot, f.DecodedPath))];
                 LazyFrameHandle lf = ScanFiles(paths, cloud, fileSchema, null);
-                frames.Add(Project(lf, snapshot, group[0], partitionColumns));
+                frames.Add(Project(lf, snapshot, group[0].PartitionValues, partitionColumns));
             }
 
             foreach (AddAction file in withVectors)
@@ -135,16 +311,8 @@ public static class DeltaKernelScan
                 using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
                 LazyFrameHandle lf = ScanFiles([Combine(tableRoot, file.DecodedPath)], cloud, fileSchema, RowIndexColumn);
 
-                if (deleted.Length > 0)
-                {
-                    using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
-                    ExprHandle row = PolarsWrapper.ExprCast(
-                        PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
-                    ExprHandle isDeleted = PolarsWrapper.IsIn(
-                        row, PolarsWrapper.Implode(PolarsWrapper.Lit(PolarsWrapper.SeriesNew("deleted", deleted)), maintainOrder: false), nullsEqual: false);
-                    lf = PolarsWrapper.LazyFilter(lf, PolarsWrapper.Not(isDeleted));
-                }
-                frames.Add(Project(lf, snapshot, file, partitionColumns));
+                if (deleted.Length > 0) lf = FilterRows(lf, deleted, keep: false);
+                frames.Add(Project(lf, snapshot, file.PartitionValues, partitionColumns));
             }
 
             if (frames.Count == 0)
@@ -208,11 +376,14 @@ public static class DeltaKernelScan
 
     /// <summary>
     /// Selects the table's columns in schema order: a data column from the file under its logical name, a partition
-    /// column as a constant of the file's partition value.
+    /// column as a constant of the file's partition value. <paramref name="extra"/> adds columns after them.
     /// </summary>
-    private static LazyFrameHandle Project(LazyFrameHandle lf, Snapshot snapshot, AddAction file, HashSet<string> partitionColumns)
+    private static LazyFrameHandle Project(
+        LazyFrameHandle lf, Snapshot snapshot, IReadOnlyDictionary<string, string?>? loggedPartitionValues,
+        HashSet<string> partitionColumns, Action<List<ExprHandle>>? extra = null)
     {
-        Dictionary<string, string?>? partitionValues = partitionColumns.Count > 0 ? snapshot.PartitionValuesOf(file) : null;
+        Dictionary<string, string?>? partitionValues =
+            partitionColumns.Count > 0 ? snapshot.LogicalPartitionValues(loggedPartitionValues ?? EmptyValues) : null;
         var exprs = new List<ExprHandle>();
         try
         {
@@ -229,6 +400,7 @@ public static class DeltaKernelScan
                 ExprHandle cast = PolarsWrapper.ExprCast(literal, PolarsWrapper.DataTypeExprFromDataType(type), strict: true, wrapNumerical: false);
                 exprs.Add(PolarsWrapper.Alias(cast, field.Name));
             }
+            extra?.Invoke(exprs);
             ExprHandle[] all = [.. exprs];
             exprs.Clear();
             return PolarsWrapper.LazySelect(lf, all);
@@ -237,6 +409,19 @@ public static class DeltaKernelScan
         {
             foreach (ExprHandle expr in exprs) expr.Dispose();
         }
+    }
+
+    private static readonly IReadOnlyDictionary<string, string?> EmptyValues = new Dictionary<string, string?>();
+
+    /// <summary>Keeps, or drops, the rows of a frame at the given positions. The frame must carry the row index column.</summary>
+    private static LazyFrameHandle FilterRows(LazyFrameHandle lf, long[] rows, bool keep)
+    {
+        using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
+        ExprHandle row = PolarsWrapper.ExprCast(
+            PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
+        ExprHandle isListed = PolarsWrapper.IsIn(
+            row, PolarsWrapper.Implode(PolarsWrapper.Lit(PolarsWrapper.SeriesNew("rows", rows)), maintainOrder: false), nullsEqual: false);
+        return PolarsWrapper.LazyFilter(lf, keep ? isListed : PolarsWrapper.Not(isListed));
     }
 
     /// <summary>A partition value as a literal; the log keeps it as text. The caller casts it to the column type.</summary>
@@ -274,9 +459,14 @@ public static class DeltaKernelScan
     };
 
     /// <summary>The columns expected in a data file: every non-partition column under its physical name.</summary>
-    private static SchemaHandle PhysicalFileSchema(StructType schema, HashSet<string> partitionColumns)
+    private static SchemaHandle PhysicalFileSchema(StructType schema, HashSet<string> partitionColumns, bool withChangeType = false)
     {
         SchemaHandle handle = PolarsWrapper.SchemaCreate();
+        if (withChangeType)
+        {
+            using DataTypeHandle text = PolarsWrapper.NewPrimitiveType((int)PlDataType.String);
+            PolarsWrapper.SchemaAddField(handle, ChangeTypeColumn, text);
+        }
         foreach (StructField field in schema.Fields)
         {
             if (partitionColumns.Contains(field.Name)) continue;
@@ -286,13 +476,22 @@ public static class DeltaKernelScan
         return handle;
     }
 
-    private static SchemaHandle LogicalSchema(StructType schema)
+    private static SchemaHandle LogicalSchema(StructType schema, bool withChangeColumns = false)
     {
         SchemaHandle handle = PolarsWrapper.SchemaCreate();
         foreach (StructField field in schema.Fields)
         {
             using DataTypeHandle type = ToEngineType(field.Type, physicalNames: false);
             PolarsWrapper.SchemaAddField(handle, field.Name, type);
+        }
+        if (withChangeColumns)
+        {
+            using DataTypeHandle text = PolarsWrapper.NewPrimitiveType((int)PlDataType.String);
+            using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
+            using DataTypeHandle timestamp = PolarsWrapper.NewDateTimeType((byte)PlTimeUnit.Microseconds, "UTC");
+            PolarsWrapper.SchemaAddField(handle, ChangeTypeColumn, text);
+            PolarsWrapper.SchemaAddField(handle, CommitVersionColumn, int64);
+            PolarsWrapper.SchemaAddField(handle, CommitTimestampColumn, timestamp);
         }
         return handle;
     }

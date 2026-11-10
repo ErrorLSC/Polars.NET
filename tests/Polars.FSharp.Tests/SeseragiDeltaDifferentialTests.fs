@@ -402,3 +402,104 @@ let ``Kernel scan of a table URL goes through the object store`` (name: string, 
     use left = viaUrl.Sort(columns)
     use right = viaPath.Sort(columns)
     Assert.True(left.Equals(right), $"url:\n{left}\npath:\n{right}")
+
+// ---------------------------------------------------------------------------------------------------------------
+// Change data feed
+// ---------------------------------------------------------------------------------------------------------------
+
+let private rowKeys (df: DataFrame) (columns: string list) =
+    use projected = df.Select(columns |> List.map pl.col)
+    [ for i in 0 .. int projected.Height - 1 ->
+        projected.Row(i) |> Seq.map (fun v -> if isNull v then "<null>" else string v) |> String.concat "|" ]
+
+/// Replaying the feed from version 0 must rebuild the table: every insert and update_postimage adds a row,
+/// every delete and update_preimage takes one away, and what is left is the table at the end version.
+/// cdf-table-simple and cdf-table-update-ops are left out on purpose: they are hand-made, with commits that
+/// carry cdc actions but no add, so the tables are not self-consistent.
+[<Theory>]
+[<InlineData("cdf-table-partitioned")>]
+[<InlineData("cdf-table-non-partitioned")>]
+[<InlineData("cdf-table-with-dv")>]
+[<InlineData("cdf-table-with-cdc-and-dvs")>]
+let ``Change feed replays to the table`` (name: string) =
+    let path = Path.Combine(sampleTable "cdf", name)
+    use changes = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L))).Collect()
+    use final = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect()
+
+    let tableColumns = List.ofSeq final.ColumnNames
+    Assert.Equal<string list>(
+        tableColumns @ [ "_change_type"; "_commit_version"; "_commit_timestamp" ],
+        List.ofSeq changes.ColumnNames)
+    Assert.True(changes.Height > 0L)
+
+    let net = Collections.Generic.Dictionary<string, int>()
+    let keys = rowKeys changes tableColumns
+    let kinds = rowKeys changes [ "_change_type" ]
+    for key, kind in List.zip keys kinds do
+        let sign =
+            match kind with
+            | "insert" | "update_postimage" -> 1
+            | "delete" | "update_preimage" -> -1
+            | other -> failwith $"unexpected change type {other}"
+        net.[key] <- (match net.TryGetValue key with | true, n -> n | _ -> 0) + sign
+
+    let replayed = [ for kv in net do if kv.Value <> 0 then yield kv.Key, kv.Value ] |> List.sort
+    let actual = rowKeys final tableColumns |> List.countBy id |> List.sort
+    Assert.Equal<(string * int) list>(actual, replayed)
+
+    // Versions never decrease down the frame, and each has one timestamp.
+    let versions = rowKeys changes [ "_commit_version" ] |> List.map int64
+    Assert.Equal<int64 list>(List.sort versions, versions)
+    let stamps = rowKeys changes [ "_commit_version"; "_commit_timestamp" ] |> List.distinct
+    Assert.Equal(versions |> List.distinct |> List.length, stamps.Length)
+
+[<Fact>]
+let ``Change feed of a range, by time, and when it is empty`` () =
+    let path = Path.Combine(sampleTable "cdf", "cdf-table-simple")
+    let fs = LocalFileSystem path
+    let timeline = Log.CommitTimeline.Load fs
+
+    use all = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L))).Collect()
+    use lastOnly = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, timeline.LatestVersion, Nullable timeline.LatestVersion))).Collect()
+    Assert.True(lastOnly.Height > 0L && lastOnly.Height < all.Height)
+    Assert.Equal<string list>([ string timeline.LatestVersion ], rowKeys lastOnly [ "_commit_version" ] |> List.distinct)
+
+    // The same commit selected by its time.
+    let at = timeline.TimestampOf timeline.LatestVersion
+    use byTime = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, at, Nullable at))).Collect()
+    Assert.Equal(lastOnly.Height, byTime.Height)
+
+    // After the last commit there is nothing, but the columns are still there.
+    use empty = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, at.AddDays 1.0))).Collect()
+    Assert.Equal(0L, empty.Height)
+    Assert.Equal<string list>(List.ofSeq all.ColumnNames, List.ofSeq empty.ColumnNames)
+
+/// cdf-table-update-ops writes update_pre and update_post (as Delta Spark's own tests do), not the protocol's
+/// update_preimage and update_postimage. The reader passes the column through as written, like delta-kernel-rs.
+[<Fact>]
+let ``Change feed passes cdc change types through as written`` () =
+    let path = Path.Combine(sampleTable "cdf", "cdf-table-update-ops")
+    use changes = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L))).Collect()
+    let expected =
+        [ for id in 0 .. 9 -> $"{id}|insert|0" ]
+        @ [ for id in 20 .. 24 -> $"{id}|update_pre|1" ]
+        @ [ for id in 30 .. 34 -> $"{id}|update_post|2" ]
+    Assert.Equal<string list>(List.sort expected, rowKeys changes [ "id"; "_change_type"; "_commit_version" ] |> List.sort)
+
+[<Fact>]
+let ``Change feed needs the feature unless waived, and then matches the engine`` () =
+    withTable "cdf_own" (fun path ->
+        (frame [1; 2; 3] "east").WriteDelta(path, mode = DeltaSaveMode.Overwrite, mkdir = true)
+        (frame [4] "west").WriteDelta(path, mode = DeltaSaveMode.Append)
+        Delta.Delete(path, pl.col "id" .< pl.lit 3)
+
+        let ex = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () ->
+            Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L) |> ignore)
+        Assert.Contains("not enabled", ex.Message)
+
+        let latest = (Snapshot.Load(LocalFileSystem path)).Version
+        use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L, requireEnabled = false))).Collect()
+        use viaEngine = Delta.ReadChangeDataFeed(path, 0L, latest).Collect()
+
+        let columns = [ "id"; "region"; "price"; "_change_type"; "_commit_version" ]
+        Assert.Equal<string list>(rowKeys viaEngine columns |> List.sort, rowKeys viaKernel columns |> List.sort))

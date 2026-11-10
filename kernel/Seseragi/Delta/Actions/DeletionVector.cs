@@ -23,22 +23,13 @@ public sealed class DeletionVector
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(descriptor);
-
-        byte[] data;
-        switch (descriptor.StorageType)
+        byte[] data = descriptor.StorageType switch
         {
-            case "i":
-                data = descriptor.InlineBytes();
-                break;
-            case "u":
-                data = ReadFromFile(fileSystem, descriptor);
-                break;
-            case "p":
-                throw new DeltaException("Deletion vectors stored at an absolute path are not read by this kernel yet.");
-            default:
-                throw new DeltaException($"Unknown deletion vector storage type '{descriptor.StorageType}'.");
-        }
-
+            "i" => descriptor.InlineBytes(),
+            "u" => ReadFromFile(fileSystem, descriptor),
+            "p" => throw new DeltaException("Deletion vectors stored at an absolute path are not read by this kernel yet."),
+            _ => throw new DeltaException($"Unknown deletion vector storage type '{descriptor.StorageType}'."),
+        };
         long[] rows = Decode(data);
         if (rows.LongLength != descriptor.Cardinality)
             throw new DeltaException(

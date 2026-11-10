@@ -89,7 +89,9 @@ internal static class Z85
                 if (digit < 0) throw new DeltaException($"Invalid Z85 character '{c}'.");
                 value = value * 85 + (uint)digit;
             }
-            if (value > uint.MaxValue) throw new DeltaException("Z85 group out of range.");
+            // A group above 2^32 - 1 is not valid Z85, but Delta's reference decoder (Java Base85Codec)
+            // computes the group as a long and keeps the low 32 bits, and tables in the wild rely on it.
+            // Follow the reference: the shifts below keep only the low 32 bits.
             bytes[o] = (byte)(value >> 24);
             bytes[o + 1] = (byte)(value >> 16);
             bytes[o + 2] = (byte)(value >> 8);

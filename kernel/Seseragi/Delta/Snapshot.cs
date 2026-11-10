@@ -42,11 +42,21 @@ public sealed class Snapshot
     public Dictionary<string, string?> PartitionValuesOf(AddAction file)
     {
         ArgumentNullException.ThrowIfNull(file);
+        return LogicalPartitionValues(file.PartitionValues);
+    }
+
+    /// <summary>
+    /// Partition values as the log writes them (keyed by physical name under column mapping), keyed by logical
+    /// column name instead. A column the log gives no value for is null.
+    /// </summary>
+    public Dictionary<string, string?> LogicalPartitionValues(IReadOnlyDictionary<string, string?> logged)
+    {
+        ArgumentNullException.ThrowIfNull(logged);
         var values = new Dictionary<string, string?>(PartitionColumns.Count, StringComparer.Ordinal);
         foreach (string column in PartitionColumns)
         {
             string key = Schema.Field(column)?.PhysicalName ?? column;
-            values[column] = file.PartitionValues.TryGetValue(key, out string? value) ? value : null;
+            values[column] = logged.TryGetValue(key, out string? value) ? value : null;
         }
         return values;
     }

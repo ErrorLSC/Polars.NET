@@ -24,3 +24,15 @@ mkdir -p tests/Seseragi.Delta.Tests/TestData/dat
 curl -sfL https://github.com/delta-incubator/dat/releases/download/v0.0.3/deltalake-dat-v0.0.3.tar.gz \
   | tar -xz -C tests/Seseragi.Delta.Tests/TestData/dat
 ```
+
+## Change data feed tables
+
+The folder `cdf/` holds six tables from the same delta-kernel-rs test data (unpacked from its `cdf-table-*.tar.zst`
+archives): tables with the change data feed on, written by Spark, with inserts, updates, deletes, `cdc` files,
+partitions and deletion vectors.
+
+Some are hand-made and not self-consistent, so tests must not replay them to the final table:
+`cdf-table-simple` and `cdf-table-update-ops` have commits with `cdc` actions but no `add`, and
+`cdf-table-update-ops` writes the change types `update_pre` / `update_post` instead of the protocol's
+`update_preimage` / `update_postimage`. `cdf-table-with-dv` has an inline deletion vector whose last Z85 group is
+above 32 bits; Delta's reference decoder keeps the low 32 bits.

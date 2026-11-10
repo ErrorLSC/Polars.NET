@@ -115,6 +115,15 @@ public class DeletionVectorDescriptorTests
     }
 
     [Fact]
+    public void Z85_GroupAbove32Bits_KeepsTheLowBits_LikeTheReferenceDecoder()
+    {
+        // "#####" is 85^5 - 1, above 2^32 - 1. Delta's Base85Codec keeps the low 32 bits.
+        uint low = unchecked((uint)(85L * 85 * 85 * 85 * 85 - 1));
+        byte[] expected = [(byte)(low >> 24), (byte)(low >> 16), (byte)(low >> 8), (byte)low];
+        Assert.Equal(expected, Z85.Decode("#####"));
+    }
+
+    [Fact]
     public void Inline_And_AbsolutePath()
     {
         var inline = new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 8, Cardinality = 1 };
