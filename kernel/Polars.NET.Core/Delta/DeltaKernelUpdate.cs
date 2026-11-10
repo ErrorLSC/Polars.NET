@@ -42,6 +42,24 @@ internal static class DeltaKernelUpdate
         string tablePath, ExprHandle? predicate, IReadOnlyList<(string Column, ExprHandle Value)> assignments,
         Predicate? fileFilter = null, CloudArgs? cloud = null)
     {
+        // Retried as a whole on a commit conflict, each attempt with its own copies of the expressions.
+        try
+        {
+            return ConflictRetry.Run(() => UpdateOnce(
+                tablePath, predicate is null ? null : PolarsWrapper.CloneExpr(predicate),
+                [.. assignments.Select(a => (a.Column, PolarsWrapper.CloneExpr(a.Value)))], fileFilter, cloud));
+        }
+        finally
+        {
+            predicate?.Dispose();
+            foreach (var (_, value) in assignments) value.Dispose();
+        }
+    }
+
+    private static DeltaUpdateResult UpdateOnce(
+        string tablePath, ExprHandle? predicate, IReadOnlyList<(string Column, ExprHandle Value)> assignments,
+        Predicate? fileFilter, CloudArgs? cloud)
+    {
         try
         {
             if (assignments.Count == 0) throw new ArgumentException("An update sets at least one column.", nameof(assignments));

@@ -87,7 +87,7 @@ internal static class DeltaKernelWrite
         {
             Snapshot? existing = TryLoad(fileSystem, tablePath, cloud);
             if (existing is not null && mode == KernelWriteMode.ErrorIfExists)
-                throw new PolarsException($"A Delta table already exists at {tablePath}.");
+                throw new PolarsException($"Table already exists at {tablePath} (a Delta table; the save mode is ErrorIfExists).");
 
             if (existing is not null && mode == KernelWriteMode.Ignore) return existing.Version;
             StructType incoming = SchemaOf(data);

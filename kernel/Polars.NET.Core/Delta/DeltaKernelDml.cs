@@ -10,6 +10,37 @@ using Polars.NET.Core.Wrappers;
 namespace Polars.NET.Core.Delta;
 
 /// <summary>
+/// Runs a whole operation again when its commit conflicts with another writer's: each attempt reads the table anew
+/// and plans from it (its files of a failed attempt were already deleted). Up to <c>POLARS_DELTA_MAX_RETRIES</c>
+/// attempts (5 by default), with exponential backoff and jitter, as the native implementation did.
+/// </summary>
+internal static class ConflictRetry
+{
+    internal static int MaxAttempts =>
+        int.TryParse(Environment.GetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES"), out int n) && n > 0 ? n : 5;
+
+    internal static T Run<T>(Func<T> attempt)
+    {
+        int max = MaxAttempts;
+        for (int i = 1; ; i++)
+        {
+            try
+            {
+                return attempt();
+            }
+            catch (Exception e) when (i < max && IsConflict(e))
+            {
+                int wait = 50 << Math.Min(i - 1, 6);
+                Thread.Sleep(wait + Random.Shared.Next(wait));
+            }
+        }
+    }
+
+    private static bool IsConflict(Exception e) =>
+        e is DeltaCommitConflictException || e.InnerException is DeltaCommitConflictException;
+}
+
+/// <summary>
 /// What the row-level operations (delete, update, later merge) share: the table they work on, finding the rows a
 /// predicate matches file by file, and collecting the actions they commit.
 /// </summary>

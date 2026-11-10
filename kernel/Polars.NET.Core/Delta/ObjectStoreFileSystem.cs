@@ -28,6 +28,32 @@ public sealed record CloudArgs(
 {
     /// <summary>No cloud: a local path.</summary>
     public static CloudArgs Local { get; } = new();
+
+    /// <summary>
+    /// Settings for a location given only configuration keys: the provider follows from the URL's scheme (s3, az /
+    /// abfs, gs, http, hf); a local path gets none.
+    /// </summary>
+    public static CloudArgs ForLocation(string location, string[]? keys, string[]? values) =>
+        new CloudArgs(Keys: keys, Values: values).WithProviderFrom(location);
+
+    /// <summary>These settings, with the provider taken from the location's URL scheme when none is set.</summary>
+    public CloudArgs WithProviderFrom(string location)
+    {
+        ArgumentNullException.ThrowIfNull(location);
+        if (Provider != PlCloudProvider.None) return this;
+        int colon = location.IndexOf("://", StringComparison.Ordinal);
+        string scheme = colon > 0 ? location[..colon].ToLowerInvariant() : "";
+        PlCloudProvider provider = scheme switch
+        {
+            "s3" or "s3a" => PlCloudProvider.Aws,
+            "az" or "azure" or "abfs" or "abfss" or "adl" => PlCloudProvider.Azure,
+            "gs" or "gcs" => PlCloudProvider.Gcp,
+            "http" or "https" => PlCloudProvider.Http,
+            "hf" => PlCloudProvider.HuggingFace,
+            _ => PlCloudProvider.None,
+        };
+        return this with { Provider = provider };
+    }
 }
 
 /// <summary>

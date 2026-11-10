@@ -35,6 +35,19 @@ internal static class DeltaKernelDelete
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     public static DeltaDeleteResult Delete(string tablePath, ExprHandle? predicate, Predicate? fileFilter = null, CloudArgs? cloud = null)
     {
+        // Retried as a whole on a commit conflict, each attempt with its own copy of the predicate.
+        try
+        {
+            return ConflictRetry.Run(() => DeleteOnce(tablePath, predicate is null ? null : PolarsWrapper.CloneExpr(predicate), fileFilter, cloud));
+        }
+        finally
+        {
+            predicate?.Dispose();
+        }
+    }
+
+    private static DeltaDeleteResult DeleteOnce(string tablePath, ExprHandle? predicate, Predicate? fileFilter, CloudArgs? cloud)
+    {
         try
         {
             if (predicate is null && fileFilter is not null)

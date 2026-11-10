@@ -66,6 +66,24 @@ internal static class DeltaKernelMerge
         string tablePath, LazyFrameHandle source, string[] keys, IReadOnlyList<MergeClause> clauses, bool canEvolve = false,
         CloudArgs? cloud = null)
     {
+        // Retried as a whole on a commit conflict, each attempt with its own copies of the source and conditions.
+        try
+        {
+            return ConflictRetry.Run(() => MergeOnce(
+                tablePath, PolarsWrapper.LazyClone(source), keys,
+                [.. clauses.Select(c => new MergeClause(c.Kind, PolarsWrapper.CloneExpr(c.Condition)))], canEvolve, cloud));
+        }
+        finally
+        {
+            source.Dispose();
+            foreach (MergeClause clause in clauses) clause.Condition.Dispose();
+        }
+    }
+
+    private static DeltaMergeResult MergeOnce(
+        string tablePath, LazyFrameHandle source, string[] keys, IReadOnlyList<MergeClause> clauses, bool canEvolve,
+        CloudArgs? cloud)
+    {
         var owned = new List<ExprHandle>(clauses.Select(c => c.Condition));
         try
         {
@@ -169,7 +187,7 @@ internal static class DeltaKernelMerge
         }
         catch (DeltaException e) when (e.Message.Contains("Allow schema evolution", StringComparison.Ordinal))
         {
-            throw new PolarsException(e.Message.Replace("The data has", "The source has", StringComparison.Ordinal), e);
+            throw new PolarsException(e.Message.Replace("the data has", "the source has", StringComparison.Ordinal), e);
         }
     }
 

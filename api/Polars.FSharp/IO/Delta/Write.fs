@@ -27,27 +27,21 @@ module DeltaWrite =
         /// <param name="mode">
         /// Save mode (Append, Overwrite, ErrorIfExists, Ignore). Default is Append.
         /// </param>
-        /// <param name="includeKeys">
-        /// Whether to include the partition keys in the Parquet files themselves. 
-        /// Default is true (recommended for Delta Lake compatibility).
-        /// </param>
+        /// <param name="includeKeys">Ignored since 1.2.0 (the managed Delta kernel never writes partition columns into data files: Delta keeps them in the log); removed in 2.0.</param>
         /// <param name="keysPreGrouped">
         /// Assert that the keys are already pre-grouped. This can speed up the operation if true.
         /// </param>
         /// <param name="maxRowsPerFile">Maximum number of rows per file. 0 means no limit.</param>
-        /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
+        /// <param name="approxBytesPerFile">Approximate in-memory size of the rows of one file, as the engine estimates it (files on disk are smaller, being compressed). 0: the table's delta.targetFileSize, else 128 MB.</param>
         /// <param name="compression">Compression codec to use (Snappy, Zstd, etc.).</param>
         /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-        /// <param name="statistics">
-        /// Write statistics to the Parquet file. 
-        /// Delta Lake uses these stats for data skipping, so 'true' is highly recommended.
-        /// </param>
+        /// <param name="statistics">Ignored since 1.2.0 (the managed Delta kernel always writes statistics: data skipping reads them; the table properties delta.dataSkippingNumIndexedCols / delta.dataSkippingStatsColumns choose the columns); removed in 2.0.</param>
         /// <param name="rowGroupSize">Target row group size (in rows).</param>
         /// <param name="dataPageSize">Target data page size (in bytes).</param>
-        /// <param name="compatLevel">IPC format compatibility.</param>
+        /// <param name="compatLevel">Ignored since 1.2.0 (the managed Delta kernel writes Parquet data files, to which the Arrow compatibility level does not apply); removed in 2.0.</param>
         /// <param name="maintainOrder">Maintain the order of the data.</param>
         /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
-        /// <param name="mkdir">Create parent directories if they don't exist.</param>
+        /// <param name="mkdir">Ignored since 1.2.0 (the managed Delta kernel always creates the table directory); removed in 2.0.</param>
         /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
         member this.SinkDelta(
             path: string,
@@ -162,27 +156,21 @@ module DeltaWrite =
         /// <param name="mode">
         /// Save mode (Append, Overwrite, ErrorIfExists, Ignore). Default is Append.
         /// </param>
-        /// <param name="includeKeys">
-        /// Whether to include the partition keys in the Parquet files themselves. 
-        /// Default is true (recommended for Delta Lake compatibility).
-        /// </param>
+        /// <param name="includeKeys">Ignored since 1.2.0 (the managed Delta kernel never writes partition columns into data files: Delta keeps them in the log); removed in 2.0.</param>
         /// <param name="keysPreGrouped">
         /// Assert that the keys are already pre-grouped. This can speed up the operation if true.
         /// </param>
         /// <param name="maxRowsPerFile">Maximum number of rows per file. 0 means no limit.</param>
-        /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
+        /// <param name="approxBytesPerFile">Approximate in-memory size of the rows of one file, as the engine estimates it (files on disk are smaller, being compressed). 0: the table's delta.targetFileSize, else 128 MB.</param>
         /// <param name="compression">Compression codec to use (Snappy, Zstd, etc.).</param>
         /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-        /// <param name="statistics">
-        /// Write statistics to the Parquet file. 
-        /// Delta Lake uses these stats for data skipping, so 'true' is highly recommended.
-        /// </param>
+        /// <param name="statistics">Ignored since 1.2.0 (the managed Delta kernel always writes statistics: data skipping reads them; the table properties delta.dataSkippingNumIndexedCols / delta.dataSkippingStatsColumns choose the columns); removed in 2.0.</param>
         /// <param name="rowGroupSize">Target row group size (in rows).</param>
         /// <param name="dataPageSize">Target data page size (in bytes).</param>
-        /// <param name="compatLevel">IPC format compatibility.</param>
+        /// <param name="compatLevel">Ignored since 1.2.0 (the managed Delta kernel writes Parquet data files, to which the Arrow compatibility level does not apply); removed in 2.0.</param>
         /// <param name="maintainOrder">Maintain the order of the data.</param>
         /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
-        /// <param name="mkdir">Create parent directories if they don't exist.</param>
+        /// <param name="mkdir">Ignored since 1.2.0 (the managed Delta kernel always creates the table directory); removed in 2.0.</param>
         /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
         member this.WriteDelta(
             path: string,

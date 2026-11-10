@@ -556,12 +556,12 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(2, dfV4.Height);
 
 
-        // V1
-        using var dfBackV1 = uc.ScanCatalogTable(catalog, schema, table, version: 1, cloudOptions: cloudOptions).Collect();
+        // V0 (the table is created in one commit)
+        using var dfBackV1 = uc.ScanCatalogTable(catalog, schema, table, version: 0, cloudOptions: cloudOptions).Collect();
         Assert.Equal(5, dfBackV1.Height);
 
-        // V2 
-        using var dfBackV2 = uc.ScanCatalogTable(catalog, schema, table, version: 2, cloudOptions: cloudOptions).Collect();
+        // V1 
+        using var dfBackV2 = uc.ScanCatalogTable(catalog, schema, table, version: 1, cloudOptions: cloudOptions).Collect();
         Assert.Equal(4, dfBackV2.Height);
         Assert.DoesNotContain(4, dfBackV2["Id"].ToArray<int>());
     }
@@ -923,7 +923,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         ulong newVersion = uc.DeltaRestore(
             catalog, schema, table,
-            version: 1,
+            version: 0,
             cloudOptions: cloudOptions
         );
 
@@ -1253,6 +1253,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         }
 
         uc.AddFeature(catalog, schema, table, DeltaTableFeatures.DeletionVectors, allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        // The change data feed is read below: it has to be on for the versions read (Delta's rule, as Spark).
+        uc.AddFeature(catalog, schema, table, DeltaTableFeatures.ChangeDataFeed, allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        await Task.Delay(1500);
+        var changesFrom = DateTime.UtcNow; // after the commit that turned the feed on (commit time = log file time)
+        await Task.Delay(1500);
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {
@@ -1338,15 +1343,17 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using var resultDf = resultLf.Collect().Sort("Id");
 
         Assert.Equal(70, resultDf.Height);
-        var yesterday = DateTime.UtcNow.AddDays(-1);
-
         var cdcLf = uc.ReadChangeDataFeed(
             catalog, schema, table,
-            startTimestamp: yesterday,
+            startTimestamp: changesFrom,
             cloudOptions: cloudOptions
         );
 
-        cdcLf.Collect();
+        using var changes = cdcLf.Collect();
+        Assert.True(changes.Height > 0);
+        // Before the feed was on there is nothing to read: Delta refuses the range.
+        Assert.ThrowsAny<Exception>(() => uc.ReadChangeDataFeed(
+            catalog, schema, table, startTimestamp: DateTime.UtcNow.AddDays(-1), cloudOptions: cloudOptions).Collect());
         // shape: (1_330, 6)
         // ┌─────┬──────┬───────┬──────────────┬─────────────────┬─────────────────────────┐
         // │ Id  ┆ Team ┆ Value ┆ _change_type ┆ _commit_version ┆ _commit_timestamp       │
@@ -1449,11 +1456,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         ulong newVersion = uc.DeltaRestore(
             catalog, schema, table,
-            version: 1,
+            version: 0,
             cloudOptions: cloudOptions
         );
 
-        Assert.Equal(3UL, newVersion);
+        Assert.Equal(2UL, newVersion);
 
         using var restoredLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var restoredDf = restoredLf.Collect().Sort("Id");

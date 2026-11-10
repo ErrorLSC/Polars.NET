@@ -18,22 +18,10 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_vacuum(
-            path,
-            retentionHours,
-            enforceRetention,
-            dryRun,
-            vacuumModeFull,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out var filesDeleted
-        );
-
-        ErrorHelper.CheckVoid();
-        return (long)filesDeleted;
+        // retentionHours < 0: the table's retention.
+        var result = Delta.DeltaKernelVacuum.Vacuum(path, retentionHours < 0 ? null : retentionHours, enforceRetention, dryRun,
+            vacuumModeFull, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+        return result.Files.Count;
     }
     public static ulong Restore(
         string path,
@@ -46,22 +34,16 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_restore(
-            path,
-            targetVersion,
-            targetTimestamp,
-            ignoreMissingFiles,
-            protocolDowngradeAllowed,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out var newVersion
-        );
-
-        ErrorHelper.CheckVoid();
-        return newVersion;
+        // targetTimestamp < 0: restore by version.
+        var cloud = Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues);
+        var result = targetTimestamp >= 0
+            ? Delta.DeltaKernelHistory.Restore(path, timestamp: DateTimeOffset.FromUnixTimeMilliseconds(targetTimestamp),
+                ignoreMissingFiles: ignoreMissingFiles, protocolDowngradeAllowed: protocolDowngradeAllowed, cloud: cloud)
+            : Delta.DeltaKernelHistory.Restore(path, version: checked((long)targetVersion),
+                ignoreMissingFiles: ignoreMissingFiles, protocolDowngradeAllowed: protocolDowngradeAllowed, cloud: cloud);
+        // Nothing to restore (the table is already as the target): the current version.
+        long version = result.Version ?? Delta.DeltaKernelHistory.Read(path, 1, cloud)[0].Version;
+        return checked((ulong)version);
     }
     public static string History(
         string path,
@@ -70,34 +52,9 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        nuint limitNative = (nuint)(limit < 0 ? 0 : limit); // <0 or 0 means All
-
-        IntPtr jsonPtr = IntPtr.Zero;
-
-        try
-        {
-            NativeBindings.pl_io_delta_history(
-                path,
-                limitNative,
-                cloudKeys,
-                cloudValues,
-                cloudLen,
-                out jsonPtr
-            );
-
-            ErrorHelper.CheckVoid();
-
-            string? json = Marshal.PtrToStringUTF8(jsonPtr);
-            return json ?? "[]";
-        }
-        finally
-        {
-            if (jsonPtr != IntPtr.Zero)
-            {
-                NativeBindings.pl_free_string(jsonPtr);
-            }
-        }
+        // limit <= 0: all commits.
+        var entries = Delta.DeltaKernelHistory.Read(path, limit < 0 ? 0 : limit, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+        return Delta.DeltaKernelHistory.ToJson(entries, renameCollisions: true); // flattened into one row per commit
     }
     public static ulong Optimize(
         string path,
@@ -115,30 +72,19 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint zOrderLen = (nuint)(zOrderCols?.Length ?? 0);
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_optimize(
-            path,
-            targetSizeMb,
-            filterJson,
-            zOrderCols,
-            zOrderLen,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out nuint optimizedFilesCount
-        );
-
-        ErrorHelper.CheckVoid();
-
-        return optimizedFilesCount;
+        Dictionary<string, string?>? filters = null;
+        if (!string.IsNullOrEmpty(filterJson))
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(filterJson);
+            filters = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (var property in doc.RootElement.EnumerateObject())
+                filters[property.Name] = property.Value.ValueKind == System.Text.Json.JsonValueKind.Null ? null : property.Value.ToString();
+        }
+        var result = Delta.DeltaKernelOptimize.Optimize(path, checked(targetSizeMb * 1024 * 1024), filters,
+            zOrderCols is { Length: > 0 } ? zOrderCols : null, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
+        // The number of data files the optimize wrote.
+        return (ulong)result.AddedFiles;
     }
     public static void AddFeature(
         string path,
@@ -149,18 +95,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_add_feature(
-            path,
-            featureName,
-            allowProtocolIncrease,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        ErrorHelper.CheckVoid();
+        Delta.DeltaKernelAlter.AddFeature(path, featureName, allowProtocolIncrease, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     }
     public static void SetTableProperties(
         string path,
@@ -172,26 +107,15 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint propLen = (nuint)propKeys.Length;
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_set_table_properties(
-            path,
-            propKeys,
-            propValues,
-            propLen,
-            raiseIfNotExists,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        ErrorHelper.CheckVoid();
+        if (propKeys.Length != propValues.Length) throw new ArgumentException("Every property needs a value.", nameof(propValues));
+        var properties = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int i = 0; i < propKeys.Length; i++) properties[propKeys[i]] = propValues[i];
+        Delta.DeltaKernelAlter.SetTableProperties(path, properties, raiseIfNotExists, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     }
     // ---------------------------------------------------------
     // DeltaLake
     // ---------------------------------------------------------
-    public unsafe static LazyFrameHandle ScanDelta(
+    public static LazyFrameHandle ScanDelta(
         string path,
         ulong? version,
         string? datetime,
@@ -219,52 +143,16 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues)
     {
-        ulong versionVal = version.GetValueOrDefault();
-        IntPtr versionPtr = version.HasValue ? (IntPtr)(&versionVal) : IntPtr.Zero;
-
-        ulong nRowsVal = nRows.GetValueOrDefault();
-        IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
-
-        using var schemaLock = new SafeHandleLock<SchemaHandle>(
-            schema != null ? [schema] : null
-        );
-        IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
-
-        using var hiveLock = new SafeHandleLock<SchemaHandle>(
-            hivePartitionSchema != null ? [hivePartitionSchema] : null
-        );
-        IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        var h = NativeBindings.pl_scan_delta(
-            path,
-            versionPtr,
-            datetime,
-            nRowsPtr,
-            parallel,
-            lowMemory,
-            useStatistics,
-            glob,
-            rechunk,
-            cache,
-            rowIndexName,
-            rowIndexOffset,
-            includePathColumn,
-            schemaPtr,
-            hivePartitioning,
-            hiveSchemaPtr,
-            tryParseHiveDates,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        return ErrorHelper.Check(h);
+        // The managed Delta kernel resolves the table; partition values come from the log, so the glob and Hive
+        // options do not apply.
+        _ = glob; _ = hivePartitioning; _ = hivePartitionSchema; _ = tryParseHiveDates;
+        var cloud = new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path);
+        DateTimeOffset? asOf = datetime is null ? null : Delta.DeltaKernelScan.ParseAsOf(datetime);
+        long? atVersion = version is ulong v ? checked((long)v) : null;
+        var options = new Delta.KernelScanOptions(nRows, rowIndexName, rowIndexOffset, includePathColumn, parallel, lowMemory,
+            useStatistics, rechunk, cache, schema);
+        return Delta.DeltaKernelScan.Scan(path, atVersion, asOf, filter: null, cloud, options);
     }
     public static void SinkDelta(
         LazyFrameHandle lf,
@@ -304,57 +192,39 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint rgs = rowGroupSize > 0 ? rowGroupSize : 0;
-        nuint dps = dataPageSize > 0 ? dataPageSize : 0;
-
-        int safeCompatLevel = compatLevel;
-        if (safeCompatLevel < -1) safeCompatLevel = -1;
-        else if (safeCompatLevel > 1) safeCompatLevel = 1;
-
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        IntPtr partitionByHandle = partitionBy?.TransferOwnership() ?? IntPtr.Zero;
-        NativeBindings.pl_sink_delta(
-            lf,
-            path,
-
-            // Delta Options
-            mode,
-            canEvolve,
-            // Partition Params
-            partitionByHandle,
-            includeKeys,
-            keysPreGrouped,
-            maxRowsPerFile,
-            approxBytesPerFile,
-
-            // Parquet Options
-            compression,
-            compressionLevel,
-            statistics,
-            rgs,
-            dps,
-            safeCompatLevel,
-
-            // Unified Options
-            maintainOrder,
-            syncOnClose,
-            mkdir,
-
-            // Cloud Params
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        lf.TransferOwnership();
-
-        ErrorHelper.CheckVoid();
+        // The managed Delta kernel writes: the engine streams the files, partition columns are never written into
+        // them (Delta keeps them in the log), statistics are always written (data skipping reads them), directories
+        // are always created, and the Arrow compatibility level does not apply to Parquet data files.
+        _ = includeKeys; _ = statistics; _ = compatLevel; _ = mkdir;
+        var cloud = new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path);
+        string[]? partitions = null;
+        if (partitionBy is not null)
+        {
+            // The selector's columns, in its order, from the frame's schema.
+            using LazyFrameHandle probe = LazySelect(LazyClone(lf), [SelectorToExpr(partitionBy)]);
+            partitions = [.. Helpers.PolarsSchemaExtractor.GetFields(probe).Select(f => { f.Type.Dispose(); return f.Name; })];
+            if (partitions.Length == 0) partitions = null;
+        }
+        var kernelMode = mode switch
+        {
+            PlDeltaSaveMode.Append => Delta.KernelWriteMode.Append,
+            PlDeltaSaveMode.Overwrite => Delta.KernelWriteMode.Overwrite,
+            PlDeltaSaveMode.ErrorIfExists => Delta.KernelWriteMode.ErrorIfExists,
+            PlDeltaSaveMode.Ignore => Delta.KernelWriteMode.Ignore,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+        var options = new Delta.KernelWriteOptions(
+            MaxRowsPerFile: maxRowsPerFile,
+            ApproxBytesPerFile: approxBytesPerFile == 0 ? null : approxBytesPerFile, // 0: the table's target size
+            Compression: compression,
+            CompressionLevel: compressionLevel,
+            RowGroupSize: (int)Math.Min(rowGroupSize, int.MaxValue),
+            DataPageSize: (int)Math.Min(dataPageSize, int.MaxValue),
+            KeysPreGrouped: keysPreGrouped,
+            MaintainOrder: maintainOrder,
+            SyncOnClose: syncOnClose);
+        Delta.DeltaKernelWrite.Write(path, lf, kernelMode, partitions, cloud, configuration: null, canEvolve, options);
     }
     public static void DeltaDelete(
         string path,
@@ -370,25 +240,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_delete(
-            path,
-            predicate,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        predicate.TransferOwnership();
-
-        ErrorHelper.CheckVoid();
+        Delta.DeltaKernelDelete.Delete(path, predicate, fileFilter: null, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
     }
     public static void DeltaMergeOrdered(
         LazyFrameHandle sourceLf,
@@ -420,47 +273,22 @@ public readonly partial struct PolarsWrapper
             throw new ArgumentException("Action types and expressions must be non-null and of the same length.");
         }
 
-        nuint mergeKeysLen = (nuint)mergeKeys.Length;
-        nuint actionsCount = (nuint)actionTypes.Length;
-
-        IntPtr[] exprPtrs = new IntPtr[actionsCount];
-        for (int i = 0; i < (int)actionsCount; i++)
+        var clauses = new List<Delta.MergeClause>(actionTypes.Length);
+        for (int i = 0; i < actionTypes.Length; i++)
         {
-            if (actionExprs[i] == null)
+            ExprHandle condition = actionExprs[i] ?? throw new ArgumentNullException(nameof(actionExprs), $"Expression at index {i} cannot be null.");
+            Delta.MergeClauseKind kind = actionTypes[i] switch
             {
-                throw new ArgumentNullException(nameof(actionExprs), $"Expression at index {i} cannot be null.");
-            }
-
-            exprPtrs[i] = actionExprs[i].TransferOwnership();
+                PlMergeActionType.MatchedUpdate => Delta.MergeClauseKind.MatchedUpdate,
+                PlMergeActionType.MatchedDelete => Delta.MergeClauseKind.MatchedDelete,
+                PlMergeActionType.NotMatchedInsert => Delta.MergeClauseKind.NotMatchedInsert,
+                PlMergeActionType.NotMatchedBySourceDelete => Delta.MergeClauseKind.NotMatchedBySourceDelete,
+                _ => throw new ArgumentOutOfRangeException(nameof(actionTypes)),
+            };
+            clauses.Add(new Delta.MergeClause(kind, condition));
         }
-
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_merge_ordered(
-            sourceLf,
-            path,
-            mergeKeys,
-            mergeKeysLen,
-
-            actionTypes,
-            exprPtrs,
-            actionsCount,
-
-            can_evolve,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        sourceLf.TransferOwnership();
-
-        ErrorHelper.CheckVoid();
+        Delta.DeltaKernelMerge.Merge(path, sourceLf, mergeKeys, clauses, can_evolve, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
     }
     public static LazyFrameHandle DeltaReadCdc(
         string path,
@@ -477,26 +305,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_read_cdc(
-            path,
-            startVersion,
-            endVersion,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out LazyFrameHandle outLfPtr
-        );
-        ErrorHelper.CheckVoid();
-
-        return outLfPtr;
+        return Delta.DeltaKernelScan.ReadChangeFeed(path, startVersion, endVersion, requireEnabled: true, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
     }
     public static LazyFrameHandle DeltaReadCdcByTime(
         string path,
@@ -512,25 +322,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_io_delta_read_cdc_by_time(
-            path,
-            startTimestampMs,
-            endTimestampMs,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out LazyFrameHandle outLfPtr
-        );
-        ErrorHelper.CheckVoid();
-
-        return outLfPtr;
+        return Delta.DeltaKernelScan.ReadChangeFeed(path, DateTimeOffset.FromUnixTimeMilliseconds(startTimestampMs),
+            DateTimeOffset.FromUnixTimeMilliseconds(endTimestampMs), requireEnabled: true, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
     }
 }

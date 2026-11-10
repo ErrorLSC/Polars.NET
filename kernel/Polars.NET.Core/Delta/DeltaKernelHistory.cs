@@ -59,7 +59,11 @@ internal static class DeltaKernelHistory
     /// The history as a JSON array, one object per commit: its <c>commitInfo</c> fields, with <c>version</c> and
     /// <c>timestamp</c> (milliseconds, the protocol's commit time) set by the log.
     /// </summary>
-    public static string ToJson(IEnumerable<HistoryEntry> entries)
+    /// <param name="entries">The commits.</param>
+    /// <param name="renameCollisions">Rename an <c>operationParameters</c> / <c>operationMetrics</c> field that has
+    /// the name of a top-level field (a RESTORE's <c>version</c>) to <c>operationParameters.version</c>, so that the
+    /// objects can be flattened into one row.</param>
+    public static string ToJson(IEnumerable<HistoryEntry> entries, bool renameCollisions = false)
     {
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
@@ -73,10 +77,24 @@ internal static class DeltaKernelHistory
                 if (entry.CommitInfo is not null)
                 {
                     using JsonDocument info = JsonDocument.Parse(entry.CommitInfo.Json);
+                    var topLevel = new HashSet<string>(StringComparer.Ordinal) { "version", "timestamp" };
+                    foreach (JsonProperty property in info.RootElement.EnumerateObject()) topLevel.Add(property.Name);
                     foreach (JsonProperty property in info.RootElement.EnumerateObject())
                     {
                         if (property.NameEquals("version") || property.NameEquals("timestamp")) continue;
-                        property.WriteTo(json);
+                        bool nested = property.NameEquals("operationParameters") || property.NameEquals("operationMetrics");
+                        if (!renameCollisions || !nested || property.Value.ValueKind != JsonValueKind.Object)
+                        {
+                            property.WriteTo(json);
+                            continue;
+                        }
+                        json.WriteStartObject(property.Name);
+                        foreach (JsonProperty field in property.Value.EnumerateObject())
+                        {
+                            json.WritePropertyName(topLevel.Contains(field.Name) ? property.Name + "." + field.Name : field.Name);
+                            field.Value.WriteTo(json);
+                        }
+                        json.WriteEndObject();
                     }
                 }
                 json.WriteEndObject();

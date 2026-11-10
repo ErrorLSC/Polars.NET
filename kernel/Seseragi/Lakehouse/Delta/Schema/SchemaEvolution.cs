@@ -131,7 +131,7 @@ public static class SchemaEvolution
         {
             string names = string.Join(", ", added.Select(f => path is null ? f.Name : $"{path}.{f.Name}"));
             if (!context.Evolve)
-                throw new DeltaException($"The data has columns the table does not: {names}. Allow schema evolution to add them.");
+                throw new DeltaException($"Schema mismatch: the data has columns the table does not: {names}. Allow schema evolution to add them.");
             if (!topLevel && context.Mapping != ColumnMappingMode.None)
                 throw new DeltaException($"Adding nested fields ({names}) to a table with column mapping is not supported yet.");
             foreach (StructField field in added)

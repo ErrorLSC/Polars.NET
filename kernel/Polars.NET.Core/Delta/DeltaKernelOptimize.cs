@@ -35,7 +35,13 @@ internal static class DeltaKernelOptimize
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     public static DeltaOptimizeResult Optimize(
         string tablePath, long targetFileSize = 128L * 1024 * 1024, IReadOnlyDictionary<string, string?>? partitionFilters = null,
-        string[]? zOrderColumns = null, CloudArgs? cloud = null)
+        string[]? zOrderColumns = null, CloudArgs? cloud = null) =>
+        // Retried as a whole on a commit conflict (the files to compact are chosen anew).
+        ConflictRetry.Run(() => OptimizeOnce(tablePath, targetFileSize, partitionFilters, zOrderColumns, cloud));
+
+    private static DeltaOptimizeResult OptimizeOnce(
+        string tablePath, long targetFileSize, IReadOnlyDictionary<string, string?>? partitionFilters,
+        string[]? zOrderColumns, CloudArgs? cloud)
     {
         if (targetFileSize <= 0) throw new ArgumentOutOfRangeException(nameof(targetFileSize), "The target file size must be positive.");
         if (zOrderColumns is { Length: 0 }) zOrderColumns = null;

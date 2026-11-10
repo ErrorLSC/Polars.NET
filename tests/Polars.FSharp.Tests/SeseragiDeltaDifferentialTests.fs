@@ -507,7 +507,7 @@ let ``Change feed passes cdc change types through as written`` () =
     Assert.Equal<string list>(List.sort expected, rowKeys changes [ "id"; "_change_type"; "_commit_version" ] |> List.sort)
 
 [<Fact>]
-let ``Change feed needs the feature unless waived, and then matches the engine`` () =
+let ``Change feed needs the feature unless waived`` () =
     withTable "cdf_own" (fun path ->
         (frame [1; 2; 3] "east").WriteDelta(path, mode = DeltaSaveMode.Overwrite, mkdir = true)
         (frame [4] "west").WriteDelta(path, mode = DeltaSaveMode.Append)
@@ -516,13 +516,14 @@ let ``Change feed needs the feature unless waived, and then matches the engine``
         let ex = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () ->
             Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L) |> ignore)
         Assert.Contains("not enabled", ex.Message)
-
+        // The public API is the kernel: it refuses too (the old engine read such a table).
         let latest = (Snapshot.Load(LocalFileSystem path)).Version
-        use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L, requireEnabled = false))).Collect()
-        use viaEngine = Delta.ReadChangeDataFeed(path, 0L, latest).Collect()
+        Assert.ThrowsAny<Exception>(fun () -> Delta.ReadChangeDataFeed(path, 0L, latest).Collect() |> ignore) |> ignore
 
-        let columns = [ "id"; "region"; "price"; "_change_type"; "_commit_version" ]
-        Assert.Equal<string list>(rowKeys viaEngine columns |> List.sort, rowKeys viaKernel columns |> List.sort))
+        // Waived: inserts and deletes from the files the commits add and remove.
+        use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.ReadChangeFeed(path, 0L, requireEnabled = false))).Collect()
+        let columns = [ "id"; "_change_type"; "_commit_version" ]
+        Assert.Contains("2|delete|2", rowKeys viaKernel columns |> List.map (fun k -> k.Replace(" ", ""))))
 
 // ---------------------------------------------------------------------------------------------------------------
 // File skipping from LINQ filters (Samidare IR -> kernel predicate, through IFilterAwareSource)

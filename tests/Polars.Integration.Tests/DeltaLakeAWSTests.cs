@@ -186,6 +186,12 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         await DeltaLakeTestHelper.UploadLogAsync(minioClient, minio.BucketName, tableName, 0, sb0.ToString());
 
+        // A commit's time is the modification time of its log file (the protocol's rule; the add actions'
+        // modification times above do not count): leave a gap on both sides of a time between the commits.
+        await Task.Delay(1500);
+        var betweenCommits = DateTimeOffset.UtcNow;
+        await Task.Delay(1500);
+
         // ==========================================
         // Version 1 (Append Commit)
         // ==========================================
@@ -218,7 +224,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(1, dfV0.Height);
         Assert.Equal("V0", dfV0["Name"].ToArray<string>()[0]);
 
-        var queryTime = timeV0.AddMinutes(1).ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var queryTime = betweenCommits.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
 
         using var lfTime = LazyFrame.ScanDelta(rootUrl, datetime: queryTime, cloudOptions: options);
         var dfTime = lfTime.Collect();
@@ -300,7 +306,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(1, dfV3.Height);
         Assert.Equal("Overwrite_New", dfV3["Msg"].ToArray<string>()[0]);
 
-        using var dfBackToV2 = LazyFrame.ScanDelta(rootUrl, version: 2, cloudOptions: options).Collect();
+        using var dfBackToV2 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
         Assert.Equal(3, dfBackToV2.Height);
 
         // ==========================================
@@ -425,7 +431,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(1, dfV3.Height);
         Assert.Equal("2099", dfV3["Year"].ToArray<string>()[0]);
 
-        using var dfBackToV1 = LazyFrame.ScanDelta(rootUrl, version: 2, cloudOptions: options).Collect();
+        using var dfBackToV1 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
         Assert.Equal(5, dfBackToV1.Height);
 
         // ==========================================
@@ -525,7 +531,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         });
 
         Assert.Contains("Schema mismatch", ex.Message);
-        Assert.Contains("can_evolve", ex.Message);
+        Assert.Contains("schema evolution", ex.Message);
 
         // ==========================================
         // Phase 3: Schema Evolution
@@ -650,11 +656,11 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Time Travel 
         // ==========================================
 
-        // V1
-        using var dfBackV1 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
+        // V0 (the table is created in one commit)
+        using var dfBackV1 = LazyFrame.ScanDelta(rootUrl, version: 0, cloudOptions: options).Collect();
 
-        // V2 
-        using var dfBackV2 = LazyFrame.ScanDelta(rootUrl, version: 2, cloudOptions: options).Collect();
+        // V1 
+        using var dfBackV2 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
         Assert.Equal(4, dfBackV2.Height);
         Assert.DoesNotContain(4, dfBackV2["Id"].ToArray<int>());
 
@@ -824,7 +830,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Source Partition: 2024-01-01, 2024-01-03
         // Target Partition: 2024-01-01, 2024-01-02
 
-        using var dfHistory = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect().Sort("OrderId");
+        using var dfHistory = LazyFrame.ScanDelta(rootUrl, version: 0, cloudOptions: options).Collect().Sort("OrderId");
 
         var row1Old = dfHistory.Filter(Pl.Col("OrderId") == 1);
         Assert.Equal("Pending", row1Old["Status"].ToArray<string>()[0]);
@@ -891,7 +897,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         Assert.Contains("Schema mismatch", ex.Message);
         Assert.Contains("NewCol", ex.Message);
-        Assert.Contains("can_evolve", ex.Message);
+        Assert.Contains("schema evolution", ex.Message);
 
         // ==========================================
         // Phase 4: Evolution Test
@@ -1644,7 +1650,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         using var currentDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal(2, currentDf.Height); // Id: 4, 5
 
-        using var oldDf = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
+        using var oldDf = LazyFrame.ScanDelta(rootUrl, version: 0, cloudOptions: options).Collect();
         Assert.Equal(3, oldDf.Height); // Id: 1, 2, 3
 
         // DryRun
@@ -1658,7 +1664,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         Assert.True(filesToDelete > 0, "Dry run should find stale files from Version 0");
 
-        using var oldDfCheck = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
+        using var oldDfCheck = LazyFrame.ScanDelta(rootUrl, version: 0, cloudOptions: options).Collect();
         Assert.Equal(3, oldDfCheck.Height);
 
         // RealRun
@@ -1672,7 +1678,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         Assert.Equal(filesToDelete, deletedCount);
 
-        var ex = Assert.ThrowsAny<Exception>(() => LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect());
+        var ex = Assert.ThrowsAny<Exception>(() => LazyFrame.ScanDelta(rootUrl, version: 0, cloudOptions: options).Collect());
 
         Assert.Contains("404 Not Found", ex.Message);
 
@@ -1716,12 +1722,12 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         ulong newVersion = Delta.Restore(
             rootUrl,
-            version: 1,
+            version: 0,
             cloudOptions: options
         );
 
-        // V1 (Good) -> V2 (Bad) -> V3 (Restore to V1 content)
-        Assert.Equal(3UL, newVersion);
+        // V0 (Good) -> V1 (Bad) -> V2 (Restore to V0 content); creating the table is one commit
+        Assert.Equal(2UL, newVersion);
 
         using var restoredDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal("Good", restoredDf["Val"][0]);

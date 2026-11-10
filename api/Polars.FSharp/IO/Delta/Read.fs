@@ -10,7 +10,12 @@ module DeltaRead =
         /// </summary>
         /// <param name="path">Path to the Delta Lake table (folder containing _delta_log).</param>
         /// <param name="version">The version of the table to read (e.g., 0L, 1L). Mutually exclusive with <paramref name="datetime"/>.</param>
-        /// <param name="datetime">The timestamp to read (ISO-8601 string, e.g., "2026-02-09T12:00:00Z"). Mutually exclusive with <paramref name="version"/>.</param>
+        /// <param name="datetime">The timestamp to read (ISO-8601 string, e.g., "2026-02-09T12:00:00Z"; without an offset it is UTC). Mutually exclusive with <paramref name="version"/>.</param>
+        /// <param name="schema">Return these columns of the table, cast to these types; a column the table does not have is an error.</param>
+        /// <param name="glob">Ignored since 1.2.0 (the managed Delta kernel takes the data files from the log); removed in 2.0.</param>
+        /// <param name="hivePartitioning">Ignored since 1.2.0 (the managed Delta kernel takes partition values from the log, not from paths); removed in 2.0.</param>
+        /// <param name="hivePartitionSchema">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
+        /// <param name="tryParseHiveDates">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
         /// <returns>A new LazyFrame.</returns>
         static member ScanDelta(
             path: string,

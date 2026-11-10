@@ -62,7 +62,7 @@ let ``Scenario 2: Delta Lake Time Travel (History & Restore)`` () =
     
     try
         // ==========================================
-        // 1. Version 0+1: Overwrite
+        // Version 0: Overwrite (creating the table is one commit, as in Spark)
         // ==========================================
         let sId1 = Series.create("id", [1; 2; 3])
         let sName1 = Series.create("name", ["Alice"; "Bob"; "Charlie"])
@@ -71,7 +71,7 @@ let ``Scenario 2: Delta Lake Time Travel (History & Restore)`` () =
         df1.WriteDelta(testPath, mode = DeltaSaveMode.Overwrite, mkdir = true)
         
         // ==========================================
-        // Version 2: Append
+        // Version 1: Append
         // ==========================================
         let sId2 = Series.create("id", [4; 5])
         let sName2 = Series.create("name", ["Dave"; "Eve"])
@@ -87,18 +87,19 @@ let ``Scenario 2: Delta Lake Time Travel (History & Restore)`` () =
         Assert.True(historyDf.Height >= 2L, "History should contain at least 2 versions.")
         
         // ==========================================
-        // Time Travel(Scan Version 1)
+        // Time Travel(Scan Version 0)
         // ==========================================
         let currentDf = LazyFrame.ScanDelta(testPath).Collect()
         Assert.Equal(5L, currentDf.Height)
 
-        let v1Df = LazyFrame.ScanDelta(testPath, version = 1UL).Collect()
-        Assert.Equal(3L, v1Df.Height) 
+        let v0Df = LazyFrame.ScanDelta(testPath, version = 0UL).Collect()
+        Assert.Equal(3L, v0Df.Height) 
         
         // ==========================================
-        // Restore to Version 1
+        // Restore to Version 0
         // ==========================================
-        let _ = Delta.Restore(testPath, version = 1UL)
+        let restoredVersion = Delta.Restore(testPath, version = 0UL)
+        Assert.Equal(2UL, restoredVersion)
 
         let restoredDf = LazyFrame.ScanDelta(testPath).Collect()
         
@@ -223,7 +224,7 @@ let ``Scenario 4: Delta Lake Maintenance (Delete, Optimize, Vacuum)`` () =
             Directory.Delete(testPath, true)
 
 [<Fact>]
-let ``Delta commit reports an unsupported table feature without retrying`` () =
+let ``Turning the change data feed on lets appends feed it`` () =
     let testPath = Path.Combine(Path.GetTempPath(), $"delta_test_cdf_{Guid.NewGuid()}")
 
     try
@@ -231,12 +232,11 @@ let ``Delta commit reports an unsupported table feature without retrying`` () =
         df.WriteDelta(testPath, mode = DeltaSaveMode.Overwrite, mkdir = true)
         Delta.SetTableProperties(testPath, [ DeltaTableProperties.EnableChangeDataFeed, "true" ])
 
-        let error =
-            Assert.ThrowsAny<Exception>(fun () ->
-                df.WriteDelta(testPath, mode = DeltaSaveMode.Append) |> ignore)
-
-        Assert.Contains("Unsupported table features", error.Message)
-        Assert.DoesNotContain("Max retry attempts", error.Message)
+        // The managed kernel writes tables with the change data feed (the old engine refused them).
+        df.WriteDelta(testPath, mode = DeltaSaveMode.Append)
+        let changes = Delta.ReadChangeDataFeed(path = testPath, startVersion = 2L, endVersion = 2L).Collect()
+        Assert.Equal(2L, changes.Height)
+        Assert.All(changes.["_change_type"].ToArray<string>(), fun t -> Assert.Equal("insert", t))
     finally
         if Directory.Exists testPath then Directory.Delete(testPath, true)
 
