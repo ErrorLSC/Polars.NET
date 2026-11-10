@@ -9,6 +9,37 @@ public class SnapshotTests
     private const string DvB = "zz^-aqEH.-t@S}K{vb[*k^";
 
     [Fact]
+    public void CompactedCommits_ReplaceTheRunTheyCover_ButNeverTheLastCommit()
+    {
+        var fs = new MemoryFileSystem()
+            .Commit(0, Lines.Protocol, Lines.Metadata(), Lines.Add("a"))
+            .Commit(1, Lines.Add("b"))
+            .Commit(2, Lines.Remove("a"), Lines.Add("c"))
+            .Commit(3, Lines.Add("d"))
+            .Commit(4, Lines.Add("e"))
+            // Commits 1 to 3, reconciled.
+            .Put("_delta_log/00000000000000000001.00000000000000000003.compacted.json",
+                string.Join("\n", Lines.Add("b"), Lines.Remove("a"), Lines.Add("c"), Lines.Add("d")))
+            // Shorter, so not chosen; and one reaching the latest commit, which is never used.
+            .Put("_delta_log/00000000000000000001.00000000000000000002.compacted.json", string.Join("\n", Lines.Add("b"), Lines.Remove("a"), Lines.Add("c")))
+            .Put("_delta_log/00000000000000000003.00000000000000000004.compacted.json", string.Join("\n", Lines.Add("d"), Lines.Add("e")));
+
+        Snapshot latest = Snapshot.Load(fs);
+        Assert.Equal(["b", "c", "d", "e"], latest.Files.Select(f => f.Path).Order());
+        string[] commitsRead = [.. fs.Reads.Where(p => p.EndsWith(".json", StringComparison.Ordinal))];
+        Assert.Equal(
+            ["_delta_log/00000000000000000004.json", "_delta_log/00000000000000000001.00000000000000000003.compacted.json", "_delta_log/00000000000000000000.json"],
+            commitsRead);
+
+        // At version 3 the compaction would end at the version read, so the commits are read one by one.
+        fs.Reads.Clear();
+        Snapshot at3 = Snapshot.Load(fs, 3);
+        Assert.Equal(["b", "c", "d"], at3.Files.Select(f => f.Path).Order());
+        Assert.DoesNotContain(fs.Reads, p => p.Contains("00000000000000000003.compacted", StringComparison.Ordinal));
+        Assert.Contains("_delta_log/00000000000000000003.json", fs.Reads);
+    }
+
+    [Fact]
     public void EmptyLog_IsNotATable()
     {
         Assert.Throws<DeltaTableNotFoundException>(() => Snapshot.Load(new MemoryFileSystem()));

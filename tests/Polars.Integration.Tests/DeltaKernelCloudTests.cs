@@ -86,5 +86,23 @@ public class DeltaKernelCloudTests(MinioFixture minio) : IClassFixture<MinioFixt
         Assert.Equal(10, fs.ReadRange("_delta_log/00000000000000000000.json", 0, 10)!.Length);
         Assert.Null(fs.ReadAll("_delta_log/99999999999999999999.json"));
         Assert.Empty(fs.List("no_such_directory"));
+
+        // Listing from an offset (S3 start-after): a version prefix, and an exact name, which is included.
+        string[] all = [.. log.Select(f => f.Path)];
+        Assert.Equal(all.Where(p => string.CompareOrdinal(p, "_delta_log/00000000000000000001") >= 0),
+            fs.List("_delta_log", "00000000000000000001").Select(f => f.Path));
+        Assert.Equal(all.Where(p => string.CompareOrdinal(p, "_delta_log/00000000000000000001.json") >= 0),
+            fs.List("_delta_log", "00000000000000000001.json").Select(f => f.Path));
+        Assert.Empty(fs.List("_delta_log", "zzz"));
+
+        // Absolute URIs, as the log may hold: inside the table, and in another location of the bucket.
+        byte[] commit0 = fs.ReadAll("_delta_log/00000000000000000000.json")!;
+        Assert.Equal(commit0, fs.ReadAll($"{url}/_delta_log/00000000000000000000.json"));
+        var other = $"s3://{minio.BucketName}/kernel_other_{Guid.NewGuid():N}";
+        using (var third = DataFrame.FromColumns(new { Id = new[] { 9 }, Region = new[] { "south" } }))
+            third.WriteDelta(other, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
+        using var otherFs = new ObjectStoreFileSystem(other, args);
+        Assert.Equal(otherFs.ReadAll("_delta_log/00000000000000000000.json"), fs.ReadAll($"{other}/_delta_log/00000000000000000000.json"));
+        Assert.Equal(otherFs.ReadRange("_delta_log/00000000000000000000.json", 3, 7), fs.ReadRange($"{other}/_delta_log/00000000000000000000.json", 3, 7));
     }
 }

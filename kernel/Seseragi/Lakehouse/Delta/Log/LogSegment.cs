@@ -15,7 +15,10 @@ internal sealed class LogSegment
     public required IReadOnlyList<LogFile> Checkpoint { get; init; }
     /// <summary>The version of the checkpoint, or -1.</summary>
     public required long CheckpointVersion { get; init; }
-    /// <summary>The commits after the checkpoint, oldest first.</summary>
+    /// <summary>
+    /// The commits after the checkpoint, oldest first. A run of them may be replaced by a compacted commit
+    /// (<c>N.M.compacted.json</c>) that holds their reconciled actions; the last commit is always its own file.
+    /// </summary>
     public required IReadOnlyList<LogFile> Commits { get; init; }
     /// <summary>The modification time of the newest file of the segment.</summary>
     public required DateTimeOffset LastModified { get; init; }
@@ -84,6 +87,7 @@ internal sealed class LogSegment
     {
         error = null;
         var commits = new SortedDictionary<long, LogFile>();
+        var compactions = new Dictionary<long, List<LogFile>>();
         var checkpoints = new SortedDictionary<long, List<LogFile>>();
         foreach (LogFile file in files)
         {
@@ -91,6 +95,10 @@ internal sealed class LogSegment
             {
                 case LogFileKind.Commit:
                     commits[file.Version] = file;
+                    break;
+                case LogFileKind.CompactedCommit:
+                    if (!compactions.TryGetValue(file.Version, out List<LogFile>? starting)) compactions[file.Version] = starting = [];
+                    starting.Add(file);
                     break;
                 case LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint or LogFileKind.V2Checkpoint:
                     if (!checkpoints.TryGetValue(file.Version, out List<LogFile>? list)) checkpoints[file.Version] = list = [];
@@ -149,6 +157,7 @@ internal sealed class LogSegment
             }
             needed.Add(commit);
         }
+        needed = UseCompactions(needed, compactions, target);
 
         DateTimeOffset lastModified = needed.Count > 0
             ? needed[^1].Entry.LastModified
@@ -162,6 +171,43 @@ internal sealed class LogSegment
             Commits = needed,
             LastModified = lastModified,
         };
+    }
+
+    /// <summary>
+    /// Replaces runs of commits by the compacted commits that cover them, taking the longest run at each step. A
+    /// compaction is used only when it ends before <paramref name="target"/>: the last commit is read on its own,
+    /// because its file time is the time of the snapshot.
+    /// </summary>
+    private static List<LogFile> UseCompactions(List<LogFile> commits, Dictionary<long, List<LogFile>> compactions, long target)
+    {
+        if (compactions.Count == 0 || commits.Count == 0) return commits;
+        var result = new List<LogFile>(commits.Count);
+        long first = commits[0].Version;
+        int i = 0;
+        while (i < commits.Count)
+        {
+            long v = commits[i].Version;
+            LogFile? best = null;
+            if (compactions.TryGetValue(v, out List<LogFile>? starting))
+            {
+                foreach (LogFile compaction in starting)
+                {
+                    long end = compaction.EndVersion;
+                    if (end > v && end < target && (best is null || end > best.Value.EndVersion)) best = compaction;
+                }
+            }
+            if (best is LogFile chosen)
+            {
+                result.Add(chosen);
+                i = (int)(chosen.EndVersion - first) + 1;
+            }
+            else
+            {
+                result.Add(commits[i]);
+                i++;
+            }
+        }
+        return result;
     }
 
     /// <summary>Of the checkpoint files of one version, picks a set that forms a whole checkpoint, or null.</summary>

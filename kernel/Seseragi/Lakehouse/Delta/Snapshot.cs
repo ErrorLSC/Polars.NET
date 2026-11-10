@@ -180,9 +180,10 @@ public sealed class Snapshot
         foreach (DeltaAction action in actions)
         {
             if (action is not SidecarAction sidecar) continue;
-            if (sidecar.Path.Contains("://", StringComparison.Ordinal))
-                throw new DeltaException($"The checkpoint sidecar {sidecar.Path} is outside the table, which this kernel does not read.");
-            string sidecarPath = $"{LogFile.LogDirectory}/_sidecars/{sidecar.Path}";
+            // A sidecar is a file name inside _delta_log/_sidecars, or an absolute URI the engine resolves.
+            string sidecarPath = sidecar.Path.Contains("://", StringComparison.Ordinal)
+                ? sidecar.Path
+                : $"{LogFile.LogDirectory}/_sidecars/{sidecar.Path}";
             replay.Apply(ActionParser.ParseCheckpointRows(parquet.ReadAsJsonLines(sidecarPath)));
         }
     }

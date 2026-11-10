@@ -15,8 +15,17 @@ public sealed class LocalFileSystem : IFileSystem
     /// <summary>The absolute table directory.</summary>
     public string Root => _root;
 
-    private string Resolve(string relative) =>
-        relative.Length == 0 ? _root : Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar));
+    private string Resolve(string relative)
+    {
+        if (relative.Length == 0) return _root;
+        if (relative.Contains("://", StringComparison.Ordinal) || relative.StartsWith("file:", StringComparison.Ordinal))
+        {
+            if (!Uri.TryCreate(relative, UriKind.Absolute, out Uri? uri) || !uri.IsFile)
+                throw new NotSupportedException($"The local file system cannot read '{relative}'.");
+            return uri.LocalPath; // decodes %XX escapes
+        }
+        return Path.IsPathRooted(relative) ? relative : Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
 
     /// <inheritdoc/>
     public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null)

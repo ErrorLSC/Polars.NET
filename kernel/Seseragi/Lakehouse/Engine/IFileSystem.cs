@@ -7,9 +7,15 @@ namespace Kaminari.Seseragi.Lakehouse.Engine;
 public readonly record struct FileEntry(string Path, long Size, DateTimeOffset LastModified);
 
 /// <summary>
-/// The storage a table lives on, rooted at the table directory. All paths are relative to that root and use
+/// The storage a table lives on, rooted at the table directory. Paths are relative to that root and use
 /// <c>/</c> separators. This is what an engine implements to let the kernel read a table.
 /// </summary>
+/// <remarks>
+/// A path given to <see cref="ReadAll"/> or <see cref="ReadRange"/> may also be an absolute URI (such as
+/// <c>s3://bucket/dir/file</c> or <c>file:///dir/file</c>), because the log may point outside the table: data files
+/// of a shallow clone, deletion vectors of storage type <c>p</c>, sidecars of a V2 checkpoint. A file system reads
+/// such a file when it can reach it and throws otherwise.
+/// </remarks>
 public interface IFileSystem
 {
     /// <summary>

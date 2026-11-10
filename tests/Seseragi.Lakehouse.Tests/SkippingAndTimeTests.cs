@@ -104,6 +104,17 @@ public class FileFilterTests
     }
 
     [Fact]
+    public void StatisticsAsText_AreTrustedOnlyWhereTheTextIsExact()
+    {
+        // Statistics read from a checkpoint's stats_parsed through the engine: decimals arrive as text.
+        AddAction textual = File("""{"numRecords":5,"minValues":{"id":"10","amount":"2.50"},"maxValues":{"id":"20","amount":"7.25"},"nullCount":{"id":0,"amount":0}}""");
+
+        Assert.False(Might(P.Gt("amount", 7.25m), textual));
+        Assert.True(Might(P.Eq("amount", 7.25m), textual));
+        Assert.True(Might(P.Gt("id", 25L), textual)); // an integer as text is not trusted
+    }
+
+    [Fact]
     public void Ne_SkipsOnlyWhenEveryValueIsTheLiteral()
     {
         AddAction constant = File("""{"numRecords":5,"minValues":{"id":7,"name":"x"},"maxValues":{"id":7,"name":"x"},"nullCount":{"id":0,"name":0}}""");

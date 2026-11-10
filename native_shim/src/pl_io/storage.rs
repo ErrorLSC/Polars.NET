@@ -104,12 +104,30 @@ pub extern "C" fn pl_storage_list(
         let start_from = if start_from_ptr.is_null() { None } else { Some(ptr_to_str(start_from_ptr).map_err(compute_err)?) };
         let prefix = ctx.path(directory)?;
 
-        let listing = ASYNC.block_on(async {
+        let listing: object_store::Result<Vec<object_store::ObjectMeta>> = ASYNC.block_on(async {
             let store = ctx.store.to_dyn_object_store().await;
-            store.list_with_delimiter(Some(&prefix)).await
+            match start_from {
+                None => store.list_with_delimiter(Some(&prefix)).await.map(|r| r.objects),
+                Some(from) => {
+                    // Listing from an offset lets a store skip the start of a long log (S3 start-after, GCS
+                    // startOffset). The offset is exclusive and the listing recursive: the file named exactly
+                    // `from` is fetched on its own, and only direct children are kept.
+                    use futures::TryStreamExt;
+                    let offset = prefix.clone().join(from);
+                    let mut objects: Vec<object_store::ObjectMeta> =
+                        store.list_with_offset(Some(&prefix), &offset).try_collect().await?;
+                    match store.head(&offset).await {
+                        Ok(meta) => objects.push(meta),
+                        Err(object_store::Error::NotFound { .. }) => {}
+                        Err(e) => return Err(e),
+                    }
+                    objects.retain(|meta| meta.location.prefix_match(&prefix).is_some_and(|parts| parts.count() == 1));
+                    Ok(objects)
+                }
+            }
         });
         let objects = match listing {
-            Ok(result) => result.objects,
+            Ok(objects) => objects,
             Err(object_store::Error::NotFound { .. }) => Vec::new(),
             Err(e) => return Err(compute_err(format!("Failed to list '{}': {}", prefix, e))),
         };

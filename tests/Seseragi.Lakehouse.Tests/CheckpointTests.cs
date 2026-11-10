@@ -54,6 +54,27 @@ public class CheckpointTests
     }
 
     [Fact]
+    public void StatsParsed_StandsInForTheStatsText()
+    {
+        // delta.checkpoint.writeStatsAsJson = false: the checkpoint keeps the statistics only as a struct, with a
+        // null for a column that has none.
+        static string Row(string path, string statsParsed) =>
+            AddRow(path).Replace("\"stats\":null", "\"stats\":null,\"stats_parsed\":" + statsParsed);
+        var fs = new MemoryFileSystem()
+            .Put(Log + "00000000000000000000.checkpoint.parquet", string.Join("\n", ProtocolRow, MetadataRow,
+                Row("low.parquet", """{"numRecords":10,"minValues":{"id":1,"p":null},"maxValues":{"id":10,"p":null},"nullCount":{"id":0,"p":null}}"""),
+                Row("high.parquet", """{"numRecords":10,"minValues":{"id":11,"p":null},"maxValues":{"id":20,"p":null},"nullCount":{"id":0,"p":null}}"""),
+                Row("none.parquet", "null")));
+
+        Snapshot snapshot = Snapshot.Load(fs, parquet: new FakeParquetReader(fs));
+
+        Assert.Equal(10, snapshot.Files.Single(f => f.Path == "low.parquet").ParsedStats!.NumRecords);
+        Assert.Null(snapshot.Files.Single(f => f.Path == "none.parquet").ParsedStats);
+        Assert.Equal(["high.parquet", "none.parquet"],
+            snapshot.FilesMatching(Kaminari.Seseragi.Lakehouse.Skipping.Predicate.Gt("id", 15L)).Select(f => f.Path).Order());
+    }
+
+    [Fact]
     public void Checkpoint_IsEnough_WhenOlderCommitsAreGone()
     {
         var fs = new MemoryFileSystem()
@@ -130,9 +151,10 @@ public class CheckpointTests
                 """{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["v2Checkpoint"],"writerFeatures":["v2Checkpoint"]}}""",
                 Lines.Metadata(),
                 """{"sidecar":{"path":"s1.parquet","sizeInBytes":1,"modificationTime":1}}""",
-                """{"sidecar":{"path":"s2.parquet","sizeInBytes":1,"modificationTime":1}}"""))
+                // A sidecar may also be an absolute URI, which the engine's file system resolves.
+                """{"sidecar":{"path":"s3://elsewhere/side/s2.parquet","sizeInBytes":1,"modificationTime":1}}"""))
             .Put(Log + "_sidecars/s1.parquet", AddRow("a.parquet"))
-            .Put(Log + "_sidecars/s2.parquet", string.Join("\n", AddRow("b.parquet"), RemoveRow))
+            .Put("s3://elsewhere/side/s2.parquet", string.Join("\n", AddRow("b.parquet"), RemoveRow))
             .Commit(5, Lines.Remove("a.parquet"));
         var parquet = new FakeParquetReader(fs);
 
@@ -140,7 +162,7 @@ public class CheckpointTests
 
         Assert.Equal(5, snapshot.Version);
         Assert.Equal(["b.parquet"], snapshot.Files.Select(f => f.Path));
-        Assert.Equal([Log + "_sidecars/s1.parquet", Log + "_sidecars/s2.parquet"], parquet.Reads);
+        Assert.Equal([Log + "_sidecars/s1.parquet", "s3://elsewhere/side/s2.parquet"], parquet.Reads);
     }
 
     [Fact]

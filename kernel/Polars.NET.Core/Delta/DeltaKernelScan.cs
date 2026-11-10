@@ -165,7 +165,6 @@ public static class DeltaKernelScan
     {
         StructType schema = snapshot.Schema;
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
-        EnsureNoNestedMapping(snapshot);
 
         var frames = new List<LazyFrameHandle>();
         try
@@ -252,16 +251,6 @@ public static class DeltaKernelScan
             exprs.Add(PolarsWrapper.Alias(time, CommitTimestampColumn));
         });
 
-    private static void EnsureNoNestedMapping(Snapshot snapshot)
-    {
-        if (snapshot.ColumnMappingMode == ColumnMappingMode.None) return;
-        foreach (StructField field in snapshot.Schema.Fields)
-        {
-            if (HasNestedStruct(field.Type))
-                throw new PolarsException($"Column mapping on the nested column '{field.Name}' is not supported yet.");
-        }
-    }
-
     /// <summary>Scans the files of a snapshot.</summary>
     /// <param name="fileSystem">The table storage, used to read deletion vectors.</param>
     /// <param name="tableRoot">The location data file paths are relative to.</param>
@@ -280,14 +269,6 @@ public static class DeltaKernelScan
         scannedFiles?.Invoke(files.Count);
 
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
-        if (snapshot.ColumnMappingMode != ColumnMappingMode.None)
-        {
-            foreach (StructField field in schema.Fields)
-            {
-                if (HasNestedStruct(field.Type))
-                    throw new PolarsException($"Column mapping on the nested column '{field.Name}' is not supported yet.");
-            }
-        }
 
         // Files that share their partition values are scanned together; a file with a deletion vector on its own.
         var groups = new Dictionary<string, List<AddAction>>(StringComparer.Ordinal);
@@ -401,7 +382,7 @@ public static class DeltaKernelScan
             {
                 if (!partitionColumns.Contains(field.Name))
                 {
-                    exprs.Add(PolarsWrapper.Alias(PolarsWrapper.Col(field.PhysicalName), field.Name));
+                    exprs.Add(PolarsWrapper.Alias(ToLogical(PolarsWrapper.Col(field.PhysicalName), field.Type), field.Name));
                     continue;
                 }
 
@@ -460,13 +441,56 @@ public static class DeltaKernelScan
         return PolarsWrapper.Lit(value);
     }
 
-    private static bool HasNestedStruct(DeltaType type) => type switch
+    /// <summary>Whether a column read under physical names has a field, at some depth, whose logical name differs.</summary>
+    private static bool NeedsRenaming(DeltaType type) => type switch
     {
-        StructType => true,
-        ArrayType a => HasNestedStruct(a.ElementType),
-        MapType => true, // a map is read as a list of key/value structs
+        StructType s => s.Fields.Any(f => f.PhysicalName != f.Name || NeedsRenaming(f.Type)),
+        ArrayType a => NeedsRenaming(a.ElementType),
+        MapType m => NeedsRenaming(m.KeyType) || NeedsRenaming(m.ValueType),
         _ => false,
     };
+
+    /// <summary>
+    /// Gives a column read under physical names (column mapping) the logical names of its struct fields, at every
+    /// depth: inside structs, list elements and map entries. Takes ownership of <paramref name="physical"/>.
+    /// A struct cast would not do: the engine casts struct fields by name.
+    /// </summary>
+    private static ExprHandle ToLogical(ExprHandle physical, DeltaType type)
+    {
+        if (!NeedsRenaming(type)) return physical;
+        switch (type)
+        {
+            case StructType s when !s.Fields.Any(f => NeedsRenaming(f.Type)):
+                // Only this level is renamed; the rename keeps null structs null.
+                return PolarsWrapper.StructRenameFields(physical, [.. s.Fields.Select(f => f.Name)]);
+
+            case StructType s:
+            {
+                var fields = new ExprHandle[s.Fields.Count];
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    ExprHandle field = PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(physical), [s.Fields[i].PhysicalName]);
+                    fields[i] = PolarsWrapper.Alias(ToLogical(field, s.Fields[i].Type), s.Fields[i].Name);
+                }
+                // Rebuilt field by field, so a null struct is put back explicitly.
+                return PolarsWrapper.IfElse(PolarsWrapper.IsNull(physical), PolarsWrapper.LitNull(), PolarsWrapper.AsStruct(fields));
+            }
+
+            case ArrayType a:
+                return PolarsWrapper.ListEval(physical, ToLogical(PolarsWrapper.Col(""), a.ElementType));
+
+            case MapType m:
+            {
+                // A map is a list of key/value structs; the entry names are fixed, their contents may be renamed.
+                ExprHandle key = PolarsWrapper.Alias(ToLogical(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["key"]), m.KeyType), "key");
+                ExprHandle value = PolarsWrapper.Alias(ToLogical(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["value"]), m.ValueType), "value");
+                return PolarsWrapper.ListEval(physical, PolarsWrapper.AsStruct([key, value]));
+            }
+
+            default:
+                return physical;
+        }
+    }
 
     /// <summary>The columns expected in a data file: every non-partition column under its physical name.</summary>
     private static SchemaHandle PhysicalFileSchema(StructType schema, HashSet<string> partitionColumns, bool withChangeType = false)

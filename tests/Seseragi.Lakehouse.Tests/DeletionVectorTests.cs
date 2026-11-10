@@ -102,6 +102,27 @@ public class DeletionVectorTests
     }
 
     [Fact]
+    public void ReadsFromAnAbsolutePath_OutsideTheTable()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"seseragi dv {Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string file = Path.Combine(dir, "vector.bin");
+            File.WriteAllBytes(file, Framed(s_oneRow));
+            var table = new LocalFileSystem(Path.Combine(dir, "table"));
+            // The log stores an absolute URI, percent-encoded (the directory name has spaces).
+            var descriptor = new DeletionVectorDescriptor { StorageType = "p", PathOrInlineDv = new Uri(file).AbsoluteUri, Offset = 1, SizeInBytes = s_oneRow.Length, Cardinality = 1 };
+            Assert.Contains("%20", descriptor.PathOrInlineDv);
+            Assert.Equal([3L], DeletionVector.Read(table, descriptor).DeletedRows);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void DamagedVectors_AreRejected()
     {
         byte[] framed = Framed(s_oneRow);

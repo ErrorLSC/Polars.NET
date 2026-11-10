@@ -39,7 +39,14 @@ internal sealed class MemoryFileSystem : IFileSystem
         return this;
     }
 
-    public byte[]? ReadAll(string path) => _files.TryGetValue(path, out var file) ? file.Content : null;
+    /// <summary>The paths read whole, in order.</summary>
+    public List<string> Reads { get; } = [];
+
+    public byte[]? ReadAll(string path)
+    {
+        Reads.Add(path);
+        return _files.TryGetValue(path, out var file) ? file.Content : null;
+    }
 
     public byte[]? ReadRange(string path, long offset, int length)
     {

@@ -37,6 +37,10 @@ public sealed record CloudArgs(
 public sealed class ObjectStoreFileSystem : IFileSystem, IDisposable
 {
     private readonly StorageHandle _handle;
+    private readonly string _root;
+    private readonly CloudArgs _cloud;
+    // Stores opened for absolute URIs outside the table, by the directory of the file.
+    private readonly Dictionary<string, ObjectStoreFileSystem> _outside = new(StringComparer.Ordinal);
 
     /// <summary>Opens the store behind a table location.</summary>
     /// <param name="tableUrl">The table location: a cloud URL or a local path.</param>
@@ -44,6 +48,8 @@ public sealed class ObjectStoreFileSystem : IFileSystem, IDisposable
     public ObjectStoreFileSystem(string tableUrl, CloudArgs? cloud = null)
     {
         cloud ??= CloudArgs.Local;
+        _root = tableUrl.TrimEnd('/');
+        _cloud = cloud;
         _handle = ErrorHelper.Check(NativeBindings.pl_storage_open(
             tableUrl,
             cloud.Provider,
@@ -86,6 +92,24 @@ public sealed class ObjectStoreFileSystem : IFileSystem, IDisposable
 
     private byte[]? Read(string path, ulong offset, long length)
     {
+        if (path.Contains("://", StringComparison.Ordinal))
+        {
+            // An absolute URI: inside the table it is read as a relative path; elsewhere through a store opened at
+            // the file's directory with the same settings. The path part of a URI is percent-encoded.
+            if (path.StartsWith(_root + "/", StringComparison.Ordinal))
+            {
+                path = Uri.UnescapeDataString(path[(_root.Length + 1)..]);
+            }
+            else
+            {
+                int slash = path.LastIndexOf('/');
+                string directory = path[..slash];
+                if (!_outside.TryGetValue(directory, out ObjectStoreFileSystem? store))
+                    _outside[directory] = store = new ObjectStoreFileSystem(directory, _cloud);
+                return store.Read(Uri.UnescapeDataString(path[(slash + 1)..]), offset, length);
+            }
+        }
+
         NativeBindings.pl_storage_read(_handle, path, offset, length, out FfiBuffer raw, out bool found);
         byte[] bytes = NativeBuffer.TakeToArray(raw);
         ErrorHelper.CheckVoid();
@@ -93,5 +117,10 @@ public sealed class ObjectStoreFileSystem : IFileSystem, IDisposable
     }
 
     /// <summary>Closes the store.</summary>
-    public void Dispose() => _handle.Dispose();
+    public void Dispose()
+    {
+        foreach (ObjectStoreFileSystem store in _outside.Values) store.Dispose();
+        _outside.Clear();
+        _handle.Dispose();
+    }
 }

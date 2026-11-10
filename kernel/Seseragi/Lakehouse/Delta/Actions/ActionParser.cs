@@ -117,7 +117,9 @@ public static class ActionParser
         Size = Long(e, "size") ?? 0,
         ModificationTime = Long(e, "modificationTime") ?? 0,
         DataChange = Bool(e, "dataChange", true),
-        Stats = Str(e, "stats"),
+        // A checkpoint may carry the statistics as a struct (stats_parsed) instead of, or beside, the JSON text.
+        // The struct has the shape of the text, so its JSON form reads the same way.
+        Stats = Str(e, "stats") ?? ParsedStats(e),
         Tags = NullableMap(e, "tags"),
         DeletionVector = ReadDeletionVector(e),
         BaseRowId = Long(e, "baseRowId"),
@@ -223,6 +225,9 @@ public static class ActionParser
 
     private static DeltaException Missing(string field, string action) =>
         new($"A '{action}' action lacks the required field '{field}'.");
+
+    private static string? ParsedStats(JsonElement e) =>
+        e.TryGetProperty("stats_parsed", out JsonElement v) && v.ValueKind == JsonValueKind.Object ? v.GetRawText() : null;
 
     private static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

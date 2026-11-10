@@ -222,6 +222,18 @@ let ``Kernel reads tables other engines wrote`` (name: string, hasCheckpoint: bo
         fromCommits.AppTransactions |> Seq.map (fun kv -> $"{kv.Key}={kv.Value.Version}") |> Seq.sort |> List.ofSeq,
         snapshot.AppTransactions |> Seq.map (fun kv -> $"{kv.Key}={kv.Value.Version}") |> Seq.sort |> List.ofSeq)
 
+    // Statistics survive the checkpoint, including one that keeps them only as a struct (stats_parsed).
+    let recordsOf (s: Snapshot) =
+        s.Files
+        |> Seq.filter (fun f -> not (isNull f.Stats))
+        |> Seq.map (fun f -> f.Path, f.ParsedStats.NumRecords)
+        |> Map.ofSeq
+    let committed = recordsOf fromCommits
+    let checkpointed = recordsOf snapshot
+    for KeyValue(file, records) in committed do
+        Assert.True(checkpointed.ContainsKey file, $"{file} lost its statistics in the checkpoint")
+        Assert.Equal(records, checkpointed.[file])
+
     if expectedRows = -1L then
         use expected = LazyFrame.ScanDelta(path).Collect()
         Assert.Equal(expected.Height, liveRowsFromFiles path fs snapshot)
@@ -360,14 +372,22 @@ let ``Object store file system agrees with the local one`` (name: string) =
         for a, b in Seq.zip (local.List dir) (fs.List dir) do
             Assert.True(abs (a.LastModified - b.LastModified).TotalSeconds < 1.0, $"modification time of {a.Path}")
 
-    let from = "00000000000000000003"
-    Assert.Equal<string list>(
-        local.List("_delta_log", from) |> Seq.map (fun f -> f.Path) |> List.ofSeq,
-        fs.List("_delta_log", from) |> Seq.map (fun f -> f.Path) |> List.ofSeq)
+    // Listing from an offset: a version prefix, an exact file name (included), and inside a subdirectory.
+    let logEntries = local.List "_delta_log"
+    let exactName = Path.GetFileName(logEntries.[logEntries.Count - 1].Path)
+    for dir, from in [ "_delta_log", "00000000000000000003"; "_delta_log", exactName; "_delta_log/_sidecars", "0"; "_delta_log", "zzz" ] do
+        Assert.Equal<string list>(
+            local.List(dir, from) |> Seq.map (fun f -> f.Path) |> List.ofSeq,
+            fs.List(dir, from) |> Seq.map (fun f -> f.Path) |> List.ofSeq)
+    Assert.Contains(fs.List("_delta_log", exactName), fun f -> f.Path = "_delta_log/" + exactName)
 
     let first = (local.List "_delta_log").[0].Path
     let whole = local.ReadAll first
     Assert.Equal<byte[]>(whole, fs.ReadAll first)
+    // An absolute URI, as the log may hold for files outside the table.
+    let absolute = Uri(Path.Combine(path, first)).AbsoluteUri
+    Assert.Equal<byte[]>(whole, fs.ReadAll absolute)
+    Assert.Equal<byte[]>(whole, local.ReadAll absolute)
     Assert.Equal<byte[]>(local.ReadRange(first, 5L, 20), fs.ReadRange(first, 5L, 20))
     Assert.Equal<byte[]>(local.ReadRange(first, int64 whole.Length - 3L, 50), fs.ReadRange(first, int64 whole.Length - 3L, 50))
     Assert.Empty(fs.ReadRange(first, int64 whole.Length + 10L, 5))
@@ -555,3 +575,67 @@ let ``LINQ filters reach the kernel and skip files`` () =
         // No filter at all.
         Assert.Equal(30, query { for r in q do select r } |> Seq.length)
         assertScanned 3 scanned)
+
+// ---------------------------------------------------------------------------------------------------------------
+// Column mapping inside nested types
+// ---------------------------------------------------------------------------------------------------------------
+
+[<Fact>]
+let ``Nested column mapping gets logical names back at every depth`` () =
+    withTable "nested_cm" (fun path ->
+        let logDir = Path.Combine(path, "_delta_log")
+        Directory.CreateDirectory logDir |> ignore
+        let W = Polars.NET.Core.Wrappers.PolarsWrapper.Alias
+        let col (n: string) = Polars.NET.Core.Wrappers.PolarsWrapper.Col n
+        let asStruct (fields: Polars.NET.Core.ExprHandle list) = Polars.NET.Core.Wrappers.PolarsWrapper.AsStruct(Array.ofList fields)
+        let oneElementList e = Polars.NET.Core.Wrappers.PolarsWrapper.ConcatList [| e |]
+
+        // The data file, under physical names: col-s = struct{col-x, col-l: list<struct{col-z}>}, null in row 3;
+        // col-m = map<string, struct{col-v}> (a list of key/value entries).
+        use source = DataFrame.create [| Series.create("id", [ 1; 2; 3 ]); Series.create("x", [ 10; 20; 30 ]); Series.create("z", [ "a"; "b"; "c" ]) |]
+        let s =
+            Polars.NET.Core.Wrappers.PolarsWrapper.IfElse(
+                Polars.NET.Core.Wrappers.PolarsWrapper.Eq(col "id", Polars.NET.Core.Wrappers.PolarsWrapper.Lit 3),
+                Polars.NET.Core.Wrappers.PolarsWrapper.LitNull(),
+                asStruct [ W(col "x", "col-x"); W(oneElementList (asStruct [ W(col "z", "col-z") ]), "col-l") ])
+        let m = oneElementList (asStruct [ W(col "z", "key"); W(asStruct [ W(col "x", "col-v") ], "value") ])
+        let lf = Polars.NET.Core.Wrappers.PolarsWrapper.LazySelect(source.Lazy().CloneHandle(), [| W(col "id", "col-id"); W(s, "col-s"); W(m, "col-m") |])
+        use physical = new DataFrame(Polars.NET.Core.Wrappers.PolarsWrapper.LazyCollect(lf, Polars.NET.Core.Enums.PlEngine.Auto))
+        let dataFile = Path.Combine(path, "part-0.parquet")
+        physical.WriteParquet dataFile
+
+        let field name physicalName id (typeJson: string) =
+            $"{{\"name\":\"{name}\",\"type\":{typeJson},\"nullable\":true,\"metadata\":{{\"delta.columnMapping.id\":{id},\"delta.columnMapping.physicalName\":\"{physicalName}\"}}}}"
+        let structOf (fields: string list) = $"{{\"type\":\"struct\",\"fields\":[{String.Join(',', fields)}]}}"
+        let element = structOf [ field "z" "col-z" 5 "\"string\"" ]
+        let mapValue = structOf [ field "v" "col-v" 7 "\"integer\"" ]
+        let schema =
+            structOf [
+                field "id" "col-id" 1 "\"integer\""
+                field "s" "col-s" 2 (structOf [
+                    field "x" "col-x" 3 "\"integer\""
+                    field "l" "col-l" 4 $"{{\"type\":\"array\",\"elementType\":{element},\"containsNull\":true}}" ])
+                field "m" "col-m" 6 $"{{\"type\":\"map\",\"keyType\":\"string\",\"valueType\":{mapValue},\"valueContainsNull\":true}}" ]
+        let metadata =
+            JsonSerializer.Serialize(
+                {| metaData =
+                    {| id = "nested-cm"; format = {| provider = "parquet"; options = dict [] |}; schemaString = schema
+                       partitionColumns = Array.empty<string>
+                       configuration = dict [ "delta.columnMapping.mode", "name"; "delta.columnMapping.maxColumnId", "7" ]
+                       createdTime = 1 |} |})
+        let size = FileInfo(dataFile).Length
+        File.WriteAllLines(
+            Path.Combine(logDir, "00000000000000000000.json"),
+            [| """{"protocol":{"minReaderVersion":2,"minWriterVersion":5}}"""
+               metadata
+               $"{{\"add\":{{\"path\":\"part-0.parquet\",\"partitionValues\":{{}},\"size\":{size},\"modificationTime\":1,\"dataChange\":true,\"stats\":\"{{\\\"numRecords\\\":3}}\"}}}}" |])
+
+        use table = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect()
+        use sorted = table.Sort(pl.col "id")
+        use json = Polars.NET.Core.Wrappers.PolarsWrapper.WriteJsonNativeMemory(sorted.Handle, Polars.NET.Core.Enums.PlJsonFormat.JsonLines)
+        let lines = Text.Encoding.UTF8.GetString(json.Memory.Span).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        Assert.Equal<string[]>(
+            [| """{"id":1,"s":{"x":10,"l":[{"z":"a"}]},"m":[{"key":"a","value":{"v":10}}]}"""
+               """{"id":2,"s":{"x":20,"l":[{"z":"b"}]},"m":[{"key":"b","value":{"v":20}}]}"""
+               """{"id":3,"s":null,"m":[{"key":"c","value":{"v":30}}]}""" |],
+            lines))

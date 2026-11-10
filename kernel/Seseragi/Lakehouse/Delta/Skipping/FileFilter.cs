@@ -243,8 +243,9 @@ public sealed class FileFilter
                 }
                 return false;
             case JsonValueKind.String:
-                // Booleans have no statistics; a number written as text is not trusted.
-                return kind is Kind.String or Kind.Date or Kind.Timestamp && TryParseText(stat.GetString()!, kind, out value);
+                // Booleans have no statistics. Integers and floats written as text are not trusted; a decimal is,
+                // because its text is exact (statistics read from a checkpoint's stats_parsed come that way).
+                return kind is Kind.String or Kind.Date or Kind.Timestamp or Kind.Decimal && TryParseText(stat.GetString()!, kind, out value);
             default:
                 return false;
         }
