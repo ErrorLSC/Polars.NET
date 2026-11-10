@@ -18,4 +18,11 @@ public interface IWritableFileSystem : IFileSystem
 
     /// <summary>Deletes a file; returns false when there was none.</summary>
     bool Delete(string path);
+
+    /// <summary>
+    /// Lists every file under <paramref name="directory"/> at any depth, paths relative to the table root, in
+    /// ordinal order. A directory that does not exist lists as empty. Vacuum uses it to find files the log no
+    /// longer references.
+    /// </summary>
+    IReadOnlyList<FileEntry> ListAll(string directory);
 }

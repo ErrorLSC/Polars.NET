@@ -295,6 +295,9 @@ unsafe internal partial class NativeBindings
     public static partial void pl_storage_list(StorageHandle storage, string directory, string? start_from, out FfiBuffer out_buffer);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_storage_list_all(StorageHandle storage, string directory, out FfiBuffer out_buffer);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_storage_read(
         StorageHandle storage, string path, ulong offset, long length, out FfiBuffer out_buffer,
         [MarshalAs(UnmanagedType.U1)] out bool out_found);

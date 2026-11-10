@@ -574,3 +574,38 @@ let ``Optimize Z-orders rows so files cluster on every column`` () =
         Assert.Equal("[\"x\",\"y\"]", info.GetProperty("operationParameters").GetProperty("zOrderBy").GetString())
 
         Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> optimize path 1000L [] [ "nope" ] |> ignore) |> ignore)
+
+// ---- vacuum ----
+
+[<Fact>]
+let ``Vacuum deletes replaced and orphan files on disk, and the table reads the same`` () =
+    withTable "vacuum" (fun path ->
+        use east = frame [ 1 .. 4 ] "east"
+        use west = frame [ 5 .. 8 ] "west"
+        use both = east.VStack west
+        create path both [| "region" |] dvOn
+        delete path (pl.col "id" .== pl.lit 2) |> ignore          // a deletion vector
+        optimize path (128L * 1024L * 1024L) [] [] |> ignore       // replaces the east file and drops its vector
+        File.WriteAllText(Path.Combine(path, "region=west", "orphan.parquet"), "never committed")
+        File.SetLastWriteTimeUtc(Path.Combine(path, "region=west", "orphan.parquet"), DateTime.UtcNow.AddDays(-30.0))
+        let before = Directory.GetFiles(path, "*", SearchOption.AllDirectories) |> Array.filter (fun f -> not (f.Contains "_delta_log"))
+
+        // Removed moments ago: within the default 7 days only the month-old orphan would go, and a shorter
+        // retention needs the check off.
+        Assert.Equal<string seq>([ "region=west/orphan.parquet" ], (DeltaKernelVacuum.Vacuum(path, dryRun = true, full = true)).Files)
+        Assert.Empty((DeltaKernelVacuum.Vacuum(path)).Files)
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> DeltaKernelVacuum.Vacuum(path, 0.0) |> ignore) |> ignore
+
+        let dry = DeltaKernelVacuum.Vacuum(path, 0.0, enforceRetention = false, dryRun = true, full = true)
+        let r = DeltaKernelVacuum.Vacuum(path, 0.0, enforceRetention = false, full = true)
+
+        Assert.Equal<string seq>(dry.Files, r.Files)
+        // The old east file, its deletion vector file, and the orphan.
+        Assert.Equal(3, r.Files.Count)
+        Assert.Contains("region=west/orphan.parquet", r.Files)
+        Assert.Contains(r.Files, fun f -> f.StartsWith("deletion_vector_", StringComparison.Ordinal))
+        let after = Directory.GetFiles(path, "*", SearchOption.AllDirectories) |> Array.filter (fun f -> not (f.Contains "_delta_log"))
+        Assert.Equal(before.Length - 3, after.Length)
+        Assert.Equal<int list>([ 1; 3; 4; 5; 6; 7; 8 ], ids path)
+        let history = Snapshot.Load(LocalFileSystem path)
+        Assert.Equal("VACUUM END", (commitInfo path history.Version).GetProperty("operation").GetString()))

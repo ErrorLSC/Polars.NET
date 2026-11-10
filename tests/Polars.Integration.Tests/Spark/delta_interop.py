@@ -38,6 +38,8 @@ def session():
         .config("spark.ui.enabled", "false")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "2")
+        # VACUUM ... RETAIN 0 HOURS in the tests.
+        .config("spark.databricks.delta.retentionDurationCheck.enabled", "false")
     )
     spark = configure_spark_with_delta_pip(builder).getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")

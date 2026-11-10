@@ -120,6 +120,28 @@ public sealed class LocalFileSystem : IWritableFileSystem
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<FileEntry> ListAll(string directory)
+    {
+        var dir = new DirectoryInfo(Resolve(directory));
+        if (!dir.Exists) return [];
+        var result = new List<FileEntry>();
+        foreach (FileInfo file in dir.EnumerateFiles("*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                string relative = Path.GetRelativePath(Root, file.FullName).Replace(Path.DirectorySeparatorChar, '/');
+                result.Add(new FileEntry(relative, file.Length, file.LastWriteTimeUtc));
+            }
+            catch (FileNotFoundException)
+            {
+                // Gone since it was listed.
+            }
+        }
+        result.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
+        return result;
+    }
+
+    /// <inheritdoc/>
     public bool Delete(string path)
     {
         string target = Resolve(path);

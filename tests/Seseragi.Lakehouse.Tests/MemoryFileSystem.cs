@@ -48,6 +48,13 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
         }
     }
 
+    public IReadOnlyList<FileEntry> ListAll(string directory)
+    {
+        string prefix = directory.Length == 0 ? "" : directory.TrimEnd('/') + "/";
+        lock (_files)
+            return [.. _files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)).Select(f => new FileEntry(f.Key, f.Value.Content.Length, f.Value.Modified))];
+    }
+
     public bool Delete(string path)
     {
         lock (_files) return _files.Remove(path);

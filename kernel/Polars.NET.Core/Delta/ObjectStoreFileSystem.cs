@@ -69,7 +69,12 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
         NativeBindings.pl_storage_list(_handle, directory, startFrom, out FfiBuffer raw);
         byte[] bytes = NativeBuffer.TakeToArray(raw);
         ErrorHelper.CheckVoid();
+        return Parse(bytes, directory);
+    }
 
+    /// <summary>Entries from the native listing text: <c>path TAB size TAB milliseconds</c> per line, paths relative to <paramref name="directory"/>.</summary>
+    private static List<FileEntry> Parse(byte[] bytes, string directory)
+    {
         string prefix = directory.Length == 0 ? "" : directory.TrimEnd('/') + "/";
         var entries = new List<FileEntry>();
         foreach (string line in Encoding.UTF8.GetString(bytes).Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -82,6 +87,15 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
         }
         entries.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
         return entries;
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<FileEntry> ListAll(string directory)
+    {
+        NativeBindings.pl_storage_list_all(_handle, directory, out FfiBuffer raw);
+        byte[] bytes = NativeBuffer.TakeToArray(raw);
+        ErrorHelper.CheckVoid();
+        return Parse(bytes, directory);
     }
 
     /// <inheritdoc/>

@@ -393,6 +393,41 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void Vacuum_ByEither_LeavesATableTheOtherReads()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            string table = Path.Combine(root, "vacuumed");
+            CreateTable(table, new() { ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true" });
+            DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2)));
+            DeltaKernelOptimize.Optimize(table);
+
+            // Spark deletes with its own vectors and change files; the kernel vacuums everything Spark and the
+            // kernel replaced, with no retention.
+            LocalSpark.Run("sql", table, "DELETE FROM {table} WHERE id IN (5, 6)");
+            var vacuumed = DeltaKernelVacuum.Vacuum(table, 0, enforceRetention: false, full: true);
+            Assert.NotEmpty(vacuumed.Files);
+            Assert.Contains(vacuumed.Files, f => f.StartsWith("deletion_vector_", StringComparison.Ordinal));
+
+            JsonDocument spark = LocalSpark.Run("read", table)[0];
+            AssertSameRows(table, spark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            Assert.Equal(7, spark.RootElement.GetProperty("rows").GetArrayLength());
+
+            // Spark's own VACUUM on what the kernel wrote next.
+            DeltaKernelUpdate.Update(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(7)), [("note", PolarsWrapper.Lit("spark vacuums this"))]);
+            JsonDocument afterSpark = LocalSpark.Run("sql", table, "VACUUM {table} RETAIN 0 HOURS")[0];
+            AssertSameRows(table, afterSpark.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(table)));
+            Assert.Empty(DeltaKernelVacuum.Vacuum(table, 0, enforceRetention: false, dryRun: true, full: true).Files);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void Kernel_ReadsWidenedColumns_SkipsSafely_AndRewritesOldFiles()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

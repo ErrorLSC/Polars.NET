@@ -85,6 +85,51 @@ pub extern "C" fn pl_storage_free(ptr: *mut StorageContext) {
     }
 }
 
+/// Lists every file under `directory` (relative to the root), at any depth. The result is UTF-8 text, one file per
+/// line: `path relative to directory<TAB>size<TAB>last modified in milliseconds since the epoch`. A directory that
+/// does not exist lists as empty.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_storage_list_all(
+    ctx_ptr: *mut StorageContext,
+    directory_ptr: *const c_char,
+    out_buffer: *mut FfiBuffer,
+) {
+    ffi_try_void!({
+        if ctx_ptr.is_null() || out_buffer.is_null() {
+            return Err(compute_err("storage context or output buffer is null"));
+        }
+        let ctx = unsafe { &*ctx_ptr };
+        let directory = ptr_to_str(directory_ptr).map_err(compute_err)?;
+        let prefix = ctx.path(directory)?;
+
+        let listing: object_store::Result<Vec<object_store::ObjectMeta>> = ASYNC.block_on(async {
+            use futures::TryStreamExt;
+            let store = ctx.store.to_dyn_object_store().await;
+            store.list(Some(&prefix)).try_collect().await
+        });
+        let objects = match listing {
+            Ok(objects) => objects,
+            Err(object_store::Error::NotFound { .. }) => Vec::new(),
+            Err(e) => return Err(compute_err(format!("Failed to list '{}': {}", prefix, e))),
+        };
+
+        let mut text = String::new();
+        for meta in objects {
+            let Some(parts) = meta.location.prefix_match(&prefix) else { continue };
+            let relative: Vec<String> = parts.map(|p| p.as_ref().to_string()).collect();
+            if relative.is_empty() { continue; }
+            text.push_str(&relative.join("/"));
+            text.push('\t');
+            text.push_str(&meta.size.to_string());
+            text.push('\t');
+            text.push_str(&meta.last_modified.timestamp_millis().to_string());
+            text.push('\n');
+        }
+        hand_out(text.into_bytes(), out_buffer);
+        Ok(())
+    })
+}
+
 /// Lists the files directly inside `directory` (relative to the root). The result is UTF-8 text, one file per
 /// line: `name<TAB>size<TAB>last modified in milliseconds since the epoch`. A directory that does not exist
 /// lists as empty. With `start_from`, only names not less than it are returned.
