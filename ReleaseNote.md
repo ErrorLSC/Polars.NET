@@ -22,3 +22,4 @@ For full architectural guides, API references, and benchmarks, please visit docu
 * CSV writer default quote mark parameter enums fixed.
 * Negative polars tolerance strhing now will be handled correctly.
 * Old object hydrator is too slow, so it is replaced by a much faster one.
+* ToArrowStream() and FromArrowStream() now can do round trip.

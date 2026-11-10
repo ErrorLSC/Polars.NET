@@ -1,16 +1,65 @@
-using System.Runtime.InteropServices;
-using Apache.Arrow;
+using Kaminari.Seseragi.Catalog;
+using Kaminari.Seseragi.Catalog.Unity;
 using Polars.NET.Core.Enums;
-using Polars.NET.Core.Native;
 using Polars.NET.Core.Exceptions;
 
 namespace Polars.NET.Core.Wrappers;
 
+// Unity Catalog operations. The catalog itself is spoken to by the managed Seseragi client: each operation
+// asks it for the table location and temporary credentials, then runs the path-based Delta operation with them.
 public readonly partial struct PolarsWrapper
 {
     public static CatalogHandle InitUnityCatalog(string workspaceUrl, string bearerToken)
-        => ErrorHelper.Check(NativeBindings.pl_catalog_unity_new(workspaceUrl, bearerToken));
-    public unsafe static LazyFrameHandle ScanCatalogTable
+    {
+        try
+        {
+            return new CatalogHandle(new UnityCatalogClient(workspaceUrl, bearerToken));
+        }
+        catch (ArgumentException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+    }
+
+    /// <summary>
+    /// Asks the catalog where the table lives and for temporary credentials, and lays those credentials
+    /// over the caller's cloud options. Credentials are fetched once per call and are not renewed.
+    /// </summary>
+    private static TableAccess ResolveCatalogTable(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        bool needsWrite,
+        ref string[]? cloudKeys,
+        ref string[]? cloudValues)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+
+        TableAccess access;
+        try
+        {
+            access = handle.Client.ResolveTableAccess(catalogName, schemaName, tableName, needsWrite);
+        }
+        catch (CatalogException e)
+        {
+            throw new PolarsException($"Failed to resolve catalog table {catalogName}.{schemaName}.{tableName}: {e.Message}", e);
+        }
+
+        int baseLen = Math.Min(cloudKeys?.Length ?? 0, cloudValues?.Length ?? 0);
+        var baseOptions = new KeyValuePair<string, string>[baseLen];
+        for (int i = 0; i < baseLen; i++)
+        {
+            baseOptions[i] = new(cloudKeys![i], cloudValues![i]);
+        }
+
+        Dictionary<string, string> merged = access.MergeStorageOptions(baseOptions);
+        cloudKeys = [.. merged.Keys];
+        cloudValues = [.. merged.Values];
+        return access;
+    }
+
+    public static LazyFrameHandle ScanCatalogTable
     (
         CatalogHandle handle,
         string catalogName,
@@ -42,30 +91,19 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues)
     {
-        ulong versionVal = version.GetValueOrDefault();
-        IntPtr versionPtr = version.HasValue ? (IntPtr)(&versionVal) : IntPtr.Zero;
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
-        ulong nRowsVal = nRows.GetValueOrDefault();
-        IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
+        string? format = access.Table.DataSourceFormat;
+        if (format is null)
+            throw new PolarsException("Data source format is missing from Unity Catalog response");
+        if (!string.Equals(format, UnityDataSourceFormats.Delta, StringComparison.OrdinalIgnoreCase))
+            throw new PolarsException($"Unsupported data source format: {format}");
 
-        using var schemaLock = new SafeHandleLock<SchemaHandle>(
-            schema != null ? [schema] : null
-        );
-        IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
-
-        using var hiveLock = new SafeHandleLock<SchemaHandle>(
-            hivePartitionSchema != null ? [hivePartitionSchema] : null
-        );
-        IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        var h = NativeBindings.pl_scan_catalog_table(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
-            versionPtr,
+        return ScanDelta(
+            access.Location,
+            version,
             datetime,
-            nRowsPtr,
+            nRows,
             parallel,
             lowMemory,
             useStatistics,
@@ -75,9 +113,9 @@ public readonly partial struct PolarsWrapper
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schemaPtr,
+            schema,
             hivePartitioning,
-            hiveSchemaPtr,
+            hivePartitionSchema,
             tryParseHiveDates,
             cloudProvider,
             cloudRetries,
@@ -86,12 +124,9 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        return ErrorHelper.Check(h);
+            cloudValues);
     }
+
     public static void SinkCatalogTable
     (
         CatalogHandle handle,
@@ -132,44 +167,27 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues)
     {
-        nuint rgs = rowGroupSize > 0 ? rowGroupSize : 0;
-        nuint dps = dataPageSize > 0 ? dataPageSize : 0;
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
-        int safeCompatLevel = compatLevel;
-        if (safeCompatLevel < -1) safeCompatLevel = -1;
-        else if (safeCompatLevel > 1) safeCompatLevel = 1;
-
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        IntPtr partitionByHandle = partitionBy?.TransferOwnership() ?? IntPtr.Zero;
-        NativeBindings.pl_sink_catalog_table(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
+        SinkDelta(
             lf,
+            access.Location,
             mode,
             canEvolve,
-            // Partition Params
-            partitionByHandle,
+            partitionBy,
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile,
             approxBytesPerFile,
-
-            // Parquet Options
             compression,
             compressionLevel,
             statistics,
-            rgs,
-            dps,
-            safeCompatLevel,
-
-            // Unified Options
+            rowGroupSize,
+            dataPageSize,
+            compatLevel,
             maintainOrder,
             syncOnClose,
             mkdir,
-
-            // Cloud Params
             cloudProvider,
             cloudRetries,
             cloudRetryTimeoutMs,
@@ -177,14 +195,9 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        lf.TransferOwnership();
-
-        ErrorHelper.CheckVoid();
+            cloudValues);
     }
+
     public static void DeleteCatalogRecords(
         CatalogHandle handle,
         string catalogName,
@@ -202,13 +215,10 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
-        NativeBindings.pl_catalog_delete_records(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
+        DeltaDelete(
+            access.Location,
             predicate,
             cloudProvider,
             cloudRetries,
@@ -217,14 +227,9 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        predicate.TransferOwnership();
-
-        ErrorHelper.CheckVoid();
+            cloudValues);
     }
+
     public static void CatalogMergeOrdered(
         CatalogHandle handle,
         string catalogName,
@@ -246,45 +251,14 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        if (mergeKeys == null || mergeKeys.Length == 0)
-        {
-            throw new ArgumentException("Merge keys cannot be null or empty.", nameof(mergeKeys));
-        }
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
-        if (actionTypes == null || actionExprs == null || actionTypes.Length != actionExprs.Length)
-        {
-            throw new ArgumentException("Action types and expressions must be non-null and of the same length.");
-        }
-
-        nuint mergeKeysLen = (nuint)mergeKeys.Length;
-        nuint actionsCount = (nuint)actionTypes.Length;
-
-        IntPtr[] exprPtrs = new IntPtr[actionsCount];
-        for (int i = 0; i < (int)actionsCount; i++)
-        {
-            if (actionExprs[i] == null)
-            {
-                throw new ArgumentNullException(nameof(actionExprs), $"Expression at index {i} cannot be null.");
-            }
-
-            exprPtrs[i] = actionExprs[i].TransferOwnership();
-        }
-
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_catalog_merge_ordered(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
+        DeltaMergeOrdered(
             sourceLf,
+            access.Location,
             mergeKeys,
-            mergeKeysLen,
-
             actionTypes,
-            exprPtrs,
-            actionsCount,
-
+            actionExprs,
             can_evolve,
             cloudProvider,
             cloudRetries,
@@ -293,14 +267,9 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        sourceLf.TransferOwnership();
-
-        ErrorHelper.CheckVoid();
+            cloudValues);
     }
+
     public static ulong CatalogOptimize(
         CatalogHandle handle,
         string catalogName,
@@ -320,18 +289,13 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint zOrderLen = (nuint)(zOrderCols?.Length ?? 0);
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
-        NativeBindings.pl_catalog_optimize(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
+        return Optimize(
+            access.Location,
             targetSizeMb,
             filterJson,
             zOrderCols,
-            zOrderLen,
             cloudProvider,
             cloudRetries,
             cloudRetryTimeoutMs,
@@ -339,15 +303,9 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen,
-            out nuint optimizedFilesCount
-        );
-
-        ErrorHelper.CheckVoid();
-
-        return optimizedFilesCount;
+            cloudValues);
     }
+
     public static void CreateCatalogTable
     (
         CatalogHandle handle,
@@ -359,17 +317,113 @@ public readonly partial struct PolarsWrapper
         string? storageLocation
     )
     {
-        NativeBindings.pl_catalog_create_table(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
-            schema,
-            tableType,
-            storageLocation
-        );
-        ErrorHelper.CheckVoid();
+        ArgumentNullException.ThrowIfNull(handle);
+        if (schema is null || schema.IsInvalid) throw new PolarsException("Schema pointer is null");
+
+        string unityTableType = tableType switch
+        {
+            PlCatalogTableType.Managed => UnityTableTypes.Managed,
+            PlCatalogTableType.External => UnityTableTypes.External,
+            _ => throw new PolarsException("Invalid table_type"),
+        };
+
+        ulong len = GetSchemaLen(schema);
+        var columns = new List<ColumnInfo>((int)len);
+        for (ulong i = 0; i < len; i++)
+        {
+            GetSchemaFieldAt(schema, i, out string name, out DataTypeHandle typeHandle);
+            using (typeHandle)
+            {
+                columns.Add(ColumnInfo.Create(name, ToUnityType(typeHandle), position: (int)i));
+            }
+        }
+
+        try
+        {
+            handle.Client.CreateTable(
+                catalogName,
+                schemaName,
+                tableName,
+                unityTableType,
+                UnityDataSourceFormats.Delta,
+                columns,
+                storageLocation);
+        }
+        catch (CatalogException e)
+        {
+            throw new PolarsException($"Failed to create table: {e.Message}", e);
+        }
     }
+
+    /// <summary>
+    /// Maps a column type to its Unity Catalog type. A list of a two-field struct named key and value is a map.
+    /// </summary>
+    private static UnityDataType ToUnityType(DataTypeHandle dtype)
+    {
+        PlDataType kind = GetDataTypeKind(dtype);
+        switch (kind)
+        {
+            case PlDataType.Boolean: return UnityDataType.Boolean;
+            case PlDataType.Int8: return UnityDataType.Byte;
+            case PlDataType.Int16: return UnityDataType.Short;
+            case PlDataType.Int32: return UnityDataType.Int;
+            case PlDataType.Int64: return UnityDataType.Long;
+            case PlDataType.Float32: return UnityDataType.Float;
+            case PlDataType.Float64: return UnityDataType.Double;
+            case PlDataType.Date: return UnityDataType.Date;
+            case PlDataType.String: return UnityDataType.String;
+            case PlDataType.Binary: return UnityDataType.Binary;
+            case PlDataType.Null: return UnityDataType.Null;
+
+            case PlDataType.Datetime:
+                if (GetTimeUnit(dtype) == PlTimeUnit.Microseconds)
+                {
+                    return string.IsNullOrEmpty(GetTimeZone(dtype)) ? UnityDataType.TimestampNtz : UnityDataType.Timestamp;
+                }
+                break;
+
+            case PlDataType.Decimal:
+                GetDecimalInfo(dtype, out int precision, out int scale);
+                return UnityDataType.Decimal(precision, scale);
+
+            case PlDataType.List:
+            {
+                using DataTypeHandle inner = GetInnerType(dtype);
+                if (GetDataTypeKind(inner) == PlDataType.Struct && GetStructLen(inner) == 2)
+                {
+                    GetStructField(inner, 0, out string keyName, out DataTypeHandle keyType);
+                    GetStructField(inner, 1, out string valueName, out DataTypeHandle valueType);
+                    using (keyType)
+                    using (valueType)
+                    {
+                        if (keyName == "key" && valueName == "value")
+                        {
+                            return UnityDataType.Map(ToUnityType(keyType), ToUnityType(valueType));
+                        }
+                    }
+                }
+                return UnityDataType.Array(ToUnityType(inner));
+            }
+
+            case PlDataType.Struct:
+            {
+                ulong len = GetStructLen(dtype);
+                var fields = new UnityField[len];
+                for (ulong i = 0; i < len; i++)
+                {
+                    GetStructField(dtype, i, out string name, out DataTypeHandle fieldType);
+                    using (fieldType)
+                    {
+                        fields[i] = new UnityField(name, ToUnityType(fieldType));
+                    }
+                }
+                return UnityDataType.Struct(fields);
+            }
+        }
+
+        throw new PolarsException($"Unsupported type for a Unity Catalog column: {GetDataTypeString(dtype)}");
+    }
+
     public static void DeleteCatalogTable
     (
         CatalogHandle handle,
@@ -378,14 +432,17 @@ public readonly partial struct PolarsWrapper
         string tableName
     )
     {
-        NativeBindings.pl_catalog_delete_table(
-            handle,
-            catalogName,
-            schemaName,
-            tableName
-        );
-        ErrorHelper.CheckVoid();
+        ArgumentNullException.ThrowIfNull(handle);
+        try
+        {
+            handle.Client.DeleteTable(catalogName, schemaName, tableName);
+        }
+        catch (CatalogException e)
+        {
+            throw new PolarsException($"Failed to delete table: {e.Message}", e);
+        }
     }
+
     public static long CatalogVacuum(
         CatalogHandle handle,
         string catalogName,
@@ -400,26 +457,10 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_catalog_delta_vacuum(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
-            retentionHours,
-            enforceRetention,
-            dryRun,
-            vacuumModeFull,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out var filesDeleted
-        );
-
-        ErrorHelper.CheckVoid();
-        return (long)filesDeleted;
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        return Vacuum(access.Location, retentionHours, enforceRetention, dryRun, vacuumModeFull, cloudKeys, cloudValues);
     }
+
     public static ulong CatalogRestore(
         CatalogHandle handle,
         string catalogName,
@@ -434,26 +475,10 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_catalog_delta_restore(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
-            targetVersion,
-            targetTimestamp,
-            ignoreMissingFiles,
-            protocolDowngradeAllowed,
-            cloudKeys,
-            cloudValues,
-            cloudLen,
-            out var newVersion
-        );
-
-        ErrorHelper.CheckVoid();
-        return newVersion;
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        return Restore(access.Location, targetVersion, targetTimestamp, ignoreMissingFiles, protocolDowngradeAllowed, cloudKeys, cloudValues);
     }
+
     public static string CatalogHistory(
         CatalogHandle handle,
         string catalogName,
@@ -464,37 +489,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-        nuint limitNative = (nuint)(limit < 0 ? 0 : limit); // <0 or 0 means All
-
-        IntPtr jsonPtr = IntPtr.Zero;
-
-        try
-        {
-            NativeBindings.pl_catalog_delta_history(
-                handle,
-                catalogName,
-                schemaName,
-                tableName,
-                limitNative,
-                cloudKeys,
-                cloudValues,
-                cloudLen,
-                out jsonPtr
-            );
-
-            ErrorHelper.CheckVoid();
-
-            string? json = Marshal.PtrToStringUTF8(jsonPtr);
-            return json ?? "[]";
-        }
-        finally
-        {
-            if (jsonPtr != IntPtr.Zero)
-            {
-                NativeBindings.pl_free_string(jsonPtr);
-            }
-        }
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
+        return History(access.Location, limit, cloudKeys, cloudValues);
     }
 
     public static void CatalogAddFeature(
@@ -508,21 +504,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
-
-        NativeBindings.pl_catalog_delta_add_feature(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
-            featureName,
-            allowProtocolIncrease,
-            cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        ErrorHelper.CheckVoid();
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        AddFeature(access.Location, featureName, allowProtocolIncrease, cloudKeys, cloudValues);
     }
 
     public static LazyFrameHandle CatalogReadCdc(
@@ -542,15 +525,12 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
-        var h = NativeBindings.pl_catalog_delta_read_cdc(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
-            startVersion,
-            endVersion,
+        return DeltaReadCdc(
+            access.Location,
+            checked((long)startVersion),
+            checked((long)endVersion),
             cloudProvider,
             cloudRetries,
             cloudRetryTimeoutMs,
@@ -558,11 +538,7 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        return ErrorHelper.Check(h);
+            cloudValues);
     }
 
     public static LazyFrameHandle CatalogReadCdcByTime(
@@ -582,13 +558,10 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
-        var h = NativeBindings.pl_catalog_delta_read_cdc_by_time(
-            handle,
-            catalogName,
-            schemaName,
-            tableName,
+        return DeltaReadCdcByTime(
+            access.Location,
             startTimestampMs,
             endTimestampMs,
             cloudProvider,
@@ -598,10 +571,6 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues,
-            cloudLen
-        );
-
-        return ErrorHelper.Check(h);
+            cloudValues);
     }
 }

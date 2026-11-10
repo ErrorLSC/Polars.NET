@@ -92,8 +92,36 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Windows: build on a ReFS Dev Drive for faster small-file IO
+      - name: Setup Dev Drive (Windows)
+        if: runner.os == 'Windows'
+        uses: samypr100/setup-dev-drive@v4.1.0
+        with:
+          drive-size: 25GB
+          workspace-copy: true
+          env-mapping: |
+            CARGO_HOME,{{ DEV_DRIVE }}/.cargo
+
+      - name: Resolve Native Shim Directory
+        shell: bash
+        run: |
+          if [[ -n "${DEV_DRIVE_WORKSPACE:-}" ]]; then
+            echo "NATIVE_DIR=${DEV_DRIVE_WORKSPACE//\\//}/native_shim" >> "$GITHUB_ENV"
+          else
+            echo "NATIVE_DIR=native_shim" >> "$GITHUB_ENV"
+          fi
+
+      # Skip the whole Rust build when the sources, toolchain and flags are unchanged.
+      # rust-cache only covers dependencies, so LTO would otherwise rerun on every attempt.
+      - name: Restore Native Binary Cache
+        id: native-bin
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NATIVE_DIR }}/target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          key: native-bin-${{ matrix.rid }}-${{ hashFiles('native_shim/src/**', 'native_shim/Cargo.*', 'native_shim/rust-toolchain.toml', '.github/workflows/release.yml') }}
+
       - name: Add Swap Space to prevent OOM
-        if: runner.os == 'Linux' && matrix.container == null
+        if: runner.os == 'Linux' && matrix.container == null && steps.native-bin.outputs.cache-hit != 'true'
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
@@ -104,6 +132,7 @@ jobs:
 
       # Install Rust
       - name: Install Rust Toolchain
+        if: steps.native-bin.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-04-01 
@@ -111,21 +140,23 @@ jobs:
 
       # Install Cross
       - name: Install cross
-        if: matrix.use_cross == true
+        if: matrix.use_cross == true && steps.native-bin.outputs.cache-hit != 'true'
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - uses: swatinem/rust-cache@v2
+        if: steps.native-bin.outputs.cache-hit != 'true'
         with:
           key: ${{ matrix.target }}-${{ matrix.rid }}
-          workspaces: ./native_shim
+          workspaces: ${{ env.NATIVE_DIR }}
       - name: Install Musl Toolchain (Ubuntu)
-        if: matrix.target == 'aarch64-unknown-linux-musl'
+        if: matrix.target == 'aarch64-unknown-linux-musl' && steps.native-bin.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
         
       # Compile Rust (Release mode)
       - name: Build Native Shim
+        if: steps.native-bin.outputs.cache-hit != 'true'
         shell: bash
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
@@ -151,12 +182,12 @@ jobs:
           echo "RUSTFLAGS: $RUSTFLAGS"
           echo "LTO Mode: $CARGO_PROFILE_RELEASE_LTO"
 
-          cd native_shim
+          cd "$NATIVE_DIR"
           $CARGO_CMD build --release --target ${{ matrix.target }}
 
       - name: Prepare Artifact
         shell: bash
-        working-directory: ./native_shim
+        working-directory: ${{ env.NATIVE_DIR }}
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} .
           echo "Moved artifact to root: ${{ matrix.artifact_name }}"
@@ -166,7 +197,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: native-lib-${{ matrix.rid }}
-          path: native_shim/${{ matrix.artifact_name }}
+          path: ${{ env.NATIVE_DIR }}/${{ matrix.artifact_name }}
           if-no-files-found: error
 
   # ===================================================
@@ -222,6 +253,7 @@ jobs:
         run: |
           dotnet pack kernel/Sazanami/Sazanami.csproj -c Release -o nupkgs
           dotnet pack kernel/Samidare/Samidare.fsproj -c Release -o nupkgs
+          dotnet pack kernel/Seseragi/Catalog/Seseragi.Catalog.csproj -c Release -o nupkgs
           dotnet pack kernel/Polars.NET.Core/Polars.NET.Core.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack api/Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack api/Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs

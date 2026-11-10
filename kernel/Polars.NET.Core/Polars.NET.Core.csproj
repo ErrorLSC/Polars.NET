@@ -78,6 +78,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sazanami\Sazanami.csproj" />
+    <ProjectReference Include="..\Seseragi\Catalog\Seseragi.Catalog.csproj" />
   </ItemGroup>
 
   <ItemGroup>

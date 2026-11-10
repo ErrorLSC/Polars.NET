@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <PackageId>Kaminari.Seseragi.Catalog</PackageId>
+    <AssemblyName>Kaminari.Seseragi.Catalog</AssemblyName>
+    <RootNamespace>Kaminari.Seseragi.Catalog</RootNamespace>
+    <Authors>ErrorLSC</Authors>
+    <Description>Managed data catalog clients for the Kaminari projects.</Description>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Seseragi.Catalog.Tests" />
+  </ItemGroup>
+
+</Project>

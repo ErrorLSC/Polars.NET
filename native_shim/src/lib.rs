@@ -5,7 +5,6 @@ mod types;
 mod expr;
 mod pl_io;
 mod delta;
-mod catalog;
 mod eager;
 mod lazy;
 mod udf;

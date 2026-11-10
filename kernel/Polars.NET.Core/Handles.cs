@@ -150,16 +150,16 @@ public class SchemaHandle : PolarsHandle
     }
 }
 
-public class CatalogHandle : PolarsHandle
+/// <summary>
+/// A Unity Catalog connection. Unlike the other handles it owns no native memory: it holds the managed client.
+/// </summary>
+public sealed class CatalogHandle : IDisposable
 {
-    protected override bool ReleaseHandle()
-    {
-        if (!IsInvalid)
-        {
-            NativeBindings.pl_catalog_unity_free(handle);
-        }
-        return true;
-    }
+    internal Kaminari.Seseragi.Catalog.Unity.UnityCatalogClient Client { get; }
+
+    internal CatalogHandle(Kaminari.Seseragi.Catalog.Unity.UnityCatalogClient client) => Client = client;
+
+    public void Dispose() => Client.Dispose();
 }
 
 public class CategoriesHandle : PolarsHandle

@@ -15,7 +15,7 @@ polars = { version = "0.55.2", features = ["async","lazy", "csv","parquet","stri
 "string_to_integer","extract_jsonpath","month_start","month_end","zip_with","rle","replace","cutqcut","peaks","dtype-extension","is_close","hist"] }
 polars-core = { version = "0.55.2" }
 polars-arrow = { version = "0.55.2" }
-polars-io = { version = "0.55.2",features =["file_cache","catalog"] }
+polars-io = { version = "0.55.2",features =["file_cache"] }
 polars-parquet = { version = "0.55.2" }
 polars-utils = { version = "0.55.2" }
 polars-buffer = {version="0.55.2"}
