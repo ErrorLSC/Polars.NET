@@ -451,9 +451,10 @@ internal static class DeltaKernelWrite
         KernelWriteOptions options, IReadOnlyDictionary<string, string>? tableProperties, CloudArgs? cloud)
     {
         LazyFrameHandle rows = NormalizeLazy(data, schema);
-        if (schema.Fields.Any(f => f.Type is StructType s && HasNotNullInside(s)))
+        if (schema.Fields.Any(f => (f.Type is StructType s && HasNotNullInside(s)) || (!f.Nullable && f.Type is StructType or ArrayType or MapType)))
         {
-            // A null inside a null struct is fine, which file statistics cannot tell apart: check the rows.
+            // Footers count nulls of primitive columns only (and a null inside a null struct is fine, which they
+            // cannot tell apart): check NOT NULL nested columns on the rows.
             using DataFrameHandle collected = PolarsWrapper.LazyCollect(rows, PlEngine.Auto);
             EnsureNotNull(collected, schema);
             rows = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(collected));
@@ -500,17 +501,19 @@ internal static class DeltaKernelWrite
         {
             foreach (FileEntry entry in fileSystem.List(directory)) sizes[entry.Path] = entry.Size;
         }
-        string[] notNullColumns = [.. dataFields.Where(f => !f.Nullable).Select(f => f.PhysicalName)];
+        // NOT NULL primitive columns are checked on the footers' null counts (nested ones were checked on the rows).
+        StructField[] notNullLeaves = [.. dataFields.Where(f => !f.Nullable && f.Type is not (StructType or ArrayType or MapType))];
+        IReadOnlyList<StructField> indexed = FileStatistics.IndexedFields(dataFields, tableProperties);
         var adds = new List<AddAction>(written.Count);
         foreach (var (relative, values) in written)
         {
             if (!sizes.TryGetValue(relative, out long size))
                 throw new PolarsException($"The data file {relative} was not found after it was written.");
             ParquetMetadata footer = ParquetMetadata.Read(fileSystem, relative, size);
-            if (notNullColumns.Length > 0)
+            if (notNullLeaves.Length > 0)
             {
                 IReadOnlyDictionary<string, long> nulls = FileStatistics.NullCounts(footer);
-                string[] violated = [.. dataFields.Where(f => !f.Nullable && (!nulls.TryGetValue(f.PhysicalName, out long n) || n > 0)).Select(f => f.Name)];
+                string[] violated = [.. notNullLeaves.Where(f => !nulls.TryGetValue(f.PhysicalName, out long n) || n > 0).Select(f => f.Name)];
                 if (violated.Length > 0)
                     throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {string.Join(", ", violated)}.");
             }
@@ -521,7 +524,7 @@ internal static class DeltaKernelWrite
                 Size = size,
                 ModificationTime = now,
                 DataChange = true,
-                Stats = FileStatistics.FromParquet(footer, dataFields),
+                Stats = FileStatistics.FromParquet(footer, indexed),
             });
         }
         return adds;
@@ -532,12 +535,32 @@ internal static class DeltaKernelWrite
     private static bool HasNotNullInside(StructType type) =>
         type.Fields.Any(f => !f.Nullable || (f.Type is StructType s && HasNotNullInside(s)));
 
-    /// <summary>The file size the table compacts toward (<c>delta.targetFileSize</c>, in bytes), else 128 MiB.</summary>
-    private static ulong TargetFileSize(IReadOnlyDictionary<string, string>? properties) =>
-        properties is not null && properties.TryGetValue("delta.targetFileSize", out string? text)
-            && ulong.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out ulong bytes) && bytes > 0
-            ? bytes
-            : (ulong)KernelWriteOptions.DefaultTargetFileSize;
+    /// <summary>
+    /// The file size the table aims at: <c>delta.targetFileSize</c> as a byte count (delta-rs) or a size such as
+    /// <c>128mb</c> (Databricks; b, k, m, g, t with an optional b, 1024-based), else 128 MiB.
+    /// </summary>
+    /// <exception cref="PolarsException">The property is set to something that is not a positive size.</exception>
+    internal static ulong TargetFileSize(IReadOnlyDictionary<string, string>? properties)
+    {
+        if (properties is null || !properties.TryGetValue("delta.targetFileSize", out string? text))
+            return (ulong)KernelWriteOptions.DefaultTargetFileSize;
+        string value = text.Trim().ToLowerInvariant();
+        int digits = 0;
+        while (digits < value.Length && char.IsAsciiDigit(value[digits])) digits++;
+        ulong unit = value[digits..].TrimStart() switch
+        {
+            "" or "b" => 1,
+            "k" or "kb" => 1UL << 10,
+            "m" or "mb" => 1UL << 20,
+            "g" or "gb" => 1UL << 30,
+            "t" or "tb" => 1UL << 40,
+            _ => 0,
+        };
+        if (digits == 0 || unit == 0 || !ulong.TryParse(value.AsSpan(0, digits), NumberStyles.None, CultureInfo.InvariantCulture, out ulong count)
+            || count == 0 || count > ulong.MaxValue / unit)
+            throw new PolarsException($"The table property delta.targetFileSize is '{text}', which is not a size (such as 134217728 or 128mb).");
+        return count * unit;
+    }
 
     /// <summary>The file name ending Spark gives a codec.</summary>
     private static string CodecSuffix(PlParquetCompression compression) => compression switch
@@ -570,7 +593,10 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>Writes rows (table columns, logical names) as data files, one per partition.</summary>
-    internal static List<AddAction> WriteFiles(IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, long now) =>
+    /// <param name="tableProperties">The table properties, for the columns that get statistics.</param>
+    internal static List<AddAction> WriteFiles(
+        IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, long now,
+        IReadOnlyDictionary<string, string>? tableProperties) =>
         WriteGroups(fileSystem, df, schema, partitions, directoryPrefix: "", filePrefix: "part", extraColumns: [], (group, dataFields, relative, size, values) => new AddAction
         {
             Path = EncodeLogPath(relative),
@@ -578,7 +604,7 @@ internal static class DeltaKernelWrite
             Size = size,
             ModificationTime = now,
             DataChange = true,
-            Stats = Statistics(group, dataFields),
+            Stats = Statistics(group, [.. FileStatistics.IndexedFields(dataFields, tableProperties)]),
         });
 
     /// <summary>

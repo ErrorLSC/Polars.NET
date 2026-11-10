@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Unicode;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Parquet;
@@ -103,6 +104,57 @@ public static class FileStatistics
         }
     }
 
+    /// <summary>The table property naming the columns that get statistics; it takes precedence over the count.</summary>
+    public const string StatsColumnsKey = "delta.dataSkippingStatsColumns";
+
+    /// <summary>The table property counting the leading leaf columns that get statistics (32 by default, -1 for all).</summary>
+    public const string NumIndexedColsKey = "delta.dataSkippingNumIndexedCols";
+
+    /// <summary>
+    /// The data columns whose statistics are written, as Spark selects them: the columns <see cref="StatsColumnsKey"/>
+    /// names (a struct names all its fields), else the first <see cref="NumIndexedColsKey"/> leaves of the data
+    /// schema in order (32 by default, -1 for all), where every struct field is a leaf and an array or map is one.
+    /// Of these, the ones this kernel writes statistics for are returned: the top-level non-nested columns.
+    /// </summary>
+    /// <param name="dataFields">The table columns that are not partition columns, in schema order.</param>
+    /// <param name="configuration">The table properties.</param>
+    public static IReadOnlyList<StructField> IndexedFields(IReadOnlyList<StructField> dataFields, IReadOnlyDictionary<string, string>? configuration)
+    {
+        ArgumentNullException.ThrowIfNull(dataFields);
+        if (configuration is not null && configuration.TryGetValue(StatsColumnsKey, out string? named) && !string.IsNullOrWhiteSpace(named))
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string entry in named.Split(','))
+            {
+                string name = entry.Trim();
+                // A top-level column, possibly in backticks; nested paths name struct fields, which get no statistics here.
+                if (name.Length >= 2 && name[0] == '`' && name[^1] == '`' && name.IndexOf('`', 1) == name.Length - 1) name = name[1..^1].Replace("``", "`");
+                else if (name.Contains('.', StringComparison.Ordinal)) continue;
+                names.Add(name);
+            }
+            return [.. dataFields.Where(f => names.Contains(f.Name) && IsLeaf(f.Type))];
+        }
+
+        int count = 32;
+        if (configuration is not null && configuration.TryGetValue(NumIndexedColsKey, out string? text)
+            && int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int parsed))
+            count = parsed;
+        if (count < 0) return [.. dataFields.Where(f => IsLeaf(f.Type))];
+
+        var result = new List<StructField>();
+        int seen = 0;
+        foreach (StructField field in dataFields)
+        {
+            if (seen >= count) break;
+            if (IsLeaf(field.Type)) result.Add(field);
+            seen += Leaves(field.Type);
+        }
+        return result;
+
+        static bool IsLeaf(DeltaType type) => type is not (StructType or ArrayType or MapType);
+        static int Leaves(DeltaType type) => type is StructType s ? s.Fields.Sum(f => Leaves(f.Type)) : 1;
+    }
+
     /// <summary>The null count of every top-level column the footer has statistics for, summed over row groups.</summary>
     public static IReadOnlyDictionary<string, long> NullCounts(ParquetMetadata metadata)
     {
@@ -189,7 +241,7 @@ public static class FileStatistics
                 {
                     // Microseconds, cut down to milliseconds (readers allow for the cut).
                     long micros = (long)Integer!.Value;
-                    long millis = (long)Math.Floor(micros / 1000.0);
+                    long millis = micros / 1000 - (micros % 1000 < 0 ? 1 : 0); // floor
                     DateTime t = DateTime.UnixEpoch.AddMilliseconds(millis);
                     return Quote(t.ToString(p.Name == PrimitiveType.Timestamp ? "yyyy-MM-dd'T'HH:mm:ss.fff'Z'" : "yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture));
                 }
@@ -267,7 +319,8 @@ public static class FileStatistics
                         return new Value { Integer = micros };
                     }
                     case PrimitiveType.String:
-                        return physical == 6 ? new Value { Utf8 = bytes } : null;
+                        // A bound that is not valid UTF-8 (a cut inside a character) is not trusted.
+                        return physical == 6 && Utf8.IsValid(bytes) ? new Value { Utf8 = bytes } : null;
                 }
                 break;
         }

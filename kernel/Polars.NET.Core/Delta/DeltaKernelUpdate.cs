@@ -139,7 +139,7 @@ internal static class DeltaKernelUpdate
             {
                 using DataFrameHandle df = PolarsWrapper.LazyCollect(newRows, PlEngine.Auto);
                 DeltaKernelWrite.EnsureNotNull(df, snapshot.Schema);
-                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, df, snapshot.Schema, table.PartitionColumns, plan.Now));
+                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, df, snapshot.Schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration));
             }
 
             if (preimages.Count > 0)

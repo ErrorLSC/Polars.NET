@@ -115,4 +115,9 @@ public class DeltaKernelCloudTests(MinioFixture minio) : IClassFixture<MinioFixt
     {
         KernelObjectStoreCheck.VacuumWorks($"s3://{minio.BucketName}/kernel_vacuum_{Guid.NewGuid():N}", ToArgs(Options()));
     }
+
+    [Fact]
+    [Trait("DeltaKernel", "Cloud")]
+    public void KernelStreamedWrites_OnS3() =>
+        KernelObjectStoreCheck.StreamedWritesWork($"s3://{minio.BucketName}/kernel_stream_{Guid.NewGuid():N}", ToArgs(Options()));
 }

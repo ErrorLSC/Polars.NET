@@ -175,3 +175,86 @@ let ``NOT NULL fields inside structs are checked on the rows`` () =
         Assert.Equal<int list>([ 1; 2; 3 ], ids path)
         use bad = raw.Select([ pl.col "id"; pl.asStruct [ pl.col "k" ] |> pl.alias "s" ])
         Assert.ThrowsAny<Exception>(fun () -> write path bad KernelWriteMode.Append null KernelWriteOptions.Default [] |> ignore) |> ignore)
+
+[<Fact>]
+let ``Statistics follow the table's data skipping properties`` () =
+    withTable "stats_props" (fun path ->
+        let statsOf (p: string) = JsonDocument.Parse((snapshot p).Files |> Seq.head |> fun f -> f.Stats).RootElement
+        let names (e: JsonElement) (section: string) =
+            let mutable v = Unchecked.defaultof<JsonElement>
+            if e.TryGetProperty(section, &v) then v.EnumerateObject() |> Seq.map (fun p -> p.Name) |> List.ofSeq else []
+        use df = frame [ 1; 2; 3 ]
+        let one = Path.Combine(path, "one")
+        write one df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [ (FileStatistics.NumIndexedColsKey, "1") ] |> ignore
+        Assert.Equal<string list>([ "id" ], names (statsOf one) "minValues")
+        Assert.Equal<string list>([ "id" ], names (statsOf one) "nullCount")
+        let named = Path.Combine(path, "named")
+        write named df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [ (FileStatistics.StatsColumnsKey, "price") ] |> ignore
+        Assert.Equal<string list>([ "price" ], names (statsOf named) "maxValues")
+        let none = Path.Combine(path, "none")
+        write none df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [ (FileStatistics.NumIndexedColsKey, "0") ] |> ignore
+        Assert.Equal(1, (statsOf none).EnumerateObject() |> Seq.length) // numRecords only
+        // A delete rewriting files keeps to the selection too.
+        DeltaKernelDelete.Delete(one, (pl.col "id" .== pl.lit 2).CloneHandle()) |> ignore
+        Assert.All((snapshot one).Files, fun f -> Assert.DoesNotContain("price", f.Stats)))
+
+[<Fact>]
+let ``NOT NULL struct and array columns pass when clean and fail with a null`` () =
+    withTable "notnull_nested_top" (fun path ->
+        let schema = """{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"s","type":{"type":"struct","fields":[{"name":"k","type":"integer","nullable":true,"metadata":{}}]},"nullable":false,"metadata":{}},{"name":"arr","type":{"type":"array","elementType":"integer","containsNull":true},"nullable":false,"metadata":{}}]}"""
+        Directory.CreateDirectory path |> ignore
+        Transaction.Create(LocalFileSystem path, ProtocolAction(MinReaderVersion = 1, MinWriterVersion = 2), MetadataAction(Id = "t", SchemaString = schema)).Commit() |> ignore
+        use raw = DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("k", [ Some 1; None ]); Series.create("isNull", [ false; true ]) |]
+        use clean = raw.Select([ pl.col "id"; pl.asStruct [ pl.col "k" ] |> pl.alias "s"; (pl.col "id").Implode().Over(pl.col "id") |> pl.alias "arr" ])
+        write path clean KernelWriteMode.Append null KernelWriteOptions.Default [] |> ignore
+        Assert.Equal<int list>([ 1; 2 ], ids path)
+        use nullStruct = raw.Select([ pl.col "id"; pl.ifElse (pl.col "isNull") (pl.litNull ()) (pl.asStruct [ pl.col "k" ]) |> pl.alias "s"; (pl.col "id").Implode().Over(pl.col "id") |> pl.alias "arr" ])
+        Assert.ThrowsAny<Exception>(fun () -> write path nullStruct KernelWriteMode.Append null KernelWriteOptions.Default [] |> ignore) |> ignore
+        Assert.Equal<int list>([ 1; 2 ], ids path))
+
+[<Fact>]
+let ``String bounds of multi-byte text bound the real values in UTF-8 order`` () =
+    withTable "utf8_bounds" (fun path ->
+        let values = [ String.replicate 40 "漢"; "a" + String.replicate 30 "😀"; String.replicate 70 "é"; "z" + String(char 0x7FF, 50); "中文" ]
+        use df = DataFrame.create [| Series.create("id", [ 1 .. values.Length ]); Series.create("s", values) |]
+        write path df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [] |> ignore
+        let stats = JsonDocument.Parse((snapshot path).Files |> Seq.exactlyOne |> fun f -> f.Stats).RootElement
+        let utf8 (s: string) = Text.Encoding.UTF8.GetBytes s
+        let compare (a: string) (b: string) = (ReadOnlySpan(utf8 a)).SequenceCompareTo(ReadOnlySpan(utf8 b))
+        let realMin = values |> List.minBy utf8 |> fun _ -> values |> List.reduce (fun a b -> if compare a b <= 0 then a else b)
+        let realMax = values |> List.reduce (fun a b -> if compare a b >= 0 then a else b)
+        let mutable v = Unchecked.defaultof<JsonElement>
+        if stats.GetProperty("minValues").TryGetProperty("s", &v) then
+            Assert.True(compare (v.GetString()) realMin <= 0, $"min {v.GetString()} above {realMin}")
+        if stats.GetProperty("maxValues").TryGetProperty("s", &v) then
+            Assert.True(compare (v.GetString()) realMax >= 0, $"max {v.GetString()} below {realMax}")
+        // The table reads back whole.
+        use back = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.Equal<string list>(values, back.["s"].ToArray<string>() |> List.ofArray))
+
+[<Fact>]
+let ``Thousands of partitions stream in one write`` () =
+    withTable "many_partitions" (fun path ->
+        let n = 3000
+        use df = DataFrame.create [| Series.create("id", [ 1 .. n ]); Series.create("key", [ for i in 1 .. n -> $"k{i % 2000}" ]) |]
+        let sw = Diagnostics.Stopwatch.StartNew()
+        write path df KernelWriteMode.ErrorIfExists [| "key" |] KernelWriteOptions.Default [] |> ignore
+        sw.Stop()
+        let table = snapshot path
+        Assert.Equal(2000, table.Files.Count)
+        Assert.Equal(int64 n, table.Files |> Seq.sumBy numRecords)
+        printfn "2000 partitions written in %d ms" sw.ElapsedMilliseconds)
+
+[<Fact>]
+let ``The target file size property takes byte counts and sizes, and refuses anything else`` () =
+    let size (v: string) =
+        let d = Dictionary<string, string>()
+        d["delta.targetFileSize"] <- v
+        DeltaKernelWrite.TargetFileSize d
+    Assert.Equal(134217728UL, size "134217728")
+    Assert.Equal(64UL * 1024UL * 1024UL, size "64mb")
+    Assert.Equal(64UL * 1024UL * 1024UL, size " 64 MB ")
+    Assert.Equal(1UL <<< 30, size "1g")
+    Assert.Equal(128UL * 1024UL * 1024UL, DeltaKernelWrite.TargetFileSize null)
+    for bad in [ "abc"; "-5"; "0"; "12 parsecs"; "" ] do
+        Assert.ThrowsAny<Exception>(fun () -> size bad |> ignore) |> ignore

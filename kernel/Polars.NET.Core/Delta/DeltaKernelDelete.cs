@@ -114,7 +114,7 @@ internal static class DeltaKernelDelete
                     using DataFrameHandle kept = PolarsWrapper.LazyCollect(table.ScanFile(file, dropRows: rows), PlEngine.Auto);
                     plan.CopiedRows += PolarsWrapper.DataFrameHeight(kept);
                     plan.Remove(file);
-                    plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, kept, snapshot.Schema, table.PartitionColumns, plan.Now));
+                    plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, kept, snapshot.Schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration));
                     plan.Rewritten++;
                 }
             }

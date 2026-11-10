@@ -165,7 +165,7 @@ internal static class DeltaKernelOptimize
         for (long offset = 0; offset < height; offset += perFile)
         {
             using DataFrameHandle slice = PolarsWrapper.Slice(df, offset, (ulong)Math.Min(perFile, height - offset));
-            foreach (AddAction add in DeltaKernelWrite.WriteFiles(table.FileSystem, slice, schema, table.PartitionColumns, plan.Now))
+            foreach (AddAction add in DeltaKernelWrite.WriteFiles(table.FileSystem, slice, schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration))
                 plan.Adds.Add(Rearranged(add));
         }
         foreach (AddAction file in bin) plan.Remove(file, dataChange: false);

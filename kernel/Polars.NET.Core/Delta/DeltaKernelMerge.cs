@@ -372,7 +372,7 @@ internal static class DeltaKernelMerge
                 table.EnsureFilesWritable();
                 using DataFrameHandle df = PolarsWrapper.LazyCollect(DmlTable.Concat(written)!, PlEngine.Auto);
                 DeltaKernelWrite.EnsureNotNull(df, schema);
-                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, df, schema, table.PartitionColumns, plan.Now));
+                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, df, schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration));
             }
 
             if (changes.Count > 0)
