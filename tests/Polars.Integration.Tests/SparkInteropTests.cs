@@ -28,20 +28,128 @@ public static class LocalSpark
 
     private static string Script => Path.Combine(AppContext.BaseDirectory, "Spark", "delta_interop.py");
 
-    /// <summary>Runs the interop script; returns its JSON result lines.</summary>
+    /// <summary>
+    /// Runs one command of the interop script; returns its JSON result lines. Commands go to one Spark process kept
+    /// for the whole test run (the JVM, the Spark context and Delta start once), one at a time. Set
+    /// SESERAGI_SPARK_SERVER=0 to start a process per command instead.
+    /// </summary>
     public static List<JsonDocument> Run(params string[] args)
+    {
+        if (Environment.GetEnvironmentVariable("SESERAGI_SPARK_SERVER") == "0") return RunOnce(args);
+        lock (s_lock)
+        {
+            s_server ??= SparkServer.Start();
+            try
+            {
+                return s_server.Run(args);
+            }
+            catch (SparkServer.ServerGoneException)
+            {
+                // The process died (not a failed command): start a new one for the next command.
+                s_server.Dispose();
+                s_server = null;
+                throw;
+            }
+        }
+    }
+
+    private static readonly object s_lock = new();
+    private static SparkServer? s_server;
+
+    private static ProcessStartInfo StartInfo(params string[] args)
     {
         var start = new ProcessStartInfo(Python) { RedirectStandardOutput = true, RedirectStandardError = true };
         start.ArgumentList.Add(Script);
         foreach (string arg in args) start.ArgumentList.Add(arg);
         start.Environment["JAVA_HOME"] = JavaHome;
-        using Process process = Process.Start(start)!;
+        return start;
+    }
+
+    private static List<JsonDocument> RunOnce(string[] args)
+    {
+        using Process process = Process.Start(StartInfo(args))!;
         Task<string> stderr = process.StandardError.ReadToEndAsync();
         string stdout = process.StandardOutput.ReadToEnd();
         process.WaitForExit();
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"Spark failed ({process.ExitCode}):\n{stderr.Result[^Math.Min(4000, stderr.Result.Length)..]}");
         return [.. stdout.Split('\n').Where(l => l.StartsWith('{')).Select(l => JsonDocument.Parse(l))];
+    }
+
+    /// <summary>The script in serve mode: a command per line in, its results and a done or error line out.</summary>
+    private sealed class SparkServer : IDisposable
+    {
+        public sealed class ServerGoneException(string message) : InvalidOperationException(message);
+
+        private readonly Process _process;
+        private readonly System.Text.StringBuilder _stderr = new();
+
+        private SparkServer(Process process)
+        {
+            _process = process;
+            // Drain stderr all the time, or Spark blocks once the pipe fills; keep the tail for error messages.
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is null) return;
+                lock (_stderr)
+                {
+                    _stderr.AppendLine(e.Data);
+                    if (_stderr.Length > 64_000) _stderr.Remove(0, _stderr.Length - 32_000);
+                }
+            };
+            process.BeginErrorReadLine();
+        }
+
+        public static SparkServer Start()
+        {
+            ProcessStartInfo start = StartInfo("serve");
+            start.RedirectStandardInput = true;
+            var server = new SparkServer(Process.Start(start)!);
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => server.Dispose();
+            return server;
+        }
+
+        public List<JsonDocument> Run(string[] args)
+        {
+            _process.StandardInput.WriteLine(JsonSerializer.Serialize(args));
+            _process.StandardInput.Flush();
+            var results = new List<JsonDocument>();
+            while (true)
+            {
+                string? line = _process.StandardOutput.ReadLine();
+                if (line is null)
+                    throw new ServerGoneException($"The Spark process ended unexpectedly:\n{Tail()}");
+                if (!line.StartsWith('{')) continue;
+                JsonDocument doc = JsonDocument.Parse(line);
+                if (doc.RootElement.TryGetProperty("done", out _)) return results;
+                if (doc.RootElement.TryGetProperty("error", out JsonElement error))
+                    throw new InvalidOperationException(
+                        $"Spark failed: {error.GetString()}\n{doc.RootElement.GetProperty("trace").GetString()}\n{Tail()}");
+                results.Add(doc);
+            }
+        }
+
+        private string Tail()
+        {
+            lock (_stderr) return _stderr.ToString()[^Math.Min(4000, _stderr.Length)..];
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    _process.StandardInput.Close(); // the script ends at the end of its input
+                    if (!_process.WaitForExit(15_000)) _process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // already gone
+            }
+            _process.Dispose();
+        }
     }
 }
 

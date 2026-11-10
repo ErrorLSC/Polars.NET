@@ -4,6 +4,7 @@
   write <dir>       create Spark tables that use Delta features under <dir>, then read them as above
   append <table> n  append n rows, one commit each, then read the table as above
   create_v2 <table> create an empty table with V2 checkpoints every two commits
+  serve             read commands as JSON arrays from stdin, one per line, with one Spark session for all
 
 Values are canonical so that another engine can compare: dates as days since the epoch, timestamps as
 microseconds since the epoch (UTC), decimals as text, binary as base64, structs as objects, arrays as lists.
@@ -135,9 +136,7 @@ def read_changes(spark, path):
     print(json.dumps({"path": path, "changes": True, "rows": rows}, ensure_ascii=False), flush=True)
 
 
-def main():
-    command, args = sys.argv[1], sys.argv[2:]
-    spark = session()
+def run(spark, command, args):
     if command == "read":
         for path in args:
             read(spark, path)
@@ -198,7 +197,37 @@ def main():
             spark.sql(f"INSERT INTO delta.`{path}` VALUES ({1000 + i}, 'spark')")
         read(spark, path)
     else:
-        raise SystemExit(f"unknown command {command}")
+        raise ValueError(f"unknown command {command}")
+
+
+def serve(spark):
+    """One command per input line, as a JSON array [command, args...]. Its result lines follow, then a line
+    {"done": true}, or {"error": "..."} when it failed. One session serves every command, so the JVM, the Spark
+    context and Delta start once."""
+    jvm_delta_log = spark._jvm.org.apache.spark.sql.delta.DeltaLog
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            command, *args = json.loads(line)
+            # Tables change behind Spark's back between commands (other writers, deleted log files): start fresh.
+            jvm_delta_log.clearCache()
+            spark.catalog.clearCache()
+            run(spark, command, args)
+            print(json.dumps({"done": True}), flush=True)
+        except Exception as e:  # report and keep serving
+            import traceback
+            print(json.dumps({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-4000:]}), flush=True)
+
+
+def main():
+    command, args = sys.argv[1], sys.argv[2:]
+    spark = session()
+    if command == "serve":
+        serve(spark)
+    else:
+        run(spark, command, args)
 
 
 if __name__ == "__main__":
