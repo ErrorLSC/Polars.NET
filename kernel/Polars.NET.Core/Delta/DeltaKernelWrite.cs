@@ -1,0 +1,481 @@
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using Kaminari.Seseragi.Lakehouse.Delta;
+using Kaminari.Seseragi.Lakehouse.Delta.Actions;
+using Kaminari.Seseragi.Lakehouse.Delta.Schema;
+using Kaminari.Seseragi.Lakehouse.Engine;
+using Polars.NET.Core.Enums;
+using Polars.NET.Core.Exceptions;
+using Polars.NET.Core.Helpers;
+using Polars.NET.Core.Wrappers;
+
+namespace Polars.NET.Core.Delta;
+
+/// <summary>How a write treats a table that already exists.</summary>
+internal enum KernelWriteMode
+{
+    /// <summary>Fail when the table exists.</summary>
+    ErrorIfExists,
+    /// <summary>Add the rows to the table.</summary>
+    Append,
+    /// <summary>Replace the rows of the table.</summary>
+    Overwrite,
+}
+
+/// <summary>
+/// Writes rows to a Delta table through the managed kernel: the engine writes the data files (one per partition)
+/// and computes their statistics, the kernel commits them. Not reachable from the public API yet.
+/// </summary>
+internal static class DeltaKernelWrite
+{
+    /// <summary>The longest string kept whole in statistics; a longer minimum is cut to this many characters.</summary>
+    private const int StringStatsLength = 32;
+
+    /// <summary>Writes the rows of <paramref name="data"/> and returns the version committed.</summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="data">The rows; consumed.</param>
+    /// <param name="mode">What to do when the table exists.</param>
+    /// <param name="partitionBy">Partition columns for a new table; for an existing one they must be its own, or null.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    /// <param name="configuration">Table properties for a new table.</param>
+    public static long Write(
+        string tablePath, LazyFrameHandle data, KernelWriteMode mode, string[]? partitionBy = null, CloudArgs? cloud = null,
+        IReadOnlyDictionary<string, string>? configuration = null)
+    {
+        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
+        IWritableFileSystem fileSystem = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        try
+        {
+            Snapshot? existing = TryLoad(fileSystem, tablePath, cloud);
+            if (existing is not null && mode == KernelWriteMode.ErrorIfExists)
+                throw new PolarsException($"A Delta table already exists at {tablePath}.");
+
+            using DataFrameHandle collected = PolarsWrapper.LazyCollect(data, PlEngine.Auto);
+            StructType incoming = SchemaOf(collected);
+
+            StructType schema;
+            string[] partitions;
+            Transaction transaction;
+            if (existing is null)
+            {
+                schema = incoming;
+                partitions = partitionBy ?? [];
+                foreach (string column in partitions)
+                {
+                    StructField field = schema.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");
+                    if (!IsPartitionable(field.Type))
+                        throw new PolarsException($"The column '{column}' of type {field.Type} cannot be a partition column.");
+                }
+                var metadata = new MetadataAction
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    SchemaString = schema.ToJson(),
+                    PartitionColumns = partitions,
+                    Configuration = configuration ?? new Dictionary<string, string>(),
+                    CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                };
+                transaction = Transaction.Create(fileSystem, ProtocolFor(schema), metadata, "WRITE");
+            }
+            else
+            {
+                schema = existing.Schema;
+                partitions = [.. existing.PartitionColumns];
+                if (partitionBy is not null && !partitionBy.SequenceEqual(partitions))
+                    throw new PolarsException($"The table is partitioned by [{string.Join(", ", partitions)}], not [{string.Join(", ", partitionBy)}].");
+                EnsureCompatible(schema, incoming);
+                if (existing.ColumnMappingMode != ColumnMappingMode.None && schema.Fields.Any(f => NeedsMapping(f.Type)))
+                    throw new PolarsException("Writing to a table with column mapping inside nested columns is not supported yet.");
+                transaction = Transaction.Start(fileSystem, existing, "WRITE");
+            }
+            transaction.WithParameter("mode", mode == KernelWriteMode.Overwrite ? "Overwrite" : mode == KernelWriteMode.Append ? "Append" : "ErrorIfExists")
+                       .WithParameter("partitionBy", JsonSerializer.Serialize(partitions));
+
+            // Rows in the table's column order and exact types, then one data file per partition.
+            using DataFrameHandle normalized = Normalize(collected, schema);
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            foreach (AddAction add in WriteFiles(fileSystem, normalized, schema, partitions, now))
+                transaction.Add(add);
+
+            if (mode == KernelWriteMode.Overwrite && existing is not null)
+            {
+                foreach (AddAction old in existing.Files)
+                {
+                    transaction.Add(new RemoveAction
+                    {
+                        Path = old.Path,
+                        DeletionTimestamp = now,
+                        DataChange = true,
+                        ExtendedFileMetadata = true,
+                        PartitionValues = old.PartitionValues,
+                        Size = old.Size,
+                        DeletionVector = old.DeletionVector,
+                    });
+                }
+            }
+            return transaction.Commit();
+        }
+        catch (DeltaException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+        finally
+        {
+            (fileSystem as IDisposable)?.Dispose();
+        }
+    }
+
+    private static Snapshot? TryLoad(IFileSystem fileSystem, string tablePath, CloudArgs? cloud)
+    {
+        try
+        {
+            string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
+            return Snapshot.Load(fileSystem, parquet: new EngineParquetReader(root, cloud));
+        }
+        catch (DeltaTableNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Reader 1 / writer 2 unless a type needs a table feature.</summary>
+    private static ProtocolAction ProtocolFor(StructType schema)
+    {
+        bool ntz = AnyType(schema, t => t is PrimitiveType { Name: PrimitiveType.TimestampNtz });
+        return ntz
+            ? new ProtocolAction
+            {
+                MinReaderVersion = 3,
+                MinWriterVersion = 7,
+                ReaderFeatures = [TableFeatures.TimestampNtz],
+                WriterFeatures = [TableFeatures.TimestampNtz],
+            }
+            : new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 };
+    }
+
+    private static bool AnyType(DeltaType type, Func<DeltaType, bool> test) => test(type) || type switch
+    {
+        StructType s => s.Fields.Any(f => AnyType(f.Type, test)),
+        ArrayType a => AnyType(a.ElementType, test),
+        MapType m => AnyType(m.KeyType, test) || AnyType(m.ValueType, test),
+        _ => false,
+    };
+
+    private static bool NeedsMapping(DeltaType type) => type switch
+    {
+        StructType s => s.Fields.Any(f => f.PhysicalName != f.Name || NeedsMapping(f.Type)),
+        ArrayType a => NeedsMapping(a.ElementType),
+        MapType m => NeedsMapping(m.KeyType) || NeedsMapping(m.ValueType),
+        _ => false,
+    };
+
+    private static bool IsPartitionable(DeltaType type) =>
+        type is DecimalType || type is PrimitiveType { Name: not (PrimitiveType.Binary or PrimitiveType.Variant) };
+
+    // ------------------------------------------------------------------
+    // Schema: engine types to Delta types
+    // ------------------------------------------------------------------
+
+    private static StructType SchemaOf(DataFrameHandle df)
+    {
+        using LazyFrameHandle lf = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df));
+        var fields = new List<StructField>();
+        foreach (var (name, type) in PolarsSchemaExtractor.GetFields(lf))
+        {
+            using (type)
+                fields.Add(new StructField { Name = name, Type = DeltaTypeOf(type, name) });
+        }
+        return new StructType(fields);
+    }
+
+    /// <summary>The Delta type that holds the values of an engine type; the column is cast to it on write.</summary>
+    private static DeltaType DeltaTypeOf(DataTypeHandle type, string column)
+    {
+        PlDataType kind = PolarsWrapper.GetDataTypeKind(type);
+        switch (kind)
+        {
+            case PlDataType.Boolean: return new PrimitiveType(PrimitiveType.Boolean);
+            case PlDataType.Int8: return new PrimitiveType(PrimitiveType.Byte);
+            case PlDataType.Int16 or PlDataType.UInt8: return new PrimitiveType(PrimitiveType.Short);
+            case PlDataType.Int32 or PlDataType.UInt16: return new PrimitiveType(PrimitiveType.Integer);
+            case PlDataType.Int64 or PlDataType.UInt32: return new PrimitiveType(PrimitiveType.Long);
+            case PlDataType.Float16 or PlDataType.Float32: return new PrimitiveType(PrimitiveType.Float);
+            case PlDataType.Float64: return new PrimitiveType(PrimitiveType.Double);
+            case PlDataType.String or PlDataType.Categorical or PlDataType.Enum: return new PrimitiveType(PrimitiveType.String);
+            case PlDataType.Binary: return new PrimitiveType(PrimitiveType.Binary);
+            case PlDataType.Date: return new PrimitiveType(PrimitiveType.Date);
+            case PlDataType.Datetime:
+                return new PrimitiveType(string.IsNullOrEmpty(PolarsWrapper.GetTimeZone(type)) ? PrimitiveType.TimestampNtz : PrimitiveType.Timestamp);
+            case PlDataType.Decimal:
+            {
+                PolarsWrapper.GetDecimalInfo(type, out int precision, out int scale);
+                if (precision > 38) throw new PolarsException($"The column '{column}' has decimal precision {precision}; Delta allows up to 38.");
+                return new DecimalType(precision, scale);
+            }
+            case PlDataType.List or PlDataType.Array:
+            {
+                using DataTypeHandle inner = PolarsWrapper.GetInnerType(type);
+                return new ArrayType(DeltaTypeOf(inner, column), containsNull: true);
+            }
+            case PlDataType.Struct:
+            {
+                var fields = new List<StructField>();
+                ulong count = PolarsWrapper.GetStructLen(type);
+                for (ulong i = 0; i < count; i++)
+                {
+                    PolarsWrapper.GetStructField(type, i, out string name, out DataTypeHandle fieldType);
+                    using (fieldType)
+                        fields.Add(new StructField { Name = name, Type = DeltaTypeOf(fieldType, $"{column}.{name}") });
+                }
+                return new StructType(fields);
+            }
+            default:
+                throw new PolarsException(
+                    $"The column '{column}' has the type {PolarsWrapper.GetDataTypeString(type)}, which no Delta type holds.");
+        }
+    }
+
+    private static void EnsureCompatible(StructType table, StructType incoming)
+    {
+        var missing = table.Fields.Where(f => incoming.Field(f.Name) is null).Select(f => f.Name).ToList();
+        var extra = incoming.Fields.Where(f => table.Field(f.Name) is null).Select(f => f.Name).ToList();
+        if (missing.Count > 0 || extra.Count > 0)
+            throw new PolarsException(
+                $"The data does not match the table schema (missing: [{string.Join(", ", missing)}], not in the table: [{string.Join(", ", extra)}]).");
+        foreach (StructField field in table.Fields)
+        {
+            string want = Shape(field.Type), have = Shape(incoming.Field(field.Name)!.Type);
+            if (want != have)
+                throw new PolarsException($"The column '{field.Name}' is {want} in the table but {have} in the data.");
+        }
+
+        // Field names inside structs count, mapped names do not.
+        static string Shape(DeltaType type) => type.ToString();
+    }
+
+    /// <summary>The rows in the table's column order, every column cast to the exact type the table reads.</summary>
+    private static DataFrameHandle Normalize(DataFrameHandle df, StructType schema)
+    {
+        var exprs = new ExprHandle[schema.Fields.Count];
+        for (int i = 0; i < exprs.Length; i++)
+        {
+            StructField field = schema.Fields[i];
+            using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
+            exprs[i] = PolarsWrapper.Alias(
+                PolarsWrapper.ExprCast(PolarsWrapper.Col(field.Name), PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
+                field.Name);
+        }
+        LazyFrameHandle lf = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df));
+        return PolarsWrapper.LazyCollect(PolarsWrapper.LazySelect(lf, exprs), PlEngine.Auto);
+    }
+
+    // ------------------------------------------------------------------
+    // Data files
+    // ------------------------------------------------------------------
+
+    private static List<AddAction> WriteFiles(IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, long now)
+    {
+        var adds = new List<AddAction>();
+        if (PolarsWrapper.DataFrameHeight(df) == 0) return adds;
+
+        DataFrameHandle[] groups = partitions.Length == 0
+            ? [PolarsWrapper.CloneDataFrame(df)]
+            : PolarsWrapper.PartitionBy(df, partitions, maintainOrder: true, includeKey: true);
+        try
+        {
+            foreach (DataFrameHandle group in groups)
+            {
+                Dictionary<string, string?> values = PartitionValues(group, schema, partitions);
+                StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
+
+                // The file holds the data columns under their physical names.
+                var columns = dataFields
+                    .Select(f => PolarsWrapper.Alias(PolarsWrapper.Col(f.Name), f.PhysicalName))
+                    .ToArray();
+                byte[] bytes = PolarsWrapper.SinkParquetMemory(
+                    PolarsWrapper.LazySelect(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(group)), columns),
+                    PlParquetCompression.Snappy, compressionLevel: -1, statistics: true, rowGroupSize: 0, dataPageSize: 0,
+                    compatLevel: 0, maintainOrder: true);
+
+                string directory = string.Concat(partitions.Select(p =>
+                    $"{EscapePartitionName(schema.Field(p)!.PhysicalName)}={EscapePartitionName(values[p] ?? HiveDefaultPartition)}/"));
+                string relative = $"{directory}part-00000-{Guid.NewGuid()}-c000.snappy.parquet";
+                if (!fileSystem.TryCreate(relative, bytes))
+                    throw new PolarsException($"The data file {relative} already exists.");
+
+                adds.Add(new AddAction
+                {
+                    Path = EncodeLogPath(relative),
+                    PartitionValues = partitions.ToDictionary(p => schema.Field(p)!.PhysicalName, p => values[p]),
+                    Size = bytes.Length,
+                    ModificationTime = now,
+                    DataChange = true,
+                    Stats = Statistics(group, dataFields),
+                });
+            }
+        }
+        finally
+        {
+            foreach (DataFrameHandle group in groups) group.Dispose();
+        }
+        return adds;
+    }
+
+    private const string HiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
+
+    /// <summary>Escapes a partition directory name the way Hive and Spark do.</summary>
+    private static string EscapePartitionName(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            if (c < 0x20 || c == 0x7F || "\"#%'*/:=?\\{[]^".Contains(c))
+                sb.Append('%').Append(((int)c).ToString("X2", CultureInfo.InvariantCulture));
+            else
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>A table-relative file path as the log writes it: a URI path, percent-encoded.</summary>
+    private static string EncodeLogPath(string relative) =>
+        string.Join('/', relative.Split('/').Select(segment => Uri.EscapeDataString(segment).Replace("%3D", "=")));
+
+    /// <summary>The partition values of one group in the text form of the log; null for a null value.</summary>
+    private static Dictionary<string, string?> PartitionValues(DataFrameHandle group, StructType schema, string[] partitions)
+    {
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        if (partitions.Length == 0) return values;
+
+        var exprs = partitions.Select(p => PolarsWrapper.Alias(PolarsWrapper.First(Comparable(p, schema.Field(p)!.Type), ignoreNulls: false), p)).ToArray();
+        using JsonDocument row = OneRow(group, exprs);
+        foreach (string p in partitions)
+        {
+            JsonElement v = row.RootElement.GetProperty(p);
+            values[p] = v.ValueKind == JsonValueKind.Null ? null : FormatValue(v, schema.Field(p)!.Type, forStatistics: false);
+            if (values[p] is { Length: 0 }) values[p] = null; // an empty string partition is null, as Spark writes it
+        }
+        return values;
+    }
+
+    /// <summary>The <c>stats</c> JSON of a data file: row count, and per column minimum, maximum and null count.</summary>
+    private static string Statistics(DataFrameHandle group, StructField[] fields)
+    {
+        var exprs = new List<ExprHandle>();
+        var withBounds = new List<StructField>();
+        var leaves = new List<StructField>();
+        foreach (StructField field in fields)
+        {
+            if (field.Type is StructType or ArrayType or MapType) continue; // statistics of top-level leaves only
+            leaves.Add(field);
+            exprs.Add(PolarsWrapper.Alias(PolarsWrapper.NullCount(PolarsWrapper.Col(field.Name)), "n:" + field.Name));
+            if (field.Type is DecimalType || field.Type is PrimitiveType { Name: not (PrimitiveType.Boolean or PrimitiveType.Binary) })
+            {
+                withBounds.Add(field);
+                exprs.Add(PolarsWrapper.Alias(PolarsWrapper.Min(Comparable(field.Name, field.Type)), "lo:" + field.Name));
+                exprs.Add(PolarsWrapper.Alias(PolarsWrapper.Max(Comparable(field.Name, field.Type)), "hi:" + field.Name));
+            }
+        }
+
+        long rows = PolarsWrapper.DataFrameHeight(group);
+        using var stream = new MemoryStream();
+        using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
+        {
+            json.WriteStartObject();
+            json.WriteNumber("numRecords", rows);
+            if (exprs.Count > 0)
+            {
+                using JsonDocument row = OneRow(group, [.. exprs]);
+                JsonElement r = row.RootElement;
+                WriteBounds(json, "minValues", withBounds, f => r.GetProperty("lo:" + f.Name), isMax: false);
+                WriteBounds(json, "maxValues", withBounds, f => r.GetProperty("hi:" + f.Name), isMax: true);
+                json.WriteStartObject("nullCount");
+                foreach (StructField f in leaves) json.WriteNumber(f.PhysicalName, r.GetProperty("n:" + f.Name).GetInt64());
+                json.WriteEndObject();
+            }
+            json.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteBounds(Utf8JsonWriter json, string section, List<StructField> fields, Func<StructField, JsonElement> value, bool isMax)
+    {
+        json.WriteStartObject(section);
+        foreach (StructField field in fields)
+        {
+            JsonElement v = value(field);
+            if (v.ValueKind == JsonValueKind.Null) continue;
+            if (field.Type is PrimitiveType { Name: PrimitiveType.String })
+            {
+                string s = v.GetString()!;
+                // A cut minimum is still a lower bound; a cut maximum would not be an upper bound, so it is left out.
+                if (s.Length > StringStatsLength)
+                {
+                    if (isMax) continue;
+                    s = s[..StringStatsLength];
+                    if (char.IsHighSurrogate(s[^1])) s = s[..^1];
+                }
+                json.WriteString(field.PhysicalName, s);
+                continue;
+            }
+            if (v.ValueKind == JsonValueKind.Number && field.Type is PrimitiveType { Name: PrimitiveType.Float or PrimitiveType.Double }
+                && !double.IsFinite(v.GetDouble()))
+                continue;
+            string? text = FormatValue(v, field.Type, forStatistics: true);
+            if (text is null) continue;
+            json.WritePropertyName(field.PhysicalName);
+            if (field.Type is DecimalType || field.Type is PrimitiveType { Name: PrimitiveType.Byte or PrimitiveType.Short or PrimitiveType.Integer or PrimitiveType.Long or PrimitiveType.Float or PrimitiveType.Double })
+                json.WriteRawValue(text);
+            else
+                json.WriteStringValue(text);
+        }
+        json.WriteEndObject();
+    }
+
+    /// <summary>A column in a form whose JSON is exact: dates as day numbers, timestamps as microseconds.</summary>
+    private static ExprHandle Comparable(string column, DeltaType type)
+    {
+        PlDataType? as_ = type switch
+        {
+            PrimitiveType { Name: PrimitiveType.Date } => PlDataType.Int32,
+            PrimitiveType { Name: PrimitiveType.Timestamp or PrimitiveType.TimestampNtz } => PlDataType.Int64,
+            _ => null,
+        };
+        ExprHandle col = PolarsWrapper.Col(column);
+        if (as_ is not PlDataType target) return col;
+        using DataTypeHandle t = PolarsWrapper.NewPrimitiveType((int)target);
+        return PolarsWrapper.ExprCast(col, PolarsWrapper.DataTypeExprFromDataType(t), strict: true, wrapNumerical: false);
+    }
+
+    /// <summary>A value as the log writes it, from the JSON of its <see cref="Comparable"/> form.</summary>
+    private static string? FormatValue(JsonElement v, DeltaType type, bool forStatistics)
+    {
+        switch (type)
+        {
+            case PrimitiveType { Name: PrimitiveType.Date }:
+                return DateOnly.FromDayNumber(DateOnly.FromDateTime(DateTime.UnixEpoch).DayNumber + v.GetInt32())
+                    .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            case PrimitiveType { Name: PrimitiveType.Timestamp or PrimitiveType.TimestampNtz } p:
+            {
+                DateTime t = DateTime.UnixEpoch.AddTicks(v.GetInt64() * 10);
+                bool utc = p.Name == PrimitiveType.Timestamp;
+                // Statistics keep milliseconds (readers allow for the cut); partition values keep microseconds.
+                return forStatistics
+                    ? t.AddTicks(-(t.Ticks % TimeSpan.TicksPerMillisecond)).ToString(utc ? "yyyy-MM-dd'T'HH:mm:ss.fff'Z'" : "yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture)
+                    : t.ToString(utc ? "yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'" : "yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
+            }
+            case PrimitiveType { Name: PrimitiveType.Boolean }:
+                return v.GetBoolean() ? "true" : "false";
+            default:
+                return v.ValueKind == JsonValueKind.String ? v.GetString() : v.GetRawText();
+        }
+    }
+
+    private static JsonDocument OneRow(DataFrameHandle df, ExprHandle[] exprs)
+    {
+        LazyFrameHandle lf = PolarsWrapper.LazySelect(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df)), exprs);
+        using DataFrameHandle result = PolarsWrapper.LazyCollect(lf, PlEngine.Auto);
+        using NativeBuffer buffer = PolarsWrapper.WriteJsonNativeMemory(result, PlJsonFormat.JsonLines);
+        return JsonDocument.Parse(buffer.Memory.ToArray()); // the document keeps its memory; the buffer does not outlive this call
+    }
+}

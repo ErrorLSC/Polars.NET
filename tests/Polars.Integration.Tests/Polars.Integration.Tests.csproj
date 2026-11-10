@@ -46,4 +46,8 @@
     <ProjectReference Include="..\..\extension\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Spark/delta_interop.py" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

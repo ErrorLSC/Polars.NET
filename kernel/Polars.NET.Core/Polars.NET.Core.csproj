@@ -74,6 +74,8 @@
     <InternalsVisibleTo Include="Polars.NET.Linq" />
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.Config.Tests" />
+    <InternalsVisibleTo Include="Polars.FSharp.Tests" />
+    <InternalsVisibleTo Include="Polars.Integration.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,6 +6,12 @@ namespace Kaminari.Seseragi.Lakehouse.Delta.Actions;
 /// <summary>Writes actions as the lines of a commit file, in the JSON form the protocol defines.</summary>
 public static class ActionWriter
 {
+    /// <summary>
+    /// Writer options for log JSON: characters are written as UTF-8 rather than escaped (the log is never embedded in
+    /// HTML), as other Delta writers do.
+    /// </summary>
+    public static JsonWriterOptions JsonOptions { get; } = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     /// <summary>The commit file content: one JSON object per action, each on its own line.</summary>
     public static byte[] WriteCommit(IEnumerable<DeltaAction> actions)
     {
@@ -16,7 +22,7 @@ public static class ActionWriter
         {
             if (!first) buffer.Write("\n"u8);
             first = false;
-            using (var json = new Utf8JsonWriter(buffer))
+            using (var json = new Utf8JsonWriter(buffer, JsonOptions))
             {
                 Write(json, action);
             }

@@ -95,6 +95,14 @@ public sealed class StructField
     /// <summary>Field metadata. A string value is kept as it is, any other value as its JSON text.</summary>
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = EmptyMap.Instance;
 
+    /// <summary>
+    /// The metadata keys whose values are JSON other than a string (numbers, booleans, objects), so the schema is
+    /// written back as it was read. The column mapping id is always a number.
+    /// </summary>
+    public IReadOnlySet<string> JsonMetadataKeys { get; init; } = EmptySet;
+
+    private static readonly IReadOnlySet<string> EmptySet = new HashSet<string>();
+
     /// <summary>The column id under column mapping, or null when the field has none.</summary>
     public int? FieldId => Metadata.TryGetValue(ColumnIdKey, out string? id) && int.TryParse(id, out int value) ? value : null;
 
@@ -123,6 +131,71 @@ public sealed class StructType : DeltaType
 
     /// <inheritdoc/>
     public override string ToString() => $"struct<{string.Join(",", Fields.Select(f => $"{f.Name}:{f.Type}"))}>";
+
+    /// <summary>The schema as the JSON of <c>metaData.schemaString</c>.</summary>
+    public string ToJson()
+    {
+        using var stream = new MemoryStream();
+        using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
+        {
+            WriteType(json, this);
+        }
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteType(Utf8JsonWriter json, DeltaType type)
+    {
+        switch (type)
+        {
+            case StructType s:
+                json.WriteStartObject();
+                json.WriteString("type", "struct");
+                json.WriteStartArray("fields");
+                foreach (StructField field in s.Fields)
+                {
+                    json.WriteStartObject();
+                    json.WriteString("name", field.Name);
+                    json.WritePropertyName("type");
+                    WriteType(json, field.Type);
+                    json.WriteBoolean("nullable", field.Nullable);
+                    json.WriteStartObject("metadata");
+                    foreach (var (key, value) in field.Metadata)
+                    {
+                        json.WritePropertyName(key);
+                        if (field.JsonMetadataKeys.Contains(key) || (key == StructField.ColumnIdKey && long.TryParse(value, out _)))
+                            json.WriteRawValue(value);
+                        else
+                            json.WriteStringValue(value);
+                    }
+                    json.WriteEndObject();
+                    json.WriteEndObject();
+                }
+                json.WriteEndArray();
+                json.WriteEndObject();
+                break;
+            case ArrayType a:
+                json.WriteStartObject();
+                json.WriteString("type", "array");
+                json.WritePropertyName("elementType");
+                WriteType(json, a.ElementType);
+                json.WriteBoolean("containsNull", a.ContainsNull);
+                json.WriteEndObject();
+                break;
+            case MapType m:
+                json.WriteStartObject();
+                json.WriteString("type", "map");
+                json.WritePropertyName("keyType");
+                WriteType(json, m.KeyType);
+                json.WritePropertyName("valueType");
+                WriteType(json, m.ValueType);
+                json.WriteBoolean("valueContainsNull", m.ValueContainsNull);
+                json.WriteEndObject();
+                break;
+            default:
+                json.WriteStringValue(type.ToString());
+                break;
+        }
+    }
 
     /// <summary>Reads a schema from the JSON of <c>metaData.schemaString</c>.</summary>
     /// <exception cref="DeltaException">The text is not a valid schema.</exception>
@@ -167,7 +240,8 @@ public sealed class StructType : DeltaType
                         Name = Prop(f, "name").GetString()!,
                         Type = ReadType(Prop(f, "type")),
                         Nullable = !f.TryGetProperty("nullable", out JsonElement n) || n.ValueKind != JsonValueKind.False,
-                        Metadata = ReadMetadata(f),
+                        Metadata = ReadMetadata(f, out IReadOnlySet<string> jsonKeys),
+                        JsonMetadataKeys = jsonKeys,
                     });
                 }
                 return new StructType(fields);
@@ -204,16 +278,27 @@ public sealed class StructType : DeltaType
     private static bool Flag(JsonElement e, string name) =>
         !e.TryGetProperty(name, out JsonElement value) || value.ValueKind != JsonValueKind.False;
 
-    private static IReadOnlyDictionary<string, string> ReadMetadata(JsonElement field)
+    private static IReadOnlyDictionary<string, string> ReadMetadata(JsonElement field, out IReadOnlySet<string> jsonKeys)
     {
+        jsonKeys = new HashSet<string>();
         if (!field.TryGetProperty("metadata", out JsonElement m) || m.ValueKind != JsonValueKind.Object) return EmptyMap.Instance;
 
         Dictionary<string, string>? map = null;
+        HashSet<string>? json = null;
         foreach (JsonProperty p in m.EnumerateObject())
         {
             map ??= new Dictionary<string, string>(StringComparer.Ordinal);
-            map[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString()! : p.Value.GetRawText();
+            if (p.Value.ValueKind == JsonValueKind.String)
+            {
+                map[p.Name] = p.Value.GetString()!;
+            }
+            else
+            {
+                map[p.Name] = p.Value.GetRawText();
+                (json ??= new HashSet<string>(StringComparer.Ordinal)).Add(p.Name);
+            }
         }
+        if (json is not null) jsonKeys = json;
         return map ?? EmptyMap.Instance;
     }
 }

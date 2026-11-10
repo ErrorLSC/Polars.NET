@@ -707,3 +707,93 @@ let ``Concurrent kernel commits on the local disk: one winner per version`` () =
         // No temporary file is left in the log.
         Assert.Empty(Directory.GetFiles(Path.Combine(path, "_delta_log"), "*.tmp", SearchOption.AllDirectories))
         Assert.Equal(2, Directory.GetFiles(Path.Combine(path, "_delta_log")).Length))
+
+// ---------------------------------------------------------------------------------------------------------------
+// Data written through the kernel
+// ---------------------------------------------------------------------------------------------------------------
+
+let private kernelWrite (path: string) (df: DataFrame) (mode: Polars.NET.Core.Delta.KernelWriteMode) (partitionBy: string[]) =
+    Polars.NET.Core.Delta.DeltaKernelWrite.Write(path, df.Lazy().CloneHandle(), mode, partitionBy)
+
+let private typedFrame (ids: int list) (region: string) =
+    DataFrame.create [|
+        Series.create("id", ids)
+        Series.create("region", ids |> List.map (fun _ -> region))
+        Series.create("price", ids |> List.map (fun i -> float i * 1.5))
+        Series.create("day", ids |> List.map (fun i -> DateOnly(2024, 1, i)))
+        Series.create("at", ids |> List.map (fun i -> DateTimeOffset(2024, 1, i, 8, 30, 0, 123, TimeSpan.Zero).AddTicks(4560L)))
+        Series.create("amount", ids |> List.map (fun i -> decimal i + 0.25m))
+        Series.create("flag", ids |> List.map (fun i -> i % 2 = 0))
+        Series.create("note", ids |> List.map (fun i -> if i = 2 then null else String('x', i * 20)))
+    |]
+
+[<Fact>]
+let ``Kernel writes tables the engine reads: create, append, overwrite`` () =
+    withTable "kernel_write" (fun path ->
+        use first = typedFrame [ 1; 2; 3 ] "east"
+        use second = typedFrame [ 4; 5 ] "west"
+        use third = typedFrame [ 6 ] "north"
+        Assert.Equal(0L, kernelWrite path first Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists [| "region" |])
+        Assert.Equal(1L, kernelWrite path second Polars.NET.Core.Delta.KernelWriteMode.Append null)
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () ->
+            kernelWrite path third Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists null |> ignore) |> ignore
+        Assert.Equal(2L, kernelWrite path third Polars.NET.Core.Delta.KernelWriteMode.Overwrite null)
+
+        // The engine reads every version with the values written, types included.
+        for version, expected in [ 0, [ first ]; 1, [ first; second ]; 2, [ third ] ] do
+            use viaEngine = LazyFrame.ScanDelta(path, version = uint64 version).Collect()
+            let columns = first.ColumnNames |> Seq.map pl.col |> List.ofSeq
+            use actual = viaEngine.Select(columns).Sort(pl.col "id")
+            use wanted = DataFrame.ConcatVertical(expected |> Seq.map (fun d -> d.Clone())).Sort(pl.col "id")
+            Assert.True(actual.Equals(wanted), $"version {version}\nengine:\n{actual}\nwritten:\n{wanted}")
+        let latest = assertKernelAgrees path [ "region" ]
+
+        // Statistics let the kernel skip files.
+        let v1 = Snapshot.Load(LocalFileSystem path, Nullable 1L)
+        Assert.All(v1.Files, fun f -> Assert.NotNull f.ParsedStats)
+        let matching = v1.FilesMatching(Kaminari.Seseragi.Lakehouse.Skipping.Predicate.Gt("id", 3L))
+        Assert.Equal<string list>([ "west" ], matching |> Seq.map (fun f -> f.PartitionValues.["region"]) |> List.ofSeq)
+        let byTime = v1.FilesMatching(Kaminari.Seseragi.Lakehouse.Skipping.Predicate.Lt("at", DateTimeOffset(2024, 1, 2, 0, 0, 0, TimeSpan.Zero)))
+        Assert.Equal(1, byTime.Count)
+        // A string longer than the statistics keep has a minimum but no maximum.
+        let east = v1.Files |> Seq.find (fun f -> f.PartitionValues.["region"] = "east")
+        use stats = JsonDocument.Parse east.Stats
+        Assert.Equal(1L, stats.RootElement.GetProperty("nullCount").GetProperty("note").GetInt64())
+        Assert.Equal(String('x', 20), stats.RootElement.GetProperty("minValues").GetProperty("note").GetString())
+        Assert.False(stats.RootElement.GetProperty("maxValues").TryGetProperty("note", ref Unchecked.defaultof<JsonElement>))
+        Assert.Equal("2024-01-03T08:30:00.123Z", stats.RootElement.GetProperty("maxValues").GetProperty("at").GetString())
+        Assert.Equal(2L, latest.Version))
+
+[<Fact>]
+let ``Kernel writes awkward partition values and reads them back`` () =
+    withTable "kernel_partition_values" (fun path ->
+        let regions = [ "a b"; "x/y"; "c:d"; "50%"; "k=v"; "東京"; null; "" ]
+        use df =
+            DataFrame.create [|
+                Series.create("id", [ 1 .. regions.Length ])
+                Series.create("region", regions)
+            |]
+        kernelWrite path df Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists [| "region" |] |> ignore
+
+        // The current engine cannot read these back: it decodes file paths twice (a defect of the old Rust code;
+        // Spark reads the same table correctly, see the Spark interop test). So only the kernel reads here.
+        use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        // An empty string partition is stored as null, as Spark does.
+        let expected = regions |> List.map (fun r -> if String.IsNullOrEmpty r then null else r)
+        Assert.Equal<string list>(expected, viaKernel.["region"].ToArray<string>() |> List.ofArray)
+        // Log text is plain UTF-8, not escaped.
+        Assert.Contains("東京", File.ReadAllText(Path.Combine(path, "_delta_log", "00000000000000000000.json")))
+        Assert.True(Directory.Exists(Path.Combine(path, "region=__HIVE_DEFAULT_PARTITION__")))
+        Assert.True(Directory.Exists(Path.Combine(path, "region=x%2Fy"))))
+
+[<Fact>]
+let ``Naive timestamps give a timestamp_ntz table`` () =
+    withTable "kernel_ntz" (fun path ->
+        use df = DataFrame.create [| Series.create("at", [ DateTime(2024, 5, 6, 7, 8, 9) ]) |]
+        kernelWrite path df Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists null |> ignore
+        let snapshot = Snapshot.Load(LocalFileSystem path)
+        Assert.Equal(3, snapshot.Protocol.MinReaderVersion)
+        Assert.Contains("timestampNtz", snapshot.Protocol.ReaderFeatures)
+        Assert.Equal("timestamp_ntz", (snapshot.Schema.Field "at").Type.ToString())
+        use back = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect()
+        Assert.Equal(DateTime(2024, 5, 6, 7, 8, 9), back.["at"].ToArray<DateTime>().[0]))

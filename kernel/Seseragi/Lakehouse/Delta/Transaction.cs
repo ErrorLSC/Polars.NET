@@ -194,7 +194,7 @@ public sealed class Transaction
     {
         bool blindAppend = _read is not null && _actions.All(a => a is AddAction { DataChange: true } or CdcAction or TxnAction);
         using var stream = new MemoryStream();
-        using (var json = new Utf8JsonWriter(stream))
+        using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
         {
             json.WriteStartObject();
             if (inCommitTimestamp is long ict) json.WriteNumber("inCommitTimestamp", ict);

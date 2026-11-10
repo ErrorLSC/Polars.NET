@@ -531,6 +531,9 @@ public static class DeltaKernelScan
     }
 
     /// <summary>The engine type of a Delta type. Timestamps are microseconds; a map is a list of key/value structs.</summary>
+    /// <summary>The engine type a table column is read as (logical field names).</summary>
+    internal static DataTypeHandle EngineType(DeltaType type) => ToEngineType(type, physicalNames: false);
+
     private static DataTypeHandle ToEngineType(DeltaType type, bool physicalNames)
     {
         switch (type)
