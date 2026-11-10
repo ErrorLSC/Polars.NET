@@ -38,6 +38,9 @@ public static class TableFeatures
     /// <summary>The table property that makes a table append-only.</summary>
     public const string AppendOnlyKey = "delta.appendOnly";
 
+    /// <summary>The table property that lets writers mark deleted rows with deletion vectors instead of rewriting files.</summary>
+    public const string EnableDeletionVectorsKey = "delta.enableDeletionVectors";
+
     /// <summary>The table property that selects the column mapping mode.</summary>
     public const string ColumnMappingModeKey = "delta.columnMapping.mode";
 

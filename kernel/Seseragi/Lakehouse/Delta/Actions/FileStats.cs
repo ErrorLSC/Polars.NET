@@ -37,6 +37,41 @@ public sealed class FileStats
         }
     }
 
+    /// <summary>
+    /// The statistics text of a file that now carries a deletion vector: the same, with <c>tightBounds</c> false.
+    /// Null stays null; text that is not a JSON object is dropped (no statistics).
+    /// </summary>
+    public static string? WithLooseBounds(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+            using (var writer = new Utf8JsonWriter(buffer, ActionWriter.JsonOptions))
+            {
+                writer.WriteStartObject();
+                foreach (JsonProperty property in doc.RootElement.EnumerateObject())
+                {
+                    if (property.NameEquals("tightBounds")) continue;
+                    property.WriteTo(writer);
+                }
+                writer.WriteBoolean("tightBounds", false);
+                writer.WriteEndObject();
+            }
+            return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+        }
+    }
+
     /// <summary>The smallest value of a column as written, if recorded.</summary>
     public bool TryGetMin(ReadOnlySpan<string> path, out JsonElement value) => TryGet("minValues", path, out value);
 

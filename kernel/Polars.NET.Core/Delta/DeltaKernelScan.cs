@@ -33,7 +33,7 @@ public sealed class EngineParquetReader(string tableRoot, CloudArgs? cloud = nul
 /// </summary>
 public static class DeltaKernelScan
 {
-    private const string RowIndexColumn = "__seseragi_row_index";
+    internal const string RowIndexColumn = "__seseragi_row_index";
 
     /// <summary>The change feed column saying what happened to the row: insert, delete, update_preimage or update_postimage.</summary>
     public const string ChangeTypeColumn = "_change_type";
@@ -325,6 +325,36 @@ public static class DeltaKernelScan
         {
             foreach (LazyFrameHandle frame in frames) frame.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Scans one data file of a snapshot as table rows. Rows its deletion vector marks are left out, and so are
+    /// <paramref name="dropRows"/>; with <paramref name="onlyRows"/> only those rows are kept. With
+    /// <paramref name="withRowIndex"/> the file's row positions follow the table's columns, as Int64 in
+    /// <see cref="RowIndexColumn"/>.
+    /// </summary>
+    internal static LazyFrameHandle ScanFile(
+        IFileSystem fileSystem, string tableRoot, Snapshot snapshot, AddAction file, CloudArgs cloud,
+        long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false)
+    {
+        var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
+        long[] dead = file.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, file.DeletionVector).DeletedRows;
+        if (dropRows is { Length: > 0 }) dead = DeletionVector.FromRows(dead.Concat(dropRows)).DeletedRows;
+        bool needIndex = withRowIndex || dead.Length > 0 || onlyRows is not null;
+
+        using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns);
+        LazyFrameHandle lf = ScanFiles([Combine(tableRoot, file.DecodedPath)], cloud, fileSchema, needIndex ? RowIndexColumn : null);
+        if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
+        if (onlyRows is not null) lf = FilterRows(lf, onlyRows, keep: true);
+        if (!withRowIndex) return Project(lf, snapshot, file.PartitionValues, partitionColumns);
+
+        return Project(lf, snapshot, file.PartitionValues, partitionColumns, exprs =>
+        {
+            using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
+            exprs.Add(PolarsWrapper.Alias(
+                PolarsWrapper.ExprCast(PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false),
+                RowIndexColumn));
+        });
     }
 
     internal static LazyFrameHandle ScanFiles(string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName) =>

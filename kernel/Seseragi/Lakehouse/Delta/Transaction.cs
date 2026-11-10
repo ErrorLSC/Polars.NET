@@ -52,6 +52,7 @@ public sealed class Transaction
     private readonly Snapshot? _read;
     private readonly List<DeltaAction> _actions = [];
     private readonly Dictionary<string, string> _operationParameters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _operationMetrics = new(StringComparer.Ordinal);
     private ProtocolAction? _protocol;
     private MetadataAction? _metadata;
     private readonly List<Kaminari.Seseragi.Lakehouse.Skipping.Predicate> _readPredicates = [];
@@ -123,6 +124,13 @@ public sealed class Transaction
     public Transaction WithParameter(string name, string value)
     {
         _operationParameters[name] = value;
+        return this;
+    }
+
+    /// <summary>Records an operation metric in <c>commitInfo.operationMetrics</c>, such as <c>numDeletedRows</c>.</summary>
+    public Transaction WithMetric(string name, long value)
+    {
+        _operationMetrics[name] = value;
         return this;
     }
 
@@ -308,6 +316,13 @@ public sealed class Transaction
             json.WriteStartObject("operationParameters");
             foreach (var (name, value) in _operationParameters) json.WriteString(name, value);
             json.WriteEndObject();
+            if (_operationMetrics.Count > 0)
+            {
+                // Written as strings, as Spark writes them.
+                json.WriteStartObject("operationMetrics");
+                foreach (var (name, value) in _operationMetrics) json.WriteString(name, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                json.WriteEndObject();
+            }
             if (_read is not null) json.WriteNumber("readVersion", _read.Version);
             json.WriteBoolean("isBlindAppend", blindAppend);
             json.WriteString("engineInfo", EngineInfo);

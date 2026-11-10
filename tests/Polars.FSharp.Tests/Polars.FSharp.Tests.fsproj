@@ -26,6 +26,7 @@
     <Compile Include="ExcelTests.fs" />
     <Compile Include="DeltaTests.fs" />
     <Compile Include="SeseragiDeltaDifferentialTests.fs" />
+    <Compile Include="SeseragiDeltaOperationTests.fs" />
     <Compile Include="QueryTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />

@@ -150,4 +150,84 @@ public class DeletionVectorTests
         var bare = new MemoryFileSystem().PutBytes("p/" + UuidFile, Cat(Le32(12346), Le32(1), Le16(0), Le16(1), Le32(16), Le16(1), Le16(2)));
         Assert.Contains("optimize", Assert.Throws<DeltaException>(() => DeletionVector.Read(bare, descriptor)).Message);
     }
+
+    // ---- writing ----
+
+    public static TheoryData<string, long[]> VectorShapes()
+    {
+        var data = new TheoryData<string, long[]>
+        {
+            { "empty", [] },
+            { "single", [3] },
+            { "sparse array", [0, 9, 17, 65535, 65536, 200_000] },
+            { "contiguous run", [.. Enumerable.Range(100, 50_000).Select(i => (long)i)] },
+            { "dense bitset", [.. Enumerable.Range(0, 30_000).Select(i => (long)i * 2)] },
+            { "mixed kinds, four containers", [1, 5, .. Enumerable.Range(65536, 10_000).Select(i => (long)i), .. Enumerable.Range(131072, 6000).Select(i => 131072L + i * 3 % 60000), 196608 + 7] },
+            { "above 32 bits", [5, (1L << 32) + 1, (1L << 32) + 2, (3L << 32) + 70_000] },
+        };
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(VectorShapes))]
+    public void Serialize_RoundTrips_ThroughTheReader(string shape, long[] rows)
+    {
+        _ = shape;
+        DeletionVector vector = DeletionVector.FromRows(rows);
+        long[] expected = [.. rows.Distinct().Order()];
+        Assert.Equal(expected, DeletionVector.Decode(vector.Serialize()));
+
+        // Inline and file storage both read back.
+        var fs = new MemoryFileSystem();
+        DeletionVectorDescriptor inline = vector.ToInlineDescriptor();
+        Assert.Equal(expected, DeletionVector.Read(fs, inline).DeletedRows);
+
+        DeletionVectorDescriptor inFile = Assert.Single(DeletionVector.WriteFile(fs, [vector]));
+        Assert.Equal("u", inFile.StorageType);
+        Assert.Equal(1, inFile.Offset);
+        Assert.Equal(expected, DeletionVector.Read(fs, inFile).DeletedRows);
+    }
+
+    [Fact]
+    public void Serialize_PicksTheSmallestContainer()
+    {
+        // 50 000 contiguous rows: one run per container instead of a bitset or array.
+        byte[] run = DeletionVector.FromRows(Enumerable.Range(0, 50_000).Select(i => (long)i)).Serialize();
+        Assert.True(run.Length < 64, $"{run.Length} bytes");
+
+        // Every other row of a full container: a bitset (8 KiB) beats an array (64 KiB would not fit 4096 values).
+        byte[] bitset = DeletionVector.FromRows(Enumerable.Range(0, 32_768).Select(i => (long)i * 2)).Serialize();
+        Assert.InRange(bitset.Length, 8192, 8192 + 64);
+    }
+
+    [Fact]
+    public void Serialize_MatchesTheDatabricksSample()
+    {
+        // The sample vector {0, 9} was written by Databricks; our encoding of the same rows is byte-identical.
+        var fs = new LocalFileSystem(TablePath("table-with-dv-small"));
+        AddAction file = Assert.Single(Snapshot.Load(fs).Files);
+        DeletionVectorDescriptor d = file.DeletionVector!;
+        byte[] block = fs.ReadRange(d.FilePath(), d.Offset ?? 0, d.SizeInBytes + 8)!;
+
+        Assert.Equal(block.AsSpan(4, d.SizeInBytes).ToArray(), DeletionVector.FromRows([9, 0]).Serialize());
+    }
+
+    [Fact]
+    public void WriteFile_PacksVectorsInOrder_AndUnionMerges()
+    {
+        var fs = new MemoryFileSystem();
+        DeletionVector a = DeletionVector.FromRows([1, 2]);
+        DeletionVector b = DeletionVector.FromRows([7]).Union(DeletionVector.FromRows([2, 7, 3]));
+        Assert.Equal([2L, 3L, 7L], b.DeletedRows);
+
+        var descriptors = DeletionVector.WriteFile(fs, [a, b]);
+
+        Assert.Equal(2, descriptors.Count);
+        Assert.Equal(descriptors[0].PathOrInlineDv, descriptors[1].PathOrInlineDv);
+        Assert.Equal(1 + 4 + descriptors[0].SizeInBytes + 4, descriptors[1].Offset);
+        Assert.Equal([1L, 2L], DeletionVector.Read(fs, descriptors[0]).DeletedRows);
+        Assert.Equal([2L, 3L, 7L], DeletionVector.Read(fs, descriptors[1]).DeletedRows);
+        Assert.Equal(3, descriptors[1].Cardinality);
+        Assert.Throws<ArgumentOutOfRangeException>(() => DeletionVector.FromRows([-1]));
+    }
 }

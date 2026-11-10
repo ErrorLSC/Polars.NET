@@ -7,21 +7,14 @@ namespace Kaminari.Seseragi.Catalog.Http;
 /// Sends JSON requests with a bearer token and returns the response bytes. Each call runs either
 /// asynchronously or fully synchronously (<c>async: false</c>), so blocking callers never wait on the thread pool.
 /// </summary>
-internal sealed class JsonHttpTransport : IDisposable
+internal sealed class JsonHttpTransport(string? bearerToken, HttpClient? httpClient) : IDisposable
 {
     internal const string UserAgent = "Kaminari-Seseragi";
     private const int MaxErrorBodyChars = 4096;
 
-    private readonly HttpClient _http;
-    private readonly bool _ownsClient;
-    private readonly AuthenticationHeaderValue? _authorization;
-
-    public JsonHttpTransport(string? bearerToken, HttpClient? httpClient)
-    {
-        _ownsClient = httpClient is null;
-        _http = httpClient ?? new HttpClient();
-        _authorization = string.IsNullOrEmpty(bearerToken) ? null : new AuthenticationHeaderValue("Bearer", bearerToken);
-    }
+    private readonly HttpClient _http = httpClient ?? new HttpClient();
+    private readonly bool _ownsClient = httpClient is null;
+    private readonly AuthenticationHeaderValue? _authorization = string.IsNullOrEmpty(bearerToken) ? null : new AuthenticationHeaderValue("Bearer", bearerToken);
 
     public async ValueTask<byte[]> SendAsync(
         HttpMethod method, string url, byte[]? jsonBody, bool async, CancellationToken cancellationToken)

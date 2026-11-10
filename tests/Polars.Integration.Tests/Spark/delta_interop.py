@@ -121,7 +121,11 @@ def write(spark, root):
         read(spark, table)
 
     # The change feed of the table with deletion vectors and cdc files, without the commit time.
-    path = tables[0]
+    read_changes(spark, tables[0])
+
+
+def read_changes(spark, path):
+    """The change feed from version 0, without the commit time."""
     df = (spark.read.format("delta").option("readChangeFeed", "true").option("startingVersion", 0).load(path)
           .drop("_commit_timestamp"))
     rows = [canonical(r) for r in df.collect()]
@@ -137,6 +141,16 @@ def main():
             read(spark, path)
     elif command == "write":
         write(spark, args[0])
+    elif command == "read_changes":
+        # Each table, then its change feed.
+        for path in args:
+            read(spark, path)
+            read_changes(spark, path)
+    elif command == "delete":
+        # DELETE FROM the table WHERE the given SQL condition; then the table.
+        path, condition = args[0], args[1]
+        spark.sql(f"DELETE FROM delta.`{path}` WHERE {condition}")
+        read(spark, path)
     elif command == "create_v2":
         # A table that takes V2 checkpoints every two commits; columns (id BIGINT, src STRING) as "append" writes.
         spark.sql(

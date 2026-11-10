@@ -75,7 +75,7 @@ internal static class DeltaKernelWrite
                     Configuration = configuration ?? new Dictionary<string, string>(),
                     CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 };
-                transaction = Transaction.Create(fileSystem, ProtocolFor(schema), metadata, "WRITE");
+                transaction = Transaction.Create(fileSystem, ProtocolFor(schema, metadata.Configuration), metadata, "WRITE");
             }
             else
             {
@@ -93,6 +93,7 @@ internal static class DeltaKernelWrite
 
             // Rows in the table's column order and exact types, then one data file per partition.
             using DataFrameHandle normalized = Normalize(collected, schema);
+            EnsureNotNull(normalized, schema);
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (AddAction add in WriteFiles(fileSystem, normalized, schema, partitions, now))
                 transaction.Add(add);
@@ -133,7 +134,7 @@ internal static class DeltaKernelWrite
     /// Writes a checkpoint when one is due at <paramref name="version"/>. A checkpoint only speeds up reading: when it
     /// cannot be written the commit stands, and a later commit writes the next one.
     /// </summary>
-    private static void TryCheckpoint(IWritableFileSystem fileSystem, string tablePath, long version, CloudArgs? cloud)
+    internal static void TryCheckpoint(IWritableFileSystem fileSystem, string tablePath, long version, CloudArgs? cloud)
     {
         try
         {
@@ -150,7 +151,7 @@ internal static class DeltaKernelWrite
         }
     }
 
-    private static Snapshot? TryLoad(IFileSystem fileSystem, string tablePath, CloudArgs? cloud)
+    internal static Snapshot? TryLoad(IFileSystem fileSystem, string tablePath, CloudArgs? cloud)
     {
         try
         {
@@ -163,19 +164,35 @@ internal static class DeltaKernelWrite
         }
     }
 
-    /// <summary>Reader 1 / writer 2 unless a type needs a table feature.</summary>
-    private static ProtocolAction ProtocolFor(StructType schema)
+    /// <summary>
+    /// The lowest protocol for the schema and table properties: reader 1 / writer 2, writer 4 for the change data
+    /// feed, reader 3 / writer 7 with features listed once a type or property needs a table feature.
+    /// </summary>
+    internal static ProtocolAction ProtocolFor(StructType schema, IReadOnlyDictionary<string, string> configuration)
     {
+        bool On(string key) => configuration.TryGetValue(key, out string? v) && string.Equals(v, "true", StringComparison.OrdinalIgnoreCase);
         bool ntz = AnyType(schema, t => t is PrimitiveType { Name: PrimitiveType.TimestampNtz });
-        return ntz
-            ? new ProtocolAction
-            {
-                MinReaderVersion = 3,
-                MinWriterVersion = 7,
-                ReaderFeatures = [TableFeatures.TimestampNtz],
-                WriterFeatures = [TableFeatures.TimestampNtz],
-            }
-            : new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 };
+        bool vectors = On(TableFeatures.EnableDeletionVectorsKey);
+        bool changeFeed = On(ChangeFeed.EnableKey);
+
+        if (!ntz && !vectors)
+            return new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = changeFeed ? 4 : 2 };
+
+        var reader = new List<string>();
+        // Writer 7 lists every feature, the ones writer 2 implied included.
+        var writer = new List<string> { TableFeatures.AppendOnly, TableFeatures.Invariants };
+        if (changeFeed) writer.Add(TableFeatures.ChangeDataFeed);
+        if (ntz)
+        {
+            reader.Add(TableFeatures.TimestampNtz);
+            writer.Add(TableFeatures.TimestampNtz);
+        }
+        if (vectors)
+        {
+            reader.Add(TableFeatures.DeletionVectors);
+            writer.Add(TableFeatures.DeletionVectors);
+        }
+        return new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = reader, WriterFeatures = writer };
     }
 
     private static bool AnyType(DeltaType type, Func<DeltaType, bool> test) => test(type) || type switch
@@ -186,7 +203,7 @@ internal static class DeltaKernelWrite
         _ => false,
     };
 
-    private static bool NeedsMapping(DeltaType type) => type switch
+    internal static bool NeedsMapping(DeltaType type) => type switch
     {
         StructType s => s.Fields.Any(f => f.PhysicalName != f.Name || NeedsMapping(f.Type)),
         ArrayType a => NeedsMapping(a.ElementType),
@@ -278,6 +295,52 @@ internal static class DeltaKernelWrite
         static string Shape(DeltaType type) => type.ToString();
     }
 
+    /// <summary>
+    /// Rejects rows with a null in a column the schema declares <c>nullable: false</c>. A nested field counts only
+    /// where the struct holding it is not null, as Spark checks it. Arrays and maps are not checked.
+    /// </summary>
+    internal static void EnsureNotNull(DataFrameHandle df, StructType schema)
+    {
+        var checks = new List<(string Path, Func<ExprHandle> Violation)>();
+        foreach (StructField field in schema.Fields)
+            Collect(field, [field.Name], parentsPresent: null);
+        if (checks.Count == 0 || PolarsWrapper.DataFrameHeight(df) == 0) return;
+
+        ExprHandle[] exprs = [.. checks.Select((c, i) => PolarsWrapper.Alias(PolarsWrapper.Any(c.Violation(), ignoreNulls: true), $"c{i}"))];
+        using JsonDocument row = OneRow(df, exprs);
+        string[] violated = [.. checks.Where((_, i) => row.RootElement.GetProperty($"c{i}").ValueKind == JsonValueKind.True).Select(c => c.Path)];
+        if (violated.Length > 0)
+            throw new PolarsException(
+                $"The data has null values in columns the table declares NOT NULL: {string.Join(", ", violated)}.");
+
+        void Collect(StructField field, string[] path, Func<ExprHandle>? parentsPresent)
+        {
+            Func<ExprHandle> column = () => Access(path);
+            if (!field.Nullable)
+            {
+                Func<ExprHandle>? present = parentsPresent;
+                checks.Add((string.Join('.', path), present is null
+                    ? () => PolarsWrapper.IsNull(column())
+                    : () => PolarsWrapper.And(present(), PolarsWrapper.IsNull(column()))));
+            }
+            if (field.Type is StructType nested)
+            {
+                Func<ExprHandle> here = parentsPresent is null
+                    ? () => PolarsWrapper.IsNotNull(column())
+                    : () => PolarsWrapper.And(parentsPresent(), PolarsWrapper.IsNotNull(column()));
+                foreach (StructField child in nested.Fields)
+                    Collect(child, [.. path, child.Name], here);
+            }
+        }
+
+        static ExprHandle Access(string[] path)
+        {
+            ExprHandle e = PolarsWrapper.Col(path[0]);
+            for (int i = 1; i < path.Length; i++) e = PolarsWrapper.StructFieldByName(e, [path[i]]);
+            return e;
+        }
+    }
+
     /// <summary>The rows in the table's column order, every column cast to the exact type the table reads.</summary>
     private static DataFrameHandle Normalize(DataFrameHandle df, StructType schema)
     {
@@ -298,52 +361,70 @@ internal static class DeltaKernelWrite
     // Data files
     // ------------------------------------------------------------------
 
-    private static List<AddAction> WriteFiles(IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, long now)
+    /// <summary>Writes rows (table columns, logical names) as data files, one per partition.</summary>
+    internal static List<AddAction> WriteFiles(IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, long now) =>
+        WriteGroups(fileSystem, df, schema, partitions, directoryPrefix: "", filePrefix: "part", extraColumns: [], (group, dataFields, relative, size, values) => new AddAction
+        {
+            Path = EncodeLogPath(relative),
+            PartitionValues = values,
+            Size = size,
+            ModificationTime = now,
+            DataChange = true,
+            Stats = Statistics(group, dataFields),
+        });
+
+    /// <summary>
+    /// Writes change rows (table columns, logical names, then <see cref="DeltaKernelScan.ChangeTypeColumn"/>) as
+    /// change data files under <c>_change_data</c>, one per partition.
+    /// </summary>
+    internal static List<CdcAction> WriteChangeFiles(IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions) =>
+        WriteGroups(fileSystem, df, schema, partitions, directoryPrefix: "_change_data/", filePrefix: "cdc", extraColumns: [DeltaKernelScan.ChangeTypeColumn],
+            (_, _, relative, size, values) => new CdcAction { Path = EncodeLogPath(relative), PartitionValues = values, Size = size });
+
+    private static List<T> WriteGroups<T>(
+        IWritableFileSystem fileSystem, DataFrameHandle df, StructType schema, string[] partitions, string directoryPrefix, string filePrefix,
+        string[] extraColumns, Func<DataFrameHandle, StructField[], string, long, Dictionary<string, string?>, T> action)
     {
-        var adds = new List<AddAction>();
-        if (PolarsWrapper.DataFrameHeight(df) == 0) return adds;
+        var actions = new List<T>();
+        if (PolarsWrapper.DataFrameHeight(df) == 0) return actions;
 
         DataFrameHandle[] groups = partitions.Length == 0
             ? [PolarsWrapper.CloneDataFrame(df)]
             : PolarsWrapper.PartitionBy(df, partitions, maintainOrder: true, includeKey: true);
         try
         {
+            StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
             foreach (DataFrameHandle group in groups)
             {
                 Dictionary<string, string?> values = PartitionValues(group, schema, partitions);
-                StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
 
                 // The file holds the data columns under their physical names.
-                var columns = dataFields
-                    .Select(f => PolarsWrapper.Alias(PolarsWrapper.Col(f.Name), f.PhysicalName))
-                    .ToArray();
+                ExprHandle[] columns =
+                [
+                    .. dataFields.Select(f => PolarsWrapper.Alias(PolarsWrapper.Col(f.Name), f.PhysicalName)),
+                    .. extraColumns.Select(PolarsWrapper.Col),
+                ];
                 byte[] bytes = PolarsWrapper.SinkParquetMemory(
                     PolarsWrapper.LazySelect(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(group)), columns),
                     PlParquetCompression.Snappy, compressionLevel: -1, statistics: true, rowGroupSize: 0, dataPageSize: 0,
                     compatLevel: 0, maintainOrder: true);
 
-                string directory = string.Concat(partitions.Select(p =>
+                string directory = directoryPrefix + string.Concat(partitions.Select(p =>
                     $"{EscapePartitionName(schema.Field(p)!.PhysicalName)}={EscapePartitionName(values[p] ?? HiveDefaultPartition)}/"));
-                string relative = $"{directory}part-00000-{Guid.NewGuid()}-c000.snappy.parquet";
+                // Spark's names: part-00000-UUID-c000.snappy.parquet, cdc-00000-UUID.c000.snappy.parquet.
+                string relative = $"{directory}{filePrefix}-00000-{Guid.NewGuid()}{(filePrefix == "cdc" ? '.' : '-')}c000.snappy.parquet";
                 if (!fileSystem.TryCreate(relative, bytes))
-                    throw new PolarsException($"The data file {relative} already exists.");
+                    throw new PolarsException($"The file {relative} already exists.");
 
-                adds.Add(new AddAction
-                {
-                    Path = EncodeLogPath(relative),
-                    PartitionValues = partitions.ToDictionary(p => schema.Field(p)!.PhysicalName, p => values[p]),
-                    Size = bytes.Length,
-                    ModificationTime = now,
-                    DataChange = true,
-                    Stats = Statistics(group, dataFields),
-                });
+                var logged = partitions.ToDictionary(p => schema.Field(p)!.PhysicalName, p => values[p]);
+                actions.Add(action(group, dataFields, relative, bytes.Length, logged));
             }
         }
         finally
         {
             foreach (DataFrameHandle group in groups) group.Dispose();
         }
-        return adds;
+        return actions;
     }
 
     private const string HiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";

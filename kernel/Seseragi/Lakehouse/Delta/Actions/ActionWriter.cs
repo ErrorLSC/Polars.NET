@@ -22,10 +22,8 @@ public static class ActionWriter
         {
             if (!first) buffer.Write("\n"u8);
             first = false;
-            using (var json = new Utf8JsonWriter(buffer, JsonOptions))
-            {
-                Write(json, action);
-            }
+            using var json = new Utf8JsonWriter(buffer, JsonOptions);
+            Write(json, action);
         }
         return buffer.WrittenSpan.ToArray();
     }
