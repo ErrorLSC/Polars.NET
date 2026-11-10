@@ -67,7 +67,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.FSharp\Polars.FSharp.fsproj" />
-    <ProjectReference Include="..\..\kernel\Seseragi\Delta\Seseragi.Delta.csproj" />
+    <ProjectReference Include="..\..\kernel\Seseragi\Lakehouse\Seseragi.Lakehouse.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -1,9 +1,9 @@
 using System.Globalization;
-using Kaminari.Seseragi.Delta;
-using Kaminari.Seseragi.Delta.Actions;
-using Kaminari.Seseragi.Delta.Engine;
-using Kaminari.Seseragi.Delta.Schema;
-using Kaminari.Seseragi.Delta.Skipping;
+using Kaminari.Seseragi.Lakehouse.Delta;
+using Kaminari.Seseragi.Lakehouse.Delta.Actions;
+using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Lakehouse.Delta.Schema;
+using Kaminari.Seseragi.Lakehouse.Skipping;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Wrappers;

@@ -7,8 +7,8 @@ open System.IO
 open System.Text.Json
 open Xunit
 open Polars.FSharp
-open Kaminari.Seseragi.Delta
-open Kaminari.Seseragi.Delta.Engine
+open Kaminari.Seseragi.Lakehouse.Delta
+open Kaminari.Seseragi.Lakehouse.Engine
 
 let private numRecords (stats: string) =
     Assert.False(isNull stats, "the data file has no statistics")
@@ -171,7 +171,7 @@ let private sampleTable (name: string) =
         if isNull dir then failwith "repository root not found"
         elif File.Exists(Path.Combine(dir.FullName, "Polars.NET.slnx")) then dir.FullName
         else up dir.Parent
-    Path.Combine(up (DirectoryInfo AppContext.BaseDirectory), "tests", "Seseragi.Delta.Tests", "TestData", name)
+    Path.Combine(up (DirectoryInfo AppContext.BaseDirectory), "tests", "Seseragi.Lakehouse.Tests", "TestData", name)
 
 /// Live rows counted from the data files themselves, for tables whose log carries no numRecords.
 let private liveRowsFromFiles (path: string) (fs: IFileSystem) (snapshot: Snapshot) =
@@ -181,7 +181,7 @@ let private liveRowsFromFiles (path: string) (fs: IFileSystem) (snapshot: Snapsh
         let rows = Convert.ToInt64(df.Row(0).[0])
         let deleted =
             if isNull f.DeletionVector then 0L
-            else Kaminari.Seseragi.Delta.Actions.DeletionVector.Read(fs, f.DeletionVector).Cardinality
+            else Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, f.DeletionVector).Cardinality
         rows - deleted)
 
 /// Tables written by Spark or Databricks, read through their checkpoints with the engine as Parquet reader.
@@ -385,8 +385,8 @@ let ``Object store file system agrees with the local one`` (name: string) =
     for file in viaStore.Files do
         if not (isNull file.DeletionVector) then
             Assert.Equal<int64[]>(
-                Kaminari.Seseragi.Delta.Actions.DeletionVector.Read(local, file.DeletionVector).DeletedRows,
-                Kaminari.Seseragi.Delta.Actions.DeletionVector.Read(fs, file.DeletionVector).DeletedRows)
+                Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(local, file.DeletionVector).DeletedRows,
+                Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, file.DeletionVector).DeletedRows)
 
 /// A table given as a URL takes the object-store road end to end: log, checkpoint, deletion vectors and data.
 [<Theory>]
