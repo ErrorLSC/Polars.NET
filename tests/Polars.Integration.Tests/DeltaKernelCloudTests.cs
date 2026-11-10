@@ -113,39 +113,6 @@ public class DeltaKernelCloudTests(MinioFixture minio) : IClassFixture<MinioFixt
     [Trait("DeltaKernel", "Cloud")]
     public void KernelVacuum_OnS3_ListsRecursively_AndDeletesWhatTheTableNoLongerNeeds()
     {
-        var url = $"s3://{minio.BucketName}/kernel_vacuum_{Guid.NewGuid():N}";
-        CloudArgs args = ToArgs(Options());
-
-        // Partition values with characters that need escaping, a rewrite, a compaction and an orphan.
-        using (var first = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 }, Region = new[] { "a b", "a b", "x/y" } }))
-            DeltaKernelWrite.Write(url, Polars.NET.Core.Wrappers.PolarsWrapper.LazyClone(first.Lazy().Handle), KernelWriteMode.ErrorIfExists, ["Region"], args);
-        using (var second = DataFrame.FromColumns(new { Id = new[] { 4 }, Region = new[] { "a b" } }))
-            DeltaKernelWrite.Write(url, Polars.NET.Core.Wrappers.PolarsWrapper.LazyClone(second.Lazy().Handle), KernelWriteMode.Append, null, args);
-        DeltaKernelDelete.Delete(url, Polars.NET.Core.Wrappers.PolarsWrapper.Eq(Polars.NET.Core.Wrappers.PolarsWrapper.Col("Id"), Polars.NET.Core.Wrappers.PolarsWrapper.Lit(2)), cloud: args);
-        DeltaKernelOptimize.Optimize(url, cloud: args);
-        using (var fs = new ObjectStoreFileSystem(url, args))
-            Assert.True(fs.TryCreate("Region=a b/orphan.parquet", new byte[] { 1, 2, 3 }));
-
-        using (var fs = new ObjectStoreFileSystem(url, args))
-        {
-            var all = fs.ListAll("");
-            Assert.Contains(all, f => f.Path == "_delta_log/00000000000000000000.json");
-            Assert.Contains(all, f => f.Path == "Region=a b/orphan.parquet");
-            Assert.Contains(all, f => f.Path.StartsWith("Region=x%2Fy/", StringComparison.Ordinal));
-            Assert.Equal(all.OrderBy(f => f.Path, StringComparer.Ordinal).Select(f => f.Path), all.Select(f => f.Path));
-            Assert.Equal(fs.List("_delta_log").Select(f => f.Path), fs.ListAll("_delta_log").Select(f => f.Path));
-            Assert.Empty(fs.ListAll("no_such_directory"));
-        }
-
-        Thread.Sleep(50); // the orphan's modification time strictly before the cutoff of a zero retention
-        var dry = DeltaKernelVacuum.Vacuum(url, 0, enforceRetention: false, dryRun: true, full: true, cloud: args);
-        var done = DeltaKernelVacuum.Vacuum(url, 0, enforceRetention: false, full: true, cloud: args);
-
-        Assert.Equal(dry.Files, done.Files);
-        Assert.Contains("Region=a b/orphan.parquet", done.Files);
-        Assert.True(done.Files.Count >= 3, string.Join(", ", done.Files)); // the rewritten file, the compacted ones, the orphan
-        using var latest = new LazyFrame(DeltaKernelScan.Scan(url, cloud: args)).Collect();
-        Assert.Equal([1, 3, 4], latest.Sort(["Id"])["Id"].ToArray<int>());
-        Assert.Empty(DeltaKernelVacuum.Vacuum(url, 0, enforceRetention: false, dryRun: true, full: true, cloud: args).Files);
+        KernelObjectStoreCheck.VacuumWorks($"s3://{minio.BucketName}/kernel_vacuum_{Guid.NewGuid():N}", ToArgs(Options()));
     }
 }

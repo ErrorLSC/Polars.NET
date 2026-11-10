@@ -10,6 +10,7 @@ open Polars.FSharp
 open Polars.NET.Core.Delta
 open Kaminari.Seseragi.Lakehouse.Delta
 open Kaminari.Seseragi.Lakehouse.Delta.Actions
+open Kaminari.Seseragi.Lakehouse.Delta.Schema
 open Kaminari.Seseragi.Lakehouse.Engine
 
 let private withTable (name: string) (body: string -> unit) =
@@ -684,3 +685,88 @@ let ``A failed operation deletes the files it wrote`` () =
         Assert.Equal<string[]>(before, files ())
         Assert.Equal(1L, Snapshot.Load(fs).Version)
         Assert.Equal<int list>([ 1; 2; 3 ], ids path))
+
+// ---- schema evolution on write ----
+
+let private writeWith (path: string) (df: DataFrame) (mode: KernelWriteMode) (partitionBy: string[]) (evolve: bool) =
+    DeltaKernelWrite.Write(path, df.Lazy().CloneHandle(), mode, partitionBy, canEvolve = evolve) |> ignore
+
+[<Fact>]
+let ``Appends cast up and fill missing columns; evolution adds columns and widens types`` () =
+    withTable "evolve_append" (fun path ->
+        use first = DataFrame.create [| Series.create("id", [ 1L; 2L ]); Series.create("name", [ "a"; "b" ]) |]
+        create path first [||] [ SchemaEvolution.EnableTypeWideningKey, "true" ]
+        // The property brings the type widening feature with it.
+        Assert.Contains(TableFeatures.TypeWidening, Snapshot.Load(LocalFileSystem path).Protocol.WriterFeatures)
+
+        // An Int32 id into the long column, no name: cast and filled, no schema change.
+        use narrow = DataFrame.create [| Series.create("id", [ 3 ]) |]
+        writeWith path narrow KernelWriteMode.Append null false
+        // A new column without evolution is refused; with it, added.
+        use wider = DataFrame.create [| Series.create("id", [ 4L ]); Series.create("name", [ "d" ]); Series.create("score", [ 1.5 ]) |]
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> writeWith path wider KernelWriteMode.Append null false) |> ignore
+        writeWith path wider KernelWriteMode.Append null true
+
+        use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.Equal<string list>([ "id"; "name"; "score" ], df.ColumnNames |> List.ofSeq)
+        Assert.Equal<string list>([ "a"; "b"; null; "d" ], df.["name"].ToArray<string>() |> List.ofArray)
+        Assert.Equal<Nullable<float> list>([ Nullable(); Nullable(); Nullable(); Nullable 1.5 ], df.["score"].ToArray<Nullable<float>>() |> List.ofArray)
+
+        // Type widening: a table column of int32 widened to int64 by an evolving append; old files read as int64.
+        withTable "evolve_widen" (fun widePath ->
+            use small = DataFrame.create [| Series.create("v", [ 1; 2 ]) |]
+            create widePath small [||] [ SchemaEvolution.EnableTypeWideningKey, "true" ]
+            let wfs = LocalFileSystem widePath
+            use big = DataFrame.create [| Series.create("v", [ 5_000_000_000L ]) |]
+            Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> writeWith widePath big KernelWriteMode.Append null false) |> ignore
+            writeWith widePath big KernelWriteMode.Append null true
+            let field = Snapshot.Load(wfs).Schema.Field("v")
+            Assert.Equal("long", field.Type.ToString())
+            Assert.Contains("\"fromType\":\"integer\"", field.Metadata[SchemaEvolution.TypeChangesKey])
+            use all = (new LazyFrame(DeltaKernelScan.Scan widePath)).Collect().Sort(pl.col "v")
+            Assert.Equal<int64 list>([ 1L; 2L; 5_000_000_000L ], all.["v"].ToArray<int64>() |> List.ofArray)))
+
+[<Fact>]
+let ``Overwrite with evolution replaces the schema and the partitioning`` () =
+    withTable "evolve_overwrite" (fun path ->
+        use first = frame [ 1; 2 ] "east"
+        create path first [| "region" |] []
+        use other = DataFrame.create [| Series.create("key", [ "x"; "y" ]); Series.create("day", [ 1; 2 ]) |]
+
+        Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(fun () -> writeWith path other KernelWriteMode.Overwrite [| "day" |] false) |> ignore
+        writeWith path other KernelWriteMode.Overwrite [| "day" |] true
+        // Overwriting again with the same shape and evolution on changes no metadata.
+        use same = DataFrame.create [| Series.create("key", [ "z" ]); Series.create("day", [ 3 ]) |]
+        writeWith path same KernelWriteMode.Overwrite [| "day" |] true
+        let last = Snapshot.Load(LocalFileSystem path).Version
+        Assert.DoesNotContain("\"metaData\"", File.ReadAllText(Path.Combine(path, "_delta_log", $"{last:D20}.json")))
+        writeWith path other KernelWriteMode.Overwrite [| "day" |] false
+
+        let snapshot = Snapshot.Load(LocalFileSystem path)
+        Assert.Equal<string list>([ "key"; "day" ], snapshot.Schema.Fields |> Seq.map (fun f -> f.Name) |> List.ofSeq)
+        Assert.Equal<string list>([ "day" ], snapshot.PartitionColumns |> List.ofSeq)
+        use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "key")
+        Assert.Equal<string list>([ "x"; "y" ], df.["key"].ToArray<string>() |> List.ofArray)
+        Assert.Equal(1L, (new LazyFrame(DeltaKernelScan.Scan(path, Nullable 0L))).Collect().Select(pl.col "region").Unique().Height))
+
+[<Fact>]
+let ``Merge adds columns to a table with column mapping`` () =
+    withTable "evolve_merge_mapping" (fun path ->
+        use first = products [ 1; 2 ] [ 10.0; 20.0 ] [ "a"; "b" ]
+        create path first [||] [ TableFeatures.ColumnMappingModeKey, "name" ]
+        let fs = LocalFileSystem path
+        let created = Snapshot.Load fs
+        Assert.Equal((2, 5), (created.Protocol.MinReaderVersion, created.Protocol.MinWriterVersion))
+        Assert.All(created.Schema.Fields, fun f -> Assert.StartsWith("col-", f.PhysicalName))
+
+        use source =
+            DataFrame.create [| Series.create("id", [ 2; 3 ]); Series.create("price", [ 25.0; 30.0 ]); Series.create("stock", [ 5L; 6L ]) |]
+        let r = merge path source [ "id" ] [] true
+
+        Assert.True(r.SchemaEvolved)
+        let stock = Snapshot.Load(fs).Schema.Field("stock")
+        Assert.NotNull(stock.FieldId)
+        Assert.StartsWith("col-", stock.PhysicalName)
+        use df = (new LazyFrame(DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.Equal<Nullable<int64> list>([ Nullable(); Nullable 5L; Nullable 6L ], df.["stock"].ToArray<Nullable<int64>>() |> List.ofArray)
+        Assert.Equal<string list>([ "a"; "b"; null ], df.["category"].ToArray<string>() |> List.ofArray))

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
@@ -70,9 +69,10 @@ internal static class DeltaKernelOptimize
             var transaction = Transaction.Start(table.FileSystem, snapshot, "OPTIMIZE");
             // Rewriting reads the files: a concurrent change to one of them is a conflict; new files are not.
             transaction.ReadFiles(bins.SelectMany(b => b));
-            transaction.WithParameter("predicate", JsonSerializer.Serialize(
+            transaction.WithParameter("predicate", JsonText.StringArray(
                     (partitionFilters ?? new Dictionary<string, string?>()).Select(f => f.Value is null ? $"{f.Key} IS NULL" : $"{f.Key} = '{f.Value}'").ToArray()))
-                .WithParameter("zOrderBy", JsonSerializer.Serialize(zOrderColumns ?? []))
+                .WithParameter("zOrderBy", JsonText.StringArray(zOrderColumns ?? []))
+                .WithParameter("clusterBy", "[]")
                 .WithParameter("auto", "false");
             foreach (RemoveAction remove in plan.Removes) transaction.Add(remove);
             foreach (AddAction add in plan.Adds) transaction.Add(add);
@@ -84,6 +84,15 @@ internal static class DeltaKernelOptimize
                        .WithMetric("numAddedBytes", addedBytes)
                        .WithMetric("numDeletionVectorsRemoved", vectorsRemoved)
                        .WithMetric("totalConsideredFiles", partitions.Values.Sum(p => p.Count));
+            // The size distribution of the files written, as Spark reports it.
+            long[] sizes = [.. plan.Adds.Select(f => f.Size).Order()];
+            if (sizes.Length > 0)
+            {
+                long Percentile(double q) => sizes[Math.Min(sizes.Length - 1, (int)(q * sizes.Length))];
+                transaction.WithMetric("minFileSize", sizes[0]).WithMetric("maxFileSize", sizes[^1])
+                           .WithMetric("p25FileSize", Percentile(0.25)).WithMetric("p50FileSize", Percentile(0.5))
+                           .WithMetric("p75FileSize", Percentile(0.75));
+            }
 
             long version = transaction.Commit();
             DeltaKernelWrite.TryCheckpoint(table.FileSystem, tablePath, version, cloud);

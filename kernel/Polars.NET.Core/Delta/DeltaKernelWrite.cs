@@ -39,9 +39,11 @@ internal static class DeltaKernelWrite
     /// <param name="partitionBy">Partition columns for a new table; for an existing one they must be its own, or null.</param>
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     /// <param name="configuration">Table properties for a new table.</param>
+    /// <param name="canEvolve">Schema evolution, as Spark: an append adds the data's new columns (and, with type
+    /// widening on, widens column types); an overwrite replaces the schema and partitioning with the data's.</param>
     public static long Write(
         string tablePath, LazyFrameHandle data, KernelWriteMode mode, string[]? partitionBy = null, CloudArgs? cloud = null,
-        IReadOnlyDictionary<string, string>? configuration = null)
+        IReadOnlyDictionary<string, string>? configuration = null, bool canEvolve = false)
     {
         bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
         IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
@@ -77,21 +79,49 @@ internal static class DeltaKernelWrite
                     Configuration = configuration ?? new Dictionary<string, string>(),
                     CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 };
+                if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None)
+                {
+                    // Column mapping from the start: every column gets an id and a physical name.
+                    metadata = SchemaEvolution.Replace(metadata, schema, partitions);
+                    schema = StructType.Parse(metadata.SchemaString);
+                    if (schema.Fields.Any(f => NeedsMapping(f.Type)))
+                        throw new PolarsException("Creating a table with column mapping and nested columns is not supported yet.");
+                }
                 transaction = Transaction.Create(fileSystem, ProtocolFor(schema, metadata.Configuration), metadata, "WRITE");
             }
             else
             {
-                schema = existing.Schema;
-                partitions = [.. existing.PartitionColumns];
-                if (partitionBy is not null && !partitionBy.SequenceEqual(partitions))
-                    throw new PolarsException($"The table is partitioned by [{string.Join(", ", partitions)}], not [{string.Join(", ", partitionBy)}].");
-                EnsureCompatible(schema, incoming);
+                transaction = Transaction.Start(fileSystem, existing, "WRITE");
+                MetadataAction? changed;
+                if (mode == KernelWriteMode.Overwrite && canEvolve && !SameShape(existing, incoming, partitionBy))
+                {
+                    // The data's schema replaces the table's; partitioning becomes partitionBy, or stays when it is not given.
+                    partitions = partitionBy ?? [.. existing.PartitionColumns];
+                    foreach (string column in partitions)
+                    {
+                        StructField field = incoming.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");
+                        if (!IsPartitionable(field.Type))
+                            throw new PolarsException($"The column '{column}' of type {field.Type} cannot be a partition column.");
+                    }
+                    changed = SchemaEvolution.Replace(existing.Metadata, incoming, partitions);
+                    schema = StructType.Parse(changed.SchemaString);
+                    SchemaEvolution.EnsureSupported(existing.Protocol, schema);
+                }
+                else
+                {
+                    partitions = [.. existing.PartitionColumns];
+                    if (partitionBy is not null && !partitionBy.SequenceEqual(partitions))
+                        throw new PolarsException(
+                            $"The table is partitioned by [{string.Join(", ", partitions)}], not [{string.Join(", ", partitionBy)}]" +
+                            (mode == KernelWriteMode.Overwrite ? "; overwrite with schema evolution to change it." : "."));
+                    schema = SchemaEvolution.Merge(existing.Metadata, existing.Protocol, incoming, canEvolve, out changed);
+                }
+                if (changed is not null) transaction.SetMetadata(changed);
                 if (existing.ColumnMappingMode != ColumnMappingMode.None && schema.Fields.Any(f => NeedsMapping(f.Type)))
                     throw new PolarsException("Writing to a table with column mapping inside nested columns is not supported yet.");
-                transaction = Transaction.Start(fileSystem, existing, "WRITE");
             }
             transaction.WithParameter("mode", mode == KernelWriteMode.Overwrite ? "Overwrite" : mode == KernelWriteMode.Append ? "Append" : "ErrorIfExists")
-                       .WithParameter("partitionBy", JsonSerializer.Serialize(partitions));
+                       .WithParameter("partitionBy", JsonText.StringArray(partitions));
 
             // Rows in the table's column order and exact types, then one data file per partition.
             using DataFrameHandle normalized = Normalize(collected, schema);
@@ -171,6 +201,12 @@ internal static class DeltaKernelWrite
         }
     }
 
+    /// <summary>Whether data of <paramref name="incoming"/> written with <paramref name="partitionBy"/> leaves the table as it is.</summary>
+    private static bool SameShape(Snapshot existing, StructType incoming, string[]? partitionBy) =>
+        (partitionBy is null || partitionBy.SequenceEqual(existing.PartitionColumns))
+        && incoming.Fields.Count == existing.Schema.Fields.Count
+        && incoming.Fields.Zip(existing.Schema.Fields).All(p => p.First.Name == p.Second.Name && p.First.Type.ToString() == p.Second.Type.ToString());
+
     /// <summary>The location data file paths are relative to: the local directory, or the URL.</summary>
     internal static string RootOf(IFileSystem fileSystem, string tablePath) =>
         (fileSystem is TrackingFileSystem tracking ? tracking.Inner : fileSystem) is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
@@ -185,9 +221,13 @@ internal static class DeltaKernelWrite
         bool ntz = AnyType(schema, t => t is PrimitiveType { Name: PrimitiveType.TimestampNtz });
         bool vectors = On(TableFeatures.EnableDeletionVectorsKey);
         bool changeFeed = On(ChangeFeed.EnableKey);
+        bool mapping = configuration.TryGetValue(TableFeatures.ColumnMappingModeKey, out string? mode) && mode is "name" or "id";
+        bool widening = On(SchemaEvolution.EnableTypeWideningKey);
 
-        if (!ntz && !vectors)
-            return new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = changeFeed ? 4 : 2 };
+        if (!ntz && !vectors && !widening)
+            return mapping
+                ? new ProtocolAction { MinReaderVersion = 2, MinWriterVersion = 5 } // column mapping implies the change data feed's writer 4
+                : new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = changeFeed ? 4 : 2 };
 
         var reader = new List<string>();
         // Writer 7 lists every feature, the ones writer 2 implied included.
@@ -202,6 +242,16 @@ internal static class DeltaKernelWrite
         {
             reader.Add(TableFeatures.DeletionVectors);
             writer.Add(TableFeatures.DeletionVectors);
+        }
+        if (mapping)
+        {
+            reader.Add(TableFeatures.ColumnMapping);
+            writer.Add(TableFeatures.ColumnMapping);
+        }
+        if (widening)
+        {
+            reader.Add(TableFeatures.TypeWidening);
+            writer.Add(TableFeatures.TypeWidening);
         }
         return new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = reader, WriterFeatures = writer };
     }
@@ -288,24 +338,6 @@ internal static class DeltaKernelWrite
         }
     }
 
-    private static void EnsureCompatible(StructType table, StructType incoming)
-    {
-        var missing = table.Fields.Where(f => incoming.Field(f.Name) is null).Select(f => f.Name).ToList();
-        var extra = incoming.Fields.Where(f => table.Field(f.Name) is null).Select(f => f.Name).ToList();
-        if (missing.Count > 0 || extra.Count > 0)
-            throw new PolarsException(
-                $"The data does not match the table schema (missing: [{string.Join(", ", missing)}], not in the table: [{string.Join(", ", extra)}]).");
-        foreach (StructField field in table.Fields)
-        {
-            string want = Shape(field.Type), have = Shape(incoming.Field(field.Name)!.Type);
-            if (want != have)
-                throw new PolarsException($"The column '{field.Name}' is {want} in the table but {have} in the data.");
-        }
-
-        // Field names inside structs count, mapped names do not.
-        static string Shape(DeltaType type) => type.ToString();
-    }
-
     /// <summary>
     /// Rejects rows with a null in a column the schema declares <c>nullable: false</c>. A nested field counts only
     /// where the struct holding it is not null, as Spark checks it. Arrays and maps are not checked.
@@ -355,13 +387,16 @@ internal static class DeltaKernelWrite
     /// <summary>The rows in the table's column order, every column cast to the exact type the table reads.</summary>
     private static DataFrameHandle Normalize(DataFrameHandle df, StructType schema)
     {
+        var present = SchemaOf(df).Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         var exprs = new ExprHandle[schema.Fields.Count];
         for (int i = 0; i < exprs.Length; i++)
         {
             StructField field = schema.Fields[i];
             using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
+            // A column the data lacks is null (the schema check allowed it).
+            ExprHandle value = present.Contains(field.Name) ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
-                PolarsWrapper.ExprCast(PolarsWrapper.Col(field.Name), PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
+                PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
                 field.Name);
         }
         LazyFrameHandle lf = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df));

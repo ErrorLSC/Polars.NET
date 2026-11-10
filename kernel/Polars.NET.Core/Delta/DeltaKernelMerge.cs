@@ -95,7 +95,7 @@ internal static class DeltaKernelMerge
             RecordParameters(transaction, keys, clauses);
 
             // The rows the clauses change, with their action: one engine query.
-            LazyFrameHandle joined = Join(table, candidates, sourceRows, snapshot.Schema, sourceSchema, keys);
+            LazyFrameHandle joined = Join(table, candidates, sourceRows, snapshot.Schema, sourceSchema, schema, keys);
             ExprHandle action = ActionOf(clauses);
             LazyFrameHandle changed = PolarsWrapper.LazyFilter(
                 PolarsWrapper.LazyWithColumns(joined, [PolarsWrapper.Alias(action, ActionColumn)]),
@@ -142,45 +142,33 @@ internal static class DeltaKernelMerge
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// The schema the merge writes: the table's, plus (with <paramref name="canEvolve"/>) source columns it lacks,
-    /// nullable, at the end. Checks the keys.
+    /// The schema the merge writes, by the rules of a write (<see cref="SchemaEvolution"/>): with
+    /// <paramref name="canEvolve"/> the source's new columns are added (under column mapping too) and, with type
+    /// widening on, column types widened. A source column whose type does not fit is cast to the table's as the
+    /// rows are merged (a value that does not fit fails). Checks the keys.
     /// </summary>
     private static StructType Evolve(Snapshot snapshot, StructType source, string[] keys, bool canEvolve, out MetadataAction? metadata)
     {
-        metadata = null;
-        StructType schema = snapshot.Schema;
+        StructType table = snapshot.Schema;
         foreach (string key in keys)
         {
-            if (schema.Field(key) is null) throw new PolarsException($"The merge key '{key}' is not a column of the table.");
+            if (table.Field(key) is null) throw new PolarsException($"The merge key '{key}' is not a column of the table.");
             if (source.Field(key) is null) throw new PolarsException($"The merge key '{key}' is not a column of the source.");
         }
-
-        StructField[] added = [.. source.Fields.Where(f => schema.Field(f.Name) is null)];
-        if (added.Length == 0) return schema;
-        if (!canEvolve)
-            throw new PolarsException(
-                $"The source has columns the table does not: {string.Join(", ", added.Select(f => f.Name))}. Allow schema evolution to add them.");
-        if (snapshot.ColumnMappingMode != ColumnMappingMode.None)
-            throw new PolarsException("Adding columns to a table with column mapping is not supported yet.");
-        bool ntz = added.Any(f => f.Type.ToString().Contains(PrimitiveType.TimestampNtz, StringComparison.Ordinal));
-        if (ntz && !(snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.TimestampNtz))
-            throw new PolarsException("A new column holds timestamps without time zone, which the table's protocol does not support.");
-
-        var evolved = new StructType([.. schema.Fields, .. added.Select(f => new StructField { Name = f.Name, Type = f.Type, Nullable = true })]);
-        MetadataAction old = snapshot.Metadata;
-        metadata = new MetadataAction
+        // Shared columns that would not widen are taken in the table's type: the merge casts them.
+        bool widening = canEvolve && SchemaEvolution.WideningEnabled(snapshot.Metadata, snapshot.Protocol);
+        var adjusted = new StructType([.. source.Fields.Select(f =>
+            table.Field(f.Name) is StructField t && !(widening && SchemaEvolution.CanWiden(t.Type, f.Type))
+                ? new StructField { Name = f.Name, Type = t.Type, Nullable = true }
+                : f)]);
+        try
         {
-            Id = old.Id,
-            Name = old.Name,
-            Description = old.Description,
-            FormatProvider = old.FormatProvider,
-            FormatOptions = old.FormatOptions,
-            SchemaString = evolved.ToJson(),
-            PartitionColumns = old.PartitionColumns,
-            Configuration = old.Configuration,
-            CreatedTime = old.CreatedTime,
-        };
-        return evolved;
+            return SchemaEvolution.Merge(snapshot.Metadata, snapshot.Protocol, adjusted, canEvolve, out metadata, allowMissingColumns: true);
+        }
+        catch (DeltaException e) when (e.Message.Contains("Allow schema evolution", StringComparison.Ordinal))
+        {
+            throw new PolarsException(e.Message.Replace("The data has", "The source has", StringComparison.Ordinal), e);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -234,7 +222,8 @@ internal static class DeltaKernelMerge
     /// source (columns suffixed, cast to the table's types, a source marker) on the keys. Null keys do not match.
     /// </summary>
     private static LazyFrameHandle Join(
-        DmlTable table, IReadOnlyList<AddAction> candidates, DataFrameHandle sourceRows, StructType tableSchema, StructType sourceSchema, string[] keys)
+        DmlTable table, IReadOnlyList<AddAction> candidates, DataFrameHandle sourceRows, StructType tableSchema, StructType sourceSchema,
+        StructType writtenSchema, string[] keys)
     {
         var frames = new List<LazyFrameHandle>(candidates.Count);
         for (int i = 0; i < candidates.Count; i++)
@@ -248,8 +237,8 @@ internal static class DeltaKernelMerge
         var columns = new List<ExprHandle>();
         foreach (StructField field in sourceSchema.Fields)
         {
-            // Shared columns take the table's type (a value that does not fit fails); new ones their own Delta type.
-            DeltaType type = tableSchema.Field(field.Name)?.Type ?? field.Type;
+            // Every source column takes the type it is written as (a value that does not fit fails).
+            DeltaType type = writtenSchema.Field(field.Name)!.Type;
             using DataTypeHandle engineType = DeltaKernelScan.EngineType(type);
             columns.Add(PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(PolarsWrapper.Col(field.Name), PolarsWrapper.DataTypeExprFromDataType(engineType), strict: true, wrapNumerical: false),
@@ -464,14 +453,15 @@ internal static class DeltaKernelMerge
     private static LazyFrameHandle ChangeRows(LazyFrameHandle rows, StructType schema, StructType tableSchema, string changeType) =>
         DmlTable.WithChangeType(Conform(rows, schema, tableSchema), changeType);
 
-    /// <summary>Table rows read under the table's schema, over the written one: added columns null.</summary>
+    /// <summary>Table rows read under the table's schema, over the written one: widened columns cast, added columns null.</summary>
     private static LazyFrameHandle Conform(LazyFrameHandle rows, StructType schema, StructType tableSchema) =>
         PolarsWrapper.LazySelect(rows, [.. schema.Fields.Select(field =>
         {
-            if (tableSchema.Field(field.Name) is not null) return PolarsWrapper.Col(field.Name);
+            // Columns of the table in the type written (it may have been widened); added ones null.
             using DataTypeHandle type = DeltaKernelScan.EngineType(field.Type);
+            ExprHandle value = tableSchema.Field(field.Name) is not null ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
             return PolarsWrapper.Alias(
-                PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(type), strict: true, wrapNumerical: false), field.Name);
+                PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(type), strict: true, wrapNumerical: false), field.Name);
         })]);
 
     private static LazyFrameHandle Project(LazyFrameHandle rows, StructType schema) =>
@@ -487,8 +477,8 @@ internal static class DeltaKernelMerge
     /// <summary>The operation parameters Spark records for a merge.</summary>
     private static void RecordParameters(Transaction transaction, string[] keys, IReadOnlyList<MergeClause> clauses)
     {
-        transaction.WithParameter("predicate", JsonSerializer.Serialize(new[] { string.Join(" AND ", keys.Select(k => $"source.{k} = target.{k}")) }));
-        string Clauses(Func<MergeClauseKind, bool> which) => JsonSerializer.Serialize(clauses.Where(c => which(c.Kind)).Select(c => new Dictionary<string, string>
+        transaction.WithParameter("predicate", JsonText.StringArray([string.Join(" AND ", keys.Select(k => $"source.{k} = target.{k}"))]));
+        string Clauses(Func<MergeClauseKind, bool> which) => JsonText.ObjectArray(clauses.Where(c => which(c.Kind)).Select(c => new Dictionary<string, string>
         {
             ["predicate"] = PolarsWrapper.ExprToString(c.Condition),
             ["actionType"] = c.Kind is MergeClauseKind.MatchedUpdate ? "update" : c.Kind is MergeClauseKind.NotMatchedInsert ? "insert" : "delete",

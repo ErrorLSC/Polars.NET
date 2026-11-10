@@ -570,6 +570,63 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void Spark_ReadsSchemasTheKernelEvolved_AndWritesOnTop()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            static void Write(string path, DataFrame df, KernelWriteMode mode, Dictionary<string, string>? properties = null, bool evolve = false)
+            {
+                using (df)
+                    DeltaKernelWrite.Write(path, PolarsWrapper.LazyClone(df.Lazy().Handle), mode, null, null, properties, evolve);
+            }
+
+            // Column mapping from the start, then a merge that adds a column.
+            string mapped = Path.Combine(root, "mapped");
+            Write(mapped, DataFrame.FromColumns(new { id = new[] { 1, 2 }, name = new[] { "a", "b" } }), KernelWriteMode.ErrorIfExists,
+                new() { ["delta.columnMapping.mode"] = "name" });
+            using (var source = DataFrame.FromColumns(new { id = new[] { 2, 3 }, name = new[] { "B", "c" }, score = new[] { 1.5, 2.5 } }))
+                DeltaKernelMerge.Merge(mapped, PolarsWrapper.LazyClone(source.Lazy().Handle), ["id"], [], canEvolve: true);
+
+            // Type widening: int widened to long by an evolving append.
+            string widened = Path.Combine(root, "widened");
+            Write(widened, DataFrame.FromColumns(new { id = new[] { 1, 2 } }), KernelWriteMode.ErrorIfExists, new() { ["delta.enableTypeWidening"] = "true" });
+            Write(widened, DataFrame.FromColumns(new { id = new[] { 5_000_000_000L } }), KernelWriteMode.Append, evolve: true);
+
+            // A schema replaced by an overwrite.
+            string replaced = Path.Combine(root, "replaced");
+            Write(replaced, DataFrame.FromColumns(new { id = new[] { 1 }, old = new[] { "x" } }), KernelWriteMode.ErrorIfExists);
+            Write(replaced, DataFrame.FromColumns(new { id = new[] { 7L }, fresh = new[] { true } }), KernelWriteMode.Overwrite, evolve: true);
+
+            List<JsonDocument> spark = LocalSpark.Run("read", mapped, widened, replaced);
+            foreach (JsonDocument table in spark)
+            {
+                string path = table.RootElement.GetProperty("path").GetString()!;
+                AssertSameRows(path, table.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(path)));
+            }
+            Assert.Contains("score", spark[0].RootElement.GetProperty("schema").GetString());
+            Assert.Contains("id:bigint", spark[1].RootElement.GetProperty("schema").GetString());
+
+            // Spark writes on top: the kernel reads what it wrote.
+            foreach (var (path, statement) in new[]
+                     {
+                         (mapped, "INSERT INTO {table} (id, name, score) VALUES (9, 'z', 9.5)"),
+                         (widened, "INSERT INTO {table} VALUES (6000000000)"),
+                         (replaced, "INSERT INTO {table} VALUES (8, false)"),
+                     })
+            {
+                JsonDocument after = LocalSpark.Run("sql", path, statement)[0];
+                AssertSameRows(path, after.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(path)));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void Kernel_ReadsWidenedColumns_SkipsSafely_AndRewritesOldFiles()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
@@ -64,7 +63,7 @@ internal static class DeltaKernelUpdate
             var transaction = Transaction.Start(table.FileSystem, snapshot, "UPDATE");
             transaction.ReadPredicate(fileFilter).ReadFiles(candidates);
             string predicateText = predicate is null ? "true" : PolarsWrapper.ExprToString(predicate);
-            transaction.WithParameter("predicate", JsonSerializer.Serialize(new[] { predicateText }));
+            transaction.WithParameter("predicate", JsonText.StringArray([predicateText]));
 
             // Every live row matches without a predicate.
             ExprHandle matchAll = predicate ?? PolarsWrapper.Lit(true);

@@ -1,7 +1,5 @@
-using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
-using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Skipping;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
@@ -49,7 +47,7 @@ internal static class DeltaKernelDelete
             var transaction = Transaction.Start(table.FileSystem, snapshot, "DELETE");
             transaction.ReadPredicate(fileFilter).ReadFiles(candidates);
             string predicateText = predicate is null ? "true" : PolarsWrapper.ExprToString(predicate);
-            transaction.WithParameter("predicate", JsonSerializer.Serialize(new[] { predicateText }));
+            transaction.WithParameter("predicate", JsonText.StringArray([predicateText]));
 
             var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             long deleted = 0;
