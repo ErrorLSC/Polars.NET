@@ -30,6 +30,7 @@ chrono = "*"
 rust_xlsxwriter = { version = "0.101.0", features = ["chrono"] }
 deltalake = { version = "1.0.0", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
 tokio = { version = "1.52.3"}
+object_store = "0.13"
 url = "*"
 uuid = {version="*", features=["v4"]}
 futures = "*"

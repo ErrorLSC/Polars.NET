@@ -72,6 +72,7 @@ pub extern "C" fn pl_scan_parquet_files(
     use_statistics: bool,
     allow_missing_columns: bool,
     ignore_extra_columns: bool,
+    lenient_casts: bool,
     rechunk: bool,
     cache: bool,
     row_index_name_ptr: *const c_char,
@@ -133,7 +134,22 @@ pub extern "C" fn pl_scan_parquet_files(
             default_values: None,
             row_index: None,
             pre_slice: args.n_rows.map(|len| Slice::Positive { offset: 0, len }),
-            cast_columns_policy: CastColumnsPolicy::ERROR_ON_MISMATCH,
+            // A table's files are written over time and by different engines: older files may hold a narrower
+            // type than the table schema now has, nanosecond timestamps, or structs from before a field was added.
+            cast_columns_policy: if lenient_casts {
+                CastColumnsPolicy {
+                    integer_upcast: true,
+                    integer_to_float_cast: true,
+                    float_upcast: true,
+                    datetime_nanoseconds_downcast: true,
+                    datetime_convert_timezone: true,
+                    missing_struct_fields: MissingColumnsPolicy::Insert,
+                    extra_struct_fields: ExtraColumnsPolicy::Ignore,
+                    ..CastColumnsPolicy::ERROR_ON_MISMATCH
+                }
+            } else {
+                CastColumnsPolicy::ERROR_ON_MISMATCH
+            },
             missing_columns_policy: if args.allow_missing_columns { MissingColumnsPolicy::Insert } else { MissingColumnsPolicy::Raise },
             extra_columns_policy: if ignore_extra_columns { ExtraColumnsPolicy::Ignore } else { ExtraColumnsPolicy::Raise },
             include_file_paths: args.include_file_paths,

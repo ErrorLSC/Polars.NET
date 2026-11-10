@@ -2838,6 +2838,7 @@ dependencies = [
  "deltalake",
  "flate2",
  "futures",
+ "object_store",
  "polars",
  "polars-arrow",
  "polars-async",

@@ -150,6 +150,19 @@ public class SchemaHandle : PolarsHandle
     }
 }
 
+/// <summary>An opened object store rooted at one location, for listing and reading files.</summary>
+public class StorageHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_storage_free(handle);
+        }
+        return true;
+    }
+}
+
 /// <summary>
 /// A Unity Catalog connection. Unlike the other handles it owns no native memory: it holds the managed client.
 /// </summary>

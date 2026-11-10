@@ -13,12 +13,12 @@ namespace Polars.NET.Core.Delta;
 /// <summary>
 /// Reads Parquet files for the Delta kernel with the engine: scan the file, hand its rows over as JSON lines.
 /// </summary>
-public sealed class EngineParquetReader(string tableRoot) : IParquetReader
+public sealed class EngineParquetReader(string tableRoot, CloudArgs? cloud = null) : IParquetReader
 {
     /// <inheritdoc/>
     public byte[] ReadAsJsonLines(string path)
     {
-        LazyFrameHandle lf = PolarsWrapper.ScanParquetFiles([DeltaKernelScan.Combine(tableRoot, path)]);
+        LazyFrameHandle lf = DeltaKernelScan.ScanFiles([DeltaKernelScan.Combine(tableRoot, path)], cloud ?? CloudArgs.Local, null, null);
         using DataFrameHandle df = PolarsWrapper.LazyCollect(lf, PlEngine.Auto);
         using NativeBuffer buffer = PolarsWrapper.WriteJsonNativeMemory(df, PlJsonFormat.JsonLines);
         return buffer.Memory.ToArray();
@@ -30,34 +30,54 @@ public sealed class EngineParquetReader(string tableRoot) : IParquetReader
 /// up the table; this turns them into one lazy frame: partition values become columns, deletion vectors remove
 /// their rows, mapped columns get their logical names back.
 /// Not used by the public API yet: the path-based Delta functions still go through the native implementation.
-/// Local tables only for now.
 /// </summary>
 public static class DeltaKernelScan
 {
     private const string RowIndexColumn = "__seseragi_row_index";
 
     /// <summary>Scans a table at its latest version, at a version, or as of a time.</summary>
-    /// <param name="tablePath">The table directory on the local disk.</param>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="version">The version to read; null for the latest.</param>
     /// <param name="asOf">Read the latest version committed at or before this time; not together with <paramref name="version"/>.</param>
     /// <param name="filter">Leaves out files that cannot hold a matching row. It does not filter rows.</param>
-    public static LazyFrameHandle Scan(string tablePath, long? version = null, DateTimeOffset? asOf = null, Predicate? filter = null)
+    /// <param name="cloud">Cloud settings for a cloud URL; null for a local table.</param>
+    public static LazyFrameHandle Scan(
+        string tablePath, long? version = null, DateTimeOffset? asOf = null, Predicate? filter = null, CloudArgs? cloud = null)
     {
         if (version.HasValue && asOf.HasValue)
             throw new ArgumentException("Give a version or a time, not both.");
 
-        var fileSystem = new LocalFileSystem(tablePath);
-        var parquet = new EngineParquetReader(fileSystem.Root);
+        // A local table is read with plain file calls; anything with a scheme goes through the object store.
+        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
+        IFileSystem fileSystem;
+        string root;
+        if (isUrl)
+        {
+            root = tablePath.TrimEnd('/');
+            fileSystem = new ObjectStoreFileSystem(root, cloud);
+        }
+        else
+        {
+            var local = new LocalFileSystem(tablePath);
+            root = local.Root;
+            fileSystem = local;
+        }
+
         try
         {
+            var parquet = new EngineParquetReader(root, cloud);
             Snapshot snapshot = asOf is DateTimeOffset time
                 ? Snapshot.LoadAsOf(fileSystem, time, parquet)
                 : Snapshot.Load(fileSystem, version, parquet);
-            return Scan(fileSystem, fileSystem.Root, snapshot, filter);
+            return Scan(fileSystem, root, snapshot, filter, cloud);
         }
         catch (DeltaException e)
         {
             throw new PolarsException(e.Message, e);
+        }
+        finally
+        {
+            (fileSystem as IDisposable)?.Dispose();
         }
     }
 
@@ -66,8 +86,10 @@ public static class DeltaKernelScan
     /// <param name="tableRoot">The location data file paths are relative to.</param>
     /// <param name="snapshot">The table state to read.</param>
     /// <param name="filter">Leaves out files that cannot hold a matching row. It does not filter rows.</param>
-    public static LazyFrameHandle Scan(IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter = null)
+    /// <param name="cloud">Cloud settings used to read the data files; null for a local table.</param>
+    public static LazyFrameHandle Scan(IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter = null, CloudArgs? cloud = null)
     {
+        cloud ??= CloudArgs.Local;
         StructType schema = snapshot.Schema;
         IReadOnlyList<AddAction> files = filter is null ? snapshot.Files : snapshot.FilesMatching(filter);
 
@@ -103,7 +125,7 @@ public static class DeltaKernelScan
             {
                 using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
                 string[] paths = [.. group.Select(f => Combine(tableRoot, f.DecodedPath))];
-                LazyFrameHandle lf = PolarsWrapper.ScanParquetFiles(paths, ignoreExtraColumns: true, schema: fileSchema);
+                LazyFrameHandle lf = ScanFiles(paths, cloud, fileSchema, null);
                 frames.Add(Project(lf, snapshot, group[0], partitionColumns));
             }
 
@@ -111,8 +133,7 @@ public static class DeltaKernelScan
             {
                 long[] deleted = DeletionVector.Read(fileSystem, file.DeletionVector!).DeletedRows;
                 using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns);
-                LazyFrameHandle lf = PolarsWrapper.ScanParquetFiles(
-                    [Combine(tableRoot, file.DecodedPath)], ignoreExtraColumns: true, rowIndexName: RowIndexColumn, schema: fileSchema);
+                LazyFrameHandle lf = ScanFiles([Combine(tableRoot, file.DecodedPath)], cloud, fileSchema, RowIndexColumn);
 
                 if (deleted.Length > 0)
                 {
@@ -147,10 +168,29 @@ public static class DeltaKernelScan
         }
     }
 
-    internal static string Combine(string root, string relative) =>
-        relative.Contains("://", StringComparison.Ordinal) || Path.IsPathRooted(relative)
-            ? relative
+    internal static LazyFrameHandle ScanFiles(string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName) =>
+        PolarsWrapper.ScanParquetFiles(
+            paths,
+            ignoreExtraColumns: true,
+            lenientCasts: true,
+            rowIndexName: rowIndexName,
+            schema: schema,
+            cloudProvider: cloud.Provider,
+            cloudRetries: cloud.Retries,
+            cloudRetryTimeoutMs: cloud.RetryTimeoutMs,
+            cloudRetryInitBackoffMs: cloud.RetryInitBackoffMs,
+            cloudRetryMaxBackoffMs: cloud.RetryMaxBackoffMs,
+            cloudCacheTtl: cloud.CacheTtl,
+            cloudKeys: cloud.Keys,
+            cloudValues: cloud.Values);
+
+    internal static string Combine(string root, string relative)
+    {
+        if (relative.Contains("://", StringComparison.Ordinal) || Path.IsPathRooted(relative)) return relative;
+        return root.Contains("://", StringComparison.Ordinal)
+            ? root.TrimEnd('/') + "/" + relative
             : Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
 
     private static string PartitionKey(Snapshot snapshot, AddAction file)
     {

@@ -199,6 +199,12 @@ public readonly partial struct PolarsWrapper
     /// <summary>
     /// Scans an explicit list of Parquet files as one source, in the given order, without globbing.
     /// </summary>
+    /// <param name="ignoreExtraColumns">Columns of a file that <paramref name="schema"/> does not name are left out instead of raising.</param>
+    /// <param name="lenientCasts">
+    /// A file may hold a narrower type than <paramref name="schema"/>: smaller integers and floats are widened,
+    /// integers become floats, nanosecond timestamps are cut to the schema's unit, time zones are converted, and
+    /// structs may lack fields (filled with nulls) or carry extra ones (dropped).
+    /// </param>
     public static LazyFrameHandle ScanParquetFiles(
         string[] paths,
         ulong? nRows = null,
@@ -207,6 +213,7 @@ public readonly partial struct PolarsWrapper
         bool useStatistics = true,
         bool allowMissingColumns = true,
         bool ignoreExtraColumns = false,
+        bool lenientCasts = false,
         bool rechunk = false,
         bool cache = true,
         string? rowIndexName = null,
@@ -242,6 +249,7 @@ public readonly partial struct PolarsWrapper
                 useStatistics,
                 allowMissingColumns,
                 ignoreExtraColumns,
+                lenientCasts,
                 rechunk,
                 cache,
                 rowIndexName,

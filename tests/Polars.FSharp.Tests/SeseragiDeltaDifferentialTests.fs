@@ -300,3 +300,105 @@ let ``Delta Acceptance Tests content through the kernel scan`` (caseName: string
     use expected = expectedRaw.Select(columns).Sort(sortColumns)
     use sorted = actual.Sort(sortColumns)
     Assert.True(sorted.Equals(expected), $"content differs\nactual:\n{sorted}\nexpected:\n{expected}")
+
+/// Files written before the table schema widened a column or added a nested field must still read.
+[<Fact>]
+let ``Kernel scan reads files narrower than the table schema`` () =
+    withTable "widening" (fun path ->
+        Directory.CreateDirectory(Path.Combine(path, "_delta_log")) |> ignore
+        // An old file: id is a 32-bit integer, score a 32-bit float, extra a column the table no longer has.
+        let old =
+            DataFrame.create [|
+                Series.create("id", [1; 2])
+                Series.create("score", [1.5f; 2.5f])
+                Series.create("extra", ["x"; "y"])
+            |]
+        old.WriteParquet(Path.Combine(path, "old.parquet")) |> ignore
+        // A new file with the current types and the column added later.
+        let recent =
+            DataFrame.create [|
+                Series.create("id", [3L])
+                Series.create("score", [3.5])
+                Series.create("note", ["new"])
+            |]
+        recent.WriteParquet(Path.Combine(path, "new.parquet")) |> ignore
+
+        let schema = """{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":true,\"metadata\":{}},{\"name\":\"score\",\"type\":\"double\",\"nullable\":true,\"metadata\":{}},{\"name\":\"note\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"""
+        File.WriteAllLines(
+            Path.Combine(path, "_delta_log", "00000000000000000000.json"),
+            [ """{"protocol":{"minReaderVersion":1,"minWriterVersion":2}}"""
+              sprintf """{"metaData":{"id":"t","format":{"provider":"parquet","options":{}},"schemaString":"%s","partitionColumns":[],"configuration":{}}}""" schema
+              """{"add":{"path":"old.parquet","partitionValues":{},"size":1,"modificationTime":1,"dataChange":true}}"""
+              """{"add":{"path":"new.parquet","partitionValues":{},"size":1,"modificationTime":1,"dataChange":true}}""" ])
+
+        use df = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect().Sort("id")
+
+        Assert.Equal<string list>(["id"; "score"; "note"], List.ofSeq df.ColumnNames)
+        Assert.Equal(3L, df.Height)
+        Assert.Equal("3", df.Select(pl.col "id").Row(2).[0].ToString())
+        Assert.Equal("2.5", df.Select(pl.col "score").Row(1).[0].ToString())
+        Assert.Equal("new", df.Select(pl.col "note").Row(2).[0].ToString())
+        Assert.Equal("i64", df.Schema.["id"].ToString())
+        Assert.Equal("f64", df.Schema.["score"].ToString()))
+
+/// The object-store file system must behave like the plain local one. Run on a local path here, where the two
+/// can be compared; on a cloud URL it is the same code with another store behind it.
+[<Theory>]
+[<InlineData("v2-parquet-sidecars-struct-stats-only")>]
+[<InlineData("with-short-dv")>]
+[<InlineData("app-txn-checkpoint")>]
+let ``Object store file system agrees with the local one`` (name: string) =
+    let path = sampleTable name
+    let local = LocalFileSystem path
+    use store = new Polars.NET.Core.Delta.ObjectStoreFileSystem(path)
+    let fs = store :> IFileSystem
+
+    for dir in [ "_delta_log"; "_delta_log/_sidecars"; ""; "no_such_directory" ] do
+        let expected = local.List dir |> Seq.map (fun f -> f.Path, f.Size) |> List.ofSeq
+        let actual = fs.List dir |> Seq.map (fun f -> f.Path, f.Size) |> List.ofSeq
+        Assert.Equal<(string * int64) list>(expected, actual)
+        for a, b in Seq.zip (local.List dir) (fs.List dir) do
+            Assert.True(abs (a.LastModified - b.LastModified).TotalSeconds < 1.0, $"modification time of {a.Path}")
+
+    let from = "00000000000000000003"
+    Assert.Equal<string list>(
+        local.List("_delta_log", from) |> Seq.map (fun f -> f.Path) |> List.ofSeq,
+        fs.List("_delta_log", from) |> Seq.map (fun f -> f.Path) |> List.ofSeq)
+
+    let first = (local.List "_delta_log").[0].Path
+    let whole = local.ReadAll first
+    Assert.Equal<byte[]>(whole, fs.ReadAll first)
+    Assert.Equal<byte[]>(local.ReadRange(first, 5L, 20), fs.ReadRange(first, 5L, 20))
+    Assert.Equal<byte[]>(local.ReadRange(first, int64 whole.Length - 3L, 50), fs.ReadRange(first, int64 whole.Length - 3L, 50))
+    Assert.Empty(fs.ReadRange(first, int64 whole.Length + 10L, 5))
+    Assert.Null(fs.ReadAll "_delta_log/missing.json")
+    Assert.Null(fs.ReadRange("missing/missing.bin", 0L, 4))
+
+    // The same snapshot comes out, and deletion vectors read through range requests.
+    let reader = EngineParquetReader path
+    let viaLocal = Snapshot.Load(local, parquet = reader)
+    let viaStore = Snapshot.Load(fs, parquet = reader)
+    Assert.Equal(viaLocal.Version, viaStore.Version)
+    Assert.Equal<string list>(
+        viaLocal.Files |> Seq.map (fun f -> f.Path) |> Seq.sort |> List.ofSeq,
+        viaStore.Files |> Seq.map (fun f -> f.Path) |> Seq.sort |> List.ofSeq)
+    for file in viaStore.Files do
+        if not (isNull file.DeletionVector) then
+            Assert.Equal<int64[]>(
+                Kaminari.Seseragi.Delta.Actions.DeletionVector.Read(local, file.DeletionVector).DeletedRows,
+                Kaminari.Seseragi.Delta.Actions.DeletionVector.Read(fs, file.DeletionVector).DeletedRows)
+
+/// A table given as a URL takes the object-store road end to end: log, checkpoint, deletion vectors and data.
+[<Theory>]
+[<InlineData("with-short-dv", 7L)>]
+[<InlineData("v2-parquet-sidecars-struct-stats-only", -1L)>]
+let ``Kernel scan of a table URL goes through the object store`` (name: string, expectedRows: int64) =
+    let path = sampleTable name
+    use viaUrl = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan("file://" + path))).Collect()
+    use viaPath = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect()
+
+    if expectedRows >= 0L then Assert.Equal(expectedRows, viaUrl.Height)
+    let columns = viaPath.ColumnNames |> Seq.map pl.col |> List.ofSeq
+    use left = viaUrl.Sort(columns)
+    use right = viaPath.Sort(columns)
+    Assert.True(left.Equals(right), $"url:\n{left}\npath:\n{right}")
