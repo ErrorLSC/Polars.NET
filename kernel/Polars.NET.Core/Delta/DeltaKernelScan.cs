@@ -26,6 +26,30 @@ public sealed class EngineParquetReader(string tableRoot, CloudArgs? cloud = nul
     }
 }
 
+/// <summary>How a Delta table is read, beyond which version.</summary>
+/// <param name="NRows">The most rows to return; null for all.</param>
+/// <param name="RowIndexName">Adds a row index column of this name; null for none.</param>
+/// <param name="RowIndexOffset">The first row index.</param>
+/// <param name="IncludePathColumn">Adds a column of this name holding each row's data file; null for none.</param>
+/// <param name="Parallel">How the engine parallelizes reading the files.</param>
+/// <param name="LowMemory">Read with less memory, more slowly.</param>
+/// <param name="UseStatistics">Skip row groups by their Parquet statistics.</param>
+/// <param name="Rechunk">Make the result contiguous in memory.</param>
+/// <param name="Cache">Cache the scan's result within a query.</param>
+/// <param name="Schema">Return these columns (of the table, or the path column), cast to these types (strictly);
+/// null for the table's columns. Borrowed, not consumed.</param>
+public sealed record KernelScanOptions(
+    ulong? NRows = null,
+    string? RowIndexName = null,
+    uint RowIndexOffset = 0,
+    string? IncludePathColumn = null,
+    PlParallelStrategy Parallel = PlParallelStrategy.Auto,
+    bool LowMemory = false,
+    bool UseStatistics = true,
+    bool Rechunk = false,
+    bool Cache = true,
+    SchemaHandle? Schema = null);
+
 /// <summary>
 /// Builds a scan of a Delta table from a snapshot the managed kernel resolved. The kernel decides which files make
 /// up the table; this turns them into one lazy frame: partition values become columns, deletion vectors remove
@@ -49,13 +73,30 @@ public static class DeltaKernelScan
     /// <param name="asOf">Read the latest version committed at or before this time; not together with <paramref name="version"/>.</param>
     /// <param name="filter">Leaves out files that cannot hold a matching row. It does not filter rows.</param>
     /// <param name="cloud">Cloud settings for a cloud URL; null for a local table.</param>
+    /// <param name="options">Reading options; null for the defaults.</param>
     public static LazyFrameHandle Scan(
-        string tablePath, long? version = null, DateTimeOffset? asOf = null, Predicate? filter = null, CloudArgs? cloud = null) =>
-        ScanPath(tablePath, version, asOf, filter, cloud, scannedFiles: null);
+        string tablePath, long? version = null, DateTimeOffset? asOf = null, Predicate? filter = null, CloudArgs? cloud = null,
+        KernelScanOptions? options = null) =>
+        ScanPath(tablePath, version, asOf, filter, cloud, scannedFiles: null, options);
 
-    /// <summary>As <see cref="Scan(string, long?, DateTimeOffset?, Predicate?, CloudArgs?)"/>, reporting how many data files are scanned.</summary>
+    /// <summary>
+    /// The time of a time-travel read given as text: ISO-8601 (RFC 3339), such as <c>2026-02-09T12:00:00Z</c>; a time
+    /// without an offset is UTC.
+    /// </summary>
+    /// <exception cref="ArgumentException">The text is not such a time.</exception>
+    public static DateTimeOffset ParseAsOf(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (DateTimeOffset.TryParse(text.Trim(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AllowWhiteSpaces, out DateTimeOffset time))
+            return time;
+        throw new ArgumentException($"'{text}' is not an ISO-8601 time such as 2026-02-09T12:00:00Z.", nameof(text));
+    }
+
+    /// <summary>As <see cref="Scan"/>, reporting how many data files are scanned.</summary>
     internal static LazyFrameHandle ScanPath(
-        string tablePath, long? version, DateTimeOffset? asOf, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles)
+        string tablePath, long? version, DateTimeOffset? asOf, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles,
+        KernelScanOptions? options = null)
     {
         if (version.HasValue && asOf.HasValue)
             throw new ArgumentException("Give a version or a time, not both.");
@@ -82,7 +123,8 @@ public static class DeltaKernelScan
             Snapshot snapshot = asOf is DateTimeOffset time
                 ? Snapshot.LoadAsOf(fileSystem, time, parquet)
                 : Snapshot.Load(fileSystem, version, parquet);
-            return ScanSnapshot(fileSystem, root, snapshot, filter, cloud, scannedFiles);
+            LazyFrameHandle scanned = ScanSnapshot(fileSystem, root, snapshot, filter, cloud, scannedFiles, options);
+            return options is null ? scanned : ApplyOptions(scanned, snapshot.Schema, options);
         }
         catch (DeltaException e)
         {
@@ -264,9 +306,53 @@ public static class DeltaKernelScan
     public static LazyFrameHandle Scan(IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter = null, CloudArgs? cloud = null) =>
         ScanSnapshot(fileSystem, tableRoot, snapshot, filter, cloud, scannedFiles: null);
 
-    private static LazyFrameHandle ScanSnapshot(
-        IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles)
+    /// <summary>
+    /// The scan options that act on the whole result: the columns of <see cref="KernelScanOptions.Schema"/> (strict
+    /// casts), then a row index, then the row limit.
+    /// </summary>
+    private static LazyFrameHandle ApplyOptions(LazyFrameHandle lf, StructType tableSchema, KernelScanOptions options)
     {
+        if (options.Schema is SchemaHandle wanted)
+        {
+            ulong count = PolarsWrapper.GetSchemaLen(wanted);
+            var exprs = new ExprHandle[count];
+            for (ulong i = 0; i < count; i++)
+            {
+                PolarsWrapper.GetSchemaFieldAt(wanted, i, out string name, out DataTypeHandle type);
+                using (type)
+                {
+                    bool known = tableSchema.Field(name) is not null
+                        || (options.IncludePathColumn is not null && name == options.IncludePathColumn);
+                    if (!known)
+                    {
+                        foreach (ExprHandle e in exprs.Take((int)i)) e.Dispose();
+                        lf.Dispose();
+                        throw new PolarsException($"The schema names the column '{name}', which the Delta table does not have.");
+                    }
+                    exprs[i] = PolarsWrapper.Alias(
+                        PolarsWrapper.ExprCast(PolarsWrapper.Col(name), PolarsWrapper.DataTypeExprFromDataType(type), strict: true, wrapNumerical: false),
+                        name);
+                }
+            }
+            lf = PolarsWrapper.LazySelect(lf, exprs);
+        }
+        if (options.RowIndexName is string index)
+        {
+            if (options.RowIndexOffset > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(options), $"The row index offset {options.RowIndexOffset} is too large.");
+            lf = PolarsWrapper.LazyFrameWithRowIndex(lf, index, (int)options.RowIndexOffset);
+        }
+        if (options.NRows is ulong n)
+            lf = PolarsWrapper.LazySlice(lf, 0, (uint)Math.Min(n, uint.MaxValue));
+        return lf;
+    }
+
+    private static LazyFrameHandle ScanSnapshot(
+        IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles,
+        KernelScanOptions? options = null)
+    {
+        string? pathColumn = options?.IncludePathColumn;
+        Action<List<ExprHandle>>? keepPath = pathColumn is null ? null : exprs => exprs.Add(PolarsWrapper.Col(pathColumn));
         cloud ??= CloudArgs.Local;
         StructType schema = snapshot.Schema;
         IReadOnlyList<AddAction> files = filter is null ? snapshot.Files : snapshot.FilesMatching(filter);
@@ -299,23 +385,27 @@ public static class DeltaKernelScan
             {
                 using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
                 string[] paths = [.. group.Select(f => Combine(tableRoot, f.DecodedPath))];
-                LazyFrameHandle lf = ScanFiles(paths, cloud, fileSchema, null);
-                frames.Add(Project(lf, snapshot, group[0].PartitionValues, partitionColumns, oldTypes));
+                LazyFrameHandle lf = ScanFiles(paths, cloud, fileSchema, null, options);
+                frames.Add(Project(lf, snapshot, group[0].PartitionValues, partitionColumns, oldTypes, keepPath));
             }
 
             foreach (AddAction file in withVectors)
-                frames.Add(ScanFile(fileSystem, tableRoot, snapshot, file, cloud));
+                frames.Add(ScanFile(fileSystem, tableRoot, snapshot, file, cloud, options: options));
 
             if (frames.Count == 0)
             {
                 using SchemaHandle logical = LogicalSchema(schema);
                 using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(logical, 0);
-                return PolarsWrapper.DataFrameToLazy(empty);
+                LazyFrameHandle none = PolarsWrapper.DataFrameToLazy(empty);
+                if (pathColumn is null) return none;
+                using DataTypeHandle text = PolarsWrapper.NewPrimitiveType((int)PlDataType.String);
+                return PolarsWrapper.LazyWithColumns(none, [PolarsWrapper.Alias(
+                    PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(text), strict: true, wrapNumerical: false), pathColumn)]);
             }
             LazyFrameHandle[] all = [.. frames];
             frames.Clear(); // from here the result owns them
             if (all.Length == 1) return all[0];
-            return PolarsWrapper.LazyConcat(all, PlConcatType.Vertical, rechunk: false, parallel: true, toSupertypes: false, maintainOrder: false);
+            return PolarsWrapper.LazyConcat(all, PlConcatType.Vertical, rechunk: options?.Rechunk ?? false, parallel: true, toSupertypes: false, maintainOrder: false);
         }
         catch (DeltaException e)
         {
@@ -335,7 +425,7 @@ public static class DeltaKernelScan
     /// </summary>
     internal static LazyFrameHandle ScanFile(
         IFileSystem fileSystem, string tableRoot, Snapshot snapshot, AddAction file, CloudArgs cloud,
-        long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false)
+        long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false, KernelScanOptions? options = null)
     {
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
         long[] dead = file.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, file.DeletionVector).DeletedRows;
@@ -345,10 +435,13 @@ public static class DeltaKernelScan
         string path = Combine(tableRoot, file.DecodedPath);
         IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, WidenedColumns(snapshot));
         using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns, oldTypes: oldTypes);
-        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, needIndex ? RowIndexColumn : null);
+        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, needIndex ? RowIndexColumn : null, options);
         if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
         if (onlyRows is not null) lf = FilterRows(lf, onlyRows, keep: true);
-        if (!withRowIndex) return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes);
+        string? pathColumn = options?.IncludePathColumn;
+        if (!withRowIndex)
+            return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes,
+                pathColumn is null ? null : exprs => exprs.Add(PolarsWrapper.Col(pathColumn)));
 
         return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes, exprs =>
         {
@@ -447,12 +540,19 @@ public static class DeltaKernelScan
         }
     }
 
-    internal static LazyFrameHandle ScanFiles(string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName) =>
+    internal static LazyFrameHandle ScanFiles(
+        string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName, KernelScanOptions? options = null) =>
         PolarsWrapper.ScanParquetFiles(
             paths,
+            parallel: options?.Parallel ?? PlParallelStrategy.Auto,
+            lowMemory: options?.LowMemory ?? false,
+            useStatistics: options?.UseStatistics ?? true,
             ignoreExtraColumns: true,
             lenientCasts: true,
+            rechunk: options?.Rechunk ?? false,
+            cache: options?.Cache ?? true,
             rowIndexName: rowIndexName,
+            includePathColumn: options?.IncludePathColumn,
             schema: schema,
             cloudProvider: cloud.Provider,
             cloudRetries: cloud.Retries,
