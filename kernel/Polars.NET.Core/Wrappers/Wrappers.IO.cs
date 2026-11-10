@@ -196,6 +196,72 @@ public readonly partial struct PolarsWrapper
         }
     }
 
+    /// <summary>
+    /// Scans an explicit list of Parquet files as one source, in the given order, without globbing.
+    /// </summary>
+    public static LazyFrameHandle ScanParquetFiles(
+        string[] paths,
+        ulong? nRows = null,
+        PlParallelStrategy parallel = PlParallelStrategy.Auto,
+        bool lowMemory = false,
+        bool useStatistics = true,
+        bool allowMissingColumns = true,
+        bool ignoreExtraColumns = false,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        SchemaHandle? schema = null,
+        PlCloudProvider cloudProvider = default,
+        nuint cloudRetries = 2,
+        ulong cloudRetryTimeoutMs = 10_000,
+        ulong cloudRetryInitBackoffMs = 100,
+        ulong cloudRetryMaxBackoffMs = 15_000,
+        ulong cloudCacheTtl = 0,
+        string[]? cloudKeys = null,
+        string[]? cloudValues = null)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        if (paths.Length == 0) throw new ArgumentException("At least one path is required.", nameof(paths));
+
+        unsafe
+        {
+            ulong nRowsVal = nRows.GetValueOrDefault();
+            IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
+
+            using var schemaLock = new SafeHandleLock<SchemaHandle>(schema != null ? [schema] : null);
+            IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+
+            var h = NativeBindings.pl_scan_parquet_files(
+                paths,
+                (nuint)paths.Length,
+                nRowsPtr,
+                parallel,
+                lowMemory,
+                useStatistics,
+                allowMissingColumns,
+                ignoreExtraColumns,
+                rechunk,
+                cache,
+                rowIndexName,
+                rowIndexOffset,
+                includePathColumn,
+                schemaPtr,
+                cloudProvider,
+                cloudRetries,
+                cloudRetryTimeoutMs,
+                cloudRetryInitBackoffMs,
+                cloudRetryMaxBackoffMs,
+                cloudCacheTtl,
+                cloudKeys,
+                cloudValues,
+                (nuint)(cloudKeys?.Length ?? 0));
+
+            return ErrorHelper.Check(h);
+        }
+    }
+
     public static LazyFrameHandle ScanParquet(
         string path,
         ulong? nRows,

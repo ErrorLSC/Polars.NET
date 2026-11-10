@@ -254,6 +254,7 @@ jobs:
           dotnet pack kernel/Sazanami/Sazanami.csproj -c Release -o nupkgs
           dotnet pack kernel/Samidare/Samidare.fsproj -c Release -o nupkgs
           dotnet pack kernel/Seseragi/Catalog/Seseragi.Catalog.csproj -c Release -o nupkgs
+          dotnet pack kernel/Seseragi/Delta/Seseragi.Delta.csproj -c Release -o nupkgs
           dotnet pack kernel/Polars.NET.Core/Polars.NET.Core.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack api/Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack api/Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs

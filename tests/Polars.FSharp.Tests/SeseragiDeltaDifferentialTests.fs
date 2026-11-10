@@ -39,6 +39,15 @@ let private assertKernelAgrees (path: string) (partitionColumns: string list) =
             snapshot.Schema.Fields |> Seq.map (fun f -> f.Name) |> Seq.sort |> List.ofSeq)
         Assert.Equal<string list>(partitionColumns, List.ofSeq snapshot.PartitionColumns)
 
+        // Row for row, the scan built from the kernel's snapshot gives what the engine's own reader gives.
+        // (Not where the current engine wrote a deletion vector: the kernel refuses those by design.)
+        if snapshot.Files |> Seq.forall (fun f -> isNull f.DeletionVector) then
+            use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan(path, Nullable v))).Collect()
+            let columns = expected.ColumnNames |> Seq.map pl.col |> List.ofSeq
+            use left = viaKernel.Select(columns).Sort(columns)
+            use right = expected.Sort(columns)
+            Assert.True(left.Equals(right), $"version {v} differs\nkernel:\n{left}\nengine:\n{right}")
+
     for file in latest.Files do
         Assert.True(File.Exists(Path.Combine(path, file.DecodedPath)), $"missing data file {file.DecodedPath}")
         // Deletion vector files are not checked: the current engine stores them at a location the protocol does
@@ -218,3 +227,76 @@ let ``Kernel reads tables other engines wrote`` (name: string, hasCheckpoint: bo
         Assert.Equal(expected.Height, liveRowsFromFiles path fs snapshot)
     elif expectedRows >= 0L then
         Assert.Equal(expectedRows, liveRowsFromFiles path fs snapshot)
+
+// ---------------------------------------------------------------------------------------------------------------
+// Delta Acceptance Tests, reader cases. The data is fetched on demand (TestData/README.md); without it the
+// theory has no rows.
+// ---------------------------------------------------------------------------------------------------------------
+
+let private datRoot = Path.Combine(sampleTable "dat", "out", "reader_tests", "generated")
+
+let datCases () : seq<obj[]> =
+    if not (Directory.Exists datRoot) then Seq.empty
+    else
+        seq {
+            for caseDir in Directory.GetDirectories datRoot |> Array.sort do
+                for expectedDir in Directory.GetDirectories(Path.Combine(caseDir, "expected")) |> Array.sort do
+                    yield [| box (Path.GetFileName caseDir); box (Path.GetFileName expectedDir) |]
+        }
+
+[<Theory>]
+[<MemberData(nameof datCases)>]
+let ``Delta Acceptance Tests reader case`` (caseName: string, expectedName: string) =
+    let tablePath = Path.Combine(datRoot, caseName, "delta")
+    let expectedDir = Path.Combine(datRoot, caseName, "expected", expectedName)
+    use metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(expectedDir, "table_version_metadata.json")))
+    let expectedVersion = metadata.RootElement.GetProperty("version").GetInt64()
+
+    let fs = LocalFileSystem tablePath
+    let reader = EngineParquetReader tablePath
+    let snapshot =
+        if expectedName = "latest" then Snapshot.Load(fs, parquet = reader)
+        else Snapshot.Load(fs, Nullable expectedVersion, reader)
+
+    Assert.Equal(expectedVersion, snapshot.Version)
+    Assert.Equal(metadata.RootElement.GetProperty("min_reader_version").GetInt32(), snapshot.Protocol.MinReaderVersion)
+    Assert.Equal(metadata.RootElement.GetProperty("min_writer_version").GetInt32(), snapshot.Protocol.MinWriterVersion)
+    Assert.Equal<string list>(
+        [ for p in metadata.RootElement.GetProperty("properties").EnumerateObject() -> $"{p.Name}={p.Value.GetString()}" ] |> List.sort,
+        [ for kv in snapshot.Metadata.Configuration -> $"{kv.Key}={kv.Value}" ] |> List.sort)
+
+    let content = Path.Combine(expectedDir, "table_content")
+    let expectedRows =
+        Directory.GetFiles(content, "*.parquet")
+        |> Array.sumBy (fun f ->
+            use df = LazyFrame.ScanParquet(f).Select([ pl.len () ]).Collect()
+            Convert.ToInt64(df.Row(0).[0]))
+    Assert.Equal(expectedRows, liveRowsFromFiles tablePath fs snapshot)
+
+/// The whole road: the kernel resolves the snapshot, the engine scans what it lists, and the rows must be the
+/// ones the Delta Acceptance Tests expect.
+[<Theory>]
+[<MemberData(nameof datCases)>]
+let ``Delta Acceptance Tests content through the kernel scan`` (caseName: string, expectedName: string) =
+    let tablePath = Path.Combine(datRoot, caseName, "delta")
+    let expectedDir = Path.Combine(datRoot, caseName, "expected", expectedName)
+    use metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(expectedDir, "table_version_metadata.json")))
+    let version = if expectedName = "latest" then Nullable() else Nullable(metadata.RootElement.GetProperty("version").GetInt64())
+
+    use actual = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan(tablePath, version))).Collect()
+    use expectedRaw = LazyFrame.ScanParquet(Path.Combine(expectedDir, "table_content", "*.parquet")).Collect()
+
+    Assert.Equal<string list>(expectedRaw.ColumnNames |> Seq.sort |> List.ofSeq, actual.ColumnNames |> Seq.sort |> List.ofSeq)
+    Assert.Equal(expectedRaw.Height, actual.Height)
+
+    // Order rows by the plain columns, then compare everything.
+    let snapshot = Snapshot.Load(LocalFileSystem tablePath, version, EngineParquetReader tablePath)
+    let sortColumns =
+        snapshot.Schema.Fields
+        |> Seq.filter (fun f -> (f.Type :? Schema.PrimitiveType && f.Type.ToString() <> "binary") || f.Type :? Schema.DecimalType)
+        |> Seq.map (fun f -> pl.col f.Name)
+        |> List.ofSeq
+    let columns = actual.ColumnNames |> Seq.map pl.col |> List.ofSeq
+    use expected = expectedRaw.Select(columns).Sort(sortColumns)
+    use sorted = actual.Sort(sortColumns)
+    Assert.True(sorted.Equals(expected), $"content differs\nactual:\n{sorted}\nexpected:\n{expected}")

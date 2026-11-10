@@ -274,6 +274,33 @@ unsafe internal partial class NativeBindings
     );
     // Parquet
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_scan_parquet_files(
+        string[] paths,
+        UIntPtr paths_len,
+        IntPtr n_rows, // null for None
+        PlParallelStrategy parallel_code,
+        [MarshalAs(UnmanagedType.U1)] bool low_memory,
+        [MarshalAs(UnmanagedType.U1)] bool use_statistics,
+        [MarshalAs(UnmanagedType.U1)] bool allow_missing_columns,
+        [MarshalAs(UnmanagedType.U1)] bool ignore_extra_columns,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk,
+        [MarshalAs(UnmanagedType.U1)] bool cache,
+        string? row_index_name,
+        uint row_index_offset,
+        string? include_path_col,
+        IntPtr schema,
+        PlCloudProvider cloud_provider,
+        UIntPtr cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        UIntPtr cloud_len
+    );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet(
         string path,
         IntPtr n_rows, // null for None

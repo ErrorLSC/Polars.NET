@@ -50,3 +50,6 @@ docs/.vitepress/cache/
 
 # BenchmarkDotNet results
 **/BenchmarkDotNet.Artifacts/
+
+# Delta Acceptance Tests data, fetched on demand (see tests/Seseragi.Delta.Tests/TestData/README.md)
+tests/Seseragi.Delta.Tests/TestData/dat/
