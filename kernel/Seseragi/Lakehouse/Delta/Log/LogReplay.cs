@@ -13,6 +13,7 @@ internal sealed class LogReplay
 
     private readonly HashSet<FileKey> _seen = [];
     private readonly List<AddAction> _active = [];
+    private readonly List<RemoveAction> _tombstones = [];
     private readonly Dictionary<string, TxnAction> _txns = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DomainMetadataAction> _domains = new(StringComparer.Ordinal);
 
@@ -34,7 +35,8 @@ internal sealed class LogReplay
                     if (_seen.Add(new FileKey(add.Path, add.DeletionVector?.UniqueId))) _active.Add(add);
                     break;
                 case RemoveAction remove:
-                    _seen.Add(new FileKey(remove.Path, remove.DeletionVector?.UniqueId));
+                    // The newest action for a file decides: a remove seen first is a tombstone.
+                    if (_seen.Add(new FileKey(remove.Path, remove.DeletionVector?.UniqueId))) _tombstones.Add(remove);
                     break;
                 case ProtocolAction protocol:
                     Protocol ??= protocol;
@@ -61,6 +63,9 @@ internal sealed class LogReplay
         files.Reverse();
         return files;
     }
+
+    /// <summary>The removes still in force (the file was not added again later), newest commit first.</summary>
+    public IReadOnlyList<RemoveAction> Tombstones => _tombstones;
 
     public Dictionary<string, DomainMetadataAction> LiveDomainMetadata()
     {

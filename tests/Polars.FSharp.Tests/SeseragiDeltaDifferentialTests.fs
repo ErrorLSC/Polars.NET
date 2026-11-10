@@ -804,3 +804,52 @@ let ``Naive timestamps give a timestamp_ntz table`` () =
         Assert.Equal("timestamp_ntz", (snapshot.Schema.Field "at").Type.ToString())
         use back = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect()
         Assert.Equal(DateTime(2024, 5, 6, 7, 8, 9), back.["at"].ToArray<DateTime>().[0]))
+
+// ---------------------------------------------------------------------------------------------------------------
+// Checkpoints written by the kernel
+// ---------------------------------------------------------------------------------------------------------------
+
+[<Fact>]
+let ``Kernel checkpoints give the state of the log, and other readers use them`` () =
+    withTable "kernel_checkpoint" (fun path ->
+        let write (df: DataFrame) mode =
+            Polars.NET.Core.Delta.DeltaKernelWrite.Write(
+                path, df.Lazy().CloneHandle(), mode, [| "region" |], null, readOnlyDict [ "delta.checkpointInterval", "4" ]) |> ignore
+        use first = typedFrame [ 1; 2 ] "east"
+        write first Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists
+        for i in 3..10 do
+            use more = typedFrame [ i ] (if i % 2 = 0 then "east" else "west")
+            write more Polars.NET.Core.Delta.KernelWriteMode.Append
+        // Version 9 removes everything (tombstones), version 10 adds again.
+        use last = typedFrame [ 20; 21 ] "north"
+        write last Polars.NET.Core.Delta.KernelWriteMode.Overwrite
+        use again = typedFrame [ 22 ] "south"
+        write again Polars.NET.Core.Delta.KernelWriteMode.Append
+
+        let logDir = Path.Combine(path, "_delta_log")
+        let checkpoints = Directory.GetFiles(logDir, "*.checkpoint.parquet") |> Array.map Path.GetFileName |> Array.sort
+        Assert.Equal<string[]>([| "00000000000000000004.checkpoint.parquet"; "00000000000000000008.checkpoint.parquet" |], checkpoints)
+        use hint = JsonDocument.Parse(File.ReadAllText(Path.Combine(logDir, "_last_checkpoint")))
+        Assert.Equal(8L, hint.RootElement.GetProperty("version").GetInt64())
+
+        // Through the checkpoint or from the commits alone, every version has the same state.
+        let fs = LocalFileSystem path
+        let reader = EngineParquetReader path
+        for v in [ 4L; 5L; 8L; 10L ] do
+            let viaCheckpoint = Snapshot.Load(fs, Nullable v, reader)
+            let fromCommits = Snapshot.Load(fs, Nullable v)
+            let files (s: Snapshot) = s.Files |> Seq.map (fun f -> f.Path, f.Stats, f.Size, f.PartitionValues.["region"]) |> Seq.sort |> List.ofSeq
+            Assert.Equal<(string * string * int64 * string) list>(files fromCommits, files viaCheckpoint)
+            let tombstones (s: Snapshot) = s.Tombstones |> Seq.map (fun r -> r.Path) |> Seq.sort |> List.ofSeq
+            Assert.Equal<string list>(tombstones fromCommits, tombstones viaCheckpoint)
+            Assert.Equal(fromCommits.Metadata.SchemaString, viaCheckpoint.Metadata.SchemaString)
+            Assert.Equal<string list>(List.ofSeq fromCommits.Metadata.Configuration.Keys, List.ofSeq viaCheckpoint.Metadata.Configuration.Keys)
+        Assert.True(reader.Reads.Count > 0)
+
+        // The current engine reads the checkpoint with its own Parquet reader, and gets the same rows.
+        assertKernelAgrees path [ "region" ] |> ignore
+
+        // With the commits before the checkpoint gone (as log cleanup leaves it), the checkpoint alone is the table.
+        for v in 0..8 do File.Delete(Path.Combine(logDir, $"{v:D20}.json"))
+        use viaKernel = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect().Sort(pl.col "id")
+        Assert.Equal<int list>([ 20; 21; 22 ], viaKernel.["id"].ToArray<int>() |> List.ofArray))

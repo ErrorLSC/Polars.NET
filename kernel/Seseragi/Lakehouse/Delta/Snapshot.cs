@@ -23,6 +23,12 @@ public sealed class Snapshot
     public required IReadOnlyDictionary<string, TxnAction> AppTransactions { get; init; }
     /// <summary>The live domain metadata, by domain.</summary>
     public required IReadOnlyDictionary<string, DomainMetadataAction> DomainMetadata { get; init; }
+    /// <summary>
+    /// The removed files whose removal is still in force, from the commits and checkpoint read (a checkpoint keeps
+    /// only those not yet expired). A checkpoint written from this snapshot carries the unexpired ones.
+    /// </summary>
+    public IReadOnlyList<RemoveAction> Tombstones { get; init; } = [];
+
     /// <summary>The modification time of the commit file of this version.</summary>
     public required DateTimeOffset CommitFileTime { get; init; }
 
@@ -119,6 +125,7 @@ public sealed class Snapshot
             Files = replay.ActiveFiles(),
             AppTransactions = replay.AppTransactions,
             DomainMetadata = replay.LiveDomainMetadata(),
+            Tombstones = replay.Tombstones,
             CommitFileTime = segment.LastModified,
         };
         if (snapshot.ColumnMappingMode != ColumnMappingMode.None) EnsureMapped(snapshot.Schema);

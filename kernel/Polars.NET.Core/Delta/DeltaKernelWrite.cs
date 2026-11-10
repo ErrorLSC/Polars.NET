@@ -115,7 +115,9 @@ internal static class DeltaKernelWrite
                     });
                 }
             }
-            return transaction.Commit();
+            long version = transaction.Commit();
+            TryCheckpoint(fileSystem, tablePath, version, cloud);
+            return version;
         }
         catch (DeltaException e)
         {
@@ -124,6 +126,24 @@ internal static class DeltaKernelWrite
         finally
         {
             (fileSystem as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Writes a checkpoint when one is due at <paramref name="version"/>. A checkpoint only speeds up reading: when it
+    /// cannot be written the commit stands, and a later commit writes the next one.
+    /// </summary>
+    private static void TryCheckpoint(IWritableFileSystem fileSystem, string tablePath, long version, CloudArgs? cloud)
+    {
+        try
+        {
+            string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
+            Snapshot snapshot = Snapshot.Load(fileSystem, version, new EngineParquetReader(root, cloud));
+            if (Checkpoints.IsDue(snapshot)) Checkpoints.Write(fileSystem, snapshot);
+        }
+        catch (Exception e) when (e is DeltaException or PolarsException or IOException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"No checkpoint was written at version {version} of {tablePath}: {e.Message}");
         }
     }
 

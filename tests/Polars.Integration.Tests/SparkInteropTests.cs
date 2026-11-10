@@ -82,7 +82,18 @@ public class SparkInteropTests
             using (var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 }, Region = new string?[] { null, "", "x" } }))
                 Write(empties, df, KernelWriteMode.ErrorIfExists, ["Region"]);
 
-            string[] tables = [typed, ntz, empties];
+            // A table the kernel checkpointed, with the commits before its last checkpoint removed: Spark must read
+            // the checkpoint (MAP, LIST and nested columns written by the kernel's own Parquet writer).
+            string checkpointed = Path.Combine(root, "checkpointed");
+            var properties = new Dictionary<string, string> { ["delta.checkpointInterval"] = "3" };
+            using (var df = Typed([1, 2], "east"))
+                DeltaKernelWrite.Write(checkpointed, PolarsWrapper.LazyClone(df.Lazy().Handle), KernelWriteMode.ErrorIfExists, ["region"], null, properties);
+            for (int i = 3; i <= 9; i++) // versions 1 to 7; checkpoints at 3 and 6
+                Write(checkpointed, Typed([i], i % 2 == 0 ? "east" : "a b/c"), i == 5 ? KernelWriteMode.Overwrite : KernelWriteMode.Append);
+            Assert.True(File.Exists(Path.Combine(checkpointed, "_delta_log", $"{6:D20}.checkpoint.parquet")));
+            for (int v = 0; v <= 6; v++) File.Delete(Path.Combine(checkpointed, "_delta_log", $"{v:D20}.json"));
+
+            string[] tables = [typed, ntz, empties, checkpointed];
             List<JsonDocument> spark = LocalSpark.Run(["read", .. tables]);
             Assert.Equal(tables.Length, spark.Count);
             foreach (JsonDocument table in spark)
