@@ -4,8 +4,10 @@ using Polars.NET.Core.Delta;
 
 // Usage: RealCloudProbe s3://bucket/table <region>
 //        RealCloudProbe abfss://container@account.dfs.core.windows.net/table [client id]
-// No keys: on S3 only the region, on Azure nothing or the client id of the identity to use, so the credentials come
-// from the machine (instance metadata: IMDSv2 on EC2, the managed identity endpoint on an Azure VM).
+//        RealCloudProbe gs://bucket/table
+// No keys: on S3 only the region, on Azure nothing or the client id of the identity to use, on GCS nothing, so the
+// credentials come from the machine (IMDSv2 on EC2, the managed identity endpoint on an Azure VM, the metadata server
+// on GCE).
 // Prints one JSON line: {"backend":..., "implementation":..., "ok":true, ...} or {"ok":false, "step":..., "error":...}.
 string url = args[0];
 var keys = new Dictionary<string, string>();

@@ -65,9 +65,20 @@ public static class RealGcs
     /// An access token of the service account, fetched once per run by the test itself (a self-signed RS256 JWT
     /// exchanged at the key's token URI), independently of the stores under test.
     /// </summary>
-    public static string AccessToken()
+    public static string AccessToken() => s_token ??= Token("https://www.googleapis.com/auth/devstorage.read_write");
+
+    /// <summary>The service account's key: its email and RSA private key (the caller disposes the key).</summary>
+    public static (string Email, RSA Key) SigningKey()
     {
-        if (s_token is not null) return s_token;
+        using var key = JsonDocument.Parse(File.ReadAllText(KeyFile));
+        var rsa = RSA.Create();
+        rsa.ImportFromPem(key.RootElement.GetProperty("private_key").GetString());
+        return (key.RootElement.GetProperty("client_email").GetString()!, rsa);
+    }
+
+    /// <summary>An access token of the service account for a scope (self-signed JWT exchanged at the token URI).</summary>
+    public static string Token(string scope)
+    {
         using var key = JsonDocument.Parse(File.ReadAllText(KeyFile));
         string email = key.RootElement.GetProperty("client_email").GetString()!;
         string tokenUri = key.RootElement.GetProperty("token_uri").GetString()!;
@@ -82,7 +93,7 @@ public static class RealGcs
         {
             json.WriteStartObject();
             json.WriteString("iss", email);
-            json.WriteString("scope", "https://www.googleapis.com/auth/devstorage.read_write");
+            json.WriteString("scope", scope);
             json.WriteString("aud", tokenUri);
             json.WriteNumber("iat", now);
             json.WriteNumber("exp", now + 3600);
@@ -102,7 +113,7 @@ public static class RealGcs
         using var answer = JsonDocument.Parse(body);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Token request: HTTP {(int)response.StatusCode}: {answer.RootElement.GetProperty("error").GetString()}");
-        return s_token = answer.RootElement.GetProperty("access_token").GetString()!;
+        return answer.RootElement.GetProperty("access_token").GetString()!;
     }
 
     private static Settings? Load()
