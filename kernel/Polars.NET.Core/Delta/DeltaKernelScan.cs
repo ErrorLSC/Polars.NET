@@ -236,7 +236,7 @@ public static class DeltaKernelScan
                         $"The commit of version {change.Version} removed '{change.Path}' without recording its partition values, so its rows cannot be reported.");
 
                 string path = Combine(tableRoot, change.DecodedPath);
-                IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, widened);
+                IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, widened, schema);
                 switch (change.Kind)
                 {
                     case ChangeFileKind.Cdc:
@@ -392,7 +392,7 @@ public static class DeltaKernelScan
                 withVectors.Add(file);
                 continue;
             }
-            IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(Combine(tableRoot, file.DecodedPath), cloud, widened);
+            IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(Combine(tableRoot, file.DecodedPath), cloud, widened, snapshot.Schema);
             string key = PartitionKey(snapshot, file) + "|" + string.Join(",", oldTypes.OrderBy(t => t.Key, StringComparer.Ordinal).Select(t => $"{t.Key}:{t.Value}"));
             if (!groups.TryGetValue(key, out var group)) groups[key] = group = ([], oldTypes);
             group.Files.Add(file);
@@ -470,7 +470,7 @@ public static class DeltaKernelScan
             throw new DeltaException($"The file {file.Path} of a table with row tracking has no base row id or default row commit version.");
 
         string path = Combine(tableRoot, file.DecodedPath);
-        IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, WidenedColumns(snapshot));
+        IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, WidenedColumns(snapshot), snapshot.Schema);
         string[] materialized = rowTracking is var (idName, versionName) ? [idName, versionName] : [];
         using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns, oldTypes: oldTypes, int64Columns: materialized);
         LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, needIndex ? RowIndexColumn : null, options);
@@ -511,39 +511,24 @@ public static class DeltaKernelScan
     private static readonly IReadOnlyDictionary<string, DeltaType> NoOldTypes = new Dictionary<string, DeltaType>();
 
     /// <summary>
-    /// The physical names of the top-level data columns whose type was widened (type widening). The engine casts
-    /// only some types up while scanning (not decimals, not dates to timestamps), so for these the scan reads each
-    /// file's own type and casts it to the table's.
+    /// The physical names of the data columns with a widened type at any depth (type widening). The engine casts
+    /// only some types up while scanning (not decimals, not dates to timestamps, not inside lists), so for these
+    /// the scan reads each file's own types and casts them to the table's.
     /// </summary>
-    /// <exception cref="DeltaException">A widening inside a nested column that the scan cannot cast.</exception>
-    private static string[] WidenedColumns(Snapshot snapshot)
+    private static string[] WidenedColumns(Snapshot snapshot) =>
+        [.. snapshot.Schema.Fields
+            .Where(f => !snapshot.PartitionColumns.Contains(f.Name) && Widened(f)) // partition values are text
+            .Select(f => f.PhysicalName)];
+
+    private static bool Widened(StructField field) => TypeChanges(field).Count > 0 || WidenedInside(field.Type);
+
+    private static bool WidenedInside(DeltaType type) => type switch
     {
-        var columns = new List<string>();
-        foreach (StructField field in snapshot.Schema.Fields)
-        {
-            if (snapshot.PartitionColumns.Contains(field.Name)) continue; // partition values are text
-            var changes = TypeChanges(field);
-            if (changes.Any(c => c.FieldPath is null)) columns.Add(field.PhysicalName);
-            if (changes.Any(c => c.FieldPath is not null && !CastWhileScanning(c)) || NestedUncastable(field.Type))
-                throw new DeltaException(
-                    $"The column '{field.Name}' holds a field widened from one type to another that cannot be read yet inside a nested column.");
-        }
-        return [.. columns];
-
-        static bool NestedUncastable(DeltaType type) => type switch
-        {
-            StructType s => s.Fields.Any(f => TypeChanges(f).Any(c => !CastWhileScanning(c)) || NestedUncastable(f.Type)),
-            ArrayType a => NestedUncastable(a.ElementType),
-            MapType m => NestedUncastable(m.KeyType) || NestedUncastable(m.ValueType),
-            _ => false,
-        };
-
-        // Integer to a wider integer and float to double: the scan's lenient casts do these at any depth.
-        static bool CastWhileScanning((string From, string To, string? FieldPath) c) =>
-            (IsInteger(c.From) && IsInteger(c.To)) || (c.From == PrimitiveType.Float && c.To == PrimitiveType.Double);
-
-        static bool IsInteger(string t) => t is PrimitiveType.Byte or PrimitiveType.Short or PrimitiveType.Integer or PrimitiveType.Long;
-    }
+        StructType s => s.Fields.Any(Widened),
+        ArrayType a => WidenedInside(a.ElementType),
+        MapType m => WidenedInside(m.KeyType) || WidenedInside(m.ValueType),
+        _ => false,
+    };
 
     /// <summary>The field's type widening history (<c>delta.typeChanges</c>).</summary>
     private static List<(string From, string To, string? FieldPath)> TypeChanges(StructField field)
@@ -562,9 +547,10 @@ public static class DeltaKernelScan
 
     /// <summary>
     /// Of <paramref name="candidates"/>, the columns the file at <paramref name="path"/> holds in another type than
-    /// the table's, with that type. Reads the file's schema only when there are candidates.
+    /// the table's, with that type: the table's type (field names and metadata kept) with the file's older types
+    /// at the leaves that differ, at any depth. Reads the file's schema only when there are candidates.
     /// </summary>
-    private static IReadOnlyDictionary<string, DeltaType> OldTypes(string path, CloudArgs cloud, string[] candidates)
+    private static IReadOnlyDictionary<string, DeltaType> OldTypes(string path, CloudArgs cloud, string[] candidates, StructType schema)
     {
         if (candidates.Length == 0) return NoOldTypes;
         using LazyFrameHandle lf = ScanFiles([path], cloud, null, null);
@@ -574,20 +560,84 @@ public static class DeltaKernelScan
             using (type)
             {
                 if (!candidates.Contains(name)) continue;
-                DeltaType? old = PolarsWrapper.GetDataTypeKind(type) switch
-                {
-                    PlDataType.Int8 => new PrimitiveType(PrimitiveType.Byte),
-                    PlDataType.Int16 => new PrimitiveType(PrimitiveType.Short),
-                    PlDataType.Int32 => new PrimitiveType(PrimitiveType.Integer),
-                    PlDataType.Float32 => new PrimitiveType(PrimitiveType.Float),
-                    PlDataType.Date => new PrimitiveType(PrimitiveType.Date),
-                    PlDataType.Decimal => DecimalOf(type),
-                    _ => null, // the table's own type, or one the scan casts anyway
-                };
-                if (old is not null) result[name] = old;
+                StructField field = schema.Fields.First(f => f.PhysicalName == name);
+                if (OldType(field.Type, type) is { } old) result[name] = old;
             }
         }
         return result;
+    }
+
+    /// <summary>The table type with the file's older types where they differ (null when none does).</summary>
+    private static DeltaType? OldType(DeltaType table, DataTypeHandle file)
+    {
+        PlDataType kind = PolarsWrapper.GetDataTypeKind(file);
+        switch (table)
+        {
+            case StructType s when kind == PlDataType.Struct:
+            {
+                var fileFields = new Dictionary<string, DataTypeHandle>(StringComparer.Ordinal);
+                try
+                {
+                    ulong count = PolarsWrapper.GetStructLen(file);
+                    for (ulong i = 0; i < count; i++)
+                    {
+                        PolarsWrapper.GetStructField(file, i, out string name, out DataTypeHandle type);
+                        fileFields[name] = type;
+                    }
+                    bool changed = false;
+                    var fields = new List<StructField>(s.Fields.Count);
+                    foreach (StructField f in s.Fields)
+                    {
+                        // A field the file lacks (added later) is read as null in the table's type.
+                        DeltaType? old = fileFields.TryGetValue(f.PhysicalName, out DataTypeHandle? t) ? OldType(f.Type, t) : null;
+                        changed |= old is not null;
+                        fields.Add(old is null ? f : new StructField
+                        {
+                            Name = f.Name, Type = old, Nullable = f.Nullable, Metadata = f.Metadata, JsonMetadataKeys = f.JsonMetadataKeys,
+                        });
+                    }
+                    return changed ? new StructType(fields) : null;
+                }
+                finally
+                {
+                    foreach (DataTypeHandle t in fileFields.Values) t.Dispose();
+                }
+            }
+            case ArrayType a when kind is PlDataType.List:
+            {
+                using DataTypeHandle inner = PolarsWrapper.GetInnerType(file);
+                return OldType(a.ElementType, inner) is { } old ? new ArrayType(old, a.ContainsNull) : null;
+            }
+            case MapType m when kind is PlDataType.List:
+            {
+                // A map is read as a list of key/value structs.
+                using DataTypeHandle entry = PolarsWrapper.GetInnerType(file);
+                if (PolarsWrapper.GetDataTypeKind(entry) != PlDataType.Struct || PolarsWrapper.GetStructLen(entry) != 2) return null;
+                PolarsWrapper.GetStructField(entry, 0, out _, out DataTypeHandle keyType);
+                PolarsWrapper.GetStructField(entry, 1, out _, out DataTypeHandle valueType);
+                using (keyType)
+                using (valueType)
+                {
+                    DeltaType? key = OldType(m.KeyType, keyType), value = OldType(m.ValueType, valueType);
+                    return key is null && value is null ? null : new MapType(key ?? m.KeyType, value ?? m.ValueType, m.ValueContainsNull);
+                }
+            }
+            case StructType or ArrayType or MapType:
+                return null;
+        }
+        DeltaType? fileType = kind switch
+        {
+            PlDataType.Int8 => new PrimitiveType(PrimitiveType.Byte),
+            PlDataType.Int16 => new PrimitiveType(PrimitiveType.Short),
+            PlDataType.Int32 => new PrimitiveType(PrimitiveType.Integer),
+            PlDataType.Int64 => new PrimitiveType(PrimitiveType.Long),
+            PlDataType.Float32 => new PrimitiveType(PrimitiveType.Float),
+            PlDataType.Date => new PrimitiveType(PrimitiveType.Date),
+            PlDataType.Decimal => DecimalOf(file),
+            _ => null, // a type nothing widens from
+        };
+        // Only a type the table's could have been widened from is an older one.
+        return fileType is not null && SchemaEvolution.CanWiden(fileType, table) ? fileType : null;
 
         static DecimalType DecimalOf(DataTypeHandle type)
         {
@@ -663,7 +713,8 @@ public static class DeltaKernelScan
                     {
                         // A file from before the column was widened: its values in the older type, cast up
                         // (a date becomes midnight of that day).
-                        using DataTypeHandle target = ToEngineType(field.Type, physicalNames: false);
+                        // Cast under the physical names (the file's), then renamed.
+                        using DataTypeHandle target = ToEngineType(field.Type, physicalNames: true);
                         column = PolarsWrapper.ExprCast(column, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false);
                     }
                     exprs.Add(PolarsWrapper.Alias(ToLogical(column, field.Type), field.Name));

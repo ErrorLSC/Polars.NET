@@ -571,6 +571,7 @@ internal static class DeltaKernelWrite
         KernelWriteOptions options, ulong approxBytesPerFile, (string RowId, string CommitVersion)? materialized, CloudArgs? cloud)
     {
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
+        EnsureNoMaps(dataFields);
         // Partition columns under their names (the sink keys on them and leaves them out of the files), data
         // columns under their physical names, then the materialized row tracking columns, then the change type.
         ExprHandle[] columns =
@@ -662,6 +663,30 @@ internal static class DeltaKernelWrite
     }
 
     private const char PathSeparator = '\u001f';
+
+    /// <summary>
+    /// Refuses writing files with map columns (at any depth). The engine has no map type: it holds a map as a list
+    /// of key/value structs and would write it as a Parquet LIST, which Spark and other readers then refuse to read
+    /// as the table's map, so a rewrite would leave the table unreadable to them.
+    /// TEMPORARY: remove once the engine writes Parquet MAP columns (an upstream Polars release with a map type).
+    /// </summary>
+    private static void EnsureNoMaps(IEnumerable<StructField> dataFields)
+    {
+        string[] maps = [.. dataFields.Where(f => HasMap(f.Type)).Select(f => f.Name)];
+        if (maps.Length > 0)
+            throw new PolarsException(
+                $"The table has map columns ({string.Join(", ", maps)}), which cannot be written yet in a form other readers " +
+                "(Spark, Databricks) read, so data files of this table are not written. Deletes on a table with deletion " +
+                "vectors (delta.enableDeletionVectors) need no rewrite and are not affected.");
+
+        static bool HasMap(DeltaType type) => type switch
+        {
+            MapType => true,
+            StructType s => s.Fields.Any(f => HasMap(f.Type)),
+            ArrayType a => HasMap(a.ElementType),
+            _ => false,
+        };
+    }
 
     /// <summary>Partition values as the log keys them: by physical column name.</summary>
     private static Dictionary<string, string?> Logged(Dictionary<string, string?> values, StructType schema, string[] partitions) =>

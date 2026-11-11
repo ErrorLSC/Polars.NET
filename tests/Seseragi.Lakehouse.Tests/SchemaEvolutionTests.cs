@@ -149,7 +149,7 @@ public class SchemaEvolutionTests
     }
 
     [Fact]
-    public void NestedWidening_OnlyWhatTheScanReads()
+    public void NestedFields_AreWidened_AndRecordTheirOwnChanges()
     {
         var table = new StructType([F("s", new StructType([F("n", Int), F("d", new PrimitiveType(PrimitiveType.Date))]))]);
         var meta = Meta(table, (SchemaEvolution.EnableTypeWideningKey, "true"));
@@ -160,9 +160,42 @@ public class SchemaEvolutionTests
         Assert.Equal("long", n.Type.ToString());
         Assert.Contains("\"fromType\":\"integer\"", n.Metadata[SchemaEvolution.TypeChangesKey]);
 
-        Assert.Contains("not supported yet", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(meta, Widening,
+        // Date to timestamp_ntz widens at any depth too, but needs the timestampNtz feature (as Spark).
+        Assert.Contains("timestampNtz", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(meta, Widening,
             new StructType([F("s", new StructType([F("n", Int), F("d", new PrimitiveType(PrimitiveType.TimestampNtz))]))]), true, out _)).Message);
+    }
 
+    [Fact]
+    public void ArrayElementsAndMapKeysAndValues_AreWidened_WithTheirPathOnTheField_AsSpark()
+    {
+        // delta-spark 4.1: ALTER COLUMN arr.element / mm.key / mm.value.element record on the column with fieldPath.
+        var table = new StructType([
+            F("arr", new ArrayType(Int, true)),
+            F("mm", new MapType(Int, new ArrayType(Int, true), true)),
+            F("arrs", new ArrayType(new StructType([F("x", new PrimitiveType(PrimitiveType.Short))]), true)),
+        ]);
+        var meta = Meta(table, (SchemaEvolution.EnableTypeWideningKey, "true"));
+        StructType widened = SchemaEvolution.Merge(meta, Widening, new StructType([
+            F("arr", new ArrayType(Long, true)),
+            F("mm", new MapType(Long, new ArrayType(Long, true), true)),
+            F("arrs", new ArrayType(new StructType([F("x", Int)]), true)),
+        ]), true, out MetadataAction? changed);
+
+        Assert.NotNull(changed);
+        Assert.Equal("array<long>", widened.Field("arr")!.Type.ToString());
+        Assert.Equal("""[{"toType":"long","fromType":"integer","fieldPath":"element"}]""", widened.Field("arr")!.Metadata[SchemaEvolution.TypeChangesKey]);
+        Assert.Equal(
+            """[{"toType":"long","fromType":"integer","fieldPath":"key"},{"toType":"long","fromType":"integer","fieldPath":"value.element"}]""",
+            widened.Field("mm")!.Metadata[SchemaEvolution.TypeChangesKey]);
+        // A struct inside an array: its field records its own change, without a path.
+        StructField x = ((StructType)((ArrayType)widened.Field("arrs")!.Type).ElementType).Field("x")!;
+        Assert.Equal("""[{"toType":"integer","fromType":"short"}]""", x.Metadata[SchemaEvolution.TypeChangesKey]);
+        Assert.False(widened.Field("arrs")!.Metadata.ContainsKey(SchemaEvolution.TypeChangesKey));
+
+        // Without type widening: refused, saying what would allow it.
+        var plain = Meta(table);
+        Assert.Contains("delta.enableTypeWidening", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(plain, Widening,
+            new StructType([F("arr", new ArrayType(Long, true)), F("mm", table.Field("mm")!.Type), F("arrs", table.Field("arrs")!.Type)]), true, out _)).Message);
     }
 
     [Fact]

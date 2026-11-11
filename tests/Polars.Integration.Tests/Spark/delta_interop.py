@@ -39,6 +39,9 @@ def session():
         .config("spark.ui.enabled", "false")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "2")
+        # Delta rebuilds the table state in 50 partitions by default; with two cores and test-sized logs that is
+        # most of the time of every statement.
+        .config("spark.databricks.delta.snapshotPartitions", "2")
         # VACUUM ... RETAIN 0 HOURS in the tests.
         .config("spark.databricks.delta.retentionDurationCheck.enabled", "false")
     )

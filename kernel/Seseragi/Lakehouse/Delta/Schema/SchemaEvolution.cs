@@ -144,15 +144,21 @@ public static class SchemaEvolution
 
     private static StructField MergeField(StructField field, DeltaType given, MergeContext context, string name, bool topLevel)
     {
-        DeltaType? nested = MergeNested(field.Type, given, context, name);
+        _ = topLevel;
+        // Widenings inside the field's arrays and maps (not inside its structs, whose fields keep their own
+        // history) are recorded on the field, with the path to the element, key or value (as Spark records them).
+        var contained = new List<(string Path, DeltaType From, DeltaType To)>();
+        DeltaType? nested = MergeNested(field.Type, given, context, name, contained, relative: null);
         if (nested is not null)
-            return ReferenceEquals(nested, field.Type) ? field : With(field, nested);
+        {
+            if (ReferenceEquals(nested, field.Type)) return field;
+            StructField result = With(field, nested);
+            foreach (var (path, from, to) in contained) result = WithTypeChange(result, from, to, path);
+            return result;
+        }
         if (CastsImplicitly(given, field.Type)) return field;
         if (context.Evolve && context.Widening && CanWiden(field.Type, given))
         {
-            // Below the top level the scan casts integers up and float to double only: allow just those there.
-            if (!topLevel && !ScanWidens(field.Type, given))
-                throw new DeltaException($"Widening the nested field '{name}' from {field.Type} to {given} is not supported yet.");
             context.Changed = true;
             return Widened(field, given, fieldPath: null);
         }
@@ -164,7 +170,10 @@ public static class SchemaEvolution
     }
 
     /// <summary>The merged type when both are structs, arrays or maps; null for other types.</summary>
-    private static DeltaType? MergeNested(DeltaType table, DeltaType given, MergeContext context, string name)
+    /// <param name="contained">Collects widenings of array elements and map keys and values, by their path.</param>
+    /// <param name="relative">The path of <paramref name="table"/> below the nearest struct field (null: the field itself).</param>
+    private static DeltaType? MergeNested(
+        DeltaType table, DeltaType given, MergeContext context, string name, List<(string Path, DeltaType From, DeltaType To)> contained, string? relative)
     {
         switch (table, given)
         {
@@ -179,15 +188,14 @@ public static class SchemaEvolution
             }
             case (ArrayType t, ArrayType g):
             {
-                DeltaType element = MergeContainedType(t.ElementType, g.ElementType, context, $"{name}.element");
+                DeltaType element = MergeContainedType(t.ElementType, g.ElementType, context, $"{name}.element", contained, Join(relative, "element"));
                 return ReferenceEquals(element, t.ElementType) ? table : new ArrayType(element, t.ContainsNull);
             }
             case (MapType t, MapType g):
             {
-                if (t.KeyType.ToString() != g.KeyType.ToString() && !CastsImplicitly(g.KeyType, t.KeyType))
-                    throw new DeltaException($"The keys of '{name}' are {t.KeyType} in the table but {g.KeyType} in the data.");
-                DeltaType value = MergeContainedType(t.ValueType, g.ValueType, context, $"{name}.value");
-                return ReferenceEquals(value, t.ValueType) ? table : new MapType(t.KeyType, value, t.ValueContainsNull);
+                DeltaType key = MergeContainedType(t.KeyType, g.KeyType, context, $"{name}.key", contained, Join(relative, "key"));
+                DeltaType value = MergeContainedType(t.ValueType, g.ValueType, context, $"{name}.value", contained, Join(relative, "value"));
+                return ReferenceEquals(key, t.KeyType) && ReferenceEquals(value, t.ValueType) ? table : new MapType(key, value, t.ValueContainsNull);
             }
             case (StructType or ArrayType or MapType, _) or (_, StructType or ArrayType or MapType):
                 throw new DeltaException($"The column '{name}' is {table} in the table but {given} in the data.");
@@ -196,24 +204,30 @@ public static class SchemaEvolution
         }
     }
 
-    /// <summary>An array element or map value: merged when nested, else it must cast implicitly (no widening there yet).</summary>
-    private static DeltaType MergeContainedType(DeltaType table, DeltaType given, MergeContext context, string name)
+    /// <summary>An array element or a map key or value: merged when nested, else cast implicitly or widened.</summary>
+    private static DeltaType MergeContainedType(
+        DeltaType table, DeltaType given, MergeContext context, string name, List<(string Path, DeltaType From, DeltaType To)> contained, string relative)
     {
-        DeltaType? nested = MergeNested(table, given, context, name);
+        // A struct below resets the path: its fields record their own changes.
+        DeltaType? nested = table is StructType && given is StructType
+            ? MergeNested(table, given, context, name, [], null)
+            : MergeNested(table, given, context, name, contained, relative);
         if (nested is not null) return nested;
         if (CastsImplicitly(given, table)) return table;
+        if (context.Evolve && context.Widening && CanWiden(table, given))
+        {
+            contained.Add((relative, table, given));
+            context.Changed = true;
+            return given;
+        }
         throw new DeltaException(
             $"'{name}' is {table} in the table but {given} in the data" +
-            (CanWiden(table, given) ? "; widening array elements and map values is not supported yet." : "."));
+            (CanWiden(table, given)
+                ? context.Evolve ? "; widening it needs type widening on the table (delta.enableTypeWidening)." : "; allow schema evolution to widen it."
+                : "."));
     }
 
-    private static bool ScanWidens(DeltaType from, DeltaType to) =>
-        (from, to) switch
-        {
-            (PrimitiveType f, PrimitiveType t) when IntegerRank(f) is int a && IntegerRank(t) is int b => a < b,
-            (PrimitiveType { Name: PrimitiveType.Float }, PrimitiveType { Name: PrimitiveType.Double }) => true,
-            _ => false,
-        };
+    private static string Join(string? path, string step) => path is null ? step : $"{path}.{step}";
 
     /// <summary>A type with every nested field made nullable (a field added to a table holds null in older rows).</summary>
     private static DeltaType Nullable(DeltaType type) => type switch
@@ -317,16 +331,24 @@ public static class SchemaEvolution
         }
     }
 
-    private static StructField Widened(StructField field, DeltaType to, string? fieldPath)
+    private static StructField Widened(StructField field, DeltaType to, string? fieldPath) =>
+        With(WithTypeChange(field, field.Type, to, fieldPath), to);
+
+    /// <summary>
+    /// The field with <c>{"toType", "fromType"[, "fieldPath"]}</c> appended to its type change history (earlier
+    /// entries kept as written); <paramref name="fieldPath"/> names an array element or map key or value inside it
+    /// (<c>element</c>, <c>value.element</c>, ...), as Spark writes it.
+    /// </summary>
+    private static StructField WithTypeChange(StructField field, DeltaType from, DeltaType to, string? fieldPath)
     {
-        _ = fieldPath; // changes inside arrays and maps (fieldPath element/key/value) are not written yet
-        // Append {"toType", "fromType"} to the field's history, earlier entries kept as written.
         field.Metadata.TryGetValue(TypeChangesKey, out string? history);
-        string changes = JsonText.Append(history, [new("toType", to.ToString()), new("fromType", field.Type.ToString())]);
+        List<KeyValuePair<string, string>> entry = [new("toType", to.ToString()), new("fromType", from.ToString())];
+        if (fieldPath is not null) entry.Add(new("fieldPath", fieldPath));
+        string changes = JsonText.Append(history, [.. entry]);
         var metadata = new Dictionary<string, string>(field.Metadata) { [TypeChangesKey] = changes };
         return new StructField
         {
-            Name = field.Name, Type = to, Nullable = field.Nullable, Metadata = metadata,
+            Name = field.Name, Type = field.Type, Nullable = field.Nullable, Metadata = metadata,
             JsonMetadataKeys = new HashSet<string>(field.JsonMetadataKeys) { TypeChangesKey },
         };
     }
