@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Runs on a throwaway cloud machine (see RealCloudAwsTests): reaches the store with nothing but the machine's own
+    identity (no keys), through the public API. Published self-contained by the test; not part of the solution.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
+  </ItemGroup>
+
+</Project>
