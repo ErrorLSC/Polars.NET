@@ -558,7 +558,7 @@ internal static class DeltaKernelWrite
         StructField[] notNullLeaves = checkNotNull
             ? [.. dataFields.Where(f => !f.Nullable && f.Type is not (StructType or ArrayType or MapType))]
             : [];
-        IReadOnlyList<StructField> indexed = FileStatistics.IndexedFields(dataFields, tableProperties);
+        IReadOnlyList<StructField[]> indexed = FileStatistics.IndexedLeaves(dataFields, tableProperties);
         var adds = new List<AddAction>(files.Count);
         foreach (SunkFile file in files)
         {

@@ -75,6 +75,13 @@ let ``Footer statistics equal the statistics of the rows, with one or several ro
         // The engine writes a long string maximum cut and bumped (a valid upper bound, Parquet's rule) where the
         // row statistics leave it out: check it bounds the real maximum, then compare the rest.
         let footer = Nodes.JsonNode.Parse(fromFooter).AsObject()
+        // The struct "nested" holds i32 and s: its fields' statistics nest under it and equal theirs (as Spark).
+        for section in [ "minValues"; "maxValues"; "nullCount" ] do
+            let values = footer[section].AsObject()
+            let nested = values["nested"].AsObject()
+            for field in [ "i32"; "s" ] do
+                Assert.Equal(values[field].ToJsonString(), nested[field].ToJsonString())
+            values.Remove "nested" |> ignore
         let maxValues = footer["maxValues"].AsObject()
         let maxS = maxValues["s"].GetValue<string>()
         Assert.True(String.CompareOrdinal(maxS, String('é', 40)) > 0, maxS)

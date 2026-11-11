@@ -197,7 +197,7 @@ internal static class DeltaKernelOptimize
     }
 
     /// <summary>The same file, marked as rows rearranged rather than changed (clustered files with their cube).</summary>
-    private static AddAction Rearranged(AddAction add, IReadOnlyDictionary<string, string>? tags = null, string? clusteringProvider = null) => new()
+    private static AddAction Rearranged(AddAction add, IReadOnlyDictionary<string, string?>? tags = null, string? clusteringProvider = null) => new()
     {
         Path = add.Path,
         PartitionValues = add.PartitionValues,
@@ -285,7 +285,7 @@ internal static class DeltaKernelOptimize
         var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         // Files of about the target size: a bucket holds about that much; a skewed one (equal keys) is cut by rows.
         ulong maxRows = (ulong)Math.Max(1, (totalRows + buckets - 1) / buckets);
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal)
+        var tags = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             [Clustering.CubeIdTag] = Guid.NewGuid().ToString(),
             [Clustering.CubeColumnsTag] = cubeColumns,

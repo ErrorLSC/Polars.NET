@@ -162,47 +162,10 @@ public static class Clustering
         _ => false,
     };
 
-    /// <summary>
-    /// Whether Spark's statistics include the column: named (or an enclosing struct named) by
-    /// <c>delta.dataSkippingStatsColumns</c>, else among the first <c>delta.dataSkippingNumIndexedCols</c> leaves
-    /// (32 by default; struct fields are leaves, an array or map is one).
-    /// </summary>
+    /// <summary>Whether Spark's statistics include the column (see <see cref="FileStatistics.IndexedLeaves"/>).</summary>
     private static bool InStatistics(StructType schema, StructField[] path, IReadOnlyDictionary<string, string>? configuration)
     {
         string logical = LogicalName(path);
-        if (configuration is not null && configuration.TryGetValue(FileStatistics.StatsColumnsKey, out string? named) && !string.IsNullOrWhiteSpace(named))
-        {
-            foreach (string entry in named.Split(','))
-            {
-                string name = entry.Trim().Replace("`", "", StringComparison.Ordinal);
-                if (logical.Equals(name, StringComparison.OrdinalIgnoreCase) || logical.StartsWith(name + ".", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            return false;
-        }
-        int count = 32;
-        if (configuration is not null && configuration.TryGetValue(FileStatistics.NumIndexedColsKey, out string? text)
-            && int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int parsed))
-            count = parsed;
-        if (count < 0) return true;
-
-        int index = 0;
-        int? found = null;
-        void Walk(StructType s, string? prefix)
-        {
-            foreach (StructField f in s.Fields)
-            {
-                string name = prefix is null ? f.Name : $"{prefix}.{f.Name}";
-                if (f.Type is StructType nested)
-                {
-                    Walk(nested, name);
-                    continue;
-                }
-                if (name.Equals(logical, StringComparison.Ordinal)) found = index;
-                index++;
-            }
-        }
-        Walk(schema, null);
-        return found is int at && at < count;
+        return FileStatistics.IndexedLeaves(schema.Fields, configuration).Any(leaf => LogicalName(leaf) == logical);
     }
 }

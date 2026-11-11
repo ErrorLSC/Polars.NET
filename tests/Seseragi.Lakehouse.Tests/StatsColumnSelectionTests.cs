@@ -19,34 +19,35 @@ public class StatsColumnSelectionTests
         """).Fields];
 
     private static string[] Selected(params (string Key, string Value)[] properties) =>
-        [.. FileStatistics.IndexedFields(Fields, properties.ToDictionary(p => p.Key, p => p.Value)).Select(f => f.Name)];
+        [.. FileStatistics.IndexedLeaves(Fields, properties.ToDictionary(p => p.Key, p => p.Value)).Select(p => string.Join('.', p.Select(f => f.Name)))];
 
     [Fact]
     public void LeadingLeaves_AreCountedAsSpark()
     {
-        Assert.Equal(["a", "b", "c", "d"], Selected()); // 32 by default
+        Assert.Equal(["a", "s.x", "s.y", "b", "c", "d"], Selected()); // 32 by default; arr counted, no statistics written for it
         Assert.Equal(["a"], Selected((FileStatistics.NumIndexedColsKey, "1")));
-        Assert.Equal(["a"], Selected((FileStatistics.NumIndexedColsKey, "2")));   // Spark: a, s.x
-        Assert.Equal(["a"], Selected((FileStatistics.NumIndexedColsKey, "3")));   // Spark: a, s.x, s.y
-        Assert.Equal(["a", "b"], Selected((FileStatistics.NumIndexedColsKey, "4")));
-        Assert.Equal(["a", "b", "c"], Selected((FileStatistics.NumIndexedColsKey, "6"))); // arr is the 6th leaf
+        Assert.Equal(["a", "s.x"], Selected((FileStatistics.NumIndexedColsKey, "2")));
+        Assert.Equal(["a", "s.x", "s.y"], Selected((FileStatistics.NumIndexedColsKey, "3")));
+        Assert.Equal(["a", "s.x", "s.y", "b"], Selected((FileStatistics.NumIndexedColsKey, "4")));
+        Assert.Equal(["a", "s.x", "s.y", "b", "c"], Selected((FileStatistics.NumIndexedColsKey, "6"))); // arr is the 6th leaf
         Assert.Empty(Selected((FileStatistics.NumIndexedColsKey, "0")));
-        Assert.Equal(["a", "b", "c", "d"], Selected((FileStatistics.NumIndexedColsKey, "-1")));
+        Assert.Equal(["a", "s.x", "s.y", "b", "c", "d"], Selected((FileStatistics.NumIndexedColsKey, "-1")));
     }
 
     [Fact]
     public void NamedColumns_TakePrecedence()
     {
-        Assert.Equal(["c"], Selected((FileStatistics.StatsColumnsKey, "c,s.y")));        // Spark: s.y, c
+        Assert.Equal(["s.y", "c"], Selected((FileStatistics.StatsColumnsKey, "c,s.y")));
         Assert.Equal(["d"], Selected((FileStatistics.StatsColumnsKey, "d"), (FileStatistics.NumIndexedColsKey, "1")));
         Assert.Equal(["b", "c"], Selected((FileStatistics.StatsColumnsKey, " c , `b` ")));
-        Assert.Empty(Selected((FileStatistics.StatsColumnsKey, "s")));                   // Spark: s.x, s.y
+        Assert.Equal(["s.x", "s.y"], Selected((FileStatistics.StatsColumnsKey, "s")));
+        Assert.Equal(["s.x"], Selected((FileStatistics.StatsColumnsKey, "`s`.`x`")));
     }
 
     [Fact]
     public void FooterStatistics_CoverOnlyTheSelectedColumns()
     {
         // nullCount and bounds follow the selection; numRecords is always there.
-        Assert.Empty(FileStatistics.IndexedFields(Fields, new Dictionary<string, string> { [FileStatistics.NumIndexedColsKey] = "0" }));
+        Assert.Empty(FileStatistics.IndexedLeaves(Fields, new Dictionary<string, string> { [FileStatistics.NumIndexedColsKey] = "0" }));
     }
 }
