@@ -73,7 +73,9 @@ const articlesSidebar = [
     text: 'Storage & Lakehouse',
     collapsed: false,
     items: [
-      { text: 'Delta Lake & ACID Storage', link: '/articles/delta' }
+      { text: 'Delta Lake & ACID Storage', link: '/articles/delta' },
+      { text: 'Delta Lake: Advanced Features', link: '/articles/delta-advanced' },
+      { text: 'Delta Lake: Limitations', link: '/articles/delta-limitations' }
     ]
   },
   {

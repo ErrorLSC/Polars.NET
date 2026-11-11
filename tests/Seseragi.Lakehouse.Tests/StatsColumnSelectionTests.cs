@@ -42,6 +42,9 @@ public class StatsColumnSelectionTests
         Assert.Equal(["b", "c"], Selected((FileStatistics.StatsColumnsKey, " c , `b` ")));
         Assert.Equal(["s.x", "s.y"], Selected((FileStatistics.StatsColumnsKey, "s")));
         Assert.Equal(["s.x"], Selected((FileStatistics.StatsColumnsKey, "`s`.`x`")));
+        // Set but empty (what Spark leaves after dropping the only named column): no column statistics at all.
+        Assert.Empty(Selected((FileStatistics.StatsColumnsKey, "")));
+        Assert.Empty(Selected((FileStatistics.StatsColumnsKey, ""), (FileStatistics.NumIndexedColsKey, "5")));
     }
 
     [Fact]

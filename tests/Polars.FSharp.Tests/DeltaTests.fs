@@ -276,6 +276,34 @@ let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the data`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_columns_{Guid.NewGuid()}")
+    try
+        let props = [ "delta.columnMapping.mode", "name"; "delta.enableTypeWidening", "true" ]
+        Delta.CreateTable(path, PolarsSchema([ "id", DataType.Int32; "name", DataType.String; "note", DataType.String ]), properties = props)
+        DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("name", [ "a"; "b" ]); Series.create("note", [ "x"; "y" ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        Delta.RenameColumn(path, "name", "label")
+        Delta.DropColumns(path, [ "note"; "missing" ], ifExists = true)
+        Delta.ChangeColumnType(path, "id", DataType.Int64)
+        Delta.ChangeColumnType(path, "id", DataType.Int64) // already: no commit
+        DataFrame.create [| Series.create("id", [ 10000000000L ]); Series.create("label", [ "c" ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        let read = DataFrame.ReadDelta(path).Sort("id")
+        Assert.Equal<string list>([ "id"; "label" ], read.Columns |> List.ofArray)
+        Assert.Equal<int64 list>([ 1L; 2L; 10000000000L ], read.["id"].ToArray<int64>() |> List.ofArray)
+        Assert.Equal<string list>([ "a"; "b"; "c" ], read.["label"].ToArray<string>() |> List.ofArray)
+        let operations = Delta.History(path).["operation"].ToArray<string>() |> List.ofArray
+        Assert.Equal<string list>([ "WRITE"; "CHANGE COLUMN"; "DROP COLUMNS"; "RENAME COLUMN"; "WRITE"; "CREATE TABLE" ], operations)
+        // Narrowing is not a widening; dropping without mapping or the last column is refused.
+        Assert.ThrowsAny<exn>(fun () -> Delta.ChangeColumnType(path, "id", DataType.Int32)) |> ignore
+        Assert.ThrowsAny<exn>(fun () -> Delta.DropColumns(path, [ "id"; "label" ])) |> ignore
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Liquid clustering: CreateTable clusterBy, Optimize clusters, ClusterBy changes the columns`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_clustered_{Guid.NewGuid()}")
     try

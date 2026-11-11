@@ -143,6 +143,40 @@ public sealed class StructType : DeltaType
         return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    /// <summary>
+    /// One field as the schema JSON writes it, under <paramref name="name"/> (Spark's <c>CHANGE COLUMN</c> records
+    /// the changed field so, with its dotted path as the name).
+    /// </summary>
+    internal static string FieldJson(StructField field, string name)
+    {
+        using var stream = new MemoryStream();
+        using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
+        {
+            WriteField(json, field, name);
+        }
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteField(Utf8JsonWriter json, StructField field, string name)
+    {
+        json.WriteStartObject();
+        json.WriteString("name", name);
+        json.WritePropertyName("type");
+        WriteType(json, field.Type);
+        json.WriteBoolean("nullable", field.Nullable);
+        json.WriteStartObject("metadata");
+        foreach (var (key, value) in field.Metadata)
+        {
+            json.WritePropertyName(key);
+            if (field.JsonMetadataKeys.Contains(key) || (key == StructField.ColumnIdKey && long.TryParse(value, out _)))
+                json.WriteRawValue(value);
+            else
+                json.WriteStringValue(value);
+        }
+        json.WriteEndObject();
+        json.WriteEndObject();
+    }
+
     private static void WriteType(Utf8JsonWriter json, DeltaType type)
     {
         switch (type)
@@ -151,25 +185,7 @@ public sealed class StructType : DeltaType
                 json.WriteStartObject();
                 json.WriteString("type", "struct");
                 json.WriteStartArray("fields");
-                foreach (StructField field in s.Fields)
-                {
-                    json.WriteStartObject();
-                    json.WriteString("name", field.Name);
-                    json.WritePropertyName("type");
-                    WriteType(json, field.Type);
-                    json.WriteBoolean("nullable", field.Nullable);
-                    json.WriteStartObject("metadata");
-                    foreach (var (key, value) in field.Metadata)
-                    {
-                        json.WritePropertyName(key);
-                        if (field.JsonMetadataKeys.Contains(key) || (key == StructField.ColumnIdKey && long.TryParse(value, out _)))
-                            json.WriteRawValue(value);
-                        else
-                            json.WriteStringValue(value);
-                    }
-                    json.WriteEndObject();
-                    json.WriteEndObject();
-                }
+                foreach (StructField field in s.Fields) WriteField(json, field, field.Name);
                 json.WriteEndArray();
                 json.WriteEndObject();
                 break;

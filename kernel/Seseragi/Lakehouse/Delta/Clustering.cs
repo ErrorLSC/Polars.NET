@@ -124,10 +124,10 @@ public static class Clustering
         var result = new List<StructField[]>();
         foreach (string name in names)
         {
-            string[] parts = name.Split('.');
-            var path = new StructField[parts.Length];
+            IReadOnlyList<string> parts = ColumnNames.Split(name);
+            var path = new StructField[parts.Count];
             DeltaType type = schema;
-            for (int i = 0; i < parts.Length; i++)
+            for (int i = 0; i < parts.Count; i++)
             {
                 path[i] = (type as StructType)?.Fields.FirstOrDefault(f => string.Equals(f.Name, parts[i], StringComparison.OrdinalIgnoreCase))
                     ?? throw new DeltaException($"The clustering column '{name}' is not in the table's schema.");

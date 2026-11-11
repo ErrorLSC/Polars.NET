@@ -210,14 +210,11 @@ public static class FileStatistics
     {
         ArgumentNullException.ThrowIfNull(dataFields);
         List<StructField[]> leaves;
-        if (configuration is not null && configuration.TryGetValue(StatsColumnsKey, out string? named) && !string.IsNullOrWhiteSpace(named))
+        if (configuration is not null && configuration.TryGetValue(StatsColumnsKey, out string? named))
         {
+            // Set, even empty (Spark: an empty list collects no column statistics, only the row count).
             var names = new List<string>();
-            foreach (string entry in named.Split(','))
-            {
-                // Dotted names, each part possibly in backticks (a backticked part may hold dots).
-                names.Add(string.Join('.', SplitName(entry.Trim())));
-            }
+            foreach (IReadOnlyList<string> parts in StatsColumns(named)) names.Add(string.Join('.', parts));
             leaves = Leaves(dataFields, path => names.Any(n =>
                 path.Equals(n, StringComparison.OrdinalIgnoreCase) || path.StartsWith(n + ".", StringComparison.OrdinalIgnoreCase)));
         }
@@ -233,39 +230,19 @@ public static class FileStatistics
         return [.. leaves.Where(p => p[^1].Type is not (ArrayType or MapType))];
     }
 
-    /// <summary>The parts of a dotted column name, backticks taken off (a doubled backtick inside them is one).</summary>
-    private static List<string> SplitName(string name)
+    /// <summary>
+    /// The entries of <see cref="StatsColumnsKey"/>: comma-separated dotted names, each part possibly in backticks
+    /// (a backticked part may hold dots); blank entries skipped.
+    /// </summary>
+    public static List<IReadOnlyList<string>> StatsColumns(string property)
     {
-        var parts = new List<string>();
-        var current = new StringBuilder();
-        bool quoted = false;
-        for (int i = 0; i < name.Length; i++)
+        ArgumentNullException.ThrowIfNull(property);
+        var entries = new List<IReadOnlyList<string>>();
+        foreach (string entry in property.Split(','))
         {
-            char c = name[i];
-            if (c == '`')
-            {
-                if (quoted && i + 1 < name.Length && name[i + 1] == '`')
-                {
-                    current.Append('`');
-                    i++;
-                }
-                else
-                {
-                    quoted = !quoted;
-                }
-            }
-            else if (c == '.' && !quoted)
-            {
-                parts.Add(current.ToString());
-                current.Clear();
-            }
-            else
-            {
-                current.Append(c);
-            }
+            if (entry.Trim().Length > 0) entries.Add(ColumnNames.Split(entry.Trim()));
         }
-        parts.Add(current.ToString());
-        return parts;
+        return entries;
     }
 
     /// <summary>The null count of every top-level column the footer has statistics for, summed over row groups.</summary>

@@ -193,6 +193,49 @@ type Delta =
         PolarsWrapper.DeltaClusterBy(path, Seq.toArray columns, cKeys, cVals)
 
     /// <summary>
+    /// Renames a column, as Spark's ALTER TABLE … RENAME COLUMN: one metadata commit, no data is rewritten. Needs column
+    /// mapping (set delta.columnMapping.mode to name first). Partition columns and the columns named in
+    /// delta.dataSkippingStatsColumns are renamed with it.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, any case; dotted for a nested field, with element for an array's element and key / value for a map's (items.element.price); a part holding a dot in backticks.</param>
+    /// <param name="newName">The new name (of the last part, for a nested field). Names compare without regard to case: a name the struct already has, even differing only in case, is refused.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member RenameColumn(path: string, column: string, newName: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaRenameColumn(path, column, newName, cKeys, cVals)
+
+    /// <summary>
+    /// Drops columns, as Spark's ALTER TABLE … DROP COLUMNS: one metadata commit; the data stays in the files until they
+    /// are rewritten but is no longer read, and a column added later under the same name is a new column. Needs column
+    /// mapping. Partition columns, clustering columns (and structs holding them) and the last column of the table or of
+    /// a struct cannot be dropped.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The columns, named as in Delta.RenameColumn.</param>
+    /// <param name="ifExists">Skip columns the table does not have instead of failing (no commit when none exists).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member DropColumns(path: string, columns: seq<string>, ?ifExists: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaDropColumns(path, Seq.toArray columns, defaultArg ifExists false, cKeys, cVals)
+
+    /// <summary>
+    /// Widens the type of a column, as Spark's ALTER TABLE … ALTER COLUMN … TYPE: one metadata commit; older files are
+    /// read in their own type and cast. Needs type widening (set delta.enableTypeWidening to true first). Allowed:
+    /// integers to wider integers or Float64 (from Int8, Int16, Int32) or a wide enough decimal, Float32 to Float64,
+    /// decimals to wider decimals, Date to Datetime without a time zone (the table needs the timestampNtz feature).
+    /// No commit when the column has the type already.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in Delta.RenameColumn; an array element or map key or value too.</param>
+    /// <param name="dataType">The new type, as data of this type would be written (Int64 is Delta's long, and so on).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member ChangeColumnType(path: string, column: string, dataType: DataType, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        use handle = dataType.CreateHandle()
+        PolarsWrapper.DeltaChangeColumnType(path, column, handle, cKeys, cVals)
+
+    /// <summary>
     /// Represents a column from the incoming Source LazyFrame.
     /// (Internally maps to "{name}_src_tmp")
     /// </summary>
@@ -923,6 +966,37 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     member this.ClusterCatalogTable(catalogName: string, schemaName: string, tableName: string, columns: seq<string>, ?cloudOptions: CloudOptions) =
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.CatalogClusterBy(this.Handle, catalogName, schemaName, tableName, Seq.toArray columns, keys, values)
+    /// <summary>Renames a column of a catalog table; see Delta.RenameColumn.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="newName">The new name.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.RenameCatalogColumn(catalogName: string, schemaName: string, tableName: string, column: string, newName: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogRenameColumn(this.Handle, catalogName, schemaName, tableName, column, newName, keys, values)
+    /// <summary>Drops columns of a catalog table; see Delta.DropColumns.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="columns">The columns, dotted for nested fields.</param>
+    /// <param name="ifExists">Skip columns the table does not have.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.DropCatalogColumns(catalogName: string, schemaName: string, tableName: string, columns: seq<string>, ?ifExists: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogDropColumns(this.Handle, catalogName, schemaName, tableName, Seq.toArray columns, defaultArg ifExists false, keys, values)
+    /// <summary>Widens the type of a column of a catalog table; see Delta.ChangeColumnType.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="dataType">The new type.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.ChangeCatalogColumnType(catalogName: string, schemaName: string, tableName: string, column: string, dataType: DataType, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        use handle = dataType.CreateHandle()
+        PolarsWrapper.CatalogChangeColumnType(this.Handle, catalogName, schemaName, tableName, column, handle, keys, values)
     /// <summary>
     /// Initializes a MERGE (Upsert) operation against a Unity Catalog table using a <see cref="LazyFrame"/> as the data source.
     /// This method provides an ACID-compliant way to perform atomic updates, inserts, or deletes by joining the source data with the target table.

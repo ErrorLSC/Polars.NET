@@ -38,6 +38,8 @@ Polars.NET provides idiomatic, zero-copy bindings across multiple .NET programmi
 - [LazyFrame & Query Optimization]({baseUrl}/articles/lazy): Execution plans (`Explain()`), logical optimization, predicate & projection pushdown, common subplan elimination, and streaming out-of-core execution.
 - [Time Series & Temporal Analytics]({baseUrl}/articles/timeseries): Temporal types (`Date`, `Datetime`, `Duration`), `Expr.Dt` namespaces, timezone conversions, rolling window aggregations, and dynamic group-by.
 - [Delta Lake & ACID Lakehouse]({baseUrl}/articles/delta): Managed Delta kernel (checked against Spark): ACID transactions, Time Travel, metadata history, file vacuuming/compaction, Change Data Feed, and SQL MERGE.
+- [Delta Lake: Advanced Table Features]({baseUrl}/articles/delta-advanced): Identity columns, row tracking, liquid clustering, and column changes (rename, drop, type widening).
+- [Delta Lake: Compatibility & Known Limitations]({baseUrl}/articles/delta-limitations): Supported table features, what cannot be written yet, and deliberate differences from Spark.
 
 ## Language Paradigms & Idioms
 
@@ -105,6 +107,8 @@ let orderedArticles = [
     "lazy.md", "LazyFrame, Optimization & Streaming"
     "timeseries.md", "Time Series & Temporal Operations"
     "delta.md", "Delta Lake & ACID Lakehouse Storage"
+    "delta-advanced.md", "Delta Lake: Advanced Table Features"
+    "delta-limitations.md", "Delta Lake: Compatibility & Known Limitations"
     "csharp-idioms.md", "Idiomatic C# Patterns & Practices"
     "fsharp-idioms.md", "Idiomatic F# Patterns & Zero-Allocation Struct Enumerators"
     "linq.md", "Native LINQ & F# Query Computation Expressions"
@@ -170,6 +174,7 @@ sb.AppendLine("   - Read: `DataFrame.ReadDelta(path, version = 2UL)` or `LazyFra
 sb.AppendLine("   - Write: `df.WriteDelta(path, mode = DeltaSaveMode.Append)`.") |> ignore
 sb.AppendLine("   - Maintenance: `Delta.History(path)`, `Delta.Optimize(path)`, `Delta.Vacuum(path, retentionHours = 168)`.") |> ignore
 sb.AppendLine("   - Change Data Feed: writers feed it on tables with `delta.enableChangeDataFeed`; `Delta.ReadChangeDataFeed` reads only versions where it was on (as Spark). A new table's first write is version 0.") |> ignore
+sb.AppendLine("   - Columns: `Delta.RenameColumn` / `Delta.DropColumns` need column mapping (`delta.columnMapping.mode` = `name`); `Delta.ChangeColumnType` widens only, with `delta.enableTypeWidening`. Nested fields are dotted (`items.element.price`).") |> ignore
 sb.AppendLine() |> ignore
 sb.AppendLine("8. **Literal Strings in `When / Then / Otherwise`**:") |> ignore
 sb.AppendLine("   - In C#, `.Then(\"x\")` and `.Otherwise(\"x\")` take a bare string as a column name. Write `.Then(Lit(\"x\"))` for a text value.") |> ignore

@@ -13,6 +13,8 @@ Welcome to the Polars.NET documentation and user guides. Here you will find quic
 
 ## Storage & Lakehouse
 - [Delta Lake & ACID Storage](/articles/delta) - ACID transactions, Time Travel, metadata audit logs, Z-Order file compaction, CDC streaming, and ordered SQL MERGE.
+- [Delta Lake: Advanced Table Features](/articles/delta-advanced) - Identity columns, row tracking, liquid clustering, and renaming, dropping and widening columns.
+- [Delta Lake: Compatibility & Known Limitations](/articles/delta-limitations) - Supported table features, what cannot be written yet, and deliberate differences from Spark.
 
 ## Language Guides & Idioms
 - [C# Idioms & Best Practices](/articles/csharp-idioms) - Fluent method chaining, collection expressions, schema mapping, and memory safety.

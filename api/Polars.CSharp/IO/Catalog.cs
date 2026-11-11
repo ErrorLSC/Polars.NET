@@ -197,6 +197,47 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         PolarsWrapper.CatalogClusterBy(Handle, catalogName, schemaName, tableName, [.. columns], keys, values);
     }
+    /// <summary>Renames a column of a catalog table; see <see cref="Delta.RenameColumn"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="newName">The new name.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void RenameCatalogColumn(
+        string catalogName, string schemaName, string tableName, string column, string newName, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogRenameColumn(Handle, catalogName, schemaName, tableName, column, newName, keys, values);
+    }
+    /// <summary>Drops columns of a catalog table; see <see cref="Delta.DropColumns"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="columns">The columns, dotted for nested fields.</param>
+    /// <param name="ifExists">Skip columns the table does not have.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void DropCatalogColumns(
+        string catalogName, string schemaName, string tableName, IEnumerable<string> columns, bool ifExists = false, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogDropColumns(Handle, catalogName, schemaName, tableName, [.. columns], ifExists, keys, values);
+    }
+    /// <summary>Widens the type of a column of a catalog table; see <see cref="Delta.ChangeColumnType"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="type">The new type.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void ChangeCatalogColumnType(
+        string catalogName, string schemaName, string tableName, string column, DataType type, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogChangeColumnType(Handle, catalogName, schemaName, tableName, column, type.Handle, keys, values);
+    }
     /// <summary>
     /// Creates a new table registration within the Unity Catalog.
     /// </summary>

@@ -369,7 +369,7 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>The Delta type that holds the values of an engine type; the column is cast to it on write.</summary>
-    private static DeltaType DeltaTypeOf(DataTypeHandle type, string column)
+    internal static DeltaType DeltaTypeOf(DataTypeHandle type, string column)
     {
         PlDataType kind = PolarsWrapper.GetDataTypeKind(type);
         switch (kind)

@@ -104,6 +104,18 @@ public readonly partial struct PolarsWrapper
         ArgumentNullException.ThrowIfNull(columns);
         Delta.DeltaKernelAlter.ClusterBy(path, columns, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     }
+    /// <summary>Renames a column of a table (column mapping needed).</summary>
+    public static void DeltaRenameColumn(string path, string column, string newName, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.RenameColumn(path, column, newName, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Drops columns of a table in one commit (column mapping needed).</summary>
+    public static void DeltaDropColumns(string path, string[] columns, bool ifExists, string[]? cloudKeys, string[]? cloudValues)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        Delta.DeltaKernelAlter.DropColumns(path, columns, ifExists, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    }
+    /// <summary>Widens the type of a column of a table (type widening needed).</summary>
+    public static void DeltaChangeColumnType(string path, string column, DataTypeHandle type, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.ChangeColumnType(path, column, type, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     public static void SetTableProperties(
         string path,
         string[] propKeys,

@@ -12,7 +12,7 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// feature, <c>delta.minReaderVersion</c> / <c>delta.minWriterVersion</c> raise the versions. The protocol is
 /// never lowered.
 /// </summary>
-public static class AlterTable
+public static partial class AlterTable
 {
     /// <summary>The operation name recorded in <c>commitInfo</c>, as Spark records it.</summary>
     public const string Operation = "SET TBLPROPERTIES";

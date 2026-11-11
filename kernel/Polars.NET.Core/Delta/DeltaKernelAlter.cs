@@ -4,7 +4,7 @@ using Polars.NET.Core.Exceptions;
 namespace Polars.NET.Core.Delta;
 
 /// <summary>
-/// Table properties and table features of a Delta table through the managed kernel (see
+/// Table properties, table features and columns of a Delta table through the managed kernel (see
 /// <see cref="AlterTable"/>). The public Delta API calls it.
 /// </summary>
 internal static class DeltaKernelAlter
@@ -47,6 +47,48 @@ internal static class DeltaKernelAlter
     {
         ArgumentNullException.ThrowIfNull(columns);
         return Run(tablePath, cloud, table => AlterTable.ClusterBy(table.FileSystem, table.Snapshot, columns));
+    }
+
+    /// <summary>Renames a column (dotted for a nested field); returns the version committed. Needs column mapping.</summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, dotted for a nested field (<c>element</c>, <c>key</c>, <c>value</c> inside arrays and maps).</param>
+    /// <param name="newName">The new name of the column (of its last part when nested).</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long RenameColumn(string tablePath, string column, string newName, CloudArgs? cloud = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        ArgumentException.ThrowIfNullOrEmpty(newName);
+        return Run(tablePath, cloud, table => AlterTable.RenameColumn(table.FileSystem, table.Snapshot, column, newName))!.Value;
+    }
+
+    /// <summary>
+    /// Drops columns in one commit; returns the version committed, or null when <paramref name="ifExists"/> and none
+    /// exists. Needs column mapping.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The columns, dotted for nested fields.</param>
+    /// <param name="ifExists">Skip columns the table does not have.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long? DropColumns(string tablePath, IReadOnlyList<string> columns, bool ifExists = false, CloudArgs? cloud = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        return Run(tablePath, cloud, table => AlterTable.DropColumns(table.FileSystem, table.Snapshot, columns, ifExists));
+    }
+
+    /// <summary>
+    /// Widens a column's type to the Delta type that holds <paramref name="type"/> (the type a write of such data
+    /// gives the column); returns the version committed, or null when the column has it already. Needs type widening.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, dotted for a nested field (<c>element</c>, <c>key</c>, <c>value</c> inside arrays and maps).</param>
+    /// <param name="type">The engine type.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long? ChangeColumnType(string tablePath, string column, DataTypeHandle type, CloudArgs? cloud = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        ArgumentNullException.ThrowIfNull(type);
+        Kaminari.Seseragi.Lakehouse.Delta.Schema.DeltaType deltaType = DeltaKernelWrite.DeltaTypeOf(type, column);
+        return Run(tablePath, cloud, table => AlterTable.ChangeColumnType(table.FileSystem, table.Snapshot, column, deltaType));
     }
 
     private static long? Run(string tablePath, CloudArgs? cloud, Func<DmlTable, long?> alter)

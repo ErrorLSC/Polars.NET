@@ -186,6 +186,58 @@ public static class Delta
     }
 
     /// <summary>
+    /// Renames a column, as Spark's <c>ALTER TABLE … RENAME COLUMN</c>: one metadata commit, no data is rewritten.
+    /// Needs column mapping (<see cref="DeltaTableProperties"/>: set <c>delta.columnMapping.mode</c> to <c>name</c>
+    /// first). Partition columns and the columns named in <c>delta.dataSkippingStatsColumns</c> are renamed with it.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, any case; dotted for a nested field, with <c>element</c> for an array's
+    /// element and <c>key</c> / <c>value</c> for a map's (<c>items.element.price</c>); a part holding a dot in backticks.</param>
+    /// <param name="newName">The new name (of the last part, for a nested field). Names compare without regard to
+    /// case: a name the struct already has, even differing only in case, is refused.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void RenameColumn(string path, string column, string newName, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaRenameColumn(path, column, newName, keys, values);
+    }
+
+    /// <summary>
+    /// Drops columns, as Spark's <c>ALTER TABLE … DROP COLUMNS</c>: one metadata commit; the data stays in the files
+    /// until they are rewritten but is no longer read, and a column added later under the same name is a new column.
+    /// Needs column mapping (see <see cref="RenameColumn"/>). Partition columns, clustering columns (and structs holding
+    /// them) and the last column of the table or of a struct cannot be dropped.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The columns, named as in <see cref="RenameColumn"/>.</param>
+    /// <param name="ifExists">Skip columns the table does not have instead of failing (no commit when none exists).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void DropColumns(string path, IEnumerable<string> columns, bool ifExists = false, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaDropColumns(path, [.. columns], ifExists, keys, values);
+    }
+
+    /// <summary>
+    /// Widens the type of a column, as Spark's <c>ALTER TABLE … ALTER COLUMN … TYPE</c>: one metadata commit; older
+    /// files are read in their own type and cast. Needs type widening (<see cref="DeltaTableProperties"/>: set
+    /// <c>delta.enableTypeWidening</c> to true first). Allowed: integers to wider integers or Float64 (from Int8, Int16,
+    /// Int32) or a wide enough decimal, Float32 to Float64, decimals to wider decimals, Date to Datetime without a time
+    /// zone (the table needs the timestampNtz feature). No commit when the column has the type already.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in <see cref="RenameColumn"/>; an array element or map key or value too.</param>
+    /// <param name="type">The new type, as data of this type would be written (Int64 is Delta's long, and so on).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void ChangeColumnType(string path, string column, DataType type, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaChangeColumnType(path, column, type.Handle, keys, values);
+    }
+
+    /// <summary>
     /// Deletes rows from a Delta Lake table that match a given predicate.
     /// <para>
     /// By default, this operation performs a Copy-on-Write (CoW), meaning any underlying data files containing matching rows are entirely rewritten.

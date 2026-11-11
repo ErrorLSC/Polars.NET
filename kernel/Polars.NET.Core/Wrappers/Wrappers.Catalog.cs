@@ -327,6 +327,33 @@ public readonly partial struct PolarsWrapper
         DeltaClusterBy(access.Location, columns, cloudKeys, cloudValues);
     }
 
+    /// <summary>Renames a column of a catalog table (column mapping needed).</summary>
+    public static void CatalogRenameColumn(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string newName,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaRenameColumn(access.Location, column, newName, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Drops columns of a catalog table in one commit (column mapping needed).</summary>
+    public static void CatalogDropColumns(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[] columns, bool ifExists,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaDropColumns(access.Location, columns, ifExists, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Widens the type of a column of a catalog table (type widening needed).</summary>
+    public static void CatalogChangeColumnType(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, DataTypeHandle type,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaChangeColumnType(access.Location, column, type, cloudKeys, cloudValues);
+    }
+
     public static void CreateCatalogTable
     (
         CatalogHandle handle,
