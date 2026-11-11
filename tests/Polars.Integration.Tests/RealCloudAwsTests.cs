@@ -430,7 +430,7 @@ public sealed class RealCloudAwsMachineTests : IClassFixture<RealAwsCleanup>
     }
 
     /// <summary>Publishes the probe self-contained and packs it; returns the package path.</summary>
-    private static string PublishProbe()
+    internal static string PublishProbe()
     {
         string repo = new DirectoryInfo(AppContext.BaseDirectory).EnumerateAncestors()
             .First(d => File.Exists(Path.Combine(d.FullName, "Polars.NET.slnx"))).FullName;
@@ -444,7 +444,7 @@ public sealed class RealCloudAwsMachineTests : IClassFixture<RealAwsCleanup>
         return package;
     }
 
-    private static void Run(string file, string arguments, string directory)
+    internal static void Run(string file, string arguments, string directory)
     {
         var start = new System.Diagnostics.ProcessStartInfo(file, arguments)
         {

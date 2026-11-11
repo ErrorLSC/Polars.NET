@@ -35,15 +35,15 @@ public enum AzureSignIn
 
 /// <summary>
 /// Real Azure storage accounts for smoke tests: SESERAGI_AZURE_BLOB_ACCOUNT / _BLOB_KEY / _ADLS_ACCOUNT / _ADLS_KEY /
-/// _CONTAINER / _TENANT_ID / _CLIENT_ID / _CLIENT_SECRET, else the eight lines of <c>.secrets/AZURE</c> (or
-/// <c>.secrets/Azure</c>) in that order. Never the AZURE_* variables or <c>az login</c>: the credential chain tests need
+/// _CONTAINER / _TENANT_ID / _CLIENT_ID / _CLIENT_SECRET (and, for the VM test, _SUBSCRIPTION_ID / _RESOURCE_GROUP),
+/// else the lines of <c>.secrets/AZURE</c> (or <c>.secrets/Azure</c>) in that order. Never the AZURE_* variables or <c>az login</c>: the credential chain tests need
 /// the machine clean. The values are never written to any output.
 /// </summary>
 public static class RealAzure
 {
     private sealed record Settings(
         string BlobAccount, string BlobKey, string AdlsAccount, string AdlsKey, string Container,
-        string? TenantId, string? ClientId, string? ClientSecret);
+        string? TenantId, string? ClientId, string? ClientSecret, string? SubscriptionId, string? ResourceGroup);
 
     private static readonly Lazy<Settings?> s_settings = new(Load);
 
@@ -53,6 +53,14 @@ public static class RealAzure
     public static bool HasServicePrincipal => s_settings.Value is { TenantId: not null, ClientId: not null, ClientSecret: not null };
 
     public static string Container => s_settings.Value!.Container;
+
+    /// <summary>The subscription and resource group the service principal may deploy into (lines 9 and 10), for the VM test.</summary>
+    public static (string Subscription, string Group)? Deployment =>
+        s_settings.Value is { SubscriptionId: { } subscription, ResourceGroup: { } group } && HasServicePrincipal ? (subscription, group) : null;
+
+    /// <summary>The tenant, client id and secret of the service principal.</summary>
+    public static (string Tenant, string Client, string Secret) ServicePrincipal =>
+        (s_settings.Value!.TenantId!, s_settings.Value.ClientId!, s_settings.Value.ClientSecret!);
 
     public static string Account(AzureAccountKind kind) => kind == AzureAccountKind.Blob ? s_settings.Value!.BlobAccount : s_settings.Value!.AdlsAccount;
 
@@ -109,9 +117,11 @@ public static class RealAzure
     private static string? s_token;
 
     /// <summary>A storage token of the service principal (client credentials grant), fetched once per run.</summary>
-    public static string BearerToken()
+    public static string BearerToken() => s_token ??= Token("https://storage.azure.com/.default");
+
+    /// <summary>A token of the service principal for a scope (client credentials grant).</summary>
+    public static string Token(string scope)
     {
-        if (s_token is not null) return s_token;
         Settings s = s_settings.Value!;
         using var http = new HttpClient();
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -119,7 +129,7 @@ public static class RealAzure
             ["grant_type"] = "client_credentials",
             ["client_id"] = s.ClientId!,
             ["client_secret"] = s.ClientSecret!,
-            ["scope"] = "https://storage.azure.com/.default",
+            ["scope"] = scope,
         });
         using HttpResponseMessage response = http.PostAsync($"https://login.microsoftonline.com/{s.TenantId}/oauth2/v2.0/token", form).GetAwaiter().GetResult();
         string body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -130,7 +140,7 @@ public static class RealAzure
             throw new InvalidOperationException($"Token request: HTTP {(int)response.StatusCode}: {error.RootElement.GetProperty("error_description").GetString()}");
         }
         using var doc = System.Text.Json.JsonDocument.Parse(body);
-        return s_token = doc.RootElement.GetProperty("access_token").GetString()!;
+        return doc.RootElement.GetProperty("access_token").GetString()!;
     }
 
     private static Settings? Load()
@@ -139,17 +149,17 @@ public static class RealAzure
         string?[] values =
         [
             Env("BLOB_ACCOUNT"), Env("BLOB_KEY"), Env("ADLS_ACCOUNT"), Env("ADLS_KEY"), Env("CONTAINER"),
-            Env("TENANT_ID"), Env("CLIENT_ID"), Env("CLIENT_SECRET"),
+            Env("TENANT_ID"), Env("CLIENT_ID"), Env("CLIENT_SECRET"), Env("SUBSCRIPTION_ID"), Env("RESOURCE_GROUP"),
         ];
         if (values[..5].Any(v => v is null))
         {
             string? file = RealAws.SecretsFile("AZURE") ?? RealAws.SecretsFile("Azure");
             if (file is null) return null;
             string[] lines = [.. File.ReadAllLines(file).Select(l => l.Trim())];
-            values = [.. Enumerable.Range(0, 8).Select(i => i < lines.Length && lines[i].Length > 0 ? lines[i] : null)];
+            values = [.. Enumerable.Range(0, 10).Select(i => i < lines.Length && lines[i].Length > 0 ? lines[i] : null)];
             if (values[..5].Any(v => v is null)) return null;
         }
-        return new Settings(values[0]!, values[1]!, values[2]!, values[3]!, values[4]!, values[5], values[6], values[7]);
+        return new Settings(values[0]!, values[1]!, values[2]!, values[3]!, values[4]!, values[5], values[6], values[7], values[8], values[9]);
     }
 }
 

@@ -2,20 +2,24 @@ using System.Text.Json;
 using Polars.CSharp;
 using Polars.NET.Core.Delta;
 
-// Usage: RealCloudProbe <table url> <region>
-// Every step uses no keys: only the region, so the credentials come from the machine (instance metadata, IMDSv2).
+// Usage: RealCloudProbe s3://bucket/table <region>
+//        RealCloudProbe abfss://container@account.dfs.core.windows.net/table [client id]
+// No keys: on S3 only the region, on Azure nothing or the client id of the identity to use, so the credentials come
+// from the machine (instance metadata: IMDSv2 on EC2, the managed identity endpoint on an Azure VM).
 // Prints one JSON line: {"backend":..., "implementation":..., "ok":true, ...} or {"ok":false, "step":..., "error":...}.
 string url = args[0];
-string region = args[1];
+var keys = new Dictionary<string, string>();
+if (url.StartsWith("s3://", StringComparison.Ordinal)) keys["aws_region"] = args[1];
+else if (args.Length > 1) keys["azure_client_id"] = args[1];
 string backend = Environment.GetEnvironmentVariable("POLARS_NET_OBJECT_STORE") ?? "auto";
 string step = "start";
 var report = new Dictionary<string, object?> { ["backend"] = backend };
 try
 {
-    var options = new CloudOptions { Credentials = new() { ["aws_region"] = region } };
+    var options = new CloudOptions { Credentials = keys };
 
     step = "open the store";
-    using (var fs = new ObjectStoreFileSystem(url, CloudArgs.ForLocation(url, ["aws_region"], [region])))
+    using (var fs = new ObjectStoreFileSystem(url, CloudArgs.ForLocation(url, [.. keys.Keys], [.. keys.Values])))
     {
         report["implementation"] = fs.Implementation;
         step = "put-if-absent, read, list, delete";
