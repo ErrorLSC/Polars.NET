@@ -1,3 +1,4 @@
+use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans};
 use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::pl_io::csv::csv_utils::{build_csv_writer_options};
@@ -87,7 +88,7 @@ pub extern "C" fn pl_lazyframe_sink_csv(
         let destination = SinkDestination::File { target };
 
         // Sink
-        let _ = lf_ctx.inner
+        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
             .sink(destination, file_format, unified_args)?
             .collect()?;
 
@@ -195,7 +196,7 @@ pub extern "C" fn pl_lazyframe_sink_csv_partitioned(
         };
         let file_format = FileWriteFormat::Csv(csv_options);
 
-        let _ = lf_ctx.inner
+        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
             .sink(destination, file_format, unified_args)?
             .collect()?;
 
@@ -246,7 +247,7 @@ fn sink_csv_to(
         sinked_paths_callback:None
     };
 
-    let _ = lf_ctx.inner
+    let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
         .sink(destination, file_format, unified_args)?
         .collect()?;
     Ok(())

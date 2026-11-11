@@ -1,8 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
-using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
-using Polars.NET.Core.Data;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Data;
 
@@ -34,15 +32,6 @@ public partial class LazyFrame : IDisposable
         // 1. Get Schema (Cached)
         schema ??= ArrowConverter.GetSchemaFromType<T>();
 
-        // 2. Buffered Mode
-        if (useBuffered)
-        {
-            var scope = new IpcStreamService.TempIpcScope<T>(data, batchSize); 
-            var handleBuffered = ScanIpc(scope.FilePath!).Handle;
-            return new ScopedLazyFrame(handleBuffered, scope);
-        }
-
-        // 3. Streaming Mode (Memory Pointer)
         IEnumerable<RecordBatch> SafeGenerator()
         {
             bool hasYielded = false;
@@ -58,6 +47,10 @@ public partial class LazyFrame : IDisposable
                 yield return ArrowConverter.GetEmptyBatch<T>();
             }
         }
+
+        // Buffered: the data is read now into a temporary Arrow IPC file the engine owns.
+        if (useBuffered)
+            return new LazyFrame(ArrowStreamInterop.ScanStreamBuffered(() => EnsureStreamSafety(SafeGenerator()), schema));
 
         var handle = ArrowStreamInterop.ScanStream(
             () => EnsureStreamSafety(SafeGenerator()), 

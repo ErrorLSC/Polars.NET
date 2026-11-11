@@ -114,40 +114,18 @@ public partial class LazyFrame : IDisposable
         return new LazyFrame(handle);
     }
     /// <summary>
-    /// A LazyFrame with resource scope which needs to be disposed.
-    /// </summary>
-    public class ScopedLazyFrame : LazyFrame
-    {
-        private readonly IDisposable? _resource;
-
-        internal ScopedLazyFrame(LazyFrameHandle handle, IDisposable? resource)
-            : base(handle)
-        {
-            _resource = resource;
-        }
-        /// <summary>
-        /// Dispose temp file and lazyframe
-        /// </summary>
-        public new void Dispose()
-        {
-            base.Dispose();
-
-            _resource?.Dispose();
-        }
-    }
-    /// <summary>
     /// [Buffered] Create a LazyFrame from an existing DataReader.
-    /// <para><b>Note:</b> This consumes the reader IMMEDIATELY and writes to a temp file.</para>
-    /// <para>Returns a <see cref="ScopedLazyFrame"/> which must be disposed to delete the temp file.</para>
+    /// <para><b>Note:</b> This consumes the reader IMMEDIATELY into a temporary Arrow IPC file in Polars's
+    /// temporary directory (<c>POLARS_TEMP_DIR</c>). The file has no name in the directory and is removed when the
+    /// last frame that scans it is released.</para>
     /// </summary>
-    public static ScopedLazyFrame ScanDatabaseBuffered(IDataReader reader, int batchSize = 50_000)
+    public static LazyFrame ScanDatabaseBuffered(IDataReader reader, int batchSize = 50_000)
     {
-        // DataReader cannot be reset, so we must buffer it to disk immediately
-        var scope = new IpcStreamService.TempIpcScopeReader(reader, batchSize);
-
-        var handle = ScanIpc(scope.FilePath!).Handle;
-
-        return new ScopedLazyFrame(handle, scope);
+        // A DataReader cannot be reset, so it is read now.
+        var schema = reader.GetArrowSchema();
+        var handle = ArrowStreamInterop.ScanStreamBuffered(
+            () => EnsureStreamSafety(reader.ToArrowBatches(batchSize).Prefetch()), schema);
+        return new LazyFrame(handle);
     }
 
 }

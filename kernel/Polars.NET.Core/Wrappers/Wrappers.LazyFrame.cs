@@ -705,7 +705,9 @@ public readonly partial struct PolarsWrapper
         out bool isCompleted)
     {
         ArgumentNullException.ThrowIfNull(batches);
-        return NativeBindings.pl_collect_batches_next(batches, out isCompleted);
+        var df = NativeBindings.pl_collect_batches_next(batches, out isCompleted);
+        // A null handle without completion is an engine error, not the end of the stream.
+        return isCompleted ? df : ErrorHelper.Check(df);
     }
     public static async IAsyncEnumerable<DataFrameHandle> LazyCollectBatchesStreamAsync(
         LazyFrameHandle lf,
@@ -719,8 +721,12 @@ public readonly partial struct PolarsWrapper
         // 1. Fail immediately on a pre-cancelled token before allocating any native resources
         cancellationToken.ThrowIfCancellationRequested();
 
-        // 2. Consume and start streaming batch execution on native engine
-        using var batches = LazyCollectBatches(lf, engine, maintainOrder, (nuint)Math.Max(0, chunkSize));
+        // 2. Consume and start streaming batch execution on native engine. Off the caller's thread: starting can
+        // read a .NET source to a temporary file first.
+        EnsureEngineSupported(engine);
+        using var batches = await Task.Run(
+            () => LazyCollectBatches(lf, engine, maintainOrder, (nuint)Math.Max(0, chunkSize)), cancellationToken)
+            .ConfigureAwait(false);
 
         while (true)
         {

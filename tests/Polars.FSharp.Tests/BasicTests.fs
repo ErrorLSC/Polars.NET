@@ -683,6 +683,27 @@ type ``Basic Functionality Tests`` () =
         Assert.Contains("IsActive", columns)
         Assert.Contains("JoinDate", columns)
 
+    [<Fact>]
+    member _.``ScanSeq and ScanDb sink through the streaming engine`` () =
+        let data = seq { for i in 1 .. 1000 -> { Name = sprintf "User_%d" i; Age = i; Score = float i; IsActive = true; JoinDate = DateTime.Today } }
+        let table = new System.Data.DataTable()
+        table.Columns.Add("Id", typeof<int>) |> ignore
+        for i in 1 .. 1000 do table.Rows.Add(i) |> ignore
+        let dir = Directory.CreateTempSubdirectory("fs-anon-scan-").FullName
+        try
+            let seqPath = Path.Combine(dir, "seq.parquet")
+            let dbPath = Path.Combine(dir, "db.parquet")
+            let bufPath = Path.Combine(dir, "buf.parquet")
+            (LazyFrame.ScanSeq(data, batchSize = 100)).SinkParquet seqPath
+            (LazyFrame.ScanDb((fun () -> table.CreateDataReader() :> System.Data.IDataReader), batchSize = 100)).SinkParquet dbPath
+            use buffered = LazyFrame.ScanDb((fun () -> table.CreateDataReader() :> System.Data.IDataReader), batchSize = 100, useBuffered = true)
+            buffered.SinkParquet bufPath
+            for path in [ seqPath; dbPath; bufPath ] do
+                use df = LazyFrame.ScanParquet(path).Collect()
+                Assert.Equal(1000L, df.Height)
+        finally
+            Directory.Delete(dir, true)
+
 type LitTests() =
 
     let df = DataFrame.create [ Series.create("dummy", [1]) ]

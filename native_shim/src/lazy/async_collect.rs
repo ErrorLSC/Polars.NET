@@ -1,3 +1,4 @@
+use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans};
 use std::num::NonZeroUsize;
 use polars::prelude::*;
 use polars_config::Engine;
@@ -40,6 +41,12 @@ pub extern "C" fn pl_lazy_collect_batches(
 
         let chunk_size_opt = NonZeroUsize::new(chunk_size);
 
+        // On the streaming engine batches are pulled one at a time: spool a C# stream so memory stays bounded by
+        // a batch. Auto runs in memory (polars 0.55), which reads C# streams itself.
+        let lf = match engine {
+            Engine::Streaming => resolve_anonymous_scans(lf, AnonymousScanMode::Spool)?,
+            _ => lf,
+        };
         // Start background runner immediately (lazy = false)
         let batches = lf.collect_batches(engine, maintain_order, chunk_size_opt, false)?;
 

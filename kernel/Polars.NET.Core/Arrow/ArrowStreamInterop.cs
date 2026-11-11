@@ -167,20 +167,28 @@ public static unsafe class ArrowStreamInterop
     public static LazyFrameHandle ScanStream(
         Func<IEnumerable<RecordBatch>> streamFactory,
         Schema schema)
+        => Scan(streamFactory, schema, buffered: false);
+
+    /// <summary>
+    /// Reads the stream now into an anonymous temporary Arrow IPC file and scans that file. The engine owns the file:
+    /// it is removed when the last frame that scans it is released.
+    /// </summary>
+    public static LazyFrameHandle ScanStreamBuffered(
+        Func<IEnumerable<RecordBatch>> streamFactory,
+        Schema schema)
+        => Scan(streamFactory, schema, buffered: true);
+
+    private static LazyFrameHandle Scan(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered)
     {
-        var userData = CreateDirectScanContext(streamFactory, schema);
-
         var cSchema = CArrowSchema.Create();
-        CArrowSchemaExporter.ExportSchema(schema, cSchema);
-
         try
         {
-            return PolarsWrapper.LazyFrameScanStream(
-                cSchema,
-                GetFactoryCallback(),
-                GetDestroyCallback(),
-                userData
-            );
+            CArrowSchemaExporter.ExportSchema(schema, cSchema);
+            // The engine owns userData from here on and releases it through the destroy callback.
+            var userData = CreateDirectScanContext(streamFactory, schema);
+            return buffered
+                ? PolarsWrapper.LazyFrameScanStreamBuffered(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData)
+                : PolarsWrapper.LazyFrameScanStream(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData);
         }
         finally
         {

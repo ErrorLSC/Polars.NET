@@ -1,3 +1,4 @@
+use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans};
 use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::pl_io::ffi_buffer::FfiBuffer;
@@ -12,35 +13,6 @@ use crate::utils::ptr_to_str;
 // Write&Sink Parquet
 // ==========================================
 
-fn fallback_eager_parquet(
-    lf: LazyFrame,
-    path: &str,
-    options: &ParquetWriteOptions
-) -> PolarsResult<()> {
-    // 1. Collect
-    let mut df = lf.collect()?;
-
-    // 2. Create File
-    let file = std::fs::File::create(path)
-        .map_err(|e| PolarsError::ComputeError(format!("Fallback: failed to create file '{}': {}", path, e).into()))?;
-
-    // 3. Configure Writer
-    let mut writer = ParquetWriter::new(file)
-        .with_compression(options.compression)
-        .with_statistics(options.statistics.clone())
-        .set_parallel(true);
-
-    if let Some(s) = options.row_group_size { writer = writer.with_row_group_size(Some(s)); }
-    if let Some(s) = options.data_page_size { writer = writer.with_data_page_size(Some(s)); }
-    
-    if let Some(_compat) = options.compat_level {
-    }
-
-    // 4. Write
-    writer.finish(&mut df)?;
-
-    Ok(())
-}
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_sink_parquet(
     lf_ptr: *mut LazyFrameContext,
@@ -69,8 +41,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet(
 ) {
     ffi_try_void!({
         let ctx = unsafe { Box::from_raw(lf_ptr) };
-        let lf = ctx.inner;
-        let lf_clone = lf.clone();
+        let lf = resolve_anonymous_scans(ctx.inner, AnonymousScanMode::Spool)?;
 
         let path_str = ptr_to_str(path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
 
@@ -100,36 +71,12 @@ pub extern "C" fn pl_lazyframe_sink_parquet(
             )
         };
 
-        let options_for_stream = write_options_arc.clone();
-        
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let target = SinkTarget::Path(PlRefPath::from(path_str));
-            let destination = SinkDestination::File { target };
+        let target = SinkTarget::Path(PlRefPath::from(path_str));
+        let destination = SinkDestination::File { target };
+        let file_format = FileWriteFormat::Parquet(write_options_arc);
 
-            let file_format = FileWriteFormat::Parquet(options_for_stream);
-
-            lf.sink(destination, file_format, unified_args)?
-              .collect()
-        }));
-
-        match result {
-            Ok(Ok(_)) => {
-            },
-            Ok(Err(e)) => {
-                if cloud_provider != 0 {
-                    return Err(e);
-                }
-                eprintln!("Streaming Sink failed: {}. Attempting fallback to Eager Write...", e);
-                fallback_eager_parquet(lf_clone, path_str, &write_options_arc)?;
-            },
-            Err(_) => {
-                if cloud_provider != 0 {
-                    return Err(PolarsError::ComputeError("Streaming sink panicked on Cloud path (Eager fallback not supported for Cloud).".into()));
-                }
-                eprintln!("Streaming Sink panicked. Falling back to Eager Write...");
-                fallback_eager_parquet(lf_clone, path_str, &write_options_arc)?;
-            }
-        }
+        lf.sink(destination, file_format, unified_args)?
+          .collect()?;
 
         Ok(())
     })
@@ -216,7 +163,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet_partitioned(
             )
         };
 
-        let _ = lf_ctx.inner
+        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
             .sink(destination, file_format, unified_args)?
             .collect()?;
 
@@ -254,7 +201,7 @@ fn sink_parquet_to(
         sinked_paths_callback:None
     };
 
-    let _ = lf_ctx.inner
+    let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
         .sink(destination, file_format, unified_args)?
         .collect()?;
     Ok(())
@@ -457,7 +404,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet_host_paths(
                 cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl, cloud_keys, cloud_values, cloud_len,
             )
         };
-        lf_ctx.inner
+        resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
             .sink(destination, FileWriteFormat::Parquet(write_options), unified_args)?
             .collect_with_engine(Engine::Streaming)?;
         Ok(())

@@ -1,3 +1,4 @@
+use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans, resolve_anonymous_scans_in_plans};
 use std::ffi::{CStr, c_char, c_int};
 use polars::frame::PivotColumnNaming;
 use polars::prelude::*;
@@ -615,6 +616,10 @@ pub extern "C" fn pl_lazy_collect(
             _ => Engine::Auto,
         };
 
+        let lf = match AnonymousScanMode::for_collect(engine, &lf.logical_plan) {
+            Some(mode) => resolve_anonymous_scans(lf, mode)?,
+            None => lf,
+        };
         let query_result = lf.collect_with_engine(engine)?;
         
         let df = query_result.unwrap_single();
@@ -647,6 +652,10 @@ pub extern "C" fn pl_lazy_collect_all(
             _ => Engine::Auto,
         };
 
+        let plans = match AnonymousScanMode::for_collect_all(engine, &plans) {
+            Some(mode) => resolve_anonymous_scans_in_plans(plans, mode)?,
+            None => plans,
+        };
         let dfs = LazyFrame::collect_all_with_engine(plans, engine, OptFlags::default())?;
 
         let out_slice = unsafe { std::slice::from_raw_parts_mut(out_dfs_ptr, lfs_len) };

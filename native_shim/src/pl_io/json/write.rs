@@ -1,3 +1,4 @@
+use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans};
 use polars::prelude::*;
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -143,7 +144,7 @@ pub extern "C" fn pl_lazyframe_sink_json(
         let target = SinkTarget::Path(PlRefPath::from(path_str));
         let destination = SinkDestination::File { target };
 
-        let _ = lf_ctx.inner
+        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
             .sink(destination, file_format, unified_args)?
             .collect()?;
 
@@ -229,7 +230,7 @@ pub extern "C" fn pl_lazyframe_sink_json_partitioned(
             )?
         };
 
-        let _ = lf_ctx.inner
+        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
             .sink(destination, file_format, unified_args)?
             .collect()?;
 
@@ -260,7 +261,7 @@ fn sink_json_to(
         sinked_paths_callback: None
     };
 
-    lf_ctx.inner
+    resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
         .sink(destination, file_format, unified_args)?
         .collect()?;
     Ok(())

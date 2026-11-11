@@ -262,6 +262,13 @@ use result =
 
 :::
 
+> [!NOTE] Memory and the streaming engine
+> A scan over a .NET source (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) is read when the query runs:
+> * `Sink*` (Parquet, CSV, IPC, NDJSON, partitioned), `SinkBatches` / `SinkTo` and `CollectBatchesAsync(engine: Engine.Streaming)` write the source batch by batch to a temporary Arrow IPC file and stream from it, so memory stays bounded by a batch. Pass the same frame twice (a self-join, `CollectAll`) and the source is still read once.
+> * `Collect()`, and `CollectBatchesAsync` on the default engine, read the whole source into memory first: `Engine.Auto` runs in memory.
+>
+> The temporary file goes in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and disappears when the query ends. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk to keep large sinks out of RAM. `ScanDatabaseBuffered` and `useBuffered: true` use the same kind of file, but read the source as soon as the frame is created. The file then lives until the last frame that scans it is released.
+
 ---
 
 ### Direct LINQ Pipeline Entrypoint (`reader.AsPolarsQueryable<T>`)

@@ -13,7 +13,8 @@ public partial class LazyFrame : IDisposable
         using var newLfHandle = PolarsWrapper.SinkBatches(CloneHandle(), onBatchReceived);
 
         using var lfRes = new LazyFrame(newLfHandle);
-        using var _ = lfRes.Collect(); 
+        // The streaming engine hands batches over as they are produced; Auto would run in memory.
+        using var _ = lfRes.Collect(Engine.Streaming);
     }
 
 }

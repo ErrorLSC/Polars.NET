@@ -27,16 +27,21 @@ module DataReaderRead =
                 // 1. Buffered Mode (Disk IPC)
                 // =========================================================
                 if buffered then
-                    let scope = new IpcStreamService.TempIpcScope<'T>(data, size)
-                    
-                    // Get FileHandle
-                    let handle = LazyFrame.ScanIpc(scope.FilePath).Handle
-                    
-                    { new LazyFrame(handle) with
-                        member this.Dispose() =
-                            base.Dispose()
-                            scope.Dispose()
-                    }
+                    // Read now into a temporary Arrow IPC file the engine owns (removed with the last frame).
+                    let schema = ArrowConverter.GetSchemaFromType<'T>()
+                    let factory = Func<IEnumerable<RecordBatch>>(fun () ->
+                        seq {
+                            let mutable hasYielded = false
+                            for batch in ArrowConverter.ToArrowBatches(data, size).Prefetch() do
+                                hasYielded <- true
+                                yield batch
+                                batch.Dispose()
+                            if not hasYielded then
+                                let emptyBatch = ArrowConverter.GetEmptyBatch<'T>()
+                                yield emptyBatch
+                                emptyBatch.Dispose()
+                        })
+                    new LazyFrame(ArrowStreamInterop.ScanStreamBuffered(factory, schema))
 
                 // =========================================================
                 // 2. Streaming Mode (Memory Safety & Lazy Fallback)
@@ -77,18 +82,16 @@ module DataReaderRead =
             // 1. Buffered Mode (Disk IPC)
             // =========================================================
             if buffered then
-                let runBuffer () =
-                    use reader = readerFactory()
-                    new IpcStreamService.TempIpcScopeReader(reader, size)
-
-                let scope = runBuffer()
-                let handle = LazyFrame.ScanIpc(scope.FilePath).Handle
-
-                { new LazyFrame(handle) with
-                    member this.Dispose() =
-                        base.Dispose()
-                        scope.Dispose()
-                }
+                // Read now into a temporary Arrow IPC file the engine owns (removed with the last frame).
+                use reader = readerFactory()
+                let schema = reader.GetArrowSchema()
+                let factory = Func<IEnumerable<RecordBatch>>(fun () ->
+                    seq {
+                        for batch in reader.ToArrowBatches(size).Prefetch() do
+                            yield batch
+                            batch.Dispose()
+                    })
+                new LazyFrame(ArrowStreamInterop.ScanStreamBuffered(factory, schema))
 
             // =========================================================
             // 2. Streaming Mode (Memory)
