@@ -32,7 +32,7 @@ public class DeletionVectorTests
     private static byte[] Le32(uint v) { var b = new byte[4]; BinaryPrimitives.WriteUInt32LittleEndian(b, v); return b; }
     private static byte[] Le16(int v) { var b = new byte[2]; BinaryPrimitives.WriteUInt16LittleEndian(b, (ushort)v); return b; }
     private static byte[] Le64(long v) { var b = new byte[8]; BinaryPrimitives.WriteInt64LittleEndian(b, v); return b; }
-    private static byte[] Cat(params byte[][] parts) => parts.SelectMany(p => p).ToArray();
+    private static byte[] Cat(params byte[][] parts) => [.. parts.SelectMany(p => p)];
 
     private static byte[] Array64(params (uint High, byte[] Bitmap)[] bitmaps) =>
         Cat([Le32(1681511377), Le64(bitmaps.Length), .. bitmaps.SelectMany(b => new[] { Le32(b.High), b.Bitmap })]);

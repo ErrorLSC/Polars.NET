@@ -15,7 +15,7 @@ public partial class LazyFrame : IDisposable
     /// </summary>
     /// <example>
     /// <code>
-    /// LazyFrame.Concat(new[] { lf1, lf2 }, ConcatType.Vertical)
+    /// LazyFrame.Concat([lf1, lf2], ConcatType.Vertical)
     ///          .Collect();
     /// </code>
     /// </example>
@@ -41,7 +41,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         bool unitLengthAsScalar = false)
     {
         var dfList = dfs.ToList();
-        if (dfList.Count == 0) return new DataFrame();
+        if (dfList.Count == 0) return [];
 
         var handles = dfList.Select(df => df.Clone().Handle).ToArray();
 
@@ -68,7 +68,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// });
     /// 
     /// // Vertical Concat (Union rows)
-    /// var catVertical = DataFrame.ConcatVertical(new[] { df1, df2 });
+    /// var catVertical = DataFrame.ConcatVertical([df1, df2]);
     /// catVertical.Show();
     /// /* Output:
     /// shape: (4, 2)
@@ -86,7 +86,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// 
     /// // Horizontal Concat (Append columns)
     /// var df3 = DataFrame.FromColumns(new { c = new[] { "x", "y" } });
-    /// var catHorizontal = DataFrame.ConcatHorizontal(new[] { df1, df3 });
+    /// var catHorizontal = DataFrame.ConcatHorizontal([df1, df3]);
     /// catHorizontal.Show();
     /// /* Output:
     /// shape: (2, 3)

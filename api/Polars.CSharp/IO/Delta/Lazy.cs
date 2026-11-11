@@ -209,7 +209,7 @@ public partial class LazyFrame : IDisposable
     /// <returns>A <see cref="DeltaMergeBuilder"/> instance used to chain match conditions, culminating in a call to <c>.Execute()</c>.</returns>
     /// <example>
     /// <code>
-    /// lf.MergeDeltaOrdered("s3://bucket/my_table", new[] { "Id" })
+    /// lf.MergeDeltaOrdered("s3://bucket/my_table", ["Id"])
     ///   .WhenMatchedDelete(m => m.Source("Status") == "Deleted") // Evaluated 1st
     ///   .WhenMatchedUpdate(m => m.Source("Stock") > m.Target("Stock")) // Evaluated 2nd
     ///   .WhenNotMatchedInsert()                                      // Evaluated 3rd

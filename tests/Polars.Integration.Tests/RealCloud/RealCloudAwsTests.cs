@@ -338,7 +338,7 @@ public sealed class RealCloudAwsTests : IClassFixture<RealAwsCleanup>
         Assert.Equal([1.0, 30.0, 4.0, 5.0], latest["Price"].ToArray<double>());
         // Rows that lived through the delete, update, merge and optimize kept their ids; the inserted one has a new id.
         var now = RowIds();
-        Assert.All(new[] { 1L, 3L, 4L }, id => Assert.Equal(written[id], now[id]));
+        Assert.All([1L, 3L, 4L], id => Assert.Equal(written[id], now[id]));
         Assert.DoesNotContain(now[5], written.Values);
         Assert.Equal(4, now.Values.Distinct().Count());
 
@@ -411,7 +411,7 @@ public sealed class RealCloudAwsMachineTests : IClassFixture<RealAwsCleanup>
 
             string[] lines = [.. result.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
             Assert.True(lines.Length == 2, result);
-            foreach (var (line, backend) in lines.Zip(new[] { "managed", "native" }))
+            foreach (var (line, backend) in lines.Zip(["managed", "native"]))
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(line);
                 var root = doc.RootElement;

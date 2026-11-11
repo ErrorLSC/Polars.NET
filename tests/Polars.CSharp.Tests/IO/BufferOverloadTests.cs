@@ -186,12 +186,12 @@ public class BufferOverloadTests
         }
 
         var parquet = Bytes("parquet");
-        foreach (var lf in new[]
-        {
+        LazyFrame[] lfs = [
             LazyFrame.ScanParquet(parquet, nRows: 5, rowIndexName: "idx", rowIndexOffset: 10),
             LazyFrame.ScanParquet(parquet.AsSpan(), nRows: 5, rowIndexName: "idx", rowIndexOffset: 10),
             LazyFrame.ScanParquet(parquet.AsMemory(), nRows: 5, rowIndexName: "idx", rowIndexOffset: 10),
-        })
+        ];
+        foreach (var lf in lfs)
         {
             using (lf)
             using (var df = lf.Collect())
@@ -219,14 +219,15 @@ public class BufferOverloadTests
     {
         using var memory = new TrackingMemory([]);
         Assert.Throws<ArgumentException>(() => LazyFrame.ScanParquet(memory.Memory));
-        Assert.Throws<ArgumentException>(() => LazyFrame.ScanCsv(ReadOnlySpan<byte>.Empty));
+        Assert.Throws<ArgumentException>(() => LazyFrame.ScanCsv([]));
         Assert.Equal(0, memory.Pins);
     }
 
     [Fact]
     public void Eager_Reads_Take_Every_Buffer_Kind()
     {
-        foreach (var format in new[] { "parquet", "ipc", "csv", "avro" })
+        string[] formats = ["parquet", "ipc", "csv", "avro"];
+        foreach (var format in formats)
         {
             var bytes = Bytes(format);
             var memory = new ReadOnlyMemory<byte>(bytes);
@@ -243,7 +244,8 @@ public class BufferOverloadTests
         }
 
         var json = Encoding.UTF8.GetBytes("[" + string.Join(",", Enumerable.Range(0, 1000).Select(i => $"{{\"id\":{i},\"name\":\"n{i}\"}}")) + "]");
-        foreach (var df in new[] { DataFrame.ReadJson(json), DataFrame.ReadJson(json.AsSpan()), DataFrame.ReadJson(json.AsMemory()) })
+        DataFrame[] dfs = [DataFrame.ReadJson(json), DataFrame.ReadJson(json.AsSpan()), DataFrame.ReadJson(json.AsMemory())];
+        foreach (var df in dfs)
             using (df)
                 AssertSample(df);
     }

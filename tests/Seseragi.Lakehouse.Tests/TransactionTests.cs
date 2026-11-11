@@ -282,7 +282,7 @@ public class TransactionTests
         var metadata = new MetadataAction
         {
             Id = "t1", SchemaString = schema, PartitionColumns = ["p"],
-            Configuration = propertyKey is null ? new Dictionary<string, string>() : new Dictionary<string, string> { [propertyKey] = "id > 0" },
+            Configuration = propertyKey is null ? [] : new Dictionary<string, string> { [propertyKey] = "id > 0" },
         };
         var protocol = new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 7, WriterFeatures = [feature] };
         var fs = new MemoryFileSystem();

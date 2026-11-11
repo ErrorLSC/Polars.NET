@@ -1205,7 +1205,7 @@ public static partial class TpcdsQueries
 
         var startDate = new DateOnly(1999, 2, 22);
         var endDate = new DateOnly(1999, 3, 24);
-        var categories = new[] { "Sports", "Books", "Home" };
+        string[] categories = ["Sports", "Books", "Home"];
 
         var q98 = (from ss in storeSalesQuery
                    join i in itemQuery on ss.ss_item_sk equals i.i_item_sk

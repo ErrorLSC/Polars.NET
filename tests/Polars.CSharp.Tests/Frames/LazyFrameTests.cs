@@ -496,12 +496,11 @@ David,40,80000";
     // raw: List<int> -> Array(2) -> Struct { field_0, field_1 }
     private static DataFrame CreateStructDataFrame()
     {
-        var data = new[] 
-        { 
-            new[] { 1, 2 }, 
+        int[][] data = [ 
+            [1, 2], 
             [10, 20],
             [100, 200]
-        };
+        ];
 
         var df = DataFrame.FromColumns(new { raw = data });
         
@@ -557,8 +556,8 @@ David,40,80000";
     [Trait("LazyFrame","UnnestMultipleCols")]
     public void Test_LazyFrame_Unnest_Multiple_Cols()
     {
-        var data1 = new[] { new[] { 1, 2 } };
-        var data2 = new[] { new[] { 3, 4 } };
+        int[][] data1 = [[1, 2]];
+        int[][] data2 = [[3, 4]];
         
         using var df = DataFrame.FromColumns(new { raw1 = data1, raw2 = data2 })
             .Select(
@@ -584,7 +583,7 @@ David,40,80000";
     [Fact]
     public void Test_LazyFrame_TopK_BottomK()
     {
-        var data = new[] { 10, 5, 8, 100, 1 };
+        int[] data = [10, 5, 8, 100, 1];
         using var df = DataFrame.FromColumns(new { val = data });
 
         using var top = df.Lazy()
@@ -767,7 +766,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514]),
             Series.From("col2",[5.5,4.4,double.NaN]),
-            Series.From("col3",new long?[] {null,985L,211L}),
+            Series.From<long?>("col3",[null,985L,211L]),
             Series.From("col4", ["",null,"nihao"])
         ).Lazy();
 
@@ -791,7 +790,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514]),
             Series.From("col2",[5.5,double.MaxValue,double.NaN]),
-            Series.From("col3",new long?[] {null,985L,211L})
+            Series.From<long?>("col3",[null,985L,211L])
         ).Lazy();
 
         var lf2 = lf.Clone();
@@ -814,7 +813,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514]),
             Series.From("col2",[5.5,double.MaxValue,double.NaN]),
-            Series.From("col3",new long?[] {null,985L,211L})
+            Series.From<long?>("col3",[null,985L,211L])
         ).Lazy();
 
         var lf2 = lf.Clone();
@@ -837,7 +836,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514]),
             Series.From("col2",[5.5,double.MaxValue,double.NaN]),
-            Series.From("col3",new long?[] {null,985L,211L})
+            Series.From<long?>("col3",[null,985L,211L])
         ).Lazy();
 
         var lf2 = lf.Clone();
@@ -860,7 +859,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514]),
             Series.From("col2",[5.5,4.4,double.NaN]),
-            Series.From("col3",new long?[] {null,985L,211L}),
+            Series.From<long?>("col3",[null,985L,211L]),
             Series.From("col4", ["",null,"nihao"])
         ).Lazy();
 
@@ -878,7 +877,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514,6546213]),
             Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
-            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+            Series.From<long?>("col3",[null,985L,211L,1919810L])
         ).Lazy();
 
         var result = lf.Quantile(0.4,method:QuantileMethod.Linear).Collect();
@@ -894,7 +893,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514,6546213]),
             Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
-            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+            Series.From<long?>("col3",[null,985L,211L,1919810L])
         ).Lazy();
 
         var result = lf.Filter([false,false,true,true]).Collect();
@@ -908,7 +907,7 @@ David,40,80000";
         var lf = DataFrame.FromSeries(
             Series.From("col1",[1,0,114514,6546213]),
             Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
-            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+            Series.From<long?>("col3",[null,985L,211L,1919810L])
         ).Lazy();
 
         Series mask = Series.From("mask",new bool?[] {true,null,null,null});
@@ -1086,7 +1085,7 @@ David,40,80000";
         Assert.Equal("Value", result.Columns[1]);
 
         var indexArray = result["index"].ToArray<uint>();
-        Assert.Equal(new uint[] { 0, 1, 2 }, indexArray);
+        Assert.Equal([0, 1, 2], indexArray);
     }
 
     [Fact]
@@ -1107,7 +1106,7 @@ David,40,80000";
         Assert.Equal("row_id", result.Columns[0]);
 
         var indexArray = result["row_id"].ToArray<uint>();
-        Assert.Equal(new uint[] { 10, 11, 12, 13 }, indexArray);
+        Assert.Equal([10, 11, 12, 13], indexArray);
     }
 
     [Fact]
@@ -1176,7 +1175,7 @@ David,40,80000";
         Assert.Equal([10, 200, 30], valAArray);
         
         // ValueB:
-        Assert.Equal(new string[] { "x", "yy", "zz" }, valBArray);
+        Assert.Equal(["x", "yy", "zz"], valBArray);
     }
 
     [Fact]
@@ -1319,7 +1318,7 @@ David,40,80000";
 
         Assert.Equal(3, result.Height);
         var names = result[0].ToArray<string>();
-        Assert.Equal(new[] { "Alice", "Bob", "Diana" }, names);
+        Assert.Equal(["Alice", "Bob", "Diana"], names);
     }
     [Fact]
     [Trait("LazyFrame", "PipeWithSchema")]

@@ -2063,8 +2063,7 @@ public partial class TpchLinqTests
 
         Assert.Equal(7, results.Count);
 
-        var expected = new (string code, int count, decimal total)[]
-        {
+        (string code, int count, decimal total)[] expected = [
             ("13", 10, 75359.29m),
             ("17", 8, 62288.98m),
             ("18", 14, 111072.45m),
@@ -2072,7 +2071,7 @@ public partial class TpchLinqTests
             ("29", 11, 88722.85m),
             ("30", 17, 122189.33m),
             ("31", 8, 66313.16m)
-        };
+        ];
 
         for (int i = 0; i < expected.Length; i++)
         {

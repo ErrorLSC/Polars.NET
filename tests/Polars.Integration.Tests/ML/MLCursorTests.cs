@@ -37,7 +37,7 @@ public class PolarsRowCursorTests
         while (cursor.MoveNext())
         {
             getter(ref value);
-            result.Add(value.DenseValues().ToArray());
+            result.Add([.. value.DenseValues()]);
         }
         return result;
     }
@@ -51,8 +51,8 @@ public class PolarsRowCursorTests
             Series.From("L", new long?[] { null, -5L, 7L }),
             Series.From("F", new float?[] { 1.5f, null, -2f }),
             Series.From("D", new double?[] { null, 2.25, 3.5 }),
-            Series.From("B", new bool?[] { true, null, false }),
-            Series.From("S", new string?[] { "a", null, "长字符串-long-enough-to-not-be-inlined" })
+            Series.From<bool?>("B", [true, null, false]),
+            Series.From("S", ["a", null, "长字符串-long-enough-to-not-be-inlined"])
         );
         var dv = df.AsDataView();
 
@@ -181,7 +181,7 @@ public class PolarsRowCursorTests
                     idG(ref id);
                     fixedG(ref fv);
                     varG(ref vv);
-                    Assert.Equal([(float)id, -id], fv.DenseValues().ToArray());
+                    Assert.Equal([(float)id, -id], [.. fv.DenseValues()]);
                     Assert.Equal(varVecs[id], vv.DenseValues().ToArray());
                     seen++;
                 }
@@ -225,7 +225,7 @@ public class PolarsRowCursorTests
     public void Enum_ReadsAsOneBasedKeys_InCategoryOrder()
     {
         using var df = DataFrame.FromSeries(
-            Series.From("E", new string?[] { "lo", "hi", "mid", null, "hi" }).Cast(DataType.Enum(["lo", "mid", "hi"])));
+            Series.From("E", ["lo", "hi", "mid", null, "hi"]).Cast(DataType.Enum(["lo", "mid", "hi"])));
         var dv = df.AsDataView();
 
         var keyType = Assert.IsType<KeyDataViewType>(dv.Schema["E"].Type);
@@ -255,8 +255,8 @@ public class PolarsRowCursorTests
     {
         // Polars exports a per-batch, re-compacted dictionary: "z" in chunk 2 gets the same local index as "x"
         // in chunk 1. Keys must still be global.
-        using var a = DataFrame.FromSeries(Series.From("C", new string?[] { "x", "y", null, "x" }).Cast(DataType.Categorical()));
-        using var b = DataFrame.FromSeries(Series.From("C", new string?[] { "z", "y" }).Cast(DataType.Categorical()));
+        using var a = DataFrame.FromSeries(Series.From("C", ["x", "y", null, "x"]).Cast(DataType.Categorical()));
+        using var b = DataFrame.FromSeries(Series.From("C", ["z", "y"]).Cast(DataType.Categorical()));
         using var df = a.VStack(b);
         var dv = df.AsDataView();
 
@@ -314,7 +314,7 @@ public class PolarsRowCursorTests
     [Trait("ML", "Key")]
     public void Categorical_AllNull_HasSingleSlotKeyAndReadsMissing()
     {
-        using var df = DataFrame.FromSeries(Series.From("C", new string?[] { null, null }).Cast(DataType.Categorical()));
+        using var df = DataFrame.FromSeries(Series.From<string?>("C", [null, null]).Cast(DataType.Categorical()));
         var dv = df.AsDataView();
 
         Assert.Equal(1UL, ((KeyDataViewType)dv.Schema["C"].Type).Count);

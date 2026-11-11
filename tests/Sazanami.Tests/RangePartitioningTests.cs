@@ -77,10 +77,12 @@ public class RangePartitioningTests
     {
         var type = new Apache.Arrow.Types.Decimal128Type(20, 2);
         var b = new Decimal128Array.Builder(type);
-        foreach (decimal v in new[] { 3.50m, -1.25m, 100m, 0m, 2m }) b.Append(v);
+        decimal[] sample = [3.50m, -1.25m, 100m, 0m, 2m];
+        foreach (decimal v in sample) b.Append(v);
         RangeBoundaries boundaries = RangeBoundaries.FromSample(b.Build(), 5);
         var probe = new Decimal128Array.Builder(type);
-        foreach (decimal v in new[] { -1.25m, 0m, 2m, 3.50m, 100m }) probe.Append(v);
+        decimal[] probes = [-1.25m, 0m, 2m, 3.50m, 100m];
+        foreach (decimal v in probes) probe.Append(v);
         Assert.Equal([0u, 1u, 2u, 3u, 4u], Ids(boundaries, probe.Build()));
     }
 

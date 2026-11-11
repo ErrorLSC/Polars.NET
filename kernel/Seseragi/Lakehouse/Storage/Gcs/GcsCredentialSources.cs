@@ -27,7 +27,8 @@ internal static class GcsCredentialSources
         {
             StoreResponse? answer = null;
             StorageException? failure = null;
-            foreach (string server in new[] { host, ip })
+            string[] servers = [host, ip];
+            foreach (string server in servers)
             {
                 try
                 {

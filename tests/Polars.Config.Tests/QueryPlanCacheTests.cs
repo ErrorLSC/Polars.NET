@@ -185,7 +185,7 @@ public class QueryPlanCacheTests
         QueryPlanCache.Clear();
         using var df = DataFrame.FromRows(Customers);
         var ids = new List<int> { 1, 3 };
-        List<int> Run() => df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList();
+        List<int> Run() => [.. df.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id)];
 
         // Same contents: admitted on the second sighting, then hit.
         Assert.Equal([1, 3], Run());
@@ -234,7 +234,7 @@ public class QueryPlanCacheTests
         using var dfD = DataFrame.FromRows([new Customer { Id = 11, City = "Lima", Balance = 3m }]);
 
         List<int> ConcatIds(DataFrame second) =>
-            dfA.AsQueryable<Customer>().Concat(second.AsQueryable<Customer>()).Select(c => c.Id).ToList();
+            [.. dfA.AsQueryable<Customer>().Concat(second.AsQueryable<Customer>()).Select(c => c.Id)];
 
         // Seen twice, the two-root pipeline is admitted; the third query hits it with its own second root.
         Assert.Equal([1, 2, 3, 9], ConcatIds(dfB));
@@ -259,7 +259,7 @@ public class QueryPlanCacheTests
         using var dfB = DataFrame.FromRows([new Customer { Id = 2, City = "Oslo", Balance = 1m }]);
 
         static List<string> Pairs(IQueryable<Customer> left, IQueryable<Customer> right) =>
-            left.Join(right, l => l.Id, r => r.Id, (l, r) => l.City + "/" + r.City).ToList();
+            [.. left.Join(right, l => l.Id, r => r.Id, (l, r) => l.City + "/" + r.City)];
 
         // A self-join reads one table (one query) through both roots; it is cached after two sightings.
         var a1 = dfA.AsQueryable<Customer>();
@@ -326,9 +326,7 @@ public class QueryPlanCacheTests
         {
             using var dfO = DataFrame.FromRows(orders);
             var ordersQuery = dfO.AsQueryable<Order>();
-            return InlineRoot(dfA.AsQueryable<Customer>().Where(c => ordersQuery.Any(o => o.CustomerId == c.Id)), ordersQuery)
-                .Select(c => c.Id)
-                .ToList();
+            return [.. InlineRoot(dfA.AsQueryable<Customer>().Where(c => ordersQuery.Any(o => o.CustomerId == c.Id)), ordersQuery).Select(c => c.Id)];
         }
 
         Assert.Equal([1], WithOrders([new Order { CustomerId = 1, Amount = 5m }]));
@@ -344,19 +342,16 @@ public class QueryPlanCacheTests
     {
         QueryPlanCache.Clear();
         using var dfA = DataFrame.FromRows(Customers);
-        using var dfO = DataFrame.FromRows(new[]
-        {
+        using var dfO = DataFrame.FromRows([
             new Order { CustomerId = 1, Amount = 5m },
             new Order { CustomerId = 2, Amount = 50m },
             new Order { CustomerId = 3, Amount = 500m },
-        });
+        ]);
 
         // The subquery is inlined as a constant (as F# captures it). Its element type and root table are the same
         // for every subquery here, so only its own expression tells the plans apart.
         List<int> CustomersIn(IQueryable<int> customerIds) =>
-            InlineRoot(dfA.AsQueryable<Customer>().Where(c => customerIds.Contains(c.Id)), customerIds)
-                .Select(c => c.Id)
-                .ToList();
+            [.. InlineRoot(dfA.AsQueryable<Customer>().Where(c => customerIds.Contains(c.Id)), customerIds).Select(c => c.Id)];
 
         var orders = dfO.AsQueryable<Order>();
         for (int i = 0; i < 3; i++)
@@ -367,7 +362,7 @@ public class QueryPlanCacheTests
         Assert.Equal([1, 2], CustomersIn(orders.OrderBy(o => o.Amount).Take(2).Select(o => o.CustomerId)));
 
         // The same subquery over another orders table still reuses the plan, bound to that table.
-        using var dfO2 = DataFrame.FromRows(new[] { new Order { CustomerId = 2, Amount = 900m } });
+        using var dfO2 = DataFrame.FromRows([new Order { CustomerId = 2, Amount = 900m }]);
         var hitsBefore = QueryPlanCache.Hits;
         Assert.Equal([2], CustomersIn(dfO2.AsQueryable<Order>().Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
         Assert.True(QueryPlanCache.Hits > hitsBefore);
@@ -385,7 +380,7 @@ public class QueryPlanCacheTests
         {
             using var dfO = DataFrame.FromRows(orders);
             var ids = dfO.AsQueryable<Order>().Where(o => o.Amount > minimum).Select(o => o.CustomerId);
-            return dfA.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToList();
+            return [.. dfA.AsQueryable<Customer>().Where(c => ids.Contains(c.Id)).Select(c => c.Id)];
         }
 
         Assert.Equal([1], CustomersWithBigOrders([new Order { CustomerId = 1, Amount = 50m }], 10m));
@@ -405,17 +400,16 @@ public class QueryPlanCacheTests
     {
         QueryPlanCache.Clear();
         using var dfA = DataFrame.FromRows(Customers);
-        using var dfO = DataFrame.FromRows(new[]
-        {
+        using var dfO = DataFrame.FromRows([
             new Order { CustomerId = 1, Amount = 5m },
             new Order { CustomerId = 2, Amount = 50m },
             new Order { CustomerId = 3, Amount = 500m },
-        });
+        ]);
         var orders = dfO.AsQueryable<Order>();
 
         // Typed as IEnumerable<int>, as a query variable often is.
         List<int> CustomersIn(IEnumerable<int> customerIds) =>
-            dfA.AsQueryable<Customer>().Where(c => customerIds.Contains(c.Id)).Select(c => c.Id).ToList();
+            [.. dfA.AsQueryable<Customer>().Where(c => customerIds.Contains(c.Id)).Select(c => c.Id)];
 
         for (int i = 0; i < 3; i++)
             Assert.Equal([3], CustomersIn(orders.Where(o => o.Amount > 100m).Select(o => o.CustomerId)));
@@ -438,10 +432,9 @@ public class QueryPlanCacheTests
         {
             using var dfO = DataFrame.FromRows(orders);
             var ordersQuery = dfO.AsQueryable<Order>();
-            return dfA.AsQueryable<Customer>()
+            return [.. dfA.AsQueryable<Customer>()
                 .Where(c => ordersQuery.Any(o => o.CustomerId == c.Id && TestUdfMethods.MaskName(c.City) != ""))
-                .Select(c => c.Id)
-                .ToList();
+                .Select(c => c.Id)];
         }
 
         using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
@@ -467,12 +460,11 @@ public class QueryPlanCacheTests
         {
             using var dfO = DataFrame.FromRows(orders);
             var ordersQuery = dfO.AsQueryable<Order>();
-            return InlineRoot(
+            return [.. InlineRoot(
                     dfA.AsQueryable<Customer>()
                         .Where(c => ordersQuery.Any(o => o.CustomerId == c.Id && TestUdfMethods.MaskName(c.City) != "")),
                     ordersQuery)
-                .Select(c => c.Id)
-                .ToList();
+                .Select(c => c.Id)];
         }
 
         using (Pl.Config.SetDisallowUdfPushdown(true).BeginScope())
@@ -658,7 +650,7 @@ public class QueryPlanCacheTests
     public record CachedIntShadeRow(int Id, int Shade);
 
     private static List<int> BlueIds(DataFrame df) =>
-        df.AsQueryable<CachedShadeRow>().Where(r => r.Shade == CachedShade.Blue).Select(r => r.Id).ToList();
+        [.. df.AsQueryable<CachedShadeRow>().Where(r => r.Shade == CachedShade.Blue).Select(r => r.Id)];
 
     [Fact]
     [Trait("LINQ", "QueryPlanCache")]
@@ -687,14 +679,13 @@ public class QueryPlanCacheTests
     private static List<long> AboveSingle(DataFrame facts, DataFrame others)
     {
         var o = others.AsQueryable<CacheKv>();
-        return facts.AsQueryable<CacheKv>().Where(x => x.V > o.Single(y => y.K == 7).V).Select(x => x.K).ToList();
+        return [.. facts.AsQueryable<CacheKv>().Where(x => x.V > o.Single(y => y.K == 7).V).Select(x => x.K)];
     }
 
     private static List<long> InOtherKeys(DataFrame facts, DataFrame others)
     {
         var o = others.AsQueryable<CacheKv>();
-        return facts.AsQueryable<CacheKv>().Where(x => o.Where(y => y.V > 0).Select(y => y.K).ToList().Contains(x.K))
-            .Select(x => x.K).ToList();
+        return [.. facts.AsQueryable<CacheKv>().Where(x => o.Where(y => y.V > 0).Select(y => y.K).ToList().Contains(x.K)).Select(x => x.K)];
     }
 
     // Single runs in the plan (a count assertion) unless UDF pushdown is disallowed: it is then evaluated
@@ -707,9 +698,9 @@ public class QueryPlanCacheTests
     {
         using var _ = Pl.Config.SetDisallowUdfPushdown(disallowUdfs).BeginScope();
         QueryPlanCache.Clear();
-        using var facts = DataFrame.FromRows(new CacheKv[] { new() { K = 1, V = 10 }, new() { K = 2, V = 50 }, new() { K = 3, V = 90 } });
-        using var low = DataFrame.FromRows(new CacheKv[] { new() { K = 7, V = 20 }, new() { K = 1, V = 5 } });
-        using var high = DataFrame.FromRows(new CacheKv[] { new() { K = 7, V = 80 }, new() { K = 3, V = 5 } });
+        using var facts = DataFrame.FromRows<CacheKv>([new() { K = 1, V = 10 }, new() { K = 2, V = 50 }, new() { K = 3, V = 90 }]);
+        using var low = DataFrame.FromRows<CacheKv>([new() { K = 7, V = 20 }, new() { K = 1, V = 5 }]);
+        using var high = DataFrame.FromRows<CacheKv>([new() { K = 7, V = 80 }, new() { K = 3, V = 5 }]);
 
         for (int i = 0; i < 3; i++)
         {
@@ -821,7 +812,7 @@ public class QueryPlanCacheTests
         Assert.Equal(2, shared.Count);
         // The grouping itself is shared, not only a prefix beneath it.
         Assert.All(shared, i => Assert.Contains("GroupBy", lines[i + 1]));
-        Assert.Equal(expected, query.ToList());
+        Assert.Equal(expected, [.. query]);
     }
 
     [Fact]
@@ -854,11 +845,11 @@ public class QueryPlanCacheTests
             PolarsRuntimeConfig.AllowUnstableOrdering = false;
             string stable = "";
             for (int run = 0; run < 3; run++) stable = Query().ExplainLogicalPlan();
-            Assert.Equal(expected, Query().ToList());
+            Assert.Equal(expected, [.. Query()]);
 
             PolarsRuntimeConfig.AllowUnstableOrdering = true;
             string unstable = Query().ExplainLogicalPlan();
-            Assert.Equal(expected, Query().ToList());
+            Assert.Equal(expected, [.. Query()]);
 
             // The printed tree lists the last join first. Written order joins the items first (deepest); the filtered
             // stores go deepest once ties are unspecified.

@@ -1218,7 +1218,7 @@ public readonly partial struct PolarsWrapper
                 IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
 
                 using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                    schema != null ? new[] { schema } : null
+                    schema != null ? [schema] : null
                 );
                 IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
@@ -1519,12 +1519,12 @@ public readonly partial struct PolarsWrapper
                 nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
 
                 using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                    schema != null ? new[] { schema } : null
+                    schema != null ? [schema] : null
                 );
                 nint schemaPtr = schema != null ? schemaLock.Pointers[0] : nint.Zero;
 
                 using var hiveLock = new SafeHandleLock<SchemaHandle>(
-                    hivePartitionSchema != null ? new[] { hivePartitionSchema } : null
+                    hivePartitionSchema != null ? [hivePartitionSchema] : null
                 );
                 nint hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : nint.Zero;
 
@@ -1962,7 +1962,7 @@ public readonly partial struct PolarsWrapper
         unsafe
         {
             using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                schema != null ? new[] { schema } : null
+                schema != null ? [schema] : null
             );
             IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 

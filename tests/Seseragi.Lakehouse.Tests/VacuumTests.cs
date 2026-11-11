@@ -25,11 +25,11 @@ public class VacuumTests
         Transaction.Start(fs, Snapshot.Load(fs), "DELETE")
             .Add(new RemoveAction { Path = "b.parquet", DeletionTimestamp = DaysAgo(1), ExtendedFileMetadata = true, Size = 20 }).Commit();
 
-        foreach (string path in new[]
-                 {
+        string[] paths = [
                      "a.parquet", "b.parquet", "c.parquet", "orphan.parquet", "region=east/old.parquet", "_change_data/cdc-1.parquet",
                      ".hidden/x.parquet", "_SUCCESS", "_staging/y.parquet", "region=east/.part.crc",
-                 })
+                 ];
+        foreach (string path in paths)
             fs.PutBytes(path, [1, 2, 3]);
         fs.Put("recent-orphan.parquet", "x", Now);
         return (fs, Snapshot.Load(fs));

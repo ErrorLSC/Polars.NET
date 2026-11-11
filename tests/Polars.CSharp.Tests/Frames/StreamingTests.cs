@@ -766,6 +766,6 @@ public class StreamingTests(ITestOutputHelper output)
         // Assert: 100 total rows sliced exactly into 4 batches [30, 30, 30, 10]
         Assert.Equal(4, batchCount);
         Assert.Equal(100L, totalRows);
-        Assert.Equal(new long[] { 30, 30, 30, 10 }, batchHeights);
+        Assert.Equal([30, 30, 30, 10], batchHeights);
     }
 }

@@ -278,7 +278,7 @@ public class SeriesTests
     public void Test_Series_Cast_Decimal()
     {
         // Create Double Series
-        using var s = Series.From("prices", new double?[] {10.5, 20.0, double.NaN, null,double.MaxValue});
+        using var s = Series.From<double?>("prices", [10.5, 20.0, double.NaN, null,double.MaxValue]);
 
         // Cast to Decimal(10, 2)
         using var sDecimal = s.Cast(DataType.Decimal(10, 2),strict:false);
@@ -293,7 +293,7 @@ public class SeriesTests
     public void Test_Series_Constructor_DateTimeOffset()
     {
         var now = DateTimeOffset.Now;
-        var data = new DateTimeOffset[] { now, now.AddHours(1) };
+        DateTimeOffset[] data = [now, now.AddHours(1)];
 
         using var s1 = Series.From("dto", data);
         Assert.Equal("dto", s1.Name);
@@ -302,7 +302,7 @@ public class SeriesTests
         var v0 = s1.GetValue<DateTimeOffset>(0);
         Assert.Equal(now.UtcTicks / 10 * 10, v0.UtcTicks);
 
-        var dataNull = new DateTimeOffset?[] { now, null };
+        DateTimeOffset?[] dataNull = [now, null];
         using var s2 = Series.From("dto_null", dataNull);
 
         Assert.Equal(2, s2.Length);
@@ -424,7 +424,7 @@ public class SeriesTests
     [Fact]
     public void Test_Series_Sort_Options()
     {
-        using var s = Series.From("nums", new int?[] { 3, null, 1, 3, 2 });
+        using var s = Series.From<int?>("nums", [3, null, 1, 3, 2]);
 
         //  Ascending
         // [null, 1, 2, 3, 3]
@@ -508,7 +508,7 @@ public class SeriesTests
 
         s.Show();
 
-        var sNull = Series.From("nulls", new int?[] { 1, null, 3 });
+        var sNull = Series.From<int?>("nulls", [1, null, 3]);
         var strNull = sNull.ToString();
         Assert.True(strNull.Contains("null"), "Output should represent null values");
     }
@@ -706,12 +706,11 @@ public class SeriesTests
     [Trait("Series","EWM")]
     public void Test_Series_EwmMeanBy_Time()
     {
-        var times = new[]
-        {
+        DateTime[] times = [
             new DateTime(2023, 1, 1),
             new DateTime(2023, 1, 11)
-        };
-        var values = new[] { 10.0, 20.0 };
+        ];
+        double[] values = [10.0, 20.0];
 
         using var df = DataFrame.FromColumns(new
         {
@@ -739,12 +738,11 @@ public class SeriesTests
     [Trait("Series","EWM")]
     public void Test_Series_EwmSumBy_Time()
     {
-        var times = new[]
-        {
+        DateTime[] times = [
             new DateTime(2023, 1, 1),
             new DateTime(2023, 1, 11)
-        };
-        var values = new[] { 10.0, 20.0 };
+        ];
+        double[] values = [10.0, 20.0];
 
         using var df = DataFrame.FromColumns(new
         {
@@ -771,13 +769,12 @@ public class SeriesTests
     public void Test_RollingMeanBy_TimeWindow_And_ClosedBoundary()
     {
         var start = new DateTime(2023, 1, 1, 9, 0, 0);
-        var times = new[]
-        {
+        DateTime[] times = [
             start,
             start.AddHours(1), // 10:00
             start.AddHours(2)  // 11:00
-        };
-        var values = new[] { 10.0, 20.0, 30.0 };
+        ];
+        double[] values = [10.0, 20.0, 30.0];
 
         using var df = DataFrame.FromColumns(new { tm = times, val = values });
 
@@ -824,7 +821,7 @@ public class SeriesTests
     public void Test_RollingQuantileBy_ComplexSignature()
     {
         var times = Enumerable.Range(0, 5).Select(i => new DateTime(2023, 1, 1).AddSeconds(i)).ToArray();
-        var values = new[] { 1.0, 2.0, 3.0, 4.0, 5.0 };
+        double[] values = [1.0, 2.0, 3.0, 4.0, 5.0];
 
         using var df = DataFrame.FromColumns(new { tm = times, val = values });
 
@@ -1116,7 +1113,7 @@ public class SeriesTests
             baseTime.AddHours(1)
         ]);
 
-        using var values = Series.From("val", new double?[] { 10.0, null, 70.0 });
+        using var values = Series.From<double?>("val", [10.0, null, 70.0]);
 
         // Act
         using var interpolated = values.InterpolateBy(times);
@@ -1632,8 +1629,8 @@ public class SeriesTests
     public void Test_IsIn_With_NullsEqual()
     {
         // Arrange
-        var s1 = Pl.CreateSeries("with_nulls", new int?[] { 1, null, 3 });
-        var s2 = Pl.CreateSeries("lookup", new int?[] { null, 2 });
+        var s1 = Pl.CreateSeries<int?>("with_nulls", [1, null, 3]);
+        var s2 = Pl.CreateSeries<int?>("lookup", [null, 2]);
 
         // Act
         // nullsEqual = false (null != null)
@@ -1673,7 +1670,7 @@ public class SeriesTests
     public void Test_Series_LowerBound_And_UpperBound_UInt8()
     {
         // Arrange
-        var series = Pl.CreateSeries("test_uint8", new byte[] { 10, 20 });
+        var series = Pl.CreateSeries("test_uint8", [10, 20]);
 
         // Act
         using var lowerBoundSeries = series.LowerBound();
@@ -1860,7 +1857,7 @@ public class SeriesTests
     public void Test_Series_NanMax_Float_Ignores_NaN()
     {
         // Arrange
-        var floatSeries = Pl.CreateSeries("floats", new double?[] { 10.5, double.NaN, null, 42.0, 3.14 });
+        var floatSeries = Pl.CreateSeries<double?>("floats", [10.5, double.NaN, null, 42.0, 3.14]);
 
         var normalMax = floatSeries.Max<double>();
 
@@ -1915,7 +1912,7 @@ public class SeriesTests
         Assert.Equal(3, countOnes.Len());
 
         var onesResult = countOnes.ToArray<uint>();
-        Assert.Equal(new uint[] { 0, 2, 3 }, onesResult);
+        Assert.Equal([0, 2, 3], onesResult);
     }
     [Fact]
     [Trait("Series", "ReshapeExplicit")]
@@ -2216,13 +2213,13 @@ public class SeriesTests
         using var resSeriesFromArr = s.SearchSorted(searchArray, SearchSortedSide.Left);
 
         var resArr = resSeriesFromArr.ToArray<uint>();
-        Assert.Equal(new uint[] { 0, 1, 4, 5 }, resArr);
+        Assert.Equal([0, 1, 4, 5], resArr);
 
         using var querySeries = Series.From("query", [25, 45]);
         using var resSeriesFromExpr = s.SearchSorted(querySeries);
 
         var resArrExpr = resSeriesFromExpr.ToArray<uint>();
-        Assert.Equal(new uint[] { 3, 5 }, resArrExpr);
+        Assert.Equal([3, 5], resArrExpr);
     }
     [Fact]
     [Trait("Series", "SearchSortedNulls")]
@@ -2240,13 +2237,13 @@ public class SeriesTests
     [Trait("Series", "Statistics")]
     public void Test_Series_Skew_And_Kurtosis()
     {
-        using var sSymmetric = Series.From("symmetric", new double[] { 1, 2, 3, 4, 5 });
+        using var sSymmetric = Series.From("symmetric", [1, 2, 3, 4, 5]);
 
         double? skewSymmetric = sSymmetric.Skew();
         Assert.NotNull(skewSymmetric);
         Assert.Equal(0.0, skewSymmetric.Value, precision: 5);
 
-        using var sRightSkewed = Series.From("right_skew", new double[] { 1, 1, 1, 2, 2, 3, 20, 50 });
+        using var sRightSkewed = Series.From("right_skew", [1, 1, 1, 2, 2, 3, 20, 50]);
 
         double? skewRight = sRightSkewed.Skew(bias: true);
         Assert.NotNull(skewRight);
@@ -2279,7 +2276,7 @@ public class SeriesTests
         Assert.NotNull(skewWithNulls);
         Assert.Equal(0.0, skewWithNulls.Value, precision: 5);
 
-        using var sAllNulls = Series.From("all_nulls", new double?[] { null, null, null });
+        using var sAllNulls = Series.From<double?>("all_nulls", [null, null, null]);
         double? skewAllNulls = sAllNulls.Skew();
 
         if (skewAllNulls.HasValue)
@@ -2357,7 +2354,7 @@ public class SeriesTests
     [Trait("Series", "Clip")]
     public void Test_Clip_With_Nulls()
     {
-        using var s = Pl.CreateSeries("with_nulls", new int?[] { 1, null, 10 });
+        using var s = Pl.CreateSeries<int?>("with_nulls", [1, null, 10]);
 
         using var res = s.Clip(2, 5);
         var arr = res.ToArray<int?>();
@@ -2446,7 +2443,7 @@ public class SeriesTests
         // 2.5 -> 2.0
         // 3.5 -> 4.0
         // 4.5 -> 4.0
-        using var s = Pl.CreateSeries("values", new double?[] { 1.5, 2.5, 3.5, 4.5, null });
+        using var s = Pl.CreateSeries<double?>("values", [1.5, 2.5, 3.5, 4.5, null]);
 
         // decimals = 0, mode = RoundMode.HalfToEven
         using var res = s.Round();
@@ -2477,7 +2474,7 @@ public class SeriesTests
     [Trait("Series", "RoundSigFigs")]
     public void Test_RoundSigFigs()
     {
-        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+        using var s = Pl.CreateSeries<double?>("values", [12345.0, 0.0012345, 1.2345, null]);
 
         using var res = s.RoundSigFigs(digits: 3);
         var arr = res.ToArray<double?>();
@@ -2491,7 +2488,7 @@ public class SeriesTests
     [Trait("Series", "Truncate")]
     public void Test_Truncate()
     {
-        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+        using var s = Pl.CreateSeries<double?>("values", [12345.0, 0.0012345, 1.2345, null]);
 
         using var res = s.Truncate(decimals: 0);
         var arr = res.ToArray<double?>();
@@ -2505,7 +2502,7 @@ public class SeriesTests
     [Trait("Series", "Sample")]
     public void Test_SeriesSample()
     {
-        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+        using var s = Pl.CreateSeries<double?>("values", [12345.0, 0.0012345, 1.2345, null]);
         using var s1 = s.Sample(10,withReplacement:true);
         Assert.Equal(10L,s1.Length);
         using var s2 = s.Sample(0.5,shuffle:true,seed:42);

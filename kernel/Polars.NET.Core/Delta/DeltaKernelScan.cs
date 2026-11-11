@@ -264,7 +264,8 @@ public static class DeltaKernelScan
                     case ChangeFileKind.DeletionVectorChange:
                     {
                         var (deleted, restored) = change.ChangedRows(fileSystem);
-                        foreach (var (rows, changeType) in new[] { (deleted, "delete"), (restored, "insert") })
+                        (long[], string)[] items = [(deleted, "delete"), (restored, "insert")];
+                        foreach (var (rows, changeType) in items)
                         {
                             if (rows.Length == 0) continue;
                             using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);

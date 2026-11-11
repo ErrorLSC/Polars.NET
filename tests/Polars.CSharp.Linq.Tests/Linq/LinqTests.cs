@@ -214,11 +214,10 @@ public partial class LinqTests
     [Trait("LINQ", "SingleColumn")]
     public void Test_CSharp_Linq_Scalar_Projection_ToUpper()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable(emps);
@@ -241,12 +240,11 @@ public partial class LinqTests
     [Trait("LINQ", "IR")]
     public void Test_CSharp_Linq_ExplainLogicalPlan()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable(emps);
@@ -268,12 +266,11 @@ public partial class LinqTests
     [Trait("LINQ", "IR")]
     public void Test_CSharp_Linq_ExplainLogicalPlan_ComplexExpressions_NoOpaque()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable(emps);
@@ -296,16 +293,14 @@ public partial class LinqTests
     [Trait("LINQ", "IR")]
     public void Test_CSharp_Linq_ExplainLogicalPlan_RelationalOperators_PureSymbolic()
     {
-        var emps1 = new[]
-        {
+        Employee[] emps1 = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
-        };
-        var emps2 = new[]
-        {
+        ];
+        Employee[] emps2 = [
             new Employee("Charlie", 25, 70000),
             new Employee("David", 40, 80000),
-        };
+        ];
 
         using var df1 = DataFrame.FromRows(emps1);
         using var df2 = DataFrame.FromRows(emps2);
@@ -338,11 +333,10 @@ public partial class LinqTests
     [Trait("LINQ", "IR")]
     public void Test_CSharp_Linq_CompileLogicalQuery_PureClassification()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var q = df.AsQueryable(emps);
@@ -376,12 +370,11 @@ public partial class LinqTests
     [Trait("LINQ", "IR")]
     public void Test_CSharp_Linq_Bitwise_Shift_And_Bitwise_Operators_IR()
     {
-        var records = new[]
-        {
+        LinqBitwiseRecord[] records = [
             new LinqBitwiseRecord(1, 5, 3),   // 5: 0101, 3: 0011
             new LinqBitwiseRecord(2, 12, 10), // 12: 1100, 10: 1010
             new LinqBitwiseRecord(3, 20, 6)   // 20: 0001 0100, 6: 0110
-        };
+        ];
 
         using var df = DataFrame.FromRows(records);
         var q = df.AsQueryable(records);
@@ -471,11 +464,10 @@ public partial class LinqTests
         const string upperAlice = "ALICE";
         const string alice = "Alice";
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee(alice, 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable(emps);
@@ -3773,13 +3765,12 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_Count")]
     public void Test_CSharp_Linq_Scalar_Count_And_LongCount()
     {
-        var employees = new[]
-        {
+        Employee[] employees = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000),
             new Employee("David", 30, 80000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(employees);
         var query = df.AsQueryable(employees);
@@ -3808,12 +3799,11 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_Single")]
     public void Test_CSharp_Linq_Scalar_Single_And_SingleOrDefault()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps);
@@ -3901,12 +3891,11 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_ElementAt_Index")]
     public void Test_CSharp_Linq_Scalar_ElementAt_And_Index()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps);
@@ -3943,7 +3932,7 @@ public partial class LinqTests
         var charlie = new Employee("Charlie", 35, 70000);
         var stranger = new Employee("Stranger", 99, 99999);
 
-        var emps = new[] { alice, bob, charlie };
+        Employee[] emps = [alice, bob, charlie];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps);
@@ -3968,23 +3957,20 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_SequenceEqual")]
     public void Test_CSharp_Linq_Scalar_SequenceEqual_Flow()
     {
-        var emps1 = new[]
-        {
+        Employee[] emps1 = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
-        var emps2 = new[]
-        {
+        Employee[] emps2 = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
-        var empsMismatch = new[]
-        {
+        Employee[] empsMismatch = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 31, 60000)
-        };
+        ];
 
         using var df1 = DataFrame.FromRows(emps1);
         using var df2 = DataFrame.FromRows(emps2);
@@ -4000,12 +3986,11 @@ public partial class LinqTests
         Assert.True(q1.SequenceEqual(emps2));
         Assert.False(q1.SequenceEqual(empsMismatch));
 
-        var empsExtra = new[]
-        {
+        Employee[] empsExtra = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
         Assert.False(q1.SequenceEqual(empsExtra));
     }
 
@@ -4013,12 +3998,11 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_MinBy_MaxBy")]
     public void Test_CSharp_Linq_Scalar_MinBy_And_MaxBy_Flow()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 40, 90000),
             new Employee("Charlie", 30, 75000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps);
@@ -4048,12 +4032,11 @@ public partial class LinqTests
     [Trait("LINQ", "Scalar_Numeric_Aggregations")]
     public void Test_CSharp_Linq_Scalar_Numeric_Aggregations_Flow()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 20, 1000),
             new Employee("Bob", 30, 2000),
             new Employee("Charlie", 40, 3000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps);
@@ -4223,7 +4206,7 @@ public partial class LinqTests
         Assert.Equal(123L, results[0].ParsedLong);
         Assert.Equal(26, results[0].HexVal);
         Assert.Equal(12.3400m, results[0].ParsedDec);
-        Assert.Equal(new byte[] { 0x1a }, results[0].HexBytes);
+        Assert.Equal([0x1a], results[0].HexBytes);
         Assert.Equal(Encoding.UTF8.GetBytes("hello"), results[0].Base64Bytes);
         Assert.Equal(18, results[0].Utf8Len);
         Assert.Equal("Hello_World_Polars", results[0].TitleCased);
@@ -4982,11 +4965,10 @@ public partial class LinqTests
     [Trait("LINQ", "String_Interpolation")]
     public void Test_Linq_String_Concat_And_Interpolation_Pushdown()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps);
@@ -7510,19 +7492,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Exists_And_NotExists_WithExistingRecords()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(25, "Engineering"),
             new Department(40, "Sales"),
             new Department(60, "Advisory") // No employees have Age = 60
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 80000), // Age 25, High Salary
             new Employee("Bob", 40, 45000),   // Age 40, Normal Salary
             new Employee("Charlie", 25, 50000) // Age 25, Normal Salary
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -7576,18 +7556,16 @@ public partial class LinqTests
     public void Test_Linq_Subquery_Decorrelation_StringKey_SemiJoin()
     {
         // Test string column correlation: d.DeptName == e.Name
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(1, "Alice"),
             new Department(2, "Bob"),
             new Department(3, "Ghost") // No employee named "Ghost"
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 70000),
             new Employee("Bob", 40, 50000)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -7622,19 +7600,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_CompoundPredicates_And_MultiSubqueries()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(25, "Engineering"),
             new Department(40, "Sales"),
             new Department(60, "Advisory")
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 80000),
             new Employee("Bob", 40, 45000),
             new Employee("Charlie", 25, 50000)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -7693,13 +7669,12 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_UncorrelatedScalarSubquery_Folding()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 80000),
             new Employee("Bob", 40, 45000),
             new Employee("Charlie", 25, 50000),
             new Employee("Diana", 50, 95000)
-        };
+        ];
 
         using var dfEmp = DataFrame.FromRows(emps);
         var empQuery = dfEmp.AsQueryable(emps);
@@ -7740,12 +7715,11 @@ public partial class LinqTests
         Assert.Equal("Diana", above80PctAvg[1].Name);
 
         // 4. Combined: Uncorrelated scalar subquery + Correlated Semi-Join (TPC-H Q22 pattern)
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(25, "Engineering"),
             new Department(40, "Sales"),
             new Department(50, "Executive")
-        };
+        ];
         using var dfDept = DataFrame.FromRows(depts);
         var deptQuery = dfDept.AsQueryable(depts);
 
@@ -7768,21 +7742,19 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_Min_TPCH_Q2()
     {
-        var parts = new[]
-        {
+        PartItem[] parts = [
             new PartItem(1, "PartA", 10.0),
             new PartItem(2, "PartB", 20.0),
             new PartItem(3, "PartC", 15.0)
-        };
+        ];
 
-        var partsupp = new[]
-        {
+        PartSuppItem[] partsupp = [
             new PartSuppItem(1, 101, 10.0, 100),
             new PartSuppItem(1, 102, 12.0, 50),
             new PartSuppItem(2, 101, 25.0, 80),
             new PartSuppItem(2, 102, 30.0, 20),
             new PartSuppItem(3, 103, 15.0, 70)
-        };
+        ];
 
         using var dfParts = DataFrame.FromRows(parts);
         using var dfPartSupp = DataFrame.FromRows(partsupp);
@@ -7809,14 +7781,13 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_Average_Scaled_TPCH_Q17()
     {
-        var lineitems = new[]
-        {
+        LineItemRecord[] lineitems = [
             new LineItemRecord(1, 1, 101, 1, new DateTime(2023, 1, 1)),
             new LineItemRecord(2, 1, 102, 20, new DateTime(2023, 1, 2)),
             new LineItemRecord(3, 1, 101, 29, new DateTime(2023, 1, 3)),
             new LineItemRecord(4, 2, 101, 10, new DateTime(2023, 1, 4)),
             new LineItemRecord(5, 2, 102, 10, new DateTime(2023, 1, 5))
-        };
+        ];
 
         using var dfLineItems = DataFrame.FromRows(lineitems);
         var lineitemQuery = dfLineItems.AsQueryable(lineitems);
@@ -7837,19 +7808,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_MultiKey_Sum_Scaled_TPCH_Q20()
     {
-        var partsupp = new[]
-        {
+        PartSuppItem[] partsupp = [
             new PartSuppItem(1, 101, 10.0, 100),
             new PartSuppItem(1, 102, 12.0, 10)
-        };
+        ];
 
-        var lineitems = new[]
-        {
+        LineItemRecord[] lineitems = [
             new LineItemRecord(1, 1, 101, 50, new DateTime(2023, 3, 1)),
             new LineItemRecord(2, 1, 101, 60, new DateTime(2023, 6, 1)),
             new LineItemRecord(3, 1, 101, 500, new DateTime(2024, 1, 1)), // Filtered out by date
             new LineItemRecord(4, 1, 102, 40, new DateTime(2023, 5, 1))
-        };
+        ];
 
         using var dfPartSupp = DataFrame.FromRows(partsupp);
         using var dfLineItems = DataFrame.FromRows(lineitems);
@@ -7877,17 +7846,15 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_Count_WithEmptyGroups()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(1, "Eng"),
             new Department(2, "HR")
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 1, 80000), // Age = 1 (DeptId)
             new Employee("Bob", 1, 90000)     // Age = 1 (DeptId)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -7911,12 +7878,11 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_CorrelatedScalarAgg_WithResidualFilter()
     {
-        var lineitems = new[]
-        {
+        LineItemRecord[] lineitems = [
             new LineItemRecord(1, 1, 101, 1, new DateTime(2023, 1, 1)),
             new LineItemRecord(2, 1, 101, 2, new DateTime(2023, 1, 2)),
             new LineItemRecord(3, 1, 101, 29, new DateTime(2023, 1, 3))
-        };
+        ];
 
         using var dfLineItems = DataFrame.FromRows(lineitems);
         var lineitemQuery = dfLineItems.AsQueryable(lineitems);
@@ -7941,19 +7907,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_SingleCount()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob"),
             new SubqueryCustomer(3, "Charlie") // No orders
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 1, 150.0, "Completed"),
             new SubqueryOrder(103, 2, 200.0, "Pending")
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -7985,18 +7949,16 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_CoalescedAggregates()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob")
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 100.0, "Completed"),
             new SubqueryOrder(102, 1, 300.0, "Completed"),
             new SubqueryOrder(103, 2, 50.0, "Pending")
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8038,19 +8000,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_Any_Predicate()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob"),
             new SubqueryCustomer(3, "Charlie")
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 1, 150.0, "Completed"), // Big order > 100
             new SubqueryOrder(103, 2, 30.0, "Pending")     // No big order
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8092,18 +8052,16 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_Arithmetic_And_InnerFilter()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob")
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 100.0, "Completed"),
             new SubqueryOrder(102, 1, 200.0, "Cancelled"), // filtered out
             new SubqueryOrder(103, 2, 50.0, "Completed")
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8239,19 +8197,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_ListAgg_Scalar()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob"),
             new SubqueryCustomer(3, "Charlie") // No orders
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 1, 150.0, "Completed"),
             new SubqueryOrder(103, 2, 200.0, "Pending")
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8292,19 +8248,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_ListAgg_Filtered()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob"),
             new SubqueryCustomer(3, "Charlie")
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 1, 150.0, "Completed"),
             new SubqueryOrder(103, 2, 200.0, "Pending") // Bob only has Pending
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8342,19 +8296,17 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_ListAgg_Coalesced_With_Scalars()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob"),
             new SubqueryCustomer(3, "Charlie")
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 1, 150.0, "Completed"),
             new SubqueryOrder(103, 2, 200.0, "Pending")
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8400,18 +8352,16 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_ArrayAgg()
     {
-        var customers = new[]
-        {
+        SubqueryCustomer[] customers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob")
-        };
+        ];
 
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 1, 150.0, "Completed"),
             new SubqueryOrder(103, 2, 200.0, "Pending")
-        };
+        ];
 
         using var dfCust = DataFrame.FromRows(customers);
         using var dfOrders = DataFrame.FromRows(orders);
@@ -8448,13 +8398,12 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_Cumulative_Sum()
     {
-        var sales = new[]
-        {
+        DailySale[] sales = [
             new DailySale(1, 100.0),
             new DailySale(2, 150.0),
             new DailySale(3, 200.0),
             new DailySale(4, 50.0)
-        };
+        ];
 
         using var df = DataFrame.FromRows(sales);
         var salesQuery = df.AsQueryable(sales);
@@ -8482,13 +8431,12 @@ public partial class LinqTests
     public void Test_Linq_Subquery_Decorrelation_Projection_Cumulative_Sum_Unsorted_Input()
     {
         // Unsorted physical rows: Day 3, 1, 4, 2
-        var sales = new[]
-        {
+        DailySale[] sales = [
             new DailySale(3, 200.0),
             new DailySale(1, 100.0),
             new DailySale(4, 50.0),
             new DailySale(2, 150.0)
-        };
+        ];
 
         using var df = DataFrame.FromRows(sales);
         var salesQuery = df.AsQueryable(sales);
@@ -8523,8 +8471,7 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_Cumulative_Partitioned_And_Coalesced()
     {
-        var sales = new[]
-        {
+        DeptSale[] sales = [
             // Dept 1
             new DeptSale(1, 1, 100.0),
             new DeptSale(1, 2, 150.0),
@@ -8532,7 +8479,7 @@ public partial class LinqTests
             new DeptSale(2, 1, 50.0),
             new DeptSale(2, 2, 70.0),
             new DeptSale(2, 3, 80.0)
-        };
+        ];
 
         using var df = DataFrame.FromRows(sales);
         var salesQuery = df.AsQueryable(sales);
@@ -8586,13 +8533,12 @@ public partial class LinqTests
     [Trait("LINQ", "Subquery_Decorrelation")]
     public void Test_Linq_Subquery_Decorrelation_Projection_Sliding_Window_Sum()
     {
-        var sales = new[]
-        {
+        DailySale[] sales = [
             new DailySale(1, 100.0),
             new DailySale(2, 150.0),
             new DailySale(3, 200.0),
             new DailySale(4, 50.0)
-        };
+        ];
 
         using var df = DataFrame.FromRows(sales);
         var salesQuery = df.AsQueryable(sales);
@@ -8632,16 +8578,14 @@ public partial class LinqTests
     [Trait("LINQ", "InMemoryCollection_Transposition")]
     public void Test_InMemoryCollection_Concat_TransposesToDataFrame_NativePushdown()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
-        var extraEmps = new[]
-        {
+        ];
+        Employee[] extraEmps = [
             new Employee("Charlie", 35, 70000),
             new Employee("David", 40, 80000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps)
@@ -8657,11 +8601,10 @@ public partial class LinqTests
     [Trait("LINQ", "InMemoryCollection_Transposition")]
     public void Test_InMemoryCollection_Union_TransposesToDataFrame_NativePushdown()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
         var unionEmps = new List<Employee>
         {
             new("Bob", 30, 60000),
@@ -8680,16 +8623,14 @@ public partial class LinqTests
     [Trait("LINQ", "InMemoryCollection_Transposition")]
     public void Test_InMemoryCollection_Join_TransposesToDataFrame_NativePushdown()
     {
-        var orders = new[]
-        {
+        SubqueryOrder[] orders = [
             new SubqueryOrder(101, 1, 50.0, "Completed"),
             new SubqueryOrder(102, 2, 75.0, "Completed")
-        };
-        var inMemoryCustomers = new[]
-        {
+        ];
+        SubqueryCustomer[] inMemoryCustomers = [
             new SubqueryCustomer(1, "Alice"),
             new SubqueryCustomer(2, "Bob")
-        };
+        ];
 
         using var df = DataFrame.FromRows(orders);
         var query = df.AsQueryable(orders)
@@ -8709,10 +8650,9 @@ public partial class LinqTests
     [Trait("LINQ", "InMemoryCollection_Transposition")]
     public void Test_InMemoryCollection_AppendPrepend_InlineNew_NativePushdown()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         var query = df.AsQueryable(emps)
@@ -8728,12 +8668,11 @@ public partial class LinqTests
     [Trait("LINQ", "InMemoryCollection_Transposition")]
     public void Test_InMemoryCollection_AsPolarsQueryable_NativePushdown()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
 
         var query = emps.AsPolarsQueryable()
             .Where(e => e.Age > 25)
@@ -8748,11 +8687,10 @@ public partial class LinqTests
     [Trait("LINQ", "ToSeries_NonScalar")]
     public void Test_InMemoryCollection_ToSeries_NonScalar_CreatesStructSeries()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
         using var series = emps.ToSeries("emp_struct");
 
@@ -8770,11 +8708,10 @@ public partial class LinqTests
     [Trait("LINQ", "ToSeries_NonScalar")]
     public void Test_Queryable_ToSeries_MultiColumn_CreatesStructSeries()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000)
-        };
+        ];
 
         using var df = DataFrame.FromRows(emps);
         using var series = df.AsQueryable(emps).ToSeries("query_struct");
@@ -8820,12 +8757,11 @@ public partial class LinqTests
     [Trait("LINQ", "Series_AsQueryable")]
     public void Test_Series_AsQueryable_Struct_NonScalar()
     {
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 25, 50000),
             new Employee("Bob", 30, 60000),
             new Employee("Charlie", 35, 70000)
-        };
+        ];
 
         using var structSeries = emps.ToSeries("emp_struct");
         Assert.Equal(DataTypeKind.Struct, structSeries.DataType.Kind);
@@ -8867,14 +8803,13 @@ public partial class LinqTests
     [Trait("LINQ", "WideTable")]
     public void Test_CSharp_Query_On_20_Column_Wide_Table_And_Many_Lets()
     {
-        var wideData = new[]
-        {
+        WideRecord[] wideData = [
             new WideRecord(1, "Alpha", "Tech", 10.5, 20.5, 100.25m, 200.75m, 1000L, 10, true, "RegionA", 1.1, 10.1m, 100, 10000L, true, "Tag1", 0.5, 5.5m, 50),
             new WideRecord(2, "Beta", "Tech", 25.0, 15.0, 50.00m, 150.00m, 2000L, 20, false, "RegionA", 2.2, 20.2m, 200, 20000L, true, "Tag2", 1.5, 15.5m, 60),
             new WideRecord(3, "Gamma", "Finance", 30.0, 40.0, 300.50m, 400.50m, 3000L, 30, true, "RegionB", 3.3, 30.3m, 300, 30000L, false, "Tag1", 2.5, 25.5m, 70),
             new WideRecord(4, "Delta", "Tech", 15.0, 35.0, 80.00m, 120.00m, 4000L, 40, true, "RegionB", 4.4, 40.4m, 400, 40000L, true, "Tag2", 3.5, 35.5m, 80),
             new WideRecord(5, "Epsilon", "Finance", 5.0, 50.0, 500.00m, 600.00m, 5000L, 50, false, "RegionB", 5.5, 50.5m, 500, 50000L, false, "Tag3", 4.5, 45.5m, 90)
-        };
+        ];
 
         using var df = DataFrame.FromRows(wideData);
 

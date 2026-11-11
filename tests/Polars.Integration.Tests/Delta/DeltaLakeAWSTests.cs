@@ -1774,7 +1774,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         using var beforeDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal(100, beforeDf.Height);
 
-        var zCols = new[] { "Id" };
+        string[] zCols = ["Id"];
 
         long numFiles = Delta.Optimize(
             rootUrl,
@@ -1890,7 +1890,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // Optimize (Z-Order by Id + DV Purging)
         // ==========================================
 
-        var zCols = new[] { "Id" };
+        string[] zCols = ["Id"];
 
         long numFiles = Delta.Optimize(
             rootUrl,
@@ -1911,7 +1911,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         afterDf.Show();
 
         Assert.Equal(98, afterDf.Height);
-        var validIds = new[] { 10, 99 };
+        int[] validIds = [10, 99];
 
         var predicate = Pl.Col("Id").IsIn(Pl.Lit(validIds).Implode());
         var deletedRows = afterDf.Filter(predicate);

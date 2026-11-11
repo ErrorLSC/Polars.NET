@@ -1538,7 +1538,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                 storage_location = location, table_id = Guid.NewGuid().ToString(),
             }));
         DateTimeOffset firstExpires = DateTimeOffset.UtcNow.AddSeconds(ShortLifeSeconds);
-        object Vended((string Key, string Secret) user, DateTimeOffset expires) => new
+        static object Vended((string Key, string Secret) user, DateTimeOffset expires) => new
         {
             aws_temp_credentials = new { access_key_id = user.Key, secret_access_key = user.Secret },
             expiration_time = expires.ToUnixTimeMilliseconds(),

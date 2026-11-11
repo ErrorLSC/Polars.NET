@@ -7,7 +7,7 @@ namespace Polars.CSharp.Tests;
 /// </summary>
 public class GpuEngineTests
 {
-    private static DataFrame Sample() => DataFrame.FromColumns([Series.From("x", new[] { 1, 2, 3 })]);
+    private static DataFrame Sample() => DataFrame.FromColumns([Series.From("x", [1, 2, 3])]);
 
     [Fact]
     [Trait("Engine", "Gpu")]

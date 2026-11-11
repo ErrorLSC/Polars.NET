@@ -84,8 +84,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         using var safeOn = on.Consume();
 
-        var lOn = new[] { PolarsWrapper.CloneExpr(safeOn.Handle) };
-        var rOn = new[] { PolarsWrapper.CloneExpr(safeOn.Handle) };
+        ExprHandle[] lOn = [PolarsWrapper.CloneExpr(safeOn.Handle)];
+        ExprHandle[] rOn = [PolarsWrapper.CloneExpr(safeOn.Handle)];
 
         return new LazyFrame(PolarsWrapper.Join(
             CloneHandle(), other.CloneHandle(), lOn, rOn,
@@ -114,8 +114,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         using var safeLeft = leftOn.Consume();
         using var safeRight = rightOn.Consume();
 
-        var lOn = new[] { PolarsWrapper.CloneExpr(safeLeft.Handle) };
-        var rOn = new[] { PolarsWrapper.CloneExpr(safeRight.Handle) };
+        ExprHandle[] lOn = [PolarsWrapper.CloneExpr(safeLeft.Handle)];
+        ExprHandle[] rOn = [PolarsWrapper.CloneExpr(safeRight.Handle)];
 
         return new LazyFrame(PolarsWrapper.Join(
             CloneHandle(), other.CloneHandle(), lOn, rOn,
@@ -237,7 +237,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
     /// <summary>
     /// Join using specific multiple expressions. (C# Array Covariance Helper)
-    /// Usage: lf.Join(other, leftOn: new[] { Pl.Col("A") }, rightOn: new[] { Pl.Col("B") })
+    /// Usage: lf.Join(other, leftOn: [Pl.Col("A")], rightOn: [Pl.Col("B")])
     /// </summary>
     public LazyFrame Join(
         LazyFrame other,
@@ -261,7 +261,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
     /// <summary>
     /// Join using multiple shared expressions. (C# Array Covariance Helper)
-    /// Usage: lf.Join(other, on: new[] { Pl.Col("A"), Pl.Col("B") })
+    /// Usage: lf.Join(other, on: [Pl.Col("A"), Pl.Col("B")])
     /// </summary>
     public LazyFrame Join(
         LazyFrame other,
@@ -373,8 +373,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         using var safeLeftOn = leftOn.Consume();
         using var safeRightOn = rightOn.Consume();
-        var lOnHandles = new[] { PolarsWrapper.CloneExpr(safeLeftOn.Handle) };
-        var rOnHandles = new[] { PolarsWrapper.CloneExpr(safeRightOn.Handle) };
+        ExprHandle[] lOnHandles = [PolarsWrapper.CloneExpr(safeLeftOn.Handle)];
+        ExprHandle[] rOnHandles = [PolarsWrapper.CloneExpr(safeRightOn.Handle)];
 
         var lByArr = leftBy as string[] ?? leftBy?.ToArray();
         ExprHandle[]? lByHandles = null;
@@ -640,8 +640,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// // Perform an Inner Join on the "id" column
     /// var joined = dfCustomers.Join(
     ///     dfOrders, 
-    ///     leftOn: new[] { "id" }, 
-    ///     rightOn: new[] { "id" }, 
+    ///     leftOn: ["id"], 
+    ///     rightOn: ["id"], 
     ///     how: JoinType.Inner
     /// );
     /// 

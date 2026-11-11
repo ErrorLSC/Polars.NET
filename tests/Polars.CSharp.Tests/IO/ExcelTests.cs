@@ -39,8 +39,10 @@ public class ExcelTests
 
             {
 
-                using var schema = new PolarsSchema();
-                schema.Add("Phone", DataType.String); 
+                using var schema = new PolarsSchema
+                {
+                    { "Phone", DataType.String }
+                };
 
                 using var df = DataFrame.ReadExcel(tempFile, schema: schema);
 

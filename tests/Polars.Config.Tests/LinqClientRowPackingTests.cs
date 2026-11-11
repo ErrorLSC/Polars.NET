@@ -23,7 +23,7 @@ public class LinqClientRowPackingTests
 
     private static string Label(CrEmp emp, CrDept dept) => $"{emp.Name}/{dept.Name}@{dept.Floor}";
 
-    private static IDisposable AllowClientEvaluation() =>
+    private static PolarsConfigScope AllowClientEvaluation() =>
         Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope();
 
     private static void AssertRowStep<T>(IQueryable<T> query, IEnumerable<T> expected)

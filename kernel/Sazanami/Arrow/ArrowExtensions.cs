@@ -178,8 +178,7 @@ public static partial class ArrowExtensions
         var values = dictArr.Dictionary;
         return values.GetStringValue((int)key.Value);
     }
-    private static readonly char[] HexLookup = new[]
-        {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    private static readonly char[] HexLookup = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
 
     private static string FormatBinary(ReadOnlySpan<byte> bytes)
     {
@@ -264,7 +263,7 @@ public static partial class ArrowExtensions
     {
         int start = arr.ValueOffsets[index];
         int end = arr.ValueOffsets[index + 1];
-        var items = Enumerable.Range(start, end - start).Select(i => arr.Values.FormatValue(i));
+        var items = Enumerable.Range(start, end - start).Select(arr.Values.FormatValue);
         return $"[{string.Join(", ", items)}]";
     }
 
@@ -272,7 +271,7 @@ public static partial class ArrowExtensions
     {
         int start = (int)arr.ValueOffsets[index];
         int end = (int)arr.ValueOffsets[index + 1];
-        var items = Enumerable.Range(start, end - start).Select(i => arr.Values.FormatValue(i));
+        var items = Enumerable.Range(start, end - start).Select(arr.Values.FormatValue);
         return $"[{string.Join(", ", items)}]";
     }
     private static string FormatFixedSizeList(FixedSizeListArray arr, int index)
@@ -284,7 +283,7 @@ public static partial class ArrowExtensions
         int count = width;
 
         var items = Enumerable.Range(start, count)
-            .Select(i => arr.Values.FormatValue(i));
+            .Select(arr.Values.FormatValue);
 
         return $"[{string.Join(", ", items)}]";
     }

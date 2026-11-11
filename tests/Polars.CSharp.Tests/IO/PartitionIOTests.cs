@@ -71,7 +71,8 @@ public class ParquetPartitionTests : IDisposable
 
         df.Lazy().SinkIpcPartitioned(_testBaseDir, partitionBy: Cs.ByName("Group"), includeKeys: true);
 
-        foreach (var g in new[] { "A", "B", "C" })
+        string[] gs = ["A", "B", "C"];
+        foreach (var g in gs)
             Assert.True(Directory.Exists(Path.Combine(_testBaseDir, $"Group={g}")), $"Partition directory Group={g} missing");
 
         var dfActual = LazyFrame.ScanIpc(Path.Combine(_testBaseDir, "**", "*.ipc"), hivePartitioning: true)
@@ -79,7 +80,7 @@ public class ParquetPartitionTests : IDisposable
             .Sort("Value");
 
         Assert.Equal([1, 2, 3, 4, 5], dfActual["Value"].ToArray<int>());
-        Assert.Equal(new[] { "A", "A", "B", "B", "C" }, dfActual["Group"].ToArray<string>());
+        Assert.Equal(["A", "A", "B", "B", "C"], dfActual["Group"].ToArray<string>());
     }
 
     [Fact]

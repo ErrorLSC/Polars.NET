@@ -113,7 +113,7 @@ public class SchemaEvolutionTests
     [InlineData("decimal(5,2)", "decimal(5,3)", false, false)]
     public void CastsAndWidenings(string from, string to, bool implicitly, bool widens)
     {
-        DeltaType Parse(string t) =>
+        static DeltaType Parse(string t) =>
             StructType.Parse("{\"type\":\"struct\",\"fields\":[{\"name\":\"c\",\"type\":\"" + t + "\",\"nullable\":true,\"metadata\":{}}]}").Fields[0].Type;
         Assert.Equal(implicitly, SchemaEvolution.CastsImplicitly(Parse(from), Parse(to)));
         Assert.Equal(widens, SchemaEvolution.CanWiden(Parse(from), Parse(to)));
@@ -131,7 +131,7 @@ public class SchemaEvolutionTests
     [Fact]
     public void NestedFields_AreMerged_InStructsArraysAndMaps()
     {
-        StructType S(params StructField[] f) => new(f);
+        static StructType S(params StructField[] f) => new(f);
         var table = S(F("s", S(F("a", Int))), F("arr", new ArrayType(S(F("x", Int)), true)), F("m", new MapType(Str, S(F("v", Int)), true)));
         var data = S(F("s", S(F("a", Int), F("b", Str))), F("arr", new ArrayType(S(F("x", Int), F("y", Str)), true)),
             F("m", new MapType(Str, S(F("v", Int), F("w", Str)), true)));

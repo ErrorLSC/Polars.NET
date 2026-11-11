@@ -242,7 +242,8 @@ public class FileFilterTests
     public void TypeWidening_IsAReaderFeatureTheKernelReads()
     {
         var metadata = new MetadataAction { Id = "t", SchemaString = """{"type":"struct","fields":[]}""" };
-        foreach (string feature in new[] { TableFeatures.TypeWidening, TableFeatures.TypeWideningPreview })
+        string[] features = [TableFeatures.TypeWidening, TableFeatures.TypeWideningPreview];
+        foreach (string feature in features)
             TableFeatures.EnsureReadable(new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = [feature], WriterFeatures = [feature] }, metadata);
     }
 }

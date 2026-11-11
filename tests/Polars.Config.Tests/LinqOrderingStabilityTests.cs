@@ -34,7 +34,7 @@ public class LinqOrderingStabilityTests
         var query = GroupsSortedByA(df.AsQueryable<OsRow>());
 
         Assert.Contains("maintain_order: true", NativePlan(query));
-        Assert.Equal(GroupsSortedByA(Rows.AsQueryable()).ToList(), query.ToList());
+        Assert.Equal(GroupsSortedByA(Rows.AsQueryable()).ToList(), [.. query]);
     }
 
     [Fact]

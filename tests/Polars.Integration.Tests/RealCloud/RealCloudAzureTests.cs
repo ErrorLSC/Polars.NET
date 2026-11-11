@@ -144,7 +144,7 @@ public static class RealAzure
 
     private static Settings? Load()
     {
-        string? Env(string name) => Environment.GetEnvironmentVariable("SESERAGI_AZURE_" + name) is { Length: > 0 } v ? v.Trim() : null;
+        static string? Env(string name) => Environment.GetEnvironmentVariable("SESERAGI_AZURE_" + name) is { Length: > 0 } v ? v.Trim() : null;
         string?[] values =
         [
             Env("BLOB_ACCOUNT"), Env("BLOB_KEY"), Env("ADLS_ACCOUNT"), Env("ADLS_KEY"), Env("CONTAINER"),
@@ -327,7 +327,8 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
         Assert.Contains(files, f => f.StartsWith("_delta_log/", StringComparison.Ordinal) && f.EndsWith(".json", StringComparison.Ordinal));
         Assert.Equal(2, files.Count(f => f.StartsWith("Region=", StringComparison.Ordinal) && f.EndsWith(".parquet", StringComparison.Ordinal)));
         Assert.DoesNotContain(fs.List(""), f => f.Path is "empty" or "_delta_log" or "Region=a" or "Region=b");
-        foreach (string directory in new[] { "empty", "_delta_log", "Region=a" })
+        string[] directories = ["empty", "_delta_log", "Region=a"];
+        foreach (string directory in directories)
         {
             Assert.Null(fs.ReadAll(directory));
             Assert.Null(fs.ReadRange(directory, 0, 1));
@@ -380,7 +381,7 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
         Assert.Equal([1.0, 30.0, 4.0, 5.0], latest["Price"].ToArray<double>());
         // Rows that lived through the delete, update, merge and optimize kept their ids; the inserted one has a new id.
         var now = RowIds();
-        Assert.All(new[] { 1L, 3L, 4L }, id => Assert.Equal(written[id], now[id]));
+        Assert.All([1L, 3L, 4L], id => Assert.Equal(written[id], now[id]));
         Assert.DoesNotContain(now[5], written.Values);
 
         using (var v1 = DataFrame.ReadDelta(url, version: 1, cloudOptions: options))

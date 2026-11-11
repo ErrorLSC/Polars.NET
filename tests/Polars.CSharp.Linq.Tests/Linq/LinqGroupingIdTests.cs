@@ -200,13 +200,12 @@ public class LinqGroupingIdTests
 
         // The operator's own node, as the typed API builds it (the argument of its Select).
         static Expression OperatorNode<T>(IQueryable<T> selected) => ((MethodCallExpression)selected.Expression).Arguments[0];
-        var operators = new[]
-        {
+        (string, Expression)[] operators = [
             ("RollUp", OperatorNode(grouped.RollUp().Select(g => g.Key))),
             ("Cube", OperatorNode(grouped.Cube().Select(g => g.Key))),
             ("GroupingSets", OperatorNode(grouped.GroupingSets(k => new { k.Dept }, k => new { }).Select(g => g.Key))),
             ("GroupingSets", OperatorNode(grouped.GroupingSets([["Dept"], []]).Select(g => g.Key))),
-        };
+        ];
 
         foreach (var (name, node) in operators)
         {

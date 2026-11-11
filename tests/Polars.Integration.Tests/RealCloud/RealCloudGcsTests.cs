@@ -279,7 +279,7 @@ public sealed class RealCloudGcsTests : IClassFixture<RealGcsCleanup>
         Assert.Equal([1L, 3L, 4L, 5L], latest["Id"].ToArray<long>());
         Assert.Equal([1.0, 30.0, 4.0, 5.0], latest["Price"].ToArray<double>());
         var now = RowIds();
-        Assert.All(new[] { 1L, 3L, 4L }, id => Assert.Equal(written[id], now[id]));
+        Assert.All([1L, 3L, 4L], id => Assert.Equal(written[id], now[id]));
         Assert.DoesNotContain(now[5], written.Values);
 
         using (var v1 = DataFrame.ReadDelta(url, version: 1, cloudOptions: options))

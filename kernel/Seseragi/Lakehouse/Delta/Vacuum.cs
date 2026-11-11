@@ -101,7 +101,7 @@ public static class Vacuum
             return new VacuumResult([], 0, DryRun: false, emptyCandidates.Count(fileSystem.DeleteDirectoryIfEmpty));
 
         // As Spark: a commit before and after, without actions, so the history shows the vacuum.
-        string Millis(TimeSpan t) => ((long)t.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
+        static string Millis(TimeSpan t) => ((long)t.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
         Transaction.Start(fileSystem, snapshot, "VACUUM START")
             .WithParameter("retentionCheckEnabled", enforceRetention ? "true" : "false")
             .WithParameter("specifiedRetentionMillis", Millis(keep))

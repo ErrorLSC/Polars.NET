@@ -34,7 +34,8 @@ public class InferSchemaLengthTests
     public void Csv_Huge_Lengths_Mean_The_Whole_File_Without_Panicking()
     {
         using var csv = Csv();
-        foreach (var n in new ulong[] { ulong.MaxValue, int.MaxValue, 1UL << 30 })
+        ulong[] ns = [ulong.MaxValue, int.MaxValue, 1UL << 30];
+        foreach (var n in ns)
             using (var df = LazyFrame.ScanCsv(csv.Path, inferSchemaLength: n).Collect()) Assert.Equal("f64", TypeOfX(df));
     }
 

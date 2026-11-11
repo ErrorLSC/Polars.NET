@@ -202,22 +202,17 @@ public static partial class LinqExtensions
         static List<(string, Expression)> Items(IReadOnlyList<Expression> args) =>
             [.. args.Select((a, i) => ($"Item{i + 1}", a))];
 
-        switch (body)
+        return body switch
         {
-            case NewExpression ne when IsTuple(ne.Type):
-                return Items(ne.Arguments);
-            case NewExpression { Members: { } members } ne when members.Count == ne.Arguments.Count:
-                return [.. members.Select((m, i) => (m.Name, ne.Arguments[i]))];
-            case MethodCallExpression mc when mc.Method.Name == "Create"
-                && (mc.Method.DeclaringType == typeof(Tuple) || mc.Method.DeclaringType == typeof(ValueTuple))
-                && IsTuple(mc.Type):
-                return Items(mc.Arguments);
-            case MemberInitExpression mi when mi.NewExpression.Arguments.Count == 0
-                && mi.Bindings.All(b => b is MemberAssignment):
-                return [.. mi.Bindings.Select(b => (b.Member.Name, ((MemberAssignment)b).Expression))];
-            default:
-                return null;
-        }
+            NewExpression ne when IsTuple(ne.Type) => Items(ne.Arguments),
+            NewExpression { Members: { } members } ne when members.Count == ne.Arguments.Count => [.. members.Select((m, i) => (m.Name, ne.Arguments[i]))],
+            MethodCallExpression mc when mc.Method.Name == "Create"
+                            && (mc.Method.DeclaringType == typeof(Tuple) || mc.Method.DeclaringType == typeof(ValueTuple))
+                            && IsTuple(mc.Type) => Items(mc.Arguments),
+            MemberInitExpression mi when mi.NewExpression.Arguments.Count == 0
+                            && mi.Bindings.All(b => b is MemberAssignment) => [.. mi.Bindings.Select(b => (b.Member.Name, ((MemberAssignment)b).Expression))],
+            _ => null,
+        };
     }
 
     private static TKey ConvertKey<TKey>(object rawKey)

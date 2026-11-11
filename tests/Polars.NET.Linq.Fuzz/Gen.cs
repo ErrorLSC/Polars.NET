@@ -36,11 +36,11 @@ public enum T { Bool, Int, NInt, Long, Double, NDouble, Decimal, Str, NStr, NBoo
 public static class Pools
 {
     public static int MaxRows = 20;
-    public static readonly int[] Ints = { -7, -1, 0, 1, 2, 3, 7, 100, int.MaxValue, int.MinValue };
-    public static readonly long[] Longs = { -7, -1, 0, 1, 2, 3, 7, 100, 1000000000000L, int.MaxValue, long.MaxValue };
-    public static readonly double[] Doubles = { -2.5, -0.0, 0.0, 0.5, 1.0, 2.5, double.NaN, double.PositiveInfinity, double.NegativeInfinity };
-    public static readonly decimal[] Decimals = { -2.5m, 0m, 0.125m, 1m, 2.5m, 10m };
-    public static readonly string[] Strings = { "", "a", "ab", "abc", "b", "ba", "zz" };
+    public static readonly int[] Ints = [-7, -1, 0, 1, 2, 3, 7, 100, int.MaxValue, int.MinValue];
+    public static readonly long[] Longs = [-7, -1, 0, 1, 2, 3, 7, 100, 1000000000000L, int.MaxValue, long.MaxValue];
+    public static readonly double[] Doubles = [-2.5, -0.0, 0.0, 0.5, 1.0, 2.5, double.NaN, double.PositiveInfinity, double.NegativeInfinity];
+    public static readonly decimal[] Decimals = [-2.5m, 0m, 0.125m, 1m, 2.5m, 10m];
+    public static readonly string[] Strings = ["", "a", "ab", "abc", "b", "ba", "zz"];
 
     public static int PickInt(Random r) { for (; ; ) { var v = Ints[r.Next(Ints.Length)]; if ((v == int.MaxValue || v == int.MinValue) && r.Next(3) != 0) continue; return v; } }
     public static long PickLong(Random r) { for (; ; ) { var v = Longs[r.Next(Longs.Length)]; if ((v == long.MaxValue || v == int.MaxValue) && r.Next(4) != 0) continue; return v; } }
@@ -75,18 +75,18 @@ public class Gen(Random r)
 {
     readonly Random r = r;
     public readonly ParameterExpression X = Expression.Parameter(typeof(FzRow), "x");
-    static readonly MethodInfo MAbsI = typeof(Math).GetMethod("Abs", new[] { typeof(int) })!;
-    static readonly MethodInfo MAbsD = typeof(Math).GetMethod("Abs", new[] { typeof(double) })!;
-    static readonly MethodInfo MFloor = typeof(Math).GetMethod("Floor", new[] { typeof(double) })!;
-    static readonly MethodInfo MRound = typeof(Math).GetMethod("Round", new[] { typeof(double) })!;
-    static readonly MethodInfo MMaxI = typeof(Math).GetMethod("Max", new[] { typeof(int), typeof(int) })!;
-    static readonly MethodInfo MMinI = typeof(Math).GetMethod("Min", new[] { typeof(int), typeof(int) })!;
-    static readonly MethodInfo MMaxD = typeof(Math).GetMethod("Max", new[] { typeof(double), typeof(double) })!;
-    static readonly MethodInfo MMinD = typeof(Math).GetMethod("Min", new[] { typeof(double), typeof(double) })!;
+    static readonly MethodInfo MAbsI = typeof(Math).GetMethod("Abs", [typeof(int)])!;
+    static readonly MethodInfo MAbsD = typeof(Math).GetMethod("Abs", [typeof(double)])!;
+    static readonly MethodInfo MFloor = typeof(Math).GetMethod("Floor", [typeof(double)])!;
+    static readonly MethodInfo MRound = typeof(Math).GetMethod("Round", [typeof(double)])!;
+    static readonly MethodInfo MMaxI = typeof(Math).GetMethod("Max", [typeof(int), typeof(int)])!;
+    static readonly MethodInfo MMinI = typeof(Math).GetMethod("Min", [typeof(int), typeof(int)])!;
+    static readonly MethodInfo MMaxD = typeof(Math).GetMethod("Max", [typeof(double), typeof(double)])!;
+    static readonly MethodInfo MMinD = typeof(Math).GetMethod("Min", [typeof(double), typeof(double)])!;
     static readonly MethodInfo SUpper = typeof(string).GetMethod("ToUpper", Type.EmptyTypes)!;
-    static readonly MethodInfo SContains = typeof(string).GetMethod("Contains", new[] { typeof(string) })!;
-    static readonly MethodInfo SStarts = typeof(string).GetMethod("StartsWith", new[] { typeof(string) })!;
-    static readonly MethodInfo SConcat = typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) })!;
+    static readonly MethodInfo SContains = typeof(string).GetMethod("Contains", [typeof(string)])!;
+    static readonly MethodInfo SStarts = typeof(string).GetMethod("StartsWith", [typeof(string)])!;
+    static readonly MethodInfo SConcat = typeof(string).GetMethod("Concat", [typeof(string), typeof(string)])!;
 
     MemberExpression P(string n) => Expression.Property(X, n);
     T Pick(params T[] ts) => ts[r.Next(ts.Length)];

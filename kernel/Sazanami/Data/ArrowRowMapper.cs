@@ -345,13 +345,13 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
         if (IsScalarLike(t) || IsCollectionLike(t))
             return [];
         if (FSharpType.IsTuple(t))
-            return FSharpType.GetTupleElements(t).SelectMany(CollectRequiredNames).ToArray();
+            return [.. FSharpType.GetTupleElements(t).SelectMany(CollectRequiredNames)];
         if (t.IsValueType && t.FullName != null && t.FullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
-            return t.GetGenericArguments().SelectMany(CollectRequiredNames).ToArray();
+            return [.. t.GetGenericArguments().SelectMany(CollectRequiredNames)];
         if (FSharpType.IsRecord(t, AllRecordFlags))
-            return FSharpType.GetRecordFields(t, AllRecordFlags).Select(f => f.Name).ToArray();
+            return [.. FSharpType.GetRecordFields(t, AllRecordFlags).Select(f => f.Name)];
         if (IsFSharpAnonymousObject(t))
-            return t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name).ToArray();
+            return [.. t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name)];
 
         var writeable = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanWrite)
@@ -360,7 +360,7 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
 
         return writeable.Length > 0
             ? writeable
-            : t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name).ToArray();
+            : [.. t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name)];
     }
 
     private static CompiledArrowRowMapper<T> BuildMapper(Schema schema)
@@ -752,7 +752,7 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
                 var distinctCols = usedColIndices.Distinct().ToArray();
                 var allNullExpr = distinctCols
                     .Select(CreateIsNullExpr)
-                    .Aggregate((acc, e) => Expression.AndAlso(acc, e));
+                    .Aggregate(Expression.AndAlso);
 
                 if (isOpt)
                 {

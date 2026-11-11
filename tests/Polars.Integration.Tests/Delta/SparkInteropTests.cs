@@ -429,7 +429,7 @@ public class SparkInteropTests
         try
         {
             static ExprHandle Src(string column) => PolarsWrapper.Col(column + DeltaKernelMerge.SourceSuffix);
-            MergeClause[] Clauses() =>
+            static MergeClause[] Clauses() =>
             [
                 new(MergeClauseKind.MatchedDelete, PolarsWrapper.Lt(Src("price"), PolarsWrapper.Lit(0.0))),
                 new(MergeClauseKind.MatchedUpdate, PolarsWrapper.Lit(true)),
@@ -644,13 +644,13 @@ public class SparkInteropTests
             Assert.Contains("arr:array<struct<x:int,y:string>>", spark[3].RootElement.GetProperty("schema").GetString());
 
             // Spark writes on top: the kernel reads what it wrote.
-            foreach (var (path, statement) in new[]
-                     {
+            (string, string)[] items = [
                          (mapped, "INSERT INTO {table} (id, name, score) VALUES (9, 'z', 9.5)"),
                          (widened, "INSERT INTO {table} VALUES (6000000000)"),
                          (replaced, "INSERT INTO {table} VALUES (8, false)"),
                          (nested, "INSERT INTO {table} VALUES (3, named_struct('a', 3, 'b', 'spark'), array(named_struct('x', 3, 'y', 'spark')))"),
-                     })
+                     ];
+            foreach (var (path, statement) in items)
             {
                 JsonDocument after = LocalSpark.Run("sql", path, statement)[0];
                 AssertSameRows(path, after.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(path)));
@@ -729,7 +729,7 @@ public class SparkInteropTests
 
             // The tables below checkpoint every second version: the alter commits (v2) and v4 get checkpoints, which
             // both sides then read.
-            Dictionary<string, string> Checkpointed() => new() { ["delta.checkpointInterval"] = "2" };
+            static Dictionary<string, string> Checkpointed() => new() { ["delta.checkpointInterval"] = "2" };
             static void AssertCheckpointed(string path) =>
                 Assert.True(File.Exists(Path.Combine(path, "_delta_log", "00000000000000000002.checkpoint.parquet")), $"{path}: no checkpoint at v2");
 
@@ -842,7 +842,8 @@ public class SparkInteropTests
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
         try
         {
-            foreach (bool vectors in new[] { false, true })
+            bool[] vectorsValues = [false, true];
+            foreach (bool vectors in vectorsValues)
             {
                 string table = Path.Combine(root, vectors ? "dv" : "plain");
                 LocalSpark.Run("sql", table,

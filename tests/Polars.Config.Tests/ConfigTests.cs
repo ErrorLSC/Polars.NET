@@ -47,16 +47,15 @@ public class ConfigTests
         Pl.Config.RestoreDefaults();
         try
         {
-            var cases = new (Polars.CSharp.Engine Public, PlEngine Native)[]
-            {
-                (Polars.CSharp.Engine.Auto, PlEngine.Auto),
-                (Polars.CSharp.Engine.InMemory, PlEngine.InMemory),
-                (Polars.CSharp.Engine.Streaming, PlEngine.Streaming),
-            };
+            (Engine Public, PlEngine Native)[] cases = [
+                (Engine.Auto, PlEngine.Auto),
+                (Engine.InMemory, PlEngine.InMemory),
+                (Engine.Streaming, PlEngine.Streaming),
+            ];
             foreach (var (pub, native) in cases)
             {
                 Pl.Config.SetEngineAffinity(pub);
-                Assert.Equal(native, Polars.NET.Core.Config.CoreConfig.EngineAffinity);
+                Assert.Equal(native, NET.Core.Config.CoreConfig.EngineAffinity);
             }
         }
         finally
@@ -71,7 +70,7 @@ public class ConfigTests
         Pl.Config.RestoreDefaults();
         try
         {
-            Assert.Throws<NotSupportedException>(() => Pl.Config.SetEngineAffinity(Polars.CSharp.Engine.Gpu));
+            Assert.Throws<NotSupportedException>(() => Pl.Config.SetEngineAffinity(Engine.Gpu));
         }
         finally
         {
@@ -85,11 +84,12 @@ public class ConfigTests
         Pl.Config.RestoreDefaults();
         try
         {
-            foreach (var mode in new[] { PlResolveMode.None, PlResolveMode.RowCounts, PlResolveMode.Full, PlResolveMode.Sampled })
+            PlResolveMode[] modes = [PlResolveMode.None, PlResolveMode.RowCounts, PlResolveMode.Full, PlResolveMode.Sampled];
+            foreach (var mode in modes)
             {
-                Polars.NET.Core.Config.CoreConfig.ResolveMetadataLevel = mode;
-                Polars.NET.Core.Wrappers.PolarsWrapper.ReloadEnvVar("POLARS_RESOLVE_METADATA_LEVEL");
-                Assert.Equal(mode, Polars.NET.Core.Config.CoreConfig.ResolveMetadataLevel);
+                NET.Core.Config.CoreConfig.ResolveMetadataLevel = mode;
+                NET.Core.Wrappers.PolarsWrapper.ReloadEnvVar("POLARS_RESOLVE_METADATA_LEVEL");
+                Assert.Equal(mode, NET.Core.Config.CoreConfig.ResolveMetadataLevel);
             }
         }
         finally
@@ -595,8 +595,8 @@ public class ConfigTests
             Environment.SetEnvironmentVariable("POLARS_USE_RELATIONAL_NULLS", "1");
             Environment.SetEnvironmentVariable("POLARS_NET_PREFETCH_SIZE", "7");
 
-            global::Polars.NET.Core.Config.CoreConfig.ImportLegacyEnvironment();
-            global::Polars.NET.Linq.PolarsRuntimeConfig.ImportLegacyEnvironment();
+            NET.Core.Config.CoreConfig.ImportLegacyEnvironment();
+            NET.Linq.PolarsRuntimeConfig.ImportLegacyEnvironment();
 
             Assert.True(global::Kaminari.Samidare.Config.SamidareConfig.UseRelationalNulls);
             Assert.Equal(7, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
@@ -705,7 +705,7 @@ public class ConfigTests
             ["key1"] = "val1",
             ["key2"] = "val2"
         };
-        string json = Kaminari.Sazanami.Helpers.JsonDictionaryWriter.SerializeDictionary(dict);
+        string json = JsonDictionaryWriter.SerializeDictionary(dict);
         Assert.Equal("{\"key1\":\"val1\",\"key2\":\"val2\"}", json);
     }
 }

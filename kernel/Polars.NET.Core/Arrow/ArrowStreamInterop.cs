@@ -56,7 +56,7 @@ public static unsafe class ArrowStreamInterop
         return &DestroyScanContextStatic;
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static CArrowArrayStream* StreamFactoryCallbackStatic(void* userData)
     {
         try
@@ -91,7 +91,7 @@ public static unsafe class ArrowStreamInterop
         }
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void DestroyScanContextStatic(void* userData)
     {
         try

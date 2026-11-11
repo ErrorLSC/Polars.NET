@@ -141,7 +141,7 @@ public static class DataFrameBuilder
         var factories = SoAColumnExtractor<T, SeriesHandle>.GetFactories();
         if (factories.Length == 0)
         {
-            return PolarsWrapper.DataFrameNew(ReadOnlySpan<SeriesHandle>.Empty);
+            return PolarsWrapper.DataFrameNew([]);
         }
 
         var handles = new SeriesHandle[factories.Length];
@@ -166,7 +166,7 @@ public static class DataFrameBuilder
         var properties = ClrTypeHelper.GetModelProperties(columns.GetType());
         if (properties.Length == 0)
         {
-            return PolarsWrapper.DataFrameNew(ReadOnlySpan<SeriesHandle>.Empty);
+            return PolarsWrapper.DataFrameNew([]);
         }
 
         var handles = new List<SeriesHandle>(properties.Length);

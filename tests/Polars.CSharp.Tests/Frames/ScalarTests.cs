@@ -120,11 +120,12 @@ public class ScalarTests
         // Arrange
         using var s1 = Series.From("Id", [1, 2, 3]);
         using var s2 = Series.From("Name", ["Alice", "Bob", "Charlie"]);
-        using var df = new DataFrame(s1, s2);
-
-        // Act 
-        df[1, "Name"] = "Bobby";
-        df[1, "Id"] = 99;
+        using var df = new DataFrame(s1, s2)
+        {
+            // Act 
+            [1, "Name"] = "Bobby",
+            [1, "Id"] = 99
+        };
 
         // Assert
         Assert.Equal("Bobby", df[1, "Name"]);
@@ -170,12 +171,13 @@ public class ScalarTests
         // Arrange
         using var s1 = Series.From("A", [1, 2, 3]);
         using var s2 = Series.From("B", [10, 20, 30]);
-        using var df = new DataFrame(s1, s2);
-
-        df[["A", "B"]] = [
+        using var df = new DataFrame(s1, s2)
+        {
+            [["A", "B"]] = [
             Series.From("A", [99, 88, 77]),
             Series.From("B", [999, 888, 777])
-        ];
+        ]
+        };
 
         // Assert
         Assert.Equal([99, 88, 77], df["A"].ToArray<int>());
@@ -187,12 +189,13 @@ public class ScalarTests
     {
         // Arrange
         using var s1 = Series.From("A", [1, 2, 3]);
-        using var df = new DataFrame(s1);
-
-        df[["NewCol1", "NewCol2"]] = [
+        using var df = new DataFrame(s1)
+        {
+            [["NewCol1", "NewCol2"]] = [
             Series.From("NewCol1", ["X", "Y", "Z"]),
             Series.From("NewCol2", [10.5, 20.5, 30.5])
-        ];
+        ]
+        };
 
         // Assert
         Assert.Equal(3, df.Width);
@@ -208,12 +211,13 @@ public class ScalarTests
         // Arrange
         using var s1 = Series.From("A", [1, 2]);
         using var s2 = Series.From("B", ["old1", "old2"]);
-        using var df = new DataFrame(s1, s2);
-
-        df[["A", "C"]] = [
+        using var df = new DataFrame(s1, s2)
+        {
+            [["A", "C"]] = [
             Series.From("A", [99, 88]),
             Series.From("C", ["new1", "new2"])
-        ];
+        ]
+        };
 
         // Assert
         Assert.Equal(3, df.Width);

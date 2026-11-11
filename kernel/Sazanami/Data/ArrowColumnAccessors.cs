@@ -729,7 +729,7 @@ internal sealed unsafe class StringViewAccessor : TypedColumnAccessor<string>,
         {
             byte* viewPtr = _viewsPtr + ((nint)index << 4);
             int length = *(int*)viewPtr;
-            if (length == 0) return ReadOnlySpan<byte>.Empty;
+            if (length == 0) return [];
             if (length <= 12)
             {
                 return new ReadOnlySpan<byte>(viewPtr + 4, length);

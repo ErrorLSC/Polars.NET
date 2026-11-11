@@ -146,7 +146,7 @@ public static class ArrowUdfBatchAdapter
 
     private static Func<IArrowArray, System.Array> GetArrayReader([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type elementType)
     {
-        return s_readColumnDelegates.GetOrAdd(elementType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) =>
+        return s_readColumnDelegates.GetOrAdd(elementType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] type) =>
         {
             var method = typeof(ArrowReader)
                 .GetMethod(nameof(ArrowReader.ReadColumn), BindingFlags.Public | BindingFlags.Static)!

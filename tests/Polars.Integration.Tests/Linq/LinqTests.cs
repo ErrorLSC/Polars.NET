@@ -72,13 +72,12 @@ public class LinqProviderTests
     [Trait("LINQ", "Where")]
     public void Test_Polars_Linq_Where_And_OrderBy()
     {
-        var data = new[]
-        {
+        Person[] data = [
             new Person { Name = "Alice",   Age = 25, Sales = 100.0 },
             new Person { Name = "Bob",     Age = 30, Sales = 200.0 },
             new Person { Name = "Charlie", Age = 35, Sales = 300.0 },
             new Person { Name = "David",   Age = 18, Sales =  50.0 }
-        };
+        ];
 
         using var df = DataFrame.FromRows(data);
 
@@ -128,12 +127,11 @@ public class LinqProviderTests
     [Trait("LINQ", "Select")]
     public void Test_Polars_Linq_Select_Projection()
     {
-        var data = new[]
-        {
+        Person[] data = [
             new Person { Name = "Alice", Age = 25, Sales = 100.0 },
             new Person { Name = "Bob",   Age = 30, Sales = 200.0 },
             new Person { Name = "Charlie", Age = 35, Sales = 300.0 }
-        };
+        ];
 
         using var df = DataFrame.FromRows(data);
 
@@ -173,18 +171,16 @@ public class LinqProviderTests
     [Trait("LINQ", "Join")]
     public void Test_Polars_Linq_Inner_Join()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department { DeptId = 1, DeptName = "Engineering" },
             new Department { DeptId = 2, DeptName = "Sales" }
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee { Name = "Alice", DeptId = 1 },
             new Employee { Name = "Bob", DeptId = 2 },
             new Employee { Name = "Charlie", DeptId = 1 }
-        };
+        ];
 
         using var dfDepts = DataFrame.FromRows(depts);
         using var dfEmps = DataFrame.FromRows(emps);
@@ -236,14 +232,13 @@ public class LinqProviderTests
     [Trait("LINQ", "GroupByHaving")]
     public void Test_Polars_Linq_GroupBy_Aggregation_With_Having()
     {
-        var emps = new[]
-        {
+        EmployeeSalary[] emps = [
             new EmployeeSalary { Name = "Alice", DeptId = 1, Salary = 5000.0 },
             new EmployeeSalary { Name = "Bob",   DeptId = 2, Salary = 4000.0 },
             new EmployeeSalary { Name = "Charlie", DeptId = 1, Salary = 6000.0 },
             new EmployeeSalary { Name = "David", DeptId = 2, Salary = 4500.0 },
             new EmployeeSalary { Name = "Eve",   DeptId = 3, Salary = 3000.0 }
-        };
+        ];
 
         using var dfEmps = DataFrame.From(emps);
 
@@ -330,14 +325,13 @@ public class LinqProviderTests
     [Trait("LINQ", "AdvancedFilters")]
     public void Test_Polars_Linq_In_And_String_Like()
     {
-        var data = new[]
-        {
+        Product[] data = [
             new Product(1, "Apple", "Fruit", 1.2),
             new Product(2, "Banana", "Fruit", 0.8),
             new Product(3, "Carrot", "Vegetable", 0.5),
             new Product(4, "Avocado", "Vegetable", 2.0),
             new Product(5, "Beef", "Meat", 5.0)
-        };
+        ];
 
         using var df = DataFrame.FromRows(data);
 
@@ -379,15 +373,14 @@ public class LinqProviderTests
     [Trait("LINQ", "PaginationAndDistinct")]
     public void Test_Polars_Linq_Skip_Take_And_Distinct()
     {
-        var data = new[]
-        {
+        Product[] data = [
             new Product(1, "Apple", "Fruit", 1.2),
             new Product(2, "Banana", "Fruit", 0.8),
             new Product(3, "Cherry", "Fruit", 1.5),
             new Product(4, "Beef", "Meat", 5.0),
             new Product(5, "Pork", "Meat", 4.0),
             new Product(6, "Apple", "Fruit", 1.2) // Duplicated
-        };
+        ];
 
         using var df = DataFrame.FromRows(data);
         var query = df.AsQueryable<Product>();
@@ -477,19 +470,17 @@ public class LinqProviderTests
     public void Test_Polars_Linq_Left_Join()
     {
         // Arrange
-        var depts = new[]
-        {
+        DeptDto[] depts = [
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
             new DeptDto { DeptId = 3, DeptName = "HR" }
-        };
+        ];
 
-        var emps = new[]
-        {
+        EmpDto[] emps = [
             new EmpDto { Name = "Alice", DeptId = 1 },
             new EmpDto { Name = "Bob",   DeptId = 2 },
             new EmpDto { Name = "Charlie", DeptId = 1 }
-        };
+        ];
 
         using var dfDepts = DataFrame.FromRows(depts);
         using var dfEmps = DataFrame.FromRows(emps);
@@ -551,17 +542,15 @@ public class LinqProviderTests
     [Trait("LINQ", "UnionAndCrossJoin")]
     public void Test_Polars_Linq_Union_And_CrossJoin()
     {
-        var depts = new[]
-        {
+        DeptDto[] depts = [
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" }
-        };
+        ];
 
-        var emps = new[]
-        {
+        EmpDto[] emps = [
             new EmpDto { Name = "Alice", DeptId = 1 },
             new EmpDto { Name = "Bob",   DeptId = 2 }
-        };
+        ];
 
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
@@ -603,14 +592,13 @@ public class LinqProviderTests
     [Trait("LINQ", "AdvancedSetsAndLet")]
     public void Test_Polars_Linq_Except_Intersect_And_Let()
     {
-        var emps = new[]
-        {
+        EmpSalaryDto[] emps = [
             new EmpSalaryDto("Alice", 1, 6000.0),
             new EmpSalaryDto("Bob", 2, 4000.0),
             new EmpSalaryDto("Charlie", 1, 4500.0),
             new EmpSalaryDto("David", 3, 8000.0),
             new EmpSalaryDto("Eve", 2, 5500.0)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable<EmpSalaryDto>();
@@ -655,14 +643,13 @@ public class LinqProviderTests
     [Trait("LINQ", "WindowFunctions")]
     public void Test_Polars_Linq_Window_Functions()
     {
-        var emps = new[]
-        {
+        EmpSalaryDto[] emps = [
             new EmpSalaryDto("Alice", 1, 6000.0),
             new EmpSalaryDto("Bob", 2, 4000.0),
             new EmpSalaryDto("Charlie", 1, 4500.0),
             new EmpSalaryDto("David", 3, 8000.0),
             new EmpSalaryDto("Eve", 2, 5500.0)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable<EmpSalaryDto>();
@@ -729,14 +716,13 @@ public class LinqProviderTests
     [Trait("LINQ", "CaseWhenAndCte")]
     public void Test_Polars_Linq_CaseWhen_And_Cte()
     {
-        var emps = new[]
-        {
+        EmpSalaryDto[] emps = [
             new EmpSalaryDto("Alice", 1, 6000.0),
             new EmpSalaryDto("Bob", 2, 4000.0),
             new EmpSalaryDto("Charlie", 1, 4500.0),
             new EmpSalaryDto("David", 3, 8000.0),
             new EmpSalaryDto("Eve", 2, 5500.0)
-        };
+        ];
 
         using var dfEmps = DataFrame.FromRows(emps);
         var empQuery = dfEmps.AsQueryable<EmpSalaryDto>();
@@ -832,14 +818,13 @@ public class LinqProviderTests
     [Trait("LINQ", "TimeSeriesAndMultiGroup")]
     public void Test_Polars_Linq_Time_Series_And_MultiGroup()
     {
-        var orders = new[]
-        {
+        OrderDto[] orders = [
             new OrderDto(1, new DateTime(2023, 1, 15), "North", 100.0),
             new OrderDto(2, new DateTime(2023, 1, 20), "North", 150.0),
             new OrderDto(3, new DateTime(2023, 2, 10), "South", 200.0),
             new OrderDto(4, new DateTime(2024, 1, 5),  "North", 300.0),
             new OrderDto(5, new DateTime(2023, 2, 25), "South", 250.0)
-        };
+        ];
 
         using var dfOrders = DataFrame.From(orders);
         var orderQuery = dfOrders.AsQueryable<OrderDto>();
@@ -938,20 +923,18 @@ public class LinqProviderTests
     [Trait("LINQ", "SubqueryInAndFunctions")]
     public void Test_Polars_Linq_SubqueryIn_And_Functions()
     {
-        var depts = new[]
-        {
+        DeptDto[] depts = [
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
             new DeptDto { DeptId = 3, DeptName = "HR" }
-        };
+        ];
 
-        var emps = new[]
-        {
+        NullableEmpDto[] emps = [
             new NullableEmpDto("Alice", 1, 6000.0),
             new NullableEmpDto(null, 2, 4000.0),
             new NullableEmpDto("Charlie", 1, 4500.0),
             new NullableEmpDto("David", 3, 8000.0)
-        };
+        ];
 
         using var dfDepts = DataFrame.FromRows(depts);
         using var dfEmps = DataFrame.FromRows(emps);
@@ -1152,13 +1135,12 @@ public class LinqProviderTests
     [Trait("LINQ", "MathStringAndConditionalAgg")]
     public void Test_Polars_Linq_Math_String_And_ConditionalAgg()
     {
-        var sales = new[]
-        {
+        SalesData[] sales = [
             new SalesData("Tech", "Laptop", 1000.5, 50.0),
             new SalesData("Tech", "Mouse", -20.0, 0.0),
             new SalesData("Office", "Desk", 500.2, 10.0),
             new SalesData("Office", "Chair", 150.8, 5.0)
-        };
+        ];
 
         var salesQuery = DataFrame.From(sales).AsQueryable<SalesData>();
 
@@ -1240,17 +1222,16 @@ public class LinqProviderTests
     [Trait("LINQ", "LeadLagAndNestedList")]
     public void Test_Polars_Linq_LeadLag_And_NestedList()
     {
-        var stocks = new[]
-        {
+        StockPrice[] stocks = [
             new StockPrice("AAPL", new DateTime(2024, 1, 1), 150.0),
             new StockPrice("AAPL", new DateTime(2024, 1, 2), 155.0),
             new StockPrice("AAPL", new DateTime(2024, 1, 3), 152.0),
             new StockPrice("MSFT", new DateTime(2024, 1, 1), 300.0),
             new StockPrice("MSFT", new DateTime(2024, 1, 2), 305.0)
-        };
+        ];
 
-        var depts = new[] { new DeptDto { DeptId = 1, DeptName = "Tech" }, new DeptDto { DeptId = 2, DeptName = "Sales" } };
-        var emps = new[] { new EmpDto { Name = "Alice", DeptId = 1 }, new EmpDto { Name = "Bob", DeptId = 1 }, new EmpDto { Name = "Charlie", DeptId = 2 } };
+        DeptDto[] depts = [new DeptDto { DeptId = 1, DeptName = "Tech" }, new DeptDto { DeptId = 2, DeptName = "Sales" }];
+        EmpDto[] emps = [new EmpDto { Name = "Alice", DeptId = 1 }, new EmpDto { Name = "Bob", DeptId = 1 }, new EmpDto { Name = "Charlie", DeptId = 2 }];
 
         using var dfStocks = DataFrame.FromRows(stocks);
         using var dfDepts = DataFrame.FromRows(depts);
@@ -1502,12 +1483,11 @@ David,40,80000";
     [Trait("LINQ", "MathDate")]
     public void Test_Polars_Linq_Math_Date_And_Aggregations()
     {
-        var sales = new[]
-        {
+        SalesRecord[] sales = [
             new SalesRecord { Id = 1, Category = "Tech", Revenue = -150.5, SaleDate = new DateTime(2023, 1, 15) },
             new SalesRecord { Id = 2, Category = "Tech", Revenue = 200.2, SaleDate = new DateTime(2023, 5, 20) },
             new SalesRecord { Id = 3, Category = "Food", Revenue = 99.9,  SaleDate = new DateTime(2024, 2, 10) }
-        };
+        ];
 
         using var dfSales = DataFrame.From(sales);
         var table = dfSales.AsQueryable<SalesRecord>();
@@ -1569,15 +1549,14 @@ David,40,80000";
     [Trait("LINQ", "WindowAndStats")]
     public void Test_Polars_Linq_Window_And_Stats()
     {
-        var data = new[]
-        {
+        WindowStatsRecord[] data = [
             new WindowStatsRecord { DeptId = 1, EmpName = "Alice",   Salary = 5000 },
             new WindowStatsRecord { DeptId = 1, EmpName = "Bob",     Salary = 6000 },
             new WindowStatsRecord { DeptId = 1, EmpName = "Charlie", Salary = 7000 },
             new WindowStatsRecord { DeptId = 2, EmpName = "Dave",    Salary = 4000 },
             new WindowStatsRecord { DeptId = 2, EmpName = "Eve",     Salary = 4000 },
             new WindowStatsRecord { DeptId = 2, EmpName = "Frank",   Salary = 8000 }
-        };
+        ];
 
         using var dfData = DataFrame.FromRows(data);
         var table = dfData.AsQueryable<WindowStatsRecord>();
@@ -1672,13 +1651,12 @@ David,40,80000";
     [Trait("LINQ", "DataScienceStats")]
     public void Test_Polars_Linq_Quantiles_And_Variance()
     {
-        var data = new[]
-        {
+        StatRecord[] data = [
             new StatRecord { GroupId = 1, Value = 10.0 },
             new StatRecord { GroupId = 1, Value = 20.0 },
             new StatRecord { GroupId = 1, Value = 30.0 },
             new StatRecord { GroupId = 1, Value = 40.0 }
-        };
+        ];
 
         using var dfData = DataFrame.FromRows(data);
         var table = dfData.AsQueryable<StatRecord>();
@@ -1750,11 +1728,10 @@ David,40,80000";
         // 3 : 0011
         // 12 : 1100
         // 10 : 1010
-        var data = new[]
-        {
+        BitwiseRecord[] data = [
             new BitwiseRecord { Id = 1, A = 5,  B = 3 },
             new BitwiseRecord { Id = 2, A = 12, B = 10 }
-        };
+        ];
 
         var firstQuery = DataFrame.FromRows(data).AsQueryable<BitwiseRecord>()
             .OrderBy(x => x.Id)
@@ -1825,11 +1802,10 @@ David,40,80000";
     [Trait("LINQ", "Temporal")]
     public void Test_Polars_Linq_Native_Temporal_Functions()
     {
-        var data = new[]
-        {
+        TemporalRecord[] data = [
             new TemporalRecord { Id = 1, EventTime = new DateTime(2024, 3, 15, 14, 30, 0) },
             new TemporalRecord { Id = 2, EventTime = new DateTime(2025, 12, 1, 9, 15, 45) }
-        };
+        ];
 
         using var df = DataFrame.From(data);
         var table = df.AsQueryable<TemporalRecord>();
@@ -1889,11 +1865,10 @@ David,40,80000";
     [Trait("LINQ", "String")]
     public void Test_Polars_Linq_Native_String_Functions()
     {
-        var data = new[]
-        {
+        StringNativeRecord[] data = [
             new StringNativeRecord { Id = 1, Text1 = "  Hello  ", Text2 = "World", TimeStr = "2024-03-15 14:30:00" },
             new StringNativeRecord { Id = 2, Text1 = "Polars",    Text2 = "Data",  TimeStr = "2025-12-01 09:15:45" }
-        };
+        ];
 
         using var df = DataFrame.FromRows(data);
         var table = df.AsQueryable<StringNativeRecord>();
@@ -2169,19 +2144,17 @@ David,40,80000";
     public void Test_Polars_Linq_LeftJoin_Net10()
     {
         // Arrange
-        var depts = new[]
-        {
+        DeptDto[] depts = [
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
             new DeptDto { DeptId = 3, DeptName = "HR" }
-        };
+        ];
 
-        var emps = new[]
-        {
+        EmpDto[] emps = [
             new EmpDto { Name = "Alice", DeptId = 1 },
             new EmpDto { Name = "Bob",   DeptId = 2 },
             new EmpDto { Name = "Charlie", DeptId = 1 }
-        };
+        ];
 
         using var dfDepts = DataFrame.FromRows(depts);
         using var dfEmps = DataFrame.FromRows(emps);
@@ -2259,20 +2232,18 @@ David,40,80000";
     [Trait("LINQ", "RightJoin")]
     public void Test_Polars_Linq_RightJoin_Net10()
     {
-        var depts = new[]
-        {
+        DeptDto[] depts = [
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
             new DeptDto { DeptId = 3, DeptName = "HR" }
-        };
+        ];
 
-        var emps = new[]
-        {
+        EmpDto[] emps = [
             new EmpDto { Name = "Alice", DeptId = 1 },
             new EmpDto { Name = "Bob",   DeptId = 2 },
             new EmpDto { Name = "Charlie", DeptId = 1 },
             new EmpDto { Name = "David", DeptId = 99 }
-        };
+        ];
 
         using var dfDepts = DataFrame.FromRows(depts);
         using var dfEmps = DataFrame.FromRows(emps);
@@ -2348,15 +2319,14 @@ David,40,80000";
     public void Test_Polars_Linq_New_Aggregations_Net10()
     {
         // Arrange
-        var sales = new[]
-        {
+        SaleRecord[] sales = [
             new SaleRecord { Id = 1, Category = "Electronics", Amount = 1200.50 },
             new SaleRecord { Id = 2, Category = "Electronics", Amount = 800.00 },
             new SaleRecord { Id = 3, Category = "Clothing",    Amount = 150.00 },
             new SaleRecord { Id = 4, Category = "Clothing",    Amount = 200.00 },
             new SaleRecord { Id = 5, Category = "Clothing",    Amount = 50.00 },
             new SaleRecord { Id = 6, Category = "Books",       Amount = 45.00 }
-        };
+        ];
 
         using var df = DataFrame.FromRows(sales);
         var salesQuery = df.AsQueryable<SaleRecord>();

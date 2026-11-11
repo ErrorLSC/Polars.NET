@@ -136,7 +136,8 @@ internal static class AzureCredentialSources
                 start.ArgumentList.Add("/C");
                 start.ArgumentList.Add("az");
             }
-            foreach (string argument in new[] { "account", "get-access-token", "--output", "json", "--scope", StorageScope })
+            string[] arguments = ["account", "get-access-token", "--output", "json", "--scope", StorageScope];
+            foreach (string argument in arguments)
                 start.ArgumentList.Add(argument);
 
             string output, error;

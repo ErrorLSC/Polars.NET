@@ -1020,7 +1020,7 @@ public class DataFrameTests
     [Fact]
     public void Test_DataFrame_TopK_Eager()
     {
-        var data = new[] { 1, 100, 50, 2 };
+        int[] data = [1, 100, 50, 2];
         using var df = DataFrame.FromColumns(new { val = data });
 
         using var top = df.TopK(2, "val");
@@ -1035,21 +1035,19 @@ public class DataFrameTests
     public void Test_DataFrame_JoinAsOf_Eager()
     {
         // Left: [10:00, 10:02], val_l = [1, 2]
-        var datesL = new[] 
-        { 
+        DateTime[] datesL = [ 
             new DateTime(2023, 1, 1, 10, 0, 0),
             new DateTime(2023, 1, 1, 10, 2, 0)
-        };
+        ];
         using var dfLeft = DataFrame.FromColumns(new { ts = datesL, val_l = new[] { 1, 2 } });
 
         // Right: [09:59, 10:00, 10:01, 10:03], val_r = [10, 20, 30, 40]
-        var datesR = new[] 
-        { 
+        DateTime[] datesR = [ 
             new DateTime(2023, 1, 1, 9, 59, 0),
             new DateTime(2023, 1, 1, 10, 0, 0), // Match for 10:00
             new DateTime(2023, 1, 1, 10, 1, 0), // Match for 10:02 (backward)
             new DateTime(2023, 1, 1, 10, 3, 0)
-        };
+        ];
         using var dfRight = DataFrame.FromColumns(new { ts = datesR, val_r = new[] { 10, 20, 30, 40 } });
 
         // JoinAsOf (Backward strategy)
@@ -1758,8 +1756,8 @@ public class DataFrameTests
         // Assert
         Assert.Equal(2, dict.Count);
 
-        var keyUS = new object?[] { "US", 2023 };
-        var keyCN = new object?[] { "CN", 2024 };
+        object?[] keyUS = ["US", 2023];
+        object?[] keyCN = ["CN", 2024];
 
         Assert.True(dict.ContainsKey(keyUS));
         Assert.True(dict.ContainsKey(keyCN));
@@ -1871,7 +1869,7 @@ public class DataFrameTests
         Assert.Equal("Value", result.Columns[1]);
 
         var indexArray = result["index"].ToArray<uint>();
-        Assert.Equal(new uint[] { 0, 1, 2 }, indexArray);
+        Assert.Equal([0, 1, 2], indexArray);
     }
 
     [Fact]
@@ -1892,7 +1890,7 @@ public class DataFrameTests
         Assert.Equal("row_id", result.Columns[0]);
 
         var indexArray = result["row_id"].ToArray<uint>();
-        Assert.Equal(new uint[] { 10, 11, 12, 13 }, indexArray);
+        Assert.Equal([10, 11, 12, 13], indexArray);
     }
 
     [Fact]
@@ -2401,15 +2399,14 @@ public class DataFrameTests
     [Trait("DataFrame", "Upsample")]
     public void Test_DataFrame_Upsample_With_Selectors()
     {
-        var dates = new[]
-        {
+        DateTime[] dates = [
             new DateTime(2024, 1, 1),
             new DateTime(2024, 1, 3),
             new DateTime(2024, 1, 1),
             new DateTime(2024, 1, 2)
-        };
-        var groups = new[] { "A", "A", "B", "B" };
-        var vals = new int?[] { 10, 30, 100, 200 };
+        ];
+        string[] groups = ["A", "A", "B", "B"];
+        int?[] vals = [10, 30, 100, 200];
 
         using var df = DataFrame.FromColumns(new { ts = dates, grp = groups, val = vals });
         using var sorted = df.Sort(["grp", "ts"]);
@@ -2438,9 +2435,9 @@ public class DataFrameTests
     [Trait("DataFrame", "ToDummies")]
     public void Test_DataFrame_ToDummies()
     {
-        var ids = new[] { 1, 2, 3, 4 };
-        var groups = new[] { "A", "B", "A", "C" };
-        var colors = new[] { "Red", "Blue", "Red", "Red" };
+        int[] ids = [1, 2, 3, 4];
+        string[] groups = ["A", "B", "A", "C"];
+        string[] colors = ["Red", "Blue", "Red", "Red"];
 
         using var df = DataFrame.FromColumns(new 
         { 
@@ -2650,10 +2647,9 @@ public class DataFrameTests
             new() { { "id", 1 }, { "flag", 1 } }
         };
 
-        var overrides = new (string, DataType)[] 
-        { 
+        (string, DataType)[] overrides = [ 
             ("flag", DataType.Boolean) 
-        };
+        ];
 
         using var df = DataFrame.FromDicts(data, schemaOverrides: overrides);
 
@@ -2890,7 +2886,7 @@ public class DataFrameTests
         var aSeries = d["a"];
         var bSeries = d["b"];
         Assert.Equal([1, 2, 3], aSeries.ToArray<int?>());
-        Assert.Equal(new string[] { "x", "y", "z" }, bSeries.ToArray<string>());
+        Assert.Equal(["x", "y", "z"], bSeries.ToArray<string>());
     }
 
     [Fact]
@@ -2940,9 +2936,9 @@ public class DataFrameTests
         var scores = result[1].ToArray<int>();
         var grades = result[2].ToArray<string>();
 
-        Assert.Equal(new[] { "Bob", "Diana", "Alice" }, names);
+        Assert.Equal(["Bob", "Diana", "Alice"], names);
         Assert.Equal([92, 88, 85], scores);
-        Assert.Equal(new[] { "A", "B", "B" }, grades);
+        Assert.Equal(["A", "B", "B"], grades);
     }
     [Fact]
     [Trait("DataFrame", "Fold")]
@@ -2978,7 +2974,7 @@ public class DataFrameTests
     {
         // 1. Int8 + String → String
         using var strDf = DataFrame.FromColumns(
-            Series.From("int8", new sbyte[] { 1, 2 }),
+            Series.From("int8", [1, 2]),
             Series.From("str", ["a", "b"])
         );
         using var strResult = strDf.Fold((acc, col) => acc + col);

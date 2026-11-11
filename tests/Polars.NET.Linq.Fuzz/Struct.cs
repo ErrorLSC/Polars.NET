@@ -64,8 +64,8 @@ public static class StructGen
     static Plan Term<T, R>(string fam, IQueryable<T> q, string name, Func<IQueryable<T>, R> f) => new(fam, q, () => f(q), name, true);
 
     // ================= pre-stages on FzRow =================
-    static Expression<Func<FzRow, bool>>[] SubPreds(IQueryable<FzRow> o) => new Expression<Func<FzRow, bool>>[]
-    {
+    static Expression<Func<FzRow, bool>>[] SubPreds(IQueryable<FzRow> o) =>
+    [
         x => o.Any(y => y.I == x.I),
         x => !o.Any(y => y.S == x.S),
         x => o.Any(y => y.NI == x.NI),
@@ -87,10 +87,10 @@ public static class StructGen
         x => o.Count(y => y.NI == x.NI) == 0,
         x => o.Any(y => y.S == x.S) && o.Any(y => y.I == x.I),
         x => o.Select(y => y.S).Distinct().Count() > x.S.Length,
-    };
-    static readonly string[] SubSelFields = { "AB", "AB", "AD", "AB", "AE", "AE", "AC", "ABD", "AB", "ABC", "ABD" };
-    static Expression<Func<FzRow, FzP>>[] SubSels(IQueryable<FzRow> o) => new Expression<Func<FzRow, FzP>>[]
-    {
+    ];
+    static readonly string[] SubSelFields = ["AB", "AB", "AD", "AB", "AE", "AE", "AC", "ABD", "AB", "ABC", "ABD"];
+    static Expression<Func<FzRow, FzP>>[] SubSels(IQueryable<FzRow> o) =>
+    [
         x => new FzP { A = x.Id, B = o.Count(y => y.I == x.I) },
         x => new FzP { A = x.Id, B = o.Where(y => y.S == x.S).Sum(y => (long)y.I) },
         x => new FzP { A = x.Id, D = o.Where(y => y.I == x.I).Sum(y => y.D) },
@@ -102,11 +102,11 @@ public static class StructGen
         x => new FzP { A = x.Id, B = o.Select(y => y.I).Contains(x.I) ? 1 : 0 },
         x => new FzP { A = x.Id, B = o.Where(y => y.I == x.I).Max(y => (long?)y.Id), C = o.Where(y => y.S == x.S).Max(y => y.NS) },
         x => new FzP { A = x.Id, B = o.Count(y => y.D > x.D), D = o.Where(y => y.Id == x.Id).Sum(y => y.D) },
-    };
+    ];
     static readonly Expression<Func<FzRow, bool>>[] SimplePreds =
-    {
+    [
         x => x.I > 0, x => x.NI != null, x => x.B, x => x.S != "", x => x.NS == null || x.NS.Length > 1, x => x.D == x.D, x => x.NB == true,
-    };
+    ];
 
     static Func<IQueryable<FzRow>, IQueryable<FzRow>, IQueryable<FzRow>> MakePre(Random r, Gen g, bool withSub)
     {
@@ -125,10 +125,10 @@ public static class StructGen
 
     // ================= post-stages on FzP =================
     static readonly (string need, Expression<Func<FzP, bool>> e)[] PostPreds =
-    {
+    [
         ("A", p => p.A > 0), ("B", p => p.B > 1), ("E", p => p.E == true), ("C", p => p.C != null), ("D", p => p.D < 1.0), ("AB", p => p.B == null || p.A > 2),
         ("C", p => p.C == "a" || p.C == "ab"), ("E", p => p.E != false),
-    };
+    ];
     // Only predicates over members that the projection actually assigns.
     static IQueryable<FzP> WherePost(IQueryable<FzP> q, string fields, int c)
     {
@@ -139,24 +139,24 @@ public static class StructGen
     // uniqA: A is unique per row, so OrderBy(A) is a total order.
     static Plan PostFzP(string fam, IQueryable<FzP> q, string fields, int c, bool uniqA, bool ordered)
     {
-        switch (c % 9)
+        return (c % 9) switch
         {
-            case 0: return Seq(fam, q, ordered);
-            case 1: return Seq(fam, WherePost(q, fields, c / 9), ordered);
-            case 2: return Seq(fam, q.Distinct(), false);
-            case 3: return Term(fam, q, "Count", x => x.Count());
-            case 4: return Term(fam, WherePost(q, fields, c / 9), "Any", x => x.Any());
-            case 5 when uniqA: return Seq(fam, q.OrderBy(p => p.A), true);
-            case 6 when uniqA: return Seq(fam, q.OrderByDescending(p => p.A).Skip(c / 9 % 3).Take(c / 27 % 6), true);
-            case 7 when uniqA: return Term(fam, q.OrderBy(p => p.A), "FirstOrDefault", x => x.FirstOrDefault());
-            case 8 when uniqA: return Seq(fam, WherePost(q, fields, c / 9).OrderBy(p => p.A).Reverse(), true);
-            default: return Seq(fam, q, ordered);
-        }
+            0 => Seq(fam, q, ordered),
+            1 => Seq(fam, WherePost(q, fields, c / 9), ordered),
+            2 => Seq(fam, q.Distinct(), false),
+            3 => Term(fam, q, "Count", x => x.Count()),
+            4 => Term(fam, WherePost(q, fields, c / 9), "Any", x => x.Any()),
+            5 when uniqA => Seq(fam, q.OrderBy(p => p.A), true),
+            6 when uniqA => Seq(fam, q.OrderByDescending(p => p.A).Skip(c / 9 % 3).Take(c / 27 % 6), true),
+            7 when uniqA => Term(fam, q.OrderBy(p => p.A), "FirstOrDefault", x => x.FirstOrDefault()),
+            8 when uniqA => Seq(fam, WherePost(q, fields, c / 9).OrderBy(p => p.A).Reverse(), true),
+            _ => Seq(fam, q, ordered),
+        };
     }
 
     // ================= GroupBy =================
-    static (string, LambdaExpression)[] Aggs<K>() => new (string, LambdaExpression)[]
-    {
+    static (string, LambdaExpression)[] Aggs<K>() =>
+    [
         ("N", (Expression<Func<IGrouping<K, FzRow>, int>>)(g => g.Count())),
         ("LN", (Expression<Func<IGrouping<K, FzRow>, long>>)(g => g.LongCount())),
         ("Sum", (Expression<Func<IGrouping<K, FzRow>, long>>)(g => g.Sum(x => (long)x.I))),
@@ -176,13 +176,13 @@ public static class StructGen
         ("Fi", (Expression<Func<IGrouping<K, FzRow>, long>>)(g => g.OrderBy(x => x.Id).First().Id)),
         ("SumD", (Expression<Func<IGrouping<K, FzRow>, double>>)(g => g.Sum(x => x.D))),
         ("SumM", (Expression<Func<IGrouping<K, FzRow>, decimal>>)(g => g.Sum(x => x.M))),
-    };
-    static Expression<Func<IGrouping<K, FzRow>, bool>>[] Havings<K>() => new Expression<Func<IGrouping<K, FzRow>, bool>>[]
-    {
+    ];
+    static Expression<Func<IGrouping<K, FzRow>, bool>>[] Havings<K>() =>
+    [
         g => g.Count() > 1, g => g.Any(x => x.B), g => g.Sum(x => (long)x.I) > 0, g => g.Max(x => x.I) > 0,
         g => g.Count(x => x.NI == null) == 0, g => g.Min(x => x.D) < 1.0, g => g.All(x => x.I != 0), g => g.Count() == g.Count(x => x.B),
         g => g.Count(x => x.I > 0) >= 2 && g.Any(x => x.NB == null),
-    };
+    ];
 
     static Plan Group<K>(IQueryable<FzRow> s, Expression<Func<FzRow, K>> key, int[] c)
     {
@@ -420,13 +420,13 @@ public static class StructGen
 
     // ================= set operations / terminals =================
     static readonly Expression<Func<FzRow, FzP>>[] Projs =
-    {
+    [
         x => new FzP { A = x.I, C = x.S },
         x => new FzP { A = x.I % 3, B = x.NI },
         x => new FzP { A = x.B ? 1 : 0, E = x.NB },
         x => new FzP { A = x.S.Length, C = x.NS },
         x => new FzP { C = x.S, D = x.D },
-    };
+    ];
     static IOrderedQueryable<FzP> SortP(IQueryable<FzP> q, int j) => j switch
     {
         0 => q.OrderBy(p => p.A).ThenBy(p => p.C),
@@ -436,7 +436,7 @@ public static class StructGen
         _ => q.OrderBy(p => p.C).ThenBy(p => p.D),
     };
 
-    static readonly string[] ProjFields = { "AC", "AB", "AE", "AC", "CD" };
+    static readonly string[] ProjFields = ["AC", "AB", "AE", "AC", "CD"];
     static Plan SetOpP(IQueryable<FzRow> s, IQueryable<FzRow> o, int[] c)
     {
         int j = c[1] % Projs.Length;
@@ -454,14 +454,14 @@ public static class StructGen
             default: q = a.Distinct(); op = "Distinct"; break;
         }
         string flds = j2 == j ? ProjFields[j] : "";
-        switch (c[4] % 5)
+        return (c[4] % 5) switch
         {
-            case 0: return Seq(op, q, false);
-            case 1: return Term(op, q, "Count", x => x.Count());
-            case 2: return Seq(op, SortP(q, j), j2 == j && j != 3 && j != 4 ? true : false);
-            case 3: return Seq(op, SortP(WherePost(q, flds, c[5]), j).Skip(1).Take(5), j2 == j && j != 3 && j != 4 && false);
-            default: return Seq(op, WherePost(q, flds, c[5]), false);
-        }
+            0 => Seq(op, q, false),
+            1 => Term(op, q, "Count", x => x.Count()),
+            2 => Seq(op, SortP(q, j), j2 == j && j != 3 && j != 4 ? true : false),
+            3 => Seq(op, SortP(WherePost(q, flds, c[5]), j).Skip(1).Take(5), j2 == j && j != 3 && j != 4 && false),
+            _ => Seq(op, WherePost(q, flds, c[5]), false),
+        };
     }
 
     static IOrderedQueryable<FzRow> Ord<K>(IQueryable<FzRow> q, Expression<Func<FzRow, K>> k, bool desc) =>
@@ -476,23 +476,23 @@ public static class StructGen
             4 => Ord(s, x => x.D, desc), 5 => Ord(s, x => x.NB, desc), 6 => Ord(s, x => x.M, desc), _ => Ord(s, x => x.Id, desc),
         };
         int k = c[4] % 4;
-        switch (c[3] % 14)
+        return (c[3] % 14) switch
         {
-            case 0: return Term("Terminal", q.Select(x => x.Id), "First", z => z.First());
-            case 1: return Term("Terminal", q.Select(x => x.Id), "FirstOrDefault", z => z.FirstOrDefault());
-            case 2: return Term("Terminal", q.Select(x => x.Id), "Last", z => z.Last());
-            case 3: return Term("Terminal", q.Select(x => x.Id), "LastOrDefault", z => z.LastOrDefault());
-            case 4: return Term("Terminal", q.Select(x => x.NI), "ElementAtOrDefault", z => z.ElementAtOrDefault(k));
-            case 5: return Term("Terminal", q.Select(x => new FzP { A = x.Id, C = x.NS }), "ElementAt", z => z.ElementAt(k));
-            case 6: return Term("Terminal", q.Where(x => x.Id == k), "SingleOrDefault", z => z.SingleOrDefault());
-            case 7: return Term("Terminal", q.Where(x => x.Id == k + 1), "Single", z => z.Single());
-            case 8: return Seq("Terminal", q.Skip(k).Take(c[5] % 6).Select(x => x.Id), true);
-            case 9: return Seq("Terminal", q.Select(x => x.Id).Reverse(), true);
-            case 10: return Seq("Terminal", q.Skip(c[5] % 5).Select(x => new FzP { A = x.Id, B = x.NI, C = x.NS, D = x.D }), true);
-            case 11: return Seq("Terminal", s.DistinctBy(x => x.I % 3).Select(x => x.Id), true);
-            case 12: return Seq("Terminal", q.DistinctBy(x => x.S).Select(x => x.Id), true);
-            default: return Term("Terminal", q.Where(x => x.B).Select(x => new FzP { A = x.Id, C = x.S }), "FirstOrDefault", z => z.FirstOrDefault());
-        }
+            0 => Term("Terminal", q.Select(x => x.Id), "First", z => z.First()),
+            1 => Term("Terminal", q.Select(x => x.Id), "FirstOrDefault", z => z.FirstOrDefault()),
+            2 => Term("Terminal", q.Select(x => x.Id), "Last", z => z.Last()),
+            3 => Term("Terminal", q.Select(x => x.Id), "LastOrDefault", z => z.LastOrDefault()),
+            4 => Term("Terminal", q.Select(x => x.NI), "ElementAtOrDefault", z => z.ElementAtOrDefault(k)),
+            5 => Term("Terminal", q.Select(x => new FzP { A = x.Id, C = x.NS }), "ElementAt", z => z.ElementAt(k)),
+            6 => Term("Terminal", q.Where(x => x.Id == k), "SingleOrDefault", z => z.SingleOrDefault()),
+            7 => Term("Terminal", q.Where(x => x.Id == k + 1), "Single", z => z.Single()),
+            8 => Seq("Terminal", q.Skip(k).Take(c[5] % 6).Select(x => x.Id), true),
+            9 => Seq("Terminal", q.Select(x => x.Id).Reverse(), true),
+            10 => Seq("Terminal", q.Skip(c[5] % 5).Select(x => new FzP { A = x.Id, B = x.NI, C = x.NS, D = x.D }), true),
+            11 => Seq("Terminal", s.DistinctBy(x => x.I % 3).Select(x => x.Id), true),
+            12 => Seq("Terminal", q.DistinctBy(x => x.S).Select(x => x.Id), true),
+            _ => Term("Terminal", q.Where(x => x.B).Select(x => new FzP { A = x.Id, C = x.S }), "FirstOrDefault", z => z.FirstOrDefault()),
+        };
     }
 
     // ================= top-level =================
@@ -521,42 +521,42 @@ public static class StructGen
         {
             if (fam < 30)
             {
-                switch (keyIdx % 12)
+                return (keyIdx % 12) switch
                 {
-                    case 0: return Group(s, x => x.I % 3, c);
-                    case 1: return Group(s, x => x.I, c);
-                    case 2: return Group(s, x => x.NI, c);
-                    case 3: return Group(s, x => x.S, c);
-                    case 4: return Group(s, x => x.NS, c);
-                    case 5: return Group(s, x => x.B, c);
-                    case 6: return Group(s, x => x.NB, c);
-                    case 7: return Group(s, x => x.S.Length, c);
-                    case 8: return Group(s, x => x.I > 0 ? x.S : x.NS, c);
-                    case 9: return Group(s, x => x.NI % 2, c);
-                    case 10: return Group(s, x => x.S + "!", c);
-                    default: return Group(s, x => x.Id % 4, c);
-                }
+                    0 => Group(s, x => x.I % 3, c),
+                    1 => Group(s, x => x.I, c),
+                    2 => Group(s, x => x.NI, c),
+                    3 => Group(s, x => x.S, c),
+                    4 => Group(s, x => x.NS, c),
+                    5 => Group(s, x => x.B, c),
+                    6 => Group(s, x => x.NB, c),
+                    7 => Group(s, x => x.S.Length, c),
+                    8 => Group(s, x => x.I > 0 ? x.S : x.NS, c),
+                    9 => Group(s, x => x.NI % 2, c),
+                    10 => Group(s, x => x.S + "!", c),
+                    _ => Group(s, x => x.Id % 4, c),
+                };
             }
             if (fam < 38) return Group2(s, keyIdx % 8, c);
             if (fam < 60)
             {
-                switch (keyIdx % 14)
+                return (keyIdx % 14) switch
                 {
-                    case 0: return JoinP(s, o, a => a.I, b => b.I, c);
-                    case 1: return JoinP(s, o, a => a.NI, b => b.NI, c);
-                    case 2: return JoinP(s, o, a => a.S, b => b.S, c);
-                    case 3: return JoinP(s, o, a => a.NS, b => b.NS, c);
-                    case 4: return JoinP(s, o, a => a.NI, b => (int?)b.I, c);
-                    case 5: return JoinP(s, o, a => a.Id, b => b.Id, c);
-                    case 6: return JoinP(s, o, a => new { a.I, a.S }, b => new { b.I, b.S }, c);
-                    case 7: return AvoidKnown ? JoinP(s, o, a => new { a.I, a.B }, b => new { b.I, b.B }, c) : JoinP(s, o, a => new { a.NI, a.B }, b => new { b.NI, b.B }, c);
-                    case 8: return AvoidKnown ? JoinP(s, o, a => new { a.S, a.I }, b => new { b.S, b.I }, c) : JoinP(s, o, a => new { a.NS, a.NI }, b => new { b.NS, b.NI }, c);
-                    case 9: return JoinP(s, o, a => a.S.Length, b => b.I % 5, c);
-                    case 10: return JoinP(s, o, a => a.L, b => (long)b.I, c);
-                    case 11: return JoinP(s, o, a => a.NB, b => b.NB, c);
-                    case 12: return JoinP(s, o, a => a.I % 3, b => b.Id % 3, c);
-                    default: return JoinP(s, o, a => new { k = a.S.Length, a.B }, b => new { k = b.I % 4, b.B }, c);
-                }
+                    0 => JoinP(s, o, a => a.I, b => b.I, c),
+                    1 => JoinP(s, o, a => a.NI, b => b.NI, c),
+                    2 => JoinP(s, o, a => a.S, b => b.S, c),
+                    3 => JoinP(s, o, a => a.NS, b => b.NS, c),
+                    4 => JoinP(s, o, a => a.NI, b => (int?)b.I, c),
+                    5 => JoinP(s, o, a => a.Id, b => b.Id, c),
+                    6 => JoinP(s, o, a => new { a.I, a.S }, b => new { b.I, b.S }, c),
+                    7 => AvoidKnown ? JoinP(s, o, a => new { a.I, a.B }, b => new { b.I, b.B }, c) : JoinP(s, o, a => new { a.NI, a.B }, b => new { b.NI, b.B }, c),
+                    8 => AvoidKnown ? JoinP(s, o, a => new { a.S, a.I }, b => new { b.S, b.I }, c) : JoinP(s, o, a => new { a.NS, a.NI }, b => new { b.NS, b.NI }, c),
+                    9 => JoinP(s, o, a => a.S.Length, b => b.I % 5, c),
+                    10 => JoinP(s, o, a => a.L, b => (long)b.I, c),
+                    11 => JoinP(s, o, a => a.NB, b => b.NB, c),
+                    12 => JoinP(s, o, a => a.I % 3, b => b.Id % 3, c),
+                    _ => JoinP(s, o, a => new { k = a.S.Length, a.B }, b => new { k = b.I % 4, b.B }, c),
+                };
             }
             if (fam < 64) return GroupThenJoin(s, o, AvoidKnown ? 0 : keyIdx % 2);
             if (fam < 82) return SubqueryP(s, o, c);
@@ -588,7 +588,7 @@ public static class StructGen
         List<string> Run()
         {
             pl = build(s, o);
-            if (pl.Term != null) return new List<string> { F(pl.Term()) };
+            if (pl.Term != null) return [F(pl.Term())];
             var l = new List<string>();
             foreach (var x in pl.Q) l.Add(F(x));
             return l;
@@ -618,7 +618,7 @@ public static class StructGen
 
     sealed class SigV : ExpressionVisitor
     {
-        public SortedSet<string> Set = new();
+        public SortedSet<string> Set = [];
         public override Expression? Visit(Expression? n)
         {
             if (n is MethodCallExpression mc && mc.Method.DeclaringType != typeof(string) && mc.Method.DeclaringType != typeof(Math)) Set.Add(mc.Method.Name);
@@ -663,8 +663,8 @@ public static class StructGen
         }
         var a = refRes!; var b = pRes!;
         bool ordered = refPlan!.Ordered;
-        var sa = ordered ? a : a.OrderBy(x => x, StringComparer.Ordinal).ToList();
-        var sb2 = ordered ? b : b.OrderBy(x => x, StringComparer.Ordinal).ToList();
+        var sa = ordered ? a : [.. a.OrderBy(x => x, StringComparer.Ordinal)];
+        var sb2 = ordered ? b : [.. b.OrderBy(x => x, StringComparer.Ordinal)];
         if (sa.SequenceEqual(sb2)) { counts["OK"]++; return; }
         if (tainted) { counts["MISMATCH_INGEST_TAINTED"]++; return; }
         counts["MISMATCH"]++;

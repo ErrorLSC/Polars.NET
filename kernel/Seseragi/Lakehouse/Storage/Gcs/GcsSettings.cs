@@ -24,7 +24,7 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
 
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
 
-    private static readonly HashSet<string> Ignored = new(ConfigValues.HarmlessClientKeys) { "bucket" };
+    private static readonly HashSet<string> Ignored = [.. ConfigValues.HarmlessClientKeys, "bucket"];
 
     private static Dictionary<string, string> BuildAliases()
     {

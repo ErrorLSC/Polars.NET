@@ -22,7 +22,7 @@ public class LinqUpcastClientTests
         using var df = DataFrame.FromRows(Rows);
 
         Assert.Equal(
-            Rows.Select(r => (object)r.Name).Where(x => IsLong(x)).ToList(),
-            df.AsQueryable<UcRow>().Select(r => (object)r.Name).Where(x => IsLong(x)).ToList());
+            Rows.Select(r => (object)r.Name).Where(IsLong).ToList(),
+            [.. df.AsQueryable<UcRow>().Select(r => (object)r.Name).Where(x => IsLong(x))]);
     }
 }

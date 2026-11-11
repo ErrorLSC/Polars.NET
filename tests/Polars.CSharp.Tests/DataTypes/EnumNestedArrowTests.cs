@@ -84,10 +84,9 @@ public class EnumNestedArrowTests
         AssertNestedEnumSchema(df);
 
         // A class whose default enum value (0) is not a member: the schema is not inferred from sample instances.
-        using var mutable = DataFrame.FromEnumerable(new[]
-        {
+        using var mutable = DataFrame.FromEnumerable([
             new NaMutableRow { Id = 1, Shade = NaShade.Red, Shades = [NaShade.Black], Inner = Rows[0].Inner }
-        });
+        ]);
         AssertEnum(mutable.Schema["Shade"]);
         AssertEnum(mutable.Schema["Shades"].InnerType!);
         AssertEnum(StructField(mutable.Schema["Inner"], "Shade"));
@@ -96,10 +95,10 @@ public class EnumNestedArrowTests
     [Fact]
     public void Series_Of_Lists_And_Structs_Hold_Enums()
     {
-        using var lists = Series.From("s", new List<NaShade>[] { [NaShade.Red], [] });
+        using var lists = Series.From<List<NaShade>>("s", [[NaShade.Red], []]);
         AssertEnum(lists.DataType.InnerType!);
 
-        using var structs = Series.From("s", new[] { Rows[0].Inner });
+        using var structs = Series.From("s", [Rows[0].Inner]);
         AssertEnum(StructField(structs.DataType, "Shade"));
     }
 
@@ -134,7 +133,7 @@ public class EnumNestedArrowTests
     [Fact]
     public void Udf_Results_Of_Enum_Type()
     {
-        using var df = new DataFrame(Series.From("i", new[] { 1, 2, 3 }));
+        using var df = new DataFrame(Series.From("i", [1, 2, 3]));
         using var result = df.Select(
             Pl.Col("i").MapBatches<int, NaShade>(i => i == 1 ? NaShade.Red : NaShade.Black).Alias("e"),
             Pl.Col("i").MapBatches<int, NaShade?>(i => i == 2 ? null : NaShade.Green).Alias("n"),
@@ -151,7 +150,7 @@ public class EnumNestedArrowTests
     [Fact]
     public void Udf_Result_Of_An_Undefined_Enum_Value_Is_Rejected()
     {
-        using var df = new DataFrame(Series.From("i", new[] { 1 }));
+        using var df = new DataFrame(Series.From("i", [1]));
 
         var error = Assert.Throws<PolarsException>(() => df.Select(Pl.Col("i").MapBatches<int, NaShade>(i => (NaShade)42)));
         Assert.Contains("not a defined member", error.Message);

@@ -215,7 +215,7 @@ TooShort,1990-05-20,1.60";
     [Fact]
     public void Test_Rounding_And_Sign()
     {
-        var data = new[] { -1.5, 1.5, 2.0 };
+        double[] data = [-1.5, 1.5, 2.0];
         using var df = DataFrame.FromColumns(new { val = data });
 
         using var res = df.Select(
@@ -903,7 +903,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(new DateOnly(2024, 1, 9), delivery1);
 
         // Friday -> (Skip Saturday, Sunday) -> (Skip Monday as Holiday) -> Tuesday(+1) -> Wednesday(+2)
-        var holidays = new[] { new DateOnly(2024, 1, 8) };
+        DateOnly[] holidays = [new DateOnly(2024, 1, 8)];
 
         using var res2 = df.Select(
             Pl.Col("OrderDate").Dt
@@ -919,17 +919,16 @@ TooShort,1990-05-20,1.60";
     public void Test_IsBusinessDay()
     {
         // 2024-01-05 (Fri), 01-06 (Sat), 01-07 (Sun), 01-08 (Mon)
-        var dates = new[]
-        {
+        DateOnly[] dates = [
             new DateOnly(2024, 1, 5),
             new DateOnly(2024, 1, 6),
             new DateOnly(2024, 1, 8)
-        };
+        ];
 
         using var df = DataFrame.FromColumns(new { Date = dates });
 
         // Set 01-08 as holiday
-        var holidays = new[] { new DateOnly(2024, 1, 8) };
+        DateOnly[] holidays = [new DateOnly(2024, 1, 8)];
 
         using var res = df.Select(
             Pl.Col("Date"),
@@ -948,13 +947,12 @@ TooShort,1990-05-20,1.60";
         private static DataFrame CreateArrayDataFrame()
         {
             // 原始数据: List<int>
-            var lists = new[]
-            {
+            int[][] lists = [
                 [1, 2, 3],
                 [10, 20, 30],
-                new[] { 5, 0, 5 },
+                [5, 0, 5],
                 null
-            };
+            ];
 
             using var df = DataFrame.FromColumns(new { data = lists });
 
@@ -1034,7 +1032,7 @@ TooShort,1990-05-20,1.60";
         [Fact]
         public void Test_Array_Join_String()
         {
-            var data = new[] { new[] { "a", "b" }, ["c", "d"] };
+            string[][] data = [["a", "b"], ["c", "d"]];
             using var df = DataFrame.FromColumns(new { strs = data });
 
             using var res = df.Select(
@@ -1052,7 +1050,7 @@ TooShort,1990-05-20,1.60";
         public void Test_Array_Sort_And_Reverse()
         {
             // 数据: [3, 1, 2]
-            var data = new[] { new[] { 3, 1, 2 } };
+            int[][] data = [[3, 1, 2]];
             using var df = DataFrame.FromColumns(new { data })
                 .Select(Pl.Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
 
@@ -1083,12 +1081,11 @@ TooShort,1990-05-20,1.60";
         [Fact]
         public void Test_Array_Boolean_Ops()
         {
-            var data = new[]
-            {
+            bool[][] data = [
                 [true, false],
                 [true, true],
-                new[] { false, false }
-            };
+                [false, false]
+            ];
 
             using var df = DataFrame.FromColumns(new { vals = data })
                 .Select(Pl.Col("vals").Cast(DataType.Array(DataType.Boolean, 2)).Alias("arr"));
@@ -1115,7 +1112,7 @@ TooShort,1990-05-20,1.60";
         public void Test_Array_Contains()
         {
             // [3, 1, 2]
-            var data = new[] { new[] { 3, 1, 2 } };
+            int[][] data = [[3, 1, 2]];
             using var df = DataFrame.FromColumns(new { data })
                 .Select(Pl.Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
 
@@ -1179,7 +1176,7 @@ TooShort,1990-05-20,1.60";
         [Fact]
         public void Test_Expr_TopK()
         {
-            var data = new[] { 10, 5, 8, 100, 1, 99 };
+            int[] data = [10, 5, 8, 100, 1, 99];
             using var df = DataFrame.FromColumns(new { val = data });
 
             using var top = df.Select(Pl.Col("val").TopK(2).Alias("top"));
@@ -1203,9 +1200,9 @@ TooShort,1990-05-20,1.60";
             // Value: [1, 2, 3, 4]
             // Score: [10, 20, 10, 20]
 
-            var group = new[] { "A", "A", "B", "B" };
-            var val = new[] { 1, 2, 3, 4 };
-            var score = new[] { 10, 20, 10, 20 };
+            string[] group = ["A", "A", "B", "B"];
+            int[] val = [1, 2, 3, 4];
+            int[] score = [10, 20, 10, 20];
 
             using var df = DataFrame.FromColumns(new { group, val, score });
 
@@ -1243,8 +1240,8 @@ TooShort,1990-05-20,1.60";
     {
         // Signed: 1, 2, -4, null
         // Unsigned: 1, 2, 0xFFFFFFFF, null
-        var iData = new int?[] { 1, 2, -4, null };
-        var uData = new uint?[] { 1, 2, 0xFFFFFFFF, null };
+        int?[] iData = [1, 2, -4, null];
+        uint?[] uData = [1, 2, 0xFFFFFFFF, null];
 
         using var df = DataFrame.FromColumns(new
         {
@@ -1486,11 +1483,11 @@ TooShort,1990-05-20,1.60";
         // t0: 00:00, val=10
         // t1: 01:00, val=20
         // t2: 03:00, val=40
-        var dates = new[] {
+        DateTime[] dates = [
             new DateTime(2023, 1, 1, 0, 0, 0),
             new DateTime(2023, 1, 1, 1, 0, 0),
             new DateTime(2023, 1, 1, 3, 0, 0)
-        };
+        ];
 
         using var df = DataFrame.FromColumns(new
         {
@@ -1616,12 +1613,12 @@ TooShort,1990-05-20,1.60";
         // t1: 00:01, v=10
         // t2: 00:02, v=10 (Diff from t0 is 2m)
         // t3: 00:05, v=20 (Diff from t2 is 3m)
-        var dates = new[] {
+        DateTime[] dates = [
             new DateTime(2023, 1, 1, 0, 0, 0),
             new DateTime(2023, 1, 1, 0, 1, 0),
             new DateTime(2023, 1, 1, 0, 2, 0),
             new DateTime(2023, 1, 1, 0, 5, 0)
-        };
+        ];
 
         using var df = DataFrame.FromColumns(new
         {
@@ -1675,10 +1672,10 @@ TooShort,1990-05-20,1.60";
     [Fact]
     public void Test_Rolling_QuantileBy_Method()
     {
-        var dates = new[] {
+        DateTime[] dates = [
             new DateTime(2023, 1, 1, 0, 0, 0),
             new DateTime(2023, 1, 1, 0, 1, 0)
-        };
+        ];
 
         // Values: [1, 2]
         using var df = DataFrame.FromColumns(new
@@ -1775,7 +1772,7 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromColumns(new { id = new[] { 1, 2, 3, 4, 5 } });
 
         // int[]
-        var listInt = new[] { 1, 3, 5 };
+        int[] listInt = [1, 3, 5];
         var res1 = df.Select(
             Pl.Lit(listInt).Implode().List.Contains(Pl.Col("id")).Alias("is_in_int")
         );
@@ -1864,9 +1861,9 @@ TooShort,1990-05-20,1.60";
     {
         using var df = DataFrame.FromColumns(new { _ = new[] { 0, 0, 0 } }); // Height=3
 
-        var ints = new[] { 1, 2, 3 };
-        var nullDoubles = new double?[] { 1.1, null, 3.3 };
-        var bools = new[] { true, false, true };
+        int[] ints = [1, 2, 3];
+        double?[] nullDoubles = [1.1, null, 3.3];
+        bool[] bools = [true, false, true];
 
         var res = df.Select(
             Pl.Lit(ints).Alias("i"),
@@ -2579,7 +2576,7 @@ TooShort,1990-05-20,1.60";
     {
         var df = DataFrame.FromSeries(
             Series.From("col1", ["Genshin", "Genshin", null, null, "Chiikawa"]),
-            Series.From("col2", new int?[] { 12341, 432123, 12341, 99999, null })
+            Series.From<int?>("col2", [12341, 432123, 12341, 99999, null])
         );
 
         var result = df.Select(Pl.All().NUnique());
@@ -2625,7 +2622,7 @@ TooShort,1990-05-20,1.60";
             Series.From("part3", ["C", "Z"])
         );
 
-        var exprs = new[] { Pl.Col("part1"), Pl.Col("part2"), Pl.Col("part3") };
+        Expr[] exprs = [Pl.Col("part1"), Pl.Col("part2"), Pl.Col("part3")];
         var reduceExpr = Pl.Reduce(
             f: (acc, x) => acc + Pl.Lit("-") + x,
             exprs: exprs
@@ -2654,7 +2651,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "ApproxNUnique")]
     public void Test_ApproxNUnique_SmallDataset()
     {
-        var data = new int[] { 1, 1, 2, 2, 3, 3, 3, 4, 5, 5 };
+        int[] data = [1, 1, 2, 2, 3, 3, 3, 4, 5, 5];
 
         using var df = DataFrame.FromColumns(
             Series.From("values", data)
@@ -2675,7 +2672,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "ApproxNUnique")]
     public void Test_ApproxNUnique_String_Cardinality()
     {
-        var strData = new string[] { "apple", "banana", "apple", "orange", "banana", "grape" };
+        string[] strData = ["apple", "banana", "apple", "orange", "banana", "grape"];
 
         using var df = DataFrame.FromColumns(
             Series.From("fruits", strData)
@@ -3196,7 +3193,7 @@ TooShort,1990-05-20,1.60";
         var res = df.Select(
             Pl.MeanHorizontal("a", "b").Alias("mean_default"),
             Pl.MeanHorizontal(false, "a", "b").Alias("mean_strict"),
-            Pl.MeanHorizontal(new List<Expr> { Pl.Col("a"), Pl.Col("b") }).Alias("mean_list")
+            Pl.MeanHorizontal([Pl.Col("a"), Pl.Col("b")]).Alias("mean_list")
         );
 
         // Assert
@@ -3429,10 +3426,10 @@ TooShort,1990-05-20,1.60";
         using var df = CreateTestDataFrame();
 
         using var resAsc = df.Select(Pl.ArgSortBy("B"));
-        Assert.Equal(new uint[] { 1, 2, 0, 3 }, resAsc[0].ToArray<uint>());
+        Assert.Equal([1, 2, 0, 3], resAsc[0].ToArray<uint>());
 
         using var resDesc = df.Select(Pl.ArgSortBy("B", descending: true));
-        Assert.Equal(new uint[] { 3, 0, 2, 1 }, resDesc[0].ToArray<uint>());
+        Assert.Equal([3, 0, 2, 1], resDesc[0].ToArray<uint>());
     }
 
     [Fact]
@@ -3442,13 +3439,13 @@ TooShort,1990-05-20,1.60";
         using var df = CreateTestDataFrame();
 
         using var resParams = df.Select(Pl.ArgSortBy("A", "B"));
-        Assert.Equal(new uint[] { 1, 0, 2, 3 }, resParams[0].ToArray<uint>());
+        Assert.Equal([1, 0, 2, 3], resParams[0].ToArray<uint>());
 
         using var resUniformMultiple = df.Select(Pl.ArgSortBy(
             ["A", "B"],
             descending: true
         ));
-        Assert.Equal(new uint[] { 3, 2, 0, 1 }, resUniformMultiple[0].ToArray<uint>());
+        Assert.Equal([3, 2, 0, 1], resUniformMultiple[0].ToArray<uint>());
     }
 
     [Fact]
@@ -3462,7 +3459,7 @@ TooShort,1990-05-20,1.60";
             descending: [false, true],
             nullsLast: [false, false]
         ));
-        Assert.Equal(new uint[] { 0, 1, 3, 2 }, resGranular[0].ToArray<uint>());
+        Assert.Equal([0, 1, 3, 2], resGranular[0].ToArray<uint>());
     }
 
     [Fact]
@@ -3472,10 +3469,10 @@ TooShort,1990-05-20,1.60";
         using var df = CreateTestDataFrame();
 
         using var resNullsLast = df.Select(Pl.ArgSortBy("C", nullsLast: true));
-        Assert.Equal(new uint[] { 1, 2, 0, 3 }, resNullsLast[0].ToArray<uint>());
+        Assert.Equal([1, 2, 0, 3], resNullsLast[0].ToArray<uint>());
 
         using var resNullsFirst = df.Select(Pl.ArgSortBy("C", nullsLast: false));
-        Assert.Equal(new uint[] { 0, 3, 1, 2 }, resNullsFirst[0].ToArray<uint>());
+        Assert.Equal([0, 3, 1, 2], resNullsFirst[0].ToArray<uint>());
     }
 
     [Fact]
@@ -3486,12 +3483,12 @@ TooShort,1990-05-20,1.60";
 
         // ArgWhere
         using var resExpr = df.Select(Pl.ArgWhere(Pl.Col("A") == 2).Alias("indices"));
-        Assert.Equal(new uint[] { 2, 3 }, resExpr[0].ToArray<uint>());
+        Assert.Equal([2, 3], resExpr[0].ToArray<uint>());
 
         // ArgWhereAsSeries
         using var sBool = df["B"] > 4;
         using var resSeries = Pl.ArgWhereAsSeries(sBool);
-        Assert.Equal(new uint[] { 0, 3 }, resSeries.ToArray<uint>());
+        Assert.Equal([0, 3], resSeries.ToArray<uint>());
     }
     [Fact]
     [Trait("Expr", "Inspect")]
@@ -3531,7 +3528,7 @@ TooShort,1990-05-20,1.60";
         using var sB = Pl.CreateSeries("col_B", [10, 20, 30, 40]);
         using DataFrame df = [sA, sB];
 
-        var sortKeys = new[] { Pl.Col("col_A"), Pl.Col("col_B") };
+        Expr[] sortKeys = [Pl.Col("col_A"), Pl.Col("col_B")];
 
         using var exprAsc = Pl.All().SortBy(sortKeys, descending: false);
         using var dfAsc = df.Select(exprAsc);
@@ -3541,7 +3538,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal([1, 1, 2, 2], resultA_Asc);
         Assert.Equal([20, 40, 10, 30], resultB_Asc);
 
-        var descOptions = new[] { false, true };
+        bool[] descOptions = [false, true];
         using var exprMixed = Pl.All().SortBy(sortKeys, descending: descOptions);
         using var dfMixed = df.Select(exprMixed);
 
@@ -3641,8 +3638,8 @@ TooShort,1990-05-20,1.60";
     [Trait("Series", "Cov_And_Corr")]
     public void Test_AsSeries_Direct_Evaluation()
     {
-        using var s1 = Pl.CreateSeries("s1", new double[] { 1, 2, 3, 4, 5 });
-        using var s2 = Pl.CreateSeries("s2", new double[] { 2, 4, 6, 8, 10 });
+        using var s1 = Pl.CreateSeries("s1", [1, 2, 3, 4, 5]);
+        using var s2 = Pl.CreateSeries("s2", [2, 4, 6, 8, 10]);
 
         // CovAsSeries
         using var covSeries = Pl.CovAsSeries(s1, s2);

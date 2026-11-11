@@ -62,11 +62,10 @@ public class DataTypeTests
 
         now = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second);
 
-        var logs = new[]
-        {
+        LogEntry[] logs = [
             new LogEntry { Id = 1, Message = "原神启动", Timestamp = now, ProcessedAt = null },
             new LogEntry { Id = 2, Message = "End", Timestamp = now.AddMinutes(1), ProcessedAt = now.AddMinutes(2) }
-        };
+        ];
 
         // From (C# -> Polars)
         using var df = DataFrame.From(logs);
@@ -242,14 +241,13 @@ public class DataTypeTests
         // New York: 19:00 (-5, Yesterday) -> UTC 00:00
         var nyPoint = new DateTimeOffset(2024, 12, 31, 19, 0, 0, TimeSpan.FromHours(-5));
 
-        var data = new DateTimeOffset?[]
-        {
+        DateTimeOffset?[] data = [
             utcPoint,      // Index 0
             null,          // Index 1 (Null)
             beijingPoint,  // Index 2
             nyPoint,       // Index 3
             null           // Index 4
-        };
+        ];
 
         // UnzipDateTimeOffsetToUs(DateTimeOffset?[])
         using var s = new Series("mixed_offsets", data);
@@ -854,8 +852,7 @@ public class DataTypeTests
     [Trait("DataType", "DecimalMix")]
     public void Test_Decimal_Integration_MixedScale()
     {
-        var data = new decimal?[]
-        {
+        decimal?[] data = [
             1.5m,            // Scale 1 -> 5
             -2.123m,         // Scale 3 -> 5
             100m,            // Scale 0 -> 5
@@ -863,7 +860,7 @@ public class DataTypeTests
             123456789.99m,   // Scale 2 -> 5 (Large number that fits within 96-bit when scaled by 10^3)
             -987654321.1m,   // Scale 1 -> 5
             null
-        };
+        ];
 
         using var s = Series.From("mixed_decimal", data);
 
@@ -882,13 +879,12 @@ public class DataTypeTests
     [Trait("DataType", "Decimal")]
     public void Test_Decimal_Integration_MinMax()
     {
-        var data = new decimal?[]
-        {
+        decimal?[] data = [
             decimal.MaxValue,
             decimal.MinValue,
             0m,
             null
-        };
+        ];
 
         // All elements have Scale = 0, so no 10^N scaling overflow occurs
         using var s = Series.From("extreme_decimal", data);
@@ -904,13 +900,12 @@ public class DataTypeTests
     [Fact]
     public void Test_Decimal_NonNullable_FastPath()
     {
-        var data = new decimal[]
-        {
+        decimal[] data = [
             1234567890.1234567890m, // High Precision
             0.0000000000000000001m, // High Scale (19)
             -99.9m,                 // Negative
             0m                      // Zero
-        };
+        ];
 
         using var s = Series.From("fast_decimal", data);
 
@@ -1312,20 +1307,20 @@ public class DataTypeTests
     {
         // 1D array
         var arr1d = DataType.Array(Pl.Int64, 5);
-        Assert.Equal(new uint[] { 5 }, arr1d.ArrayShape);
+        Assert.Equal([5], arr1d.ArrayShape);
 
         // 2D array
         var arr2d = DataType.Array(Pl.Int64, 2, 3);
-        Assert.Equal(new uint[] { 2, 3 }, arr2d.ArrayShape);
+        Assert.Equal([2, 3], arr2d.ArrayShape);
 
         // 3D array
         var arr3d = DataType.Array(Pl.Float32, 4, 5, 6);
-        Assert.Equal(new uint[] { 4, 5, 6 }, arr3d.ArrayShape);
+        Assert.Equal([4, 5, 6], arr3d.ArrayShape);
 
         // Nested array built manually (Array inside Array)
         var nestedInner = DataType.Array(Pl.Utf8, 2);
         var nestedOuter = DataType.Array(nestedInner, 3);
-        Assert.Equal(new uint[] { 3, 2 }, nestedOuter.ArrayShape);
+        Assert.Equal([3, 2], nestedOuter.ArrayShape);
 
         // Non-array type returns empty
         var plain = Pl.Utf8;
@@ -1353,7 +1348,7 @@ public class DataTypeTests
         Assert.Null(((IPolarsDataType)DataType.Categorical()).GetEnumCategories());
         Assert.Null(((IPolarsDataType)DataType.String).GetEnumCategories());
 
-        using var df = DataFrame.FromSeries(Series.From("E", new[] { "hi" }).Cast(DataType.Enum(["lo", "mid", "hi"])));
+        using var df = DataFrame.FromSeries(Series.From("E", ["hi"]).Cast(DataType.Enum(["lo", "mid", "hi"])));
         Assert.Equal(["lo", "mid", "hi"], ((IPolarsDataFrame)df).Schema["E"].GetEnumCategories());
     }
 }

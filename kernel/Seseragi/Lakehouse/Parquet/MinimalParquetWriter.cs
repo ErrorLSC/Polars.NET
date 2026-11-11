@@ -314,13 +314,15 @@ internal static class MinimalParquetWriter
 
     private static byte[] FileMetadata(IReadOnlyList<ParquetNode> schema, long rows, List<(Column Column, long Offset, long Size)> chunks)
     {
-        var elements = new List<Action<CompactWriter>>();
-        // The root, then the tree depth first.
-        elements.Add(w =>
+        var elements = new List<Action<CompactWriter>>
         {
-            w.Binary(4, "schema");
-            w.I32(5, schema.Count);
-        });
+            // The root, then the tree depth first.
+            w =>
+            {
+                w.Binary(4, "schema");
+                w.I32(5, schema.Count);
+            }
+        };
         foreach (ParquetNode node in schema) Elements(Normalize(node), elements);
 
         var meta = new CompactWriter();

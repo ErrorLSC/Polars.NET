@@ -6,3 +6,23 @@ dotnet_diagnostic.IDE1006.severity = silent
 dotnet_diagnostic.CA1861.severity = silent
 dotnet_diagnostic.RCS1118.severity = silent
 dotnet_diagnostic.RCS1175.severity = silent
+
+# Modern .NET only (AGENTS.md): collection expressions everywhere.
+dotnet_style_prefer_collection_expression = true
+dotnet_diagnostic.IDE0028.severity = warning
+dotnet_diagnostic.IDE0300.severity = warning
+dotnet_diagnostic.IDE0301.severity = warning
+dotnet_diagnostic.IDE0303.severity = warning
+dotnet_diagnostic.IDE0305.severity = warning
+# Local functions and switch expressions (AGENTS.md).
+csharp_style_prefer_local_over_anonymous_function = true
+csharp_style_prefer_switch_expression = true
+csharp_prefer_static_local_function = true
+dotnet_diagnostic.IDE0039.severity = warning
+dotnet_diagnostic.IDE0066.severity = warning
+dotnet_diagnostic.IDE0062.severity = warning
+# Minimal lambdas (AGENTS.md).
+csharp_style_expression_bodied_lambdas = true
+dotnet_diagnostic.IDE0053.severity = warning
+dotnet_diagnostic.IDE0200.severity = warning
+dotnet_diagnostic.IDE0350.severity = warning

@@ -14,8 +14,7 @@ public static class Probe
 
     public static void Run()
     {
-        var rows = new[]
-        {
+        FzRow[] rows = [
             R(0, -7, null, double.NaN, null, "a", null, true, false),
             R(1, 2, 3, 2.5, 0.5, "ab", "b", false, true),
             R(2, 0, -1, -2.5, double.NaN, "", "zz", true, null),
@@ -23,7 +22,7 @@ public static class Probe
             R(4, -1, 5, double.PositiveInfinity, -0.0, "zz", null, false, true),
             R(5, 3, null, double.NegativeInfinity, 2.5, "abc", "", true, null),
             R(6, int.MinValue, 1, 1.5, 0.0, "b", "ab", false, false),
-        };
+        ];
         using var df = DataFrame.From(rows);
         void P(string name, Func<IQueryable<FzRow>, object> f)
         {
@@ -108,7 +107,7 @@ public static class Probe
         P("MemberInit{Dbool=Convert(x.NB,bool?)}", OutQ(null, null, null, () => Pr("NB")));
         P("MemberInit{A=Convert(x.L), Dbool=Convert(x.NB)}", OutQ(() => Pr("L"), null, null, () => Pr("NB")));
         P("MemberInit{C=Convert(x.NS), Dbool=Convert(x.NB)}", OutQ(null, null, () => Pr("NS"), () => Pr("NB")));
-        P("MemberInit{B=-Abs(x.D), Dbool=Convert(x.NB)}", OutQ(null, () => Expression.Negate(Expression.Call(typeof(Math).GetMethod("Abs", new[] { typeof(double) })!, Pr("D"))), null, () => Pr("NB")));
+        P("MemberInit{B=-Abs(x.D), Dbool=Convert(x.NB)}", OutQ(null, () => Expression.Negate(Expression.Call(typeof(Math).GetMethod("Abs", [typeof(double)])!, Pr("D"))), null, () => Pr("NB")));
         P("MemberInit{B=x.ND, Dbool=x.NB}", OutQ(null, () => Pr("ND"), null, () => Pr("NB")));
         P("MemberInit{A=x.L,B=x.D,C=x.S,Dbool=x.NB}", OutQ(() => Pr("L"), () => Pr("D"), () => Pr("S"), () => Pr("NB")));
         P("MemberInit{Dbool=x.NB, A=x.L}", OutQ(() => Pr("L"), null, null, () => Pr("NB")));
@@ -167,10 +166,10 @@ public static class Probe
         P("OrderBy(x => x.S.ToUpper()).ThenBy(Id)", s => s.OrderBy(x => x.S.ToUpper()).ThenBy(x => x.Id).Select(x => x.Id).ToList());
         P("OrderBy(x => x.S).ThenBy(Id)", s => s.OrderBy(x => x.S).ThenBy(x => x.Id).Select(x => x.Id).ToList());
         P("OrderBy(x => x.S, StringComparer.Ordinal).ThenBy(Id)", s => s.OrderBy(x => x.S, StringComparer.Ordinal).ThenBy(x => x.Id).Select(x => x.Id).ToList());
-        Func<IQueryable<FzRow>, Expression<Func<FzRow, bool?>>, object> W = (s, l) => s.Where(Expression.Lambda<Func<FzRow, bool>>(Expression.Coalesce(l.Body, Expression.Constant(false)), l.Parameters)).OrderBy(x => x.Id).Select(x => x.Id).ToList();
+        object W(IQueryable<FzRow> s, Expression<Func<FzRow, bool?>> l) => s.Where(Expression.Lambda<Func<FzRow, bool>>(Expression.Coalesce(l.Body, Expression.Constant(false)), l.Parameters)).OrderBy(x => x.Id).Select(x => x.Id).ToList();
         Expression NullI = Expression.Constant(null, typeof(int?)), NullD = Expression.Constant(null, typeof(double?)), NullB = Expression.Constant(null, typeof(bool?));
         Expression DN = Expression.Convert(Pr("D"), typeof(double?));
-        Func<IQueryable<FzRow>, Expression, object> WL = (s, body) => W(s, Expression.Lambda<Func<FzRow, bool?>>(body, px));
+        object WL(IQueryable<FzRow> s, Expression body) => W(s, Expression.Lambda<Func<FzRow, bool?>>(body, px));
         P("Where((null != x.NI) [liftToNull] ?? false)", s => WL(s, Expression.NotEqual(NullI, Pr("NI"), true, null)));
         P("Where((x.NI != null) [liftToNull] ?? false)", s => WL(s, Expression.NotEqual(Pr("NI"), NullI, true, null)));
         P("Where((x.NI == null) [liftToNull] ?? false)", s => WL(s, Expression.Equal(Pr("NI"), NullI, true, null)));

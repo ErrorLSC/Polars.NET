@@ -274,17 +274,14 @@ public static class PredicateTranslator
         /// </summary>
         private string? ColumnOf(ScalarExpr expr)
         {
-            switch (expr)
+            return expr switch
             {
-                case ScalarExpr.Column c when types.ContainsKey(c.name):
-                    return c.name;
-                case ScalarExpr.Cast cast when ColumnOf(cast.expr) is string column
-                                            && types.TryGetValue(column, out LogicalType? source)
-                                            && KeepsOrder(source, cast.targetType):
-                    return column;
-                default:
-                    return null;
-            }
+                ScalarExpr.Column c when types.ContainsKey(c.name) => c.name,
+                ScalarExpr.Cast cast when ColumnOf(cast.expr) is string column
+                                                            && types.TryGetValue(column, out LogicalType? source)
+                                                            && KeepsOrder(source, cast.targetType) => column,
+                _ => null,
+            };
         }
 
         private static bool KeepsOrder(LogicalType source, LogicalType target)

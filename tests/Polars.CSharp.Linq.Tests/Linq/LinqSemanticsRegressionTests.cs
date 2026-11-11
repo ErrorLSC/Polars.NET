@@ -162,8 +162,8 @@ public class LinqSemanticsRegressionTests
     public void ExceptBy_With_In_Memory_Keys_Keeps_The_First_Element_Per_Key()
     {
         using var l = DataFrame.From(Dupes);
-        var query = l.AsQueryable<Kv>().ExceptBy(new long[] { 2 }, x => x.K).Select(x => new { x.K, x.V });
-        var expected = Dupes.ExceptBy(new long[] { 2 }, x => x.K).Select(x => new { x.K, x.V });
+        var query = l.AsQueryable<Kv>().ExceptBy([2], x => x.K).Select(x => new { x.K, x.V });
+        var expected = Dupes.ExceptBy([2], x => x.K).Select(x => new { x.K, x.V });
 
         Assert.Equal(expected, [.. query]);
     }
@@ -602,7 +602,7 @@ public class LinqSemanticsRegressionTests
             concat = string.Concat(x.A, x.B),
             format = string.Format("{0}|{1}", x.A, x.B),
             interpolated = $"{x.A}:{x.N}",
-            joinArgs = string.Join(",", new[] { x.A, x.B }),
+            joinArgs = string.Join(",", [x.A, x.B]),
             joinList = string.Join(",", x.Tags),
         });
 
@@ -1105,16 +1105,16 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(FzRows.Select(x => (byte)x.D), q.Select(x => (byte)x.D).ToList());
         Assert.Equal(FzRows.Select(x => (short)x.D), q.Select(x => (short)x.D).ToList());
         // Literal expectations (NaN, 2.5, +Inf, -Inf, -2.7), .NET 11 saturating semantics, runtime-independent.
-        Assert.Equal(new sbyte[] { 0, 2, sbyte.MaxValue, sbyte.MinValue, -2 }, q.Select(x => (sbyte)x.D).ToList());
-        Assert.Equal(new byte[] { 0, 2, byte.MaxValue, 0, 0 }, q.Select(x => (byte)x.D).ToList());
-        Assert.Equal(new short[] { 0, 2, short.MaxValue, short.MinValue, -2 }, q.Select(x => (short)x.D).ToList());
-        Assert.Equal(new ushort[] { 0, 2, ushort.MaxValue, 0, 0 }, q.Select(x => (ushort)x.D).ToList());
-        Assert.Equal(new uint[] { 0, 2, uint.MaxValue, 0, 0 }, q.Select(x => (uint)x.D).ToList());
-        Assert.Equal(new ulong[] { 0, 2, ulong.MaxValue, 0, 0 }, q.Select(x => (ulong)x.D).ToList());
-        Assert.Equal(new long[] { 0, 2, long.MaxValue, long.MinValue, -2 }, q.Select(x => (long)x.D).ToList());
+        Assert.Equal([0, 2, sbyte.MaxValue, sbyte.MinValue, -2], q.Select(x => (sbyte)x.D).ToList());
+        Assert.Equal([0, 2, byte.MaxValue, 0, 0], q.Select(x => (byte)x.D).ToList());
+        Assert.Equal([0, 2, short.MaxValue, short.MinValue, -2], q.Select(x => (short)x.D).ToList());
+        Assert.Equal([0, 2, ushort.MaxValue, 0, 0], q.Select(x => (ushort)x.D).ToList());
+        Assert.Equal([0, 2, uint.MaxValue, 0, 0], q.Select(x => (uint)x.D).ToList());
+        Assert.Equal([0, 2, ulong.MaxValue, 0, 0], q.Select(x => (ulong)x.D).ToList());
+        Assert.Equal([0, 2, long.MaxValue, long.MinValue, -2], q.Select(x => (long)x.D).ToList());
         // Finite values beyond the narrow range (I * 100.5 = 703.5, -703.5, 0, 301.5, -100.5).
-        Assert.Equal(new byte[] { 255, 0, 0, 255, 0 }, q.Select(x => (byte)(x.I * 100.5)).ToList());
-        Assert.Equal(new sbyte[] { sbyte.MaxValue, sbyte.MinValue, 0, sbyte.MaxValue, -100 }, q.Select(x => (sbyte)(x.I * 100.5)).ToList());
+        Assert.Equal([255, 0, 0, 255, 0], q.Select(x => (byte)(x.I * 100.5)).ToList());
+        Assert.Equal([sbyte.MaxValue, sbyte.MinValue, 0, sbyte.MaxValue, -100], q.Select(x => (sbyte)(x.I * 100.5)).ToList());
         // Unchecked integer narrowing wraps.
         Assert.Equal(FzRows.Select(x => (byte)(x.I * 100)), q.Select(x => (byte)(x.I * 100)).ToList());
         Assert.Equal(FzRows.Select(x => (sbyte)(x.I * 100)), q.Select(x => (sbyte)(x.I * 100)).ToList());
@@ -1153,17 +1153,17 @@ public class LinqSemanticsRegressionTests
     [Fact]
     public void Comparison_Lifted_To_Null_Keeps_Its_Null_Result()
     {
-        var rows = new[] { new KnV { K = 1, V = 5 }, new KnV { K = 2, V = null }, new KnV { K = 3, V = 7 } };
+        KnV[] rows = [new KnV { K = 1, V = 5 }, new KnV { K = 2, V = null }, new KnV { K = 3, V = 7 }];
         using var df = DataFrame.From(rows);
         var x = System.Linq.Expressions.Expression.Parameter(typeof(KnV), "x");
         var v = System.Linq.Expressions.Expression.Property(x, nameof(KnV.V));
         var five = System.Linq.Expressions.Expression.Constant(5L, typeof(long?));
-        foreach (var make in new Func<System.Linq.Expressions.Expression, System.Linq.Expressions.Expression, System.Linq.Expressions.BinaryExpression>[]
-        {
+        Func<System.Linq.Expressions.Expression, System.Linq.Expressions.Expression, System.Linq.Expressions.BinaryExpression>[] makes = [
             (a, b) => System.Linq.Expressions.Expression.Equal(a, b, true, null),
             (a, b) => System.Linq.Expressions.Expression.NotEqual(a, b, true, null),
             (a, b) => System.Linq.Expressions.Expression.GreaterThan(a, b, true, null),
-        })
+        ];
+        foreach (var make in makes)
         {
             var lambda = System.Linq.Expressions.Expression.Lambda<Func<KnV, bool?>>(make(v, five), x);
             Assert.Equal(rows.Select(lambda.Compile()), [.. df.AsQueryable<KnV>().Select(lambda)]);
@@ -1286,7 +1286,7 @@ public class LinqSemanticsRegressionTests
         var call = System.Linq.Expressions.Expression.Call(typeof(Queryable), "Select", [typeof(Kv), typeof(long)],
             System.Linq.Expressions.Expression.Constant(filtered, typeof(IQueryable<Kv>)), System.Linq.Expressions.Expression.Quote(sel));
         var q = others.Provider.CreateQuery<long>(call);
-        Assert.Equal(new long[] { 20, 120 }, q.ToArray());
+        Assert.Equal([20, 120], q.ToArray());
 
         var count = System.Linq.Expressions.Expression.Call(typeof(Queryable), "Count", [typeof(Kv)],
             System.Linq.Expressions.Expression.Constant(filtered, typeof(IQueryable<Kv>)));

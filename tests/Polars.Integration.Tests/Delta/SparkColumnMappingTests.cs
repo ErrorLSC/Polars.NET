@@ -125,7 +125,8 @@ public class SparkColumnMappingTests
         {
             // The same table twice; Spark operates on one, the kernel on the other, then both are compared as Spark reads them.
             string byKernel = Path.Combine(root, "kernel"), bySpark = Path.Combine(root, "spark"), extra = Path.Combine(root, "extra");
-            foreach (string table in new[] { byKernel, bySpark })
+            string[] tables = [byKernel, bySpark];
+            foreach (string table in tables)
             {
                 LocalSpark.Run("sql", table,
                     $"CREATE TABLE {{table}} ({Nested}) USING delta TBLPROPERTIES ('delta.columnMapping.mode'='{mode}', 'delta.enableChangeDataFeed'='true')");

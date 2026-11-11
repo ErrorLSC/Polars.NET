@@ -101,7 +101,7 @@ public class EnumColumnTests
     [Fact]
     public void Series_From_Enum_Array_And_Sequence()
     {
-        using var fromArray = Series.From("s", new[] { Shade.Green, Shade.Red });
+        using var fromArray = Series.From("s", [Shade.Green, Shade.Red]);
         using var fromSequence = Series.From("s", new List<Shade> { Shade.Green, Shade.Red }.Select(s => s));
 
         Assert.True(fromArray.DataType.IsEnum);
@@ -117,7 +117,7 @@ public class EnumColumnTests
         using var df = DataFrame.FromRows(rows);
         using var sorted = df.Sort("Size");
 
-        Assert.Equal(rows.OrderBy(r => r.Size).ToList(), sorted.Rows<TinyRow>().ToList());
+        Assert.Equal([.. rows.OrderBy(r => r.Size)], sorted.Rows<TinyRow>().ToList());
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public class EnumColumnTests
 
         Assert.Equal(
             Rows.OrderBy(r => r.Shade).Select(r => r.Shade).ToList(),
-            sorted.Rows<ShadeRow>().ToList().Select(r => r.Shade).ToList());
+            [.. sorted.Rows<ShadeRow>().ToList().Select(r => r.Shade)]);
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class EnumColumnTests
     {
         var logical = LogicalTypes.tryEnumOf(typeof(Shade));
         Assert.True(FSharpOption<LogicalType>.get_IsSome(logical));
-        Assert.Equal(LogicalType.NewEnum(ListModule.OfArray(new[] { "Black", "Green", "Blue", "Red" })), logical!.Value);
+        Assert.Equal(LogicalType.NewEnum(ListModule.OfArray(["Black", "Green", "Blue", "Red"])), logical!.Value);
 
         var dtype = new DataType(PolarsVocabulary.toDataTypeHandle(logical.Value), DataTypeKind.Enum);
         Assert.Equal(["Black", "Green", "Blue", "Red"], dtype.EnumCategories!.GetCategories());

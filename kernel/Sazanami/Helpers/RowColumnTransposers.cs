@@ -118,7 +118,7 @@ internal static class ColumnBufferFactory
         if (ClrTypeHelper.IsSupportedSimpleType(propType))
         {
             Type targetType = ClrTypeHelper.EnsureNullable(propType);
-            return SimpleFactories.GetOrAdd(targetType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type t) =>
+            return SimpleFactories.GetOrAdd(targetType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] t) =>
             {
                 var constructed = typeof(ColumnBuffer<>).MakeGenericType(t);
                 var ctor = constructed.GetConstructor([typeof(int)])!;
@@ -127,7 +127,7 @@ internal static class ColumnBufferFactory
             })(capacity);
         }
 
-        return StructFactories.GetOrAdd(propType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type t) =>
+        return StructFactories.GetOrAdd(propType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] t) =>
         {
             var constructed = typeof(StructColumnBuffer<>).MakeGenericType(t);
             var ctor = constructed.GetConstructor([typeof(int)])!;
@@ -491,7 +491,7 @@ public static class SoAColumnExtractor<[DynamicallyAccessedMembers(DynamicallyAc
             factories.Add((prop.Name, lambda.Compile()));
         }
 
-        ColumnFactories = factories.ToArray();
+        ColumnFactories = [.. factories];
     }
 
     public static (string Name, Func<T, string, IColumnSink<TColumn>, TColumn> CreateColumn)[] GetFactories() => ColumnFactories;

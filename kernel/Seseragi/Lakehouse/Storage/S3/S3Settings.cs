@@ -16,10 +16,10 @@ internal sealed record S3Settings(
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
 
     // Keys that change nothing for the requests this client makes.
-    private static readonly HashSet<string> Ignored = new(ConfigValues.HarmlessClientKeys)
-    {
-        "bucket", "unsigned_payload", "copy_if_not_exists", "disable_tagging",
-    };
+    private static readonly HashSet<string> Ignored =
+    [
+.. ConfigValues.HarmlessClientKeys,         "bucket", "unsigned_payload", "copy_if_not_exists", "disable_tagging",
+    ];
 
     // Keys that choose and configure where credentials come from.
     private static readonly HashSet<string> CredentialKeys =
@@ -129,7 +129,8 @@ internal sealed record S3Settings(
                 return null;
             }
         }
-        foreach (string flag in new[] { "skip_signature", "imdsv1_fallback" })
+        string[] flags = ["skip_signature", "imdsv1_fallback"];
+        foreach (string flag in flags)
         {
             if (config.TryGetValue(flag, out string? text) && ConfigValues.Bool(text) is null)
             {

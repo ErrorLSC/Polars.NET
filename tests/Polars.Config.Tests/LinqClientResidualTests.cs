@@ -46,9 +46,9 @@ public class LinqClientResidualTests
             ? "[" + string.Join("|", seq.Cast<object>().Select(Render)) + "]"
             : item?.ToString() ?? "null";
 
-    private static List<string> RenderAll(IEnumerable rows) => rows.Cast<object>().Select(Render).ToList();
+    private static List<string> RenderAll(IEnumerable rows) => [.. rows.Cast<object>().Select(Render)];
 
-    private static IDisposable ClientEvaluationScope()
+    private static CompositeScope ClientEvaluationScope()
     {
         var udf = Pl.Config.SetDisallowUdfPushdown(true).BeginScope();
         var policy = Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope();

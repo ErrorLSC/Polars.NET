@@ -203,7 +203,7 @@ public sealed class RealCloudGceMachineTests : IClassFixture<RealGcsCleanup>
             string result = AwaitResult($"{prefix}/result.txt", name, TimeSpan.FromMinutes(15));
             string[] lines = [.. result.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
             Assert.True(lines.Length == 2, result);
-            foreach (var (line, backend) in lines.Zip(new[] { "managed", "native" }))
+            foreach (var (line, backend) in lines.Zip(["managed", "native"]))
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(line);
                 var root = doc.RootElement;
@@ -260,7 +260,8 @@ public sealed class RealCloudGceMachineTests : IClassFixture<RealGcsCleanup>
     private static List<string> Leftovers(string name)
     {
         var left = new List<string>();
-        foreach (string kind in new[] { "instances", "disks" })
+        string[] kinds = ["instances", "disks"];
+        foreach (string kind in kinds)
         {
             JsonNode? list = RealGce.Send(HttpMethod.Get, $"zones/{RealGce.Zone}/{kind}?filter=" + Uri.EscapeDataString($"name = \"{name}*\""));
             if (list?["items"] is JsonArray items) left.AddRange(items.Select(i => $"{kind}/{i!["name"]!.GetValue<string>()}"));

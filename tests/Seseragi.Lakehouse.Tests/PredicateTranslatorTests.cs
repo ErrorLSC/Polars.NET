@@ -12,15 +12,14 @@ public class PredicateTranslatorTests
 {
     private static LogicalField Field(string name, IArrowType type) => new(name, LogicalType.NewArrow(type), true);
 
-    private static readonly LogicalSchema s_schema = new(ListModule.OfSeq(new[]
-    {
+    private static readonly LogicalSchema s_schema = new(ListModule.OfSeq([
         Field("id", Int64Type.Default),
         Field("small", Int32Type.Default),
         Field("name", StringType.Default),
         Field("price", DoubleType.Default),
         Field("ratio", FloatType.Default),
         Field("flag", BooleanType.Default),
-    }));
+    ]));
 
     private static ScalarExpr Col(string name) => ScalarExpr.NewColumn(name);
     private static ScalarExpr Lit(long v) => ScalarExpr.NewLiteral(LiteralValue.NewInt64(v));
@@ -34,7 +33,7 @@ public class PredicateTranslatorTests
 
     /// <summary>Something the translator cannot read: upper(name) = 'X'.</summary>
     private static readonly ScalarExpr s_opaque = Bin(BinaryOp.Eq,
-        ScalarExpr.NewFunction(ScalarFunction.ToUpper, ListModule.OfSeq(new[] { Col("name") }), LogicalType.NewArrow(StringType.Default)),
+        ScalarExpr.NewFunction(ScalarFunction.ToUpper, ListModule.OfSeq([Col("name")]), LogicalType.NewArrow(StringType.Default)),
         Lit("X"));
 
     private static string? T(ScalarExpr filter) => PredicateTranslator.Translate(filter, s_schema)?.ToString();
@@ -85,14 +84,14 @@ public class PredicateTranslatorTests
 
         // The guard protects the whole conjunction, including a disjunction inside it.
         var nested = And(Or(Bin(BinaryOp.Gt, Col("price"), Lit(9.0)), Bin(BinaryOp.Eq, Col("id"), Lit(1L))),
-            Not(ScalarExpr.NewCoalesce(ListModule.OfSeq(new[] { ScalarExpr.NewUnary(UnaryOp.IsNan, Col("price")), ScalarExpr.NewLiteral(LiteralValue.NewBool(false)) }))));
+            Not(ScalarExpr.NewCoalesce(ListModule.OfSeq([ScalarExpr.NewUnary(UnaryOp.IsNan, Col("price")), ScalarExpr.NewLiteral(LiteralValue.NewBool(false))]))));
         Assert.Equal("(price > 9 OR id = 1)", T(nested));
     }
 
     [Fact]
     public void NullWrappersAndNullSafeEquality_AreNotNegated()
     {
-        var wrapped = ScalarExpr.NewCoalesce(ListModule.OfSeq(new[] { Bin(BinaryOp.Gt, Col("id"), Lit(5L)), ScalarExpr.NewLiteral(LiteralValue.NewBool(false)) }));
+        var wrapped = ScalarExpr.NewCoalesce(ListModule.OfSeq([Bin(BinaryOp.Gt, Col("id"), Lit(5L)), ScalarExpr.NewLiteral(LiteralValue.NewBool(false))]));
         Assert.Equal("id > 5", T(wrapped));
         Assert.Null(T(Not(wrapped)));
 
@@ -107,7 +106,7 @@ public class PredicateTranslatorTests
     [Fact]
     public void InLists_BecomeDisjunctions()
     {
-        ScalarExpr In(bool negated, bool nullsEqual, params LiteralValue[] values) =>
+        static ScalarExpr In(bool negated, bool nullsEqual, params LiteralValue[] values) =>
             ScalarExpr.NewInList(Col("id"), InListSource.NewLiterals(ListModule.OfSeq(values)), negated, nullsEqual);
 
         Assert.Equal("(id = 1 OR id = 2)", T(In(false, false, LiteralValue.NewInt64(1), LiteralValue.NewInt64(2))));
@@ -121,7 +120,7 @@ public class PredicateTranslatorTests
     [Fact]
     public void Casts_AreSeenThroughOnlyWhenTheyKeepTheOrder()
     {
-        ScalarExpr Cast(string column, IArrowType to) => ScalarExpr.NewCast(Col(column), LogicalType.NewArrow(to), false);
+        static ScalarExpr Cast(string column, IArrowType to) => ScalarExpr.NewCast(Col(column), LogicalType.NewArrow(to), false);
         Assert.Equal("small > 5", T(Bin(BinaryOp.Gt, Cast("small", Int64Type.Default), Lit(5L))));
         Assert.Null(T(Bin(BinaryOp.Gt, Cast("id", Int32Type.Default), Lit(5L))));
         Assert.Null(T(Bin(BinaryOp.Gt, Cast("id", StringType.Default), Lit("5"))));

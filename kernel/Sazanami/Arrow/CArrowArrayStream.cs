@@ -47,7 +47,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
 
     // --- Static Callbacks ---
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int GetSchemaStatic(CArrowArrayStream* stream, CArrowSchema* outSchema)
     {
         try
@@ -63,7 +63,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         }
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int GetNextStatic(CArrowArrayStream* stream, CArrowArray* outArray)
     {
         try
@@ -89,7 +89,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         }
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static byte* GetLastErrorStatic(CArrowArrayStream* stream)
     {
         if (stream == null || stream->private_data == null) return null;
@@ -111,7 +111,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         return null;
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void ReleaseStatic(CArrowArrayStream* stream)
     {
         if (stream == null) return;

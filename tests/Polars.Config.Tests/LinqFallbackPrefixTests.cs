@@ -133,7 +133,7 @@ public class LinqFallbackPrefixTests
             ? "[" + string.Join("|", seq.Cast<object>().Select(Render)) + "]"
             : item?.ToString() ?? "null";
 
-    private static List<string> RenderAll(IEnumerable rows) => rows.Cast<object>().Select(Render).ToList();
+    private static List<string> RenderAll(IEnumerable rows) => [.. rows.Cast<object>().Select(Render)];
 
     private static IDisposable ClientEvaluationScope()
     {

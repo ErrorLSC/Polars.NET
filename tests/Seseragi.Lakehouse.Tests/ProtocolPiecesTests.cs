@@ -129,7 +129,7 @@ public class DeletionVectorDescriptorTests
         var inline = new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 8, Cardinality = 1 };
         Assert.Equal(8, inline.InlineBytes().Length);
         Assert.Equal(6, new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 6, Cardinality = 1 }.InlineBytes().Length);
-        Assert.Throws<DeltaException>(() => inline.FilePath());
+        Assert.Throws<DeltaException>(inline.FilePath);
 
         var absolute = new DeletionVectorDescriptor { StorageType = "p", PathOrInlineDv = "s3://b/dv.bin", SizeInBytes = 8, Cardinality = 1 };
         Assert.Equal("s3://b/dv.bin", absolute.FilePath());

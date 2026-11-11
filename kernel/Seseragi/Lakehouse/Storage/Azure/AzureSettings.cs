@@ -41,12 +41,13 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
 
     // Keys that configure credentials (read where the credential is chosen), or change nothing for plain requests.
-    private static readonly HashSet<string> Ignored = new(ConfigValues.HarmlessClientKeys)
-    {
+    private static readonly HashSet<string> Ignored =
+    [
+        .. ConfigValues.HarmlessClientKeys,
         "container_name", "disable_tagging", "msi_endpoint", "object_id", "msi_resource_id", "authority_host",
         "client_id", "client_secret", "tenant_id", "federated_token_file", "use_azure_cli", "fabric_token_service_url",
         "fabric_workload_host", "fabric_session_token", "fabric_cluster_identifier",
-    };
+    ];
 
     private static Dictionary<string, string> BuildAliases()
     {

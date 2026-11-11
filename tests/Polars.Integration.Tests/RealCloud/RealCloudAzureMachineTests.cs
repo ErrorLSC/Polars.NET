@@ -261,7 +261,7 @@ public sealed class RealCloudAzureMachineTests : IClassFixture<RealAzureCleanup>
             string result = AwaitResult(container, $"{prefix}/result.txt", vmId, TimeSpan.FromMinutes(15));
             string[] lines = [.. result.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
             Assert.True(lines.Length == 3, result);
-            foreach (var (line, backend) in lines.Zip(new[] { "managed", "native", "managed" }))
+            foreach (var (line, backend) in lines.Zip(["managed", "native", "managed"]))
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(line);
                 var root = doc.RootElement;
@@ -281,7 +281,7 @@ public sealed class RealCloudAzureMachineTests : IClassFixture<RealAzureCleanup>
         while (left.Count > 0 && clock.Elapsed < TimeSpan.FromMinutes(3))
         {
             Thread.Sleep(TimeSpan.FromSeconds(10));
-            left = RealAzureArm.Tagged(Tag).Where(r => r.Value == stamp).ToList();
+            left = [.. RealAzureArm.Tagged(Tag).Where(r => r.Value == stamp)];
         }
         Assert.True(left.Count == 0, "Left behind: " + string.Join(", ", left.Select(r => r.Id)));
         // The disk, card and address carry no tag of their own: check by name.
@@ -316,7 +316,8 @@ public sealed class RealCloudAzureMachineTests : IClassFixture<RealAzureCleanup>
 
     private static void DeleteAll(string vmId, string scheduleId, string vnetId)
     {
-        foreach (var (id, api) in new[] { (vmId, ComputeApi), (scheduleId, ScheduleApi), (vnetId, NetworkApi) })
+        (string, string)[] items = [(vmId, ComputeApi), (scheduleId, ScheduleApi), (vnetId, NetworkApi)];
+        foreach (var (id, api) in items)
         {
             try
             {

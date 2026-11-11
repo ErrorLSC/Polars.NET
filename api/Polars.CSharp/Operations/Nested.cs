@@ -102,7 +102,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     ///
     /// // Unnest with a separator to avoid name collisions
     /// // Result columns: "User_Name", "User_Age"
-    /// var unnested = df.Unnest(new[] { "User" }, separator: "_");
+    /// var unnested = df.Unnest(["User"], separator: "_");
     /// unnested.Show();
     /// /* Output:
     /// shape: (1, 2)
@@ -255,7 +255,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// </summary>
     public DataFrame Explode(IEnumerable<string> columns, bool emptyAsNull = true, bool keepNulls = true)
     {
-        var colsArray = columns as string[] ?? columns.ToArray();
+        var colsArray = columns as string[] ?? [.. columns];
         if (colsArray.Length == 0) return this;
 
         var h = PolarsWrapper.Explode(Handle, colsArray, emptyAsNull, keepNulls);

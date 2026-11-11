@@ -39,8 +39,8 @@ public class DeltaUpdateTests
             Delta.Update(path, Col("Id") == 2L, new Dictionary<string, Expr> { ["Price"] = Col("Price") * 2.0 });
 
             using var read = DataFrame.ReadDelta(path).Sort("Id");
-            Assert.Equal(new[] { 10.0, 40.0, 30.0 }, read.Column("Price").ToArray<double>());
-            Assert.Equal(new[] { "pen", "ink", "pad" }, read.Column("Name").ToArray<string>());
+            Assert.Equal([10.0, 40.0, 30.0], read.Column("Price").ToArray<double>());
+            Assert.Equal(["pen", "ink", "pad"], read.Column("Name").ToArray<string>());
             Assert.Equal("UPDATE", LastOperation(path));
         }
         finally
@@ -60,7 +60,7 @@ public class DeltaUpdateTests
             Delta.Update(path, null, new Dictionary<string, Expr> { ["Price"] = Col("Price") + 1.0 });
 
             using var read = DataFrame.ReadDelta(path).Sort("Id");
-            Assert.Equal(new[] { 11.0, 21.0, 31.0 }, read.Column("Price").ToArray<double>());
+            Assert.Equal([11.0, 21.0, 31.0], read.Column("Price").ToArray<double>());
             Assert.Equal("UPDATE", LastOperation(path));
         }
         finally
@@ -110,9 +110,9 @@ public class DeltaUpdateTests
 
             using var read = DataFrame.ReadDelta(path).Sort("Id");
             Assert.Equal(3L, read.Height);
-            Assert.Equal(new[] { 1L, 2L, 3L }, read.Column("Id").ToArray<long>());
-            Assert.Equal(new[] { 10.0, 200.0, 30.0 }, read.Column("Price").ToArray<double>());
-            Assert.Equal(new[] { "pen", "ink", "pad" }, read.Column("Name").ToArray<string>());
+            Assert.Equal([1L, 2L, 3L], read.Column("Id").ToArray<long>());
+            Assert.Equal([10.0, 200.0, 30.0], read.Column("Price").ToArray<double>());
+            Assert.Equal(["pen", "ink", "pad"], read.Column("Name").ToArray<string>());
         }
         finally
         {
@@ -149,8 +149,8 @@ public class DeltaUpdateTests
 
             using var read = DataFrame.ReadDelta(path).Sort("Id");
             Assert.Equal(3L, read.Height);
-            Assert.Equal(new[] { 100.0, 20.0, 300.0 }, read.Column("Price").ToArray<double>());
-            Assert.Equal(new[] { true, false, true }, read.Column("Active").ToArray<bool>());
+            Assert.Equal([100.0, 20.0, 300.0], read.Column("Price").ToArray<double>());
+            Assert.Equal([true, false, true], read.Column("Active").ToArray<bool>());
         }
         finally
         {
@@ -176,9 +176,9 @@ public class DeltaUpdateTests
             source.UpdateDelta(path, ["Id"], m => m.Source("Price") > m.Target("Price"));
 
             using var read = DataFrame.ReadDelta(path).Sort("Id");
-            Assert.Equal(new[] { 1L, 2L, 3L }, read.Column("Id").ToArray<long>());
-            Assert.Equal(new[] { "pen", "INK", "pad" }, read.Column("Name").ToArray<string>());
-            Assert.Equal(new[] { 10.0, 25.0, 30.0 }, read.Column("Price").ToArray<double>());
+            Assert.Equal([1L, 2L, 3L], read.Column("Id").ToArray<long>());
+            Assert.Equal(["pen", "INK", "pad"], read.Column("Name").ToArray<string>());
+            Assert.Equal([10.0, 25.0, 30.0], read.Column("Price").ToArray<double>());
         }
         finally
         {

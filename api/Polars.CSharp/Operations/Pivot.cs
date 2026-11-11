@@ -280,9 +280,9 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// 
     /// // Pivot: rows=date, cols=country, values=sales
     /// var pivoted = dfLong.Pivot(
-    ///     index: new[] { "date" }, 
-    ///     columns: new[] { "country" }, 
-    ///     values: new[] { "sales" }
+    ///     index: ["date"], 
+    ///     columns: ["country"], 
+    ///     values: ["sales"]
     /// );
     /// 
     /// pivoted.Show();
@@ -350,13 +350,13 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// 
     /// // Unpivot back to long format
     /// var melted = pivoted.Unpivot(
-    ///     index: new[] { "date" },
-    ///     on: new[] { "CN", "US" },
+    ///     index: ["date"],
+    ///     on: ["CN", "US"],
     ///     variableName: "country",
     ///     valueName: "sales"
     /// );
     /// 
-    /// melted.Sort(new[] { "date", "country" }).Show();
+    /// melted.Sort(["date", "country"]).Show();
     /// /* Output:
     /// shape: (4, 3)
     /// ┌────────────┬─────────┬───────┐

@@ -198,7 +198,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// </code>
     /// </example>
     public static DataFrame FromSeries(params Series[] series)
-        => new(series);
+        => [.. series];
     /// <inheritdoc cref="FromSeries(Series[])"/>
     public static DataFrame FromColumns(params Series[] series)
         => [.. series];

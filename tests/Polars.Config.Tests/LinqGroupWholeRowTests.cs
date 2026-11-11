@@ -18,7 +18,7 @@ public class LinqGroupWholeRowTests
     private static readonly WrEmp[] Emps = [new("S", "a", 1), new("S", "a", 1), new("S", "b", 2), new("E", "c", 3)];
     private static readonly WrDept[] Depts = [new("S", "EU"), new("E", "US")];
 
-    private static List<string> Sorted<T>(IEnumerable<T> rows) => rows.Select(r => r!.ToString()!).Order().ToList();
+    private static List<string> Sorted<T>(IEnumerable<T> rows) => [.. rows.Select(r => r!.ToString()!).Order()];
 
     private static bool IsNative<T>(IQueryable<T> q) => !((IQueryExplainable)q).InspectPlan(true).IsFullFallback;
 

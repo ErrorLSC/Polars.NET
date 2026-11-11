@@ -171,7 +171,7 @@ public class AlterTableTests
     {
         MemoryFileSystem fs = Table();
         Snapshot table = Snapshot.Load(fs);
-        Dictionary<string, string> One(string key, string value) => new() { [key] = value };
+        static Dictionary<string, string> One(string key, string value) => new() { [key] = value };
 
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.noSuchThing", "x")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.constraints.pos", "id > 0")));

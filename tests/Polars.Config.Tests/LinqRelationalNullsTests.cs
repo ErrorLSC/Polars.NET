@@ -27,7 +27,7 @@ public class LinqRelationalNullsTests
     ];
 
     private static List<long> EqualIds(DataFrame df) =>
-        df.AsQueryable<RnRow>().Where(x => x.A == x.B).Select(x => x.Id).ToList();
+        [.. df.AsQueryable<RnRow>().Where(x => x.A == x.B).Select(x => x.Id)];
 
     [Fact]
     public void Equality_Is_Null_On_A_Null_Operand()
@@ -64,7 +64,7 @@ public class LinqRelationalNullsTests
         using var other = DataFrame.From(Rows);
         var others = other.AsQueryable<RnRow>();
         List<long> Matching() =>
-            df.AsQueryable<RnRow>().Where(x => others.Any(y => y.B == x.A && y.Id != x.Id)).Select(x => x.Id).ToList();
+            [.. df.AsQueryable<RnRow>().Where(x => others.Any(y => y.B == x.A && y.Id != x.Id)).Select(x => x.Id)];
 
         Assert.Equal(Rows.Where(x => Rows.Any(y => y.B == x.A && y.Id != x.Id)).Select(x => x.Id), Matching());
         using (Pl.Config.SetUseRelationalNulls(true).BeginScope())

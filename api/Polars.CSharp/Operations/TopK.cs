@@ -14,7 +14,7 @@ public partial class LazyFrame : IDisposable
     {
         using var safeExpr = by.Consume();
 
-        var handles = new[] { PolarsWrapper.CloneExpr(safeExpr.Handle) };
+        ExprHandle[] handles = [PolarsWrapper.CloneExpr(safeExpr.Handle)];
         var h = PolarsWrapper.LazyFrameTopK(CloneHandle(), (uint)k, handles, [reverse]);
 
         return new LazyFrame(h);
@@ -92,7 +92,7 @@ public partial class LazyFrame : IDisposable
     {
         using var safeExpr = by.Consume();
 
-        var handles = new[] { PolarsWrapper.CloneExpr(safeExpr.Handle) };
+        ExprHandle[] handles = [PolarsWrapper.CloneExpr(safeExpr.Handle)];
         var h = PolarsWrapper.LazyFrameBottomK(CloneHandle(), (uint)k, handles, [reverse]);
 
         return new LazyFrame(h);

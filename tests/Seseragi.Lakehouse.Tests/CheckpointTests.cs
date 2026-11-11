@@ -124,7 +124,7 @@ public class CheckpointTests
     [Fact]
     public void MultiPartCheckpoint_NeedsAllItsParts()
     {
-        MemoryFileSystem Base() => new MemoryFileSystem()
+        static MemoryFileSystem Base() => new MemoryFileSystem()
             .Commit(0, Lines.Protocol, Lines.Metadata("\"p\""), Lines.Add("a.parquet"))
             .Commit(1, Lines.Add("b.parquet"))
             .Put(Log + "00000000000000000001.checkpoint.0000000001.0000000002.parquet", string.Join("\n", ProtocolRow, MetadataRow, AddRow("a.parquet")));

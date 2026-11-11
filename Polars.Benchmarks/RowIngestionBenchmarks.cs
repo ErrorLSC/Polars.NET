@@ -31,7 +31,7 @@ public class RowIngestionBenchmarks
     public void Setup()
     {
         var start = new DateTime(2024, 1, 1);
-        _rows = Enumerable.Range(0, N).Select(i => new RowIngestionRow
+        _rows = [.. Enumerable.Range(0, N).Select(i => new RowIngestionRow
         {
             Id = i,
             Amount = i * 7L,
@@ -40,16 +40,16 @@ public class RowIngestionBenchmarks
             Flag = i % 2 == 0,
             At = start.AddMinutes(i),
             Optional = i % 5 == 0 ? null : i,
-        }).ToArray();
+        })];
 
-        _dicts = _rows.Select(r => new Dictionary<string, object?>
+        _dicts = [.. _rows.Select(r => new Dictionary<string, object?>
         {
             ["Id"] = r.Id,
             ["Amount"] = r.Amount,
             ["Price"] = r.Price,
             ["Name"] = r.Name,
             ["Flag"] = r.Flag,
-        }).ToList();
+        })];
     }
 
     private IEnumerable<RowIngestionRow> Stream()

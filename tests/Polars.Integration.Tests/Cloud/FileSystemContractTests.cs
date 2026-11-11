@@ -47,7 +47,8 @@ public abstract class FileSystemContract
     public void List_GivesDirectChildren_InOrdinalOrder_WithSizeAndTime() => With((fs, _) =>
     {
         DateTimeOffset before = DateTimeOffset.UtcNow;
-        foreach (string name in new[] { "b.json", "a.json", "B.json", "a.json.tmp", "_sub/x.json", "dir/inner.json" })
+        string[] names = ["b.json", "a.json", "B.json", "a.json.tmp", "_sub/x.json", "dir/inner.json"];
+        foreach (string name in names)
             Assert.True(fs.TryCreate($"log/{name}", Bytes(name)));
 
         IReadOnlyList<FileEntry> entries = fs.List("log");
@@ -65,7 +66,8 @@ public abstract class FileSystemContract
     [Fact]
     public void List_FromAnOffset_IsInclusive() => With((fs, _) =>
     {
-        foreach (string name in new[] { "00.json", "01.json", "02.json", "02.checkpoint.parquet", "03.json" })
+        string[] names = ["00.json", "01.json", "02.json", "02.checkpoint.parquet", "03.json"];
+        foreach (string name in names)
             Assert.True(fs.TryCreate($"_delta_log/{name}", Bytes(name)));
 
         Assert.Equal(["_delta_log/02.checkpoint.parquet", "_delta_log/02.json", "_delta_log/03.json"],
@@ -924,7 +926,8 @@ public sealed class S3RequestHeaderTests
                 .ToDictionary(h => h.Key.ToLowerInvariant(), h => h.Value);
         }
 
-        foreach (string method in new[] { "PUT", "GET" })
+        string[] methods = ["PUT", "GET"];
+        foreach (string method in methods)
         {
             var native = Sent(ObjectStoreBackend.Native, method);
             Assert.Equal(4, native.Count);
@@ -991,7 +994,8 @@ public sealed class S3ConnectionOptionTests : IDisposable
         var cloud = new CloudOptions { Provider = CloudProvider.Aws, Credentials = keys, MaxRetries = 0 };
         CloudArgs args = KernelObjectStoreCheck.ToArgs(cloud);
         var outcome = new Dictionary<ObjectStoreBackend, string?>();
-        foreach (var backend in new[] { ObjectStoreBackend.Managed, ObjectStoreBackend.Native })
+        ObjectStoreBackend[] backends = [ObjectStoreBackend.Managed, ObjectStoreBackend.Native];
+        foreach (var backend in backends)
         {
             try
             {

@@ -22,9 +22,9 @@ public class LinqColumnStatisticsTests
     public void A_registered_feedback_store_receives_reports_until_disposed()
     {
         var schema = Kaminari.Samidare.IR.LogicalSchema.OfFields(
-            Microsoft.FSharp.Collections.ListModule.OfArray(new[] { Tuple.Create("k", Kaminari.Samidare.IR.LogicalTypes.Int32) }));
+            Microsoft.FSharp.Collections.ListModule.OfArray([Tuple.Create("k", Kaminari.Samidare.IR.LogicalTypes.Int32)]));
         var plan = Kaminari.Samidare.IR.LogicalPlan.NewScan(Kaminari.Samidare.IR.LogicalPlanSource.NewSlot(0), schema);
-        var sources = new[] { Kaminari.Samidare.IR.SourceBinding.NewTable(new IdentifiedSource(schema)) };
+        Kaminari.Samidare.IR.SourceBinding[] sources = [Kaminari.Samidare.IR.SourceBinding.NewTable(new IdentifiedSource(schema))];
         var key = Kaminari.Samidare.IR.CardinalityFeedback.TryKey(sources, plan).Value;
         var store = new Kaminari.Samidare.IR.InMemoryCardinalityFeedback();
         var feedback = (Kaminari.Samidare.IR.ICardinalityFeedback)store;

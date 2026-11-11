@@ -17,7 +17,7 @@ public partial class LazyFrame : IDisposable
         using var safeSelector = by.Consume();
         using var expr = safeSelector.ToExpr();
 
-        var handles = new[] { PolarsWrapper.CloneExpr(expr.Handle) };
+        ExprHandle[] handles = [PolarsWrapper.CloneExpr(expr.Handle)];
         var h = PolarsWrapper.LazyFrameSort(CloneHandle(), handles, [descending], [nullsLast], maintainOrder);
 
         return new LazyFrame(h);
@@ -37,9 +37,9 @@ public partial class LazyFrame : IDisposable
     /// <code>
     /// df.Lazy()
     ///   .Sort(
-    ///       by: new[] { "group", "val" }, 
-    ///       descending: new[] { false, true }, 
-    ///       nullsLast: new[] { false, false }
+    ///       by: ["group", "val"], 
+    ///       descending: [false, true], 
+    ///       nullsLast: [false, false]
     ///   )
     ///   .Collect();
     /// /* Output:

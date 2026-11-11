@@ -35,7 +35,8 @@ public class ArrowTypeResolutionTests
     [Fact]
     public void Strict_Mapping_Agrees_With_The_Lenient_One_For_Representable_Types()
     {
-        foreach (var type in new[] { typeof(int), typeof(string), typeof(DateTime?), typeof(List<double>), typeof(Point), typeof(Dictionary<string, int>) })
+        Type[] types = [typeof(int), typeof(string), typeof(DateTime?), typeof(List<double>), typeof(Point), typeof(Dictionary<string, int>)];
+        foreach (var type in types)
             Assert.Equal(
                 ArrowTypeResolver.GetArrowTypeFromNetType(type).ToString(),
                 ArrowTypeResolver.TryGetArrowTypeFromNetType(type)!.ToString());

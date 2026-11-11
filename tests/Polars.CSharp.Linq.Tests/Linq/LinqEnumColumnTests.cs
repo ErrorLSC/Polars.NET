@@ -138,7 +138,8 @@ public class LinqEnumColumnTests
     [Fact]
     public void Enum_Arguments_Reach_Udfs()
     {
-        foreach (var integerColumns in new[] { false, true })
+        bool[] integerColumnsValues = [false, true];
+        foreach (var integerColumns in integerColumnsValues)
         {
             using var df = Frame(integerColumns);
             var query = df.AsQueryable<LeRow>().Select(r => Weight(r.Shade));

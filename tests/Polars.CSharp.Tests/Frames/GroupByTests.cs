@@ -12,7 +12,7 @@ public class TimeSeriesTests
         // 10:00, 10:10, 10:20, 10:30, 10:40, 10:50
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
         var end = new DateTime(2024, 1, 1, 10, 50, 0);
-        var values = new[] { 0, 1, 2, 3, 4, 5 };
+        int[] values = [0, 1, 2, 3, 4, 5];
 
         var df = DataFrame.FromColumns(new { Val = values })
             .WithColumns(
@@ -122,13 +122,12 @@ public class TimeSeriesTests
     public void Test_GroupByDynamic_With_By_Column_And_Having()
     {
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
-        var dates = new[]
-        {
+        DateTime[] dates = [
             start, start.AddMinutes(30),
             start, start.AddMinutes(30)
-        };
-        var symbols = new[] { "A", "A", "B", "B" };
-        var values = new[] { 10, 20, 100, 200 };
+        ];
+        string[] symbols = ["A", "A", "B", "B"];
+        int[] values = [10, 20, 100, 200];
 
         var df = DataFrame.FromColumns(new { Time = dates, Symbol = symbols, Val = values });
 
@@ -211,7 +210,7 @@ public class TimeSeriesTests
     {
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
         var end = new DateTime(2024, 1, 1, 10, 40, 0);
-        var values = new[] { 10, 20, 30, 40, 50 };
+        int[] values = [10, 20, 30, 40, 50];
 
         var df = DataFrame.FromColumns(new { Val = values })
             .WithColumns(Pl.DatetimeRange(start, end, "10m").Alias("Time"));
@@ -243,13 +242,12 @@ public class TimeSeriesTests
     public void Test_GroupByRolling_Advanced_Selector_And_By()
     {
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
-        var dates = new[]
-        {
+        DateTime[] dates = [
             start, start.AddMinutes(10), start.AddMinutes(20), // Stock A
             start, start.AddMinutes(10), start.AddMinutes(20)  // Stock B
-        };
-        var symbols = new[] { "A", "A", "A", "B", "B", "B" };
-        var values = new[] { 1, 2, 3, 100, 200, 300 };
+        ];
+        string[] symbols = ["A", "A", "A", "B", "B", "B"];
+        int[] values = [1, 2, 3, 100, 200, 300];
 
         var df = DataFrame.FromColumns(new { Time = dates, Symbol = symbols, Val = values });
 
@@ -278,7 +276,7 @@ public class TimeSeriesTests
     {
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
         var end = new DateTime(2024, 1, 1, 10, 50, 0);
-        var values = new[] { 0, 1, 2, 3, 4, 5 };
+        int[] values = [0, 1, 2, 3, 4, 5];
 
         var df = DataFrame.FromColumns(new { Val = values })
             .WithColumns(Pl.DatetimeRange(start, end, "10m").Alias("Time"));

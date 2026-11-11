@@ -57,7 +57,8 @@ public class SparkClusteringTests
         InRoot(root =>
         {
             string byKernel = Path.Combine(root, "kernel"), bySpark = Path.Combine(root, "spark"), extra = Path.Combine(root, "extra");
-            foreach (string table in new[] { byKernel, bySpark })
+            string[] tables = [byKernel, bySpark];
+            foreach (string table in tables)
             {
                 LocalSpark.Run("sql", table,
                     "CREATE TABLE {table} (id BIGINT, a STRING, b BIGINT, s STRUCT<x: BIGINT>) USING delta " +

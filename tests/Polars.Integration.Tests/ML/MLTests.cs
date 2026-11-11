@@ -20,7 +20,7 @@ public class DataViewConversionTests
     public void InPlace_Transform_Exports_Only_Its_Visible_Column()
     {
         var mlContext = new MLContext();
-        var input = mlContext.Data.LoadFromEnumerable(new[] { new HiddenColumnRow { X = 1 }, new HiddenColumnRow { X = 3 } });
+        var input = mlContext.Data.LoadFromEnumerable([new HiddenColumnRow { X = 1 }, new HiddenColumnRow { X = 3 }]);
         var transformed = mlContext.Transforms.Concatenate("X", "X").Fit(input).Transform(input);
 
         using var df = transformed.ToDataFrame();

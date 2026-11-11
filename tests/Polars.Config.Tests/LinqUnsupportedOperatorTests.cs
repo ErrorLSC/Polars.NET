@@ -47,7 +47,7 @@ public class LinqUnsupportedOperatorTests
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
         {
             foreach (var query in Queries())
-                Assert.Equal(query(Words.AsQueryable()).ToList(), query(df.AsQueryable<Word>()).ToList());
+                Assert.Equal(query(Words.AsQueryable()).ToList(), [.. query(df.AsQueryable<Word>())]);
         }
     }
 

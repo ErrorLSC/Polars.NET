@@ -216,7 +216,7 @@ public class AwsCredentialTests
         Assert.Equal("static", Origin(new() { ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "s" },
             new() { ["AWS_WEB_IDENTITY_TOKEN_FILE"] = "/t", ["AWS_ROLE_ARN"] = "arn:env" }));
         // Stores are opened per table operation: one configuration shares one source in the process.
-        S3Settings Settings() => S3Settings.Resolve("bucket", new Dictionary<string, string> { ["aws_region"] = "r", ["aws_metadata_endpoint"] = "http://shared:1" },
+        static S3Settings Settings() => S3Settings.Resolve("bucket", new Dictionary<string, string> { ["aws_region"] = "r", ["aws_metadata_endpoint"] = "http://shared:1" },
             NoEnvironment, null, out _)!;
         Assert.Same(Settings().Credential, Settings().Credential);
         // An empty key still counts as given.

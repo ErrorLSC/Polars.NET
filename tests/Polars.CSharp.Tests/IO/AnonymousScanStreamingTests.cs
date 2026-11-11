@@ -43,7 +43,7 @@ public class AnonymousScanStreamingTests
         {
             case "factory":
                 var table = Table();
-                return LazyFrame.ScanDatabase(() => table.CreateDataReader(), BatchSize);
+                return LazyFrame.ScanDatabase(table.CreateDataReader, BatchSize);
             case "reader":
                 return LazyFrame.ScanDatabase(Table().CreateDataReader(), BatchSize);
             case "enumerable":
@@ -59,7 +59,7 @@ public class AnonymousScanStreamingTests
 
     private static LazyFrame Query(LazyFrame lf) => lf.Filter(Pl.Col("Id") % 3 != 0);
 
-    private static readonly int[] ExpectedIds = Enumerable.Range(0, Rows).Where(i => i % 3 != 0).ToArray();
+    private static readonly int[] ExpectedIds = [.. Enumerable.Range(0, Rows).Where(i => i % 3 != 0)];
 
     private static void AssertIds(DataFrame df)
     {
@@ -221,7 +221,7 @@ public class AnonymousScanStreamingTests
             var path = Path.Combine(dir, "empty.parquet");
             var table = Table();
             table.Rows.Clear();
-            using (var lf = LazyFrame.ScanDatabase(() => table.CreateDataReader(), BatchSize)) lf.SinkParquet(path);
+            using (var lf = LazyFrame.ScanDatabase(table.CreateDataReader, BatchSize)) lf.SinkParquet(path);
             using var back = DataFrame.ReadParquet(path);
             Assert.Equal(0, back.Height);
             Assert.Equal(["Id", "G", "V"], back.Columns);
@@ -299,7 +299,7 @@ public class AnonymousScanStreamingTests
         Flag = i % 2 == 0,
         Maybe = i % 5 == 0 ? null : i,
         Text = i % 7 == 0 ? null : $"t{i}",
-        Items = Enumerable.Range(0, i % 4).ToList(),
+        Items = [.. Enumerable.Range(0, i % 4)],
     });
 
     private static void AssertSameFrame(DataFrame expected, DataFrame actual)
@@ -351,7 +351,8 @@ public class AnonymousScanStreamingTests
             string parquet = Path.Combine(dir, "cat.parquet"), ipc = Path.Combine(dir, "cat.arrow");
             LazyFrame.ScanRecordBatches(Stream(), schema).SinkParquet(parquet);
             LazyFrame.ScanRecordBatches(Stream(), schema).SinkIpc(ipc);
-            foreach (var back in new[] { DataFrame.ReadParquet(parquet), DataFrame.ReadIpc(ipc) })
+            DataFrame[] backs = [DataFrame.ReadParquet(parquet), DataFrame.ReadIpc(ipc)];
+            foreach (var back in backs)
             {
                 using (back)
                 {

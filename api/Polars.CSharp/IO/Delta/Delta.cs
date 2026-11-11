@@ -500,7 +500,7 @@ public static class Delta
 
         selection.AddRange(existingCols.Except(priorityCols));
 
-        return df.Select(selection.Select(c => Polars.Col(c)).ToArray());
+        return df.Select(selection.Select(Polars.Col).ToArray());
     }
     /// <summary>
     /// Optimizes the layout of the Delta table by compacting small files (bin-packing) and optionally applying Z-Order clustering.

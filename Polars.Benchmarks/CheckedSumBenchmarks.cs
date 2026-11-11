@@ -24,7 +24,7 @@ public class CheckedSumRow
 /// Values stay in [-1000, 1000] so no sum can overflow; K has 1000 distinct groups.
 internal static class CheckedSumData
 {
-    private static readonly Dictionary<int, DataFrame> Cache = new();
+    private static readonly Dictionary<int, DataFrame> Cache = [];
 
     public static DataFrame Get(int n)
     {

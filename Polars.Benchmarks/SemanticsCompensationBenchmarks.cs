@@ -4,8 +4,6 @@ using Polars.CSharp;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 using Polars.CSharp.Linq;
-using Polars.NET.Linq;
-using Kaminari.Samidare;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Benchmarks;
@@ -230,9 +228,9 @@ public class SemanticsCompensationNanSortBenchmarks
     {
         using var lf = _df.Lazy()
             .WithColumns((!Pl.Col("D").IsNan()).Alias("__nn"))
-            .Sort(new IntoSelector[] { "__nn", "D" },
-                descending: new[] { false, false },
-                nullsLast: new[] { false, false })
+            .Sort(["__nn", "D"],
+                descending: [false, false],
+                nullsLast: [false, false])
             .Drop("__nn");
         using var result = lf.Collect();
         return result.Height;

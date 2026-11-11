@@ -82,7 +82,7 @@ public partial class NativeMemoryTests
         Assert.True(buf.IsDisposed);
         Assert.Throws<ObjectDisposedException>(() => buf.GetSpan());
         Assert.Throws<ObjectDisposedException>(() => buf.Memory);
-        Assert.Throws<ObjectDisposedException>(() => buf.AsStream());
+        Assert.Throws<ObjectDisposedException>(buf.AsStream);
         Assert.Throws<ObjectDisposedException>(() => buf.Pin());
     }
 

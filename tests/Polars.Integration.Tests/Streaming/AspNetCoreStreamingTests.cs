@@ -60,20 +60,20 @@ public sealed class KestrelFixture : IAsyncLifetime
             }
         });
 
-        _app.MapGet("/ipc-stream/pipe", async (HttpContext ctx) =>
+        _app.MapGet("/ipc-stream/pipe", async ctx =>
         {
             using var df = SmallFrame();
             ctx.Response.ContentType = "application/vnd.apache.arrow.stream";
             await df.WriteIpcStreamAsync(ctx.Response.BodyWriter, cancellationToken: ctx.RequestAborted);
         });
 
-        _app.MapGet("/parquet/pipe", async (HttpContext ctx) =>
+        _app.MapGet("/parquet/pipe", async ctx =>
         {
             using var df = LargeFrame();
             await df.Lazy().SinkParquetAsync(ctx.Response.BodyWriter, cancellationToken: ctx.RequestAborted);
         });
 
-        _app.MapGet("/parquet/stream-async", async (HttpContext ctx) =>
+        _app.MapGet("/parquet/stream-async", async ctx =>
         {
             using var df = LargeFrame();
             await df.WriteParquetAsync(ctx.Response.Body, cancellationToken: ctx.RequestAborted);
@@ -85,20 +85,20 @@ public sealed class KestrelFixture : IAsyncLifetime
             df.WriteParquet(ctx.Response.Body); // Kestrel disallows synchronous I/O by default
         });
 
-        _app.MapGet("/csv/pipe", async (HttpContext ctx) =>
+        _app.MapGet("/csv/pipe", async ctx =>
         {
             using var df = LargeFrame();
             ctx.Response.ContentType = "text/csv";
             await df.Lazy().SinkCsvAsync(ctx.Response.BodyWriter, cancellationToken: ctx.RequestAborted);
         });
 
-        _app.MapGet("/ndjson/pipe", async (HttpContext ctx) =>
+        _app.MapGet("/ndjson/pipe", async ctx =>
         {
             using var df = LargeFrame();
             await df.Lazy().SinkJsonAsync(ctx.Response.BodyWriter, cancellationToken: ctx.RequestAborted);
         });
 
-        _app.MapGet("/ipc/huge", async (HttpContext ctx) =>
+        _app.MapGet("/ipc/huge", async ctx =>
         {
             using var df = LargeFrame(3_000_000);
             await df.Lazy().SinkIpcAsync(ctx.Response.BodyWriter, cancellationToken: ctx.RequestAborted);

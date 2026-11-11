@@ -324,7 +324,7 @@ public partial class UdfTests
 
         // Assert
         var summed = result[0].ToArray<int>();
-        var expected = new int[] { 11, 22, 33, 44, 55 };
+        int[] expected = [11, 22, 33, 44, 55];
         Assert.Equal(expected, summed);
     }
     private sealed class EmployeeInput

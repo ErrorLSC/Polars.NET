@@ -19,19 +19,17 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_TupleJoin_Inner()
     {
-        var persons = new[]
-        {
+        Person[] persons = [
             new Person(1, "Alice", 10),
             new Person(2, "Bob", 20),
             new Person(3, "Charlie", 99) // Unmatched DeptId
-        };
+        ];
 
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(10, "Engineering"),
             new Department(20, "Sales"),
             new Department(30, "HR") // Unmatched Id
-        };
+        ];
 
         using var dfPerson = DataFrame.FromRows(persons);
         using var dfDept = DataFrame.FromRows(depts);
@@ -62,18 +60,16 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_TupleJoin_Chained_Filter_And_Projection()
     {
-        var persons = new[]
-        {
+        Person[] persons = [
             new Person(1, "Alice", 10),
             new Person(2, "Bob", 10),
             new Person(3, "Charlie", 20)
-        };
+        ];
 
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(10, "Engineering"),
             new Department(20, "Sales")
-        };
+        ];
 
         using var dfPerson = DataFrame.FromRows(persons);
         using var dfDept = DataFrame.FromRows(depts);
@@ -106,16 +102,14 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_TupleJoin_LeftJoin_Class_NullFolding()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(1, "Engineering"),
             new Department(2, "EmptyDept")
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Engineering", 25, 75000)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -146,16 +140,14 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_TupleJoin_LeftJoin_Struct_DefaultFolding()
     {
-        var persons = new[]
-        {
+        Person[] persons = [
             new Person(1, "Alice", 10),
             new Person(2, "Ghost", 99) // No department with Id = 99
-        };
+        ];
 
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(10, "Engineering")
-        };
+        ];
 
         using var dfPerson = DataFrame.FromRows(persons);
         using var dfDept = DataFrame.FromRows(depts);
@@ -185,19 +177,17 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_FullJoin_WithResultSelector()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(1, "Engineering"),
             new Department(2, "Sales"),
             new Department(3, "HR") // Dept only
-        };
+        ];
 
-        var records = new[]
-        {
+        DepartmentRecord[] records = [
             new DepartmentRecord("Engineering", 150000),
             new DepartmentRecord("Sales", 90000),
             new DepartmentRecord("Legal", 80000) // Record only
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfRecord = DataFrame.FromRows(records);
@@ -235,17 +225,15 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_Tuple_FullJoin_Struct_DefaultFolding()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(1, "Engineering"),
             new Department(2, "HR") // Dept only
-        };
+        ];
 
-        var records = new[]
-        {
+        DepartmentRecord[] records = [
             new DepartmentRecord("Engineering", 120000),
             new DepartmentRecord("Security", 60000) // Record only
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfRecord = DataFrame.FromRows(records);
@@ -279,17 +267,15 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_Joins")]
     public void Test_Linq_Net11_Tuple_FullJoin_Explicit_NullableStruct()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(1, "Engineering"),
             new Department(2, "HR")
-        };
+        ];
 
-        var records = new[]
-        {
+        DepartmentRecord[] records = [
             new DepartmentRecord("Engineering", 120000),
             new DepartmentRecord("Security", 60000)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfRecord = DataFrame.FromRows(records);
@@ -329,19 +315,17 @@ public class LinqNet11OperatorTests
         // Arrange
         // Department: readonly record struct Department(int Id, string DeptName)
         // Employee: record Employee(string Name, int Age, int Salary)
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(10, "Engineering"),
             new Department(20, "Sales"),
             new Department(30, "HR") // Dept 30 has NO matching employees
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 10, 80000),   // Age is used as DeptId for join
             new Employee("Charlie", 10, 50000), // Age is used as DeptId for join
             new Employee("Bob", 20, 45000)      // Age is used as DeptId for join
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -385,19 +369,17 @@ public class LinqNet11OperatorTests
     [Trait("LINQ", "Net11_GroupJoin")]
     public void Test_Linq_Net11_GroupJoin_With_Chained_Projection_Pushdown()
     {
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(10, "Engineering"),
             new Department(20, "Sales"),
             new Department(30, "HR")
-        };
+        ];
 
-        var emps = new[]
-        {
+        Employee[] emps = [
             new Employee("Alice", 10, 80000),
             new Employee("Charlie", 10, 50000),
             new Employee("Bob", 20, 45000)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfEmp = DataFrame.FromRows(emps);
@@ -429,17 +411,15 @@ public class LinqNet11OperatorTests
     public void Test_Linq_Net11_GroupJoin_Struct_Inner_Elements()
     {
         // Testing with struct Person as TInner
-        var depts = new[]
-        {
+        Department[] depts = [
             new Department(10, "Engineering"),
             new Department(99, "EmptyDept")
-        };
+        ];
 
-        var persons = new[]
-        {
+        Person[] persons = [
             new Person(1, "Alice", 10),
             new Person(2, "Charlie", 10)
-        };
+        ];
 
         using var dfDept = DataFrame.FromRows(depts);
         using var dfPerson = DataFrame.FromRows(persons);

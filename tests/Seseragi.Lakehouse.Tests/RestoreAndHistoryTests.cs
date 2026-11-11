@@ -20,7 +20,8 @@ public class RestoreAndHistoryTests
             .SetProtocol(new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = [TableFeatures.DeletionVectors], WriterFeatures = [TableFeatures.DeletionVectors] })
             .SetMetadata(new MetadataAction { Id = "t", SchemaString = Schema, Configuration = new Dictionary<string, string> { ["delta.enableDeletionVectors"] = "true" } })
             .Commit();
-        foreach (string file in new[] { "a.parquet", "b.parquet", "c.parquet" }) fs.PutBytes(file, [1]);
+        string[] files = ["a.parquet", "b.parquet", "c.parquet"];
+        foreach (string file in files) fs.PutBytes(file, [1]);
         return fs;
     }
 

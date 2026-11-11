@@ -105,7 +105,7 @@ public static class Program
         foreach (var b in mi.Bindings.Skip(1))
         {
             var one = Expression.Lambda(Expression.MemberInit(mi.NewExpression, mi.Bindings[0], b), sel.Parameters);
-            var cc = new Case(2, new List<LambdaExpression> { one }, src => Q("Select", new[] { typeof(FzRow), typeof(FzOut) }, Q("OrderBy", new[] { typeof(FzRow), typeof(long) }, src, Quote(idQ)), Quote(one)), false, null);
+            var cc = new Case(2, [one], src => Q("Select", [typeof(FzRow), typeof(FzOut)], Q("OrderBy", [typeof(FzRow), typeof(long)], src, Quote(idQ)), Quote(one)), false, null);
             var (a, ea) = Exec(rows.AsQueryable(), cc, false);
             var (pv, ep) = Exec(df.AsQueryable<FzRow>(), cc, true);
             if (b.Member.Name == "C" && ((MemberAssignment)b).Expression is UnaryExpression { Operand: ConditionalExpression ce })
@@ -159,7 +159,7 @@ public static class Program
                     Expression.Bind(ot.GetProperty("Dbool")!, Expression.Convert(D, typeof(bool?))));
                 var sel = Lam(init, x); lams.Add(sel);
                 var id = Lam(Expression.Property(x, "Id"), x);
-                return new Case(2, lams, s => Q("Select", new[] { R, ot }, Q("OrderBy", new[] { R, typeof(long) }, s, Quote(id)), Quote(sel)), false, null);
+                return new Case(2, lams, s => Q("Select", [R, ot], Q("OrderBy", [R, typeof(long)], s, Quote(id)), Quote(sel)), false, null);
             }
             case 3:
             {
@@ -168,8 +168,8 @@ public static class Program
                 var key = Lam(g.G(kt, 3), x); lams.Add(key);
                 var id = Lam(Expression.Property(x, "Id"), x);
                 var kc = Gen.Clr(kt);
-                return new Case(3, lams, s => Q("Select", new[] { R, typeof(long) },
-                    Q("ThenBy", new[] { R, typeof(long) }, Q("OrderBy", new[] { R, kc }, Q("Where", new[] { R }, s, Quote(p)), Quote(key)), Quote(id)), Quote(id)), false, null);
+                return new Case(3, lams, s => Q("Select", [R, typeof(long)],
+                    Q("ThenBy", [R, typeof(long)], Q("OrderBy", [R, kc], Q("Where", [R], s, Quote(p)), Quote(key)), Quote(id)), Quote(id)), false, null);
             }
             case 4:
             {
@@ -185,14 +185,14 @@ public static class Program
                 LambdaExpression F(string prop, Type t) => Expression.Lambda(Expression.Property(xp, prop), xp);
                 var init = Expression.MemberInit(Expression.New(aggT),
                     Expression.Bind(aggT.GetProperty("Key")!, Expression.Property(gp, "Key")),
-                    Expression.Bind(aggT.GetProperty("Count")!, E("Count", new[] { R }, gp)),
-                    Expression.Bind(aggT.GetProperty("Sum")!, E("Sum", new[] { R }, gp, F("L", typeof(long)))),
-                    Expression.Bind(aggT.GetProperty("Min")!, E("Min", new[] { R, typeof(double) }, gp, F("D", typeof(double)))),
-                    Expression.Bind(aggT.GetProperty("Max")!, E("Max", new[] { R, typeof(int) }, gp, F("I", typeof(int)))),
-                    Expression.Bind(aggT.GetProperty("Avg")!, E("Average", new[] { R }, gp, F("D", typeof(double)))));
+                    Expression.Bind(aggT.GetProperty("Count")!, E("Count", [R], gp)),
+                    Expression.Bind(aggT.GetProperty("Sum")!, E("Sum", [R], gp, F("L", typeof(long)))),
+                    Expression.Bind(aggT.GetProperty("Min")!, E("Min", [R, typeof(double)], gp, F("D", typeof(double)))),
+                    Expression.Bind(aggT.GetProperty("Max")!, E("Max", [R, typeof(int)], gp, F("I", typeof(int)))),
+                    Expression.Bind(aggT.GetProperty("Avg")!, E("Average", [R], gp, F("D", typeof(double)))));
                 var sel = Expression.Lambda(init, gp); lams.Add(sel);
-                return new Case(4, lams, s => Q("Select", new[] { ig, aggT }, Q("GroupBy", new[] { R, kc }, s, Quote(key)), Quote(sel)), false,
-                    list => list.OrderBy(o => aggT.GetProperty("Key")!.GetValue(o), Comparer<object?>.Create(CmpKey)).ToList());
+                return new Case(4, lams, s => Q("Select", [ig, aggT], Q("GroupBy", [R, kc], s, Quote(key)), Quote(sel)), false,
+                    list => [.. list.OrderBy(o => aggT.GetProperty("Key")!.GetValue(o), Comparer<object?>.Create(CmpKey))]);
             }
             case 5:
             {
@@ -200,15 +200,15 @@ public static class Program
                 var id = Lam(Expression.Property(x, "Id"), x);
                 switch (k)
                 {
-                    case 0: { var p = Pred(); return new Case(5, lams, s => Q("Count", new[] { R }, s, Quote(p)), true, null); }
-                    case 1: { var p = Pred(); return new Case(5, lams, s => Q("Any", new[] { R }, s, Quote(p)), true, null); }
-                    case 2: { var p = Pred(); var l = Lam(Expression.Property(x, "L"), x); return new Case(5, lams, s => Q("Sum", new[] { R }, Q("Where", new[] { R }, s, Quote(p)), Quote(l)), true, null); }
-                    case 3: { var l = Lam(g.G(T.Int, 3), x); lams.Add(l); return new Case(5, lams, s => Q("Max", new[] { R, typeof(int) }, s, Quote(l)), true, null); }
+                    case 0: { var p = Pred(); return new Case(5, lams, s => Q("Count", [R], s, Quote(p)), true, null); }
+                    case 1: { var p = Pred(); return new Case(5, lams, s => Q("Any", [R], s, Quote(p)), true, null); }
+                    case 2: { var p = Pred(); var l = Lam(Expression.Property(x, "L"), x); return new Case(5, lams, s => Q("Sum", [R], Q("Where", [R], s, Quote(p)), Quote(l)), true, null); }
+                    case 3: { var l = Lam(g.G(T.Int, 3), x); lams.Add(l); return new Case(5, lams, s => Q("Max", [R, typeof(int)], s, Quote(l)), true, null); }
                     default:
                     {
                         var p = Pred();
-                        return new Case(5, lams, s => Expression.Call(typeof(Queryable), "FirstOrDefault", new[] { typeof(long) },
-                            Q("Select", new[] { R, typeof(long) }, Q("OrderBy", new[] { R, typeof(long) }, Q("Where", new[] { R }, s, Quote(p)), Quote(id)), Quote(id))), true, null);
+                        return new Case(5, lams, s => Expression.Call(typeof(Queryable), "FirstOrDefault", [typeof(long)],
+                            Q("Select", [R, typeof(long)], Q("OrderBy", [R, typeof(long)], Q("Where", [R], s, Quote(p)), Quote(id)), Quote(id))), true, null);
                     }
                 }
             }
@@ -216,8 +216,8 @@ public static class Program
             {
                 var p = Pred();
                 var d = Lam(g.G(T.Double, 3), x); lams.Add(d);
-                return new Case(6, lams, s => Q("Distinct", new[] { typeof(double) }, Q("Select", new[] { R, typeof(double) }, Q("Where", new[] { R }, s, Quote(p)), Quote(d))), false,
-                    list => list.OrderBy(o => (double)o!).ToList());
+                return new Case(6, lams, s => Q("Distinct", [typeof(double)], Q("Select", [R, typeof(double)], Q("Where", [R], s, Quote(p)), Quote(d))), false,
+                    list => [.. list.OrderBy(o => (double)o!)]);
             }
         }
     }
@@ -319,7 +319,7 @@ public static class Program
 
     sealed class SigVisitor : ExpressionVisitor
     {
-        public SortedSet<string> Set = new();
+        public SortedSet<string> Set = [];
         public override Expression? Visit(Expression? n)
         {
             if (n != null)

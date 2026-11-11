@@ -35,7 +35,7 @@ unsafe internal partial class NativeBindings
         CArrowSchema* cSchema
     );
     [LibraryImport(LibName)]
-    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial void pl_dataframe_export_batches(
         DataFrameHandle df,
         ArrowStreamInterop.SinkCallback callback,
@@ -51,7 +51,7 @@ unsafe internal partial class NativeBindings
         ulong* shuffleSeed
     );
     [LibraryImport(LibName)]
-    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial LazyFrameHandle pl_lazy_map_batches(
         LazyFrameHandle lf,
         ArrowStreamInterop.SinkCallback callback,

@@ -137,7 +137,7 @@ public sealed class FakeHttpServer : IDisposable
             int c = head.Count;
             if (c >= 4 && head[c - 4] == '\r' && head[c - 3] == '\n' && head[c - 2] == '\r' && head[c - 1] == '\n') break;
         }
-        return Encoding.ASCII.GetString(head.ToArray(), 0, Math.Max(0, head.Count - 4));
+        return Encoding.ASCII.GetString([.. head], 0, Math.Max(0, head.Count - 4));
     }
 
     public void Dispose()
