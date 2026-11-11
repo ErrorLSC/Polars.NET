@@ -53,3 +53,5 @@ docs/.vitepress/cache/
 
 # Delta Acceptance Tests data, fetched on demand (see tests/Seseragi.Lakehouse.Tests/TestData/README.md)
 tests/Seseragi.Lakehouse.Tests/TestData/dat/
+
+.secrets/
