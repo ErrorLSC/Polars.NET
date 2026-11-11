@@ -16,15 +16,18 @@ internal sealed class S3Client : ObjectStoreClient
     private readonly string _basePath;   // "/bucket" (path style) or "" (virtual-hosted)
     private readonly string _host;       // the Host header
     private readonly string _region;
-    private readonly AwsCredential? _credential;
+    private readonly CredentialSource<AwsCredential>? _credential;
     private readonly RetrySettings _retry;
+    private readonly S3Headers _headers;
 
     /// <param name="bucketEndpoint">The bucket's URL: <c>https://s3.region.amazonaws.com/bucket</c>, <c>http://localhost:9000/bucket</c> or <c>https://bucket.s3.region.amazonaws.com</c>.</param>
     /// <param name="region">The signing region.</param>
-    /// <param name="credential">The credentials; null sends unsigned requests.</param>
+    /// <param name="credential">Where the credentials come from; null sends unsigned requests.</param>
     /// <param name="retry">Retry settings.</param>
-    public S3Client(string bucketEndpoint, string region, AwsCredential? credential, RetrySettings retry)
+    /// <param name="headers">Encryption and requester-pays headers.</param>
+    public S3Client(string bucketEndpoint, string region, CredentialSource<AwsCredential>? credential, RetrySettings retry, S3Headers? headers = null)
     {
+        _headers = headers ?? S3Headers.None;
         var uri = new Uri(bucketEndpoint.TrimEnd('/'));
         _origin = uri.GetLeftPart(UriPartial.Authority);
         _basePath = uri.AbsolutePath.TrimEnd('/');
@@ -48,20 +51,23 @@ internal sealed class S3Client : ObjectStoreClient
         string payloadHash = body is { } content ? SigV4.Hash(content.Span) : SigV4.EmptyPayloadHash;
         string url = _origin + path + (canonicalQuery.Length == 0 ? "" : "?" + canonicalQuery);
 
+        // Fetched once per request, outside the retried part: a credential source reports its own failures.
+        AwsCredential? credential = _credential?.Get();
         return HttpTransport.Send(() =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
             var signed = new Dictionary<string, string>(StringComparer.Ordinal) { ["host"] = _host };
             if (extraHeaders is not null)
                 foreach (var (name, value) in extraHeaders) signed[name] = value;
-            if (_credential is not null)
+            if (credential is not null)
             {
+                if (_headers.RequesterPays) signed["x-amz-request-payer"] = "requester";
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 signed["x-amz-date"] = SigV4.AmzDate(now);
                 signed["x-amz-content-sha256"] = payloadHash;
-                if (_credential.Token is not null) signed["x-amz-security-token"] = _credential.Token;
+                if (credential.Token is not null) signed["x-amz-security-token"] = credential.Token;
                 string authorization = SigV4.Authorization(
-                    method.Method, path, canonicalQuery, signed, payloadHash, _credential, _region, "s3", now);
+                    method.Method, path, canonicalQuery, signed, payloadHash, credential, _region, "s3", now);
                 request.Headers.TryAddWithoutValidation("Authorization", authorization);
             }
             foreach (var (name, value) in signed)
@@ -69,6 +75,13 @@ internal sealed class S3Client : ObjectStoreClient
             if (body is { } bytes) request.Content = new ReadOnlyMemoryContent(bytes);
             return request;
         }, _retry, alsoRetry);
+    }
+
+    private static Dictionary<string, string> With(IReadOnlyDictionary<string, string> headers, params (string Name, string Value)[] more)
+    {
+        var all = new Dictionary<string, string>(headers, StringComparer.Ordinal);
+        foreach (var (name, value) in more) all[name] = value;
+        return all;
     }
 
     private static StorageException Failure(StoreResponse response, string what)
@@ -98,7 +111,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override ObjectInfo? Head(string key)
     {
-        StoreResponse response = Send(HttpMethod.Head, ObjectPath(key));
+        StoreResponse response = Send(HttpMethod.Head, ObjectPath(key), extraHeaders: With(_headers.Read));
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccess) throw Failure(response, $"read the properties of '{key}'");
         return new ObjectInfo(key, response.ContentHeaders.ContentLength ?? 0, response.ContentHeaders.LastModified ?? DateTimeOffset.UnixEpoch);
@@ -107,7 +120,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override byte[]? Get(string key)
     {
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(key));
+        StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: With(_headers.Read));
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccess) throw Failure(response, $"read '{key}'");
         return response.Body;
@@ -116,7 +129,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override byte[]? GetRange(string key, long offset, int length)
     {
-        var range = new Dictionary<string, string> { ["range"] = $"bytes={offset}-{offset + length - 1}" };
+        var range = With(_headers.Read, ("range", $"bytes={offset}-{offset + length - 1}"));
         StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: range);
         switch (response.Status)
         {
@@ -141,7 +154,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override bool PutIfAbsent(string key, ReadOnlyMemory<byte> content)
     {
-        var condition = new Dictionary<string, string> { ["if-none-match"] = "*" };
+        var condition = With(_headers.Put, ("if-none-match", "*"));
         // 409: S3 is completing another conditional write of the key; asking again settles who won.
         StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: condition, body: content,
             alsoRetry: static status => status == HttpStatusCode.Conflict);
@@ -165,7 +178,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
-        StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), body: content);
+        StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: With(_headers.Put), body: content);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 

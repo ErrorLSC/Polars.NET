@@ -40,24 +40,11 @@ internal sealed record ServiceAccountKey(string PrivateKeyPem, string PrivateKey
     }
 }
 
-/// <summary>Bearer tokens for requests.</summary>
-internal abstract class GcsTokenSource
-{
-    /// <summary>A token valid for at least a few more minutes.</summary>
-    public abstract string Token();
-}
-
-/// <summary>One token handed over as it is (vended by a catalog, which hands out a new one when asked again).</summary>
-internal sealed class StaticToken(string token) : GcsTokenSource
-{
-    public override string Token() => token;
-}
-
 /// <summary>
 /// OAuth tokens of a service account without a token server: self-signed JWTs (RS256) with the cloud-platform
 /// scope, as Google accepts them in place of access tokens. A token is reused until five minutes before it expires.
 /// </summary>
-internal sealed class ServiceAccountToken : GcsTokenSource, IDisposable
+internal sealed class ServiceAccountToken : CredentialSource<string>, IDisposable
 {
     internal const string Scope = "https://www.googleapis.com/auth/cloud-platform";
     private static readonly TimeSpan Lifetime = TimeSpan.FromHours(1);
@@ -98,7 +85,7 @@ internal sealed class ServiceAccountToken : GcsTokenSource, IDisposable
     }
 
     /// <inheritdoc/>
-    public override string Token()
+    public override string Get()
     {
         lock (_lock)
         {

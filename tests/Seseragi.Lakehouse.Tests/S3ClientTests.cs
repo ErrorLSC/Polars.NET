@@ -137,7 +137,7 @@ public class S3ClientTests
 
         // Credentials from the environment, a session token, path style vs virtual-hosted, an endpoint.
         S3Settings fromEnv = Resolve(new() { ["region"] = "r" }, new() { ["AWS_ACCESS_KEY_ID"] = "e", ["AWS_SECRET_ACCESS_KEY"] = "s", ["AWS_SESSION_TOKEN"] = "t" })!;
-        Assert.Equal(new AwsCredential("e", "s", "t"), fromEnv.Credential);
+        Assert.Equal(new AwsCredential("e", "s", "t"), fromEnv.Credential!.Get());
         Assert.Equal("https://bucket.s3.r.amazonaws.com", Resolve(new(keys) { ["region"] = "r", ["aws_virtual_hosted_style_request"] = "true" })!.BucketEndpoint);
         S3Settings minio = Resolve(new(keys) { ["aws_endpoint"] = "http://localhost:9000/", ["aws_allow_http"] = "true", ["aws_s3_force_path_style"] = "true", ["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true" })!;
         Assert.Equal("http://localhost:9000/bucket", minio.BucketEndpoint);
@@ -153,17 +153,30 @@ public class S3ClientTests
         Assert.NotNull(Resolve(keys));
 
         string? reason;
-        Assert.Null(S3Settings.Resolve("bucket", new Dictionary<string, string> { ["aws_region"] = "r" }, NoEnvironment, null, out reason));
-        Assert.Contains("credentials", reason);
+        Assert.Null(S3Settings.Resolve("bucket", new Dictionary<string, string> { ["aws_region"] = "r", ["aws_access_key_id"] = "id" }, NoEnvironment, null, out reason));
+        Assert.Contains("without its secret", reason);
+        Assert.Null(Resolve(new(keys) { ["aws_imdsv1_fallback"] = "sometimes" }));
         Assert.Null(S3Settings.Resolve("bucket", new Dictionary<string, string> { ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "s" }, NoEnvironment, null, out reason));
         Assert.Contains("region", reason);
-        Assert.Null(Resolve(new(keys) { ["aws_server_side_encryption"] = "aws:kms" }));
-        Assert.Null(Resolve(new(keys) { ["aws_request_payer"] = "true" }));
+        Assert.Null(Resolve(new(keys) { ["aws_server_side_encryption"] = "rot13" }));
+        Assert.Null(Resolve(new(keys) { ["aws_server_side_encryption"] = "sse-c" })); // without its key
+        Assert.Null(Resolve(new(keys) { ["aws_request_payer"] = "sometimes" }));
+        Assert.Null(Resolve(new(keys) { ["aws_s3_express"] = "true" }));
         Assert.Null(Resolve(new(keys) { ["proxy_url"] = "http://proxy" }));
         Assert.Null(Resolve(new(keys) { ["aws_conditional_put"] = "dynamo:table" }));
-        Assert.Null(Resolve(keys, new() { ["AWS_SSE_KMS_KEY_ID"] = "k" }));
+        S3Headers kms = Resolve(new(keys) { ["aws_server_side_encryption"] = "aws:kms", ["aws_sse_bucket_key_enabled"] = "yes" },
+            new() { ["AWS_SSE_KMS_KEY_ID"] = "k" })!.Headers!;
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["x-amz-server-side-encryption"] = "aws:kms", ["x-amz-server-side-encryption-aws-kms-key-id"] = "k",
+            ["x-amz-server-side-encryption-bucket-key-enabled"] = "true",
+        }, kms.Put);
+        Assert.Empty(kms.Read);
+        Assert.True(Resolve(new(keys) { ["aws_request_payer"] = "true" })!.Headers!.RequesterPays);
+        // A key id without an encryption type changes nothing (as in the engine).
+        Assert.Same(S3Headers.None, Resolve(new(keys) { ["aws_sse_kms_key_id"] = "k" })!.Headers);
 
-        // Harmless or credential-chain keys do not matter once static credentials are given.
+        // Harmless keys, and credential-chain keys once static credentials are given, change nothing.
         Assert.NotNull(Resolve(new(keys) { ["aws_request_payer"] = "false", ["aws_conditional_put"] = "etag", ["aws_role_arn"] = "arn" }));
         Assert.NotNull(Resolve(keys, new() { ["AWS_WEB_IDENTITY_TOKEN_FILE"] = "/t", ["AWS_PROFILE"] = "p", ["AWS_CONFIG_FILE"] = "/c" }));
     }
@@ -183,8 +196,10 @@ public class S3ClientTests
         Assert.Contains("region", reason);
         Assert.Equal("us-east-1", S3Settings.Resolve("bucket", new Dictionary<string, string>(keys) { ["aws_endpoint"] = "http://h:1" }, NoEnvironment, null, out _,
             _ => throw new InvalidOperationException("no lookup with an endpoint"))!.Region);
-        Assert.Null(S3Settings.Resolve("bucket", new Dictionary<string, string>(), NoEnvironment, null, out _,
-            _ => throw new InvalidOperationException("no lookup without credentials")));
+        // Without credentials the instance's are used, in the bucket's region.
+        S3Settings instance = S3Settings.Resolve("bucket", new Dictionary<string, string>(), NoEnvironment, null, out _, _ => "eu-north-1")!;
+        Assert.Equal("eu-north-1", instance.Region);
+        Assert.StartsWith("instance metadata", Assert.IsType<CachedCredential<AwsCredential>>(instance.Credential).Origin);
     }
 
     [Fact]

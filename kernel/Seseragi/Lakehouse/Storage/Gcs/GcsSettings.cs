@@ -10,7 +10,7 @@ namespace Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 /// <param name="BaseUrl">The storage service, without a trailing slash.</param>
 /// <param name="Token">The token source; null sends requests without a token.</param>
 /// <param name="SkipSignature">Whether reads (and listings) go without a token.</param>
-internal sealed record GcsSettings(string BaseUrl, GcsTokenSource? Token, bool SkipSignature = false)
+internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Token, bool SkipSignature = false)
 {
     internal const string DefaultBaseUrl = "https://storage.googleapis.com";
 
@@ -57,9 +57,10 @@ internal sealed record GcsSettings(string BaseUrl, GcsTokenSource? Token, bool S
     /// <param name="readFile">Reads a file, null when there is none (key files and application default credentials).</param>
     /// <param name="wellKnownCredentials">The path of gcloud's application default credentials, or null.</param>
     /// <param name="reason">Why the settings cannot be served, when null is returned.</param>
+    /// <param name="retry">Retry settings for fetching tokens.</param>
     internal static GcsSettings? Resolve(
         IReadOnlyDictionary<string, string> options, IReadOnlyDictionary<string, string> environment,
-        Func<string, string?> readFile, string? wellKnownCredentials, out string? reason)
+        Func<string, string?> readFile, string? wellKnownCredentials, out string? reason, RetrySettings? retry = null)
     {
         // A static token (Unity Catalog vends them) is not a key of the object store library: the engine hands it
         // over as a credential provider, and then reads no GOOGLE_* variables and no application default credentials.
@@ -90,6 +91,8 @@ internal sealed record GcsSettings(string BaseUrl, GcsTokenSource? Token, bool S
         }
 
         ServiceAccountKey? account = null;
+        CredentialSource<string>? userToken = null;
+        RetrySettings tokenRetry = retry ?? RetrySettings.Default;
         string? accountPath = config.GetValueOrDefault("service_account");
         string? accountKey = config.GetValueOrDefault("service_account_key");
         if (accountPath is not null && accountKey is not null)
@@ -120,14 +123,22 @@ internal sealed record GcsSettings(string BaseUrl, GcsTokenSource? Token, bool S
             if (adc is not null)
             {
                 string? type = CredentialType(adc);
-                if (type != "service_account")
+                if (type == "authorized_user")
                 {
-                    reason = $"application default credentials of type '{type}' are not supported by the managed GCS client yet";
+                    if (AuthorizedUser(adc, tokenRetry, out reason) is not { } user) return null;
+                    userToken = user;
+                }
+                else if (type != "service_account")
+                {
+                    reason = $"application default credentials of type '{type}' are not supported";
                     return null;
                 }
-                if ((account = ServiceAccountKey.Parse(adc, out reason)) is null) return null;
-                // The engine takes the emulator fields (base URL, no OAuth) from a named service account only.
-                account = account with { BaseUrl = null, DisableOAuth = false };
+                else if ((account = ServiceAccountKey.Parse(adc, out reason)) is null) return null;
+                else
+                {
+                    // The engine takes the emulator fields (base URL, no OAuth) from a named service account only.
+                    account = account with { BaseUrl = null, DisableOAuth = false };
+                }
             }
         }
 
@@ -136,24 +147,56 @@ internal sealed record GcsSettings(string BaseUrl, GcsTokenSource? Token, bool S
         {
             reason = null;
             string tokenBaseUrl = config.GetValueOrDefault("base_url") ?? account?.BaseUrl ?? DefaultBaseUrl;
-            return new GcsSettings(tokenBaseUrl.TrimEnd('/'), new StaticToken(staticToken), skipSignature);
+            return new GcsSettings(tokenBaseUrl.TrimEnd('/'), new StaticCredential<string>(staticToken), skipSignature);
         }
-        if (account is null && !skipSignature)
+        CredentialSource<string>? token = userToken;
+        if (account is null && token is null)
         {
-            reason = "no service account is given (the metadata server is not supported by the managed GCS client yet)";
-            return null;
+            // Nothing configured: the metadata server of a Google Cloud machine (also for unsigned stores, whose
+            // uploads and deletes still carry a token in the engine's object store).
+            string host = environment.GetValueOrDefault("GCE_METADATA_HOST") ?? environment.GetValueOrDefault("GCE_METADATA_ROOT")
+                ?? GcsCredentialSources.DefaultMetadataHost;
+            string ip = environment.GetValueOrDefault("GCE_METADATA_IP") ?? GcsCredentialSources.DefaultMetadataIp;
+            token = SharedCredentials<string>.Get(["gcp-metadata", host, ip], () => GcsCredentialSources.MetadataServer(host, ip, tokenRetry));
         }
 
-        ServiceAccountToken? token = null;
         // Unsigned requests are reads only: as in the engine's object store, uploads and deletes keep the token.
         if (account is not null && !account.DisableOAuth)
         {
             token = ServiceAccountToken.Create(account, out reason);
             if (token is null) return null;
         }
+        else if (account is not null)
+        {
+            token = null;
+        }
         string baseUrl = config.GetValueOrDefault("base_url") ?? account?.BaseUrl ?? DefaultBaseUrl;
         reason = null;
         return new GcsSettings(baseUrl.TrimEnd('/'), token, skipSignature);
+    }
+
+    /// <summary>The token source of gcloud user credentials (client id, client secret, refresh token).</summary>
+    private static CredentialSource<string>? AuthorizedUser(string json, RetrySettings retry, out string? reason)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            string? Text(string name) =>
+                root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            if (Text("client_id") is not { } id || Text("client_secret") is not { } secret || Text("refresh_token") is not { } refresh)
+            {
+                reason = "the gcloud user credentials lack client_id, client_secret or refresh_token";
+                return null;
+            }
+            reason = null;
+            return SharedCredentials<string>.Get(["gcp-user", id, refresh], () => GcsCredentialSources.AuthorizedUser(id, secret, refresh, retry));
+        }
+        catch (JsonException)
+        {
+            reason = "the application default credentials are not JSON";
+            return null;
+        }
     }
 
     private static string? CredentialType(string json)

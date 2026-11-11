@@ -8,20 +8,23 @@ namespace Kaminari.Seseragi.Lakehouse.Storage.S3;
 /// keys means the same here as in an engine built on that library. Settings this client does not implement leave
 /// the location to another implementation (see <see cref="Resolve"/>).
 /// </summary>
-internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCredential? Credential)
+internal sealed record S3Settings(string BucketEndpoint, string Region, CredentialSource<AwsCredential>? Credential, S3Headers? Headers = null)
 {
     /// <summary>Canonical names by every spelling object_store accepts (after lower-casing).</summary>
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
 
-    // Keys that change nothing for static credentials and plain requests.
-    private static readonly HashSet<string> Ignored =
+    // Keys that change nothing for the requests this client makes.
+    private static readonly HashSet<string> Ignored = new(ConfigValues.HarmlessClientKeys)
+    {
+        "bucket", "unsigned_payload", "copy_if_not_exists", "disable_tagging",
+    };
+
+    // Keys that choose and configure where credentials come from.
+    private static readonly HashSet<string> CredentialKeys =
     [
-        "bucket", "imdsv1_fallback", "metadata_endpoint", "unsigned_payload", "container_credentials_relative_uri",
-        "container_credentials_full_uri", "container_authorization_token_file", "web_identity_token_file", "role_arn",
-        "role_session_name", "sts_endpoint", "copy_if_not_exists", "disable_tagging", "allow_http", "user_agent",
-        "timeout", "connect_timeout", "default_content_type", "http1_only", "http2_only", "http2_keep_alive_interval",
-        "http2_keep_alive_timeout", "http2_keep_alive_while_idle", "http2_max_frame_size", "pool_idle_timeout",
-        "pool_max_idle_per_host", "randomize_addresses",
+        "access_key_id", "secret_access_key", "token", "skip_signature", "web_identity_token_file", "role_arn",
+        "role_session_name", "sts_endpoint", "container_credentials_relative_uri", "container_credentials_full_uri",
+        "container_authorization_token_file", "metadata_endpoint", "imdsv1_fallback",
     ];
 
     private static Dictionary<string, string> BuildAliases()
@@ -75,8 +78,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
 
     /// <summary>
     /// The settings for bucket <paramref name="bucket"/>, or null with the reason when they need something this
-    /// client does not implement (credential chains such as instance metadata or web identity, server-side
-    /// encryption, requester pays, proxies, ...).
+    /// client does not implement (S3 Express, proxies, checksums, conditional puts other than ETags, ...).
     /// </summary>
     /// <param name="bucket">The bucket.</param>
     /// <param name="options">Explicit configuration keys.</param>
@@ -86,11 +88,15 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
     /// <param name="lookupRegion">
     /// Finds a bucket's region when nothing names one and no endpoint is given (null: the location is not served).
     /// </param>
+    /// <param name="awsCredentialsFile">The text of <c>~/.aws/credentials</c>, if there is one.</param>
+    /// <param name="retry">Retry settings for fetching temporary credentials.</param>
     internal static S3Settings? Resolve(
         string bucket, IReadOnlyDictionary<string, string> options, IReadOnlyDictionary<string, string> environment,
-        string? awsConfigFile, out string? reason, Func<string, string?>? lookupRegion = null)
+        string? awsConfigFile, out string? reason, Func<string, string?>? lookupRegion = null,
+        string? awsCredentialsFile = null, RetrySettings? retry = null)
     {
-        // Environment first, explicit keys over it.
+        // The environment first, then the engine's reading of ~/.aws/credentials (keys the environment lacks),
+        // explicit keys over both.
         var fromEnvironment = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (name, value) in environment)
             if (name.StartsWith("AWS_", StringComparison.Ordinal) && Canonical(name) is { } key) fromEnvironment[key] = value;
@@ -98,16 +104,18 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
         foreach (var (name, value) in options)
             if (Canonical(name) is { } key) explicitKeys[key] = value;
         var config = new Dictionary<string, string>(fromEnvironment, StringComparer.Ordinal);
+        foreach (var (key, value) in CredentialsFile(awsCredentialsFile, fromEnvironment)) config[key] = value;
         foreach (var (key, value) in explicitKeys) config[key] = value;
 
         foreach (var (key, value) in config)
         {
-            if (Ignored.Contains(key) || key is "access_key_id" or "secret_access_key" or "token" or "region"
-                or "default_region" or "endpoint" or "s3_endpoint" or "virtual_hosted_style_request" or "skip_signature")
+            if (Ignored.Contains(key) || CredentialKeys.Contains(key) || key is "region" or "default_region" or "endpoint"
+                or "s3_endpoint" or "virtual_hosted_style_request")
                 continue;
+            if (key is "request_payer" or "sse" or "sse_kms_key_id" or "sse_bucket_key_enabled" or "sse_customer_key") continue;
             bool harmless = key switch
             {
-                "s3_express" or "request_payer" or "allow_invalid_certificates" => IsFalse(value),
+                "s3_express" or "allow_invalid_certificates" => IsFalse(value),
                 "conditional_put" => value.Equals("etag", StringComparison.OrdinalIgnoreCase),
                 _ => false,
             };
@@ -117,19 +125,13 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
                 return null;
             }
         }
-
-        bool skipSignature = config.TryGetValue("skip_signature", out string? skip) && IsTrue(skip);
-        AwsCredential? credential = null;
-        if (!skipSignature)
+        foreach (string flag in new[] { "skip_signature", "imdsv1_fallback" })
         {
-            config.TryGetValue("access_key_id", out string? keyId);
-            config.TryGetValue("secret_access_key", out string? secret);
-            if (string.IsNullOrEmpty(keyId) || string.IsNullOrEmpty(secret))
+            if (config.TryGetValue(flag, out string? text) && ConfigValues.Bool(text) is null)
             {
-                reason = "no static credentials (access key and secret) are given";
+                reason = $"the setting '{flag}' is not a boolean";
                 return null;
             }
-            credential = new AwsCredential(keyId, secret, config.GetValueOrDefault("token") is { Length: > 0 } token ? token : null);
         }
 
         string? endpoint = config.GetValueOrDefault("s3_endpoint") ?? config.GetValueOrDefault("endpoint");
@@ -160,6 +162,10 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
             }
         }
 
+        CredentialSource<AwsCredential>? credential = Credentials(config, region, retry ?? RetrySettings.Default, out reason);
+        if (reason is not null) return null;
+        if (S3Headers.From(config, out reason) is not { } headers) return null;
+
         bool virtualHosted = config.TryGetValue("virtual_hosted_style_request", out string? hosted) && IsTrue(hosted);
         string bucketEndpoint = (endpoint, virtualHosted) switch
         {
@@ -168,8 +174,74 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
             (null, true) => $"https://{bucket}.s3.{region}.amazonaws.com",
             (null, false) => $"https://s3.{region}.amazonaws.com/{bucket}",
         };
+        return new S3Settings(bucketEndpoint, region, credential, headers);
+    }
+
+    /// <summary>
+    /// The keys the engine takes from <c>~/.aws/credentials</c>: access key, secret and token in this order, each
+    /// the first match anywhere in the file, unless the environment has it; the first one missing ends the reading.
+    /// </summary>
+    internal static Dictionary<string, string> CredentialsFile(string? text, IReadOnlyDictionary<string, string> fromEnvironment)
+    {
+        var found = new Dictionary<string, string>(StringComparer.Ordinal);
+        (string Key, string Pattern)[] entries =
+        [
+            ("access_key_id", @"aws_access_key_id\s*=\s*([^\r\n]*)"),
+            ("secret_access_key", @"aws_secret_access_key\s*=\s*([^\r\n]*)"),
+            ("token", @"aws_session_token\s*=\s*([^\r\n]*)"),
+        ];
+        if (text is null || entries.All(e => fromEnvironment.ContainsKey(e.Key))) return found;
+        foreach (var (key, pattern) in entries)
+        {
+            if (fromEnvironment.ContainsKey(key)) continue;
+            Match match = Regex.Match(text, pattern);
+            if (!match.Success) break;
+            found[key] = match.Groups[1].Value;
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// The credentials, chosen as the object_store library chooses them: static keys; a web identity token with a
+    /// role; an ECS task's relative URI; a full URI with a token file (EKS Pod Identity); else the instance
+    /// metadata service. Null with no reason: unsigned requests.
+    /// </summary>
+    private static CredentialSource<AwsCredential>? Credentials(
+        Dictionary<string, string> config, string region, RetrySettings retry, out string? reason)
+    {
         reason = null;
-        return new S3Settings(bucketEndpoint, region, credential);
+        string? Value(string key) => config.GetValueOrDefault(key);
+        bool hasKey = config.ContainsKey("access_key_id"), hasSecret = config.ContainsKey("secret_access_key");
+        if (hasKey != hasSecret)
+        {
+            reason = hasKey ? "an access key is given without its secret" : "a secret is given without its access key";
+            return null;
+        }
+        if (IsTrue(Value("skip_signature") ?? "false")) return null;
+
+        if (hasKey)
+        {
+            string? token = Value("token") is { Length: > 0 } t ? t : null;
+            return new StaticCredential<AwsCredential>(new AwsCredential(Value("access_key_id")!, Value("secret_access_key")!, token));
+        }
+        if (Value("web_identity_token_file") is { } tokenFile && Value("role_arn") is { } roleArn)
+        {
+            string session = Value("role_session_name") ?? "WebIdentitySession";
+            string sts = Value("sts_endpoint") ?? $"https://sts.{region}.amazonaws.com";
+            return AwsCredentialSources.Shared(["web", tokenFile, roleArn, session, sts],
+                () => AwsCredentialSources.WebIdentity(tokenFile, roleArn, session, sts, retry));
+        }
+        if (Value("container_credentials_relative_uri") is { } relative)
+        {
+            string url = AwsCredentialSources.TaskEndpoint + relative;
+            return AwsCredentialSources.Shared(["task", url], () => AwsCredentialSources.Task(url, retry));
+        }
+        if (Value("container_credentials_full_uri") is { } full && Value("container_authorization_token_file") is { } podToken)
+            return AwsCredentialSources.Shared(["pod", full, podToken], () => AwsCredentialSources.Pod(full, podToken, retry));
+        string metadata = Value("metadata_endpoint") ?? AwsCredentialSources.DefaultMetadataEndpoint;
+        bool v1 = IsTrue(Value("imdsv1_fallback") ?? "false");
+        return AwsCredentialSources.Shared(["instance", metadata, v1 ? "v1" : "v2"],
+            () => AwsCredentialSources.Instance(metadata, v1, retry));
     }
 
     private static bool IsTrue(string value) => ConfigValues.IsTrue(value);

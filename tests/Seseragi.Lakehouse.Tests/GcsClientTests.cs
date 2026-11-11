@@ -40,7 +40,7 @@ public class GcsClientTests
         ServiceAccountKey key = ServiceAccountKey.Parse(Key(), out _)!;
         using ServiceAccountToken tokens = ServiceAccountToken.Create(key, out _, () => now)!;
 
-        string token = tokens.Token();
+        string token = tokens.Get();
         string[] parts = token.Split('.');
         Assert.Equal(3, parts.Length);
         Assert.True(Rsa.VerifyData(Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]), FromBase64Url(parts[2]),
@@ -57,9 +57,9 @@ public class GcsClientTests
         Assert.Equal(now.ToUnixTimeSeconds() + 3600, claims.RootElement.GetProperty("exp").GetInt64());
 
         now = now.AddMinutes(50);
-        Assert.Same(token, tokens.Token());
+        Assert.Same(token, tokens.Get());
         now = now.AddMinutes(6);
-        Assert.NotEqual(token, tokens.Token());
+        Assert.NotEqual(token, tokens.Get());
     }
 
     [Fact]
@@ -122,27 +122,65 @@ public class GcsClientTests
         };
         static string KeyId(GcsSettings settings)
         {
-            using var header = JsonDocument.Parse(FromBase64Url(settings.Token!.Token().Split('.')[0]));
+            using var header = JsonDocument.Parse(FromBase64Url(settings.Token!.Get().Split('.')[0]));
             return header.RootElement.GetProperty("kid").GetString()!;
         }
         GcsSettings gcloud = Resolve([], files: files, wellKnown: "/home/.adc")!;
         Assert.Equal("gcloud", KeyId(gcloud));
         Assert.Equal(GcsSettings.DefaultBaseUrl, gcloud.BaseUrl);
         Assert.Equal("named", KeyId(Resolve(new() { ["google_application_credentials"] = "/named" }, files: files, wellKnown: "/home/.adc")!));
-        Assert.Contains("authorized_user", Reason(new() { ["application_credentials"] = "/user" }, files: files));
+        // gcloud user credentials need their OAuth client and refresh token.
+        Assert.Contains("refresh_token", Reason(new() { ["application_credentials"] = "/user" }, files: files));
+        files["/user-ok"] = """{"type":"authorized_user","client_id":"cid.apps","client_secret":"cs","refresh_token":"1//rt"}""";
+        Assert.Equal("gcloud user of client cid.apps",
+            Assert.IsType<CachedCredential<string>>(Resolve(new() { ["application_credentials"] = "/user-ok" }, files: files)!.Token).Origin);
         Assert.Contains("cannot be read", Reason(new() { ["application_credentials"] = "/missing" }, files: files));
     }
 
     [Fact]
-    public void WithoutCredentials_TheMetadataServerIsLeftToTheEngine_UnlessRequestsAreUnsigned()
+    public void WithoutCredentials_TheMetadataServerIsAsked_AtTheHostTheEnvironmentNames()
     {
-        Assert.Contains("metadata server", Reason([]));
+        static string Origin(GcsSettings settings) => Assert.IsType<CachedCredential<string>>(settings.Token).Origin;
+        Assert.Equal("metadata server metadata.google.internal / 169.254.169.254", Origin(Resolve([])!));
+        Assert.Equal("metadata server meta:8080 / 10.0.0.1", Origin(Resolve([], new() { ["GCE_METADATA_HOST"] = "meta:8080", ["GCE_METADATA_IP"] = "10.0.0.1" })!));
+        Assert.Equal("metadata server root:1 / 169.254.169.254", Origin(Resolve([], new() { ["GCE_METADATA_ROOT"] = "root:1" })!));
+        Assert.Same(Resolve([])!.Token, Resolve([])!.Token);
+        // Unsigned stores still sign uploads and deletes (with the metadata server's token), as in the engine.
         GcsSettings unsigned = Resolve(new() { ["google_skip_signature"] = "true" })!;
-        Assert.Null(unsigned.Token);
+        Assert.True(unsigned.SkipSignature);
+        Assert.NotNull(unsigned.Token);
         // With a key, reads go unsigned but uploads and deletes keep the token, as in the engine.
         GcsSettings keyed = Resolve(new() { ["google_skip_signature"] = "true", ["service_account_key"] = Key() })!;
         Assert.True(keyed.SkipSignature);
         Assert.NotNull(keyed.Token);
+    }
+
+    [Fact]
+    public void TheMetadataServer_GivesTokens_ByNameOrElseByAddress()
+    {
+        using var server = new FakeHttpServer(r =>
+            r.PathAndQuery == "/computeMetadata/v1/instance/service-accounts/default/token?audience=https%3A%2F%2Fwww.googleapis.com%2Foauth2%2Fv4%2Ftoken"
+            && r.Headers.GetValueOrDefault("Metadata-Flavor") == "Google"
+                ? (200, """{"access_token":"ya29.meta","expires_in":3599,"token_type":"Bearer"}""")
+                : (404, ""));
+        RetrySettings noRetry = new(0, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10));
+        string address = server.Url["http://".Length..];
+        Assert.Equal("ya29.meta", GcsCredentialSources.MetadataServer(address, "127.0.0.1:1", noRetry).Get());
+        Assert.Equal("ya29.meta", GcsCredentialSources.MetadataServer("127.0.0.1:1", address, noRetry).Get());
+        var failure = Assert.Throws<StorageException>(() => GcsCredentialSources.MetadataServer("127.0.0.1:1", "127.0.0.1:2", noRetry).Get());
+        Assert.Contains("No Google Cloud credentials are configured", failure.Message);
+    }
+
+    [Fact]
+    public void AGcloudUser_ExchangesTheRefreshToken()
+    {
+        using var server = new FakeHttpServer(r => r.Method == "POST"
+            ? (200, """{"access_token":"ya29.user","expires_in":3599,"scope":"x","token_type":"Bearer","id_token":"a.b.c"}""")
+            : (405, ""));
+        RetrySettings noRetry = new(0, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10));
+        Assert.Equal("ya29.user", GcsCredentialSources.AuthorizedUser("cid", "cs", "1//rt", noRetry, server.Url + "/token").Get());
+        var form = System.Web.HttpUtility.ParseQueryString(Assert.Single(server.Requests).Body);
+        Assert.Equal(("refresh_token", "cid", "cs", "1//rt"), (form["grant_type"], form["client_id"], form["client_secret"], form["refresh_token"]));
     }
 
     [Theory]
@@ -161,7 +199,7 @@ public class GcsClientTests
         var files = new Dictionary<string, string> { ["/home/.adc"] = Key(type: "authorized_user") };
         var environment = new Dictionary<string, string> { ["GOOGLE_BASE_URL"] = "http://fromenv", ["SERVICE_ACCOUNT"] = "/missing" };
         GcsSettings settings = Resolve(new() { ["Google_OAuth_Token"] = "ya29.t" }, environment, files, "/home/.adc")!;
-        Assert.Equal("ya29.t", settings.Token!.Token());
+        Assert.Equal("ya29.t", settings.Token!.Get());
         Assert.Equal(GcsSettings.DefaultBaseUrl, settings.BaseUrl);
         Assert.Equal("http://emulator", Resolve(new() { ["google_oauth_token"] = "t", ["google_base_url"] = "http://emulator" })!.BaseUrl);
     }

@@ -77,9 +77,9 @@ public class AzureClientTests
         all.Remove("azure_storage_account_key");
         Assert.IsType<AzureAuth.Sas>(Resolve(all)!.Auth);
 
-        // A client secret in the environment comes before an explicit SAS: the library would use OAuth.
+        // A client secret in the environment comes before an explicit SAS: the library uses OAuth.
         var secret = new Dictionary<string, string> { ["AZURE_CLIENT_ID"] = "id", ["AZURE_CLIENT_SECRET"] = "s", ["AZURE_TENANT_ID"] = "t" };
-        Assert.Contains("client secret", Reason(all, secret));
+        Assert.Equal("client secret of id at https://login.microsoftonline.com/t/oauth2/v2.0/token", Origin(all, secret));
         // ... but not before an account key.
         all["access_key"] = AzureSettings.EmulatorKey;
         Assert.IsType<AzureAuth.SharedKey>(Resolve(all, secret)!.Auth);
@@ -114,10 +114,44 @@ public class AzureClientTests
         Assert.Null(settings.Auth);
     }
 
+    private static string Origin(Dictionary<string, string> options, Dictionary<string, string>? environment = null) =>
+        Resolve(options, environment)!.Auth switch
+        {
+            AzureAuth.Bearer { Token: CachedCredential<string> cached } => cached.Origin,
+            AzureAuth.Bearer => "static bearer",
+            AzureAuth.SharedKey => "shared key",
+            AzureAuth.Sas => "sas",
+            null => "unsigned",
+            _ => "?",
+        };
+
+    [Fact]
+    public void TokenCredentials_FollowTheLibrarysOrder_DownToTheManagedIdentity()
+    {
+        var keys = new Dictionary<string, string>
+        {
+            ["account_name"] = "acct", ["client_id"] = "cid", ["tenant_id"] = "ten", ["federated_token_file"] = "/f",
+            ["client_secret"] = "s", ["azure_authority_host"] = "http://login.local", ["use_azure_cli"] = "true",
+        };
+        Assert.Equal("workload identity of cid at http://login.local/ten/oauth2/v2.0/token", Origin(new(keys)));
+        keys.Remove("federated_token_file");
+        Assert.Equal("client secret of cid at http://login.local/ten/oauth2/v2.0/token", Origin(new(keys)));
+        keys.Remove("client_secret");
+        Assert.Equal("Azure CLI", Origin(new(keys)));
+        keys.Remove("use_azure_cli");
+        // A client id alone picks the managed identity it names.
+        Assert.Equal("managed identity at http://169.254.169.254/metadata/identity/oauth2/token (client_id)", Origin(new(keys)));
+        Assert.Equal("managed identity at http://msi.local/token (msi_res_id)",
+            Origin(new() { ["account_name"] = "acct", ["object_id"] = "o", ["msi_resource_id"] = "r" }, new() { ["IDENTITY_ENDPOINT"] = "http://msi.local/token" }));
+        Assert.Equal("managed identity at http://explicit/token",
+            Origin(new() { ["account_name"] = "acct", ["msi_endpoint"] = "http://explicit/token" }, new() { ["IDENTITY_ENDPOINT"] = "http://msi.local/token" }));
+        // One configuration shares one source in the process.
+        Assert.Same(((AzureAuth.Bearer)Resolve(new() { ["account_name"] = "acct" })!.Auth!).Token,
+            ((AzureAuth.Bearer)Resolve(new() { ["account_name"] = "acct" })!.Auth!).Token);
+    }
+
     [Theory]
-    [InlineData("account_name", "acct", "no static credentials")]
-    [InlineData("use_azure_cli", "true", "Azure CLI")]
-    [InlineData("azure_federated_token_file", "/token", "workload identity")]
+    [InlineData("use_azure_cli", "maybe", "use_azure_cli")]
     [InlineData("azure_use_fabric_endpoint", "true", "Fabric")]
     [InlineData("azure_proxy_url", "http://proxy", "proxy_url")]
     [InlineData("allow_invalid_certificates", "true", "allow_invalid_certificates")]

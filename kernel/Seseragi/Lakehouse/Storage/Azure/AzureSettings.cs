@@ -10,7 +10,7 @@ internal abstract record AzureAuth
     public sealed record Sas(IReadOnlyList<KeyValuePair<string, string>> Pairs) : AzureAuth;
 
     /// <summary>An OAuth bearer token.</summary>
-    public sealed record Bearer(string Token) : AzureAuth;
+    public sealed record Bearer(CredentialSource<string> Token) : AzureAuth;
 }
 
 /// <summary>
@@ -34,7 +34,7 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
 
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
 
-    // Keys that only matter for credentials this client never picks, or change nothing for plain requests.
+    // Keys that configure credentials (read where the credential is chosen), or change nothing for plain requests.
     private static readonly HashSet<string> Ignored = new(ConfigValues.HarmlessClientKeys)
     {
         "container_name", "disable_tagging", "msi_endpoint", "object_id", "msi_resource_id", "authority_host",
@@ -94,13 +94,16 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
     /// <param name="options">Explicit configuration keys.</param>
     /// <param name="environment">Environment variables (the process environment in production).</param>
     /// <param name="reason">Why the settings cannot be served, when null is returned.</param>
+    /// <param name="retry">Retry settings for fetching tokens.</param>
     internal static AzureSettings? Resolve(
         string? urlAccount, IReadOnlyDictionary<string, string> options, IReadOnlyDictionary<string, string> environment,
-        out string? reason)
+        out string? reason, RetrySettings? retry = null)
     {
         var config = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (name, value) in environment)
             if (name.StartsWith("AZURE_", StringComparison.Ordinal) && Canonical(name) is { } key) config[key] = value;
+        // App Service names its managed identity endpoint so (over AZURE_MSI_ENDPOINT, below explicit keys).
+        if (environment.GetValueOrDefault("IDENTITY_ENDPOINT") is { } identityEndpoint) config["msi_endpoint"] = identityEndpoint;
         foreach (var (name, value) in options)
             if (Canonical(name) is { } key) config[key] = value;
 
@@ -108,7 +111,7 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
         {
             bool served = key switch
             {
-                "use_emulator" or "skip_signature" or "use_fabric_endpoint" => ConfigValues.Bool(value) is not null,
+                "use_emulator" or "skip_signature" or "use_fabric_endpoint" or "use_azure_cli" => ConfigValues.Bool(value) is not null,
                 "allow_invalid_certificates" => ConfigValues.IsFalse(value),
                 "access_key" or "account_name" or "sas_key" or "token" or "endpoint" => true,
                 _ => Ignored.Contains(key),
@@ -141,7 +144,7 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
             if (!skipSignature)
             {
                 emulatorAuth = accessKey is not null ? KeyAuth(accessKey, out reason)
-                    : token is not null ? new AzureAuth.Bearer(token)
+                    : token is not null ? new AzureAuth.Bearer(new StaticCredential<string>(token))
                     : sas is not null ? SasAuth(sas, out reason)
                     : KeyAuth(EmulatorKey, out reason);
                 if (emulatorAuth is null) return null;
@@ -160,24 +163,42 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
         if (!skipSignature)
         {
             // object_store's order: the first credential that is fully given wins, whatever its source.
-            bool Has(string key) => !string.IsNullOrEmpty(config.GetValueOrDefault(key));
+            bool Has(string key) => config.ContainsKey(key);
+            string? Value(string key) => config.GetValueOrDefault(key);
+            RetrySettings tokenRetry = retry ?? RetrySettings.Default;
+            string TokenUrl() => AzureCredentialSources.TokenUrl(Value("authority_host"), Value("tenant_id")!);
+            AzureAuth Bearer(string[] parts, Func<CachedCredential<string>> create) =>
+                new AzureAuth.Bearer(SharedCredentials<string>.Get(parts, create));
+
             if (Has("fabric_token_service_url") && Has("fabric_workload_host") && Has("fabric_session_token")
                 && Has("fabric_cluster_identifier"))
                 reason = "Fabric token credentials are not supported by the managed Azure client";
             else if (token is not null)
-                (auth, reason) = (new AzureAuth.Bearer(token), null);
+                (auth, reason) = (new AzureAuth.Bearer(new StaticCredential<string>(token)), null);
             else if (accessKey is not null)
                 auth = KeyAuth(accessKey, out reason);
             else if (Has("client_id") && Has("tenant_id") && Has("federated_token_file"))
-                reason = "workload identity credentials are not supported by the managed Azure client yet";
+            {
+                string url = TokenUrl(), client = Value("client_id")!, file = Value("federated_token_file")!;
+                auth = Bearer(["workload", url, client, file], () => AzureCredentialSources.WorkloadIdentity(url, client, file, tokenRetry));
+            }
             else if (Has("client_id") && Has("client_secret") && Has("tenant_id"))
-                reason = "client secret credentials are not supported by the managed Azure client yet";
+            {
+                string url = TokenUrl(), client = Value("client_id")!, secret = Value("client_secret")!;
+                auth = Bearer(["secret", url, client, secret], () => AzureCredentialSources.ClientSecret(url, client, secret, tokenRetry));
+            }
             else if (sas is not null)
                 auth = SasAuth(sas, out reason);
-            else if (ConfigValues.IsTrue(config.GetValueOrDefault("use_azure_cli")))
-                reason = "Azure CLI credentials are not supported by the managed Azure client yet";
+            else if (ConfigValues.IsTrue(Value("use_azure_cli")))
+                auth = Bearer(["cli"], () => AzureCredentialSources.AzureCli());
             else
-                reason = "no static credentials (account key, SAS token or bearer token) are given";
+            {
+                string msi = Value("msi_endpoint") ?? AzureCredentialSources.DefaultMsiEndpoint;
+                string? header = environment.GetValueOrDefault("IDENTITY_HEADER");
+                string?[] identity = [Value("client_id"), Value("object_id"), Value("msi_resource_id")];
+                auth = Bearer(["msi", msi, identity[0] ?? "", identity[1] ?? "", identity[2] ?? "", header ?? ""],
+                    () => AzureCredentialSources.ManagedIdentity(msi, identity[0], identity[1], identity[2], header, tokenRetry));
+            }
             if (auth is null) return null;
         }
 

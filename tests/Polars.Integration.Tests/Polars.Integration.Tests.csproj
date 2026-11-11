@@ -43,6 +43,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
+    <Compile Include="..\Seseragi.Lakehouse.Tests\FakeHttpServer.cs" Link="Fixtures\FakeHttpServer.cs" />
     <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
     <ProjectReference Include="..\..\extension\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>

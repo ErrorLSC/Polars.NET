@@ -318,7 +318,7 @@ public sealed class ManagedS3FileSystemContractTests(MinioFixture minio) : FileS
         Assert.True(MinioKeys.Open(root, MinioKeys.Of(minio)).TryCreate("a.json", Encoding.UTF8.GetBytes("a")));
 
         var keys = MinioKeys.Of(minio);
-        keys["aws_request_payer"] = "true"; // MinIO ignores it; the managed client does not implement it
+        keys["aws_allow_invalid_certificates"] = "true"; // nothing to check over http; the managed client refuses it
         keys["aws_s3_force_path_style"] = "true";
         CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
         using (var fs = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Auto))
@@ -327,7 +327,7 @@ public sealed class ManagedS3FileSystemContractTests(MinioFixture minio) : FileS
             Assert.Equal("a", Encoding.UTF8.GetString(fs.ReadAll("a.json")!));
         }
         var refused = Assert.Throws<NotSupportedException>(() => new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed));
-        Assert.Contains("request_payer", refused.Message);
+        Assert.Contains("allow_invalid_certificates", refused.Message);
     }
 
     [Fact]
@@ -369,6 +369,87 @@ public sealed class ManagedS3FileSystemContractTests(MinioFixture minio) : FileS
         keys.Remove("aws_session_token");
         var refused = Assert.Throws<StorageException>(() => MinioKeys.Open(root, keys).ReadAll("_delta_log/0.json"));
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, refused.Status);
+    }
+
+    [Fact]
+    public void InstanceCredentials_FromAMetadataService_ServeBothStores()
+    {
+        // A stand-in for EC2's metadata service hands out MinIO's temporary credentials; no keys are configured.
+        AmbientCredentials.AssertNone("AWS_");
+        var (keyId, secret, token) = AssumeRole(minio);
+        string expiration = DateTime.UtcNow.AddMinutes(14).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        string json = $$"""{"Code":"Success","AccessKeyId":"{{keyId}}","SecretAccessKey":"{{secret}}","Token":"{{token}}","Expiration":"{{expiration}}"}""";
+        using var imds = new Seseragi.Lakehouse.Tests.FakeHttpServer(r => (r.Method, r.PathAndQuery) switch
+        {
+            ("PUT", "/latest/api/token") => (200, "session"),
+            ("GET", "/latest/meta-data/iam/security-credentials/") => (200, "test-role"),
+            ("GET", "/latest/meta-data/iam/security-credentials/test-role") => (200, json),
+            _ => (404, ""),
+        });
+
+        var keys = MinioKeys.Of(minio);
+        keys.Remove("aws_access_key_id");
+        keys.Remove("aws_secret_access_key");
+        keys["aws_metadata_endpoint"] = imds.Url;
+        string root = NewRoot();
+        CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
+        using (var managed = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed))
+        {
+            Assert.True(managed.TryCreate("_delta_log/0.json", Encoding.UTF8.GetBytes("{}")));
+            Assert.Single(managed.List("_delta_log"));
+        }
+        using (var native = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Native))
+            Assert.Equal("{}", Encoding.UTF8.GetString(native.ReadAll("_delta_log/0.json")!));
+        Assert.Contains(imds.Requests, r => r.Method == "PUT");
+    }
+
+    [Fact]
+    public void PodIdentityCredentials_ServeBothStores()
+    {
+        // A stand-in for the EKS Pod Identity agent: a full URI and a token file, answering with MinIO's credentials.
+        AmbientCredentials.AssertNone("AWS_");
+        var (keyId, secret, token) = AssumeRole(minio);
+        string expiration = DateTime.UtcNow.AddMinutes(14).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        string json = $$"""{"AccessKeyId":"{{keyId}}","SecretAccessKey":"{{secret}}","Token":"{{token}}","Expiration":"{{expiration}}"}""";
+        using var agent = new Seseragi.Lakehouse.Tests.FakeHttpServer(r =>
+            r.PathAndQuery == "/v1/credentials" && r.Headers.GetValueOrDefault("Authorization") == "pod-token" ? (200, json) : (401, ""));
+        string tokenFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tokenFile, "pod-token");
+            var keys = MinioKeys.Of(minio);
+            keys.Remove("aws_access_key_id");
+            keys.Remove("aws_secret_access_key");
+            keys["aws_container_credentials_full_uri"] = agent.Url + "/v1/credentials";
+            keys["aws_container_authorization_token_file"] = tokenFile;
+            string root = NewRoot();
+            CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
+            using (var managed = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed))
+                Assert.True(managed.TryCreate("x.json", Encoding.UTF8.GetBytes("x")));
+            using (var native = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Native))
+                Assert.Equal("x", Encoding.UTF8.GetString(native.ReadAll("x.json")!));
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Fact]
+    public void WithoutAnyCredentials_TheManagedStoreFailsQuickly_OnTheMetadataService()
+    {
+        // Off the cloud nothing answers at the metadata address; the request fails within seconds (as the engine's).
+        // On an EC2 machine the instance's own credentials would be found instead.
+        AmbientCredentials.AssertNone("AWS_");
+        var keys = MinioKeys.Of(minio);
+        keys.Remove("aws_access_key_id");
+        keys.Remove("aws_secret_access_key");
+        string root = NewRoot();
+        using var fs = new ObjectStoreFileSystem(root, CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]), ObjectStoreBackend.Managed);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var failure = Assert.Throws<StorageException>(() => fs.List("_delta_log"));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20), $"took {watch.Elapsed}: {failure.Message}");
+        Assert.Contains("No AWS credentials are configured", failure.Message);
     }
 
     private static (string KeyId, string Secret, string Token) AssumeRole(MinioFixture minio)
@@ -675,4 +756,161 @@ public sealed class ManagedGcsSmallPagesContractTests(FakeGcsFixture gcs) : File
     protected override string NewRoot() => $"gs://{FakeGcsFixture.BucketName}/pages_{Guid.NewGuid():N}";
 
     protected override IWritableFileSystem Open(string root) => GcsKeys.Open(root, GcsKeys.Of(gcs), pageSize: 2);
+}
+
+/// <summary>
+/// Azure token credentials against stand-ins (Azurite takes OAuth only over https): one server plays Microsoft
+/// Entra ID or the managed identity endpoint, and the blob service, which lists only for the token it issued.
+/// Both stores must get the token and use it.
+/// </summary>
+[Trait("FileSystemContract", "Cloud")]
+public sealed class AzureTokenCredentialTests
+{
+    private const string EmptyListing =
+        """<?xml version="1.0" encoding="utf-8"?><EnumerationResults ContainerName="data"><Blobs /><NextMarker /></EnumerationResults>""";
+
+    private static (int, string) Blobs(Seseragi.Lakehouse.Tests.SeenRequest r, string token) =>
+        r.PathAndQuery.StartsWith("/acct/data?", StringComparison.Ordinal) && r.PathAndQuery.Contains("comp=list")
+            ? r.Headers.GetValueOrDefault("Authorization") == "Bearer " + token ? (200, EmptyListing) : (403, "")
+            : (404, "");
+
+    private static void BothStoresList(string serverUrl, Dictionary<string, string> keys)
+    {
+        AmbientCredentials.AssertNone("AZURE_");
+        keys["azure_storage_account_name"] = "acct";
+        keys["azure_storage_endpoint"] = serverUrl + "/acct";
+        keys["azure_allow_http"] = "true";
+        string root = $"az://data/t_{Guid.NewGuid():N}";
+        CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
+        using (var managed = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed))
+            Assert.Empty(managed.List("_delta_log"));
+        using (var native = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Native))
+            Assert.Empty(native.List("_delta_log"));
+    }
+
+    [Fact]
+    public void AClientSecret_ServesBothStores()
+    {
+        using var server = new Seseragi.Lakehouse.Tests.FakeHttpServer(r =>
+            r is { Method: "POST", PathAndQuery: "/tenant-1/oauth2/v2.0/token" } && r.Body.Contains("client_secret=s3cret")
+                ? (200, """{"token_type":"Bearer","expires_in":3599,"access_token":"from-secret"}""")
+                : Blobs(r, "from-secret"));
+        BothStoresList(server.Url, new()
+        {
+            ["azure_client_id"] = "cid", ["azure_client_secret"] = "s3cret", ["azure_tenant_id"] = "tenant-1",
+            ["azure_authority_host"] = server.Url,
+        });
+        Assert.Equal(2, server.Requests.Count(r => r.Method == "POST"));
+    }
+
+    [Fact]
+    public void WorkloadIdentity_ServesBothStores()
+    {
+        string tokenFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tokenFile, "federated-jwt");
+            using var server = new Seseragi.Lakehouse.Tests.FakeHttpServer(r =>
+                r is { Method: "POST", PathAndQuery: "/tenant-2/oauth2/v2.0/token" } && r.Body.Contains("client_assertion=federated-jwt")
+                    ? (200, """{"token_type":"Bearer","expires_in":3599,"access_token":"from-federation"}""")
+                    : Blobs(r, "from-federation"));
+            BothStoresList(server.Url, new()
+            {
+                ["azure_client_id"] = "cid", ["azure_tenant_id"] = "tenant-2", ["azure_federated_token_file"] = tokenFile,
+                ["azure_authority_host"] = server.Url,
+            });
+            Assert.Equal(2, server.Requests.Count(r => r.Method == "POST"));
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Fact]
+    public void AManagedIdentity_ServesBothStores()
+    {
+        string expiresOn = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        using var server = new Seseragi.Lakehouse.Tests.FakeHttpServer(r =>
+            r.PathAndQuery.StartsWith("/msi?", StringComparison.Ordinal) && r.Headers.GetValueOrDefault("metadata") == "true"
+                ? (200, $$"""{"access_token":"from-msi","expires_on":"{{expiresOn}}","token_type":"Bearer"}""")
+                : Blobs(r, "from-msi"));
+        BothStoresList(server.Url, new() { ["azure_msi_endpoint"] = server.Url + "/msi" });
+        Assert.Equal(2, server.Requests.Count(r => r.PathAndQuery.StartsWith("/msi?", StringComparison.Ordinal)));
+    }
+}
+
+/// <summary>
+/// S3 request headers against a stand-in that records them: encryption with a customer key and requester pays must
+/// reach the store the same way from both stores.
+/// </summary>
+[Trait("FileSystemContract", "Cloud")]
+public sealed class S3RequestHeaderTests
+{
+    [Fact]
+    public void EncryptionAndRequesterPays_AreSentAsTheEngineSendsThem()
+    {
+        using var s3 = new Seseragi.Lakehouse.Tests.FakeHttpServer(r => r.Method switch
+        {
+            "PUT" => (200, ""),
+            "GET" => (200, "x"),
+            _ => (405, ""),
+        })
+        {
+            ResponseHeaders = ["ETag: \"e\"", "Last-Modified: Wed, 11 Nov 2026 09:00:00 GMT"],
+        };
+        string customerKey = Convert.ToBase64String(Enumerable.Range(0, 32).Select(i => (byte)i).ToArray());
+        var keys = new Dictionary<string, string>
+        {
+            ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "secret", ["aws_region"] = "us-east-1",
+            ["aws_endpoint"] = s3.Url, ["aws_allow_http"] = "true", ["aws_request_payer"] = "true",
+            ["aws_server_side_encryption"] = "sse-c", ["aws_sse_customer_key_base64"] = customerKey,
+        };
+        string root = "s3://bucket/t";
+        CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
+
+        Dictionary<string, string> Sent(ObjectStoreBackend backend, string method)
+        {
+            while (s3.Requests.TryDequeue(out _)) { }
+            using (var fs = new ObjectStoreFileSystem(root, args, backend))
+            {
+                fs.Overwrite("a.json", Encoding.UTF8.GetBytes("x"));
+                Assert.Equal("x", Encoding.UTF8.GetString(fs.ReadAll("a.json")!));
+            }
+            var request = s3.Requests.First(r => r.Method == method);
+            Assert.Contains("x-amz-request-payer", request.Headers["Authorization"]); // signed
+            return request.Headers.Where(h => h.Key.StartsWith("x-amz-server-side", StringComparison.OrdinalIgnoreCase)
+                    || h.Key.Equals("x-amz-request-payer", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(h => h.Key.ToLowerInvariant(), h => h.Value);
+        }
+
+        foreach (string method in new[] { "PUT", "GET" })
+        {
+            var native = Sent(ObjectStoreBackend.Native, method);
+            Assert.Equal(4, native.Count);
+            Assert.Equal(native, Sent(ObjectStoreBackend.Managed, method));
+        }
+    }
+}
+
+/// <summary>
+/// Credential-chain tests remove the configured keys and expect the chain to reach a stand-in. Credentials in the
+/// environment or in <c>~/.aws/credentials</c> come first in that chain (for both stores, as in the engine), so the
+/// tests need a machine without them; this says which one is in the way.
+/// </summary>
+internal static class AmbientCredentials
+{
+    public static void AssertNone(string variablePrefix)
+    {
+        var found = Environment.GetEnvironmentVariables().Keys.Cast<string>()
+            .Where(name => name.StartsWith(variablePrefix, StringComparison.Ordinal) && name is not ("AWS_REGION" or "AWS_DEFAULT_REGION"))
+            .ToList();
+        if (variablePrefix == "AWS_")
+        {
+            string file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aws", "credentials");
+            if (File.Exists(file)) found.Add(file);
+        }
+        Assert.True(found.Count == 0,
+            "This test needs a machine without ambient cloud credentials (they come first in the credential chain): " + string.Join(", ", found));
+    }
 }

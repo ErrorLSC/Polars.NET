@@ -16,7 +16,7 @@ internal sealed class GcsClient : ObjectStoreClient
 
     private readonly string _baseUrl;
     private readonly string _bucket;
-    private readonly GcsTokenSource? _token;
+    private readonly CredentialSource<string>? _token;
     private readonly bool _unsignedReads;
     private readonly RetrySettings _retry;
 
@@ -47,11 +47,13 @@ internal sealed class GcsClient : ObjectStoreClient
         HttpMethod method, string pathAndQuery, Dictionary<string, string>? headers = null, ReadOnlyMemory<byte>? body = null)
     {
         string url = _baseUrl + pathAndQuery;
+        // Fetched once per request, outside the retried part: a token source reports its own failures.
+        bool read = method == HttpMethod.Get || method == HttpMethod.Head;
+        string? token = _token is not null && !(read && _unsignedReads) ? _token.Get() : null;
         return HttpTransport.Send(() =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
-            bool read = method == HttpMethod.Get || method == HttpMethod.Head;
-            if (_token is not null && !(read && _unsignedReads)) request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _token.Token());
+            if (token is not null) request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
             if (headers is not null)
                 foreach (var (name, value) in headers) request.Headers.TryAddWithoutValidation(name, value);
             if (body is { } bytes)

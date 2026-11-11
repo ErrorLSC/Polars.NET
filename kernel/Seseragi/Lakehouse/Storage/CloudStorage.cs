@@ -24,13 +24,13 @@ public static class CloudStorage
     /// </summary>
     public static CloudFileSystem? TryOpen(
         string url, IReadOnlyDictionary<string, string> options, RetrySettings? retry, out string? reason) =>
-        TryOpen(url, options, retry ?? RetrySettings.Default, ProcessEnvironment(), AwsConfigFile(), out reason,
-            bucket => BucketRegions.Find(bucket, retry ?? RetrySettings.Default));
+        TryOpen(url, options, retry ?? RetrySettings.Default, ProcessEnvironment(), AwsFile("config"), out reason,
+            bucket => BucketRegions.Find(bucket, retry ?? RetrySettings.Default), AwsFile("credentials"));
 
     internal static CloudFileSystem? TryOpen(
         string url, IReadOnlyDictionary<string, string> options, RetrySettings retry,
         IReadOnlyDictionary<string, string> environment, string? awsConfigFile, out string? reason,
-        Func<string, string?>? regionLookup = null)
+        Func<string, string?>? regionLookup = null, string? awsCredentialsFile = null)
     {
         ArgumentNullException.ThrowIfNull(url);
         int schemeEnd = url.IndexOf("://", StringComparison.Ordinal);
@@ -48,8 +48,8 @@ public static class CloudStorage
         if (S3Schemes.Contains(scheme))
         {
             S3Client? Open(string bucket, out string? why) =>
-                S3Settings.Resolve(bucket, options, environment, awsConfigFile, out why, regionLookup) is { } settings
-                    ? new S3Client(settings.BucketEndpoint, settings.Region, settings.Credential, retry)
+                S3Settings.Resolve(bucket, options, environment, awsConfigFile, out why, regionLookup, awsCredentialsFile, retry) is { } settings
+                    ? new S3Client(settings.BucketEndpoint, settings.Region, settings.Credential, retry, settings.Headers)
                     : null;
 
             if (Open(authority, out reason) is not { } client) return null;
@@ -62,7 +62,7 @@ public static class CloudStorage
             AzureClient? Open(string location, out string? why)
             {
                 if (ParseAzureAuthority(scheme, location, out why) is not { } parsed) return null;
-                return AzureSettings.Resolve(parsed.Account, options, environment, out why) is { } settings
+                return AzureSettings.Resolve(parsed.Account, options, environment, out why, retry) is { } settings
                     ? new AzureClient(settings, parsed.Container, retry)
                     : null;
             }
@@ -75,7 +75,7 @@ public static class CloudStorage
         if (GcsSchemes.Contains(scheme))
         {
             // One settings for every bucket: the credentials do not depend on it.
-            if (GcsSettings.Resolve(options, environment, ReadFile, GcloudCredentials(environment), out reason) is not { } settings)
+            if (GcsSettings.Resolve(options, environment, ReadFile, GcloudCredentials(environment), out reason, retry) is not { } settings)
                 return null;
             return new CloudFileSystem(url, authority, prefix, new GcsClient(settings, authority, retry), GcsSchemes,
                 other => new GcsClient(settings, other, retry));
@@ -150,12 +150,13 @@ public static class CloudStorage
         return variables;
     }
 
-    private static string? AwsConfigFile()
+    /// <summary>The text of a file in <c>~/.aws</c>, if there is one.</summary>
+    private static string? AwsFile(string name)
     {
         try
         {
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string path = Path.Combine(home, ".aws", "config");
+            string path = Path.Combine(home, ".aws", name);
             return home.Length > 0 && File.Exists(path) ? File.ReadAllText(path) : null;
         }
         catch (IOException)

@@ -47,6 +47,8 @@ internal sealed class AzureClient : ObjectStoreClient
             PercentEncoding.Encode(p.Key, encodeSlash: true) + "=" + PercentEncoding.Encode(p.Value, encodeSlash: true)));
         string url = _origin + path + (queryText.Length == 0 ? "" : "?" + queryText);
 
+        // Fetched once per request, outside the retried part: a token source reports its own failures.
+        string? bearerToken = _auth is AzureAuth.Bearer bearer ? bearer.Token.Get() : null;
         return HttpTransport.Send(() =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
@@ -69,8 +71,8 @@ internal sealed class AzureClient : ObjectStoreClient
                     request.Headers.TryAddWithoutValidation("Authorization", SharedKey.Authorization(_account, key.Key, toSign));
                     break;
                 }
-                case AzureAuth.Bearer bearer:
-                    request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + bearer.Token);
+                case AzureAuth.Bearer:
+                    request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + bearerToken);
                     break;
             }
             if (body is { } bytes) request.Content = new ReadOnlyMemoryContent(bytes);

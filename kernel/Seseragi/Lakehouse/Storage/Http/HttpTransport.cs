@@ -38,12 +38,31 @@ internal static class HttpTransport
         Timeout = Timeout.InfiniteTimeSpan,
     };
 
+    // Instance metadata services answer at once or not at all (off the cloud nothing listens there): a short
+    // connect timeout gives quick feedback.
+    private static readonly HttpClient MetadataClient = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectTimeout = TimeSpan.FromSeconds(1),
+        AutomaticDecompression = DecompressionMethods.None,
+        AllowAutoRedirect = false,
+    })
+    {
+        Timeout = Timeout.InfiniteTimeSpan,
+    };
+
     /// <summary>
     /// Sends the request <paramref name="build"/> makes (afresh for every attempt). Network failures and answers
     /// 408, 429 and 5xx are retried, as are answers <paramref name="alsoRetry"/> names; anything else is returned.
     /// </summary>
-    public static StoreResponse Send(Func<HttpRequestMessage> build, RetrySettings retry, Func<HttpStatusCode, bool>? alsoRetry = null)
+    /// <param name="build">Makes the request.</param>
+    /// <param name="retry">Retry settings.</param>
+    /// <param name="alsoRetry">Further answers to retry.</param>
+    /// <param name="metadata">Whether the request goes to an instance metadata service (connecting is limited to one second).</param>
+    public static StoreResponse Send(
+        Func<HttpRequestMessage> build, RetrySettings retry, Func<HttpStatusCode, bool>? alsoRetry = null, bool metadata = false)
     {
+        HttpClient client = metadata ? MetadataClient : Client;
         var backoff = new Backoff(retry);
         while (true)
         {
@@ -51,7 +70,7 @@ internal static class HttpTransport
             try
             {
                 using HttpRequestMessage request = build();
-                using HttpResponseMessage response = Client.Send(request, HttpCompletionOption.ResponseHeadersRead);
+                using HttpResponseMessage response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
                 byte[] body = request.Method == HttpMethod.Head ? [] : ReadBody(response);
                 var answer = new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, body, retried);
                 if (Retryable(answer.Status, alsoRetry) && backoff.CanRetry)
@@ -61,11 +80,12 @@ internal static class HttpTransport
                 }
                 return answer;
             }
-            catch (Exception e) when (e is HttpRequestException or IOException && backoff.CanRetry)
+            // A connect timeout surfaces as a cancellation; nothing else cancels these requests.
+            catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && backoff.CanRetry)
             {
                 backoff.Wait();
             }
-            catch (Exception e) when (e is HttpRequestException or IOException)
+            catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException)
             {
                 throw new StorageException($"The request failed after {backoff.Retries} retries: {e.Message}", inner: e);
             }
