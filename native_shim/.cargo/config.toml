@@ -4,3 +4,8 @@ rustflags = ["-C", "target-cpu=x86-64-v3"]
 [target.'cfg(target_os = "linux")']
 linker = "cc" 
 rustflags = ["-C", "target-cpu=x86-64-v3", "-C", "link-arg=-fuse-ld=mold"]
+
+# Static CRT on Windows: native_shim.dll then needs no Visual C++ Redistributable (#37).
+# Target rustflags replace the [build] ones, so target-cpu is repeated.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v3", "-C", "target-feature=+crt-static"]

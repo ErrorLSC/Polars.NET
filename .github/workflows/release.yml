@@ -74,7 +74,9 @@ jobs:
             rid: win-x64
             artifact_name: native_shim.dll
             use_cross: false
-            rustflags: "-C target-cpu=x86-64-v3"
+            # Static CRT: no dependency on the Visual C++ Redistributable (VCRUNTIME140.dll), which a clean
+            # Windows install lacks (#37). The UCRT (api-ms-win-crt-*) ships with Windows 10 and later.
+            rustflags: "-C target-cpu=x86-64-v3 -C target-feature=+crt-static"
             container: null
             lto_type: "fat"
 
@@ -191,6 +193,20 @@ jobs:
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} .
           echo "Moved artifact to root: ${{ matrix.artifact_name }}"
+
+      - name: Check DLL Dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: ${{ env.NATIVE_DIR }}
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe |
+            Where-Object FullName -like '*Hostx64\x64*' | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents ${{ matrix.artifact_name }}
+          $deps
+          if ($deps -match '(?i)vcruntime|msvcp') {
+            throw "${{ matrix.artifact_name }} depends on the Visual C++ Redistributable; build it with +crt-static."
+          }
 
       # Upload Artifact to Git Actions
       - name: Upload Artifact

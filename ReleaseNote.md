@@ -50,3 +50,33 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 * `SinkDelta` / `WriteDelta` / catalog sinks: `includeKeys` (partition columns are never written into data files), `statistics` (always written), `compatLevel`, `mkdir` (directories are always created).
 * `ScanDelta` / `ReadDelta` / catalog scans: `glob`, `hivePartitioning`, `hivePartitionSchema`, `tryParseHiveDates` (partition values come from the log). `schema` now selects and casts the table's columns; an unknown column is an error.
 * `approxBytesPerFile` and `delta.targetFileSize` (128 MB when unset; byte counts or sizes such as `64mb`) are measured as the engine estimates rows in memory: files on disk are smaller.
+
+---
+
+## Streaming over .NET sources
+
+Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) now work on the streaming engine. Polars's streaming engine cannot run these scans, so the source is replaced just before the query runs.
+
+### Fixed
+
+* `SinkCsv`, `SinkIpc`, `SinkNdJson`, the partitioned sinks and `Collect(Engine.Streaming)` over a .NET source failed with `not yet implemented: AnonymousScan`.
+* `SinkParquet` over a .NET source no longer prints a Rust panic to stderr and no longer falls back to an eager write that held the whole table in memory (#38).
+* Sinks, `SinkBatches` / `SinkTo` and `CollectBatchesAsync(engine: Engine.Streaming)` write the source batch by batch to a temporary Arrow IPC file and stream from it, so memory stays bounded by a batch. On 40M rows, `SinkParquet` peaks at about 215 MB of anonymous memory, where it used to hold the whole table (about 1 GB). A source used twice in one query (a self-join, `CollectAll`) is read once, so a single-use `IDataReader` works too.
+* `Collect(Engine.Streaming)` reads the source into memory first, then runs the rest of the query on the streaming engine.
+* `SinkBatches` / `SinkTo` run on the streaming engine and hand batches over as they are produced. They used to collect the whole frame first: `Engine.Auto` is the in-memory engine in this Polars version.
+* `SinkBatches` / `SinkTo` hand over logical Arrow types (`Decimal128`, dictionaries) instead of the engine's physical arrays. `decimal` columns used to fail with `Data type is not yet supported in import` on the streaming path.
+* `CollectBatchesAsync` / `RowsAsync` (and LINQ async enumeration) no longer end silently when the engine fails mid-stream: the error is thrown.
+* `CollectBatchesAsync` starts the query off the caller's thread.
+
+### Behaviour changes
+
+* The temporary file goes in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and disappears when the query ends. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk to keep large sinks out of RAM.
+* `ScanDatabaseBuffered` and `ScanEnumerable(useBuffered: true)` / `ScanSeq(useBuffered = true)` buffer through the native engine. The file lives until the last frame that scans it is released, so there is nothing extra to dispose. `ScanDatabaseBuffered` now returns `LazyFrame`; `ScopedLazyFrame` was removed, and `LazyFrame` is sealed.
+* `CollectBatchesAsync` on the default `Engine.Auto` still reads a .NET source into memory. Pass `Engine.Streaming` for bounded memory.
+* The eager fallback of `SinkParquet` was removed: streaming sink errors on local paths are thrown, as on cloud paths.
+
+---
+
+## Packaging
+
+* `native_shim.dll` (`Polars.NET.Native.win-x64`) links the C runtime statically and no longer needs the Visual C++ Redistributable (`VCRUNTIME140.dll`), which a clean Windows install lacks. It used to fail on first use with "Dll was not found" (#37). The release build now checks the DLL's imports.
