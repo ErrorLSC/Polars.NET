@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Kaminari.Seseragi.Lakehouse.Storage.Http;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.S3;
 
@@ -19,20 +20,7 @@ internal static class SigV4
     /// Percent-encodes as SigV4 wants: letters, digits and <c>-_.~</c> stay, every other UTF-8 byte becomes
     /// <c>%XX</c> (upper case); <c>/</c> stays unless <paramref name="encodeSlash"/>.
     /// </summary>
-    public static string Encode(string value, bool encodeSlash)
-    {
-        var builder = new StringBuilder(value.Length + 8);
-        foreach (byte b in Encoding.UTF8.GetBytes(value))
-        {
-            char c = (char)b;
-            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_' or '.' or '~'
-                || (c == '/' && !encodeSlash))
-                builder.Append(c);
-            else
-                builder.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));
-        }
-        return builder.ToString();
-    }
+    public static string Encode(string value, bool encodeSlash) => PercentEncoding.Encode(value, encodeSlash);
 
     /// <summary>The query string in canonical form: encoded, sorted by name then value.</summary>
     public static string CanonicalQuery(IEnumerable<KeyValuePair<string, string>> query) =>

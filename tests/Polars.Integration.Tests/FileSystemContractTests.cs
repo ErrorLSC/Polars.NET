@@ -1,7 +1,10 @@
 using System.Text;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Storage;
+using Kaminari.Seseragi.Lakehouse.Storage.Azure;
 using Kaminari.Seseragi.Lakehouse.Storage.S3;
+using Azure.Storage.Blobs;
+using Azure.Storage.Sas;
 using Polars.CSharp;
 using Polars.Integration.Tests.Fixtures;
 using Polars.NET.Core.Delta;
@@ -405,4 +408,146 @@ public sealed class ManagedS3SmallPagesContractTests(MinioFixture minio) : FileS
     protected override string NewRoot() => $"s3://{minio.BucketName}/pages_{Guid.NewGuid():N}";
 
     protected override IWritableFileSystem Open(string root) => MinioKeys.Open(root, MinioKeys.Of(minio), pageSize: 2);
+}
+
+/// <summary>The settings of the Azurite container as configuration keys.</summary>
+internal static class AzuriteKeys
+{
+    public static Dictionary<string, string> Of(AzuriteFixture azurite) => new()
+    {
+        ["azure_storage_account_name"] = AzuriteFixture.AccountName,
+        ["azure_storage_account_key"] = AzuriteFixture.AccountKey,
+        ["azure_storage_endpoint"] = azurite.BlobEndpoint,
+        ["azure_allow_http"] = "true",
+    };
+
+    public static CloudFileSystem Open(string root, IReadOnlyDictionary<string, string> keys, int? pageSize = null)
+    {
+        CloudFileSystem fs = CloudStorage.TryOpen(root, keys, RetrySettings.Default, out string? reason)
+            ?? throw new InvalidOperationException(reason);
+        if (pageSize is { } size) ((AzureClient)fs.Client).PageSize = size;
+        return fs;
+    }
+
+    public static BlobContainerClient Container(AzuriteFixture azurite) =>
+        new BlobServiceClient(azurite.ConnectionString, new BlobClientOptions(BlobClientOptions.ServiceVersion.V2025_11_05))
+            .GetBlobContainerClient(azurite.ContainerName);
+}
+
+[Trait("FileSystemContract", "Cloud")]
+public sealed class ManagedAzureFileSystemContractTests(AzuriteFixture azurite) : FileSystemContract, IClassFixture<AzuriteFixture>
+{
+    protected override string NewRoot() => $"az://{azurite.ContainerName}/managed_{Guid.NewGuid():N}";
+
+    protected override IWritableFileSystem Open(string root) => AzuriteKeys.Open(root, AzuriteKeys.Of(azurite));
+
+    private static void RoundTrip(IWritableFileSystem fs)
+    {
+        Assert.True(fs.TryCreate("_delta_log/0.json", Encoding.UTF8.GetBytes("{}")));
+        Assert.False(fs.TryCreate("_delta_log/0.json", Encoding.UTF8.GetBytes("{}")));
+        Assert.Equal("{}", Encoding.UTF8.GetString(fs.ReadAll("_delta_log/0.json")!));
+        Assert.Single(fs.List("_delta_log"));
+        Assert.True(fs.Delete("_delta_log/0.json"));
+        Assert.Empty(fs.List("_delta_log"));
+    }
+
+    [Fact]
+    public void TheFacade_ServesAzurite_WithTheManagedClient()
+    {
+        var keys = AzuriteKeys.Of(azurite);
+        using var fs = new ObjectStoreFileSystem(NewRoot(), CloudArgs.ForLocation("az://x", [.. keys.Keys], [.. keys.Values]));
+        Assert.Equal("managed", fs.Implementation);
+        RoundTrip(fs);
+    }
+
+    [Fact]
+    public void TheFacade_FallsBack_ForSettingsTheManagedClientLacks_UnlessManagedIsRequired()
+    {
+        string root = NewRoot();
+        Assert.True(AzuriteKeys.Open(root, AzuriteKeys.Of(azurite)).TryCreate("a.json", Encoding.UTF8.GetBytes("a")));
+
+        var keys = AzuriteKeys.Of(azurite);
+        keys["azure_allow_invalid_certificates"] = "true"; // nothing to check over http; the managed client refuses it
+        CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
+        using (var fs = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Auto))
+        {
+            Assert.Equal("native", fs.Implementation);
+            Assert.Equal("a", Encoding.UTF8.GetString(fs.ReadAll("a.json")!));
+        }
+        var refused = Assert.Throws<NotSupportedException>(() => new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed));
+        Assert.Contains("allow_invalid_certificates", refused.Message);
+    }
+
+    [Fact]
+    public void ASasToken_FromTheSdk_Works_AndItsPermissionsHold()
+    {
+        BlobContainerClient container = AzuriteKeys.Container(azurite);
+        string Sas(BlobContainerSasPermissions permissions) =>
+            container.GenerateSasUri(permissions, DateTimeOffset.UtcNow.AddHours(1)).Query;
+
+        var keys = AzuriteKeys.Of(azurite);
+        keys.Remove("azure_storage_account_key");
+        keys["azure_storage_sas_token"] = Sas(BlobContainerSasPermissions.All);
+        string root = NewRoot();
+        RoundTrip(AzuriteKeys.Open(root, keys));
+
+        keys["azure_storage_sas_token"] = Sas(BlobContainerSasPermissions.Read | BlobContainerSasPermissions.List);
+        var readOnly = AzuriteKeys.Open(root, keys);
+        Assert.Empty(readOnly.List("_delta_log"));
+        var refused = Assert.Throws<StorageException>(() => readOnly.TryCreate("_delta_log/1.json", Encoding.UTF8.GetBytes("{}")));
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, refused.Status);
+    }
+
+    [Fact]
+    public void TheEmulatorSetting_TakesItsUrlFromTheEnvironment_AndTheWellKnownKey()
+    {
+        var blob = new Uri(azurite.BlobEndpoint);
+        var environment = new Dictionary<string, string> { ["AZURITE_BLOB_STORAGE_URL"] = $"http://{blob.Host}:{blob.Port}" };
+        var keys = new Dictionary<string, string> { ["azure_storage_use_emulator"] = "true", ["azure_storage_endpoint"] = "http://unused.invalid" };
+        CloudFileSystem fs = CloudStorage.TryOpen(NewRoot(), keys, RetrySettings.Default, environment, null, out string? reason)
+            ?? throw new InvalidOperationException(reason);
+        RoundTrip(fs);
+    }
+
+    [Fact]
+    public void ATableUnderAnAbfssRootWithEscapes_KeepsLogAndDataTogether()
+    {
+        // The engine writes the data files, the managed client the log: both must read the root the same way.
+        string root = $"abfss://{azurite.ContainerName}@{AzuriteFixture.AccountName}.dfs.core.windows.net/esc {Guid.NewGuid():N}/t%41 b";
+        var options = CloudOptions.Azure(accountName: AzuriteFixture.AccountName, accessKey: AzuriteFixture.AccountKey, endpoint: azurite.BlobEndpoint);
+        options.Credentials!["azure_allow_http"] = "true";
+        using (var fs = new ObjectStoreFileSystem(root, KernelObjectStoreCheck.ToArgs(options)))
+            Assert.Equal("managed", fs.Implementation);
+        using (var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } }))
+            df.WriteDelta(root, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
+        using (var read = LazyFrame.ScanDelta(root, cloudOptions: options).Collect())
+            Assert.Equal(3, read.Height);
+
+        var all = AzuriteKeys.Open(root, AzuriteKeys.Of(azurite)).ListAll("");
+        Assert.Contains(all, f => f.Path == "_delta_log/00000000000000000000.json");
+        Assert.Contains(all, f => f.Path.EndsWith(".parquet", StringComparison.Ordinal) && !f.Path.Contains('/'));
+    }
+
+    [Fact]
+    public void AnAccountInTheLocation_IsUsed_AndItsFilesAreTheSameAsUnderTheContainer()
+    {
+        string folder = $"abfs_{Guid.NewGuid():N}";
+        var keys = AzuriteKeys.Of(azurite);
+        keys["azure_storage_account_name"] = "someoneelse"; // the location's account wins (and signs)
+        var hadoop = AzuriteKeys.Open($"abfss://{azurite.ContainerName}@{AzuriteFixture.AccountName}.dfs.core.windows.net/{folder}", keys);
+        Assert.True(hadoop.TryCreate("x.json", Encoding.UTF8.GetBytes("x")));
+
+        var plain = AzuriteKeys.Open($"az://{azurite.ContainerName}/{folder}", AzuriteKeys.Of(azurite));
+        Assert.Equal("x", Encoding.UTF8.GetString(plain.ReadAll("x.json")!));
+        Assert.Equal("x", Encoding.UTF8.GetString(plain.ReadAll($"abfss://{azurite.ContainerName}@{AzuriteFixture.AccountName}.dfs.core.windows.net/{folder}/x.json")!));
+    }
+}
+
+/// <summary>The contract with two blobs per listing page, so every listing crosses page boundaries.</summary>
+[Trait("FileSystemContract", "Cloud")]
+public sealed class ManagedAzureSmallPagesContractTests(AzuriteFixture azurite) : FileSystemContract, IClassFixture<AzuriteFixture>
+{
+    protected override string NewRoot() => $"az://{azurite.ContainerName}/pages_{Guid.NewGuid():N}";
+
+    protected override IWritableFileSystem Open(string root) => AzuriteKeys.Open(root, AzuriteKeys.Of(azurite), pageSize: 2);
 }

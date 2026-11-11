@@ -62,13 +62,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
         Add("sse_kms_key_id", "aws_sse_kms_key_id", "sse_kms_key_id");
         Add("sse_bucket_key_enabled", "aws_sse_bucket_key_enabled", "sse_bucket_key_enabled");
         Add("sse_customer_key", "aws_sse_customer_key_base64", "sse_customer_key_base64");
-        foreach (string client in new[]
-        {
-            "allow_http", "allow_invalid_certificates", "connect_timeout", "default_content_type", "http1_only",
-            "http2_only", "http2_keep_alive_interval", "http2_keep_alive_timeout", "http2_keep_alive_while_idle",
-            "http2_max_frame_size", "pool_idle_timeout", "pool_max_idle_per_host", "proxy_url", "proxy_ca_certificate",
-            "proxy_excludes", "randomize_addresses", "timeout", "user_agent",
-        })
+        foreach (string client in ConfigValues.ClientKeys)
         {
             map.TryAdd(client, client);
             map.TryAdd("aws_" + client, client);
@@ -178,7 +172,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, AwsCrede
         return new S3Settings(bucketEndpoint, region, credential);
     }
 
-    private static bool IsTrue(string value) => value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTrue(string value) => ConfigValues.IsTrue(value);
 
-    private static bool IsFalse(string value) => value.Trim().Equals("false", StringComparison.OrdinalIgnoreCase);
+    private static bool IsFalse(string value) => ConfigValues.IsFalse(value);
 }

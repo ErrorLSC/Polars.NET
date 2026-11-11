@@ -188,12 +188,12 @@ public class S3ClientTests
     }
 
     [Fact]
-    public void OnlyS3Locations_AreOpened()
+    public void OnlyServedSchemes_AreOpened()
     {
         var keys = new Dictionary<string, string> { ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "secret", ["aws_region"] = "r" };
         Assert.NotNull(CloudStorage.TryOpen("s3://bucket/t", keys, RetrySettings.Default, NoEnvironment, null, out _));
         Assert.NotNull(CloudStorage.TryOpen("S3A://bucket", keys, RetrySettings.Default, NoEnvironment, null, out _));
-        Assert.Null(CloudStorage.TryOpen("az://container/t", keys, RetrySettings.Default, NoEnvironment, null, out string? reason));
+        Assert.Null(CloudStorage.TryOpen("gs://bucket/t", keys, RetrySettings.Default, NoEnvironment, null, out string? reason));
         Assert.Contains("scheme", reason);
         Assert.Null(CloudStorage.TryOpen("/local/path", keys, RetrySettings.Default, NoEnvironment, null, out _));
     }

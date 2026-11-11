@@ -192,6 +192,8 @@ public class DeltaKernelAzureTests(AzuriteFixture azurite) : IClassFixture<Azuri
         }
 
         CloudArgs args = KernelObjectStoreCheck.ToArgs(Options());
+        using (var fs = new ObjectStoreFileSystem($"az://{azurite.ContainerName}/{prefix}", args))
+            Assert.Equal("managed", fs.Implementation);
         foreach (string table in SampleTables.Names)
             KernelObjectStoreCheck.SameAsLocal(table, $"az://{azurite.ContainerName}/{prefix}/{table}", args);
         KernelObjectStoreCheck.PutIfAbsentHolds($"az://{azurite.ContainerName}/{prefix}", args);
