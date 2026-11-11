@@ -253,3 +253,24 @@ let ``Reading the change data feed of a table without one raises an exception`` 
         |> ignore
     finally
         if Directory.Exists testPath then Directory.Delete(testPath, true)
+
+[<Fact>]
+let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_identity_{Guid.NewGuid()}")
+    try
+        let schema = PolarsSchema([ "id", DataType.Int64; "v", DataType.String; "p", DataType.String ])
+        Delta.CreateTable(
+            path, schema, partitionBy = [ "p" ],
+            properties = [ DeltaTableProperties.EnableRowTracking, "true" ],
+            identityColumns = [ DeltaIdentityColumn("id", generatedAlways = false) ])
+        let rows = DataFrame.create [| Series.create("v", [ "a"; "b" ]); Series.create("p", [ "x"; "x" ]) |]
+        rows.WriteDelta(path, mode = DeltaSaveMode.Append)
+        let given = DataFrame.create [| Series.create("id", [ 50L ]); Series.create("v", [ "c" ]); Series.create("p", [ "y" ]) |]
+        given.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        let read = DataFrame.ReadDelta(path, rowIdColumn = "row_id", rowCommitVersionColumn = "row_version").Sort("v")
+        Assert.Equal<int64 list>([ 1L; 2L; 50L ], read.["id"].ToArray<int64>() |> List.ofArray)
+        Assert.Equal<int64 list>([ 0L; 1L; 2L ], read.["row_id"].ToArray<int64>() |> List.ofArray)
+        Assert.Equal<int64 list>([ 1L; 1L; 2L ], read.["row_version"].ToArray<int64>() |> List.ofArray)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)

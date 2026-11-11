@@ -38,6 +38,10 @@ public sealed class EngineParquetReader(string tableRoot, CloudArgs? cloud = nul
 /// <param name="Cache">Cache the scan's result within a query.</param>
 /// <param name="Schema">Return these columns (of the table, or the path column), cast to these types (strictly);
 /// null for the table's columns. Borrowed, not consumed.</param>
+/// <param name="RowIdColumn">Adds each row's stable row id (row tracking; Spark's <c>_metadata.row_id</c>) under this
+/// name; null for none. The table must have row tracking on.</param>
+/// <param name="RowCommitVersionColumn">Adds the version that last changed each row (row tracking; Spark's
+/// <c>_metadata.row_commit_version</c>) under this name; null for none. The table must have row tracking on.</param>
 public sealed record KernelScanOptions(
     ulong? NRows = null,
     string? RowIndexName = null,
@@ -48,7 +52,13 @@ public sealed record KernelScanOptions(
     bool UseStatistics = true,
     bool Rechunk = false,
     bool Cache = true,
-    SchemaHandle? Schema = null);
+    SchemaHandle? Schema = null,
+    string? RowIdColumn = null,
+    string? RowCommitVersionColumn = null)
+{
+    /// <summary>Whether row tracking columns are asked for.</summary>
+    internal bool WantsRowTracking => RowIdColumn is not null || RowCommitVersionColumn is not null;
+}
 
 /// <summary>
 /// Builds a scan of a Delta table from a snapshot the managed kernel resolved. The kernel decides which files make
@@ -328,7 +338,8 @@ public static class DeltaKernelScan
                 using (type)
                 {
                     bool known = tableSchema.Field(name) is not null
-                        || (options.IncludePathColumn is not null && name == options.IncludePathColumn);
+                        || (options.IncludePathColumn is not null && name == options.IncludePathColumn)
+                        || name == options.RowIdColumn || name == options.RowCommitVersionColumn;
                     if (!known)
                     {
                         foreach (ExprHandle e in exprs.Take((int)i)) e.Dispose();
@@ -371,9 +382,12 @@ public static class DeltaKernelScan
         // it) are scanned together; a file with a deletion vector on its own.
         var groups = new Dictionary<string, (List<AddAction> Files, IReadOnlyDictionary<string, DeltaType> AsDate)>(StringComparer.Ordinal);
         var withVectors = new List<AddAction>();
+        (string RowId, string CommitVersion)? tracking = options is { WantsRowTracking: true } ? RowTrackingColumns(snapshot) : null;
         foreach (AddAction file in files)
         {
-            if (file.DeletionVector is not null)
+            // A file on its own: with a deletion vector, or when its rows' ids are asked for (they start at the
+            // file's base row id).
+            if (file.DeletionVector is not null || tracking is not null)
             {
                 withVectors.Add(file);
                 continue;
@@ -396,17 +410,27 @@ public static class DeltaKernelScan
             }
 
             foreach (AddAction file in withVectors)
-                frames.Add(ScanFile(fileSystem, tableRoot, snapshot, file, cloud, options: options));
+                frames.Add(ScanFile(fileSystem, tableRoot, snapshot, file, cloud, options: options,
+                    rowTracking: tracking, rowIdAs: options?.RowIdColumn, rowCommitVersionAs: options?.RowCommitVersionColumn));
 
             if (frames.Count == 0)
             {
                 using SchemaHandle logical = LogicalSchema(schema);
                 using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(logical, 0);
                 LazyFrameHandle none = PolarsWrapper.DataFrameToLazy(empty);
-                if (pathColumn is null) return none;
-                using DataTypeHandle text = PolarsWrapper.NewPrimitiveType((int)PlDataType.String);
-                return PolarsWrapper.LazyWithColumns(none, [PolarsWrapper.Alias(
-                    PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(text), strict: true, wrapNumerical: false), pathColumn)]);
+                var extra = new List<ExprHandle>();
+                if (pathColumn is not null)
+                {
+                    using DataTypeHandle text = PolarsWrapper.NewPrimitiveType((int)PlDataType.String);
+                    extra.Add(PolarsWrapper.Alias(
+                        PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(text), strict: true, wrapNumerical: false), pathColumn));
+                }
+                if (tracking is not null)
+                {
+                    if (options!.RowIdColumn is string id) extra.Add(PolarsWrapper.Alias(DmlTable.NullInt64(), id));
+                    if (options.RowCommitVersionColumn is string version) extra.Add(PolarsWrapper.Alias(DmlTable.NullInt64(), version));
+                }
+                return extra.Count == 0 ? none : PolarsWrapper.LazyWithColumns(none, [.. extra]);
             }
             LazyFrameHandle[] all = [.. frames];
             frames.Clear(); // from here the result owns them
@@ -436,7 +460,7 @@ public static class DeltaKernelScan
     internal static LazyFrameHandle ScanFile(
         IFileSystem fileSystem, string tableRoot, Snapshot snapshot, AddAction file, CloudArgs cloud,
         long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false, KernelScanOptions? options = null,
-        (string RowId, string CommitVersion)? rowTracking = null)
+        (string RowId, string CommitVersion)? rowTracking = null, string? rowIdAs = RowIdColumn, string? rowCommitVersionAs = RowCommitVersionColumn)
     {
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
         long[] dead = file.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, file.DeletionVector).DeletedRows;
@@ -460,19 +484,29 @@ public static class DeltaKernelScan
             ExprHandle Index() =>
                 PolarsWrapper.ExprCast(PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
             if (withRowIndex) exprs.Add(PolarsWrapper.Alias(Index(), RowIndexColumn));
+            if (pathColumn is not null && !withRowIndex) exprs.Add(PolarsWrapper.Col(pathColumn));
             if (rowTracking is var (rowId, commitVersion))
             {
                 // A file without the materialized columns reads them as null (the scan fills absent columns).
-                exprs.Add(PolarsWrapper.Alias(
-                    PolarsWrapper.FillNull(PolarsWrapper.Col(rowId), PolarsWrapper.Add(PolarsWrapper.Lit(file.BaseRowId!.Value), Index())),
-                    RowIdColumn));
-                exprs.Add(PolarsWrapper.Alias(
-                    PolarsWrapper.FillNull(PolarsWrapper.Col(commitVersion), PolarsWrapper.Lit(file.DefaultRowCommitVersion!.Value)),
-                    RowCommitVersionColumn));
+                if (rowIdAs is not null)
+                    exprs.Add(PolarsWrapper.Alias(
+                        PolarsWrapper.FillNull(PolarsWrapper.Col(rowId), PolarsWrapper.Add(PolarsWrapper.Lit(file.BaseRowId!.Value), Index())),
+                        rowIdAs));
+                if (rowCommitVersionAs is not null)
+                    exprs.Add(PolarsWrapper.Alias(
+                        PolarsWrapper.FillNull(PolarsWrapper.Col(commitVersion), PolarsWrapper.Lit(file.DefaultRowCommitVersion!.Value)),
+                        rowCommitVersionAs));
             }
-            if (pathColumn is not null && !withRowIndex && rowTracking is null) exprs.Add(PolarsWrapper.Col(pathColumn));
         });
     }
+
+    /// <summary>The materialized row tracking columns of a table whose rows' ids are asked for.</summary>
+    /// <exception cref="PolarsException">The table does not have row tracking on.</exception>
+    private static (string RowId, string CommitVersion) RowTrackingColumns(Snapshot snapshot) =>
+        RowTracking.IsEnabled(snapshot.Protocol, snapshot.Metadata) && RowTracking.MaterializedColumns(snapshot.Metadata) is { } columns
+            ? columns
+            : throw new PolarsException(
+                $"Row ids and row commit versions need row tracking, which the table does not have on; turn it on with the table property {RowTracking.EnableKey}.");
 
     private static readonly IReadOnlyDictionary<string, DeltaType> NoOldTypes = new Dictionary<string, DeltaType>();
 

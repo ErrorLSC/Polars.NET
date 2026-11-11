@@ -22,6 +22,10 @@ public partial class LazyFrame : IDisposable
     /// <param name="hivePartitioning">Ignored since 1.2.0 (the managed Delta kernel takes partition values from the log, not from paths); removed in 2.0.</param>
     /// <param name="hivePartitionSchema">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
     /// <param name="tryParseHiveDates">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
+    /// <param name="rowIdColumn">Adds each row's row id (Int64) under this name: stable across updates, merges and
+    /// optimize (Spark's <c>_metadata.row_id</c>). The table must have row tracking on (<c>delta.enableRowTracking</c>).</param>
+    /// <param name="rowCommitVersionColumn">Adds the version that last changed each row (Int64) under this name
+    /// (Spark's <c>_metadata.row_commit_version</c>). The table must have row tracking on.</param>
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanDelta(
         string path,
@@ -41,7 +45,9 @@ public partial class LazyFrame : IDisposable
         bool hivePartitioning = true,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        string? rowIdColumn = null,
+        string? rowCommitVersionColumn = null)
     {
         if (version.HasValue && datetime != null)
         {
@@ -78,7 +84,9 @@ public partial class LazyFrame : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            rowIdColumn,
+            rowCommitVersionColumn
         );
 
         return new LazyFrame(h);

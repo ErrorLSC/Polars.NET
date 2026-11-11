@@ -141,7 +141,9 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues)
+        string[]? cloudValues,
+        string? rowIdColumn = null,
+        string? rowCommitVersionColumn = null)
     {
         // The managed Delta kernel resolves the table; partition values come from the log, so the glob and Hive
         // options do not apply.
@@ -151,7 +153,7 @@ public readonly partial struct PolarsWrapper
         DateTimeOffset? asOf = datetime is null ? null : Delta.DeltaKernelScan.ParseAsOf(datetime);
         long? atVersion = version is ulong v ? checked((long)v) : null;
         var options = new Delta.KernelScanOptions(nRows, rowIndexName, rowIndexOffset, includePathColumn, parallel, lowMemory,
-            useStatistics, rechunk, cache, schema);
+            useStatistics, rechunk, cache, schema, rowIdColumn, rowCommitVersionColumn);
         return Delta.DeltaKernelScan.Scan(path, atVersion, asOf, filter: null, cloud, options);
     }
     public static void SinkDelta(
@@ -225,6 +227,50 @@ public readonly partial struct PolarsWrapper
             MaintainOrder: maintainOrder,
             SyncOnClose: syncOnClose);
         Delta.DeltaKernelWrite.Write(path, lf, kernelMode, partitions, cloud, configuration: null, canEvolve, options);
+    }
+    /// <summary>
+    /// Creates an empty Delta table (version 0) with the schema (borrowed), partition columns, table properties and
+    /// identity columns given: the arrays of the identity columns run in parallel.
+    /// </summary>
+    public static void DeltaCreateTable(
+        string path,
+        SchemaHandle schema,
+        string[]? partitionBy,
+        string[]? propertyKeys,
+        string[]? propertyValues,
+        string[]? identityColumns,
+        long[]? identityStarts,
+        long[]? identitySteps,
+        bool[]? identityGeneratedAlways,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        Dictionary<string, string>? properties = null;
+        if (propertyKeys is { Length: > 0 })
+        {
+            if (propertyValues is null || propertyValues.Length != propertyKeys.Length)
+                throw new ArgumentException("Every property needs a value.", nameof(propertyValues));
+            properties = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i < propertyKeys.Length; i++) properties[propertyKeys[i]] = propertyValues[i];
+        }
+        var identity = new List<Delta.KernelIdentityColumn>();
+        for (int i = 0; i < (identityColumns?.Length ?? 0); i++)
+        {
+            identity.Add(new Delta.KernelIdentityColumn(
+                identityColumns![i], identityStarts?[i] ?? 1, identitySteps?[i] ?? 1, identityGeneratedAlways?[i] ?? true));
+        }
+        using DataFrameHandle empty = DataFrameFromSchema(schema, 0);
+        var tableSchema = Delta.DeltaKernelWrite.SchemaOf(empty);
+        var cloud = new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path);
+        Delta.DeltaKernelCreate.Create(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud);
     }
     public static void DeltaDelete(
         string path,

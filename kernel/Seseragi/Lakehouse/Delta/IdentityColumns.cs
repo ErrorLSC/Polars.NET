@@ -82,6 +82,33 @@ public static class IdentityColumns
     }
 
     /// <summary>
+    /// The field declared an identity column (no value generated yet), with the metadata Spark writes for
+    /// <c>GENERATED ALWAYS | BY DEFAULT AS IDENTITY (START WITH start INCREMENT BY step)</c>.
+    /// </summary>
+    /// <exception cref="DeltaException">The field is not a long, or the step is 0.</exception>
+    public static StructField Declare(StructField field, long start, long step, bool allowExplicitInsert)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (field.Type is not PrimitiveType { Name: PrimitiveType.Long })
+            throw new DeltaException($"The identity column '{field.Name}' must be a long (Int64), not {field.Type}.");
+        if (step == 0) throw new DeltaException($"The identity column '{field.Name}' cannot step by 0.");
+        var metadata = new Dictionary<string, string>(field.Metadata, StringComparer.Ordinal)
+        {
+            [StepKey] = step.ToString(CultureInfo.InvariantCulture),
+            [AllowExplicitInsertKey] = allowExplicitInsert ? "true" : "false",
+            [StartKey] = start.ToString(CultureInfo.InvariantCulture),
+        };
+        return new StructField
+        {
+            Name = field.Name,
+            Type = field.Type,
+            Nullable = field.Nullable,
+            Metadata = metadata,
+            JsonMetadataKeys = new HashSet<string>(field.JsonMetadataKeys) { StepKey, AllowExplicitInsertKey, StartKey },
+        };
+    }
+
+    /// <summary>
     /// The metadata with new high water marks for the named identity columns (written as JSON numbers, as Spark
     /// writes them); everything else as it was.
     /// </summary>

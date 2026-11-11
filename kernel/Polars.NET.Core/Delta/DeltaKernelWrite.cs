@@ -107,30 +107,9 @@ internal static class DeltaKernelWrite
             MetadataAction? changed = null; // the metadata change of a write to an existing table
             if (existing is null)
             {
-                schema = incoming;
                 partitions = partitionBy ?? [];
-                foreach (string column in partitions)
-                {
-                    StructField field = schema.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");
-                    if (!IsPartitionable(field.Type))
-                        throw new PolarsException($"The column '{column}' of type {field.Type} cannot be a partition column.");
-                }
-                var metadata = new MetadataAction
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    SchemaString = schema.ToJson(),
-                    PartitionColumns = partitions,
-                    Configuration = WithRowTrackingNames(configuration ?? new Dictionary<string, string>()),
-                    CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                };
-                if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None)
-                {
-                    // Column mapping from the start: every column gets an id and a physical name.
-                    metadata = SchemaEvolution.Replace(metadata, schema, partitions);
-                    schema = StructType.Parse(metadata.SchemaString);
-                    if (schema.Fields.Any(f => NeedsMapping(f.Type)))
-                        throw new PolarsException("Creating a table with column mapping and nested columns is not supported yet.");
-                }
+                MetadataAction metadata;
+                (metadata, schema) = NewTableMetadata(incoming, partitions, configuration);
                 transaction = Transaction.Create(fileSystem, ProtocolFor(schema, metadata.Configuration), metadata, "WRITE");
             }
             else
@@ -300,6 +279,38 @@ internal static class DeltaKernelWrite
         if (v2Checkpoint) features.Add(TableFeatures.V2Checkpoint);
         if (rowTracking) features.Add(RowTracking.Feature);
         return TableFeatures.WithFeatures(new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, features);
+    }
+
+    /// <summary>
+    /// The metadata of a new table, and its schema as the table keeps it: partition columns checked, row tracking
+    /// columns named when it is on, ids and physical names given under column mapping.
+    /// </summary>
+    internal static (MetadataAction Metadata, StructType Schema) NewTableMetadata(
+        StructType schema, string[] partitions, IReadOnlyDictionary<string, string>? configuration)
+    {
+        foreach (string column in partitions)
+        {
+            StructField field = schema.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");
+            if (!IsPartitionable(field.Type))
+                throw new PolarsException($"The column '{column}' of type {field.Type} cannot be a partition column.");
+        }
+        var metadata = new MetadataAction
+        {
+            Id = Guid.NewGuid().ToString(),
+            SchemaString = schema.ToJson(),
+            PartitionColumns = partitions,
+            Configuration = WithRowTrackingNames(configuration ?? new Dictionary<string, string>()),
+            CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        };
+        if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None)
+        {
+            // Column mapping from the start: every column gets an id and a physical name.
+            metadata = SchemaEvolution.Replace(metadata, schema, partitions);
+            schema = StructType.Parse(metadata.SchemaString);
+            if (schema.Fields.Any(f => NeedsMapping(f.Type)))
+                throw new PolarsException("Creating a table with column mapping and nested columns is not supported yet.");
+        }
+        return (metadata, schema);
     }
 
     /// <summary>A new table's properties: with row tracking on, the names of its materialized columns too (as Spark).</summary>

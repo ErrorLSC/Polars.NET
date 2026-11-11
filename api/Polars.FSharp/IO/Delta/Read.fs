@@ -16,6 +16,8 @@ module DeltaRead =
         /// <param name="hivePartitioning">Ignored since 1.2.0 (the managed Delta kernel takes partition values from the log, not from paths); removed in 2.0.</param>
         /// <param name="hivePartitionSchema">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
         /// <param name="tryParseHiveDates">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
+        /// <param name="rowIdColumn">Adds each row's row id (Int64) under this name: stable across updates, merges and optimize (Spark's <c>_metadata.row_id</c>). The table must have row tracking on (<c>delta.enableRowTracking</c>).</param>
+        /// <param name="rowCommitVersionColumn">Adds the version that last changed each row (Int64) under this name (Spark's <c>_metadata.row_commit_version</c>). The table must have row tracking on.</param>
         /// <returns>A new LazyFrame.</returns>
         static member ScanDelta(
             path: string,
@@ -35,7 +37,9 @@ module DeltaRead =
             ?hivePartitioning: bool,
             ?hivePartitionSchema: PolarsSchema,
             ?tryParseHiveDates: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?rowIdColumn: string,
+            ?rowCommitVersionColumn: string
         ) : LazyFrame =
             
             // Time Travel Mutual Exclusivity Check
@@ -95,7 +99,9 @@ module DeltaRead =
                 cMaxMs,
                 cCache,
                 cKeys,
-                cVals
+                cVals,
+                Option.toObj rowIdColumn,
+                Option.toObj rowCommitVersionColumn
             )
 
             new LazyFrame(h)
@@ -125,7 +131,9 @@ module DeltaRead =
             ?hivePartitioning: bool,
             ?hivePartitionSchema: PolarsSchema,
             ?tryParseHiveDates: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?rowIdColumn: string,
+            ?rowCommitVersionColumn: string
         ) : DataFrame =
             let lf = LazyFrame.ScanDelta(
                 path,
@@ -145,6 +153,8 @@ module DeltaRead =
                 ?hivePartitioning=hivePartitioning,
                 ?hivePartitionSchema=hivePartitionSchema,
                 ?tryParseHiveDates=tryParseHiveDates,
-                ?cloudOptions=cloudOptions
+                ?cloudOptions=cloudOptions,
+                ?rowIdColumn=rowIdColumn,
+                ?rowCommitVersionColumn=rowCommitVersionColumn
             )
             lf.Collect()
