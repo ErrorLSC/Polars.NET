@@ -140,6 +140,31 @@ public static class KernelObjectStoreCheck
             Assert.DoesNotContain(strictFs.ListAll(""), f => f.Path.EndsWith(".parquet", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// One commit of many files (more than are read at once): each add action's size is the file's, and its
+    /// statistics are its footer's.
+    /// </summary>
+    public static void ManyFilesWork(string url, CloudArgs args)
+    {
+        int[] ids = [.. Enumerable.Range(0, 120)];
+        using (var df = DataFrame.FromColumns(new { Id = ids, Part = ids.Select(i => $"p{i % 40:D2}").ToArray() }))
+            DeltaKernelWrite.Write(url, Polars.NET.Core.Wrappers.PolarsWrapper.LazyClone(df.Lazy().Handle), KernelWriteMode.ErrorIfExists,
+                ["Part"], args, options: new KernelWriteOptions(MaxRowsPerFile: 3));
+
+        using var fs = new ObjectStoreFileSystem(url, args);
+        Snapshot table = Snapshot.Load(fs, parquet: new EngineParquetReader(url, args));
+        Assert.Equal(40, table.Files.Count);
+        var listed = fs.ListAll("").ToDictionary(f => f.Path, f => f.Size, StringComparer.Ordinal);
+        foreach (var file in table.Files)
+        {
+            Assert.Equal(listed[Uri.UnescapeDataString(file.Path)], file.Size);
+            using var stats = System.Text.Json.JsonDocument.Parse(file.Stats!);
+            Assert.Equal(3, stats.RootElement.GetProperty("numRecords").GetInt64());
+            int min = stats.RootElement.GetProperty("minValues").GetProperty("Id").GetInt32();
+            Assert.Equal($"p{min % 40:D2}", file.PartitionValues["Part"]);
+        }
+    }
+
     /// <summary>Snapshot and rows of the table at <paramref name="url"/> equal those of the local copy.</summary>
     public static void SameAsLocal(string table, string url, CloudArgs args)
     {
@@ -193,7 +218,7 @@ public class DeltaKernelAzureTests(AzuriteFixture azurite) : IClassFixture<Azuri
 
         CloudArgs args = KernelObjectStoreCheck.ToArgs(Options());
         using (var fs = new ObjectStoreFileSystem($"az://{azurite.ContainerName}/{prefix}", args))
-            Assert.Equal("managed", fs.Implementation);
+            Assert.Equal(ObjectStoreFileSystem.ConfiguredBackend == ObjectStoreBackend.Native ? "native" : "managed", fs.Implementation);
         foreach (string table in SampleTables.Names)
             KernelObjectStoreCheck.SameAsLocal(table, $"az://{azurite.ContainerName}/{prefix}/{table}", args);
         KernelObjectStoreCheck.PutIfAbsentHolds($"az://{azurite.ContainerName}/{prefix}", args);
@@ -231,11 +256,30 @@ public class DeltaKernelGcsTests(FakeGcsFixture gcs) : IClassFixture<FakeGcsFixt
         CloudArgs args = GcsKeys.Args(gcs);
         string prefix = $"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}";
         using (var fs = new ObjectStoreFileSystem(prefix, args))
-            Assert.Equal("managed", fs.Implementation);
+            Assert.Equal(ObjectStoreFileSystem.ConfiguredBackend == ObjectStoreBackend.Native ? "native" : "managed", fs.Implementation);
         foreach (string table in SampleTables.Names)
             KernelObjectStoreCheck.SameAsLocal(table, $"{prefix}/{table}", args);
         // The kernel's own writes go through the managed client (JSON API uploads, which the emulator implements);
-        // the engine's data file writes (XML API uploads) cannot run on this emulator.
-        KernelObjectStoreCheck.PutIfAbsentHolds($"gs://{FakeGcsFixture.BucketName}/kernel_{Guid.NewGuid():N}", args);
+        // the native store's and the engine's writes (XML API uploads) cannot run on this emulator.
+        if (ObjectStoreFileSystem.ConfiguredBackend != ObjectStoreBackend.Native)
+            KernelObjectStoreCheck.PutIfAbsentHolds($"gs://{FakeGcsFixture.BucketName}/kernel_{Guid.NewGuid():N}", args);
+    }
+}
+
+/// <summary>A commit of many files on each store (footers read in parallel, in auto and native mode alike).</summary>
+public class DeltaKernelManyFilesTests(MinioFixture minio, AzuriteFixture azurite) : IClassFixture<MinioFixture>, IClassFixture<AzuriteFixture>
+{
+    [Fact]
+    [Trait("DeltaKernel", "Cloud")]
+    public void ManyFiles_OnS3() => KernelObjectStoreCheck.ManyFilesWork(
+        $"s3://{minio.BucketName}/many_{Guid.NewGuid():N}", CloudArgs.ForLocation("s3://x", [.. MinioKeys.Of(minio).Keys], [.. MinioKeys.Of(minio).Values]));
+
+    [Fact]
+    [Trait("DeltaKernel", "Cloud")]
+    public void ManyFiles_OnAzure()
+    {
+        var options = CloudOptions.Azure(accountName: AzuriteFixture.AccountName, accessKey: AzuriteFixture.AccountKey, endpoint: azurite.BlobEndpoint);
+        options.Credentials!["azure_allow_http"] = "true";
+        KernelObjectStoreCheck.ManyFilesWork($"az://{azurite.ContainerName}/many_{Guid.NewGuid():N}", KernelObjectStoreCheck.ToArgs(options));
     }
 }

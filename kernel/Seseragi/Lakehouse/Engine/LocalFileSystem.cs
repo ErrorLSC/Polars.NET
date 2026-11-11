@@ -1,7 +1,7 @@
 namespace Kaminari.Seseragi.Lakehouse.Engine;
 
 /// <summary>A table on the local disk.</summary>
-public sealed class LocalFileSystem : IWritableFileSystem
+public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
 {
     private readonly string _root;
 
@@ -57,6 +57,33 @@ public sealed class LocalFileSystem : IWritableFileSystem
         try
         {
             return File.ReadAllBytes(Resolve(path));
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool CanReadTails => true;
+
+    /// <inheritdoc/>
+    public FileTail? ReadTail(string path, int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        try
+        {
+            using FileStream stream = File.OpenRead(Resolve(path));
+            long size = stream.Length;
+            int count = (int)Math.Min(length, size);
+            stream.Seek(size - count, SeekOrigin.Begin);
+            var buffer = new byte[count];
+            stream.ReadExactly(buffer);
+            return new FileTail(buffer, size);
         }
         catch (FileNotFoundException)
         {

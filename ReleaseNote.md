@@ -15,7 +15,7 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 
 ### New
 
-* Writes stream: `WriteDelta` / `SinkDelta` no longer collect the frame. Files are split by partition, `maxRowsPerFile` and size.
+* Writes stream: `WriteDelta` / `SinkDelta` no longer collect the frame. Files are split by partition, `maxRowsPerFile` and size. The sizes and statistics of the written files are read from each file's end, several files at once (usually one request per file on S3 and Google Cloud Storage, two on Azure), instead of listing the table's directories.
 * Tables with the change data feed can be written (writes, deletes, merges and restores feed it). Previously writers failed with `Unsupported table features required`.
 * Deletion vectors follow the protocol and are read and written by Spark and Databricks.
 * `AddFeature` and `SetTableProperties` follow Spark's `ALTER TABLE ... SET TBLPROPERTIES`: properties that turn a feature on bring it into the protocol, `delta.feature.<name>` adds a feature, `delta.minReaderVersion` / `delta.minWriterVersion` raise the versions. Column mapping can be turned on (`none` to `name`), and in-commit timestamps for an existing table.

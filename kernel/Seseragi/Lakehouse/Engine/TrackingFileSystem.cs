@@ -13,7 +13,7 @@ namespace Kaminari.Seseragi.Lakehouse.Engine;
 /// a <see cref="DeltaCommitConflictException"/>). When writing the commit file itself failed (a timeout, a broken
 /// connection), the store may still have taken it: the files are kept.
 /// </remarks>
-public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFileSystem, IDisposable
+public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFileSystem, ITailReadable, IDisposable
 {
     /// <summary>Disposes the wrapped storage, which this wrapper owns.</summary>
     public void Dispose() => (Inner as IDisposable)?.Dispose();
@@ -106,4 +106,9 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
     public byte[]? ReadAll(string path) => Inner.ReadAll(path);
     /// <inheritdoc/>
     public byte[]? ReadRange(string path, long offset, int length) => Inner.ReadRange(path, offset, length);
+    /// <inheritdoc/>
+    public bool CanReadTails => Inner is ITailReadable { CanReadTails: true };
+    /// <inheritdoc/>
+    public FileTail? ReadTail(string path, int length) =>
+        Inner is ITailReadable tails ? tails.ReadTail(path, length) : throw new NotSupportedException("The wrapped storage cannot read tails.");
 }

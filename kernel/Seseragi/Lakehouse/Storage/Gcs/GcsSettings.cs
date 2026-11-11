@@ -11,6 +11,7 @@ namespace Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 /// <param name="BaseUrl">The storage service, without a trailing slash.</param>
 /// <param name="Token">The token source; null sends requests without a token.</param>
 /// <param name="SkipSignature">Whether reads (and listings) go without a token.</param>
+/// <param name="Http">Connection options (proxy, certificate checks).</param>
 internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Token, bool SkipSignature = false, HttpOptions? Http = null)
 {
     internal const string DefaultBaseUrl = "https://storage.googleapis.com";

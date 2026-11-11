@@ -23,6 +23,7 @@ internal abstract record AzureAuth
 /// <param name="ServiceUrl">The blob service, without a trailing slash; the emulator's includes the account.</param>
 /// <param name="Account">The storage account.</param>
 /// <param name="Auth">The credentials; null sends unsigned requests.</param>
+/// <param name="Http">Connection options (proxy, certificate checks).</param>
 internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAuth? Auth, HttpOptions? Http = null)
 {
     /// <summary>The well-known account of Azurite and the storage emulator.</summary>

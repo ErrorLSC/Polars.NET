@@ -75,7 +75,7 @@ public enum ObjectStoreBackend
 /// (<see cref="CloudStorage"/>) when they implement the given settings; anything else goes through the native store
 /// the engine itself uses, with the same credentials and retry settings.
 /// </summary>
-public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
+public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, IDisposable
 {
     /// <summary>The environment variable choosing the backend: <c>auto</c> (default), <c>managed</c> or <c>native</c>.</summary>
     public const string BackendVariable = "POLARS_NET_OBJECT_STORE";
@@ -192,28 +192,52 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
     public byte[]? ReadAll(string path) => _managed is not null ? _managed.ReadAll(path) : Read(path, 0, -1);
 
     /// <inheritdoc/>
+    public bool CanReadTails => true;
+
+    /// <inheritdoc/>
+    public FileTail? ReadTail(string path, int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        if (_managed is not null) return _managed.ReadTail(path, length);
+        if (Outside(ref path) is { } store) return store.ReadTail(path, length);
+        NativeBindings.pl_storage_read_tail(_handle!, path, (ulong)length, out FfiBuffer raw, out ulong size, out bool found);
+        byte[] bytes = NativeBuffer.TakeToArray(raw);
+        ErrorHelper.CheckVoid();
+        return found ? new FileTail(bytes, (long)size) : null;
+    }
+
+    /// <summary>
+    /// For an absolute URI outside the table, the store opened at the file's directory (with the same settings) and
+    /// the file's name; inside the table, null with the path made relative. The path part of a URI is
+    /// percent-encoded. Safe from several threads (footers are read in parallel).
+    /// </summary>
+    private ObjectStoreFileSystem? Outside(ref string path)
+    {
+        if (!path.Contains("://", StringComparison.Ordinal)) return null;
+        if (path.StartsWith(_root + "/", StringComparison.Ordinal))
+        {
+            path = Uri.UnescapeDataString(path[(_root.Length + 1)..]);
+            return null;
+        }
+        int slash = path.LastIndexOf('/');
+        string directory = path[..slash];
+        path = Uri.UnescapeDataString(path[(slash + 1)..]);
+        lock (_outside)
+        {
+            if (!_outside.TryGetValue(directory, out ObjectStoreFileSystem? store))
+                _outside[directory] = store = new ObjectStoreFileSystem(directory, _cloud, ObjectStoreBackend.Native);
+            return store;
+        }
+    }
+
+    /// <inheritdoc/>
     public byte[]? ReadRange(string path, long offset, int length) =>
         _managed is not null ? _managed.ReadRange(path, offset, length) : Read(path, (ulong)offset, length);
 
     private byte[]? Read(string path, ulong offset, long length)
     {
-        if (path.Contains("://", StringComparison.Ordinal))
-        {
-            // An absolute URI: inside the table it is read as a relative path; elsewhere through a store opened at
-            // the file's directory with the same settings. The path part of a URI is percent-encoded.
-            if (path.StartsWith(_root + "/", StringComparison.Ordinal))
-            {
-                path = Uri.UnescapeDataString(path[(_root.Length + 1)..]);
-            }
-            else
-            {
-                int slash = path.LastIndexOf('/');
-                string directory = path[..slash];
-                if (!_outside.TryGetValue(directory, out ObjectStoreFileSystem? store))
-                    _outside[directory] = store = new ObjectStoreFileSystem(directory, _cloud, ObjectStoreBackend.Native);
-                return store.Read(Uri.UnescapeDataString(path[(slash + 1)..]), offset, length);
-            }
-        }
+        // An absolute URI: inside the table it is read as a relative path; elsewhere through its own store.
+        if (Outside(ref path) is { } store) return store.Read(path, offset, length);
 
         NativeBindings.pl_storage_read(_handle!, path, offset, length, out FfiBuffer raw, out bool found);
         byte[] bytes = NativeBuffer.TakeToArray(raw);

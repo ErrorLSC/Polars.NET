@@ -6,7 +6,7 @@ namespace Kaminari.Seseragi.Lakehouse.Storage;
 /// A table on an object store, rooted at a location such as <c>s3://bucket/dir/table</c>. Paths are relative to the
 /// root; absolute URIs (percent-encoded, as a table log writes them) are read inside or outside the root.
 /// </summary>
-public sealed class CloudFileSystem : IWritableFileSystem
+public sealed class CloudFileSystem : IWritableFileSystem, ITailReadable
 {
     private readonly string _rootUrl;
     private readonly string _bucket;
@@ -136,6 +136,17 @@ public sealed class CloudFileSystem : IWritableFileSystem
         var (client, key) = Resolve(path);
         if (length == 0) return client.Head(key) is null ? null : [];
         return client.GetRange(key, offset, length);
+    }
+
+    /// <inheritdoc/>
+    public bool CanReadTails => true;
+
+    /// <inheritdoc/>
+    public FileTail? ReadTail(string path, int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        var (client, key) = Resolve(path);
+        return client.GetTail(key, length) is var (tail, size) ? new FileTail(tail, size) : null;
     }
 
     /// <inheritdoc/>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.Http;
 
@@ -39,6 +40,25 @@ internal static class HttpTransport
             // connect timeout gives quick feedback.
             new HttpClient(options.Handler(TimeSpan.FromSeconds(1))) { Timeout = Timeout.InfiniteTimeSpan }));
 
+    private static readonly AsyncLocal<StrongBox<int>?> Counter = new();
+
+    /// <summary>Runs <paramref name="action"/> and counts the requests it sends on this flow (diagnostics and tests).</summary>
+    internal static int CountRequests(Action action)
+    {
+        var box = new StrongBox<int>();
+        StrongBox<int>? outer = Counter.Value;
+        Counter.Value = box;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            Counter.Value = outer;
+        }
+        return box.Value;
+    }
+
     /// <summary>
     /// Sends the request <paramref name="build"/> makes (afresh for every attempt). Network failures and answers
     /// 408, 429 and 5xx are retried, as are answers <paramref name="alsoRetry"/> names; anything else is returned.
@@ -61,6 +81,7 @@ internal static class HttpTransport
             try
             {
                 using HttpRequestMessage request = build();
+                if (Counter.Value is { } count) Interlocked.Increment(ref count.Value);
                 using HttpResponseMessage response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
                 byte[] body = request.Method == HttpMethod.Head ? [] : ReadBody(response);
                 var answer = new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, body, retried);

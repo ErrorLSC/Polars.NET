@@ -495,21 +495,24 @@ internal static class DeltaKernelWrite
             options.Compression, options.CompressionLevel, options.RowGroupSize, options.DataPageSize, options.MaintainOrder,
             options.SyncOnClose, cloud);
 
-        // Sizes from one listing per directory (the store has no per-file size call), then each footer.
-        var sizes = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (string directory in written.Select(w => DirectoryOf(w.Relative)).Distinct(StringComparer.Ordinal))
+        // Sizes and footers: one read of each file's end where the store can, else a listing per directory.
+        (long Size, ParquetMetadata Footer)[] footers;
+        try
         {
-            foreach (FileEntry entry in fileSystem.List(directory)) sizes[entry.Path] = entry.Size;
+            footers = ParquetFooters.Read(fileSystem, [.. written.Select(w => w.Relative)]);
+        }
+        catch (FileNotFoundException e)
+        {
+            throw new PolarsException(e.Message);
         }
         // NOT NULL primitive columns are checked on the footers' null counts (nested ones were checked on the rows).
         StructField[] notNullLeaves = [.. dataFields.Where(f => !f.Nullable && f.Type is not (StructType or ArrayType or MapType))];
         IReadOnlyList<StructField> indexed = FileStatistics.IndexedFields(dataFields, tableProperties);
         var adds = new List<AddAction>(written.Count);
-        foreach (var (relative, values) in written)
+        for (int i = 0; i < written.Count; i++)
         {
-            if (!sizes.TryGetValue(relative, out long size))
-                throw new PolarsException($"The data file {relative} was not found after it was written.");
-            ParquetMetadata footer = ParquetMetadata.Read(fileSystem, relative, size);
+            var (relative, values) = written[i];
+            var (size, footer) = footers[i];
             if (notNullLeaves.Length > 0)
             {
                 IReadOnlyDictionary<string, long> nulls = FileStatistics.NullCounts(footer);
@@ -528,8 +531,6 @@ internal static class DeltaKernelWrite
             });
         }
         return adds;
-
-        static string DirectoryOf(string relative) => relative.LastIndexOf('/') is int i and >= 0 ? relative[..i] : "";
     }
 
     private static bool HasNotNullInside(StructType type) =>

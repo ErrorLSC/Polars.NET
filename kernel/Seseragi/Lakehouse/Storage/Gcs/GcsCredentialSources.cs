@@ -66,6 +66,7 @@ internal static class GcsCredentialSources
     /// <param name="retry">Retry settings.</param>
     /// <param name="tokenUri">The token endpoint (tests use a stand-in).</param>
     /// <param name="clock">The current time.</param>
+    /// <param name="http">Connection options.</param>
     public static CachedCredential<string> AuthorizedUser(
         string clientId, string clientSecret, string refreshToken, RetrySettings retry, string? tokenUri = null,
         Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>

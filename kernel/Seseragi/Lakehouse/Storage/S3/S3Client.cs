@@ -132,6 +132,20 @@ internal sealed class S3Client : ObjectStoreClient
     }
 
     /// <inheritdoc/>
+    public override (byte[] Tail, long Size)? GetTail(string key, int length)
+    {
+        if (length == 0) return base.GetTail(key, length);
+        // A suffix range: the end of the object and, in Content-Range, its size, in one request.
+        StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: With(_headers.Read, ("range", $"bytes=-{length}")));
+        if (response.Status == HttpStatusCode.NotFound) return null;
+        if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return base.GetTail(key, length); // an empty object
+        if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
+        // Read raw: stores write an empty object's range in forms the header parser refuses ("bytes 0--1/0").
+        string? contentRange = response.ContentHeaders.NonValidated.TryGetValues("Content-Range", out var values) ? values.ToString() : null;
+        return SuffixAnswer(response.Status, contentRange, response.Body, length) ?? base.GetTail(key, length);
+    }
+
+    /// <inheritdoc/>
     public override byte[]? GetRange(string key, long offset, int length)
     {
         var range = With(_headers.Read, ("range", $"bytes={offset}-{offset + length - 1}"));

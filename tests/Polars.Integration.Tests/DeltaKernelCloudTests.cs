@@ -80,7 +80,7 @@ public class DeltaKernelCloudTests(MinioFixture minio) : IClassFixture<MinioFixt
         Assert.Equal(4, latest.Height);
 
         using var fs = new ObjectStoreFileSystem(url, args);
-        Assert.Equal("managed", fs.Implementation); // MinIO with static keys: the managed client, no fallback
+        Assert.Equal(ObjectStoreFileSystem.ConfiguredBackend == ObjectStoreBackend.Native ? "native" : "managed", fs.Implementation); // MinIO with static keys: the managed client, no fallback
         var log = fs.List("_delta_log");
         Assert.Contains(log, f => f.Path == "_delta_log/00000000000000000000.json");
         Assert.NotNull(fs.ReadAll("_delta_log/00000000000000000000.json"));

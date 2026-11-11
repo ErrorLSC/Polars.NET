@@ -105,6 +105,7 @@ internal static class AwsCredentialSources
     /// <param name="retry">Retry settings.</param>
     /// <param name="allowHttp">Whether an <c>http</c> endpoint is accepted (tests only: the token must not travel in clear).</param>
     /// <param name="clock">The current time.</param>
+    /// <param name="http">Connection options.</param>
     public static CachedCredential<AwsCredential> WebIdentity(
         string tokenFile, string roleArn, string sessionName, string endpoint, RetrySettings retry, bool allowHttp = false,
         Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>

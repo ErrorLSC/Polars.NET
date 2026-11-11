@@ -144,6 +144,29 @@ public abstract class FileSystemContract
     });
 
     [Fact]
+    public void Tails_GiveTheEndAndTheSize_InOneCall() => With((fs, root) =>
+    {
+        var tails = Assert.IsAssignableFrom<ITailReadable>(fs);
+        Assert.True(tails.CanReadTails);
+
+        byte[] content = [.. Enumerable.Range(0, 100).Select(i => (byte)i)];
+        fs.Overwrite("dir/data.bin", content);
+        Assert.True(fs.TryCreate("empty", ReadOnlyMemory<byte>.Empty));
+
+        FileTail end = tails.ReadTail("dir/data.bin", 10)!.Value;
+        Assert.Equal(100, end.Size);
+        Assert.Equal(content[^10..], end.Bytes);
+        FileTail all = tails.ReadTail("dir/data.bin", 1000)!.Value;
+        Assert.Equal(100, all.Size);
+        Assert.Equal(content, all.Bytes);
+        FileTail empty = tails.ReadTail("empty", 10)!.Value;
+        Assert.Equal(0, empty.Size);
+        Assert.Empty(empty.Bytes);
+        Assert.Null(tails.ReadTail("missing.bin", 10));
+        Assert.Equal(content[^4..], tails.ReadTail(AbsoluteUri(root, "dir/data.bin"), 4)!.Value.Bytes);
+    });
+
+    [Fact]
     public void TryCreate_RefusesAnExistingFile_AndOverwriteReplacesIt() => With((fs, _) =>
     {
         Assert.True(fs.TryCreate("dir/one.json", Bytes("first")));
@@ -737,6 +760,21 @@ public sealed class ManagedGcsFileSystemContractTests(FakeGcsFixture gcs) : File
     }
 
     [Fact]
+    public void TheNativeStore_ReadsTails_OnGcs()
+    {
+        // The emulator takes no native writes, but reads: the end of a preloaded data file, as the local copy has it.
+        string table = SampleTables.Names[0];
+        string local = Path.Combine(SampleTables.Root, table);
+        string file = Path.GetRelativePath(local, Directory.EnumerateFiles(local, "*.parquet").First()).Replace('\\', '/');
+        byte[] bytes = File.ReadAllBytes(Path.Combine(local, file));
+        using var native = new ObjectStoreFileSystem($"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}/{table}", GcsKeys.Args(gcs), ObjectStoreBackend.Native);
+        FileTail tail = native.ReadTail(file, 100)!.Value;
+        Assert.Equal(bytes.Length, tail.Size);
+        Assert.Equal(bytes[^100..], tail.Bytes);
+        Assert.Null(native.ReadTail("missing.parquet", 100));
+    }
+
+    [Fact]
     public void ATableUnderARootWithEscapes_IsReadTheSameByTheEngine()
     {
         // The emulator takes no engine writes (XML uploads), so the managed client uploads a table and the engine
@@ -1024,5 +1062,27 @@ public sealed class S3ConnectionOptionTests : IDisposable
         BothWork(RoundTrip("https://s3.invalid:9443", new() { ["proxy_url"] = proxy.Url, ["proxy_ca_certificate"] = _certificates.AuthorityPem }));
         Assert.Contains(proxy.Requests, r => r is { Method: "CONNECT", PathAndQuery: "s3.invalid:9443" });
         Assert.Contains(proxy.Requests, r => r is { Method: "PUT", PathAndQuery: "/bucket/t/a.json" });
+    }
+}
+
+/// <summary>A file's end and size take one request on stores with suffix ranges (S3, GCS), two on Azure.</summary>
+[Trait("FileSystemContract", "Cloud")]
+public sealed class ManagedTailRequestTests(MinioFixture minio, AzuriteFixture azurite, FakeGcsFixture gcs)
+    : IClassFixture<MinioFixture>, IClassFixture<AzuriteFixture>, IClassFixture<FakeGcsFixture>
+{
+    private static int Requests(CloudFileSystem fs)
+    {
+        fs.Overwrite("t.bin", new byte[1000]);
+        int count = Kaminari.Seseragi.Lakehouse.Storage.Http.HttpTransport.CountRequests(() =>
+            Assert.Equal(1000, fs.ReadTail("t.bin", 100)!.Value.Size));
+        return count;
+    }
+
+    [Fact]
+    public void S3_AndGcs_AnswerInOneRequest_AzureInTwo()
+    {
+        Assert.Equal(1, Requests(MinioKeys.Open($"s3://{minio.BucketName}/tail_{Guid.NewGuid():N}", MinioKeys.Of(minio))));
+        Assert.Equal(1, Requests(GcsKeys.Open($"gs://{FakeGcsFixture.BucketName}/tail_{Guid.NewGuid():N}", GcsKeys.Of(gcs))));
+        Assert.Equal(2, Requests(AzuriteKeys.Open($"az://{azurite.ContainerName}/tail_{Guid.NewGuid():N}", AzuriteKeys.Of(azurite))));
     }
 }

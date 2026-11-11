@@ -246,6 +246,73 @@ pub extern "C" fn pl_storage_read(
     })
 }
 
+/// Reads the last `length` bytes of a file (all of it when shorter) and its size, in one request where the store
+/// takes suffix ranges (S3, GCS), else its properties and then a ranged read (Azure). `out_found` is false, with
+/// an empty buffer, when the file does not exist.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_storage_read_tail(
+    ctx_ptr: *mut StorageContext,
+    path_ptr: *const c_char,
+    length: u64,
+    out_buffer: *mut FfiBuffer,
+    out_size: *mut u64,
+    out_found: *mut bool,
+) {
+    ffi_try_void!({
+        if ctx_ptr.is_null() || out_buffer.is_null() || out_size.is_null() || out_found.is_null() {
+            return Err(compute_err("storage context or output pointer is null"));
+        }
+        let ctx = unsafe { &*ctx_ptr };
+        let relative = ptr_to_str(path_ptr).map_err(compute_err)?;
+        let path = ctx.path(relative)?;
+
+        let result: Result<(Vec<u8>, u64), object_store::Error> = ASYNC.block_on(async {
+            let store = ctx.store.to_dyn_object_store().await;
+            if length > 0 {
+                let options = object_store::GetOptions {
+                    range: Some(object_store::GetRange::Suffix(length)),
+                    ..Default::default()
+                };
+                match store.get_opts(&path, options).await {
+                    Ok(answer) => {
+                        let size = answer.meta.size;
+                        return Ok((answer.bytes().await?.to_vec(), size));
+                    },
+                    Err(e @ object_store::Error::NotFound { .. }) => return Err(e),
+                    // No suffix ranges (Azure), or none for an empty object: ask for the size first.
+                    Err(_) => {},
+                }
+            }
+            let size = store.head(&path).await?.size;
+            let start = size.saturating_sub(length);
+            if start >= size {
+                return Ok((Vec::new(), size));
+            }
+            Ok((store.get_range(&path, start..size).await?.to_vec(), size))
+        });
+
+        match result {
+            Ok((bytes, size)) => {
+                unsafe {
+                    *out_found = true;
+                    *out_size = size;
+                }
+                hand_out(bytes, out_buffer);
+                Ok(())
+            },
+            Err(object_store::Error::NotFound { .. }) => {
+                unsafe {
+                    *out_found = false;
+                    *out_size = 0;
+                }
+                hand_out(Vec::new(), out_buffer);
+                Ok(())
+            },
+            Err(e) => Err(compute_err(format!("Failed to read the end of '{}': {}", path, e))),
+        }
+    })
+}
+
 /// Writes a file (relative to the root, or an absolute URI inside the root). With `create_only` the write is a
 /// put-if-absent: it succeeds only when no file exists at the path, and `out_created` is false otherwise (the
 /// commit protocol of a table log). Without it an existing file is replaced. Either way a reader sees the old

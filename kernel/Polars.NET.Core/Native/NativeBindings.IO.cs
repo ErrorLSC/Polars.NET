@@ -303,6 +303,11 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] out bool out_found);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_storage_read_tail(
+        StorageHandle storage, string path, ulong length, out FfiBuffer out_buffer, out ulong out_size,
+        [MarshalAs(UnmanagedType.U1)] out bool out_found);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static unsafe partial void pl_storage_put(
         StorageHandle storage, string path, byte* data, UIntPtr len,
         [MarshalAs(UnmanagedType.U1)] bool create_only,
