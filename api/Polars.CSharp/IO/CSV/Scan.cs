@@ -34,7 +34,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
     /// <param name="skipLines">Skip the first n lines during parsing without respecting CSV escaping. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, reads the entire file.</param>
-    /// <param name="inferSchemaLength">Number of rows to scan for schema inference. Default is null, means scan all file</param>
+    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
     /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
     /// <param name="nThreads">Sets the number of threads used for CSV parsing. Default is null for auto setting.</param>
     /// <param name="chunkSize">Set the chunk size for each thread. Default is null for auto setting.</param>
@@ -68,7 +68,7 @@ public partial class LazyFrame : IDisposable
         ulong skipRowsAfterHeader = 0,
         ulong skipLines = 0,
         ulong? nRows = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? inferSchemaFiles = 18446744073709551615,
         ulong? nThreads = null,
         ulong? chunkSize = null,
@@ -155,7 +155,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
     /// <param name="skipLines">Skip the first n lines during parsing without respecting CSV escaping. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, reads all data.</param>
-    /// <param name="inferSchemaLength">Number of rows to scan for schema inference. Defaults to 100.</param>
+    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
     /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
     /// <param name="nThreads">Sets the number of threads used for CSV parsing. Default is null for auto setting.</param>
     /// <param name="chunkSize">Set the chunk size for each thread. Default is null for auto setting.</param>
@@ -188,7 +188,7 @@ public partial class LazyFrame : IDisposable
         ulong skipRowsAfterHeader = 0,
         ulong skipLines = 0,
         ulong? nRows = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? inferSchemaFiles = 18446744073709551615,
         ulong? nThreads = null,
         ulong? chunkSize = null,

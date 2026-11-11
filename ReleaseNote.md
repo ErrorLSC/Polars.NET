@@ -77,6 +77,19 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 
 ---
 
+## CSV and JSON schema inference
+
+`inferSchemaLength` (CSV) and `inferSchemaLen` / `inferSchemaLength` (JSON, NDJSON) follow Python Polars's `infer_schema_length` (#36).
+
+### Behaviour changes
+
+* The parameter defaults to 100 rows instead of null. Calls that leave it out infer from 100 rows, as before.
+* Passing `null` infers the types from the whole input. The input is read into memory for this, which is slow. A null used to mean 100 rows for CSV, although part of the documentation said it scanned the whole file. For JSON it was 100 rows in some readers and the whole input in others.
+* Values above 16,777,216 also infer from the whole input. Polars preallocates the rows it samples: `ulong.MaxValue` used to fail with `capacity overflow` and print a Rust panic, and a value such as `int.MaxValue` could abort the process. In F#, where an omitted optional parameter cannot be told apart from `None`, pass `UInt64.MaxValue` for a whole-file inference.
+* `0` reads every CSV column as String; for JSON it infers from the whole input. JSON readers used to disagree on `0`.
+
+---
+
 ## Packaging
 
 * `native_shim.dll` (`Polars.NET.Native.win-x64`) links the C runtime statically and no longer needs the Visual C++ Redistributable (`VCRUNTIME140.dll`), which a clean Windows install lacks. It used to fail on first use with "Dll was not found" (#37). The release build now checks the DLL's imports.

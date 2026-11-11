@@ -8,6 +8,20 @@ use crate::pl_io::ffi_buffer::SharedMemoryWriter;
 use crate::types::SelectorContext;
 use crate::utils::{map_sync_on_close, ptr_to_str};
 
+/// Above this many rows a schema-inference length means the whole input, as null does: Polars preallocates the
+/// rows it samples, and a "read everything" value such as `int.MaxValue` would abort the process on allocation.
+const MAX_INFER_SCHEMA_LENGTH: usize = 1 << 24;
+
+/// The rows to infer a schema from, as Polars takes them: null (and values above
+/// [`MAX_INFER_SCHEMA_LENGTH`]) mean the whole input, `Some(0)` reads every CSV column as String.
+pub(crate) unsafe fn infer_schema_length(ptr: *const usize) -> Option<usize> {
+    if ptr.is_null() {
+        return None;
+    }
+    let n = unsafe { *ptr };
+    (n <= MAX_INFER_SCHEMA_LENGTH).then_some(n)
+}
+
 fn ms_to_duration(ms: u64) -> Option<std::time::Duration> {
     if ms == 0 {
         None

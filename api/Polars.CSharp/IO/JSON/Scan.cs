@@ -12,10 +12,7 @@ public partial class LazyFrame : IDisposable
     /// Manually specify schema for specific columns (Overwrite semantics).
     /// Columns not specified will be inferred.
     /// </param>
-    /// <param name="inferSchemaLength">
-    /// Number of rows to scan for schema inference. 
-    /// If null, uses Polars default (usually 100).
-    /// </param>
+    /// <param name="inferSchemaLength">Rows to infer the schema from (100 by default). Null or 0 infers it from the whole input, read into memory first (slow); values above 16,777,216 do the same.</param>
     /// <param name="batchSize">Batch size for reading (optimization).</param>
     /// <param name="nRows">Limit the number of rows to read.</param>
     /// <param name="lowMemory">Reduce memory usage at the expense of performance.</param>
@@ -28,7 +25,7 @@ public partial class LazyFrame : IDisposable
     public static LazyFrame ScanNdjson(
         string path,
         IntoSchema? schema = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? batchSize = null,
         ulong? nRows = null,
         bool lowMemory = false,
@@ -80,7 +77,7 @@ public partial class LazyFrame : IDisposable
     public static LazyFrame ScanNdjson(
         byte[] buffer,
         IntoSchema? schema = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? batchSize = null,
         ulong? nRows = null,
         bool lowMemory = false,
@@ -118,7 +115,7 @@ public partial class LazyFrame : IDisposable
     public static LazyFrame ScanNdjson(
         Stream stream,
         IntoSchema? schema = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? batchSize = null,
         ulong? nRows = null,
         bool lowMemory = false,

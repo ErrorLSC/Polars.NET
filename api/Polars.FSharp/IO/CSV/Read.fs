@@ -80,7 +80,8 @@ module CsvRead =
             let pSkipRAH = defaultArg skipRowsAfterHeader 0UL
             let pSkipL = defaultArg skipLines 0UL
             let pNRows = Option.toNullable nRows
-            let pInferLen = inferSchemaLength |> Option.toNullable
+            // 100 rows by default; a value above 16,777,216 (e.g. UInt64.MaxValue) infers from the whole file.
+            let pInferLen = System.Nullable(defaultArg inferSchemaLength 100UL)
             let pInferFiles = defaultArg inferSchemaFiles 18446744073709551615UL
             let pNTh = Option.toNullable nThreads
             let pChunkSz = Option.toNullable chunkSize
@@ -214,7 +215,8 @@ module CsvRead =
             let pSkipRAH = defaultArg skipRowsAfterHeader 0UL
             let pSkipL = defaultArg skipLines 0UL
             let pNRows = Option.toNullable nRows
-            let pInferLen = inferSchemaLength |> Option.toNullable
+            // 100 rows by default; a value above 16,777,216 (e.g. UInt64.MaxValue) infers from the whole file.
+            let pInferLen = System.Nullable(defaultArg inferSchemaLength 100UL)
             let pInferFiles = defaultArg inferSchemaFiles 18446744073709551615UL
             let pNTh = Option.toNullable nThreads
             let pChunkSz = Option.toNullable chunkSize

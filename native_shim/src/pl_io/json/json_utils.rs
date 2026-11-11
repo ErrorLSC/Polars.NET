@@ -39,10 +39,9 @@ pub(crate) unsafe fn apply_json_options<'a, R: MmapBytesReader>(
     }
 
     // 4. Infer Schema Length
-    if !infer_schema_len.is_null() {
-        let n = unsafe { *infer_schema_len};
-        reader = reader.infer_schema_len(NonZeroUsize::new(n));
-    }
+    // Null (and 0) mean the whole input; the C# default is 100.
+    reader = reader.infer_schema_len(
+        unsafe { crate::pl_io::io_utils::infer_schema_length(infer_schema_len) }.and_then(NonZeroUsize::new));
 
     // 5. Batch Size
     if !batch_size.is_null() {
@@ -94,10 +93,9 @@ pub(crate) unsafe fn apply_scan_ndjson_options(
     }
 
     // 4. Infer Schema Length
-    if !infer_schema_len.is_null() {
-        let n =unsafe { *infer_schema_len};
-        reader = reader.with_infer_schema_length(NonZeroUsize::new(n));
-    }
+    // Null (and 0) mean the whole input; the C# default is 100.
+    reader = reader.with_infer_schema_length(
+        unsafe { crate::pl_io::io_utils::infer_schema_length(infer_schema_len) }.and_then(NonZeroUsize::new));
 
     // 5. N Rows
     if !n_rows.is_null() {

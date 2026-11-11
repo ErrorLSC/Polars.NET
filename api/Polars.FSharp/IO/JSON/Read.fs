@@ -23,7 +23,8 @@ module JsonRead =
                                 ?cloudOptions: CloudOptions) : LazyFrame =
             
             let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            let inferLen = Option.toNullable inferSchemaLen
+            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
+            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
             let batch = Option.toNullable batchSize
             let rows = Option.toNullable nRows
             
@@ -78,7 +79,8 @@ module JsonRead =
                                 ?rowIndexOffset: uint32) : LazyFrame =
             
             let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            let inferLen = Option.toNullable inferSchemaLen
+            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
+            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
             let batch = Option.toNullable batchSize
             let rows = Option.toNullable nRows
             
@@ -150,7 +152,8 @@ module JsonRead =
             
             let schemaHandle = match schema with Some s -> s.Handle | None -> null
             
-            let inferLen = Option.toNullable inferSchemaLen
+            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
+            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
             let batch = Option.toNullable batchSize
             
             let ignoreErr = defaultArg ignoreErrors false
@@ -173,7 +176,8 @@ module JsonRead =
             
             let cols = columns |> Option.map Seq.toArray |> Option.toObj
             let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            let inferLen = Option.toNullable inferSchemaLen
+            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
+            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
             let batch = Option.toNullable batchSize
             let ignoreErr = defaultArg ignoreErrors false
             

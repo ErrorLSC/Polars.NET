@@ -146,12 +146,9 @@ pub extern "C" fn pl_scan_ndjson(
             }
         }
         
-        if !infer_schema_len.is_null() {
-            let val = unsafe { *infer_schema_len };
-            if val > 0 {
-                reader = reader.with_infer_schema_length(NonZeroUsize::new(val));
-            }
-        }
+        // Null (and 0) mean the whole input; the C# default is 100.
+        reader = reader.with_infer_schema_length(
+            unsafe { crate::pl_io::io_utils::infer_schema_length(infer_schema_len) }.and_then(NonZeroUsize::new));
 
         // --- Unified Args ---
         if !n_rows.is_null() {

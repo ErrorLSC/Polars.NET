@@ -704,6 +704,20 @@ type ``Basic Functionality Tests`` () =
         finally
             Directory.Delete(dir, true)
 
+type InferSchemaLengthTests() =
+
+    [<Fact>]
+    member _.``ScanCsv infers from 100 rows by default and from the whole file with a huge length`` () =
+        let path = Path.Combine(Path.GetTempPath(), sprintf "%O.csv" (Guid.NewGuid()))
+        File.WriteAllText(path, "id,x\n" + String.concat "" [ for i in 0 .. 299 -> if i = 200 then sprintf "%d,8.1\n" i else sprintf "%d,%d\n" i i ])
+        try
+            Assert.ThrowsAny<exn>(fun () -> LazyFrame.ScanCsv(path).Collect() |> ignore) |> ignore
+            use df = LazyFrame.ScanCsv(path, inferSchemaLength = UInt64.MaxValue).Collect()
+            Assert.Equal(300L, df.Height)
+            Assert.Equal(8.1, df.["x"].GetValue<double> 200)
+        finally
+            File.Delete path
+
 type LitTests() =
 
     let df = DataFrame.create [ Series.create("dummy", [1]) ]

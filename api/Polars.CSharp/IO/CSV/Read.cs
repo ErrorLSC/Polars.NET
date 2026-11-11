@@ -21,7 +21,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
-    /// <param name="inferSchemaLength">Number of rows to scan for schema inference. If null, use Polars default (100).</param>
+    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
     /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
     /// <param name="schema">Provide a schema to ignore schema inference.</param>
     /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
@@ -48,7 +48,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         ulong skipRows = 0,
         ulong skipRowsAfterHeader = 0,
         ulong? nRows = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? inferSchemaFiles = 18446744073709551615,
         IntoSchema? schema = null,
         IntoSchema? dtypeOverride = null,
@@ -113,7 +113,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
-    /// <param name="inferSchemaLength">Number of rows to scan for schema inference. If null, scan all file.</param>
+    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
     /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
     /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
     /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
@@ -139,7 +139,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         ulong skipRows = 0,
         ulong skipRowsAfterHeader = 0,
         ulong? nRows = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? inferSchemaFiles = 18446744073709551615,
         IntoSchema? schema = null,
         IntoSchema? dtypeOverride = null,
@@ -203,7 +203,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
-    /// <param name="inferSchemaLength">Number of rows to scan for schema inference.</param>
+    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
     /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
     /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
     /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
@@ -229,7 +229,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         ulong skipRows = 0,
         ulong skipRowsAfterHeader = 0,
         ulong? nRows = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? inferSchemaFiles = null,
         IntoSchema? schema = null,
         IntoSchema? dtypeOverride = null,
@@ -296,7 +296,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         ulong skipRows = 0,
         ulong skipRowsAfterHeader = 0,
         ulong? nRows = null,
-        ulong? inferSchemaLength = null,
+        ulong? inferSchemaLength = 100,
         ulong? inferSchemaFiles = 18446744073709551615,
         IntoSchema? schema = null,
         IntoSchema? dtypeOverride = null,

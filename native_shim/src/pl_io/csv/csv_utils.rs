@@ -111,9 +111,8 @@ pub(crate) unsafe fn apply_scan_csv_options(
         reader = reader.with_n_rows(Some(unsafe { *n_rows_ptr }));
     }
     
-    if !infer_schema_len_ptr.is_null() {
-        reader = reader.with_infer_schema_length(Some(unsafe { *infer_schema_len_ptr }));
-    }
+    // Null means the whole file, as Python's infer_schema_length=None; the C# default is 100.
+    reader = reader.with_infer_schema_length(unsafe { crate::pl_io::io_utils::infer_schema_length(infer_schema_len_ptr) });
 
     if !n_threads_ptr.is_null() {
         reader = reader.with_n_threads(Some(unsafe { *n_threads_ptr }));

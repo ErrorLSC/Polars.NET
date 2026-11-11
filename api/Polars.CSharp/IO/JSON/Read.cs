@@ -10,7 +10,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <param name="path">Path to the JSON file.</param>
     /// <param name="columns">Select specific columns to read.</param>
     /// <param name="schema">Manually specify the schema (recommended for stability).</param>
-    /// <param name="inferSchemaLen">Number of rows to scan for schema inference (default: scan all).</param>
+    /// <param name="inferSchemaLen">Rows to infer the schema from (100 by default). Null or 0 infers it from the whole input, read into memory first (slow); values above 16,777,216 do the same.</param>
     /// <param name="batchSize">Batch size for reading (optimization).</param>
     /// <param name="ignoreErrors">Ignore parsing errors (skip malformed lines).</param>
     /// <param name="jsonFormat">Format: Json Array or Json Lines (NDJSON).</param>
@@ -18,7 +18,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         string path,
         string[]? columns = null,
         IntoSchema? schema = null,
-        ulong? inferSchemaLen = null,
+        ulong? inferSchemaLen = 100,
         ulong? batchSize = null,
         bool ignoreErrors = false,
         JsonFormat jsonFormat = JsonFormat.Json)
@@ -52,7 +52,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         byte[] buffer,
         string[]? columns = null,
         IntoSchema? schema = null,
-        ulong? inferSchemaLen = null,
+        ulong? inferSchemaLen = 100,
         ulong? batchSize = null,
         bool ignoreErrors = false,
         JsonFormat jsonFormat = JsonFormat.Json)
@@ -83,7 +83,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         Stream stream,
         string[]? columns = null,
         IntoSchema? schema = null,
-        ulong? inferSchemaLen = null,
+        ulong? inferSchemaLen = 100,
         ulong? batchSize = null,
         bool ignoreErrors = false,
         JsonFormat jsonFormat = JsonFormat.Json)
