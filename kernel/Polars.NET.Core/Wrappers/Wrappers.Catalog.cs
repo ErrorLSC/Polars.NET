@@ -89,7 +89,9 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues)
+        string[]? cloudValues,
+        string? rowIdColumn = null,
+        string? rowCommitVersionColumn = null)
     {
         TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
@@ -124,7 +126,9 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues);
+            cloudValues,
+            rowIdColumn,
+            rowCommitVersionColumn);
     }
 
     public static void SinkCatalogTable

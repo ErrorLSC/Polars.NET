@@ -29,6 +29,10 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
     /// <param name="tableName">The name of the table to scan.</param>
     /// <inheritdoc cref="LazyFrame.ScanDelta"/>
+    /// <param name="rowIdColumn">Adds each row's row id (Int64) under this name: stable across updates, merges and
+    /// optimize (Spark's <c>_metadata.row_id</c>). The table must have row tracking on (<c>delta.enableRowTracking</c>).</param>
+    /// <param name="rowCommitVersionColumn">Adds the version that last changed each row (Int64) under this name
+    /// (Spark's <c>_metadata.row_commit_version</c>). The table must have row tracking on.</param>
     /// <returns>A <see cref="LazyFrame"/> for lazy execution of the catalog table scan.</returns>
     /// <exception cref="ArgumentException">Thrown when both <paramref name="version"/> and <paramref name="datetime"/> are provided.</exception>
     public LazyFrame ScanCatalogTable(
@@ -51,7 +55,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         bool hivePartitioning = true,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        string? rowIdColumn = null,
+        string? rowCommitVersionColumn = null)
     {
         if (version.HasValue && datetime != null)
         {
@@ -91,7 +97,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            rowIdColumn,
+            rowCommitVersionColumn
         );
 
         return new LazyFrame(h);

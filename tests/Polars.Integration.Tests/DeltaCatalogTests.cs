@@ -165,6 +165,47 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
     }
     [Fact]
+    [Trait("Catalog", "ScanRowIds")]
+    public void Test_ScanCatalogTable_ReturnsRowIds_OfATableCreatedWithRowTracking()
+    {
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_catalog_rowids_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-super-secret-token";
+        var polarsEndpoint = $"http://{_minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}";
+
+        var writeOptions = CloudOptions.Aws(region: _minio.Region, accessKey: _minio.AccessKey, secretKey: _minio.SecretKey, endpoint: polarsEndpoint);
+        writeOptions.Credentials!["aws_allow_http"] = "true";
+        writeOptions.Credentials!["aws_s3_force_path_style"] = "true";
+
+        // Created on the object store with row tracking and an identity column, then written twice.
+        Delta.CreateTable(s3StorageLocation,
+            new PolarsSchema().Add("Id", DataType.Int64).Add("Msg", DataType.String),
+            properties: new() { [DeltaTableProperties.EnableRowTracking] = "true" },
+            identityColumns: [new DeltaIdentityColumn("Id")],
+            cloudOptions: writeOptions);
+        using (var df = DataFrame.FromColumns(new { Msg = new[] { "Alice", "Bob" } }))
+            df.WriteDelta(s3StorageLocation, mode: DeltaSaveMode.Append, cloudOptions: writeOptions);
+        using (var df = DataFrame.FromColumns(new { Msg = new[] { "Charlie" } }))
+            df.WriteDelta(s3StorageLocation, mode: DeltaSaveMode.Append, cloudOptions: writeOptions);
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+        var readOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        readOptions.Credentials!["aws_allow_http"] = "true";
+        readOptions.Credentials!["aws_s3_force_path_style"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+        using var lf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: readOptions,
+            rowIdColumn: "row_id", rowCommitVersionColumn: "row_version");
+        using var result = lf.Collect().Sort(["Id"]);
+
+        Assert.Equal([1L, 2L, 3L], result["Id"].ToArray<long>());
+        Assert.Equal([0L, 1L, 2L], result["row_id"].ToArray<long>());
+        Assert.Equal([1L, 1L, 2L], result["row_version"].ToArray<long>());
+    }
+
+    [Fact]
     [Trait("Catalog", "Sink")]
     public void Test_SinkCatalogTable_Basic_Overwrite_And_Append()
     {
