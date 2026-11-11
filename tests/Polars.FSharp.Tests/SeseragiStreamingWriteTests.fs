@@ -258,3 +258,38 @@ let ``The target file size property takes byte counts and sizes, and refuses any
     Assert.Equal(128UL * 1024UL * 1024UL, DeltaKernelWrite.TargetFileSize null)
     for bad in [ "abc"; "-5"; "0"; "12 parsecs"; "" ] do
         Assert.ThrowsAny<Exception>(fun () -> size bad |> ignore) |> ignore
+
+[<Fact>]
+let ``Deletes and updates stream their new files, split by the table's target file size`` () =
+    withTable "dml_split" (fun path ->
+        use big = frame [ 1 .. 1_000_000 ]
+        // One file (no size limit for this write) in a table whose target file size is small.
+        write path big KernelWriteMode.ErrorIfExists [||] (KernelWriteOptions(ApproxBytesPerFile = Nullable 0UL)) [ ("delta.targetFileSize", "2000000") ] |> ignore
+        Assert.Equal(1, (snapshot path).Files.Count)
+
+        // The rewritten file's kept rows go to several files.
+        DeltaKernelDelete.Delete(path, (pl.col "id" .== pl.lit 7).CloneHandle()) |> ignore
+        let afterDelete = (snapshot path).Files
+        Assert.True(afterDelete.Count > 1, $"{afterDelete.Count} files")
+        Assert.Equal(999_999L, afterDelete |> Seq.sumBy numRecords)
+        Assert.All(afterDelete, fun f -> Assert.Matches(@"^part-\d{5}-[0-9a-f-]{36}-c000\.snappy\.parquet$", f.Path))
+
+        // So do the updated rows.
+        DeltaKernelUpdate.Update(path, null, ResizeArray [ struct ("price", (pl.lit 0.0).CloneHandle()) ]) |> ignore
+        let afterUpdate = (snapshot path).Files
+        Assert.True(afterUpdate.Count > 1, $"{afterUpdate.Count} files")
+        Assert.Equal(999_999L, afterUpdate |> Seq.sumBy numRecords)
+        use back = (new LazyFrame(DeltaKernelScan.Scan path)).Select([ (pl.col "price").Max() |> pl.alias "m"; pl.len () |> pl.alias "n" ]).Collect()
+        Assert.Equal(0.0, back.["m"].ToArray<float>().[0])
+        Assert.Equal(999_999L, back.["n"].Cast(DataType.Int64).ToArray<int64>().[0]))
+
+[<Fact>]
+let ``Change data files are streamed under _change_data, per partition`` () =
+    withTable "cdc_files" (fun path ->
+        use df = frame [ 1 .. 10 ]
+        write path df KernelWriteMode.ErrorIfExists [| "region" |] KernelWriteOptions.Default [ ("delta.enableChangeDataFeed", "true") ] |> ignore
+        DeltaKernelDelete.Delete(path, (pl.col "id" .<= pl.lit 4).CloneHandle()) |> ignore
+        let cdc = Directory.GetFiles(Path.Combine(path, "_change_data"), "*.parquet", SearchOption.AllDirectories)
+        Assert.Equal(2, cdc.Length)
+        Assert.All(cdc, fun f -> Assert.Matches(@"region=(east|west)[/\\]cdc-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$", f))
+        Assert.Equal<int list>([ 5 .. 10 ], ids path))

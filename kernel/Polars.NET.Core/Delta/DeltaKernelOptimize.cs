@@ -160,20 +160,20 @@ internal static class DeltaKernelOptimize
     {
         StructType schema = table.Snapshot.Schema;
         LazyFrameHandle rows = DmlTable.Concat([.. bin.Select(f => table.ScanFile(f))])!;
-        if (zOrderColumns is not null) rows = ZOrder(rows, zOrderColumns, schema);
-        using DataFrameHandle df = PolarsWrapper.LazyCollect(rows, PlEngine.Auto);
 
-        // Z-ordered rows are cut into files of about the target size, in order; a compacted bin is one file.
-        long height = PolarsWrapper.DataFrameHeight(df);
-        long inputBytes = bin.Sum(f => f.Size);
-        long files = zOrderColumns is null ? 1 : Math.Max(1, (inputBytes + target - 1) / target);
-        long perFile = Math.Max(1, (height + files - 1) / files);
-        for (long offset = 0; offset < height; offset += perFile)
+        // A compacted bin is streamed into one file: bins are packed by size on disk, and splitting by the sink's
+        // in-memory estimate would leave small files that the next optimize compacts again. Z-ordered rows are cut
+        // in order into files of about the target size on disk, by rows.
+        ulong maxRows = 0;
+        if (zOrderColumns is not null)
         {
-            using DataFrameHandle slice = PolarsWrapper.Slice(df, offset, (ulong)Math.Min(perFile, height - offset));
-            foreach (AddAction add in DeltaKernelWrite.WriteFiles(table.FileSystem, slice, schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration))
-                plan.Adds.Add(Rearranged(add));
+            rows = ZOrder(rows, zOrderColumns, schema, out long height);
+            long inputBytes = bin.Sum(f => f.Size);
+            long files = Math.Max(1, (inputBytes + target - 1) / target);
+            maxRows = (ulong)Math.Max(1, (height + files - 1) / files);
         }
+        foreach (AddAction add in DeltaKernelWrite.WriteFiles(table, rows, schema, plan.Now, checkNotNull: false, maxRows, approxBytesPerFile: 0))
+            plan.Adds.Add(Rearranged(add));
         foreach (AddAction file in bin) plan.Remove(file, dataChange: false);
     }
 
@@ -194,7 +194,7 @@ internal static class DeltaKernelOptimize
     /// (nulls first) and sorts; the curve itself is <see cref="SpaceFillingCurve"/>: ranks quantized to an equal
     /// number of bits, interleaved into 128-bit keys.
     /// </summary>
-    private static LazyFrameHandle ZOrder(LazyFrameHandle rows, string[] columns, StructType schema)
+    private static LazyFrameHandle ZOrder(LazyFrameHandle rows, string[] columns, StructType schema, out long height)
     {
         int k = columns.Length;
         int bits = SpaceFillingCurve.BitsPerDimension(k);
@@ -212,7 +212,8 @@ internal static class DeltaKernelOptimize
         }
         using DataFrameHandle ranked = PolarsWrapper.LazyCollect(PolarsWrapper.LazyWithColumns(rows, ranks), PlEngine.Auto);
 
-        int height = checked((int)PolarsWrapper.DataFrameHeight(ranked));
+        int rowCount = checked((int)PolarsWrapper.DataFrameHeight(ranked));
+        height = rowCount;
         var coordinates = new ReadOnlyMemory<ulong>[k];
         for (int i = 0; i < k; i++)
         {
@@ -221,10 +222,10 @@ internal static class DeltaKernelOptimize
             SpaceFillingCurve.Quantize(ordinals, max, bits, ordinals);
             coordinates[i] = ordinals;
         }
-        var keys = new UInt128[height];
+        var keys = new UInt128[rowCount];
         SpaceFillingCurve.ZOrder(coordinates, bits, keys);
-        ulong[] high = new ulong[height], low = new ulong[height];
-        for (int p = 0; p < height; p++)
+        ulong[] high = new ulong[rowCount], low = new ulong[rowCount];
+        for (int p = 0; p < rowCount; p++)
         {
             high[p] = (ulong)(keys[p] >> 64);
             low[p] = (ulong)keys[p];

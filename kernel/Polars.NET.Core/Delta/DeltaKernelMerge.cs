@@ -112,16 +112,21 @@ internal static class DeltaKernelMerge
             if (newMetadata is not null) transaction.SetMetadata(newMetadata);
             RecordParameters(transaction, keys, clauses);
 
-            // The rows the clauses change, with their action: one engine query.
+            // The rows the clauses change, with their action. Planned in two passes, as Spark does: the first
+            // collects only which target rows change and how; the second runs the join again and streams the new
+            // rows (and change data) into files, so changed rows are never held whole.
             LazyFrameHandle joined = Join(table, candidates, sourceRows, snapshot.Schema, sourceSchema, schema, keys);
             ExprHandle action = ActionOf(clauses);
-            LazyFrameHandle changed = PolarsWrapper.LazyFilter(
+            using LazyFrameHandle changed = PolarsWrapper.LazyFilter(
                 PolarsWrapper.LazyWithColumns(joined, [PolarsWrapper.Alias(action, ActionColumn)]),
                 PolarsWrapper.IsIn(PolarsWrapper.Col(ActionColumn), Ints(Insert, Update, Delete), nullsEqual: false));
-            using DataFrameHandle rows = PolarsWrapper.LazyCollect(changed, PlEngine.Auto);
+            using DataFrameHandle actions = PolarsWrapper.LazyCollect(
+                PolarsWrapper.LazySelect(PolarsWrapper.LazyClone(changed),
+                    [PolarsWrapper.Col(FileColumn), PolarsWrapper.Col(DeltaKernelScan.RowIndexColumn), PolarsWrapper.Col(ActionColumn)]),
+                PlEngine.Auto);
 
             var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            var counts = Apply(table, candidates, rows, schema, sourceSchema, plan);
+            var counts = Apply(table, candidates, actions, changed, schema, sourceSchema, plan);
 
             long sourceCount = PolarsWrapper.DataFrameHeight(sourceRows);
             if (plan.IsEmpty && newMetadata is null)
@@ -331,17 +336,21 @@ internal static class DeltaKernelMerge
 
     private readonly record struct Counts(long Inserted, long Updated, long Deleted);
 
+    /// <param name="actions">The changed rows' file, row index and action (the first pass).</param>
+    /// <param name="changed">The changed rows in full: the query, run again for what is written (the second pass).</param>
     private static Counts Apply(
-        DmlTable table, IReadOnlyList<AddAction> candidates, DataFrameHandle rows, StructType schema, StructType sourceSchema, DmlPlan plan)
+        DmlTable table, IReadOnlyList<AddAction> candidates, DataFrameHandle actions, LazyFrameHandle changed, StructType schema,
+        StructType sourceSchema, DmlPlan plan)
     {
-        if (PolarsWrapper.DataFrameHeight(rows) == 0) return default;
+        if (PolarsWrapper.DataFrameHeight(actions) == 0) return default;
         Snapshot snapshot = table.Snapshot;
-        LazyFrameHandle Rows() => PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(rows));
-        ExprHandle Is(params int[] actions) => PolarsWrapper.IsIn(PolarsWrapper.Col(ActionColumn), Ints(actions), nullsEqual: false);
+        LazyFrameHandle Rows() => PolarsWrapper.LazyClone(changed);
+        ExprHandle Is(params int[] kinds) => PolarsWrapper.IsIn(PolarsWrapper.Col(ActionColumn), Ints(kinds), nullsEqual: false);
 
         // Target rows replaced or deleted, per candidate file.
-        Dictionary<int, long[]> hits = TouchedRows(PolarsWrapper.LazyFilter(Rows(), Is(Update, Delete)));
-        long updated = Count(rows, Update), deleted = Count(rows, Delete), inserted = Count(rows, Insert);
+        Dictionary<int, long[]> hits = TouchedRows(
+            PolarsWrapper.LazyFilter(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(actions)), Is(Update, Delete)));
+        long updated = Count(actions, Update), deleted = Count(actions, Delete), inserted = Count(actions, Insert);
 
         var written = new List<LazyFrameHandle>();
         var changes = new List<LazyFrameHandle>();
@@ -388,16 +397,11 @@ internal static class DeltaKernelMerge
             if (written.Count > 0 && (inserted > 0 || updated > 0 || plan.Rewritten > 0))
             {
                 table.EnsureFilesWritable();
-                using DataFrameHandle df = PolarsWrapper.LazyCollect(DmlTable.Concat(written)!, PlEngine.Auto);
-                DeltaKernelWrite.EnsureNotNull(df, schema);
-                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, df, schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration));
+                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table, DmlTable.Concat(written)!, schema, plan.Now, checkNotNull: true));
             }
 
             if (changes.Count > 0)
-            {
-                using DataFrameHandle df = PolarsWrapper.LazyCollect(DmlTable.Concat(changes)!, PlEngine.Auto);
-                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table.FileSystem, df, schema, table.PartitionColumns));
-            }
+                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table, DmlTable.Concat(changes)!, schema));
             return new Counts(inserted, updated, deleted);
         }
         finally

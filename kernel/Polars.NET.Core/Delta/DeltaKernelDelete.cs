@@ -105,6 +105,7 @@ internal static class DeltaKernelDelete
         Snapshot snapshot = table.Snapshot;
         bool useVectors = table.DeletionVectorsEnabled;
         var marked = new List<(AddAction File, long[] Rows)>();
+        var keptFrames = new List<LazyFrameHandle>();    // live rows of rewritten files
         var deletedFrames = new List<LazyFrameHandle>();
         try
         {
@@ -113,7 +114,8 @@ internal static class DeltaKernelDelete
                 AddAction file = candidates[index];
                 if (table.ChangeFeedEnabled) deletedFrames.Add(table.ScanFile(file, onlyRows: rows));
 
-                if (rows.Length >= table.LiveRows(file))
+                long live = table.LiveRows(file);
+                if (rows.Length >= live)
                 {
                     plan.Remove(file);
                 }
@@ -124,27 +126,28 @@ internal static class DeltaKernelDelete
                 else
                 {
                     table.EnsureFilesWritable();
-                    using DataFrameHandle kept = PolarsWrapper.LazyCollect(table.ScanFile(file, dropRows: rows), PlEngine.Auto);
-                    plan.CopiedRows += PolarsWrapper.DataFrameHeight(kept);
+                    keptFrames.Add(table.ScanFile(file, dropRows: rows));
+                    plan.CopiedRows += live - rows.Length;
                     plan.Remove(file);
-                    plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, kept, snapshot.Schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration));
                     plan.Rewritten++;
                 }
             }
 
             plan.MarkDeleted(table, marked);
 
+            // The rows the rewritten files keep, streamed into new files (rows unchanged: no NOT NULL check).
+            LazyFrameHandle? kept = DmlTable.Concat(keptFrames);
+            if (kept is not null)
+                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table, kept, snapshot.Schema, plan.Now, checkNotNull: false));
+
             // On a table with the change data feed, every deleted row is written as change data.
             LazyFrameHandle? all = DmlTable.Concat(deletedFrames);
             if (all is not null)
-            {
-                using DataFrameHandle df = PolarsWrapper.LazyCollect(DmlTable.WithChangeType(all, "delete"), PlEngine.Auto);
-                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table.FileSystem, df, snapshot.Schema, table.PartitionColumns));
-            }
+                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table, DmlTable.WithChangeType(all, "delete"), snapshot.Schema));
         }
         finally
         {
-            foreach (LazyFrameHandle frame in deletedFrames) frame.Dispose();
+            foreach (LazyFrameHandle frame in keptFrames.Concat(deletedFrames)) frame.Dispose();
         }
     }
 }

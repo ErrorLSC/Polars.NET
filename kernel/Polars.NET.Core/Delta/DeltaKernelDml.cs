@@ -48,7 +48,7 @@ internal sealed class DmlTable : IDisposable
 {
     private const string FileColumn = "__seseragi_file";
 
-    private DmlTable(string tablePath, IWritableFileSystem fileSystem, string root, CloudArgs? cloud, Snapshot snapshot)
+    private DmlTable(string tablePath, TrackingFileSystem fileSystem, string root, CloudArgs? cloud, Snapshot snapshot)
     {
         TablePath = tablePath;
         FileSystem = fileSystem;
@@ -58,7 +58,8 @@ internal sealed class DmlTable : IDisposable
     }
 
     public string TablePath { get; }
-    public IWritableFileSystem FileSystem { get; }
+    /// <summary>The table's storage; files the operation writes are tracked for rollback.</summary>
+    public TrackingFileSystem FileSystem { get; }
     /// <summary>The location data file paths are relative to.</summary>
     public string Root { get; }
     /// <summary>Cloud settings as given; null for a local table.</summary>
@@ -98,11 +99,11 @@ internal sealed class DmlTable : IDisposable
     {
         try
         {
-            ((TrackingFileSystem)FileSystem).Rollback();
+            FileSystem.Rollback();
         }
         finally
         {
-            ((TrackingFileSystem)FileSystem).Dispose();
+            FileSystem.Dispose();
         }
     }
 

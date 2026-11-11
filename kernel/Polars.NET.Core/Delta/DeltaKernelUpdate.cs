@@ -154,11 +154,7 @@ internal static class DeltaKernelUpdate
 
             LazyFrameHandle? newRows = DmlTable.Concat(written);
             if (newRows is not null)
-            {
-                using DataFrameHandle df = PolarsWrapper.LazyCollect(newRows, PlEngine.Auto);
-                DeltaKernelWrite.EnsureNotNull(df, snapshot.Schema);
-                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table.FileSystem, df, snapshot.Schema, table.PartitionColumns, plan.Now, table.Snapshot.Metadata.Configuration));
-            }
+                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table, newRows, snapshot.Schema, plan.Now, checkNotNull: true));
 
             if (preimages.Count > 0)
             {
@@ -167,8 +163,7 @@ internal static class DeltaKernelUpdate
                     DmlTable.WithChangeType(DmlTable.Concat(preimages)!, "update_preimage"),
                     DmlTable.WithChangeType(DmlTable.Concat(postimages)!, "update_postimage"),
                 };
-                using DataFrameHandle df = PolarsWrapper.LazyCollect(DmlTable.Concat(changes)!, PlEngine.Auto);
-                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table.FileSystem, df, snapshot.Schema, table.PartitionColumns));
+                plan.ChangeFiles.AddRange(DeltaKernelWrite.WriteChangeFiles(table, DmlTable.Concat(changes)!, snapshot.Schema));
             }
         }
         finally
