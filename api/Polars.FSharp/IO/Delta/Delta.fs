@@ -718,6 +718,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     /// This method performs a two-step resolution: 
     /// 1. It fetches the physical storage location and dynamic credentials from Unity Catalog.
     /// 2. It initializes a Polars scan on the underlying Delta files using the resolved credentials.
+    /// Credentials that expire are fetched again before they do, also when the frame is collected long after; once
+    /// this catalog is disposed, the frame works until the credentials it holds expire.
     /// </summary>
     /// <param name="rowIdColumn">Adds each row's row id (Int64) under this name: stable across updates, merges and optimize (Spark's <c>_metadata.row_id</c>). The table must have row tracking on (<c>delta.enableRowTracking</c>).</param>
     /// <param name="rowCommitVersionColumn">Adds the version that last changed each row (Int64) under this name (Spark's <c>_metadata.row_commit_version</c>). The table must have row tracking on.</param>

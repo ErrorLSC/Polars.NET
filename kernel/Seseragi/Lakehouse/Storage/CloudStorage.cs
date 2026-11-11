@@ -23,15 +23,23 @@ public static class CloudStorage
     /// <c>aws_access_key_id</c>, <c>azure_storage_account_name</c> or <c>azure_storage_sas_token</c> or <c>google_service_account_key</c>;
     /// environment variables (<c>AWS_*</c>, <c>AZURE_*</c>, <c>GOOGLE_*</c>) apply below them.
     /// </summary>
+    /// <param name="url">The table location.</param>
+    /// <param name="options">Configuration keys.</param>
+    /// <param name="retry">Retry settings; null for the defaults.</param>
+    /// <param name="reason">Why the managed clients cannot serve the location, when they cannot.</param>
+    /// <param name="renewable">Credentials that are fetched again before they expire (vended by a catalog); they
+    /// take the place of the credentials the options give.</param>
     public static CloudFileSystem? TryOpen(
-        string url, IReadOnlyDictionary<string, string> options, RetrySettings? retry, out string? reason) =>
+        string url, IReadOnlyDictionary<string, string> options, RetrySettings? retry, out string? reason,
+        RenewableCredentials? renewable = null) =>
         TryOpen(url, options, retry ?? RetrySettings.Default, ProcessEnvironment(), AwsFile("config"), out reason,
-            (bucket, http) => BucketRegions.Find(bucket, retry ?? RetrySettings.Default, http), AwsFile("credentials"));
+            (bucket, http) => BucketRegions.Find(bucket, retry ?? RetrySettings.Default, http), AwsFile("credentials"), renewable);
 
     internal static CloudFileSystem? TryOpen(
         string url, IReadOnlyDictionary<string, string> options, RetrySettings retry,
         IReadOnlyDictionary<string, string> environment, string? awsConfigFile, out string? reason,
-        Func<string, HttpOptions, string?>? regionLookup = null, string? awsCredentialsFile = null)
+        Func<string, HttpOptions, string?>? regionLookup = null, string? awsCredentialsFile = null,
+        RenewableCredentials? renewable = null)
     {
         ArgumentNullException.ThrowIfNull(url);
         int schemeEnd = url.IndexOf("://", StringComparison.Ordinal);
@@ -50,7 +58,7 @@ public static class CloudStorage
         {
             S3Client? Open(string bucket, out string? why) =>
                 S3Settings.Resolve(bucket, options, environment, awsConfigFile, out why, regionLookup, awsCredentialsFile, retry) is { } settings
-                    ? new S3Client(settings.BucketEndpoint, settings.Region, settings.Credential, retry, settings.Headers, settings.Http)
+                    ? new S3Client(settings.BucketEndpoint, settings.Region, renewable?.ForS3() ?? settings.Credential, retry, settings.Headers, settings.Http)
                     : null;
 
             if (Open(authority, out reason) is not { } client) return null;
@@ -64,7 +72,8 @@ public static class CloudStorage
             {
                 if (ParseAzureAuthority(scheme, location, out why) is not { } parsed) return null;
                 return AzureSettings.Resolve(parsed.Account, options, environment, out why, retry) is { } settings
-                    ? new AzureClient(settings, parsed.Container, retry)
+                    ? new AzureClient(renewable is null ? settings : settings with { Auth = new AzureAuth.RenewedSas(renewable.ForAzureSas()) },
+                        parsed.Container, retry)
                     : null;
             }
 
@@ -78,6 +87,7 @@ public static class CloudStorage
             // One settings for every bucket: the credentials do not depend on it.
             if (GcsSettings.Resolve(options, environment, ReadFile, GcloudCredentials(environment), out reason, retry) is not { } settings)
                 return null;
+            if (renewable is not null) settings = settings with { Token = renewable.ForGcs() };
             return new CloudFileSystem(url, authority, prefix, new GcsClient(settings, authority, retry), GcsSchemes,
                 other => new GcsClient(settings, other, retry));
         }

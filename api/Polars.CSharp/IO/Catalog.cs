@@ -24,6 +24,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// This method performs a two-step resolution:
     /// 1. It fetches the physical storage location and dynamic credentials from Unity Catalog.
     /// 2. It initializes a Polars scan on the underlying Delta files using the resolved credentials.
+    /// Credentials that expire are fetched again before they do, also when the frame is collected long after; once
+    /// this catalog is disposed, the frame works until the credentials it holds expire.
     /// </summary>
     /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>

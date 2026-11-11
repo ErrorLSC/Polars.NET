@@ -44,7 +44,12 @@ internal sealed class AzureClient : ObjectStoreClient
         Dictionary<string, string>? extraHeaders = null, ReadOnlyMemory<byte>? body = null)
     {
         query ??= [];
-        IEnumerable<KeyValuePair<string, string>> sent = _auth is AzureAuth.Sas sas ? query.Concat(sas.Pairs) : query;
+        IEnumerable<KeyValuePair<string, string>> sent = _auth switch
+        {
+            AzureAuth.Sas sas => query.Concat(sas.Pairs),
+            AzureAuth.RenewedSas renewed => query.Concat(renewed.Pairs.Get()),
+            _ => query,
+        };
         string queryText = string.Join('&', sent.Select(p =>
             PercentEncoding.Encode(p.Key, encodeSlash: true) + "=" + PercentEncoding.Encode(p.Value, encodeSlash: true)));
         string url = _origin + path + (queryText.Length == 0 ? "" : "?" + queryText);

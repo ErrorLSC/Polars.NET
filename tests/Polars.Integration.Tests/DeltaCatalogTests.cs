@@ -1517,4 +1517,146 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         Assert.True(deletedFiles > 0);
     }
+
+    // ------------------------------------------------------------------ credential renewal
+
+    private const int ShortLifeSeconds = 4;
+
+    /// <summary>
+    /// The catalog vends <paramref name="first"/> with a short life, then <paramref name="second"/> for an hour;
+    /// returns when the first expire.
+    /// </summary>
+    private DateTimeOffset SetupRenewingCatalogMock(
+        string catalog, string schema, string table, string location, string token,
+        (string Key, string Secret) first, (string Key, string Secret) second)
+    {
+        _catalogMockServer
+            .Given(Request.Create().WithPath($"/api/2.1/unity-catalog/tables/{catalog}.{schema}.{table}").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                name = table, catalog_name = catalog, schema_name = schema, table_type = "EXTERNAL", data_source_format = "DELTA",
+                storage_location = location, table_id = Guid.NewGuid().ToString(),
+            }));
+        DateTimeOffset firstExpires = DateTimeOffset.UtcNow.AddSeconds(ShortLifeSeconds);
+        object Vended((string Key, string Secret) user, DateTimeOffset expires) => new
+        {
+            aws_temp_credentials = new { access_key_id = user.Key, secret_access_key = user.Secret },
+            expiration_time = expires.ToUnixTimeMilliseconds(),
+        };
+        _catalogMockServer
+            .Given(Request.Create().WithPath("/api/2.1/unity-catalog/temporary-table-credentials").UsingPost()
+                .WithHeader("Authorization", $"Bearer {token}"))
+            .InScenario("vend").WillSetStateTo("renewed")
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(Vended(first, firstExpires)));
+        _catalogMockServer
+            .Given(Request.Create().WithPath("/api/2.1/unity-catalog/temporary-table-credentials").UsingPost()
+                .WithHeader("Authorization", $"Bearer {token}"))
+            .InScenario("vend").WhenStateIs("renewed")
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(Vended(second, DateTimeOffset.UtcNow.AddHours(1))));
+        return firstExpires;
+    }
+
+    private int CredentialRequests() =>
+        _catalogMockServer.LogEntries.Count(e => e.RequestMessage.Path.EndsWith("/temporary-table-credentials", StringComparison.Ordinal));
+
+    private CloudOptions MinioOptions((string Key, string Secret)? user = null)
+    {
+        string endpoint = "http://" + _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var options = user is { } u
+            ? CloudOptions.Aws(region: _minio.Region, accessKey: u.Key, secretKey: u.Secret, endpoint: endpoint)
+            : CloudOptions.Aws(region: _minio.Region, endpoint: endpoint);
+        options.Credentials!["aws_allow_http"] = "true";
+        options.Credentials!["aws_s3_force_path_style"] = "true";
+        return options;
+    }
+
+    private static void WaitPast(DateTimeOffset moment)
+    {
+        TimeSpan wait = moment - DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(500);
+        if (wait > TimeSpan.Zero) Thread.Sleep(wait);
+    }
+
+    [Fact]
+    [Trait("Catalog", "CredentialRenewal")]
+    public async Task ScanCatalogTable_RenewsExpiredCredentials_BeforeReadingTheData()
+    {
+        string table = $"delta_catalog_renew_scan_{Guid.NewGuid():N}";
+        string location = $"s3://{_minio.BucketName}/{table}";
+        using (var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } }))
+            df.WriteDelta(location, mode: DeltaSaveMode.Append, cloudOptions: MinioOptions((_minio.AccessKey, _minio.SecretKey)));
+
+        var first = await _minio.AddUserAsync();
+        var second = await _minio.AddUserAsync();
+        DateTimeOffset firstExpires = SetupRenewingCatalogMock("main", "default", table, location, "tok", first, second);
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], "tok");
+        // The scan reads the log now, with the first credentials; the data files are read at collect.
+        using var lf = uc.ScanCatalogTable(catalogName: "main", schemaName: "default", tableName: table, cloudOptions: MinioOptions());
+        Assert.Equal(1, CredentialRequests());
+
+        // The first credentials expire and stop working; the collect must have renewed them.
+        WaitPast(firstExpires);
+        await _minio.DisableUserAsync(first.AccessKey);
+        Assert.ThrowsAny<Exception>(() => DataFrame.ReadDelta(location, cloudOptions: MinioOptions(first)));
+
+        using var result = lf.Collect();
+        Assert.Equal([1, 2, 3], result["Id"].ToArray<int>().Order());
+        Assert.Equal(2, CredentialRequests());
+    }
+
+    [Fact]
+    [Trait("Catalog", "CredentialRenewal")]
+    public async Task SinkCatalogTable_RenewsCredentials_ThatExpireWhileTheDataIsComputed()
+    {
+        string table = $"delta_catalog_renew_sink_{Guid.NewGuid():N}";
+        string location = $"s3://{_minio.BucketName}/{table}";
+        using (var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } }))
+            df.WriteDelta(location, mode: DeltaSaveMode.Append, cloudOptions: MinioOptions((_minio.AccessKey, _minio.SecretKey)));
+
+        var first = await _minio.AddUserAsync();
+        var second = await _minio.AddUserAsync();
+        DateTimeOffset firstExpires = SetupRenewingCatalogMock("main", "default", table, location, "tok", first, second);
+
+        // A slow source: by the time its rows reach the sink the first credentials have expired and been revoked,
+        // so the data files and the commit can only be written with renewed ones.
+        int revoked = 0;
+        using var rows = DataFrame.FromColumns(new { Id = new[] { 4, 5, 6 } });
+        using var slow = rows.Lazy().WithColumns(Pl.Col("Id").MapBatches(s =>
+        {
+            if (Interlocked.Exchange(ref revoked, 1) == 0)
+            {
+                WaitPast(firstExpires);
+                _minio.DisableUserAsync(first.AccessKey).GetAwaiter().GetResult();
+            }
+            return s.Clone();
+        }, DataType.Int32));
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], "tok");
+        uc.SinkCatalogTable("main", "default", table, slow, mode: DeltaSaveMode.Append, cloudOptions: MinioOptions());
+
+        Assert.Equal(1, revoked);
+        int requests = CredentialRequests();
+        Assert.InRange(requests, 2, 3);
+        using var all = DataFrame.ReadDelta(location, cloudOptions: MinioOptions((_minio.AccessKey, _minio.SecretKey)));
+        Assert.Equal([1, 2, 3, 4, 5, 6], all["Id"].ToArray<int>().Order());
+    }
+
+    [Fact]
+    [Trait("Catalog", "CredentialRenewal")]
+    public void ScanCatalogTable_CollectsAfterTheCatalogIsDisposed_WhileTheCredentialsAreValid()
+    {
+        string table = $"delta_catalog_disposed_{Guid.NewGuid():N}";
+        string location = $"s3://{_minio.BucketName}/{table}";
+        using (var df = DataFrame.FromColumns(new { Id = new[] { 1, 2 } }))
+            df.WriteDelta(location, mode: DeltaSaveMode.Append, cloudOptions: MinioOptions((_minio.AccessKey, _minio.SecretKey)));
+        SetupUnityCatalogMock("main", "default", table, location, "tok", _minio.AccessKey, _minio.SecretKey);
+
+        LazyFrame lf;
+        using (var uc = new UnityCatalog(_catalogMockServer.Urls[0], "tok"))
+            lf = uc.ScanCatalogTable(catalogName: "main", schemaName: "default", tableName: table, cloudOptions: MinioOptions());
+        using (lf)
+        using (var result = lf.Collect())
+            Assert.Equal([1, 2], result["Id"].ToArray<int>().Order());
+        Assert.Equal(1, CredentialRequests());
+    }
 }

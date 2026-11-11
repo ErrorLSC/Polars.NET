@@ -46,6 +46,27 @@ public class MinioFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>Adds a user that may read and write every bucket; returns its access key and secret.</summary>
+    public async Task<(string AccessKey, string SecretKey)> AddUserAsync()
+    {
+        string key = "u" + Guid.NewGuid().ToString("N")[..15];
+        string secret = Guid.NewGuid().ToString("N");
+        await Mc($"admin user add local {key} {secret}");
+        await Mc($"admin policy attach local readwrite --user {key}");
+        return (key, secret);
+    }
+
+    /// <summary>Disables a user: requests signed with its keys are refused from now on.</summary>
+    public Task DisableUserAsync(string accessKey) => Mc($"admin user disable local {accessKey}");
+
+    private async Task Mc(string arguments)
+    {
+        var result = await _minioContainer.ExecAsync(
+            ["sh", "-c", $"mc alias set local http://127.0.0.1:9000 {AccessKey} {SecretKey} >/dev/null && mc {arguments}"]);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"mc {arguments} failed: {result.Stderr}{result.Stdout}");
+    }
+
     public Task DisposeAsync()
     {
         return _minioContainer.DisposeAsync().AsTask();

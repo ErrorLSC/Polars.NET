@@ -1,5 +1,6 @@
 using Kaminari.Seseragi.Catalog;
 using Kaminari.Seseragi.Catalog.Unity;
+using Polars.NET.Core.Delta;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 
@@ -23,7 +24,8 @@ public readonly partial struct PolarsWrapper
 
     /// <summary>
     /// Asks the catalog where the table lives and for temporary credentials, and lays those credentials
-    /// over the caller's cloud options. Credentials are fetched once per call and are not renewed.
+    /// over the caller's cloud options. Credentials that expire are renewed: the options also name the table's
+    /// renewable source (<see cref="HostCredentials"/>), which asks the catalog again before they expire.
     /// </summary>
     private static TableAccess ResolveCatalogTable(
         CatalogHandle handle,
@@ -54,6 +56,9 @@ public readonly partial struct PolarsWrapper
         }
 
         Dictionary<string, string> merged = access.MergeStorageOptions(baseOptions);
+        if (access.Credentials.ExpiresAt is not null)
+            merged[HostCredentials.Key] = handle.RenewableCredentials(access.Table.TableId, needsWrite, access.Credentials)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
         cloudKeys = [.. merged.Keys];
         cloudValues = [.. merged.Values];
         return access;

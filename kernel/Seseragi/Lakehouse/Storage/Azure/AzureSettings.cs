@@ -11,6 +11,9 @@ internal abstract record AzureAuth
     /// <summary>A shared access signature, as query pairs (decoded).</summary>
     public sealed record Sas(IReadOnlyList<KeyValuePair<string, string>> Pairs) : AzureAuth;
 
+    /// <summary>A shared access signature that is renewed, as query pairs (decoded).</summary>
+    public sealed record RenewedSas(CredentialSource<IReadOnlyList<KeyValuePair<string, string>>> Pairs) : AzureAuth;
+
     /// <summary>An OAuth bearer token.</summary>
     public sealed record Bearer(CredentialSource<string> Token) : AzureAuth;
 }

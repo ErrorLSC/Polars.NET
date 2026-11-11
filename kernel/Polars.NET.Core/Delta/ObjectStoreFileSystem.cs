@@ -109,7 +109,10 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
 
         if (backend != ObjectStoreBackend.Native)
         {
-            _managed = CloudStorage.TryOpen(_root, Options(cloud), Retry(cloud), out string? reason);
+            Dictionary<string, string> options = Options(cloud);
+            RenewableCredentials? renewable = HostCredentials.Find(options);
+            options.Remove(HostCredentials.Key);
+            _managed = CloudStorage.TryOpen(_root, options, Retry(cloud), out string? reason, renewable);
             if (_managed is not null) return;
             if (backend == ObjectStoreBackend.Managed)
                 throw new NotSupportedException($"The managed object store cannot open '{_root}': {reason}.");

@@ -275,6 +275,11 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
     // Parquet
+    // Credentials the host renews (see HostCredentials)
+    [LibraryImport(LibName)]
+    public static unsafe partial void pl_cloud_set_credential_callback(
+        delegate* unmanaged[Cdecl]<ulong, byte*, nuint, nuint*, ulong*, int> callback);
+
     // Storage: a file-system view over an object store
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial StorageHandle pl_storage_open(

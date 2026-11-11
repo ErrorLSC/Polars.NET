@@ -7,5 +7,6 @@ pub mod avro;
 pub mod io_utils;
 pub mod ffi_buffer;
 pub mod storage;
+pub mod host_credentials;
 pub mod callback_writer;
 pub mod managed_buffer;

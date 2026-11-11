@@ -68,9 +68,24 @@ pub(crate) fn build_cloud_options_from_params(
         }
     };
 
+    // Credentials the host renews: the source's id is taken out before the library reads the configuration (it
+    // would refuse the key and drop every option); the provider then serves the credentials, over any static ones.
+    let mut params = params;
+    let host_source = params
+        .iter()
+        .position(|(k, _)| k == crate::pl_io::host_credentials::CREDENTIAL_SOURCE_KEY)
+        .map(|i| params.remove(i).1);
+    let host_source = match host_source.map(|v| v.parse::<u64>()) {
+        Some(Ok(id)) => Some(id),
+        Some(Err(_)) => {
+            eprintln!("Cloud config error: the host credential source id is not a number");
+            return None;
+        },
+        None => None,
+    };
+
     // A static OAuth token (as Unity Catalog vends them for GCS) has no configuration key in the object store
     // library; it is handed over as a credential provider, which also leaves the GOOGLE_* environment out.
-    let mut params = params;
     let gcs_token = if matches!(scheme, Some(CloudScheme::Gcs)) {
         params
             .iter()
@@ -88,7 +103,9 @@ pub(crate) fn build_cloud_options_from_params(
         }
     };
 
-    if let Some(token) = gcs_token {
+    if let Some(id) = host_source {
+        opts = opts.with_credential_provider(Some(crate::pl_io::host_credentials::host_credential_provider(id, scheme)));
+    } else if let Some(token) = gcs_token {
         opts = opts.with_credential_provider(Some(static_gcs_token(token)));
     }
 
