@@ -23,8 +23,10 @@ public enum ParquetTimeUnit
 /// <param name="TypeLength">The byte length of a FIXED_LEN_BYTE_ARRAY.</param>
 /// <param name="DecimalScale">The scale of a decimal, from the logical or the converted type.</param>
 /// <param name="TimeUnit">The unit of a timestamp, from the logical or the converted type.</param>
+/// <param name="FieldId">The field id, when the writer gave one (Delta's column mapping does).</param>
 public sealed record ParquetSchemaElement(
-    string Name, int? PhysicalType, int? Repetition, int ChildCount, int? TypeLength, int? DecimalScale, ParquetTimeUnit? TimeUnit);
+    string Name, int? PhysicalType, int? Repetition, int ChildCount, int? TypeLength, int? DecimalScale, ParquetTimeUnit? TimeUnit,
+    int? FieldId = null);
 
 /// <summary>The statistics of one column chunk: the raw PLAIN-encoded bounds and the null count, each absent when not written.</summary>
 public sealed record ParquetColumnStatistics(byte[]? Min, byte[]? Max, long? NullCount);
@@ -145,7 +147,7 @@ public sealed class ParquetMetadata
         if (unit is null && converted == 9) unit = ParquetTimeUnit.Millis;    // TIMESTAMP_MILLIS
         if (unit is null && converted == 10) unit = ParquetTimeUnit.Micros;   // TIMESTAMP_MICROS
         return new ParquetSchemaElement(
-            e.String(4) ?? "", (int?)e.Long(1), (int?)e.Long(3), (int)(e.Long(5) ?? 0), (int?)e.Long(2), scale, unit);
+            e.String(4) ?? "", (int?)e.Long(1), (int?)e.Long(3), (int)(e.Long(5) ?? 0), (int?)e.Long(2), scale, unit, (int?)e.Long(9));
     }
 
     private static ParquetRowGroup RowGroup(ThriftStruct g) => new(

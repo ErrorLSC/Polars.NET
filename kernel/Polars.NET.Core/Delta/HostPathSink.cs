@@ -21,12 +21,14 @@ internal static class HostPathSink
     /// <summary>Sinks <paramref name="lf"/> (consumed) under <paramref name="basePath"/>.</summary>
     /// <param name="maxRowsPerFile">The most rows in one file; 0 for no limit.</param>
     /// <param name="approxBytesPerFile">The approximate in-memory size of the rows of one file; 0 for no limit.</param>
+    /// <param name="fieldIds">Parquet field ids for the file's fields, null for none: <c>path TAB id</c> lines, a path being
+    /// the field names from the top joined by U+001F, with <c>[]</c> for a list's element.</param>
     /// <param name="pathFor">Called for every file, possibly from several threads (calls are serialized); its
     /// exceptions are rethrown here.</param>
     public static unsafe void Sink(
         LazyFrameHandle lf, string basePath, string[] partitionKeys, bool keysPreGrouped, ulong maxRowsPerFile, ulong approxBytesPerFile,
         PathFor pathFor, PlParquetCompression compression, int compressionLevel, int rowGroupSize, int dataPageSize,
-        bool maintainOrder, PlSyncOnClose syncOnClose, CloudArgs? cloud)
+        bool maintainOrder, PlSyncOnClose syncOnClose, CloudArgs? cloud, string? fieldIds = null)
     {
         ArgumentNullException.ThrowIfNull(pathFor);
         cloud ??= CloudArgs.Local;
@@ -42,7 +44,7 @@ internal static class HostPathSink
                     compression, compressionLevel, rowGroupSize > 0 ? (nuint)rowGroupSize : 0, dataPageSize > 0 ? (nuint)dataPageSize : 0,
                     maintainOrder, syncOnClose,
                     cloud.Provider, cloud.Retries, cloud.RetryTimeoutMs, cloud.RetryInitBackoffMs, cloud.RetryMaxBackoffMs, cloud.CacheTtl,
-                    cloud.Keys, cloud.Values, (nuint)(cloud.Keys?.Length ?? 0));
+                    cloud.Keys, cloud.Values, (nuint)(cloud.Keys?.Length ?? 0), fieldIds);
                 lf.TransferOwnership();
                 ErrorHelper.CheckVoid();
             }

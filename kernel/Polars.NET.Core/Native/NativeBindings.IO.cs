@@ -506,7 +506,8 @@ unsafe internal partial class NativeBindings
         ulong cloud_cache_ttl,
         string[]? cloud_keys,
         string[]? cloud_values,
-        nuint cloud_len
+        nuint cloud_len,
+        string? field_ids
     );
     [LibraryImport(LibName)]
     public static partial void pl_lazyframe_sink_parquet_callback(

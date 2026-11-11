@@ -66,7 +66,6 @@ internal static class DeltaKernelOptimize
                 ? [.. partitions.Values.SelectMany(files => CompactionBins(files, targetFileSize))]
                 : [.. partitions.Values]; // Z-ordering rewrites every file of a chosen partition
             if (bins.Count == 0) return new DeltaOptimizeResult(null, 0, 0, 0, 0, 0);
-            table.EnsureFilesWritable();
 
             var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             foreach (List<AddAction> bin in bins)

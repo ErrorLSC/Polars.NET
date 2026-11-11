@@ -77,7 +77,6 @@ internal static class DeltaKernelUpdate
                     throw new PolarsException($"The table has no column '{column}'.");
                 if (identity.Contains(column)) throw DeltaKernelIdentity.UpdateNotSupported(column);
             }
-            table.EnsureFilesWritable();
 
             IReadOnlyList<AddAction> candidates = fileFilter is null ? snapshot.Files : snapshot.FilesMatching(fileFilter);
             var transaction = Transaction.Start(table.FileSystem, snapshot, "UPDATE");

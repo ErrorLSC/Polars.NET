@@ -125,7 +125,6 @@ internal static class DeltaKernelDelete
                 }
                 else
                 {
-                    table.EnsureFilesWritable();
                     keptFrames.Add(table.ScanFile(file, dropRows: rows));
                     plan.CopiedRows += live - rows.Length;
                     plan.Remove(file);

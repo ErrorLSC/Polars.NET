@@ -149,7 +149,7 @@ public class SchemaEvolutionTests
     }
 
     [Fact]
-    public void NestedWidening_OnlyWhatTheScanReads_AndNotUnderColumnMapping()
+    public void NestedWidening_OnlyWhatTheScanReads()
     {
         var table = new StructType([F("s", new StructType([F("n", Int), F("d", new PrimitiveType(PrimitiveType.Date))]))]);
         var meta = Meta(table, (SchemaEvolution.EnableTypeWideningKey, "true"));
@@ -163,9 +163,56 @@ public class SchemaEvolutionTests
         Assert.Contains("not supported yet", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(meta, Widening,
             new StructType([F("s", new StructType([F("n", Int), F("d", new PrimitiveType(PrimitiveType.TimestampNtz))]))]), true, out _)).Message);
 
+    }
+
+    [Fact]
+    public void NestedFields_AddedUnderColumnMapping_GetTheNextIdsAndPhysicalNames()
+    {
         string mapped = """{"type":"struct","fields":[{"name":"s","type":{"type":"struct","fields":[{"name":"a","type":"integer","nullable":true,"metadata":{"delta.columnMapping.id":2,"delta.columnMapping.physicalName":"col-b"}}]},"nullable":true,"metadata":{"delta.columnMapping.id":1,"delta.columnMapping.physicalName":"col-a"}}]}""";
-        var mappedMeta = new MetadataAction { Id = "t", SchemaString = mapped, Configuration = new Dictionary<string, string> { [TableFeatures.ColumnMappingModeKey] = "name" } };
-        Assert.Contains("column mapping", Assert.Throws<DeltaException>(() => SchemaEvolution.Merge(mappedMeta, Basic,
-            new StructType([F("s", new StructType([F("a", Int), F("b", Str)]))]), true, out _)).Message);
+        var mappedMeta = new MetadataAction
+        {
+            Id = "t", SchemaString = mapped,
+            Configuration = new Dictionary<string, string> { [TableFeatures.ColumnMappingModeKey] = "name", [SchemaEvolution.MaxColumnIdKey] = "2" },
+        };
+        // A new field b holding a list of structs: b, then the struct field inside the list, in Spark's order.
+        StructType merged = SchemaEvolution.Merge(mappedMeta, Basic,
+            new StructType([F("s", new StructType([F("a", Int), F("b", new ArrayType(new StructType([F("x", Int)]), true))]))]), true, out MetadataAction? changed);
+        var s = (StructType)merged.Field("s")!.Type;
+        Assert.Equal(("col-b", 2), (s.Field("a")!.PhysicalName, s.Field("a")!.FieldId!.Value));
+        StructField b = s.Field("b")!;
+        StructField x = ((StructType)((ArrayType)b.Type).ElementType).Field("x")!;
+        Assert.Equal((3, 4), (b.FieldId!.Value, x.FieldId!.Value));
+        Assert.StartsWith("col-", b.PhysicalName);
+        Assert.StartsWith("col-", x.PhysicalName);
+        Assert.Equal("4", changed!.Configuration[SchemaEvolution.MaxColumnIdKey]);
+    }
+
+    [Fact]
+    public void ANewMappedSchema_NumbersStructFieldsInsideArraysAndMaps_DepthFirst_AsSpark()
+    {
+        var meta = new MetadataAction
+        {
+            Id = "t", SchemaString = """{"type":"struct","fields":[]}""",
+            Configuration = new Dictionary<string, string> { [TableFeatures.ColumnMappingModeKey] = "id" },
+        };
+        // Spark 4.1: id INT, s STRUCT<a, b STRUCT<c>>, arr ARRAY<STRUCT<x>>, m MAP<STRING, STRUCT<y>> numbers 1..9.
+        var schema = new StructType([
+            F("id", Int),
+            F("s", new StructType([F("a", Int), F("b", new StructType([F("c", Str)]))])),
+            F("arr", new ArrayType(new StructType([F("x", Int)]), true)),
+            F("m", new MapType(Str, new StructType([F("y", Int)]), true)),
+        ]);
+        MetadataAction replaced = SchemaEvolution.Replace(meta, schema, []);
+        var mapped = StructType.Parse(replaced.SchemaString);
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9], Ids(mapped));
+        Assert.Equal("9", replaced.Configuration[SchemaEvolution.MaxColumnIdKey]);
+
+        static List<int> Ids(DeltaType type) => type switch
+        {
+            StructType st => [.. st.Fields.SelectMany(f => (IEnumerable<int>)[f.FieldId!.Value, .. Ids(f.Type)])],
+            ArrayType a => Ids(a.ElementType),
+            MapType m => [.. Ids(m.KeyType), .. Ids(m.ValueType)],
+            _ => [],
+        };
     }
 }

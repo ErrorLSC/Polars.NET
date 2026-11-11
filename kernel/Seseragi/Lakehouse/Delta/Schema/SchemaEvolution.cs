@@ -132,8 +132,6 @@ public static class SchemaEvolution
             string names = string.Join(", ", added.Select(f => path is null ? f.Name : $"{path}.{f.Name}"));
             if (!context.Evolve)
                 throw new DeltaException($"Schema mismatch: the data has columns the table does not: {names}. Allow schema evolution to add them.");
-            if (!topLevel && context.Mapping != ColumnMappingMode.None)
-                throw new DeltaException($"Adding nested fields ({names}) to a table with column mapping is not supported yet.");
             foreach (StructField field in added)
             {
                 var plain = new StructField { Name = field.Name, Type = Nullable(field.Type), Nullable = true };
@@ -342,22 +340,42 @@ public static class SchemaEvolution
             [StructField.ColumnIdKey] = maxId.ToString(CultureInfo.InvariantCulture),
             [StructField.PhysicalNameKey] = $"col-{Guid.NewGuid()}",
         };
-        DeltaType type = field.Type;
-        if (type is StructType nested)
-        {
-            var inner = new List<StructField>();
-            foreach (StructField child in nested.Fields) inner.Add(Mapped(child, ref maxId));
-            type = new StructType(inner);
-        }
+        DeltaType type = MappedType(field.Type, ref maxId);
         return new StructField { Name = field.Name, Type = type, Nullable = field.Nullable, Metadata = metadata, JsonMetadataKeys = field.JsonMetadataKeys };
+    }
+
+    /// <summary>The struct fields inside a type, at any depth (array elements, map keys and values), mapped in Spark's order.</summary>
+    private static DeltaType MappedType(DeltaType type, ref int maxId)
+    {
+        switch (type)
+        {
+            case StructType s:
+                var inner = new List<StructField>(s.Fields.Count);
+                foreach (StructField child in s.Fields) inner.Add(Mapped(child, ref maxId));
+                return new StructType(inner);
+            case ArrayType a:
+                return new ArrayType(MappedType(a.ElementType, ref maxId), a.ContainsNull);
+            case MapType m:
+                DeltaType key = MappedType(m.KeyType, ref maxId);
+                return new MapType(key, MappedType(m.ValueType, ref maxId), m.ValueContainsNull);
+            default:
+                return type;
+        }
     }
 
     private static StructField Unmapped(StructField field)
     {
         var metadata = field.Metadata.Where(kv => kv.Key is not (StructField.ColumnIdKey or StructField.PhysicalNameKey)).ToDictionary(kv => kv.Key, kv => kv.Value);
-        DeltaType type = field.Type is StructType s ? new StructType([.. s.Fields.Select(Unmapped)]) : field.Type;
-        return new StructField { Name = field.Name, Type = type, Nullable = field.Nullable, Metadata = metadata, JsonMetadataKeys = field.JsonMetadataKeys };
+        return new StructField { Name = field.Name, Type = UnmappedType(field.Type), Nullable = field.Nullable, Metadata = metadata, JsonMetadataKeys = field.JsonMetadataKeys };
     }
+
+    private static DeltaType UnmappedType(DeltaType type) => type switch
+    {
+        StructType s => new StructType([.. s.Fields.Select(Unmapped)]),
+        ArrayType a => new ArrayType(UnmappedType(a.ElementType), a.ContainsNull),
+        MapType m => new MapType(UnmappedType(m.KeyType), UnmappedType(m.ValueType), m.ValueContainsNull),
+        _ => type,
+    };
 
     private static int MaxColumnId(MetadataAction metadata, StructType schema)
     {

@@ -404,7 +404,6 @@ internal static class DeltaKernelMerge
             plan.MarkDeleted(table, marked);
             if (written.Count > 0 && (inserted > 0 || updated > 0 || plan.Rewritten > 0))
             {
-                table.EnsureFilesWritable();
                 plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table, DmlTable.Concat(written)!, schema, plan.Now, checkNotNull: true));
             }
 

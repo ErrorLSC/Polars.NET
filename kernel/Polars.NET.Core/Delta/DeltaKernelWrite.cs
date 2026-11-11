@@ -139,8 +139,6 @@ internal static class DeltaKernelWrite
                             (mode == KernelWriteMode.Overwrite ? "; overwrite with schema evolution to change it." : "."));
                     schema = SchemaEvolution.Merge(existing.Metadata, existing.Protocol, incoming, canEvolve, out changed);
                 }
-                if (existing.ColumnMappingMode != ColumnMappingMode.None && schema.Fields.Any(f => NeedsMapping(f.Type)))
-                    throw new PolarsException("Writing to a table with column mapping inside nested columns is not supported yet.");
             }
             transaction.WithParameter("mode", mode switch
             {
@@ -307,8 +305,6 @@ internal static class DeltaKernelWrite
             // Column mapping from the start: every column gets an id and a physical name.
             metadata = SchemaEvolution.Replace(metadata, schema, partitions);
             schema = StructType.Parse(metadata.SchemaString);
-            if (schema.Fields.Any(f => NeedsMapping(f.Type)))
-                throw new PolarsException("Creating a table with column mapping and nested columns is not supported yet.");
         }
         return (metadata, schema);
     }
@@ -324,14 +320,6 @@ internal static class DeltaKernelWrite
         StructType s => s.Fields.Any(f => AnyType(f.Type, test)),
         ArrayType a => AnyType(a.ElementType, test),
         MapType m => AnyType(m.KeyType, test) || AnyType(m.ValueType, test),
-        _ => false,
-    };
-
-    internal static bool NeedsMapping(DeltaType type) => type switch
-    {
-        StructType s => s.Fields.Any(f => f.PhysicalName != f.Name || NeedsMapping(f.Type)),
-        ArrayType a => NeedsMapping(a.ElementType),
-        MapType m => NeedsMapping(m.KeyType) || NeedsMapping(m.ValueType),
         _ => false,
     };
 
@@ -588,7 +576,7 @@ internal static class DeltaKernelWrite
         ExprHandle[] columns =
         [
             .. partitions.Select(PolarsWrapper.Col),
-            .. dataFields.Select(f => PolarsWrapper.Alias(PolarsWrapper.Col(f.Name), f.PhysicalName)),
+            .. dataFields.Select(f => PolarsWrapper.Alias(DeltaKernelScan.Renamed(PolarsWrapper.Col(f.Name), f.Type, toPhysical: true), f.PhysicalName)),
             .. materialized is var (rowId, commitVersion)
                 ? [PolarsWrapper.Alias(PolarsWrapper.Col(DeltaKernelScan.RowIdColumn), rowId),
                    PolarsWrapper.Alias(PolarsWrapper.Col(DeltaKernelScan.RowCommitVersionColumn), commitVersion)]
@@ -621,7 +609,7 @@ internal static class DeltaKernelWrite
                 return relative;
             },
             options.Compression, options.CompressionLevel, options.RowGroupSize, options.DataPageSize, options.MaintainOrder,
-            options.SyncOnClose, cloud);
+            options.SyncOnClose, cloud, FieldIds(dataFields));
 
         // Sizes and footers: one read of each file's end where the store can, else a listing per directory.
         (long Size, ParquetMetadata Footer)[] footers;
@@ -635,6 +623,45 @@ internal static class DeltaKernelWrite
         }
         return [.. written.Select((w, i) => new SunkFile(w.Relative, w.Values, footers[i].Size, footers[i].Footer))];
     }
+
+    /// <summary>
+    /// The Parquet field ids of the data columns under column mapping (null without), as Spark writes them: every
+    /// struct field at any depth (inside list elements and map entries too) gets its column mapping id. In the
+    /// sink's form: <c>path TAB id</c> lines, a path being the physical names from the top joined by U+001F, with
+    /// <c>[]</c> for a list's element (a map is a list of key/value structs).
+    /// </summary>
+    internal static string? FieldIds(IEnumerable<StructField> dataFields)
+    {
+        var lines = new StringBuilder();
+        foreach (StructField field in dataFields) Field(field, null);
+        return lines.Length == 0 ? null : lines.ToString();
+
+        void Field(StructField field, string? parent)
+        {
+            string path = parent is null ? field.PhysicalName : parent + PathSeparator + field.PhysicalName;
+            if (field.FieldId is int id) lines.Append(path).Append('\t').Append(id.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            Nested(field.Type, path);
+        }
+
+        void Nested(DeltaType type, string path)
+        {
+            switch (type)
+            {
+                case StructType s:
+                    foreach (StructField child in s.Fields) Field(child, path);
+                    break;
+                case ArrayType a:
+                    Nested(a.ElementType, path + PathSeparator + "[]");
+                    break;
+                case MapType m:
+                    Nested(m.KeyType, path + PathSeparator + "[]" + PathSeparator + "key");
+                    Nested(m.ValueType, path + PathSeparator + "[]" + PathSeparator + "value");
+                    break;
+            }
+        }
+    }
+
+    private const char PathSeparator = '\u001f';
 
     /// <summary>Partition values as the log keys them: by physical column name.</summary>
     private static Dictionary<string, string?> Logged(Dictionary<string, string?> values, StructType schema, string[] partitions) =>

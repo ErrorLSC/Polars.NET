@@ -167,6 +167,16 @@ public sealed class SparkFactAttribute : FactAttribute
     }
 }
 
+/// <summary>A theory that runs only where a local Spark is set up (see <see cref="LocalSpark"/>).</summary>
+public sealed class SparkTheoryAttribute : TheoryAttribute
+{
+    public SparkTheoryAttribute()
+    {
+        if (!LocalSpark.Available)
+            Skip = $"No local Spark: set SESERAGI_SPARK_PYTHON / SESERAGI_SPARK_JAVA_HOME (looked for {LocalSpark.Python} and {LocalSpark.JavaHome}).";
+    }
+}
+
 /// <summary>
 /// The managed Delta kernel against Spark, both ways: Spark reads tables the kernel writes, and the kernel reads
 /// tables Spark writes with deletion vectors, the change data feed, checkpoints and column mapping.

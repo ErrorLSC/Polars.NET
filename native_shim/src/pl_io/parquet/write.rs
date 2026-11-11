@@ -346,6 +346,9 @@ pub extern "C" fn pl_lazyframe_sink_parquet_host_paths(
     cloud_keys: *const *const c_char,
     cloud_values: *const *const c_char,
     cloud_len: usize,
+
+    // Parquet field ids (null: none), see `with_field_ids`.
+    field_ids: *const c_char,
 ) {
     ffi_try_void!({
         let provider = Arc::new(std::sync::Mutex::new(HostPathProvider { callback: path_callback, user: path_user, active: true }));
@@ -358,9 +361,11 @@ pub extern "C" fn pl_lazyframe_sink_parquet_host_paths(
         let base_path = ptr_to_str(base_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
 
         let mut keys: Vec<Expr> = Vec::with_capacity(key_len);
+        let mut key_set: Vec<String> = Vec::with_capacity(key_len);
         for i in 0..key_len {
             let name = unsafe { ptr_to_str(*key_names.add(i)) }.map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
             keys.push(col(name));
+            key_set.push(name.to_string());
         }
         let partition_strategy = if keys.is_empty() {
             PartitionStrategy::FileSize
@@ -397,14 +402,25 @@ pub extern "C" fn pl_lazyframe_sink_parquet_host_paths(
         };
 
         // Statistics always on: the host reads them back from the footers.
-        let write_options = build_parquet_write_options(compression, compression_level, true, row_group_size, data_page_size, 0)?;
+        let mut write_options = build_parquet_write_options(compression, compression_level, true, row_group_size, data_page_size, 0)?;
+        let mut lf = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?;
+        if !field_ids.is_null() {
+            let ids = ptr_to_str(field_ids).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+            // The files hold every column but the partition keys.
+            let mut file_schema = (*lf.collect_schema()?).clone();
+            for key in &key_set {
+                file_schema.shift_remove(key.as_str());
+            }
+            let compat = write_options.compat_level();
+            Arc::make_mut(&mut write_options).arrow_schema = Some(Arc::new(with_field_ids(&file_schema, ids, compat)?));
+        }
         let unified_args = unsafe {
             build_unified_sink_args(
                 false, maintain_order, sync_on_close, cloud_provider, cloud_retries, cloud_retry_timeout_ms,
                 cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl, cloud_keys, cloud_values, cloud_len,
             )
         };
-        resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
+        lf
             .sink(destination, FileWriteFormat::Parquet(write_options), unified_args)?
             .collect_with_engine(Engine::Streaming)?;
         Ok(())
@@ -417,4 +433,62 @@ impl Drop for DisableOnDrop {
     fn drop(&mut self) {
         self.0.lock().unwrap_or_else(|p| p.into_inner()).active = false;
     }
+}
+
+/// The separator of the steps of a field path in `with_field_ids`.
+const PATH_SEPARATOR: char = '\u{1f}';
+
+/// The arrow schema the Parquet writer would use for `schema`, with Parquet field ids (as Delta's column mapping
+/// needs them) on the fields `ids` names: `path TAB id` lines, where a path is the field names from the top joined
+/// by U+001F and `[]` stands for a list's element. Fields not named get no id.
+fn with_field_ids(schema: &Schema, ids: &str, compat: CompatLevel) -> PolarsResult<ArrowSchema> {
+    let mut by_path = std::collections::HashMap::new();
+    for line in ids.lines().filter(|l| !l.is_empty()) {
+        let (path, id) = line
+            .split_once('\t')
+            .ok_or_else(|| PolarsError::ComputeError(format!("Malformed field id line '{line}'").into()))?;
+        let id: i32 = id.parse().map_err(|_| PolarsError::ComputeError(format!("Malformed field id '{id}'").into()))?;
+        by_path.insert(path.to_string(), id);
+    }
+    let arrow = polars_io::schema_to_arrow_checked(schema, compat, "")?;
+    let mut used = 0usize;
+    let fields: Vec<ArrowField> = arrow.iter_values().map(|f| annotate(f, "", &by_path, &mut used)).collect();
+    if used != by_path.len() {
+        return Err(PolarsError::ComputeError(
+            format!("{} of the {} field ids name no field of the file", by_path.len() - used, by_path.len()).into(),
+        ));
+    }
+    Ok(ArrowSchema::from_iter(fields))
+}
+
+fn annotate(field: &ArrowField, parent: &str, ids: &std::collections::HashMap<String, i32>, used: &mut usize) -> ArrowField {
+    let path = if parent.is_empty() { field.name.to_string() } else { format!("{parent}{PATH_SEPARATOR}{}", field.name) };
+    annotate_at(field, &path, ids, used)
+}
+
+fn annotate_at(field: &ArrowField, path: &str, ids: &std::collections::HashMap<String, i32>, used: &mut usize) -> ArrowField {
+    let dtype = match &field.dtype {
+        ArrowDataType::Struct(children) => {
+            ArrowDataType::Struct(children.iter().map(|c| annotate(c, path, ids, used)).collect())
+        },
+        ArrowDataType::LargeList(child) => {
+            ArrowDataType::LargeList(Box::new(annotate_at(child, &format!("{path}{PATH_SEPARATOR}[]"), ids, used)))
+        },
+        ArrowDataType::List(child) => {
+            ArrowDataType::List(Box::new(annotate_at(child, &format!("{path}{PATH_SEPARATOR}[]"), ids, used)))
+        },
+        ArrowDataType::FixedSizeList(child, size) => ArrowDataType::FixedSizeList(
+            Box::new(annotate_at(child, &format!("{path}{PATH_SEPARATOR}[]"), ids, used)),
+            *size,
+        ),
+        other => other.clone(),
+    };
+    let mut out = ArrowField { name: field.name.clone(), dtype, is_nullable: field.is_nullable, metadata: field.metadata.clone() };
+    if let Some(id) = ids.get(path) {
+        *used += 1;
+        let mut metadata = field.metadata.as_deref().cloned().unwrap_or_default();
+        metadata.insert("PARQUET:field_id".into(), id.to_string().into());
+        out.metadata = Some(Arc::new(metadata));
+    }
+    out
 }

@@ -725,8 +725,8 @@ public static class DeltaKernelScan
         return PolarsWrapper.Lit(value);
     }
 
-    /// <summary>Whether a column read under physical names has a field, at some depth, whose logical name differs.</summary>
-    private static bool NeedsRenaming(DeltaType type) => type switch
+    /// <summary>Whether a column has a field, at some depth, whose physical name differs from its logical one.</summary>
+    internal static bool NeedsRenaming(DeltaType type) => type switch
     {
         StructType s => s.Fields.Any(f => f.PhysicalName != f.Name || NeedsRenaming(f.Type)),
         ArrayType a => NeedsRenaming(a.ElementType),
@@ -739,40 +739,49 @@ public static class DeltaKernelScan
     /// depth: inside structs, list elements and map entries. Takes ownership of <paramref name="physical"/>.
     /// A struct cast would not do: the engine casts struct fields by name.
     /// </summary>
-    private static ExprHandle ToLogical(ExprHandle physical, DeltaType type)
+    private static ExprHandle ToLogical(ExprHandle physical, DeltaType type) => Renamed(physical, type, toPhysical: false);
+
+    /// <summary>
+    /// Renames the struct fields of a column, at every depth (inside structs, list elements and map entries), from
+    /// their logical names to their physical ones (column mapping) or back. The column must already have the
+    /// table's type (fields in its order). Takes ownership of <paramref name="column"/>; null structs stay null.
+    /// </summary>
+    internal static ExprHandle Renamed(ExprHandle column, DeltaType type, bool toPhysical)
     {
-        if (!NeedsRenaming(type)) return physical;
+        if (!NeedsRenaming(type)) return column;
+        string From(StructField f) => toPhysical ? f.Name : f.PhysicalName;
+        string To(StructField f) => toPhysical ? f.PhysicalName : f.Name;
         switch (type)
         {
             case StructType s when !s.Fields.Any(f => NeedsRenaming(f.Type)):
                 // Only this level is renamed; the rename keeps null structs null.
-                return PolarsWrapper.StructRenameFields(physical, [.. s.Fields.Select(f => f.Name)]);
+                return PolarsWrapper.StructRenameFields(column, [.. s.Fields.Select(To)]);
 
             case StructType s:
             {
                 var fields = new ExprHandle[s.Fields.Count];
                 for (int i = 0; i < fields.Length; i++)
                 {
-                    ExprHandle field = PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(physical), [s.Fields[i].PhysicalName]);
-                    fields[i] = PolarsWrapper.Alias(ToLogical(field, s.Fields[i].Type), s.Fields[i].Name);
+                    ExprHandle field = PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(column), [From(s.Fields[i])]);
+                    fields[i] = PolarsWrapper.Alias(Renamed(field, s.Fields[i].Type, toPhysical), To(s.Fields[i]));
                 }
                 // Rebuilt field by field, so a null struct is put back explicitly.
-                return PolarsWrapper.IfElse(PolarsWrapper.IsNull(physical), PolarsWrapper.LitNull(), PolarsWrapper.AsStruct(fields));
+                return PolarsWrapper.IfElse(PolarsWrapper.IsNull(column), PolarsWrapper.LitNull(), PolarsWrapper.AsStruct(fields));
             }
 
             case ArrayType a:
-                return PolarsWrapper.ListEval(physical, ToLogical(PolarsWrapper.Col(""), a.ElementType));
+                return PolarsWrapper.ListEval(column, Renamed(PolarsWrapper.Col(""), a.ElementType, toPhysical));
 
             case MapType m:
             {
                 // A map is a list of key/value structs; the entry names are fixed, their contents may be renamed.
-                ExprHandle key = PolarsWrapper.Alias(ToLogical(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["key"]), m.KeyType), "key");
-                ExprHandle value = PolarsWrapper.Alias(ToLogical(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["value"]), m.ValueType), "value");
-                return PolarsWrapper.ListEval(physical, PolarsWrapper.AsStruct([key, value]));
+                ExprHandle key = PolarsWrapper.Alias(Renamed(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["key"]), m.KeyType, toPhysical), "key");
+                ExprHandle value = PolarsWrapper.Alias(Renamed(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["value"]), m.ValueType, toPhysical), "value");
+                return PolarsWrapper.ListEval(column, PolarsWrapper.AsStruct([key, value]));
             }
 
             default:
-                return physical;
+                return column;
         }
     }
 

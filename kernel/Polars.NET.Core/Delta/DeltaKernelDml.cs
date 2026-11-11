@@ -119,13 +119,6 @@ internal sealed class DmlTable : IDisposable
     private bool IsTrue(string key) =>
         Snapshot.Metadata.Configuration.TryGetValue(key, out string? value) && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Refuses writing data files where the kernel cannot keep the table's column mapping yet.</summary>
-    public void EnsureFilesWritable()
-    {
-        if (Snapshot.ColumnMappingMode != ColumnMappingMode.None && Snapshot.Schema.Fields.Any(f => DeltaKernelWrite.NeedsMapping(f.Type)))
-            throw new PolarsException("Writing files of a table with column mapping inside nested columns is not supported yet.");
-    }
-
     /// <summary>
     /// The table's materialized row id and row commit version column names when row tracking is on (rewritten
     /// rows must then keep their ids); null otherwise.
