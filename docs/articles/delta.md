@@ -356,6 +356,8 @@ sourceBatch.UpdateDelta("./lake/devices", [ "Id" ], condition = (Delta.Source "R
 
 With `DeltaTableProperties.EnableRowTracking`, every row keeps a stable row id through updates, merges and optimize; `ScanDelta` / `ReadDelta` return it, and the version that last changed the row, under the names given (Spark's `_metadata.row_id` and `_metadata.row_commit_version`). Set on an existing table, the property gives the rows already there their ids.
 
+`DeltaTableProperties.RowTrackingSuspended` stops giving ids to new files, as Spark's `delta.rowTrackingSuspended`; it cannot be true while row tracking is on, so set `EnableRowTracking` to false in the same `SetTableProperties` call. Setting it back to false (with `EnableRowTracking` true in the same call, if wanted) resumes the ids after the highest one given, and gives the files written meanwhile theirs.
+
 ::: code-group
 
 ```csharp [C# (Fluent)]

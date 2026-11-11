@@ -276,6 +276,30 @@ let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Suspended row tracking gives appended rows ids only once it is turned on again`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_rt_suspended_{Guid.NewGuid()}")
+    try
+        Delta.CreateTable(path, PolarsSchema([ "v", DataType.String ]), properties = [ DeltaTableProperties.EnableRowTracking, "true" ])
+        DataFrame.create [| Series.create("v", [ "a"; "b" ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append) // v1: ids 0, 1
+
+        // Suspending needs row tracking off in the same change (as Spark).
+        Assert.ThrowsAny<exn>(fun () -> Delta.SetTableProperties(path, [ DeltaTableProperties.RowTrackingSuspended, "true" ], raiseIfNotExists = true))
+        |> ignore
+        Delta.SetTableProperties(
+            path, [ DeltaTableProperties.EnableRowTracking, "false"; DeltaTableProperties.RowTrackingSuspended, "true" ], raiseIfNotExists = true)
+        DataFrame.create [| Series.create("v", [ "c" ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append) // v3: no ids
+        Assert.ThrowsAny<exn>(fun () -> DataFrame.ReadDelta(path, rowIdColumn = "row_id") |> ignore) |> ignore
+
+        // Resumed and turned on in one change (v4): "c" gets the next id, with v4 as its version.
+        Delta.SetTableProperties(
+            path, [ DeltaTableProperties.EnableRowTracking, "true"; DeltaTableProperties.RowTrackingSuspended, "false" ], raiseIfNotExists = true)
+        let read = DataFrame.ReadDelta(path, rowIdColumn = "row_id", rowCommitVersionColumn = "row_version").Sort("v")
+        Assert.Equal<int64 list>([ 0L; 1L; 2L ], read.["row_id"].ToArray<int64>() |> List.ofArray)
+        Assert.Equal<int64 list>([ 1L; 1L; 4L ], read.["row_version"].ToArray<int64>() |> List.ofArray)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Delta Update changes only the rows matching the predicate and commits an UPDATE`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_update_pred_{Guid.NewGuid()}")
     try

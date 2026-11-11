@@ -190,7 +190,9 @@ public sealed class Transaction
         Validate(metadata);
         long timestamp = (now ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
 
-        bool rowTracking = RowTracking.IsSupported(protocol);
+        // Suspension is read from the metadata this commit leaves (Spark reads the snapshot's): one ALTER can then
+        // lift it and turn tracking on, with the backfilled files getting their ids in that same commit.
+        bool rowTracking = !RowTracking.IsSuspended(metadata) && RowTracking.IsSupported(protocol);
         _rowIdHighWaterMark = _read is null ? null : RowTracking.HighWaterMark(_read.DomainMetadata);
 
         long version = ReadVersion + 1;

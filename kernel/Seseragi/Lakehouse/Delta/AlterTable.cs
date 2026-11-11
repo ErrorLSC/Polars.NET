@@ -34,7 +34,7 @@ public static class AlterTable
         "delta.tuneFileSizesForRewrites", "delta.dataSkippingNumIndexedCols", "delta.dataSkippingStatsColumns",
         "delta.isolationLevel", "delta.randomizeFilePrefixes", "delta.randomPrefixLength", "delta.setTransactionRetentionDuration",
         "delta.compatibility.symlinkFormatManifest.enabled", "delta.autoOptimize.optimizeWrite", "delta.autoOptimize.autoCompact",
-        "delta.enableRowTracking", "delta.enableIcebergCompatV1", "delta.enableIcebergCompatV2", "delta.universalFormat.enabledFormats",
+        "delta.enableRowTracking", RowTracking.SuspendedKey, "delta.enableIcebergCompatV1", "delta.enableIcebergCompatV2", "delta.universalFormat.enabledFormats",
     ];
 
     /// <summary>Properties that turn a feature on: true brings the feature into the protocol.</summary>
@@ -183,6 +183,10 @@ public static class AlterTable
                         throw new DeltaException($"The property {known} turns on the table feature '{feature}', which this kernel does not support.");
                     Features.Add(feature);
                 }
+            }
+            else if (known == RowTracking.SuspendedKey)
+            {
+                if (!bool.TryParse(value, out _)) throw new DeltaException($"The property {known} takes true or false, not '{value}'.");
             }
             else if (known == TableFeatures.ColumnMappingModeKey)
             {

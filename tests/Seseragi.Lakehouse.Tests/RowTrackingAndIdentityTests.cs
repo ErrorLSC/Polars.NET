@@ -129,6 +129,67 @@ public class RowTrackingAndIdentityTests
         Assert.Equal(0L, Snapshot.Load(fs).Files.Single(f => f.Path == "b").BaseRowId);
     }
 
+    [Fact]
+    public void SuspendedRowTracking_GivesNewFilesNoIds_AndResumesAfterTheMark_AsSpark()
+    {
+        MemoryFileSystem fs = TrackedTable();
+        Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("a", 2)).Commit(); // ids 0..1
+
+        // Spark 4.1: suspending while tracking is on is DELTA_ROW_TRACKING_ILLEGAL_PROPERTY_COMBINATION.
+        var both = Assert.ThrowsAny<DeltaException>(() =>
+            AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string> { [RowTracking.SuspendedKey] = "true" }));
+        Assert.Contains("both set to true", both.Message);
+        Assert.ThrowsAny<DeltaException>(() =>
+            AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string> { [RowTracking.SuspendedKey] = "yes" }));
+
+        AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string>
+        {
+            [RowTracking.EnableKey] = "false", [RowTracking.SuspendedKey] = "true",
+        });
+        // Suspended: appends (and rewrites) add files without ids, and no domain.
+        long appended = Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("b", 3)).Commit();
+        AddAction b = Commit(fs, appended).OfType<AddAction>().Single();
+        Assert.Null(b.BaseRowId);
+        Assert.Null(b.DefaultRowCommitVersion);
+        Assert.Empty(Commit(fs, appended).OfType<DomainMetadataAction>());
+        Assert.Equal(1L, RowTracking.HighWaterMark(Snapshot.Load(fs).DomainMetadata));
+        // Turning tracking on while suspended is refused.
+        Assert.ThrowsAny<DeltaException>(() =>
+            AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string> { [RowTracking.EnableKey] = "true" }));
+
+        // Lifting the suspension and turning tracking on in one change backfills the file in that commit (Spark
+        // needs two changes here), after the mark.
+        long resumed = AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string>
+        {
+            [RowTracking.EnableKey] = "true", [RowTracking.SuspendedKey] = "false",
+        })!.Value;
+        AddAction backfilled = Commit(fs, resumed).OfType<AddAction>().Single();
+        Assert.Equal(("b", 2L, resumed, false), (backfilled.Path, backfilled.BaseRowId!.Value, backfilled.DefaultRowCommitVersion!.Value, backfilled.DataChange));
+        Snapshot table = Snapshot.Load(fs);
+        Assert.True(RowTracking.IsEnabled(table.Protocol, table.Metadata));
+        Assert.Equal(4L, RowTracking.HighWaterMark(table.DomainMetadata));
+        Assert.All(table.Files, f => Assert.NotNull(f.BaseRowId));
+    }
+
+    [Fact]
+    public void BothPropertiesOn_AreRefused_AndATableHoldingBoth_CanBeRepaired()
+    {
+        var configuration = RowTracking.WithMaterializedColumnNames(new Dictionary<string, string>
+        {
+            [RowTracking.EnableKey] = "true", [RowTracking.SuspendedKey] = "true",
+        });
+        Assert.ThrowsAny<DeltaException>(() => Transaction.Create(new MemoryFileSystem(), Tracking, Metadata(configuration: configuration)).Commit());
+
+        // Spark 4.1 creates such a table, then refuses every commit to it, the repairing ALTER included; here the
+        // ALTER that sets either property to false goes through.
+        var fs = new MemoryFileSystem();
+        Assert.True(fs.TryCreate(LogFile.CommitPath(0), ActionWriter.WriteCommit([Tracking, Metadata(configuration: configuration)])));
+        Assert.ThrowsAny<DeltaException>(() => Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("a", 1)).Commit());
+        AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string> { [RowTracking.SuspendedKey] = "false" });
+        long version = Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("a", 1)).Commit();
+        Assert.Equal(0L, Commit(fs, version).OfType<AddAction>().Single().BaseRowId);
+    }
+
     // ------------------------------------------------------------------ identity columns
 
     private const string IdentitySchema =

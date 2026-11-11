@@ -13,8 +13,9 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// </summary>
 /// <remarks>
 /// While the feature is supported, every new file gets fresh ids (the transaction assigns them when it commits,
-/// see <see cref="AssignFresh"/>). Only once <see cref="EnableKey"/> is on are ids stable: rewritten rows then keep
-/// theirs in the materialized columns.
+/// see <see cref="AssignFresh"/>), unless <see cref="SuspendedKey"/> is on: then new files get none. Only once
+/// <see cref="EnableKey"/> is on are ids stable: rewritten rows then keep theirs in the materialized columns. The two
+/// properties exclude each other.
 /// </remarks>
 public static class RowTracking
 {
@@ -23,6 +24,12 @@ public static class RowTracking
 
     /// <summary>The table property that makes row ids stable (every file has its ids, rewrites keep them).</summary>
     public const string EnableKey = "delta.enableRowTracking";
+
+    /// <summary>
+    /// The table property that stops assigning row ids to new files (the first step of turning row tracking off);
+    /// cannot be on together with <see cref="EnableKey"/>.
+    /// </summary>
+    public const string SuspendedKey = "delta.rowTrackingSuspended";
 
     /// <summary>The table property naming the hidden column of materialized row ids.</summary>
     public const string MaterializedRowIdKey = "delta.rowTracking.materializedRowIdColumnName";
@@ -39,8 +46,23 @@ public static class RowTracking
 
     /// <summary>Whether row ids are stable: the feature is supported and turned on.</summary>
     public static bool IsEnabled(ProtocolAction protocol, MetadataAction metadata) =>
-        IsSupported(protocol)
-        && metadata.Configuration.TryGetValue(EnableKey, out string? on) && string.Equals(on, "true", StringComparison.OrdinalIgnoreCase);
+        IsSupported(protocol) && IsTrue(metadata, EnableKey);
+
+    /// <summary>Whether new files get no row ids although the feature is supported.</summary>
+    /// <exception cref="DeltaProtocolException">Row tracking is both turned on and suspended.</exception>
+    public static bool IsSuspended(MetadataAction metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        bool suspended = IsTrue(metadata, SuspendedKey);
+        if (suspended && IsTrue(metadata, EnableKey))
+            throw new DeltaProtocolException(
+                $"Illegal table state: the table properties {EnableKey} and {SuspendedKey} are both set to true. " +
+                "Set either of them to false.");
+        return suspended;
+    }
+
+    private static bool IsTrue(MetadataAction metadata, string key) =>
+        metadata.Configuration.TryGetValue(key, out string? value) && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The names of the hidden columns of materialized row ids and commit versions, when the table names them.</summary>
     public static (string RowId, string CommitVersion)? MaterializedColumns(MetadataAction metadata)

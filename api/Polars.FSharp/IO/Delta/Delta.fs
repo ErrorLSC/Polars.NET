@@ -101,6 +101,14 @@ module DeltaTableProperties =
     [<Literal>]
     let EnableRowTracking = "delta.enableRowTracking"
 
+    /// <summary>
+    /// If true, new files get no row ids although the table supports row tracking (the first step of turning it
+    /// off). Cannot be true together with EnableRowTracking: set that to false in the same change. Set back to
+    /// false, new files get ids again, after the highest id given so far.
+    /// </summary>
+    [<Literal>]
+    let RowTrackingSuspended = "delta.rowTrackingSuspended"
+
 /// <summary>
 /// An identity column to declare in Delta.CreateTable: a long (Int64) column whose values writes generate,
 /// start, start + step, … (Spark's <c>GENERATED ALWAYS | BY DEFAULT AS IDENTITY (START WITH … INCREMENT BY …)</c>).

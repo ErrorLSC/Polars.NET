@@ -863,6 +863,56 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void RowTracking_SuspendedAndResumed_ByTheKernelAndSparkInTurn()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            static bool AllFilesHaveIds(string table) => Snapshot.Load(new LocalFileSystem(table)).Files.All(f => f.BaseRowId is not null);
+
+            // The kernel suspends and appends; Spark resumes, appends, and the kernel turns tracking on.
+            string byKernel = Path.Combine(root, "kernel");
+            CreateTable(byKernel, new() { ["delta.enableRowTracking"] = "true" });
+            DeltaKernelAlter.SetTableProperties(byKernel, new Dictionary<string, string>
+            {
+                ["delta.enableRowTracking"] = "false", ["delta.rowTrackingSuspended"] = "true",
+            });
+            Write(byKernel, Typed([11], "east"), KernelWriteMode.Append);
+            Assert.False(AllFilesHaveIds(byKernel));
+            LocalSpark.Run("sql", byKernel, "ALTER TABLE {table} SET TBLPROPERTIES ('delta.rowTrackingSuspended'='false')");
+            LocalSpark.Run("sql", byKernel, "INSERT INTO {table} SELECT * FROM {table} WHERE id = 1");
+            DeltaKernelAlter.SetTableProperties(byKernel, new Dictionary<string, string> { ["delta.enableRowTracking"] = "true" });
+            Assert.True(AllFilesHaveIds(byKernel));
+            AssertSameRowIds(byKernel, "after Spark resumed and the kernel turned tracking on");
+
+            // Spark suspends and appends; the kernel appends (no ids) and resumes with tracking on in one change.
+            string bySpark = Path.Combine(root, "spark");
+            CreateTable(bySpark, new() { ["delta.enableRowTracking"] = "true" });
+            LocalSpark.Run("sql", bySpark, 
+                "ALTER TABLE {table} SET TBLPROPERTIES ('delta.enableRowTracking'='false', 'delta.rowTrackingSuspended'='true')");
+            LocalSpark.Run("sql", bySpark, "INSERT INTO {table} SELECT * FROM {table} WHERE id = 1");
+            Write(bySpark, Typed([12], "west"), KernelWriteMode.Append);
+            Assert.False(AllFilesHaveIds(bySpark));
+            var error = Assert.ThrowsAny<Exception>(() =>
+                DeltaKernelAlter.SetTableProperties(bySpark, new Dictionary<string, string> { ["delta.enableRowTracking"] = "true" }));
+            Assert.Contains("both set to true", error.Message);
+            DeltaKernelAlter.SetTableProperties(bySpark, new Dictionary<string, string>
+            {
+                ["delta.enableRowTracking"] = "true", ["delta.rowTrackingSuspended"] = "false",
+            });
+            Assert.True(AllFilesHaveIds(bySpark));
+            AssertSameRowIds(bySpark, "after the kernel resumed with tracking on");
+            var ids = KernelRowIds(bySpark).Select(r => r.RowId).ToList();
+            Assert.Equal(ids.Count, ids.Distinct().Count());
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void IdentityColumns_TheKernelAndSparkTakeTurns_WithoutRepeatingAValue()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

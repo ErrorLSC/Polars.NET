@@ -94,6 +94,13 @@ public static class DeltaTableProperties
     /// it gives the rows already there their ids.
     /// </summary>
     public const string EnableRowTracking = "delta.enableRowTracking";
+
+    /// <summary>
+    /// If true, new files get no row ids although the table supports row tracking (the first step of turning it
+    /// off). Cannot be true together with <see cref="EnableRowTracking"/>: set that to false in the same change.
+    /// Set back to false, new files get ids again, after the highest id given so far.
+    /// </summary>
+    public const string RowTrackingSuspended = "delta.rowTrackingSuspended";
 }
 
 /// <summary>
