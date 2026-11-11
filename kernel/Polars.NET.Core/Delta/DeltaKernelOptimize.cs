@@ -167,7 +167,7 @@ internal static class DeltaKernelOptimize
         ulong maxRows = 0;
         if (zOrderColumns is not null)
         {
-            rows = ZOrder(rows, zOrderColumns, schema, out long height);
+            rows = ZOrder(rows, zOrderColumns, schema, table.RowIdColumns, out long height);
             long inputBytes = bin.Sum(f => f.Size);
             long files = Math.Max(1, (inputBytes + target - 1) / target);
             maxRows = (ulong)Math.Max(1, (height + files - 1) / files);
@@ -194,7 +194,7 @@ internal static class DeltaKernelOptimize
     /// (nulls first) and sorts; the curve itself is <see cref="SpaceFillingCurve"/>: ranks quantized to an equal
     /// number of bits, interleaved into 128-bit keys.
     /// </summary>
-    private static LazyFrameHandle ZOrder(LazyFrameHandle rows, string[] columns, StructType schema, out long height)
+    private static LazyFrameHandle ZOrder(LazyFrameHandle rows, string[] columns, StructType schema, string[] rowIds, out long height)
     {
         int k = columns.Length;
         int bits = SpaceFillingCurve.BitsPerDimension(k);
@@ -237,6 +237,6 @@ internal static class DeltaKernelOptimize
             PolarsWrapper.Alias(PolarsWrapper.Lit(PolarsWrapper.SeriesNew(ZPrefix + "lo", low)), ZPrefix + "lo"),
         ]);
         keyed = PolarsWrapper.LazyFrameSort(keyed, [PolarsWrapper.Col(ZPrefix + "hi"), PolarsWrapper.Col(ZPrefix + "lo")], [false], [false], maintainOrder: true);
-        return PolarsWrapper.LazySelect(keyed, [.. schema.Fields.Select(f => PolarsWrapper.Col(f.Name))]);
+        return PolarsWrapper.LazySelect(keyed, [.. schema.Fields.Select(f => PolarsWrapper.Col(f.Name)), .. rowIds.Select(PolarsWrapper.Col)]);
     }
 }

@@ -176,11 +176,10 @@ public class AlterTableTests
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.noSuchThing", "x")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.constraints.pos", "id > 0")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.columnMapping.mode", "id")));
-        Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.enableRowTracking", "true")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.enableDeletionVectors", "yes")));
-        Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.feature.rowTracking", "supported")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.minReaderVersion", "4")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.minWriterVersion", "1")));
+        Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.feature.clustering", "supported")));
         Assert.Equal(0, Snapshot.Load(fs).Version);
 
         // Unknown delta. properties are stored when not refused.

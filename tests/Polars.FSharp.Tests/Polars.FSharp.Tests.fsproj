@@ -30,6 +30,7 @@
     <Compile Include="SeseragiFooterStatisticsTests.fs" />
     <Compile Include="SeseragiStreamingWriteTests.fs" />
     <Compile Include="SeseragiScanOptionsTests.fs" />
+    <Compile Include="SeseragiRowTrackingIdentityTests.fs" />
     <Compile Include="QueryTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />

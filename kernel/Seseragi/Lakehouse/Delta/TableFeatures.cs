@@ -108,7 +108,7 @@ public static class TableFeatures
     {
         AppendOnly, Invariants, CheckConstraints, ChangeDataFeed, GeneratedColumns, ColumnMapping, IdentityColumns,
         DeletionVectors, TimestampNtz, DomainMetadata, VacuumProtocolCheck, V2Checkpoint, InCommitTimestamp,
-        TypeWidening, TypeWideningPreview,
+        TypeWidening, TypeWideningPreview, RowTracking.Feature,
     };
 
     /// <summary>The writer features a protocol puts in force: listed for version 7, implied by the older versions.</summary>
@@ -128,7 +128,8 @@ public static class TableFeatures
     /// <summary>
     /// Throws when writing to the table needs something this kernel does not do: an unknown writer feature, or a
     /// supported one the table actually uses in a way the kernel cannot enforce (column invariants, check
-    /// constraints, generated or identity columns).
+    /// constraints, generated columns: they need SQL expressions). Identity columns are checked here to be
+    /// well-formed; generating their values is up to the writer (see <see cref="IdentityColumns"/>).
     /// </summary>
     /// <exception cref="DeltaProtocolException">The table cannot be written by this kernel.</exception>
     public static void EnsureWritable(ProtocolAction protocol, MetadataAction metadata)
@@ -150,12 +151,14 @@ public static class TableFeatures
                 Invariants when AnyField(schema, f => f.Metadata.ContainsKey("delta.invariants")) => "column invariants",
                 CheckConstraints when metadata.Configuration.Keys.Any(k => k.StartsWith("delta.constraints.", StringComparison.Ordinal)) => "check constraints",
                 GeneratedColumns when AnyField(schema, f => f.Metadata.ContainsKey("delta.generationExpression")) => "generated columns",
-                IdentityColumns when AnyField(schema, f => f.Metadata.Keys.Any(k => k.StartsWith("delta.identity.", StringComparison.Ordinal))) => "identity columns",
                 _ => null,
             };
             if (used is not null)
                 throw new DeltaProtocolException($"The table has {used}, which this kernel cannot enforce on write.");
         }
+        Kaminari.Seseragi.Lakehouse.Delta.IdentityColumns.Of(schema); // malformed identity metadata is refused here
+        if (RowTracking.IsEnabled(protocol, metadata) && RowTracking.MaterializedColumns(metadata) is null)
+            throw new DeltaProtocolException("The table has row tracking on but names no materialized row id columns.");
     }
 
     /// <summary>The features that are reader and writer features; every other known feature is a writer feature only.</summary>
@@ -200,7 +203,9 @@ public static class TableFeatures
         var readerNow = ReaderFeaturesOf(current).ToList();
         var newWriter = new List<string>();
         var newReader = new List<string>();
-        foreach (string feature in features.Distinct(StringComparer.Ordinal))
+        // Features that need another one bring it in first (row tracking keeps its high water mark in a domain).
+        IEnumerable<string> withDependencies = features.SelectMany(f => f == RowTracking.Feature ? new[] { DomainMetadata, f } : [f]);
+        foreach (string feature in withDependencies.Distinct(StringComparer.Ordinal))
         {
             if (!writerNow.Contains(feature, StringComparer.Ordinal)) newWriter.Add(feature);
             if (IsReaderWriterFeature(feature) && !readerNow.Contains(feature, StringComparer.Ordinal)) newReader.Add(feature);

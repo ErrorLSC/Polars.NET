@@ -60,6 +60,12 @@ public static class DeltaKernelScan
 {
     internal const string RowIndexColumn = "__seseragi_row_index";
 
+    /// <summary>A row's id under row tracking (Int64), as <see cref="ScanFile"/> gives it on request.</summary>
+    internal const string RowIdColumn = "__seseragi_row_id";
+
+    /// <summary>The version that last changed a row under row tracking (Int64), as <see cref="ScanFile"/> gives it on request.</summary>
+    internal const string RowCommitVersionColumn = "__seseragi_row_commit_version";
+
     /// <summary>The change feed column saying what happened to the row: insert, delete, update_preimage or update_postimage.</summary>
     public const string ChangeTypeColumn = "_change_type";
     /// <summary>The change feed column holding the version of the commit that made the change.</summary>
@@ -421,34 +427,50 @@ public static class DeltaKernelScan
     /// Scans one data file of a snapshot as table rows. Rows its deletion vector marks are left out, and so are
     /// <paramref name="dropRows"/>; with <paramref name="onlyRows"/> only those rows are kept. With
     /// <paramref name="withRowIndex"/> the file's row positions follow the table's columns, as Int64 in
-    /// <see cref="RowIndexColumn"/>.
+    /// <see cref="RowIndexColumn"/>. With <paramref name="rowTracking"/> (the table's materialized column names),
+    /// each row's id and commit version follow, in <see cref="RowIdColumn"/> and <see cref="RowCommitVersionColumn"/>:
+    /// the materialized value where the file has one, else the file's base row id plus the row's position in the
+    /// file, and its default row commit version.
     /// </summary>
+    /// <exception cref="DeltaException">Row ids are asked for but the file has no base row id.</exception>
     internal static LazyFrameHandle ScanFile(
         IFileSystem fileSystem, string tableRoot, Snapshot snapshot, AddAction file, CloudArgs cloud,
-        long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false, KernelScanOptions? options = null)
+        long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false, KernelScanOptions? options = null,
+        (string RowId, string CommitVersion)? rowTracking = null)
     {
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
         long[] dead = file.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, file.DeletionVector).DeletedRows;
         if (dropRows is { Length: > 0 }) dead = DeletionVector.FromRows(dead.Concat(dropRows)).DeletedRows;
-        bool needIndex = withRowIndex || dead.Length > 0 || onlyRows is not null;
+        bool needIndex = withRowIndex || dead.Length > 0 || onlyRows is not null || rowTracking is not null;
+        if (rowTracking is not null && (file.BaseRowId is null || file.DefaultRowCommitVersion is null))
+            throw new DeltaException($"The file {file.Path} of a table with row tracking has no base row id or default row commit version.");
 
         string path = Combine(tableRoot, file.DecodedPath);
         IReadOnlyDictionary<string, DeltaType> oldTypes = OldTypes(path, cloud, WidenedColumns(snapshot));
-        using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns, oldTypes: oldTypes);
+        string[] materialized = rowTracking is var (idName, versionName) ? [idName, versionName] : [];
+        using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns, oldTypes: oldTypes, int64Columns: materialized);
         LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, needIndex ? RowIndexColumn : null, options);
         if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
         if (onlyRows is not null) lf = FilterRows(lf, onlyRows, keep: true);
         string? pathColumn = options?.IncludePathColumn;
-        if (!withRowIndex)
-            return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes,
-                pathColumn is null ? null : exprs => exprs.Add(PolarsWrapper.Col(pathColumn)));
 
         return Project(lf, snapshot, file.PartitionValues, partitionColumns, oldTypes, exprs =>
         {
             using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
-            exprs.Add(PolarsWrapper.Alias(
-                PolarsWrapper.ExprCast(PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false),
-                RowIndexColumn));
+            ExprHandle Index() =>
+                PolarsWrapper.ExprCast(PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
+            if (withRowIndex) exprs.Add(PolarsWrapper.Alias(Index(), RowIndexColumn));
+            if (rowTracking is var (rowId, commitVersion))
+            {
+                // A file without the materialized columns reads them as null (the scan fills absent columns).
+                exprs.Add(PolarsWrapper.Alias(
+                    PolarsWrapper.FillNull(PolarsWrapper.Col(rowId), PolarsWrapper.Add(PolarsWrapper.Lit(file.BaseRowId!.Value), Index())),
+                    RowIdColumn));
+                exprs.Add(PolarsWrapper.Alias(
+                    PolarsWrapper.FillNull(PolarsWrapper.Col(commitVersion), PolarsWrapper.Lit(file.DefaultRowCommitVersion!.Value)),
+                    RowCommitVersionColumn));
+            }
+            if (pathColumn is not null && !withRowIndex && rowTracking is null) exprs.Add(PolarsWrapper.Col(pathColumn));
         });
     }
 
@@ -722,7 +744,8 @@ public static class DeltaKernelScan
 
     /// <summary>The columns expected in a data file: every non-partition column under its physical name.</summary>
     private static SchemaHandle PhysicalFileSchema(
-        StructType schema, HashSet<string> partitionColumns, bool withChangeType = false, IReadOnlyDictionary<string, DeltaType>? oldTypes = null)
+        StructType schema, HashSet<string> partitionColumns, bool withChangeType = false, IReadOnlyDictionary<string, DeltaType>? oldTypes = null,
+        string[]? int64Columns = null)
     {
         SchemaHandle handle = PolarsWrapper.SchemaCreate();
         if (withChangeType)
@@ -737,6 +760,11 @@ public static class DeltaKernelScan
                 ? ToEngineType(old, physicalNames: true)
                 : ToEngineType(field.Type, physicalNames: true);
             PolarsWrapper.SchemaAddField(handle, field.PhysicalName, type);
+        }
+        foreach (string name in int64Columns ?? [])
+        {
+            using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
+            PolarsWrapper.SchemaAddField(handle, name, int64);
         }
         return handle;
     }

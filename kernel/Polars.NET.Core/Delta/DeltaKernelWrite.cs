@@ -91,11 +91,20 @@ internal static class DeltaKernelWrite
                 throw new PolarsException($"Table already exists at {tablePath} (a Delta table; the save mode is ErrorIfExists).");
 
             if (existing is not null && mode == KernelWriteMode.Ignore) return existing.Version;
-            StructType incoming = SchemaOf(data);
+
+            // Identity columns the data lacks are generated (one the data has is checked to allow it).
+            IReadOnlyList<IdentityColumn> identity = existing is null ? [] : IdentityColumns.Of(existing.Schema);
+            List<IdentityColumn> generated = [];
+            using LazyFrameHandle? withIdentity = identity.Count == 0
+                ? null
+                : DeltaKernelIdentity.Fill(PolarsWrapper.LazyClone(data), identity, SchemaOf(data), out generated);
+            LazyFrameHandle rows = withIdentity ?? data;
+            StructType incoming = SchemaOf(rows);
 
             StructType schema;
             string[] partitions;
             Transaction transaction;
+            MetadataAction? changed = null; // the metadata change of a write to an existing table
             if (existing is null)
             {
                 schema = incoming;
@@ -111,7 +120,7 @@ internal static class DeltaKernelWrite
                     Id = Guid.NewGuid().ToString(),
                     SchemaString = schema.ToJson(),
                     PartitionColumns = partitions,
-                    Configuration = configuration ?? new Dictionary<string, string>(),
+                    Configuration = WithRowTrackingNames(configuration ?? new Dictionary<string, string>()),
                     CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 };
                 if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None)
@@ -127,7 +136,6 @@ internal static class DeltaKernelWrite
             else
             {
                 transaction = Transaction.Start(fileSystem, existing, "WRITE");
-                MetadataAction? changed;
                 if (mode == KernelWriteMode.Overwrite && canEvolve && !SameShape(existing, incoming, partitionBy ?? []))
                 {
                     // overwriteSchema, as Spark: the data's schema replaces the table's, and so does the partitioning:
@@ -152,7 +160,6 @@ internal static class DeltaKernelWrite
                             (mode == KernelWriteMode.Overwrite ? "; overwrite with schema evolution to change it." : "."));
                     schema = SchemaEvolution.Merge(existing.Metadata, existing.Protocol, incoming, canEvolve, out changed);
                 }
-                if (changed is not null) transaction.SetMetadata(changed);
                 if (existing.ColumnMappingMode != ColumnMappingMode.None && schema.Fields.Any(f => NeedsMapping(f.Type)))
                     throw new PolarsException("Writing to a table with column mapping inside nested columns is not supported yet.");
             }
@@ -168,8 +175,14 @@ internal static class DeltaKernelWrite
             // The rows streamed in the table's column order and exact types, split by partition and size.
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             IReadOnlyDictionary<string, string>? tableProperties = existing?.Metadata.Configuration ?? configuration;
-            foreach (AddAction add in StreamFiles(fileSystem, tablePath, data, schema, partitions, now, options, tableProperties, cloud))
-                transaction.Add(add);
+            List<AddAction> adds = StreamFiles(fileSystem, tablePath, rows, schema, partitions, now, options, tableProperties, cloud);
+            foreach (AddAction add in adds) transaction.Add(add);
+            if (existing is not null)
+            {
+                // The metadata goes in once the files are written: the identity values generated move the high water marks.
+                MetadataAction? final = DeltaKernelIdentity.WithMarks(changed, existing.Metadata, DeltaKernelIdentity.Marks(generated, DeltaKernelIdentity.RowsOf(adds)));
+                if (final is not null) transaction.SetMetadata(final);
+            }
 
             if (mode == KernelWriteMode.Overwrite && existing is not null)
             {
@@ -186,6 +199,8 @@ internal static class DeltaKernelWrite
                         PartitionValues = old.PartitionValues,
                         Size = old.Size,
                         DeletionVector = old.DeletionVector,
+                        BaseRowId = old.BaseRowId,
+                        DefaultRowCommitVersion = old.DefaultRowCommitVersion,
                     });
                 }
             }
@@ -266,8 +281,9 @@ internal static class DeltaKernelWrite
         bool widening = On(SchemaEvolution.EnableTypeWideningKey);
         bool inCommitTimestamps = On(Kaminari.Seseragi.Lakehouse.Delta.Log.CommitTimeline.InCommitTimestampsKey);
         bool v2Checkpoint = configuration.TryGetValue("delta.checkpointPolicy", out string? policy) && policy == "v2";
+        bool rowTracking = On(RowTracking.EnableKey);
 
-        if (!ntz && !vectors && !widening && !inCommitTimestamps && !v2Checkpoint)
+        if (!ntz && !vectors && !widening && !inCommitTimestamps && !v2Checkpoint && !rowTracking)
             return mapping
                 ? new ProtocolAction { MinReaderVersion = 2, MinWriterVersion = 5 } // column mapping implies the change data feed's writer 4
                 : new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = changeFeed ? 4 : 2 };
@@ -282,8 +298,15 @@ internal static class DeltaKernelWrite
         if (widening) features.Add(TableFeatures.TypeWidening);
         if (inCommitTimestamps) features.Add(TableFeatures.InCommitTimestamp);
         if (v2Checkpoint) features.Add(TableFeatures.V2Checkpoint);
+        if (rowTracking) features.Add(RowTracking.Feature);
         return TableFeatures.WithFeatures(new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, features);
     }
+
+    /// <summary>A new table's properties: with row tracking on, the names of its materialized columns too (as Spark).</summary>
+    private static IReadOnlyDictionary<string, string> WithRowTrackingNames(IReadOnlyDictionary<string, string> configuration) =>
+        configuration.TryGetValue(RowTracking.EnableKey, out string? on) && string.Equals(on, "true", StringComparison.OrdinalIgnoreCase)
+            ? RowTracking.WithMaterializedColumnNames(configuration)
+            : configuration;
 
     private static bool AnyType(DeltaType type, Func<DeltaType, bool> test) => test(type) || type switch
     {
@@ -452,12 +475,13 @@ internal static class DeltaKernelWrite
         KernelWriteOptions options, IReadOnlyDictionary<string, string>? tableProperties, CloudArgs? cloud) =>
         DataFiles(
             fileSystem, RootOf(fileSystem, tablePath), NormalizeLazy(data, schema), schema, partitions, now, tableProperties, checkNotNull: true,
-            options, options.ApproxBytesPerFile ?? TargetFileSize(tableProperties), cloud);
+            options, options.ApproxBytesPerFile ?? TargetFileSize(tableProperties), materialized: null, cloud);
 
     /// <summary>
     /// Streams the rows of a row-level operation or optimize (table columns, logical names; consumed) into data
     /// files, split by partition and size as a write splits them; statistics from the file footers. No rows, no
-    /// files.
+    /// files. Under row tracking the rows carry <see cref="DmlTable.RowIdColumns"/>, written as the table's
+    /// materialized columns (null where a row takes the file's base id or the commit's version).
     /// </summary>
     /// <param name="schema">The table's schema after the operation (a merge may evolve it).</param>
     /// <param name="checkNotNull">Check the table's NOT NULL columns (rows with new values); rows kept as they
@@ -471,8 +495,9 @@ internal static class DeltaKernelWrite
     {
         IReadOnlyDictionary<string, string> properties = table.Snapshot.Metadata.Configuration;
         return DataFiles(
-            table.FileSystem, table.Root, NormalizeLazy(rows, schema), schema, table.PartitionColumns, now, properties, checkNotNull,
-            KernelWriteOptions.Default with { MaxRowsPerFile = maxRowsPerFile }, approxBytesPerFile ?? TargetFileSize(properties), table.Cloud);
+            table.FileSystem, table.Root, NormalizeLazy(rows, schema, table.RowIdColumns), schema, table.PartitionColumns, now, properties, checkNotNull,
+            KernelWriteOptions.Default with { MaxRowsPerFile = maxRowsPerFile }, approxBytesPerFile ?? TargetFileSize(properties),
+            table.MaterializedRowColumns, table.Cloud);
     }
 
     /// <summary>
@@ -483,8 +508,8 @@ internal static class DeltaKernelWrite
     {
         string[] partitions = table.PartitionColumns;
         List<SunkFile> files = SinkFiles(
-            table.FileSystem, table.Root, NormalizeLazy(rows, schema, [DeltaKernelScan.ChangeTypeColumn]), schema, partitions, changeData: true,
-            KernelWriteOptions.Default, TargetFileSize(table.Snapshot.Metadata.Configuration), table.Cloud);
+            table.FileSystem, table.Root, NormalizeLazy(rows, schema, [.. table.RowIdColumns, DeltaKernelScan.ChangeTypeColumn]), schema, partitions,
+            changeData: true, KernelWriteOptions.Default, TargetFileSize(table.Snapshot.Metadata.Configuration), table.MaterializedRowColumns, table.Cloud);
         return [.. files.Select(f => new CdcAction { Path = EncodeLogPath(f.Relative), PartitionValues = Logged(f.Values, schema, partitions), Size = f.Size })];
     }
 
@@ -492,7 +517,7 @@ internal static class DeltaKernelWrite
     private static List<AddAction> DataFiles(
         TrackingFileSystem fileSystem, string root, LazyFrameHandle rows, StructType schema, string[] partitions, long now,
         IReadOnlyDictionary<string, string>? tableProperties, bool checkNotNull, KernelWriteOptions options, ulong approxBytesPerFile,
-        CloudArgs? cloud)
+        (string RowId, string CommitVersion)? materialized, CloudArgs? cloud)
     {
         if (checkNotNull && schema.Fields.Any(f => (f.Type is StructType s && HasNotNullInside(s)) || (!f.Nullable && f.Type is StructType or ArrayType or MapType)))
         {
@@ -503,7 +528,7 @@ internal static class DeltaKernelWrite
             rows = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(collected));
         }
 
-        List<SunkFile> files = SinkFiles(fileSystem, root, rows, schema, partitions, changeData: false, options, approxBytesPerFile, cloud);
+        List<SunkFile> files = SinkFiles(fileSystem, root, rows, schema, partitions, changeData: false, options, approxBytesPerFile, materialized, cloud);
 
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
         // NOT NULL primitive columns are checked on the footers' null counts (nested ones were checked on the rows).
@@ -544,15 +569,19 @@ internal static class DeltaKernelWrite
     /// </summary>
     private static List<SunkFile> SinkFiles(
         TrackingFileSystem fileSystem, string root, LazyFrameHandle rows, StructType schema, string[] partitions, bool changeData,
-        KernelWriteOptions options, ulong approxBytesPerFile, CloudArgs? cloud)
+        KernelWriteOptions options, ulong approxBytesPerFile, (string RowId, string CommitVersion)? materialized, CloudArgs? cloud)
     {
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
         // Partition columns under their names (the sink keys on them and leaves them out of the files), data
-        // columns under their physical names.
+        // columns under their physical names, then the materialized row tracking columns, then the change type.
         ExprHandle[] columns =
         [
             .. partitions.Select(PolarsWrapper.Col),
             .. dataFields.Select(f => PolarsWrapper.Alias(PolarsWrapper.Col(f.Name), f.PhysicalName)),
+            .. materialized is var (rowId, commitVersion)
+                ? [PolarsWrapper.Alias(PolarsWrapper.Col(DeltaKernelScan.RowIdColumn), rowId),
+                   PolarsWrapper.Alias(PolarsWrapper.Col(DeltaKernelScan.RowCommitVersionColumn), commitVersion)]
+                : Array.Empty<ExprHandle>(),
             .. changeData ? [PolarsWrapper.Col(DeltaKernelScan.ChangeTypeColumn)] : Array.Empty<ExprHandle>(),
         ];
         using LazyFrameHandle shaped = PolarsWrapper.LazySelect(rows, columns); // consumed by the sink

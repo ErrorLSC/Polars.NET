@@ -58,6 +58,8 @@ public sealed class Transaction
     private readonly List<Kaminari.Seseragi.Lakehouse.Skipping.Predicate> _readPredicates = [];
     private bool _readWholeTable;
     private readonly HashSet<(string Path, string? Dv)> _readFiles = [];
+    /// <summary>The row id high water mark of the newest commit seen (the read state, then concurrent commits).</summary>
+    private long? _rowIdHighWaterMark;
 
     private Transaction(IWritableFileSystem fileSystem, Snapshot? read, string operation)
     {
@@ -145,6 +147,8 @@ public sealed class Transaction
                 return SetMetadata(metadata);
             case CommitInfoAction:
                 throw new ArgumentException("The transaction writes its own commitInfo.", nameof(action));
+            case DomainMetadataAction { Domain: RowTracking.Domain }:
+                throw new ArgumentException("The transaction records the row id high water mark itself.", nameof(action));
             case null:
                 throw new ArgumentNullException(nameof(action));
             default:
@@ -186,18 +190,33 @@ public sealed class Transaction
         Validate(metadata);
         long timestamp = (now ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
 
+        bool rowTracking = RowTracking.IsSupported(protocol);
+        _rowIdHighWaterMark = _read is null ? null : RowTracking.HighWaterMark(_read.DomainMetadata);
+
         long version = ReadVersion + 1;
         for (int attempt = 0; ; attempt++)
         {
             long? inCommitTimestamp = InCommitTimestamp(metadata, timestamp, version - 1);
-            var actions = new List<DeltaAction>(_actions.Count + 3)
+            var actions = new List<DeltaAction>(_actions.Count + 4)
             {
                 // The commitInfo goes first: with in-commit timestamps the protocol requires it there.
                 CommitInfo(timestamp, inCommitTimestamp),
             };
             if (_protocol is not null) actions.Add(_protocol);
             if (_metadata is not null) actions.Add(_metadata);
-            actions.AddRange(_actions);
+            if (rowTracking)
+            {
+                // Row ids and default commit versions depend on the version this attempt commits and on the ids
+                // concurrent commits assigned: given afresh each attempt.
+                long? mark = _rowIdHighWaterMark;
+                var (tracked, assigned) = RowTracking.AssignFresh(_actions, ref mark, version);
+                actions.AddRange(tracked);
+                if (assigned && mark is long newMark) actions.Add(RowTracking.DomainFor(newMark));
+            }
+            else
+            {
+                actions.AddRange(_actions);
+            }
 
             if (_fileSystem.TryCreate(LogFile.CommitPath(version), ActionWriter.WriteCommit(actions)))
                 return version;
@@ -229,6 +248,10 @@ public sealed class Transaction
         {
             switch (action)
             {
+                case DomainMetadataAction { Domain: RowTracking.Domain } rowIds:
+                    // Not a conflict: this transaction takes ids after the ones the other writer assigned.
+                    if (RowTracking.HighWaterMark(rowIds) is long mark && mark > (_rowIdHighWaterMark ?? -1)) _rowIdHighWaterMark = mark;
+                    break;
                 case ProtocolAction:
                     throw new DeltaCommitConflictException(version, "it changed the protocol");
                 case MetadataAction:

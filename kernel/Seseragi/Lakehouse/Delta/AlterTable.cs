@@ -45,7 +45,7 @@ public static class AlterTable
         [ChangeFeed.EnableKey] = TableFeatures.ChangeDataFeed,
         [SchemaEvolution.EnableTypeWideningKey] = TableFeatures.TypeWidening,
         [CommitTimeline.InCommitTimestampsKey] = TableFeatures.InCommitTimestamp,
-        ["delta.enableRowTracking"] = "rowTracking",
+        [RowTracking.EnableKey] = RowTracking.Feature,
         ["delta.enableIcebergCompatV1"] = "icebergCompatV1",
         ["delta.enableIcebergCompatV2"] = "icebergCompatV2",
     };
@@ -256,6 +256,18 @@ public static class AlterTable
                 clock = DateTimeOffset.FromUnixTimeMilliseconds(timestamp);
             }
 
+            // Row tracking coming in names its materialized columns (as Spark); turned on, every file must have its
+            // row ids: files without are added again (dataChange false) and the commit gives them ids. Spark takes
+            // three commits (protocol, backfill, property); here it is one, so no reader sees a half-done state.
+            bool trackingOn = IsOn(_configuration, RowTracking.EnableKey);
+            if (trackingOn || (Features.Contains(RowTracking.Feature) && !RowTracking.IsSupported(table.Protocol)))
+            {
+                foreach (var (key, value) in RowTracking.WithMaterializedColumnNames(_configuration)) _configuration.TryAdd(key, value);
+            }
+            List<AddAction> backfill = trackingOn && !RowTracking.IsEnabled(table.Protocol, table.Metadata)
+                ? [.. table.Files.Where(f => f.BaseRowId is null).Select(Backfilled)]
+                : [];
+
             MetadataAction metadata = new()
             {
                 Id = current.Id, Name = current.Name, Description = current.Description, FormatProvider = current.FormatProvider,
@@ -272,8 +284,16 @@ public static class AlterTable
                 .WithParameter("properties", JsonText.Object(recorded));
             if (protocolChanges) transaction.SetProtocol(protocol);
             if (metadataChanges) transaction.SetMetadata(metadata);
+            foreach (AddAction add in backfill) transaction.Add(add);
             return transaction.Commit(clock);
         }
+
+        /// <summary>A file added again as it is, to get row ids; no data changes.</summary>
+        private static AddAction Backfilled(AddAction f) => new()
+        {
+            Path = f.Path, PartitionValues = f.PartitionValues, Size = f.Size, ModificationTime = f.ModificationTime, DataChange = false,
+            Stats = f.Stats, Tags = f.Tags, DeletionVector = f.DeletionVector, ClusteringProvider = f.ClusteringProvider,
+        };
 
         private static bool IsOn(IReadOnlyDictionary<string, string> configuration, string key) =>
             configuration.TryGetValue(key, out string? value) && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);

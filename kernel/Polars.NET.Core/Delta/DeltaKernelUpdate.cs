@@ -70,10 +70,12 @@ internal static class DeltaKernelUpdate
 
             using DmlTable table = DmlTable.Open(tablePath, cloud);
             Snapshot snapshot = table.Snapshot;
+            var identity = IdentityColumns.Of(snapshot.Schema).Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
             foreach (var (column, _) in assignments)
             {
                 if (snapshot.Schema.Field(column) is null)
                     throw new PolarsException($"The table has no column '{column}'.");
+                if (identity.Contains(column)) throw DeltaKernelIdentity.UpdateNotSupported(column);
             }
             table.EnsureFilesWritable();
 
@@ -129,14 +131,14 @@ internal static class DeltaKernelUpdate
                 if (table.ChangeFeedEnabled)
                 {
                     preimages.Add(table.ScanFile(file, onlyRows: rows));
-                    postimages.Add(Assign(table.ScanFile(file, onlyRows: rows), snapshot.Schema, assignments, onlyListed: null));
+                    postimages.Add(Assign(table, table.ScanFile(file, onlyRows: rows), assignments, onlyListed: null));
                 }
 
                 if (useVectors && rows.Length < table.LiveRows(file))
                 {
                     // The old rows are deleted; the updated ones go to a new file.
                     marked.Add((file, rows));
-                    written.Add(Assign(table.ScanFile(file, onlyRows: rows), snapshot.Schema, assignments, onlyListed: null));
+                    written.Add(Assign(table, table.ScanFile(file, onlyRows: rows), assignments, onlyListed: null));
                 }
                 else
                 {
@@ -144,7 +146,7 @@ internal static class DeltaKernelUpdate
                     long live = table.LiveRows(file);
                     plan.CopiedRows += live - rows.Length;
                     LazyFrameHandle all = table.ScanFile(file, withRowIndex: true);
-                    written.Add(Assign(all, snapshot.Schema, assignments, onlyListed: rows));
+                    written.Add(Assign(table, all, assignments, onlyListed: rows));
                     plan.Remove(file);
                     plan.Rewritten++;
                 }
@@ -175,13 +177,24 @@ internal static class DeltaKernelUpdate
     /// <summary>
     /// The table's columns of <paramref name="rows"/>, the assigned ones set to their new values (cast to the
     /// column type). With <paramref name="onlyListed"/>, only the rows at those positions are changed; the frame
-    /// must then carry the row index column.
+    /// must then carry the row index column. Under row tracking the rows keep their ids, and changed rows lose
+    /// their commit version (the commit's applies).
     /// </summary>
     private static LazyFrameHandle Assign(
-        LazyFrameHandle rows, StructType schema, IReadOnlyList<(string Column, ExprHandle Value)> assignments, long[]? onlyListed)
+        DmlTable table, LazyFrameHandle rows, IReadOnlyList<(string Column, ExprHandle Value)> assignments, long[]? onlyListed)
     {
-        var exprs = new ExprHandle[schema.Fields.Count];
-        for (int i = 0; i < exprs.Length; i++)
+        StructType schema = table.Snapshot.Schema;
+        string[] extra = table.RowIdColumns;
+        var exprs = new ExprHandle[schema.Fields.Count + extra.Length];
+        for (int k = 0; k < extra.Length; k++)
+        {
+            exprs[schema.Fields.Count + k] = extra[k] != DeltaKernelScan.RowCommitVersionColumn
+                ? PolarsWrapper.Col(extra[k])
+                : onlyListed is null
+                    ? PolarsWrapper.Alias(DmlTable.NullInt64(), extra[k])
+                    : PolarsWrapper.Alias(PolarsWrapper.IfElse(DmlTable.RowIsListed(onlyListed), DmlTable.NullInt64(), PolarsWrapper.Col(extra[k])), extra[k]);
+        }
+        for (int i = 0; i < schema.Fields.Count; i++)
         {
             StructField field = schema.Fields[i];
             int a = Index(assignments, field.Name);

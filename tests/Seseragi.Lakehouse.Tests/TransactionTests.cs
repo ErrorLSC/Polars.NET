@@ -269,7 +269,6 @@ public class TransactionTests
     }
 
     [Theory]
-    [InlineData("rowTracking", null, null)]
     [InlineData("clustering", null, null)]
     [InlineData("invariants", "delta.invariants", null)]
     [InlineData("generatedColumns", "delta.generationExpression", null)]

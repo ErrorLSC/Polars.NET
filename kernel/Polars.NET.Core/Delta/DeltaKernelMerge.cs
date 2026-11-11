@@ -107,9 +107,10 @@ internal static class DeltaKernelMerge
             Predicate? keyRange = bySource ? null : KeyRange(sourceRows, snapshot, keys);
             IReadOnlyList<AddAction> candidates = keyRange is null ? snapshot.Files : snapshot.FilesMatching(keyRange);
 
+            List<IdentityColumn> generate = IdentityToGenerate(snapshot.Schema, sourceSchema, clauses);
+
             var transaction = Transaction.Start(table.FileSystem, snapshot, "MERGE");
             transaction.ReadPredicate(keyRange).ReadFiles(candidates);
-            if (newMetadata is not null) transaction.SetMetadata(newMetadata);
             RecordParameters(transaction, keys, clauses);
 
             // The rows the clauses change, with their action. Planned in two passes, as Spark does: the first
@@ -126,7 +127,10 @@ internal static class DeltaKernelMerge
                 PlEngine.Auto);
 
             var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            var counts = Apply(table, candidates, actions, changed, schema, sourceSchema, plan);
+            var counts = Apply(table, candidates, actions, changed, schema, sourceSchema, generate, plan);
+            // The metadata goes in once the rows are planned: inserted rows move identity high water marks.
+            newMetadata = DeltaKernelIdentity.WithMarks(newMetadata, snapshot.Metadata, DeltaKernelIdentity.Marks(generate, counts.Inserted));
+            if (newMetadata is not null) transaction.SetMetadata(newMetadata);
 
             long sourceCount = PolarsWrapper.DataFrameHeight(sourceRows);
             if (plan.IsEmpty && newMetadata is null)
@@ -256,7 +260,7 @@ internal static class DeltaKernelMerge
             LazyFrameHandle lf = table.ScanFile(candidates[i], withRowIndex: true);
             frames.Add(PolarsWrapper.LazyWithColumns(lf, [PolarsWrapper.Alias(PolarsWrapper.Lit(i), FileColumn)]));
         }
-        LazyFrameHandle target = DmlTable.Concat(frames) ?? EmptyTarget(tableSchema);
+        LazyFrameHandle target = DmlTable.Concat(frames) ?? EmptyTarget(tableSchema, table.RowIdColumns);
         target = PolarsWrapper.LazyWithColumns(target, [PolarsWrapper.Alias(PolarsWrapper.Lit(true), InTarget)]);
 
         var columns = new List<ExprHandle>();
@@ -280,7 +284,7 @@ internal static class DeltaKernelMerge
     }
 
     /// <summary>No target rows, with the columns a scanned file would have.</summary>
-    private static LazyFrameHandle EmptyTarget(StructType schema)
+    private static LazyFrameHandle EmptyTarget(StructType schema, string[] rowIdColumns)
     {
         SchemaHandle handle = PolarsWrapper.SchemaCreate();
         try
@@ -294,6 +298,7 @@ internal static class DeltaKernelMerge
             using DataTypeHandle int32 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32);
             PolarsWrapper.SchemaAddField(handle, DeltaKernelScan.RowIndexColumn, int64);
             PolarsWrapper.SchemaAddField(handle, FileColumn, int32);
+            foreach (string column in rowIdColumns) PolarsWrapper.SchemaAddField(handle, column, int64);
             using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(handle, 0);
             return PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(empty));
         }
@@ -340,7 +345,7 @@ internal static class DeltaKernelMerge
     /// <param name="changed">The changed rows in full: the query, run again for what is written (the second pass).</param>
     private static Counts Apply(
         DmlTable table, IReadOnlyList<AddAction> candidates, DataFrameHandle actions, LazyFrameHandle changed, StructType schema,
-        StructType sourceSchema, DmlPlan plan)
+        StructType sourceSchema, IReadOnlyList<IdentityColumn> generate, DmlPlan plan)
     {
         if (PolarsWrapper.DataFrameHeight(actions) == 0) return default;
         Snapshot snapshot = table.Snapshot;
@@ -358,16 +363,19 @@ internal static class DeltaKernelMerge
         try
         {
             // Updated and inserted rows: the source's values, the target's for columns the source lacks.
-            LazyFrameHandle newRows = PolarsWrapper.LazySelect(PolarsWrapper.LazyFilter(Rows(), Is(Insert, Update)),
-                [.. NewRowColumns(schema, snapshot.Schema, sourceSchema), PolarsWrapper.Col(ActionColumn)]);
-            written.Add(PolarsWrapper.LazySelect(PolarsWrapper.LazyClone(newRows), [.. schema.Fields.Select(f => PolarsWrapper.Col(f.Name))]));
+            // Under row tracking an updated row keeps the target row's id (an inserted one has none: null) and takes
+            // the commit's version.
+            string[] rowIds = table.RowIdColumns;
+            LazyFrameHandle newRows = table.Changed(PolarsWrapper.LazySelect(PolarsWrapper.LazyFilter(Rows(), Is(Insert, Update)),
+                [.. NewRowColumns(schema, snapshot.Schema, sourceSchema, generate), .. rowIds.Select(PolarsWrapper.Col), PolarsWrapper.Col(ActionColumn)]));
+            written.Add(Project(PolarsWrapper.LazyClone(newRows), schema, rowIds));
 
             if (table.ChangeFeedEnabled)
             {
-                changes.Add(ChangeRows(PolarsWrapper.LazyFilter(Rows(), Is(Update)), schema, snapshot.Schema, "update_preimage"));
-                changes.Add(ChangeRows(PolarsWrapper.LazyFilter(Rows(), Is(Delete)), schema, snapshot.Schema, "delete"));
-                changes.Add(DmlTable.WithChangeType(Project(PolarsWrapper.LazyFilter(PolarsWrapper.LazyClone(newRows), Is(Update)), schema), "update_postimage"));
-                changes.Add(DmlTable.WithChangeType(Project(PolarsWrapper.LazyFilter(PolarsWrapper.LazyClone(newRows), Is(Insert)), schema), "insert"));
+                changes.Add(ChangeRows(PolarsWrapper.LazyFilter(Rows(), Is(Update)), schema, snapshot.Schema, rowIds, "update_preimage"));
+                changes.Add(ChangeRows(PolarsWrapper.LazyFilter(Rows(), Is(Delete)), schema, snapshot.Schema, rowIds, "delete"));
+                changes.Add(DmlTable.WithChangeType(Project(PolarsWrapper.LazyFilter(PolarsWrapper.LazyClone(newRows), Is(Update)), schema, rowIds), "update_postimage"));
+                changes.Add(DmlTable.WithChangeType(Project(PolarsWrapper.LazyFilter(PolarsWrapper.LazyClone(newRows), Is(Insert)), schema, rowIds), "insert"));
             }
             newRows.Dispose();
 
@@ -386,7 +394,7 @@ internal static class DeltaKernelMerge
                 else
                 {
                     LazyFrameHandle kept = table.ScanFile(file, dropRows: touched);
-                    written.Add(Conform(kept, schema, snapshot.Schema));
+                    written.Add(Conform(kept, schema, snapshot.Schema, rowIds));
                     plan.CopiedRows += live - touched.Length;
                     plan.Remove(file);
                     plan.Rewritten++;
@@ -448,8 +456,40 @@ internal static class DeltaKernelMerge
         return row.RootElement.GetProperty("n").GetInt64();
     }
 
-    /// <summary>The columns of updated and inserted rows over the written schema.</summary>
-    private static IEnumerable<ExprHandle> NewRowColumns(StructType schema, StructType tableSchema, StructType sourceSchema)
+    /// <summary>
+    /// The identity columns whose values inserted rows get generated (the source lacks them); refuses what Spark
+    /// refuses: updating an identity column from the source, inserting the source's values into a GENERATED
+    /// ALWAYS one.
+    /// </summary>
+    private static List<IdentityColumn> IdentityToGenerate(StructType tableSchema, StructType sourceSchema, IReadOnlyList<MergeClause> clauses)
+    {
+        var generate = new List<IdentityColumn>();
+        IReadOnlyList<IdentityColumn> identity;
+        try
+        {
+            identity = IdentityColumns.Of(tableSchema);
+        }
+        catch (DeltaException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+        bool updates = clauses.Any(c => c.Kind == MergeClauseKind.MatchedUpdate);
+        bool inserts = clauses.Any(c => c.Kind == MergeClauseKind.NotMatchedInsert);
+        foreach (IdentityColumn column in identity)
+        {
+            bool inSource = sourceSchema.Field(column.Name) is not null;
+            if (inSource && updates) throw DeltaKernelIdentity.UpdateNotSupported(column.Name);
+            if (inSource && inserts && !column.AllowExplicitInsert) throw DeltaKernelIdentity.ExplicitInsert(column.Name);
+            if (!inSource && inserts) generate.Add(column);
+        }
+        return generate;
+    }
+
+    /// <summary>
+    /// The columns of updated and inserted rows over the written schema. Identity columns in
+    /// <paramref name="generate"/> get consecutive generated values in inserted rows.
+    /// </summary>
+    private static IEnumerable<ExprHandle> NewRowColumns(StructType schema, StructType tableSchema, StructType sourceSchema, IReadOnlyList<IdentityColumn> generate)
     {
         foreach (StructField field in schema.Fields)
         {
@@ -462,10 +502,12 @@ internal static class DeltaKernelMerge
             }
             else
             {
-                // Not in the source: an update keeps the target's value, an insert has none.
+                // Not in the source: an update keeps the target's value, an insert has none (or a generated identity).
                 ExprHandle kept = inTable ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
+                IdentityColumn? identity = generate.FirstOrDefault(c => c.Name == field.Name);
+                ExprHandle inserted = identity is null ? PolarsWrapper.LitNull() : DeltaKernelIdentity.Value(identity, InsertOrdinal());
                 value = PolarsWrapper.IfElse(
-                    PolarsWrapper.Eq(PolarsWrapper.Col(ActionColumn), PolarsWrapper.Lit(Insert)), PolarsWrapper.LitNull(), kept);
+                    PolarsWrapper.Eq(PolarsWrapper.Col(ActionColumn), PolarsWrapper.Lit(Insert)), inserted, kept);
             }
             using DataTypeHandle type = DeltaKernelScan.EngineType(field.Type);
             yield return PolarsWrapper.Alias(
@@ -473,12 +515,24 @@ internal static class DeltaKernelMerge
         }
     }
 
-    /// <summary>Target rows (before the merge) over the written schema, with a change type.</summary>
-    private static LazyFrameHandle ChangeRows(LazyFrameHandle rows, StructType schema, StructType tableSchema, string changeType) =>
-        DmlTable.WithChangeType(Conform(rows, schema, tableSchema), changeType);
+    /// <summary>The position (0, 1, …) of an inserted row among the inserted rows.</summary>
+    private static ExprHandle InsertOrdinal()
+    {
+        using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
+        ExprHandle isInsert = PolarsWrapper.ExprCast(
+            PolarsWrapper.Eq(PolarsWrapper.Col(ActionColumn), PolarsWrapper.Lit(Insert)), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
+        return PolarsWrapper.Sub(PolarsWrapper.CumSum(isInsert, false), PolarsWrapper.Lit(1L));
+    }
 
-    /// <summary>Table rows read under the table's schema, over the written one: widened columns cast, added columns null.</summary>
-    private static LazyFrameHandle Conform(LazyFrameHandle rows, StructType schema, StructType tableSchema) =>
+    /// <summary>Target rows (before the merge) over the written schema, with their row ids, and a change type.</summary>
+    private static LazyFrameHandle ChangeRows(LazyFrameHandle rows, StructType schema, StructType tableSchema, string[] rowIds, string changeType) =>
+        DmlTable.WithChangeType(Conform(rows, schema, tableSchema, rowIds), changeType);
+
+    /// <summary>
+    /// Table rows read under the table's schema, over the written one: widened columns cast, added columns null;
+    /// then the <paramref name="rowIds"/> columns as they are.
+    /// </summary>
+    private static LazyFrameHandle Conform(LazyFrameHandle rows, StructType schema, StructType tableSchema, string[] rowIds) =>
         PolarsWrapper.LazySelect(rows, [.. schema.Fields.Select(field =>
         {
             // Columns of the table in the type written (it may have been widened); added ones null.
@@ -486,10 +540,11 @@ internal static class DeltaKernelMerge
             ExprHandle value = tableSchema.Field(field.Name) is not null ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
             return PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(type), strict: true, wrapNumerical: false), field.Name);
-        })]);
+        }), .. rowIds.Select(PolarsWrapper.Col)]);
 
-    private static LazyFrameHandle Project(LazyFrameHandle rows, StructType schema) =>
-        PolarsWrapper.LazySelect(rows, [.. schema.Fields.Select(f => PolarsWrapper.Col(f.Name))]);
+    /// <summary>The schema's columns, then the <paramref name="rowIds"/> columns.</summary>
+    private static LazyFrameHandle Project(LazyFrameHandle rows, StructType schema, string[] rowIds) =>
+        PolarsWrapper.LazySelect(rows, [.. schema.Fields.Select(f => PolarsWrapper.Col(f.Name)), .. rowIds.Select(PolarsWrapper.Col)]);
 
     private static ExprHandle Ints(params int[] values) =>
         PolarsWrapper.Implode(PolarsWrapper.Lit(PolarsWrapper.SeriesNew("actions", values)), maintainOrder: false);

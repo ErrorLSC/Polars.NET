@@ -63,7 +63,10 @@ public static class Restore
         AddAction[] removed = [.. current.Files.Where(f => !targetKeys.Contains(Key(f)))];
 
         ProtocolAction? protocol = Protocol(current.Protocol, target.Protocol, protocolDowngradeAllowed);
-        bool metadataChanges = !SameMetadata(current.Metadata, target.Metadata);
+        // The metadata of the target version, except that identity columns keep their high water marks: values
+        // generated since must not be handed out again (as Spark restores).
+        MetadataAction restoredMetadata = IdentityColumns.KeepHighWaterMarks(target.Metadata, current.Metadata);
+        bool metadataChanges = !SameMetadata(current.Metadata, restoredMetadata);
         if (restored.Count == 0 && removed.Length == 0 && protocol is null && !metadataChanges)
             return new RestoreResult(null, 0, 0, 0, 0, missing);
 
@@ -71,7 +74,7 @@ public static class Restore
         // A restore sets the whole table: any concurrent change to it is a conflict.
         transaction.ReadPredicate(null).ReadFiles(current.Files);
         if (protocol is not null) transaction.SetProtocol(protocol);
-        if (metadataChanges) transaction.SetMetadata(target.Metadata);
+        if (metadataChanges) transaction.SetMetadata(restoredMetadata);
         foreach (AddAction file in removed)
         {
             transaction.Add(new RemoveAction

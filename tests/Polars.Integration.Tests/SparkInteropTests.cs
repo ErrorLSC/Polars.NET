@@ -784,6 +784,171 @@ public class SparkInteropTests
         }
     }
 
+    // ------------------------------------------------------------------ row tracking and identity columns
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void RowTracking_KernelOperations_GiveTheRowIdsSparkReads()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            string table = Path.Combine(root, "tracked");
+            CreateTable(table, new() { ["delta.enableRowTracking"] = "true" });
+            AssertSameRowIds(table, "created");
+
+            DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2)));
+            AssertSameRowIds(table, "after the kernel's delete");
+            DeltaKernelUpdate.Update(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(3)), [("price", PolarsWrapper.Lit(0.0))]);
+            AssertSameRowIds(table, "after the kernel's update");
+            using (DataFrame source = Typed([4, 11], "east"))
+            {
+                DeltaKernelMerge.Merge(table, PolarsWrapper.LazyClone(source.Lazy().Handle), ["id"],
+                    [new(MergeClauseKind.MatchedUpdate, PolarsWrapper.Lit(true)), new(MergeClauseKind.NotMatchedInsert, PolarsWrapper.Lit(true))]);
+            }
+            AssertSameRowIds(table, "after the kernel's merge");
+            var beforeOptimize = KernelRowIds(table);
+            DeltaKernelOptimize.Optimize(table, zOrderColumns: ["id"]);
+            AssertSameRowIds(table, "after the kernel's optimize");
+            Assert.Equal(beforeOptimize, KernelRowIds(table));
+
+            // Spark updates on top (materializing ids in its own files); the kernel's delete keeps them.
+            LocalSpark.Run("sql", table, "UPDATE {table} SET price = -1 WHERE id IN (5, 6)");
+            var beforeDelete = KernelRowIds(table);
+            DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(5)));
+            AssertSameRowIds(table, "after the kernel's delete on Spark's update");
+            Assert.Equal(beforeDelete.Where(r => r.Id != 5), KernelRowIds(table));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void RowTracking_OnSparksTables_TheKernelKeepsTheIds()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            foreach (bool vectors in new[] { false, true })
+            {
+                string table = Path.Combine(root, vectors ? "dv" : "plain");
+                LocalSpark.Run("sql", table,
+                    "CREATE TABLE {table} (id INT, region STRING, price DOUBLE) USING delta TBLPROPERTIES ('delta.enableRowTracking'='true'" +
+                    (vectors ? ", 'delta.enableDeletionVectors'='true')" : ")"));
+                LocalSpark.Run("sql", table, "INSERT INTO {table} SELECT id, IF(id % 2 = 0, 'east', 'west'), id * 1.5 FROM RANGE(1, 9)");
+                LocalSpark.Run("sql", table, "UPDATE {table} SET price = 0 WHERE id IN (1, 2)");
+                var spark = KernelRowIds(table);
+                AssertSameRowIds(table, "Spark's table");
+
+                DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(3)));
+                DeltaKernelUpdate.Update(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(4)), [("price", PolarsWrapper.Lit(9.0))]);
+                AssertSameRowIds(table, "after the kernel's delete and update");
+                var after = KernelRowIds(table);
+                // Untouched rows keep id and version; the updated row keeps its id under a newer version.
+                Assert.Equal(spark.Where(r => r.Id is not (3 or 4)), after.Where(r => r.Id != 4));
+                var (_, oldId, oldVersion) = spark.Single(r => r.Id == 4);
+                var (_, newId, newVersion) = after.Single(r => r.Id == 4);
+                Assert.Equal(oldId, newId);
+                Assert.True(newVersion > oldVersion);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void IdentityColumns_TheKernelAndSparkTakeTurns_WithoutRepeatingAValue()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            static void Append(string table, params string[] values)
+            {
+                using DataFrame rows = DataFrame.FromColumns(new { v = values });
+                DeltaKernelWrite.Write(table, PolarsWrapper.LazyClone(rows.Lazy().Handle), KernelWriteMode.Append);
+            }
+            static List<(string V, long? Id)> Read(JsonDocument spark) =>
+                [.. spark.RootElement.GetProperty("rows").EnumerateArray()
+                    .Select(r => (r.GetProperty("v").GetString()!, r.GetProperty("id").ValueKind == JsonValueKind.Null ? (long?)null : r.GetProperty("id").GetInt64()))];
+
+            // GENERATED ALWAYS, start 10, step 5: the kernel, Spark and the kernel again append.
+            string always = Path.Combine(root, "always");
+            LocalSpark.Run("create_identity", always, "always", "10", "5");
+            Append(always, "k1", "k2", "k3");
+            var afterSpark = Read(LocalSpark.Run("sql", always, "INSERT INTO {table} (v) VALUES ('s1'), ('s2')")[0]);
+            Append(always, "k4");
+            var all = Read(LocalSpark.Run("read", always)[0]);
+            Assert.Equal(6, all.Count);
+            Assert.Equal(6, all.Select(r => r.Id).Distinct().Count());
+            Assert.All(all, r => Assert.True(r.Id >= 10 && (r.Id - 10) % 5 == 0, $"{r.V}: {r.Id}"));
+            Assert.Equal([10L, 15L, 20L], all.Where(r => r.V.StartsWith('k') && r.V != "k4").Select(r => r.Id!.Value).Order());
+            Assert.All(all.Where(r => r.V.StartsWith('s')), r => Assert.True(r.Id > 20));
+            Assert.True(all.Single(r => r.V == "k4").Id > all.Where(r => r.V.StartsWith('s')).Max(r => r.Id));
+            Assert.Contains("GENERATED ALWAYS", Assert.ThrowsAny<Exception>(() =>
+            {
+                using DataFrame given = DataFrame.FromColumns(new { id = new[] { 1L }, v = new[] { "x" } });
+                DeltaKernelWrite.Write(always, PolarsWrapper.LazyClone(given.Lazy().Handle), KernelWriteMode.Append);
+            }).Message);
+
+            // GENERATED BY DEFAULT: values given are kept and do not move the mark; Spark's next values follow ours.
+            string byDefault = Path.Combine(root, "by_default");
+            LocalSpark.Run("create_identity", byDefault, "default", "1", "1");
+            using (DataFrame given = DataFrame.FromColumns(new { id = new[] { 500L }, v = new[] { "given" } }))
+                DeltaKernelWrite.Write(byDefault, PolarsWrapper.LazyClone(given.Lazy().Handle), KernelWriteMode.Append);
+            Append(byDefault, "k1", "k2");
+            var rows = Read(LocalSpark.Run("sql", byDefault, "INSERT INTO {table} (v) VALUES ('s1')")[0]);
+            Assert.Equal(500L, rows.Single(r => r.V == "given").Id);
+            Assert.Equal([1L, 2L], rows.Where(r => r.V.StartsWith('k')).Select(r => r.Id!.Value).Order());
+            Assert.True(rows.Single(r => r.V == "s1").Id > 2);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    /// <summary>Every live row's (id, row id, row commit version) as the kernel derives them, by id.</summary>
+    private static List<(long Id, long RowId, long Version)> KernelRowIds(string table)
+    {
+        Snapshot snapshot = Snapshot.Load(new LocalFileSystem(table));
+        var columns = RowTracking.MaterializedColumns(snapshot.Metadata)
+            ?? throw new InvalidOperationException("The table names no materialized row tracking columns.");
+        var result = new List<(long, long, long)>();
+        foreach (AddAction file in snapshot.Files)
+        {
+            using LazyFrameHandle lf = DeltaKernelScan.ScanFile(new LocalFileSystem(table), table, snapshot, file, CloudArgs.Local, rowTracking: columns);
+            using DataFrameHandle df = PolarsWrapper.LazyCollect(
+                PolarsWrapper.LazySelect(lf,
+                [
+                    PolarsWrapper.ExprCast(PolarsWrapper.Col("id"), PolarsWrapper.DataTypeExprFromDataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64)), strict: true, wrapNumerical: false),
+                    PolarsWrapper.Col(DeltaKernelScan.RowIdColumn),
+                    PolarsWrapper.Col(DeltaKernelScan.RowCommitVersionColumn),
+                ]), PlEngine.Auto);
+            long[] ids = DmlTable.Int64Column(df, "id"), rowIds = DmlTable.Int64Column(df, DeltaKernelScan.RowIdColumn),
+                versions = DmlTable.Int64Column(df, DeltaKernelScan.RowCommitVersionColumn);
+            for (int i = 0; i < ids.Length; i++) result.Add((ids[i], rowIds[i], versions[i]));
+        }
+        return [.. result.OrderBy(r => r.Item1)];
+    }
+
+    /// <summary>Spark's _metadata.row_id and row_commit_version equal the kernel's, and the ids are unique.</summary>
+    private static void AssertSameRowIds(string table, string step)
+    {
+        JsonDocument spark = LocalSpark.Run("row_ids", table)[0];
+        var expected = spark.RootElement.GetProperty("rows").EnumerateArray()
+            .Select(r => (r.GetProperty("id").GetInt64(), r.GetProperty("row_id").GetInt64(), r.GetProperty("row_commit_version").GetInt64()))
+            .ToList();
+        var actual = KernelRowIds(table);
+        Assert.True(expected.SequenceEqual(actual), $"{step}: Spark {string.Join(" ", expected)} / kernel {string.Join(" ", actual)}");
+        Assert.Equal(actual.Count, actual.Select(r => r.RowId).Distinct().Count());
+    }
+
     private static void CreateTable(string path, Dictionary<string, string> properties)
     {
         using DataFrame east = Typed([1, 2, 3, 4], "east"), west = Typed([5, 6, 7, 8, 9], "west");

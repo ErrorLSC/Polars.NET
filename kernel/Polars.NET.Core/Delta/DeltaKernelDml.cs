@@ -126,9 +126,37 @@ internal sealed class DmlTable : IDisposable
             throw new PolarsException("Writing files of a table with column mapping inside nested columns is not supported yet.");
     }
 
-    /// <summary>Scans one data file as table rows; see <see cref="DeltaKernelScan.ScanFile"/>.</summary>
+    /// <summary>
+    /// The table's materialized row id and row commit version column names when row tracking is on (rewritten
+    /// rows must then keep their ids); null otherwise.
+    /// </summary>
+    public (string RowId, string CommitVersion)? MaterializedRowColumns =>
+        RowTracking.IsEnabled(Snapshot.Protocol, Snapshot.Metadata) ? RowTracking.MaterializedColumns(Snapshot.Metadata) : null;
+
+    /// <summary>
+    /// The columns rows of this table carry through an operation besides the table's own: the row id and commit
+    /// version under row tracking, none otherwise.
+    /// </summary>
+    public string[] RowIdColumns => MaterializedRowColumns is null ? [] : [DeltaKernelScan.RowIdColumn, DeltaKernelScan.RowCommitVersionColumn];
+
+    /// <summary>
+    /// Scans one data file as table rows; see <see cref="DeltaKernelScan.ScanFile"/>. Under row tracking the rows
+    /// carry their ids and commit versions (<see cref="RowIdColumns"/>).
+    /// </summary>
     public LazyFrameHandle ScanFile(AddAction file, long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false) =>
-        DeltaKernelScan.ScanFile(FileSystem, Root, Snapshot, file, EngineCloud, dropRows, onlyRows, withRowIndex);
+        DeltaKernelScan.ScanFile(FileSystem, Root, Snapshot, file, EngineCloud, dropRows, onlyRows, withRowIndex, rowTracking: MaterializedRowColumns);
+
+    /// <summary>Rows that are changed: under row tracking their commit version is cleared (the commit's version applies).</summary>
+    public LazyFrameHandle Changed(LazyFrameHandle rows) => MaterializedRowColumns is null
+        ? rows
+        : PolarsWrapper.LazyWithColumns(rows, [PolarsWrapper.Alias(NullInt64(), DeltaKernelScan.RowCommitVersionColumn)]);
+
+    /// <summary>A null of type Int64.</summary>
+    public static ExprHandle NullInt64()
+    {
+        using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
+        return PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
+    }
 
     /// <summary>
     /// The live rows of each candidate file that match the predicate, as ascending row positions in the file, keyed

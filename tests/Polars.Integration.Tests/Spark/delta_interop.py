@@ -136,6 +136,13 @@ def read_changes(spark, path, start=0):
     print(json.dumps({"path": path, "changes": True, "rows": rows}, ensure_ascii=False), flush=True)
 
 
+def row_ids(spark, path):
+    """Each row's id with its row id and row commit version (row tracking), by id."""
+    df = spark.read.format("delta").load(path).select("id", "_metadata.row_id", "_metadata.row_commit_version")
+    rows = sorted((canonical(r) for r in df.collect()), key=lambda r: r["id"])
+    print(json.dumps({"path": path, "rows": rows}), flush=True)
+
+
 def run(spark, command, args):
     if command == "read":
         for path in args:
@@ -187,6 +194,22 @@ def run(spark, command, args):
             f"INSERT INTO delta.`{path}` VALUES "
             "(3, 300000, 0.2, TIMESTAMP_NTZ'2024-05-06 07:08:09', 123456.7891, named_struct('x', 70000), array(5000000000))"
         )
+        read(spark, path)
+    elif command == "row_ids":
+        for path in args:
+            row_ids(spark, path)
+    elif command == "create_identity":
+        # A table (id BIGINT identity, v STRING): mode "always" or "default", start, step. Path tables take identity
+        # columns only through the builder.
+        from delta.tables import DeltaTable, IdentityGenerator
+        path, mode, start, step = args[0], args[1], int(args[2]), int(args[3])
+        generator = IdentityGenerator(start=start, step=step)
+        builder = DeltaTable.create(spark).location(path)
+        if mode == "always":
+            builder = builder.addColumn("id", dataType="BIGINT", generatedAlwaysAs=generator)
+        else:
+            builder = builder.addColumn("id", dataType="BIGINT", generatedByDefaultAs=generator)
+        builder.addColumn("v", "STRING").execute()
         read(spark, path)
     elif command == "create_v2":
         # A table that takes V2 checkpoints every two commits; columns (id BIGINT, src STRING) as "append" writes.
