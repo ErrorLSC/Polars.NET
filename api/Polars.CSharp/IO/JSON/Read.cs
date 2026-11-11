@@ -48,6 +48,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <summary>
     /// Read JSON from an in-memory byte array.
     /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
     public static DataFrame ReadJson(
         byte[] buffer,
         string[]? columns = null,
@@ -71,6 +72,48 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
 
         return new DataFrame(h);
     }
+
+    /// <summary>
+    /// Read JSON from an in-memory byte array.
+    /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
+    public static DataFrame ReadJson(
+        ReadOnlySpan<byte> buffer,
+        string[]? columns = null,
+        IntoSchema? schema = null,
+        ulong? inferSchemaLen = 100,
+        ulong? batchSize = null,
+        bool ignoreErrors = false,
+        JsonFormat jsonFormat = JsonFormat.Json)
+    {
+        var schemaHandle = schema?.Consume().Handle;
+
+        var h = PolarsWrapper.ReadJson(
+            buffer,
+            columns,
+            schemaHandle,
+            inferSchemaLen,
+            batchSize,
+            ignoreErrors,
+            jsonFormat.ToNative()
+        );
+
+        return new DataFrame(h);
+    }
+
+    /// <summary>
+    /// Read JSON from an in-memory byte array.
+    /// </summary>
+    /// <remarks>The engine reads the memory in place during the call.</remarks>
+    public static DataFrame ReadJson(
+        ReadOnlyMemory<byte> buffer,
+        string[]? columns = null,
+        IntoSchema? schema = null,
+        ulong? inferSchemaLen = 100,
+        ulong? batchSize = null,
+        bool ignoreErrors = false,
+        JsonFormat jsonFormat = JsonFormat.Json)
+        => ReadJson(buffer.Span, columns, schema, inferSchemaLen, batchSize, ignoreErrors, jsonFormat);
 
     // ---------------------------------------------------------
     // Read JSON (Stream)

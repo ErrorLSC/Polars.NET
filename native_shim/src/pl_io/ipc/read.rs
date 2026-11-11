@@ -1,5 +1,4 @@
 use polars::prelude::*;
-use polars_buffer::Buffer;
 use std::os::raw::c_char;
 use crate::pl_io::ipc::ipc_utils::apply_unified_scan_args;
 use crate::types::{LazyFrameContext, SchemaContext};
@@ -76,6 +75,8 @@ pub extern "C" fn pl_scan_ipc(
 pub extern "C" fn pl_scan_ipc_memory(
     buffer_ptr: *const u8,
     buffer_len: usize,
+    release: Option<crate::pl_io::managed_buffer::ReleaseCallback>,
+    user_data: *mut std::ffi::c_void,
     // --- Unified Args ---
     n_rows: *const usize,
     rechunk: bool,
@@ -91,8 +92,7 @@ pub extern "C" fn pl_scan_ipc_memory(
 ) -> *mut LazyFrameContext {
     ffi_try!({
         // 1. Deep Copy
-        let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
-        let buffer = Buffer::from(slice.to_vec()); 
+        let buffer = unsafe { crate::pl_io::managed_buffer::buffer_from_ffi(buffer_ptr, buffer_len, release, user_data) };
         let sources = ScanSources::Buffers(Arc::new([buffer]));
 
         // 2. Options & Args

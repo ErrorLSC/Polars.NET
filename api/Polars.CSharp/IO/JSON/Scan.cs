@@ -74,6 +74,7 @@ public partial class LazyFrame : IDisposable
     /// <summary>
     /// Lazily read NDJSON from an in-memory byte array.
     /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
     public static LazyFrame ScanNdjson(
         byte[] buffer,
         IntoSchema? schema = null,
@@ -85,6 +86,53 @@ public partial class LazyFrame : IDisposable
         bool ignoreErrors = false,
         string? rowIndexName = null,
         uint rowIndexOffset = 0)
+        => ScanNdjsonCore(NativeBytes.Copy(buffer), schema, inferSchemaLength, batchSize, nRows, lowMemory, rechunk, ignoreErrors, rowIndexName, rowIndexOffset);
+
+    /// <summary>
+    /// Lazily read NDJSON from an in-memory byte array.
+    /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
+    public static LazyFrame ScanNdjson(
+        ReadOnlySpan<byte> buffer,
+        IntoSchema? schema = null,
+        ulong? inferSchemaLength = 100,
+        ulong? batchSize = null,
+        ulong? nRows = null,
+        bool lowMemory = false,
+        bool rechunk = false,
+        bool ignoreErrors = false,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0)
+        => ScanNdjsonCore(NativeBytes.Copy(buffer), schema, inferSchemaLength, batchSize, nRows, lowMemory, rechunk, ignoreErrors, rowIndexName, rowIndexOffset);
+
+    /// <summary>
+    /// Lazily read NDJSON from an in-memory byte array.
+    /// </summary>
+    /// <remarks>The engine reads the memory in place, without a copy: the memory stays pinned until the last frame reading it is released, and must not change meanwhile. Wrap unmanaged memory in a <see cref="System.Buffers.MemoryManager{T}"/> and free it only once the engine unpins it (<see cref="System.Buffers.MemoryManager{T}.Unpin"/>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+    public static LazyFrame ScanNdjson(
+        ReadOnlyMemory<byte> buffer,
+        IntoSchema? schema = null,
+        ulong? inferSchemaLength = 100,
+        ulong? batchSize = null,
+        ulong? nRows = null,
+        bool lowMemory = false,
+        bool rechunk = false,
+        bool ignoreErrors = false,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0)
+        => ScanNdjsonCore(NativeBytes.Share(buffer), schema, inferSchemaLength, batchSize, nRows, lowMemory, rechunk, ignoreErrors, rowIndexName, rowIndexOffset);
+
+    private static LazyFrame ScanNdjsonCore(
+        NativeBytes buffer,
+        IntoSchema? schema,
+        ulong? inferSchemaLength,
+        ulong? batchSize,
+        ulong? nRows,
+        bool lowMemory,
+        bool rechunk,
+        bool ignoreErrors,
+        string? rowIndexName,
+        uint rowIndexOffset)
     {
         var schemaHandle = schema?.Consume().Handle;
 

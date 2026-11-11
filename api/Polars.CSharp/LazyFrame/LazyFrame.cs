@@ -181,8 +181,9 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
 
     /// <summary>
-    /// Streams materialized DataFrame batches asynchronously using Polars native streaming engine.
-    /// Memory consumption is bounded by the batch size O(batch).
+    /// Streams materialized DataFrame batches asynchronously.
+    /// With <see cref="Engine.Streaming"/> the native streaming engine produces them as it goes, so memory stays
+    /// bounded by the batch size; the default <see cref="Engine.Auto"/> runs the query in memory first.
     /// </summary>
     /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
     /// <param name="engine">Execution engine selection.</param>

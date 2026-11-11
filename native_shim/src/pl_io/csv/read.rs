@@ -1,5 +1,4 @@
 use polars::prelude::*;
-use polars_buffer::Buffer;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use crate::pl_io::csv::csv_utils::apply_scan_csv_options;
@@ -79,6 +78,8 @@ pub extern "C" fn pl_scan_csv_mem(
     // --- Memory Buffer Input ---
     buffer_ptr: *const u8,
     buffer_len: usize,
+    release: Option<crate::pl_io::managed_buffer::ReleaseCallback>,
+    user_data: *mut std::ffi::c_void,
 
     // --- 1. Core Configs ---
     has_header: bool, separator: u8, quote_char: u8, eol_char: u8,             
@@ -102,8 +103,7 @@ pub extern "C" fn pl_scan_csv_mem(
 ) -> *mut LazyFrameContext {
     ffi_try!({
         // Prepare Buffer Source
-        let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
-        let buffer = Buffer::from(slice.to_vec()); 
+        let buffer = unsafe { crate::pl_io::managed_buffer::buffer_from_ffi(buffer_ptr, buffer_len, release, user_data) };
         let sources = ScanSources::Buffers(Arc::new([buffer]));
 
         let mut reader = LazyCsvReader::new_with_sources(sources);

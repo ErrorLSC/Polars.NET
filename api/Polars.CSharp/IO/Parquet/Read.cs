@@ -89,11 +89,135 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <summary>
     /// Read Parquet from an in-memory byte array.
     /// </summary>
-    /// <param name="buffer">The byte array containing the parquet file.</param>
+    /// <param name="buffer">The bytes; the engine copies them.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
     /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?,bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadParquet(
         byte[] buffer,
+        string[]? columns = null,
+        ulong? nRows = null,
+        ParallelStrategy parallel = ParallelStrategy.Auto,
+        bool lowMemory = false,
+        bool useStatistics = true,
+        bool allowMissingColumns = false,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        IntoSchema? schema = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+    {
+        var lf = LazyFrame.ScanParquet(
+            buffer,
+            nRows,
+            parallel,
+            lowMemory,
+            useStatistics,
+            allowMissingColumns,
+            rechunk,
+            cache,
+            rowIndexName,
+            rowIndexOffset,
+            includePathColumn,
+            schema,
+            hivePartitioning,
+            hivePartitionSchema,
+            tryParseHiveDates
+        );
+
+        if (columns?.Length > 0)
+        {
+            var colsToSelect = new List<string>(columns);
+
+            if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
+            {
+                colsToSelect.Add(rowIndexName);
+            }
+
+            if (!string.IsNullOrEmpty(includePathColumn) && !colsToSelect.Contains(includePathColumn))
+            {
+                colsToSelect.Add(includePathColumn);
+            }
+
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
+        }
+
+        return lf.Collect();
+    }
+
+    /// <summary>
+    /// Read Parquet from an in-memory byte array.
+    /// </summary>
+    /// <param name="buffer">The bytes; the engine copies them.</param>
+    /// <param name="columns">Columns to select. If null, select all columns.</param>
+    /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?,bool, IntoSchema?, bool, CloudOptions?)"/>
+    public static DataFrame ReadParquet(
+        ReadOnlySpan<byte> buffer,
+        string[]? columns = null,
+        ulong? nRows = null,
+        ParallelStrategy parallel = ParallelStrategy.Auto,
+        bool lowMemory = false,
+        bool useStatistics = true,
+        bool allowMissingColumns = false,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        IntoSchema? schema = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+    {
+        var lf = LazyFrame.ScanParquet(
+            buffer,
+            nRows,
+            parallel,
+            lowMemory,
+            useStatistics,
+            allowMissingColumns,
+            rechunk,
+            cache,
+            rowIndexName,
+            rowIndexOffset,
+            includePathColumn,
+            schema,
+            hivePartitioning,
+            hivePartitionSchema,
+            tryParseHiveDates
+        );
+
+        if (columns?.Length > 0)
+        {
+            var colsToSelect = new List<string>(columns);
+
+            if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
+            {
+                colsToSelect.Add(rowIndexName);
+            }
+
+            if (!string.IsNullOrEmpty(includePathColumn) && !colsToSelect.Contains(includePathColumn))
+            {
+                colsToSelect.Add(includePathColumn);
+            }
+
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
+        }
+
+        return lf.Collect();
+    }
+
+    /// <summary>
+    /// Read Parquet from an in-memory byte array.
+    /// </summary>
+    /// <param name="buffer">The bytes, read in place without a copy: the memory stays pinned until the last frame reading it is released, and must not change meanwhile. Wrap unmanaged memory in a <see cref="System.Buffers.MemoryManager{T}"/> and free it only once the engine unpins it (<see cref="System.Buffers.MemoryManager{T}.Unpin"/>): a query can still be finishing on a background thread right after its frames are released.</param>
+    /// <param name="columns">Columns to select. If null, select all columns.</param>
+    /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?,bool, IntoSchema?, bool, CloudOptions?)"/>
+    public static DataFrame ReadParquet(
+        ReadOnlyMemory<byte> buffer,
         string[]? columns = null,
         ulong? nRows = null,
         ParallelStrategy parallel = ParallelStrategy.Auto,

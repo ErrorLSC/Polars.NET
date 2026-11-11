@@ -87,6 +87,7 @@ public partial class LazyFrame : IDisposable
     /// <summary>
     /// Lazily read parquet from an in-memory byte array.
     /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
     public static LazyFrame ScanParquet(
         byte[] buffer,
         ulong? nRows = null,
@@ -94,8 +95,8 @@ public partial class LazyFrame : IDisposable
         bool lowMemory = false,
         bool useStatistics = true,
         bool allowMissingColumns = false,
-        bool rechunk = false, // New
-        bool cache = true,    // New
+        bool rechunk = false,
+        bool cache = true,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
@@ -103,6 +104,68 @@ public partial class LazyFrame : IDisposable
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
+        => ScanParquetCore(NativeBytes.Copy(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+
+    /// <summary>
+    /// Lazily read parquet from an in-memory byte array.
+    /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
+    public static LazyFrame ScanParquet(
+        ReadOnlySpan<byte> buffer,
+        ulong? nRows = null,
+        ParallelStrategy parallel = ParallelStrategy.Auto,
+        bool lowMemory = false,
+        bool useStatistics = true,
+        bool allowMissingColumns = false,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        IntoSchema? schema = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+        => ScanParquetCore(NativeBytes.Copy(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+
+    /// <summary>
+    /// Lazily read parquet from an in-memory byte array.
+    /// </summary>
+    /// <remarks>The engine reads the memory in place, without a copy: the memory stays pinned until the last frame reading it is released, and must not change meanwhile. Wrap unmanaged memory in a <see cref="System.Buffers.MemoryManager{T}"/> and free it only once the engine unpins it (<see cref="System.Buffers.MemoryManager{T}.Unpin"/>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+    public static LazyFrame ScanParquet(
+        ReadOnlyMemory<byte> buffer,
+        ulong? nRows = null,
+        ParallelStrategy parallel = ParallelStrategy.Auto,
+        bool lowMemory = false,
+        bool useStatistics = true,
+        bool allowMissingColumns = false,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        IntoSchema? schema = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+        => ScanParquetCore(NativeBytes.Share(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+
+    private static LazyFrame ScanParquetCore(
+        NativeBytes buffer,
+        ulong? nRows,
+        ParallelStrategy parallel,
+        bool lowMemory,
+        bool useStatistics,
+        bool allowMissingColumns,
+        bool rechunk,
+        bool cache,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        string? includePathColumn,
+        IntoSchema? schema,
+        bool hivePartitioning,
+        IntoSchema? hivePartitionSchema,
+        bool tryParseHiveDates)
     {
         var schemaHandle = schema?.Consume().Handle;
         var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;

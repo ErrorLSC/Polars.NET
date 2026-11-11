@@ -1,5 +1,4 @@
 use polars::prelude::*;
-use polars_buffer::Buffer;
 use std::os::raw::c_char;
 use crate::pl_io::parquet::parquet_utils::build_scan_args;
 use crate::types::{ LazyFrameContext, SchemaContext};
@@ -174,6 +173,8 @@ pub extern "C" fn pl_scan_parquet_files(
 pub extern "C" fn pl_scan_parquet_memory(
     buffer_ptr: *const u8,
     buffer_len: usize,
+    release: Option<crate::pl_io::managed_buffer::ReleaseCallback>,
+    user_data: *mut std::ffi::c_void,
     n_rows: *const usize,
     parallel_code: u8,
     low_memory: bool,
@@ -191,8 +192,7 @@ pub extern "C" fn pl_scan_parquet_memory(
     try_parse_hive_dates: bool
 ) -> *mut LazyFrameContext {
     ffi_try!({
-        let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
-        let buffer = Buffer::from(slice.to_vec()); 
+        let buffer = unsafe { crate::pl_io::managed_buffer::buffer_from_ffi(buffer_ptr, buffer_len, release, user_data) };
         let sources = ScanSources::Buffers(Arc::new([buffer]));
 
         let args = build_scan_args(

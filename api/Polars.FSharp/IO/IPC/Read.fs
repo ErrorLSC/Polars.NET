@@ -76,8 +76,39 @@ module IPCRead =
         /// <summary>
         /// Lazily read Arrow IPC (Feather v2) from in-memory bytes.
         /// </summary>
+        /// <remarks>The bytes are copied; the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
         static member ScanIpc(
             buffer: byte[],
+            ?schema: PolarsSchema,
+            ?nRows: uint64,
+            ?rechunk: bool,
+            ?cache: bool,
+            ?rowIndexName: string,
+            ?rowIndexOffset: uint32,
+            ?includePathColumn: string,
+            ?hivePartitioning: bool,
+            ?hivePartitionSchema: PolarsSchema,
+            ?tryParseHiveDates: bool
+        ) : LazyFrame =
+            LazyFrame.ScanIpc(
+                System.ReadOnlyMemory<byte>(Array.copy buffer),
+                ?schema = schema,
+                ?nRows = nRows,
+                ?rechunk = rechunk,
+                ?cache = cache,
+                ?rowIndexName = rowIndexName,
+                ?rowIndexOffset = rowIndexOffset,
+                ?includePathColumn = includePathColumn,
+                ?hivePartitioning = hivePartitioning,
+                ?hivePartitionSchema = hivePartitionSchema,
+                ?tryParseHiveDates = tryParseHiveDates)
+
+        /// <summary>
+        /// Lazily read Arrow IPC (Feather v2) from in-memory bytes.
+        /// </summary>
+        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once the engine unpins it (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+        static member ScanIpc(
+            buffer: System.ReadOnlyMemory<byte>,
             ?schema: PolarsSchema,
             ?nRows: uint64,
             ?rechunk: bool,
@@ -103,7 +134,7 @@ module IPCRead =
             let hiveDates = defaultArg tryParseHiveDates false
 
             let h = PolarsWrapper.ScanIpc(
-                buffer, 
+                NativeBytes.Share buffer, 
                 rows, 
                 rechk, 
                 useCache, 

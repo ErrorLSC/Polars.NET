@@ -718,6 +718,26 @@ type InferSchemaLengthTests() =
         finally
             File.Delete path
 
+type BufferOverloadTests() =
+
+    [<Fact>]
+    member _.``ScanCsv over byte array and ReadOnlyMemory forwards options`` () =
+        let csv = System.Text.Encoding.UTF8.GetBytes "a;b\n1;x\n2;y\n3;z\n"
+        for lf in [ LazyFrame.ScanCsv(csv, separator = ';', nRows = 2UL)
+                    LazyFrame.ScanCsv(System.ReadOnlyMemory<byte>(csv), separator = ';', nRows = 2UL) ] do
+            use lf = lf
+            use df = lf.Collect()
+            Assert.Equal(2L, df.Height)
+            Assert.Equal("y", df.["b"].GetValue<string> 1)
+
+    [<Fact>]
+    member _.``ScanNdjson over byte array copies the bytes`` () =
+        let bytes = System.Text.Encoding.UTF8.GetBytes "{\"a\":1}\n{\"a\":2}\n"
+        use lf = LazyFrame.ScanNdjson(bytes, inferSchemaLen = 10UL)
+        System.Array.Clear bytes
+        use df = lf.Collect()
+        Assert.Equal(2L, df.Height)
+
 type LitTests() =
 
     let df = DataFrame.create [ Series.create("dummy", [1]) ]

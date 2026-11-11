@@ -90,6 +90,21 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 
 ---
 
+## In-memory scans without copies
+
+### New
+
+* `ScanParquet`, `ScanIpc`, `ScanCsv`, `ScanNdjson` and `ReadParquet`, `ReadIpc`, `ReadCsv` take a `ReadOnlyMemory<byte>`, which the engine reads in place without a copy (#35). The memory stays pinned until the last frame reading it is released, clones and collected frames included, and must not change meanwhile. Arrays, slices of arrays, and unmanaged or memory-mapped memory wrapped in a `MemoryManager<byte>` all work. Free unmanaged memory only once the engine unpins it (`MemoryManager<byte>.Unpin`): a query can still be finishing on a background thread right after its frames are released, for example after an early `break` out of `CollectBatchesAsync`. The F# `ScanParquet` / `ScanIpc` / `ScanCsv` / `ScanNdjson` take a `ReadOnlyMemory<byte>` too.
+* The same methods, plus `ReadJson` and `ReadAvro`, take a `ReadOnlySpan<byte>`, which is copied once into the engine. Stack-allocated buffers and pointers work. `ReadJson` and `ReadAvro` also take a `ReadOnlyMemory<byte>`; they parse during the call and copy nothing.
+* The `byte[]` overloads still copy, so changing the array after the call doesn't affect the frame.
+
+### Fixed
+
+* `ScanParquet(byte[])` passed `rechunk` as `cache` and `cache` as `rechunk`.
+* `ScanParquet(byte[])` and `ScanNdjson(byte[])` refuse an empty buffer with `ArgumentException`, as the CSV and IPC scans did.
+
+---
+
 ## Packaging
 
 * `native_shim.dll` (`Polars.NET.Native.win-x64`) links the C runtime statically and no longer needs the Visual C++ Redistributable (`VCRUNTIME140.dll`), which a clean Windows install lacks. It used to fail on first use with "Dll was not found" (#37). The release build now checks the DLL's imports.

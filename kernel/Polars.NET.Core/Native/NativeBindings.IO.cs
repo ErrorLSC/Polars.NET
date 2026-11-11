@@ -80,6 +80,8 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_scan_csv_mem(
         byte* bufferPtr,        // Buffer Pointer
         nuint bufferLen,      // Buffer Length
+        delegate* unmanaged[Cdecl]<void*, void> release, // null: the engine copies the buffer
+        void* userData,
 
         // --- 1. Core Configs ---
         [MarshalAs(UnmanagedType.U1)] bool has_header,
@@ -377,6 +379,8 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_scan_parquet_memory(
         IntPtr buffer_ptr,
         UIntPtr buffer_len,
+        delegate* unmanaged[Cdecl]<void*, void> release, // null: the engine copies the buffer
+        void* userData,
         IntPtr n_rows,
         PlParallelStrategy parallel_code,
         [MarshalAs(UnmanagedType.U1)] bool low_memory,
@@ -585,6 +589,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_ndjson_memory(
         IntPtr buffer, UIntPtr bufferLen,
+        delegate* unmanaged[Cdecl]<void*, void> release, // null: the engine copies the buffer
+        void* userData,
         // Options (Same as above)
         IntPtr batchSize,
         [MarshalAs(UnmanagedType.U1)] bool lowMemory,
@@ -750,6 +756,8 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_scan_ipc_memory(
         byte* buffer,
         nuint bufferLen,
+        delegate* unmanaged[Cdecl]<void*, void> release, // null: the engine copies the buffer
+        void* userData,
 
         // --- Unified Args ---
         nint nRows,

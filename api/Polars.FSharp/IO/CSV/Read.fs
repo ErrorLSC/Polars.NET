@@ -150,9 +150,80 @@ module CsvRead =
         /// <summary>
         /// Lazily scans a CSV from an in-memory byte array.
         /// </summary>
+        /// <remarks>The bytes are copied; the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
+        static member ScanCsv(
+                buffer: byte[],
+                ?schema: PolarsSchema,
+                ?dtypeOverride: PolarsSchema,
+                ?hasHeader: bool,
+                ?separator: char,
+                ?quoteChar: char,
+                ?eolChar: char,
+                ?ignoreErrors: bool,
+                ?tryParseDates: bool,
+                ?lowMemory: bool,
+                ?cache: bool,
+                ?glob: bool,
+                ?rechunk: bool,
+                ?raiseIfEmpty: bool,
+                ?skipRows: uint64,
+                ?skipRowsAfterHeader: uint64,
+                ?skipLines: uint64,
+                ?nRows: uint64,
+                ?inferSchemaLength: uint64,
+                ?inferSchemaFiles: uint64,
+                ?nThreads: uint64,
+                ?chunkSize: uint64,
+                ?rowIndexName: string,
+                ?rowIndexOffset: uint64,
+                ?includeFilePaths: string,
+                ?encoding: CsvEncoding,
+                ?nullValues: seq<string>,
+                ?missingIsNull: bool,
+                ?commentPrefix: string,
+                ?decimalComma: bool,
+                ?truncateRaggedLines: bool
+            ) : LazyFrame =
+            LazyFrame.ScanCsv(
+                System.ReadOnlyMemory<byte>(Array.copy buffer),
+                ?schema = schema,
+                ?dtypeOverride = dtypeOverride,
+                ?hasHeader = hasHeader,
+                ?separator = separator,
+                ?quoteChar = quoteChar,
+                ?eolChar = eolChar,
+                ?ignoreErrors = ignoreErrors,
+                ?tryParseDates = tryParseDates,
+                ?lowMemory = lowMemory,
+                ?cache = cache,
+                ?glob = glob,
+                ?rechunk = rechunk,
+                ?raiseIfEmpty = raiseIfEmpty,
+                ?skipRows = skipRows,
+                ?skipRowsAfterHeader = skipRowsAfterHeader,
+                ?skipLines = skipLines,
+                ?nRows = nRows,
+                ?inferSchemaLength = inferSchemaLength,
+                ?inferSchemaFiles = inferSchemaFiles,
+                ?nThreads = nThreads,
+                ?chunkSize = chunkSize,
+                ?rowIndexName = rowIndexName,
+                ?rowIndexOffset = rowIndexOffset,
+                ?includeFilePaths = includeFilePaths,
+                ?encoding = encoding,
+                ?nullValues = nullValues,
+                ?missingIsNull = missingIsNull,
+                ?commentPrefix = commentPrefix,
+                ?decimalComma = decimalComma,
+                ?truncateRaggedLines = truncateRaggedLines)
+
+        /// <summary>
+        /// Lazily scans a CSV from an in-memory byte array.
+        /// </summary>
+        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once the engine unpins it (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
         static member ScanCsv
             (
-                buffer: byte[],
+                buffer: System.ReadOnlyMemory<byte>,
                 ?schema: PolarsSchema,
                 ?dtypeOverride: PolarsSchema,
                 ?hasHeader: bool,
@@ -232,7 +303,7 @@ module CsvRead =
 
             let h =
                 PolarsWrapper.ScanCsv(
-                    buffer,
+                    NativeBytes.Share buffer,
                     schemaHandle,
                     dtypeOverrideHandle,
                     pHasHdr,

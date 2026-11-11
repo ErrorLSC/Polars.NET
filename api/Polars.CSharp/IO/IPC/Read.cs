@@ -86,11 +86,119 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <summary>
     /// Read Arrow IPC (Feather v2) from in-memory bytes.
     /// </summary>
-    /// <param name="buffer">The byte array containing the IPC data.</param>
+    /// <param name="buffer">The bytes; the engine copies them.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
     /// <inheritdoc cref="ReadIpc(string, string[], IntoSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadIpc(
         byte[] buffer,
+        string[]? columns = null,
+        IntoSchema? schema = null,
+        ulong? nRows = null,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+    {
+        var lf = LazyFrame.ScanIpc(
+            buffer,
+            schema,
+            nRows,
+            rechunk,
+            cache,
+            rowIndexName,
+            rowIndexOffset,
+            includePathColumn,
+            hivePartitioning,
+            hivePartitionSchema,
+            tryParseHiveDates
+        );
+
+        if (columns != null && columns.Length > 0)
+        {
+            var colsToSelect = new List<string>(columns);
+
+            if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
+            {
+                colsToSelect.Add(rowIndexName);
+            }
+
+            if (!string.IsNullOrEmpty(includePathColumn) && !colsToSelect.Contains(includePathColumn))
+            {
+                colsToSelect.Add(includePathColumn);
+            }
+
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
+        }
+
+        return lf.Collect();
+    }
+
+    /// <summary>
+    /// Read Arrow IPC (Feather v2) from in-memory bytes.
+    /// </summary>
+    /// <param name="buffer">The bytes; the engine copies them.</param>
+    /// <param name="columns">Columns to select. If null, select all columns.</param>
+    /// <inheritdoc cref="ReadIpc(string, string[], IntoSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, IntoSchema?, bool, CloudOptions?)"/>
+    public static DataFrame ReadIpc(
+        ReadOnlySpan<byte> buffer,
+        string[]? columns = null,
+        IntoSchema? schema = null,
+        ulong? nRows = null,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+    {
+        var lf = LazyFrame.ScanIpc(
+            buffer,
+            schema,
+            nRows,
+            rechunk,
+            cache,
+            rowIndexName,
+            rowIndexOffset,
+            includePathColumn,
+            hivePartitioning,
+            hivePartitionSchema,
+            tryParseHiveDates
+        );
+
+        if (columns != null && columns.Length > 0)
+        {
+            var colsToSelect = new List<string>(columns);
+
+            if (!string.IsNullOrEmpty(rowIndexName) && !colsToSelect.Contains(rowIndexName))
+            {
+                colsToSelect.Add(rowIndexName);
+            }
+
+            if (!string.IsNullOrEmpty(includePathColumn) && !colsToSelect.Contains(includePathColumn))
+            {
+                colsToSelect.Add(includePathColumn);
+            }
+
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
+        }
+
+        return lf.Collect();
+    }
+
+    /// <summary>
+    /// Read Arrow IPC (Feather v2) from in-memory bytes.
+    /// </summary>
+    /// <param name="buffer">The bytes, read in place without a copy: the memory stays pinned until the last frame reading it is released, and must not change meanwhile. Wrap unmanaged memory in a <see cref="System.Buffers.MemoryManager{T}"/> and free it only once the engine unpins it (<see cref="System.Buffers.MemoryManager{T}.Unpin"/>): a query can still be finishing on a background thread right after its frames are released.</param>
+    /// <param name="columns">Columns to select. If null, select all columns.</param>
+    /// <inheritdoc cref="ReadIpc(string, string[], IntoSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, IntoSchema?, bool, CloudOptions?)"/>
+    public static DataFrame ReadIpc(
+        ReadOnlyMemory<byte> buffer,
         string[]? columns = null,
         IntoSchema? schema = null,
         ulong? nRows = null,

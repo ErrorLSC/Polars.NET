@@ -25,7 +25,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <summary>
     /// Read an Avro memory buffer into a DataFrame.
     /// </summary>
-    /// <param name="buffer">The byte array containing Avro data.</param>
+    /// <param name="buffer">The bytes; the engine copies them.</param>
     /// <param name="nRows">Stop reading when `nRows` are read.</param>
     /// <param name="columns">Columns to select/project by name.</param>
     /// <param name="projection">Columns to select/project by index.</param>
@@ -39,6 +39,39 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         var handle = PolarsWrapper.ReadAvro(buffer, nRows, columns, projection);
         return new DataFrame(handle);
     }
+
+    /// <summary>
+    /// Read an Avro memory buffer into a DataFrame.
+    /// </summary>
+    /// <param name="buffer">The bytes; the engine copies them.</param>
+    /// <param name="nRows">Stop reading when `nRows` are read.</param>
+    /// <param name="columns">Columns to select/project by name.</param>
+    /// <param name="projection">Columns to select/project by index.</param>
+    /// <returns>A new DataFrame.</returns>
+    public static DataFrame ReadAvro(
+        ReadOnlySpan<byte> buffer,
+        ulong? nRows = null,
+        string[]? columns = null,
+        int[]? projection = null)
+    {
+        var handle = PolarsWrapper.ReadAvro(buffer, nRows, columns, projection);
+        return new DataFrame(handle);
+    }
+
+    /// <summary>
+    /// Read an Avro memory buffer into a DataFrame.
+    /// </summary>
+    /// <param name="buffer">The bytes, read in place during the call.</param>
+    /// <param name="nRows">Stop reading when `nRows` are read.</param>
+    /// <param name="columns">Columns to select/project by name.</param>
+    /// <param name="projection">Columns to select/project by index.</param>
+    /// <returns>A new DataFrame.</returns>
+    public static DataFrame ReadAvro(
+        ReadOnlyMemory<byte> buffer,
+        ulong? nRows = null,
+        string[]? columns = null,
+        int[]? projection = null)
+        => ReadAvro(buffer.Span, nRows, columns, projection);
     /// <summary>
     /// Read an Avro memory Stream into a DataFrame.
     /// </summary>

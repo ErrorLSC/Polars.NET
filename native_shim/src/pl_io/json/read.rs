@@ -1,5 +1,4 @@
 use polars::prelude::*;
-use polars_buffer::Buffer;
 use std::ffi::CStr;
 use std::io::{BufReader,Cursor};
 use std::num::NonZeroUsize;
@@ -186,6 +185,8 @@ pub extern "C" fn pl_scan_ndjson(
 pub extern "C" fn pl_scan_ndjson_memory(
     buffer_ptr: *const u8,
     buffer_len: usize,
+    release: Option<crate::pl_io::managed_buffer::ReleaseCallback>,
+    user_data: *mut std::ffi::c_void,
     // --- Options ---
     batch_size: *const usize,
     low_memory: bool,
@@ -200,8 +201,7 @@ pub extern "C" fn pl_scan_ndjson_memory(
 ) -> *mut LazyFrameContext {
     ffi_try!({
 
-        let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
-        let buffer = Buffer::from(slice.to_vec()); 
+        let buffer = unsafe { crate::pl_io::managed_buffer::buffer_from_ffi(buffer_ptr, buffer_len, release, user_data) };
         let sources = ScanSources::Buffers(Arc::new([buffer]));
 
         let reader = LazyJsonLineReader::new_with_sources(sources);

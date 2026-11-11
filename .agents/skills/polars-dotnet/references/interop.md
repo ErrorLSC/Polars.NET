@@ -142,6 +142,8 @@ Func<IDataReader> readerFactory = () =>
 };
 using var lf = LazyFrame.ScanDatabase(readerFactory, batchSize: 50_000);
 using var res = lf.Filter(Pl.Col("level") == "ERROR").Collect();
+// Sink* / SinkTo / CollectBatchesAsync(engine: Engine.Streaming) spool a .NET source to a temporary IPC file in
+// POLARS_TEMP_DIR and stream it (memory bounded by a batch); Collect() reads the whole source first.
 
 // 3. Asynchronous batch ingestion from DbDataReader:
 await foreach (DataFrame batch in dbReader.ReadDatabaseBatchesAsync(batchSize: 50_000))
@@ -259,12 +261,12 @@ await foreach (var row in df.ToAsyncEnumerable<MyRecord>(chunkSize: 10_000, canc
 ```
 
 ### Lazy Native Batch Streaming (`CollectBatchesAsync`)
-Stream materialized DataFrame chunks from a `LazyFrame` as soon as they are computed by the native Rust streaming engine:
+Stream materialized DataFrame chunks from a `LazyFrame` as the native Rust streaming engine computes them. Pass `Engine.Streaming`: the default `Engine.Auto` runs the query in memory first (polars 0.55 maps Auto to the in-memory engine):
 ```csharp
 using var lf = LazyFrame.ScanParquet("huge_dataset/*.parquet");
 
 // Asynchronously stream DataFrame batches:
-await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000))
+await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000, engine: Engine.Streaming))
 {
     using (batch)
     {
@@ -373,6 +375,18 @@ let parquetSize () =
 
 > [!WARNING] Lifetime
 > A span or `Memory<byte>` from a `NativeBuffer` must not be used after `Dispose`. A pin from `Pin()` or a stream from `AsStream()` keeps the memory alive past `Dispose` until it is released itself. These methods are synchronous; there are no async variants. An IPC stream is read back with `DataFrame.ReadIpcStream`, which accepts a path or a span, and not with `ReadIpc`.
+
+### Reading Bytes Back: Copy or Share
+
+`ScanParquet` / `ScanIpc` / `ScanCsv` / `ScanNdjson` and `ReadParquet` / `ReadIpc` / `ReadCsv` / `ReadJson` / `ReadAvro` take:
+* `byte[]`: copied (later changes to the array don't matter).
+* `ReadOnlySpan<byte>`: copied once (C# only; a lazy scan cannot keep a span).
+* `ReadOnlyMemory<byte>`: read in place, no copy. Pinned until the last frame reading it is released (clones and collected frames that point into it count). Don't change it meanwhile. Unmanaged memory goes in a `MemoryManager<byte>` and may be freed only after the engine calls `Unpin`, which can come from a background thread slightly after the frames are disposed. `NativeBuffer.Memory` is safe to pass, because its pins keep it alive past `Dispose`.
+
+```csharp
+using NativeBuffer parquet = df.Lazy().SinkParquetNativeMemory();
+using var lf = LazyFrame.ScanParquet(parquet.Memory);   // zero-copy
+```
 
 ### `PipeWriter`: Streaming Without Buffering the Payload
 

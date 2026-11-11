@@ -76,6 +76,7 @@ public partial class LazyFrame : IDisposable
     /// <summary>
     /// Lazily read Arrow IPC (Feather v2) from in-memory bytes.
     /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
     public static LazyFrame ScanIpc(
         byte[] buffer,
         IntoSchema? schema = null,
@@ -88,6 +89,56 @@ public partial class LazyFrame : IDisposable
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
+        => ScanIpcCore(NativeBytes.Copy(buffer), schema, nRows, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+
+    /// <summary>
+    /// Lazily read Arrow IPC (Feather v2) from in-memory bytes.
+    /// </summary>
+    /// <remarks>The engine copies the bytes.</remarks>
+    public static LazyFrame ScanIpc(
+        ReadOnlySpan<byte> buffer,
+        IntoSchema? schema = null,
+        ulong? nRows = null,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+        => ScanIpcCore(NativeBytes.Copy(buffer), schema, nRows, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+
+    /// <summary>
+    /// Lazily read Arrow IPC (Feather v2) from in-memory bytes.
+    /// </summary>
+    /// <remarks>The engine reads the memory in place, without a copy: the memory stays pinned until the last frame reading it is released, and must not change meanwhile. Wrap unmanaged memory in a <see cref="System.Buffers.MemoryManager{T}"/> and free it only once the engine unpins it (<see cref="System.Buffers.MemoryManager{T}.Unpin"/>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+    public static LazyFrame ScanIpc(
+        ReadOnlyMemory<byte> buffer,
+        IntoSchema? schema = null,
+        ulong? nRows = null,
+        bool rechunk = false,
+        bool cache = true,
+        string? rowIndexName = null,
+        uint rowIndexOffset = 0,
+        string? includePathColumn = null,
+        bool hivePartitioning = false,
+        IntoSchema? hivePartitionSchema = null,
+        bool tryParseHiveDates = false)
+        => ScanIpcCore(NativeBytes.Share(buffer), schema, nRows, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+
+    private static LazyFrame ScanIpcCore(
+        NativeBytes buffer,
+        IntoSchema? schema,
+        ulong? nRows,
+        bool rechunk,
+        bool cache,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        string? includePathColumn,
+        bool hivePartitioning,
+        IntoSchema? hivePartitionSchema,
+        bool tryParseHiveDates)
     {
         var h = PolarsWrapper.ScanIpc(
             buffer,

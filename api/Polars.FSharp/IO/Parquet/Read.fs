@@ -127,9 +127,65 @@ module ParquetRead =
         /// <param name="schema">Overwrite the schema of the dataset.</param>
         /// <param name="hivePartitionSchema">The schema of the hive partitions.</param>
         /// <param name="tryParseHiveDates">Attempt to parse hive values as Date/Datetime.</param>
+        /// <remarks>The bytes are copied; the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
+        static member ScanParquet(
+                buffer: byte[],
+                ?nRows: uint64,
+                ?parallelStrategy: ParallelStrategy,
+                ?lowMemory: bool,
+                ?useStatistics: bool,
+                ?glob: bool,
+                ?allowMissingColumns: bool,
+                ?rechunk:bool,
+                ?cache:bool,
+                ?rowIndexName: string,
+                ?rowIndexOffset: uint32,
+                ?includePathColumn: string,
+                ?schema: PolarsSchema,       
+                ?hivePartitioning: bool,
+                ?hivePartitionSchema: PolarsSchema,   
+                ?tryParseHiveDates: bool
+            ) =
+            LazyFrame.ScanParquet(
+                System.ReadOnlyMemory<byte>(Array.copy buffer),
+                ?nRows = nRows,
+                ?parallelStrategy = parallelStrategy,
+                ?lowMemory = lowMemory,
+                ?useStatistics = useStatistics,
+                ?glob = glob,
+                ?allowMissingColumns = allowMissingColumns,
+                ?rechunk = rechunk,
+                ?cache = cache,
+                ?rowIndexName = rowIndexName,
+                ?rowIndexOffset = rowIndexOffset,
+                ?includePathColumn = includePathColumn,
+                ?schema = schema,
+                ?hivePartitioning = hivePartitioning,
+                ?hivePartitionSchema = hivePartitionSchema,
+                ?tryParseHiveDates = tryParseHiveDates)
+
+        /// <summary>
+        /// [Memory] Lazily read parquet from a byte array (in-memory buffer).
+        /// </summary>
+        /// <param name="buffer">The byte array containing parquet data.</param>
+        /// <param name="nRows">Stop reading after n rows.</param>
+        /// <param name="parallel">Parallel strategy (Auto, Columns, RowGroups, None).</param>
+        /// <param name="lowMemory">Reduce memory pressure at the expense of performance.</param>
+        /// <param name="useStatistics">Use parquet statistics to prune row groups.</param>
+        /// <param name="glob">Globbing patterns (usually irrelevant for memory scan,always false).</param>
+        /// <param name="allowMissingColumns">If true, do not fail if columns are missing.</param>
+        /// <param name="rechunk">Rechunk the memory to contiguous chunks when reading. (default: false)</param>
+        /// <param name="cache">Cache the result after reading. (default: true)</param>
+        /// <param name="rowIndexName">If provided, add a row index column with this name.</param>
+        /// <param name="rowIndexOffset">Start index for the row index column.</param>
+        /// <param name="includePathColumn">If provided, add a column with the path (usually irrelevant for memory).</param>
+        /// <param name="schema">Overwrite the schema of the dataset.</param>
+        /// <param name="hivePartitionSchema">The schema of the hive partitions.</param>
+        /// <param name="tryParseHiveDates">Attempt to parse hive values as Date/Datetime.</param>
+        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once the engine unpins it (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
         static member ScanParquet
             (
-                buffer: byte[],
+                buffer: System.ReadOnlyMemory<byte>,
                 ?nRows: uint64,
                 ?parallelStrategy: ParallelStrategy,
                 ?lowMemory: bool,
@@ -175,7 +231,7 @@ module ParquetRead =
 
             // 3. Call C# Wrapper (Memory Overload)
             let handle = PolarsWrapper.ScanParquet(
-                buffer,
+                NativeBytes.Share buffer,
                 pNRows,
                 pParallel.ToNative(),
                 pLowMem,

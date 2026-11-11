@@ -111,7 +111,7 @@ public readonly partial struct PolarsWrapper
     }
 
     public static LazyFrameHandle ScanCsv(
-        byte[] buffer,
+        NativeBytes buffer,
         SchemaHandle? schema,
         SchemaHandle? dtypeOverride,
         bool hasHeader,
@@ -143,7 +143,7 @@ public readonly partial struct PolarsWrapper
         bool decimalComma,
         bool truncateRaggedLines)
     {
-        if (buffer == null || buffer.Length == 0)
+        if (buffer.Length == 0)
             throw new ArgumentException("Buffer cannot be empty", nameof(buffer));
 
         unsafe
@@ -166,32 +166,44 @@ public readonly partial struct PolarsWrapper
             SchemaHandle schemaHandle = schema ?? new SchemaHandle();
             SchemaHandle dtypeOverrideHandle = dtypeOverride ?? new SchemaHandle();
 
-            fixed (byte* pBuffer = buffer)
             {
-                var h = NativeBindings.pl_scan_csv_mem(
-                    pBuffer,
-                    (UIntPtr)buffer.Length,
+                fixed (byte* copyPointer = buffer.CopySource)
+                {
+                    var lease = buffer.Acquire(copyPointer);
+                    LazyFrameHandle h;
+                    try
+                    {
+                        h = NativeBindings.pl_scan_csv_mem(
+                            lease.Pointer, lease.Length, lease.Release, lease.UserData,
 
-                    // --- Core ---
-                    hasHeader, (byte)separator, quoteVal, (byte)eolChar,
-                    ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty,
+                            // --- Core ---
+                            hasHeader, (byte)separator, quoteVal, (byte)eolChar,
+                            ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty,
 
-                    // --- Sizes & Threads ---
-                    (nuint)skipRows, (nuint)skipRowsAfterHeader, (nuint)skipLines,
-                    pNRows, pInfer, pInferFile, pNThreads, csize,
+                            // --- Sizes & Threads ---
+                            (nuint)skipRows, (nuint)skipRowsAfterHeader, (nuint)skipLines,
+                            pNRows, pInfer, pInferFile, pNThreads, csize,
 
-                    // --- Row Index & Path ---
-                    rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
+                            // --- Row Index & Path ---
+                            rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
 
-                    // --- Schema & Encoding ---
-                    schemaHandle, dtypeOverrideHandle, encoding,
+                            // --- Schema & Encoding ---
+                            schemaHandle, dtypeOverrideHandle, encoding,
 
-                    // --- Advanced ---
-                    nullValues, (nuint)(nullValues?.Length ?? 0),
-                    missingIsNull, commentPrefix, decimalComma, truncateRaggedLines
-                );
+                            // --- Advanced ---
+                            nullValues, (nuint)(nullValues?.Length ?? 0),
+                            missingIsNull, commentPrefix, decimalComma, truncateRaggedLines
+                        );
+                    }
+                    catch
+                    {
+                        // The native function was not reached: it did not take the pin.
+                        NativeBytes.ReleaseUnused(lease);
+                        throw;
+                    }
 
-                return ErrorHelper.Check(h);
+                    return ErrorHelper.Check(h);
+                }
             }
         }
     }
@@ -346,7 +358,7 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static LazyFrameHandle ScanParquet(
-        byte[] buffer,
+        NativeBytes buffer,
         ulong? nRows,
         PlParallelStrategy parallel,
         bool lowMemory,
@@ -363,9 +375,11 @@ public readonly partial struct PolarsWrapper
         SchemaHandle? hivePartitionSchema,
         bool tryParseHiveDates)
     {
+        if (buffer.Length == 0)
+            throw new ArgumentException("Buffer cannot be empty", nameof(buffer));
+
         unsafe
         {
-            fixed (byte* pBuf = buffer)
             {
                 ulong nRowsVal = nRows.GetValueOrDefault();
                 IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
@@ -380,26 +394,40 @@ public readonly partial struct PolarsWrapper
                 );
                 IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
 
-                var h = NativeBindings.pl_scan_parquet_memory(
-                    (IntPtr)pBuf, (UIntPtr)buffer.Length,
-                    nRowsPtr,
-                    parallel,
-                    lowMemory,
-                    useStatistics,
-                    glob,
-                    allowMissingColumns,
-                    cache,
-                    rechunk,
-                    rowIndexName,
-                    rowIndexOffset,
-                    includePathColumn,
-                    schemaPtr,
-                    hivePartitioning,
-                    hiveSchemaPtr,
-                    tryParseHiveDates
-                );
+                fixed (byte* copyPointer = buffer.CopySource)
+                {
+                    var lease = buffer.Acquire(copyPointer);
+                    LazyFrameHandle h;
+                    try
+                    {
+                        h = NativeBindings.pl_scan_parquet_memory(
+                            (IntPtr)lease.Pointer, (UIntPtr)lease.Length, lease.Release, lease.UserData,
+                            nRowsPtr,
+                            parallel,
+                            lowMemory,
+                            useStatistics,
+                            glob,
+                            allowMissingColumns,
+                            rechunk,
+                            cache,
+                            rowIndexName,
+                            rowIndexOffset,
+                            includePathColumn,
+                            schemaPtr,
+                            hivePartitioning,
+                            hiveSchemaPtr,
+                            tryParseHiveDates
+                        );
+                    }
+                    catch
+                    {
+                        // The native function was not reached: it did not take the pin.
+                        NativeBytes.ReleaseUnused(lease);
+                        throw;
+                    }
 
-                return ErrorHelper.Check(h);
+                    return ErrorHelper.Check(h);
+                }
             }
         }
     }
@@ -1049,7 +1077,7 @@ public readonly partial struct PolarsWrapper
     // Read JSON (Memory / Bytes)
     // ---------------------------------------------------------
     public static DataFrameHandle ReadJson(
-        byte[] buffer,
+        ReadOnlySpan<byte> buffer,
         string[]? columns,
         SchemaHandle? schema,
         ulong? inferSchemaLen,
@@ -1162,7 +1190,7 @@ public readonly partial struct PolarsWrapper
     // Scan NDJSON (Memory / Bytes)
     // ---------------------------------------------------------
     public static LazyFrameHandle ScanNdjson(
-        byte[] buffer,
+        NativeBytes buffer,
         SchemaHandle? schema,
         ulong? batchSize,
         ulong? inferSchemaLen,
@@ -1174,9 +1202,11 @@ public readonly partial struct PolarsWrapper
         uint rowIndexOffset,
         string? includePathColumn)
     {
+        if (buffer.Length == 0)
+            throw new ArgumentException("Buffer cannot be empty", nameof(buffer));
+
         unsafe
         {
-            fixed (byte* pBuf = buffer)
             {
                 ulong batchVal = batchSize.GetValueOrDefault();
                 IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
@@ -1192,21 +1222,35 @@ public readonly partial struct PolarsWrapper
                 );
                 IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
-                var h = NativeBindings.pl_scan_ndjson_memory(
-                    (IntPtr)pBuf, (UIntPtr)buffer.Length,
-                    batchPtr,
-                    lowMemory,
-                    rechunk,
-                    schemaPtr,
-                    inferPtr,
-                    nRowsPtr,
-                    ignoreErrors,
-                    rowIndexName,
-                    rowIndexOffset,
-                    includePathColumn
-                );
+                fixed (byte* copyPointer = buffer.CopySource)
+                {
+                    var lease = buffer.Acquire(copyPointer);
+                    LazyFrameHandle h;
+                    try
+                    {
+                        h = NativeBindings.pl_scan_ndjson_memory(
+                            (IntPtr)lease.Pointer, (UIntPtr)lease.Length, lease.Release, lease.UserData,
+                            batchPtr,
+                            lowMemory,
+                            rechunk,
+                            schemaPtr,
+                            inferPtr,
+                            nRowsPtr,
+                            ignoreErrors,
+                            rowIndexName,
+                            rowIndexOffset,
+                            includePathColumn
+                        );
+                    }
+                    catch
+                    {
+                        // The native function was not reached: it did not take the pin.
+                        NativeBytes.ReleaseUnused(lease);
+                        throw;
+                    }
 
-                return ErrorHelper.Check(h);
+                    return ErrorHelper.Check(h);
+                }
             }
         }
     }
@@ -1453,7 +1497,7 @@ public readonly partial struct PolarsWrapper
     // Scan IPC (Memory / Bytes)
     // ---------------------------------------------------------
     public static LazyFrameHandle ScanIpc(
-        byte[] buffer,
+        NativeBytes buffer,
         ulong? nRows,
         bool rechunk,
         bool cache,
@@ -1465,12 +1509,11 @@ public readonly partial struct PolarsWrapper
         SchemaHandle? hivePartitionSchema,
         bool tryParseHiveDates)
     {
-        if (buffer == null || buffer.Length == 0)
+        if (buffer.Length == 0)
             throw new ArgumentException("Buffer cannot be empty", nameof(buffer));
 
         unsafe
         {
-            fixed (byte* pBuf = buffer)
             {
                 ulong rowsVal = nRows.GetValueOrDefault();
                 nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
@@ -1485,23 +1528,37 @@ public readonly partial struct PolarsWrapper
                 );
                 nint hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : nint.Zero;
 
-                var h = NativeBindings.pl_scan_ipc_memory(
-                    pBuf, (nuint)buffer.Length,
-                    // --- Unified Args ---
-                    rowsPtr,
-                    rechunk,
-                    cache,
-                    rowIndexName,
-                    rowIndexOffset,
-                    includePathColumn,
-                    // --- Schema & Hive ---
-                    schemaPtr,
-                    hivePartitioning,
-                    hiveSchemaPtr,
-                    tryParseHiveDates
-                );
+                fixed (byte* copyPointer = buffer.CopySource)
+                {
+                    var lease = buffer.Acquire(copyPointer);
+                    LazyFrameHandle h;
+                    try
+                    {
+                        h = NativeBindings.pl_scan_ipc_memory(
+                            lease.Pointer, lease.Length, lease.Release, lease.UserData,
+                            // --- Unified Args ---
+                            rowsPtr,
+                            rechunk,
+                            cache,
+                            rowIndexName,
+                            rowIndexOffset,
+                            includePathColumn,
+                            // --- Schema & Hive ---
+                            schemaPtr,
+                            hivePartitioning,
+                            hiveSchemaPtr,
+                            tryParseHiveDates
+                        );
+                    }
+                    catch
+                    {
+                        // The native function was not reached: it did not take the pin.
+                        NativeBytes.ReleaseUnused(lease);
+                        throw;
+                    }
 
-                return ErrorHelper.Check(h);
+                    return ErrorHelper.Check(h);
+                }
             }
         }
     }
@@ -1974,12 +2031,12 @@ public readonly partial struct PolarsWrapper
         }
     }
     public static DataFrameHandle ReadAvro(
-        byte[] buffer,
+        ReadOnlySpan<byte> buffer,
         ulong? nRows,
         string[]? columns,
         int[]? projection)
     {
-        if (buffer == null || buffer.Length == 0)
+        if (buffer.Length == 0)
             throw new ArgumentException("Buffer cannot be null or empty", nameof(buffer));
 
         unsafe

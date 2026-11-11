@@ -67,7 +67,34 @@ module JsonRead =
         /// <summary>
         /// Lazily read NDJSON from in-memory bytes.
         /// </summary>
+        /// <remarks>The bytes are copied; the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
         static member ScanNdjson(buffer: byte[],
+                                ?schema: PolarsSchema,
+                                ?inferSchemaLen: uint64,
+                                ?batchSize: uint64,
+                                ?nRows: uint64,
+                                ?lowMemory: bool,
+                                ?rechunk: bool,
+                                ?ignoreErrors: bool,
+                                ?rowIndexName: string,
+                                ?rowIndexOffset: uint32) : LazyFrame =
+            LazyFrame.ScanNdjson(
+                System.ReadOnlyMemory<byte>(Array.copy buffer),
+                ?schema = schema,
+                ?inferSchemaLen = inferSchemaLen,
+                ?batchSize = batchSize,
+                ?nRows = nRows,
+                ?lowMemory = lowMemory,
+                ?rechunk = rechunk,
+                ?ignoreErrors = ignoreErrors,
+                ?rowIndexName = rowIndexName,
+                ?rowIndexOffset = rowIndexOffset)
+
+        /// <summary>
+        /// Lazily read NDJSON from in-memory bytes.
+        /// </summary>
+        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once the engine unpins it (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+        static member ScanNdjson(buffer: System.ReadOnlyMemory<byte>,
                                 ?schema: PolarsSchema,
                                 ?inferSchemaLen: uint64,
                                 ?batchSize: uint64,
@@ -92,7 +119,7 @@ module JsonRead =
             let idxOffset = defaultArg rowIndexOffset 0u
             
             let h = PolarsWrapper.ScanNdjson(
-                buffer, 
+                NativeBytes.Share buffer, 
                 schemaHandle, 
                 batch, 
                 inferLen, 

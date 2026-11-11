@@ -507,7 +507,7 @@ await foreach (var row in df.ToAsyncEnumerable<MyRecord>(chunkSize: 10_000, canc
 
 ### Lazy Native Batch Streaming (`CollectBatchesAsync`)
 
-Stream materialized DataFrame chunks from a `LazyFrame` as soon as they are computed by the native Rust streaming engine:
+Stream materialized DataFrame chunks from a `LazyFrame` as soon as the native Rust streaming engine computes them. Pass `Engine.Streaming`: the default `Engine.Auto` runs the query in memory first and then hands the result over in chunks.
 
 ::: code-group
 
@@ -517,7 +517,7 @@ using Polars.CSharp;
 using var lf = LazyFrame.ScanParquet("huge_dataset/*.parquet");
 
 // Asynchronously stream DataFrame batches:
-await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000))
+await foreach (DataFrame batch in lf.CollectBatchesAsync(chunkSize: 50_000, engine: Engine.Streaming))
 {
     using (batch)
     {
@@ -533,7 +533,7 @@ open Polars.FSharp
 let lf = LazyFrame.ScanParquet "huge_dataset/*.parquet"
 
 task {
-    let batches = lf.CollectBatchesAsync(chunkSize = 50_000L).GetAsyncEnumerator()
+    let batches = lf.CollectBatchesAsync(chunkSize = 50_000L, engine = Engine.Streaming).GetAsyncEnumerator()
     let rec consume () = task {
         let! more = batches.MoveNextAsync()
         if more then
@@ -647,6 +647,29 @@ let parquetSize () =
 
 > [!WARNING] Lifetime
 > A span or `Memory<byte>` from a `NativeBuffer` must not be used after `Dispose`. A pin from `Pin()` or a stream from `AsStream()` keeps the memory alive past `Dispose` until it is released itself. These methods are synchronous; there are no async variants. An IPC stream is read back with `DataFrame.ReadIpcStream`, which accepts a path or a span, and not with `ReadIpc`.
+
+### Reading Bytes Back: Copy or Share
+
+`ScanParquet`, `ScanIpc`, `ScanCsv`, `ScanNdjson` and `ReadParquet`, `ReadIpc`, `ReadCsv`, `ReadJson`, `ReadAvro` take in-memory bytes in three forms:
+
+| Overload | What the engine does |
+| :--- | :--- |
+| `byte[]` | Copies the bytes. Changing the array afterwards does not affect the frame |
+| `ReadOnlySpan<byte>` | Copies the bytes once. Works with `stackalloc` and pointers (C# only) |
+| `ReadOnlyMemory<byte>` | Reads the memory in place, without a copy |
+
+A lazy scan reads its source when the query runs, so a span cannot be kept and is copied. A `ReadOnlyMemory<byte>` is pinned instead, until the last frame that reads it is released: clones of the frame and collected DataFrames that still point into the bytes count. `ReadJson` and `ReadAvro` parse during the call, so they never copy and never keep the memory.
+
+```csharp
+using NativeBuffer parquet = df.Lazy().SinkParquetNativeMemory();
+
+// Zero-copy: the scan reads the native bytes in place.
+using var lf = LazyFrame.ScanParquet(parquet.Memory);
+using var result = lf.Filter(Pl.Col("id") > 1).Collect();
+```
+
+> [!WARNING] Shared memory must outlive the engine's pin
+> Don't change the memory while it is pinned. To share unmanaged memory, wrap it in a `MemoryManager<byte>` and free it only once the engine calls `Unpin`. Disposing the frames is not enough: a query can still be finishing on a background thread right after they are released, for example after an early `break` out of `CollectBatchesAsync`. `NativeBuffer` already does this: its `Pin()` keeps the memory alive, so disposing the buffer early is safe. Arrays need nothing, because the pin keeps them alive.
 
 ### `PipeWriter`: Streaming Without Buffering the Payload
 
