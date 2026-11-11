@@ -218,4 +218,44 @@ public partial class LazyFrame : IDisposable
     {
         return new DeltaMergeBuilder(this, path, mergeKeys, canEvolve, cloudOptions);
     }
+
+    /// <summary>
+    /// Updates the target rows that match a row of this frame on the merge keys, with that row's values
+    /// (SQL <c>MERGE ... WHEN MATCHED UPDATE</c>). Unmatched rows of this frame are ignored: nothing is inserted.
+    /// </summary>
+    /// <param name="path">The URI to the target Delta Lake table (local or cloud).</param>
+    /// <param name="mergeKeys">The columns that identify a row, present in both this frame and the table.</param>
+    /// <param name="condition">Optional: only matched rows satisfying it are updated. Evaluated as in <c>WhenMatchedUpdate</c>.</param>
+    /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
+    /// <remarks>
+    /// Identity columns cannot be updated, so this frame must not carry one. For a table keyed by an identity column,
+    /// use <see cref="Delta.Update(string, Expr?, IReadOnlyDictionary{string, Expr}, CloudOptions?)"/> with a predicate.
+    /// </remarks>
+    public void UpdateDelta(
+        string path,
+        string[] mergeKeys,
+        Expr? condition = null,
+        CloudOptions? cloudOptions = null)
+    {
+        var builder = MergeDeltaOrdered(path, mergeKeys, false, cloudOptions);
+        (condition is null ? builder.WhenMatchedUpdate() : builder.WhenMatchedUpdate(condition)).Execute();
+    }
+
+    /// <summary>
+    /// Updates the target rows that match a row of this frame on the merge keys, with that row's values, where a
+    /// condition over both sides holds: <c>m =&gt; m.Source("Version") &gt; m.Target("Version")</c>.
+    /// </summary>
+    /// <param name="path">The URI to the target Delta Lake table (local or cloud).</param>
+    /// <param name="mergeKeys">The columns that identify a row, present in both this frame and the table.</param>
+    /// <param name="condition">Builds the condition; <c>m.Source(name)</c> is this frame's column, <c>m.Target(name)</c> the table's.</param>
+    /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
+    public void UpdateDelta(
+        string path,
+        string[] mergeKeys,
+        Func<MergeContext, Expr> condition,
+        CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        MergeDeltaOrdered(path, mergeKeys, false, cloudOptions).WhenMatchedUpdate(condition).Execute();
+    }
 }

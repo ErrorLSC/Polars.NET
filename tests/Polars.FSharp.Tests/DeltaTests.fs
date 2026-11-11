@@ -274,3 +274,54 @@ let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`
         Assert.Equal<int64 list>([ 1L; 1L; 2L ], read.["row_version"].ToArray<int64>() |> List.ofArray)
     finally
         if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
+let ``Delta Update changes only the rows matching the predicate and commits an UPDATE`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_update_pred_{Guid.NewGuid()}")
+    try
+        let df = DataFrame.create [| Series.create("Id", [ 1L; 2L; 3L ]); Series.create("Price", [ 10.0; 20.0; 30.0 ]) |]
+        df.WriteDelta(path, mode = DeltaSaveMode.Overwrite, mkdir = true)
+
+        Delta.Update(path, [ "Price", pl.col "Price" * pl.lit 2.0 ], predicate = (pl.col "Id" .== pl.lit 2L))
+
+        let read = DataFrame.ReadDelta(path).Sort("Id")
+        Assert.Equal<float list>([ 10.0; 40.0; 30.0 ], read.["Price"].ToArray<float>() |> List.ofArray)
+
+        let history = Delta.History(path)
+        let versions = history.["version"].ToArray<int64>()
+        let operations = history.["operation"].ToArray<string>()
+        Assert.Equal("UPDATE", operations.[Array.IndexOf(versions, Array.max versions)])
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
+let ``DataFrame UpdateDelta updates matched rows by key and inserts nothing`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_update_merge_{Guid.NewGuid()}")
+    try
+        let df = DataFrame.create [| Series.create("Id", [ 1L; 2L; 3L ]); Series.create("Price", [ 10.0; 20.0; 30.0 ]) |]
+        df.WriteDelta(path, mode = DeltaSaveMode.Overwrite, mkdir = true)
+
+        let source = DataFrame.create [| Series.create("Id", [ 2L; 9L ]); Series.create("Price", [ 200.0; 900.0 ]) |]
+        source.UpdateDelta(path, [ "Id" ])
+
+        let read = DataFrame.ReadDelta(path).Sort("Id")
+        Assert.Equal(3L, read.Height)
+        Assert.Equal<float list>([ 10.0; 200.0; 30.0 ], read.["Price"].ToArray<float>() |> List.ofArray)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
+let ``Delta Update of an identity column is refused`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_update_identity_{Guid.NewGuid()}")
+    try
+        let schema = new PolarsSchema([ "id", DataType.Int64; "v", DataType.String ])
+        Delta.CreateTable(path, schema, identityColumns = [ DeltaIdentityColumn("id") ])
+        let rows = DataFrame.create [| Series.create("v", [ "a"; "b" ]) |]
+        rows.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        let ex =
+            Assert.ThrowsAny<Exception>(fun () ->
+                Delta.Update(path, [ "id", pl.lit 5L ], predicate = (pl.col "v" .== pl.lit "a")) |> ignore)
+        Assert.Contains("UPDATE on IDENTITY column", ex.Message)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)

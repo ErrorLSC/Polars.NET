@@ -194,6 +194,65 @@ public static class Delta
         );
     }
     /// <summary>
+    /// Updates the columns of the rows that match a predicate, as SQL <c>UPDATE table SET col = expr WHERE predicate</c>.
+    /// <para>
+    /// Each value is evaluated over the row before the update and cast to the column's type; a value that does not fit
+    /// fails the update. Columns not named in <paramref name="set"/> keep their values. With no predicate every row is updated.
+    /// </para>
+    /// <para>
+    /// Identity columns cannot be updated; an update that sets one throws. Tables with deletion vectors, the change data
+    /// feed or row tracking are handled as by <see cref="Delete"/>: with row tracking the updated rows keep their row ids.
+    /// </para>
+    /// </summary>
+    /// <param name="path">Path to the Delta table.</param>
+    /// <param name="predicate">Filter expression to identify rows to update; null updates every row.</param>
+    /// <param name="set">Column names mapped to the expressions of their new values.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    /// <example>
+    /// <code>
+    /// Delta.Update(path, Polars.Col("Id") == 3, new Dictionary&lt;string, Expr&gt; { ["Price"] = Polars.Col("Price") * 2 });
+    /// </code>
+    /// </example>
+    public static void Update(
+        string path,
+        Expr? predicate,
+        IReadOnlyDictionary<string, Expr> set,
+        CloudOptions? cloudOptions = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        ArgumentNullException.ThrowIfNull(set);
+        if (set.Count == 0) throw new ArgumentException("An update sets at least one column.", nameof(set));
+
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
+            CloudOptions.ParseCloudOptions(cloudOptions);
+
+        // The native call consumes the handles it is given.
+        var columns = new string[set.Count];
+        var valueHandles = new ExprHandle[set.Count];
+        int i = 0;
+        foreach (var (column, value) in set)
+        {
+            columns[i] = column;
+            valueHandles[i] = value.CloneHandle();
+            i++;
+        }
+
+        PolarsWrapper.DeltaUpdate(
+            path,
+            predicate?.CloneHandle(),
+            columns,
+            valueHandles,
+            provider.ToNative(),
+            retries,
+            retryTimeoutMs,
+            retryInitBackoffMs,
+            retryMaxBackoffMs,
+            cacheTtl,
+            keys,
+            values
+        );
+    }
+    /// <summary>
     /// Recursively delete files and directories in the table that are no longer needed by the table for maintaining the transaction history.
     /// </summary>
     /// <param name="path">The root URI of the Delta table (e.g., "s3://bucket/table").</param>

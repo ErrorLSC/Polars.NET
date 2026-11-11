@@ -223,6 +223,57 @@ type Delta =
         )
 
     /// <summary>
+    /// Updates the columns of the rows that match a predicate, as SQL <c>UPDATE table SET col = expr WHERE predicate</c>.
+    /// <para>
+    /// Each value is evaluated over the row before the update and cast to the column's type; a value that does not fit
+    /// fails the update. Columns not named in <c>set</c> keep their values. With no predicate every row is updated.
+    /// </para>
+    /// <para>
+    /// Identity columns cannot be updated; an update that sets one throws. Tables with deletion vectors, the change data
+    /// feed or row tracking are handled as by <c>Delete</c>: with row tracking the updated rows keep their row ids.
+    /// </para>
+    /// </summary>
+    /// <param name="path">Path to the Delta table.</param>
+    /// <param name="set">Column names paired with the expressions of their new values.</param>
+    /// <param name="predicate">Filter expression to identify rows to update; omit to update every row.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member Update(
+        path: string,
+        set: seq<string * Expr>,
+        ?predicate: Expr,
+        ?cloudOptions: CloudOptions
+    ) =
+        let pairs = set |> Seq.toArray
+        if String.IsNullOrEmpty path then raise (ArgumentException("The path is empty.", nameof path))
+        if pairs.Length = 0 then raise (ArgumentException("An update sets at least one column.", nameof set))
+
+        let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals =
+            CloudOptions.ParseCloudOptions cloudOptions
+
+        // The native call consumes the handles it is given.
+        let columns = pairs |> Array.map fst
+        let values = pairs |> Array.map (fun (_, value) -> value.CloneHandle())
+        let clonedPredicate =
+            match predicate with
+            | Some p -> p.CloneHandle()
+            | None -> null
+
+        PolarsWrapper.DeltaUpdate(
+            path,
+            clonedPredicate,
+            columns,
+            values,
+            cProv,
+            cRet,
+            cToMs,
+            cInitMs,
+            cMaxMs,
+            cCache,
+            cKeys,
+            cVals
+        )
+
+    /// <summary>
     /// Recursively delete files and directories in the table that are no longer needed by the table for maintaining the transaction history.
     /// </summary>
     /// <param name="path">The root URI of the Delta table (e.g., "s3://bucket/table").</param>

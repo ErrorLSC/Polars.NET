@@ -249,6 +249,30 @@ type LazyFrameDeltaExtensions =
         let evolve = defaultArg canEvolve false
         new DeltaMergeBuilder(this, path, keysArr, evolve, cloudOptions)
 
+    /// <summary>
+    /// Updates the target rows that match a row of this frame on the merge keys, with that row's values
+    /// (SQL <c>MERGE ... WHEN MATCHED UPDATE</c>). Unmatched rows of this frame are ignored: nothing is inserted.
+    /// </summary>
+    /// <param name="path">The URI to the target Delta Lake table (local or cloud).</param>
+    /// <param name="mergeKeys">The columns that identify a row, present in both this frame and the table.</param>
+    /// <param name="condition">Optional: only matched rows satisfying it are updated. Evaluated as in <c>WhenMatchedUpdate</c>.</param>
+    /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
+    /// <remarks>
+    /// Identity columns cannot be updated, so this frame must not carry one. For a table keyed by an identity column,
+    /// use <c>Delta.Update</c> with a predicate.
+    /// </remarks>
+    [<Extension>]
+    static member UpdateDelta(
+        this: LazyFrame,
+        path: string,
+        mergeKeys: seq<string>,
+        ?condition: Expr,
+        ?cloudOptions: CloudOptions
+    ) : unit =
+        let keysArr = mergeKeys |> Seq.toArray
+        let builder = new DeltaMergeBuilder(this, path, keysArr, false, cloudOptions)
+        builder.WhenMatchedUpdate(?condition = condition).Execute()
+
 [<Extension>]
 type DataFrameDeltaExtensions =
     /// <summary>
@@ -275,3 +299,27 @@ type DataFrameDeltaExtensions =
         let keysArr = mergeKeys |> Seq.toArray
         let evolve = defaultArg canEvolve false
         new DeltaMergeBuilder(this.Lazy(), path, keysArr, evolve, cloudOptions)
+
+    /// <summary>
+    /// Updates the target rows that match a row of this frame on the merge keys, with that row's values
+    /// (SQL <c>MERGE ... WHEN MATCHED UPDATE</c>). Unmatched rows of this frame are ignored: nothing is inserted.
+    /// </summary>
+    /// <param name="path">The URI to the target Delta Lake table (local or cloud).</param>
+    /// <param name="mergeKeys">The columns that identify a row, present in both this frame and the table.</param>
+    /// <param name="condition">Optional: only matched rows satisfying it are updated. Evaluated as in <c>WhenMatchedUpdate</c>.</param>
+    /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
+    /// <remarks>
+    /// Identity columns cannot be updated, so this frame must not carry one. For a table keyed by an identity column,
+    /// use <c>Delta.Update</c> with a predicate.
+    /// </remarks>
+    [<Extension>]
+    static member UpdateDelta(
+        this: DataFrame,
+        path: string,
+        mergeKeys: seq<string>,
+        ?condition: Expr,
+        ?cloudOptions: CloudOptions
+    ) : unit =
+        let keysArr = mergeKeys |> Seq.toArray
+        let builder = new DeltaMergeBuilder(this.Lazy(), path, keysArr, false, cloudOptions)
+        builder.WhenMatchedUpdate(?condition = condition).Execute()

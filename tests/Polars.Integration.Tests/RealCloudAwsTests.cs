@@ -2,7 +2,6 @@ using System.Reflection;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.CSharp;
 using Polars.NET.Core.Delta;
-using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;
@@ -293,10 +292,11 @@ public sealed class RealCloudAwsTests : IClassFixture<RealAwsCleanup>
             Assert.Single(fs.List(""));
             Assert.True(fs.Delete("probe.json"));
         }
+        var options = new CloudOptions { Credentials = keys };
         using (var rows = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } }))
-            DeltaKernelWrite.Write(url, PolarsWrapper.LazyClone(rows.Lazy().Handle), KernelWriteMode.ErrorIfExists, null, args);
-        DeltaKernelDelete.Delete(url, PolarsWrapper.Eq(PolarsWrapper.Col("Id"), PolarsWrapper.Lit(2)), cloud: args);
-        using (var latest = new LazyFrame(DeltaKernelScan.Scan(url, cloud: args)).Collect())
+            rows.WriteDelta(url, mode: DeltaSaveMode.ErrorIfExists, cloudOptions: options);
+        Delta.Delete(url, Pl.Col("Id") == 2, options);
+        using (var latest = DataFrame.ReadDelta(url, cloudOptions: options))
             Assert.Equal([1, 3], latest.Sort(["Id"])["Id"].ToArray<int>());
 
         // Without its session token the temporary key is refused.
@@ -328,13 +328,10 @@ public sealed class RealCloudAwsTests : IClassFixture<RealAwsCleanup>
         }
         var written = RowIds();
         Delta.Delete(url, Pl.Col("Id") == 2L, cloudOptions: options);
-        DeltaKernelUpdate.Update(url, PolarsWrapper.Eq(PolarsWrapper.Col("Id"), PolarsWrapper.Lit(3L)), [("Price", PolarsWrapper.Lit(30.0))], cloud: args);
+        Delta.Update(url, Pl.Col("Id") == 3L, new Dictionary<string, Expr> { ["Price"] = Pl.Lit(30.0) }, options);
         using (var source = DataFrame.FromColumns(new { Region = new[] { "north" }, Price = new[] { 5.0 } }))
-        {
-            DeltaKernelMerge.Merge(url, PolarsWrapper.LazyClone(source.Lazy().Handle), ["Region"],
-                [new(MergeClauseKind.NotMatchedInsert, PolarsWrapper.Lit(true))], cloud: args);
-        }
-        DeltaKernelOptimize.Optimize(url, cloud: args);
+            source.MergeDeltaOrdered(url, ["Region"], cloudOptions: options).WhenNotMatchedInsert().Execute();
+        Delta.Optimize(url, cloudOptions: options);
 
         using var latest = DataFrame.ReadDelta(url, cloudOptions: options, rowIdColumn: "row_id", rowCommitVersionColumn: "row_version").Sort(["Id"]);
         Assert.Equal([1L, 3L, 4L, 5L], latest["Id"].ToArray<long>());

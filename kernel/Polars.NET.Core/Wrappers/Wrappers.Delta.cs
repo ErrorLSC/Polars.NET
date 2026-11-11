@@ -289,6 +289,29 @@ public readonly partial struct PolarsWrapper
         Delta.DeltaKernelDelete.Delete(path, predicate, fileFilter: null, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
             cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
     }
+    public static void DeltaUpdate(
+        string path,
+        ExprHandle? predicate,
+        string[] columns,
+        ExprHandle[] values,
+        // Cloud Options
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        if (columns.Length != values.Length)
+            throw new ArgumentException("Each updated column needs one value.", nameof(values));
+        var assignments = new List<(string Column, ExprHandle Value)>(columns.Length);
+        for (int i = 0; i < columns.Length; i++) assignments.Add((columns[i], values[i]));
+        Delta.DeltaKernelUpdate.Update(path, predicate, assignments, fileFilter: null, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
+    }
     public static void DeltaMergeOrdered(
         LazyFrameHandle sourceLf,
         string path,

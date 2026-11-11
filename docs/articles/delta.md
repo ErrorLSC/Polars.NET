@@ -312,6 +312,42 @@ sourceBatch.MergeDeltaOrdered("./lake/devices", [| "Id" |], canEvolve = true)
 > 
 > When Deletion Vectors are enabled via `Delta.AddFeature(path, DeltaTableFeatures.DeletionVectors)` (which also sets `delta.enableDeletionVectors`), Polars.NET switches to **Merge-on-Read (MoR)**. Deleted rows are recorded in lightweight bitmap vector files without rewriting underlying Parquet files. During subsequent `Delta.Optimize` operations, affected partitions are compacted and rewritten cleanly in the background.
 
+### Update
+
+`Delta.Update` runs SQL's `UPDATE table SET col = expr WHERE predicate`. Each value is evaluated over the row before the update and cast to the column's type; columns not named keep their values, and a null predicate updates every row. Identity columns cannot be updated. The commit is an `UPDATE` in the history.
+
+To update target rows from a frame by key, `UpdateDelta` is a merge with only a `WHEN MATCHED UPDATE` clause: unmatched rows of the frame are ignored, nothing is inserted. A condition can compare both sides: `m.Source(name)` is the frame's column, `m.Target(name)` the table's (`Delta.Source` / `Delta.Target` in F#).
+
+::: code-group
+
+```csharp [C# (Fluent)]
+// Double the reading of device 2 only
+Delta.Update("./lake/devices", Polars.Col("Id") == 2,
+    new Dictionary<string, Expr> { ["Reading"] = Polars.Col("Reading") * 2.0 });
+
+// Update matched rows by key; unmatched rows are not inserted
+sourceBatch.UpdateDelta("./lake/devices", mergeKeys: new[] { "Id" });
+
+// Only where the incoming reading is higher than the stored one
+sourceBatch.UpdateDelta("./lake/devices", new[] { "Id" }, m => m.Source("Reading") > m.Target("Reading"));
+```
+
+```fsharp [F# (Pipeline)]
+// Double the reading of device 2 only
+Delta.Update(
+    "./lake/devices",
+    [ "Reading", pl.col "Reading" * pl.lit 2.0 ],
+    predicate = (pl.col "Id" .== pl.lit 2L))
+
+// Update matched rows by key; unmatched rows are not inserted
+sourceBatch.UpdateDelta("./lake/devices", [ "Id" ])
+
+// Only where the incoming reading is higher than the stored one
+sourceBatch.UpdateDelta("./lake/devices", [ "Id" ], condition = (Delta.Source "Reading" .> Delta.Target "Reading"))
+```
+
+:::
+
 ---
 
 ## 7. Identity Columns & Row Tracking

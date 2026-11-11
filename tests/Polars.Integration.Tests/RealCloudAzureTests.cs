@@ -6,7 +6,6 @@ using Azure.Storage.Sas;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.CSharp;
 using Polars.NET.Core.Delta;
-using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.Integration.Tests;
@@ -308,6 +307,7 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
         string name = $"directories_{Guid.NewGuid():N}";
         string url = RealAzure.Url(kind, $"{RealAzure.RunPrefix}/{name}");
         CloudArgs args = RealAzure.Args(kind);
+        var options = new CloudOptions { Credentials = RealAzure.Keys(kind, AzureSignIn.AccountKey) };
 
         // An empty directory, made as Azure tools make one: a blob marked hdi_isfolder.
         BlobContainerClient container = RealAzure.ContainerClient(kind);
@@ -317,7 +317,7 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
             b => b.Name.EndsWith("/empty", StringComparison.Ordinal));
 
         using (var rows = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 }, Region = new[] { "a", "b", "a" } }))
-            DeltaKernelWrite.Write(url, PolarsWrapper.LazyClone(rows.Lazy().Handle), KernelWriteMode.ErrorIfExists, ["Region"], args);
+            rows.WriteDelta(url, partitionBy: "Region", mode: DeltaSaveMode.ErrorIfExists, cloudOptions: options);
 
         using var fs = new ObjectStoreFileSystem(url, args);
         Assert.Equal(Backend, fs.Implementation);
@@ -333,7 +333,7 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
             Assert.Null(fs.ReadRange(directory, 0, 1));
         }
 
-        using (var table = new LazyFrame(DeltaKernelScan.Scan(url, cloud: args)).Collect())
+        using (var table = DataFrame.ReadDelta(url, cloudOptions: options))
             Assert.Equal([1, 2, 3], table.Sort(["Id"])["Id"].ToArray<int>());
     }
 
@@ -353,7 +353,6 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
     {
         string url = RealAzure.NewUrl(kind, "lifecycle");
         var keys = RealAzure.Keys(kind, signIn);
-        CloudArgs args = CloudArgs.ForLocation(url, [.. keys.Keys], [.. keys.Values]);
         var options = new CloudOptions { Credentials = keys };
 
         Delta.CreateTable(url,
@@ -371,13 +370,10 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
         }
         var written = RowIds();
         Delta.Delete(url, Pl.Col("Id") == 2L, cloudOptions: options);
-        DeltaKernelUpdate.Update(url, PolarsWrapper.Eq(PolarsWrapper.Col("Id"), PolarsWrapper.Lit(3L)), [("Price", PolarsWrapper.Lit(30.0))], cloud: args);
+        Delta.Update(url, Pl.Col("Id") == 3L, new Dictionary<string, Expr> { ["Price"] = Pl.Lit(30.0) }, options);
         using (var source = DataFrame.FromColumns(new { Region = new[] { "north" }, Price = new[] { 5.0 } }))
-        {
-            DeltaKernelMerge.Merge(url, PolarsWrapper.LazyClone(source.Lazy().Handle), ["Region"],
-                [new(MergeClauseKind.NotMatchedInsert, PolarsWrapper.Lit(true))], cloud: args);
-        }
-        DeltaKernelOptimize.Optimize(url, cloud: args);
+            source.MergeDeltaOrdered(url, ["Region"], cloudOptions: options).WhenNotMatchedInsert().Execute();
+        Delta.Optimize(url, cloudOptions: options);
 
         using var latest = DataFrame.ReadDelta(url, cloudOptions: options).Sort(["Id"]);
         Assert.Equal([1L, 3L, 4L, 5L], latest["Id"].ToArray<long>());
