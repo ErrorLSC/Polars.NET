@@ -1,5 +1,6 @@
 using System.Collections;
 using Kaminari.Seseragi.Lakehouse.Storage.Azure;
+using Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 using Kaminari.Seseragi.Lakehouse.Storage.S3;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage;
@@ -9,6 +10,8 @@ public static class CloudStorage
 {
     private static readonly IReadOnlySet<string> S3Schemes = new HashSet<string>(StringComparer.Ordinal) { "s3", "s3a" };
 
+    private static readonly IReadOnlySet<string> GcsSchemes = new HashSet<string>(StringComparer.Ordinal) { "gs" };
+
     private static readonly IReadOnlySet<string> AzureSchemes =
         new HashSet<string>(StringComparer.Ordinal) { "az", "azure", "adl", "abfs", "abfss" };
 
@@ -16,8 +19,8 @@ public static class CloudStorage
     /// A file system rooted at <paramref name="url"/>, or null with the reason when the managed clients cannot serve
     /// the location with these settings (a scheme or a setting they do not implement); the caller then uses another
     /// implementation. Configuration keys are those of the Rust <c>object_store</c> library, such as
-    /// <c>aws_access_key_id</c>, <c>azure_storage_account_name</c> or <c>azure_storage_sas_token</c>; environment
-    /// variables (<c>AWS_*</c>, <c>AZURE_*</c>) apply below them.
+    /// <c>aws_access_key_id</c>, <c>azure_storage_account_name</c> or <c>azure_storage_sas_token</c> or <c>google_service_account_key</c>;
+    /// environment variables (<c>AWS_*</c>, <c>AZURE_*</c>, <c>GOOGLE_*</c>) apply below them.
     /// </summary>
     public static CloudFileSystem? TryOpen(
         string url, IReadOnlyDictionary<string, string> options, RetrySettings? retry, out string? reason) =>
@@ -36,7 +39,7 @@ public static class CloudStorage
         int slash = rest.IndexOf('/');
         string authority = slash < 0 ? rest : rest[..slash];
         string prefix = slash < 0 ? "" : rest[(slash + 1)..];
-        if (authority.Length == 0 && (S3Schemes.Contains(scheme) || AzureSchemes.Contains(scheme)))
+        if (authority.Length == 0 && (S3Schemes.Contains(scheme) || AzureSchemes.Contains(scheme) || GcsSchemes.Contains(scheme)))
         {
             reason = $"'{url}' names no bucket or container";
             return null;
@@ -67,6 +70,15 @@ public static class CloudStorage
             if (Open(authority, out reason) is not { } client) return null;
             return new CloudFileSystem(url, authority, prefix, client, AzureSchemes, other =>
                 Open(other, out string? why) ?? throw new StorageException($"Cannot open container '{other}': {why}."));
+        }
+
+        if (GcsSchemes.Contains(scheme))
+        {
+            // One settings for every bucket: the credentials do not depend on it.
+            if (GcsSettings.Resolve(options, environment, ReadFile, GcloudCredentials(environment), out reason) is not { } settings)
+                return null;
+            return new CloudFileSystem(url, authority, prefix, new GcsClient(settings, authority, retry), GcsSchemes,
+                other => new GcsClient(settings, other, retry));
         }
 
         reason = $"the scheme of '{url}' is not served by a managed client";
@@ -102,6 +114,32 @@ public static class CloudStorage
             return null;
         }
         return (authority, null);
+    }
+
+    /// <summary>gcloud's application default credentials below the home directory the environment names.</summary>
+    private static string? GcloudCredentials(IReadOnlyDictionary<string, string> environment)
+    {
+        if (OperatingSystem.IsWindows())
+            return environment.GetValueOrDefault("APPDATA") is { Length: > 0 } appData
+                ? Path.Combine(appData, "gcloud", "application_default_credentials.json")
+                : null;
+        return environment.GetValueOrDefault("HOME") is { Length: > 0 } home ? Path.Combine(home, GcsSettings.WellKnownCredentials) : null;
+    }
+
+    private static string? ReadFile(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static Dictionary<string, string> ProcessEnvironment()

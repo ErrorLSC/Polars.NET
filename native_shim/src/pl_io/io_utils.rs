@@ -16,6 +16,17 @@ fn ms_to_duration(ms: u64) -> Option<std::time::Duration> {
     }
 }
 
+/// A credential provider that always hands out `token` (it never expires; a vended token is replaced by asking
+/// the catalog again).
+fn static_gcs_token(token: String) -> polars_io::cloud::credential_provider::PlCredentialProvider {
+    use polars_io::cloud::credential_provider::{GcpCredential, ObjectStoreCredential, PlCredentialProvider};
+    let credential = Arc::new(GcpCredential { bearer: token });
+    PlCredentialProvider::from_func(move || {
+        let credential = credential.clone();
+        Box::pin(async move { Ok((ObjectStoreCredential::Gcp(credential), u64::MAX)) })
+    })
+}
+
 /// Core internal builder that parses cloud scheme, untyped parameters and sets retry/cache policies.
 /// Returns raw `Option<CloudOptions>` without Arc wrapping, suitable for direct use by `ScanArgsParquet`.
 pub(crate) fn build_cloud_options_from_params(
@@ -43,6 +54,18 @@ pub(crate) fn build_cloud_options_from_params(
         }
     };
 
+    // A static OAuth token (as Unity Catalog vends them for GCS) has no configuration key in the object store
+    // library; it is handed over as a credential provider, which also leaves the GOOGLE_* environment out.
+    let mut params = params;
+    let gcs_token = if matches!(scheme, Some(CloudScheme::Gcs)) {
+        params
+            .iter()
+            .position(|(k, _)| k.eq_ignore_ascii_case("google_oauth_token"))
+            .map(|i| params.remove(i).1)
+    } else {
+        None
+    };
+
     let mut opts = match CloudOptions::from_untyped_config(scheme, params) {
         Ok(o) => o,
         Err(e) => {
@@ -50,6 +73,10 @@ pub(crate) fn build_cloud_options_from_params(
             return None;
         }
     };
+
+    if let Some(token) = gcs_token {
+        opts = opts.with_credential_provider(Some(static_gcs_token(token)));
+    }
 
     opts.retry_config.max_retries = Some(retries);
     opts.retry_config.retry_timeout = ms_to_duration(retry_timeout_ms);

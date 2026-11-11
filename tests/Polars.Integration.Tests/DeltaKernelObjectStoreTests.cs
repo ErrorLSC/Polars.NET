@@ -227,26 +227,15 @@ public class DeltaKernelGcsTests(FakeGcsFixture gcs) : IClassFixture<FakeGcsFixt
     [Trait("DeltaKernel", "Cloud")]
     public void KernelReads_SampleTables_OnGcs()
     {
-        // The emulator checks no credentials, but the client needs some to write: a service account key signs its
-        // own tokens (a self-signed JWT), with no token server involved. A throwaway key will do.
-        using var rsa = System.Security.Cryptography.RSA.Create(2048);
-        string key = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
-        {
-            ["type"] = "service_account",
-            ["project_id"] = "test",
-            ["private_key_id"] = "test",
-            ["private_key"] = rsa.ExportPkcs8PrivateKeyPem(),
-            ["client_email"] = "test@test.iam.gserviceaccount.com",
-        });
-        var options = CloudOptions.Gcp();
-        options.Credentials!["google_base_url"] = gcs.BaseUrl;
-        options.Credentials!["google_service_account_key"] = key;
-
-        CloudArgs args = KernelObjectStoreCheck.ToArgs(options);
+        // The emulator checks no credentials, but clients sign their own tokens: a throwaway service account key.
+        CloudArgs args = GcsKeys.Args(gcs);
+        string prefix = $"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}";
+        using (var fs = new ObjectStoreFileSystem(prefix, args))
+            Assert.Equal("managed", fs.Implementation);
         foreach (string table in SampleTables.Names)
-            KernelObjectStoreCheck.SameAsLocal(table, $"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}/{table}", args);
-        // Writes are not checked here: the object store client uploads through the XML API (PUT /bucket/object with
-        // x-goog-if-generation-match: 0), which fake-gcs-server does not implement ("invalid uploadType").
-        // Conditional creates on GCS are therefore untested until a real bucket or another emulator is at hand.
+            KernelObjectStoreCheck.SameAsLocal(table, $"{prefix}/{table}", args);
+        // The kernel's own writes go through the managed client (JSON API uploads, which the emulator implements);
+        // the engine's data file writes (XML API uploads) cannot run on this emulator.
+        KernelObjectStoreCheck.PutIfAbsentHolds($"gs://{FakeGcsFixture.BucketName}/kernel_{Guid.NewGuid():N}", args);
     }
 }

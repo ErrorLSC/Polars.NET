@@ -2,6 +2,7 @@ using System.Text;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Storage;
 using Kaminari.Seseragi.Lakehouse.Storage.Azure;
+using Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 using Kaminari.Seseragi.Lakehouse.Storage.S3;
 using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
@@ -550,4 +551,128 @@ public sealed class ManagedAzureSmallPagesContractTests(AzuriteFixture azurite) 
     protected override string NewRoot() => $"az://{azurite.ContainerName}/pages_{Guid.NewGuid():N}";
 
     protected override IWritableFileSystem Open(string root) => AzuriteKeys.Open(root, AzuriteKeys.Of(azurite), pageSize: 2);
+}
+
+/// <summary>The settings of the fake-gcs-server container as configuration keys.</summary>
+internal static class GcsKeys
+{
+    /// <summary>
+    /// A throwaway service account key: the emulator checks no tokens, but clients sign their own (a self-signed
+    /// JWT) and need a key for it.
+    /// </summary>
+    public static string ThrowawayKey()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        using var buffer = new MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("type", "service_account");
+            writer.WriteString("project_id", "test");
+            writer.WriteString("private_key_id", "test");
+            writer.WriteString("private_key", rsa.ExportPkcs8PrivateKeyPem());
+            writer.WriteString("client_email", "test@test.iam.gserviceaccount.com");
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    private static readonly Lazy<string> Key = new(ThrowawayKey);
+
+    public static Dictionary<string, string> Of(FakeGcsFixture gcs) => new()
+    {
+        ["google_base_url"] = gcs.BaseUrl,
+        ["google_service_account_key"] = Key.Value,
+    };
+
+    public static CloudArgs Args(FakeGcsFixture gcs)
+    {
+        var options = CloudOptions.Gcp();
+        foreach (var (key, value) in Of(gcs)) options.Credentials![key] = value;
+        return KernelObjectStoreCheck.ToArgs(options);
+    }
+
+    public static CloudFileSystem Open(string root, IReadOnlyDictionary<string, string> keys, int? pageSize = null)
+    {
+        CloudFileSystem fs = CloudStorage.TryOpen(root, keys, RetrySettings.Default, out string? reason)
+            ?? throw new InvalidOperationException(reason);
+        if (pageSize is { } size) ((GcsClient)fs.Client).PageSize = size;
+        return fs;
+    }
+}
+
+[Trait("FileSystemContract", "Cloud")]
+public sealed class ManagedGcsFileSystemContractTests(FakeGcsFixture gcs) : FileSystemContract, IClassFixture<FakeGcsFixture>
+{
+    protected override string NewRoot() => $"gs://{FakeGcsFixture.BucketName}/managed_{Guid.NewGuid():N}";
+
+    protected override IWritableFileSystem Open(string root) => GcsKeys.Open(root, GcsKeys.Of(gcs));
+
+    [Fact]
+    public void TheFacade_ServesTheEmulator_WithTheManagedClient()
+    {
+        using var fs = new ObjectStoreFileSystem(NewRoot(), GcsKeys.Args(gcs));
+        Assert.Equal("managed", fs.Implementation);
+        Assert.True(fs.TryCreate("_delta_log/0.json", Encoding.UTF8.GetBytes("{}")));
+        Assert.False(fs.TryCreate("_delta_log/0.json", Encoding.UTF8.GetBytes("{}")));
+        Assert.Single(fs.List("_delta_log"));
+    }
+
+    [Fact]
+    public void TheFacade_FallsBack_ForSettingsTheManagedClientLacks_UnlessManagedIsRequired()
+    {
+        var keys = GcsKeys.Of(gcs);
+        keys["google_allow_invalid_certificates"] = "true"; // nothing to check over http; the managed client refuses it
+        string root = $"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}/{SampleTables.Names[0]}";
+        CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
+        using (var fs = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Auto))
+        {
+            Assert.Equal("native", fs.Implementation);
+            Assert.NotEmpty(fs.List("_delta_log"));
+        }
+        var refused = Assert.Throws<NotSupportedException>(() => new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed));
+        Assert.Contains("allow_invalid_certificates", refused.Message);
+    }
+
+    [Fact]
+    public void AVendedOAuthToken_AloneIsEnough_ForTheEngineAndBothStores()
+    {
+        // Catalogs vend a bare token (google_oauth_token). Without a service account the engine used to look for the
+        // metadata server; the emulator checks no tokens, so success shows the token was taken instead.
+        var options = CloudOptions.Gcp();
+        options.Credentials!["google_base_url"] = gcs.BaseUrl;
+        options.Credentials!["google_oauth_token"] = "ya29.vended";
+        CloudArgs args = KernelObjectStoreCheck.ToArgs(options);
+        string table = SampleTables.Names[0];
+        string root = $"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}/{table}";
+
+        using (var native = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Native))
+            Assert.NotEmpty(native.List("_delta_log"));
+        using (var managed = new ObjectStoreFileSystem(root, args))
+            Assert.Equal("managed", managed.Implementation);
+        KernelObjectStoreCheck.SameAsLocal(table, root, args);
+    }
+
+    [Fact]
+    public void ATableUnderARootWithEscapes_IsReadTheSameByTheEngine()
+    {
+        // The emulator takes no engine writes (XML uploads), so the managed client uploads a table and the engine
+        // reads its data files: both must read the root the same way.
+        string table = SampleTables.Names[0];
+        string root = $"gs://{FakeGcsFixture.BucketName}/esc {Guid.NewGuid():N}/t%41 b";
+        var fs = GcsKeys.Open(root, GcsKeys.Of(gcs));
+        string local = Path.Combine(SampleTables.Root, table);
+        foreach (string file in Directory.EnumerateFiles(local, "*", SearchOption.AllDirectories))
+            fs.Overwrite(Path.GetRelativePath(local, file).Replace('\\', '/'), File.ReadAllBytes(file));
+        KernelObjectStoreCheck.SameAsLocal(table, root, GcsKeys.Args(gcs));
+    }
+}
+
+/// <summary>The contract with two objects per listing page, so every listing crosses page boundaries.</summary>
+[Trait("FileSystemContract", "Cloud")]
+public sealed class ManagedGcsSmallPagesContractTests(FakeGcsFixture gcs) : FileSystemContract, IClassFixture<FakeGcsFixture>
+{
+    protected override string NewRoot() => $"gs://{FakeGcsFixture.BucketName}/pages_{Guid.NewGuid():N}";
+
+    protected override IWritableFileSystem Open(string root) => GcsKeys.Open(root, GcsKeys.Of(gcs), pageSize: 2);
 }
