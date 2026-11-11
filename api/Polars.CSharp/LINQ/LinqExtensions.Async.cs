@@ -11,7 +11,7 @@ public static partial class LinqExtensions
     /// </summary>
     /// <typeparam name="T">The element type of the query.</typeparam>
     /// <param name="source">The source queryable.</param>
-    /// <param name="engine">Execution engine selection (Auto, InMemory, Streaming, or Gpu).</param>
+    /// <param name="engine">Execution engine selection (Auto, InMemory or Streaming; Gpu is not supported).</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>A task yielding the resulting DataFrame.</returns>
     public static async Task<DataFrame> ToDataFrameAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(

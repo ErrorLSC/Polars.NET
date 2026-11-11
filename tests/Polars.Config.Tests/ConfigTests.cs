@@ -65,6 +65,20 @@ public class ConfigTests
         }
     }
     [Fact]
+    [Trait("Config", "EngineAffinity")]
+    public void Test_Config_EngineAffinity_Gpu_NotSupported()
+    {
+        Pl.Config.RestoreDefaults();
+        try
+        {
+            Assert.Throws<NotSupportedException>(() => Pl.Config.SetEngineAffinity(Polars.CSharp.Engine.Gpu));
+        }
+        finally
+        {
+            Pl.Config.RestoreDefaults();
+        }
+    }
+    [Fact]
     [Trait("Config", "ResolveMetadataLevel")]
     public void Test_Config_ResolveMetadataLevel_RoundTrip()
     {

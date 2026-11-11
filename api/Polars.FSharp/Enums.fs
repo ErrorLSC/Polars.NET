@@ -250,6 +250,11 @@ type Roll =
 type Engine =
     | Auto
     | InMemory
+    /// <summary>
+    /// Not supported: collecting with this engine throws <see cref="System.NotSupportedException"/>. The Polars Rust
+    /// core has no GPU executor (GPU execution in Python Polars comes from the cudf-polars Python package), so the
+    /// query would otherwise run in memory on the CPU.
+    /// </summary>
     | Gpu
     | Streaming
 

@@ -437,7 +437,7 @@ internal static class CoreConfig
         {
             if (value == PlEngine.Gpu)
             {
-                throw new NotImplementedException("GPU engine with non-defaults not yet supported in Polars.NET.");
+                throw new NotSupportedException(PolarsWrapper.GpuEngineNotSupportedMessage);
             }
 
 

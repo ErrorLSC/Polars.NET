@@ -67,14 +67,31 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(newLf);
     }
 
+    /// <summary>
+    /// Rejects <see cref="PlEngine.Gpu"/>: the Polars Rust core has no GPU executor (py-polars hands GPU plans to
+    /// the cudf-polars Python package), so the native engine would silently run the query in memory on the CPU.
+    /// </summary>
+    internal static void EnsureEngineSupported(PlEngine engine)
+    {
+        if (engine == PlEngine.Gpu)
+            throw new NotSupportedException(GpuEngineNotSupportedMessage);
+    }
+
+    internal const string GpuEngineNotSupportedMessage =
+        "The GPU engine is not supported in Polars.NET: the Polars Rust core has no GPU executor "
+        + "(GPU execution in Python Polars comes from the cudf-polars Python package). Use Engine.Auto, "
+        + "Engine.InMemory or Engine.Streaming.";
+
     public static DataFrameHandle LazyCollect(LazyFrameHandle lf, PlEngine engine)
     {
+        EnsureEngineSupported(engine);
         var df = NativeBindings.pl_lazy_collect(lf, engine);
         lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
     public static DataFrameHandle[] LazyCollectAll(LazyFrameHandle[] lfs, PlEngine engine)
     {
+        EnsureEngineSupported(engine);
         if (lfs == null || lfs.Length == 0) return [];
 
         var inPtrs = HandlesToPtrs(lfs)!;
@@ -100,7 +117,10 @@ public readonly partial struct PolarsWrapper
     }
 
     public static Task<DataFrameHandle[]> LazyCollectAllAsync(LazyFrameHandle[] lfs, PlEngine engine)
-        => Task.Run(() => LazyCollectAll(lfs, engine));
+    {
+        EnsureEngineSupported(engine);
+        return Task.Run(() => LazyCollectAll(lfs, engine));
+    }
     public static string LazyExplainAll(LazyFrameHandle[] lfs)
     {
         if (lfs == null || lfs.Length == 0) return "";
@@ -660,7 +680,10 @@ public readonly partial struct PolarsWrapper
         LazyFrameHandle handle,
         PlEngine engine,
         CancellationToken cancellationToken)
-            => Task.Run(() => LazyCollect(handle, engine), cancellationToken);
+    {
+        EnsureEngineSupported(engine);
+        return Task.Run(() => LazyCollect(handle, engine), cancellationToken);
+    }
     public static CollectBatchesHandle LazyCollectBatches(
         LazyFrameHandle lf,
         PlEngine engine = PlEngine.Auto,
@@ -668,6 +691,7 @@ public readonly partial struct PolarsWrapper
         nuint chunkSize = 0)
     {
         ArgumentNullException.ThrowIfNull(lf);
+        EnsureEngineSupported(engine);
         var h = NativeBindings.pl_lazy_collect_batches(lf, engine, maintainOrder, chunkSize);
         lf.TransferOwnership();
         return h;

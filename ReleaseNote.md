@@ -43,6 +43,7 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 * `History` renames an operation parameter or metric that collides with a top-level column (a RESTORE's `version` becomes `operationParameters.version`).
 * `ScanDelta` / `ReadDelta` / `UnityCatalog.ScanCatalogTable` (C# and F#) take two more optional parameters, `rowIdColumn` and `rowCommitVersionColumn`. Source-compatible, but code compiled against an earlier version must be recompiled.
 * `DeltaTableFeatures.IcebergCompatV1` was removed (it never named a protocol feature); `TimestampWithoutTimezone` now maps to `timestampNtz`.
+* Engine.Gpu will throw NotSupportedException.
 
 ### Ignored parameters (removed in 2.0)
 

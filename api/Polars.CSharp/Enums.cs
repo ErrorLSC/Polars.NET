@@ -117,6 +117,11 @@ public enum Engine : byte
     Auto = 0,
     InMemory = 1,
     Streaming = 2,
+    /// <summary>
+    /// Not supported: collecting with this engine throws <see cref="System.NotSupportedException"/>. The Polars Rust
+    /// core has no GPU executor (GPU execution in Python Polars comes from the cudf-polars Python package), so the
+    /// query would otherwise run in memory on the CPU.
+    /// </summary>
     Gpu = 3
 }
 public enum FillNullStrategy : byte

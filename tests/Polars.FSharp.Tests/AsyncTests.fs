@@ -295,6 +295,19 @@ type AsyncTests() =
     }
 
     [<Fact>]
+    [<Trait("Engine", "Gpu")>]
+    member _.``Gpu engine is rejected with NotSupportedException`` () = task {
+        use df = pl.dataframe [| pl.series "x" [| 1; 2; 3 |] |]
+        use lazyDf = df.Lazy()
+
+        Assert.Throws<NotSupportedException>(fun () -> lazyDf.Collect(Engine.Gpu) |> ignore) |> ignore
+        let! _ = Assert.ThrowsAsync<NotSupportedException>(fun () -> lazyDf.CollectAsync(Engine.Gpu) :> Task)
+
+        use collected = lazyDf.Collect()
+        Assert.Equal(3L, collected.Height)
+    }
+
+    [<Fact>]
     [<Trait("Async", "LazyFrame")>]
     member _.``LazyFrame CollectBatchesAsync streams separate DataFrame chunks`` () = task {
         // Arrange
