@@ -179,7 +179,7 @@ public class AlterTableTests
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.enableDeletionVectors", "yes")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.minReaderVersion", "4")));
         Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.minWriterVersion", "1")));
-        Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.feature.clustering", "supported")));
+        Assert.Throws<DeltaException>(() => AlterTable.SetProperties(fs, table, One("delta.feature.variantType", "supported")));
         Assert.Equal(0, Snapshot.Load(fs).Version);
 
         // Unknown delta. properties are stored when not refused.

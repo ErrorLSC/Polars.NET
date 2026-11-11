@@ -129,6 +129,36 @@ public static class AlterTable
         return change.Commit(fileSystem, recorded, now);
     }
 
+    /// <summary>
+    /// Changes the clustering columns, as Spark's <c>ALTER TABLE … CLUSTER BY (…)</c> / <c>CLUSTER BY NONE</c> (empty):
+    /// one commit naming the new columns (and bringing the clustering feature in when the table has none). Data
+    /// already clustered stays as it is until an OPTIMIZE FULL. Returns the version committed, or null for
+    /// <c>NONE</c> on a table that is not clustered.
+    /// </summary>
+    /// <exception cref="DeltaException">The table is partitioned, or the columns cannot cluster it.</exception>
+    public static long? ClusterBy(IWritableFileSystem fileSystem, Snapshot table, IReadOnlyList<string> columns, DateTimeOffset? now = null)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(columns);
+        if (table.PartitionColumns.Count > 0) throw new DeltaException("ALTER TABLE CLUSTER BY cannot be applied to a partitioned table.");
+        IReadOnlyList<string[]>? current = Clustering.PhysicalColumns(table.DomainMetadata);
+        if (columns.Count == 0 && current is null) return null;
+
+        string[] old = current is null ? [] : [.. Clustering.Fields(table.Schema, current).Select(Clustering.LogicalName)];
+        List<StructField[]> resolved = Clustering.Resolve(table.Schema, columns, [], table.Metadata.Configuration);
+        var transaction = Transaction.Start(fileSystem, table, ClusterByOperation)
+            .WithParameter("oldClusteringColumns", string.Join(',', old))
+            .WithParameter("newClusteringColumns", string.Join(',', resolved.Select(Clustering.LogicalName)));
+        ProtocolAction protocol = TableFeatures.WithFeatures(table.Protocol, [Clustering.Feature]);
+        if (!ReferenceEquals(protocol, table.Protocol)) transaction.SetProtocol(protocol);
+        transaction.Add(Clustering.DomainFor(resolved.Select(Clustering.PhysicalPath)));
+        return transaction.Commit(now);
+    }
+
+    /// <summary>The operation name of <see cref="ClusterBy"/> in <c>commitInfo</c>, as Spark records it.</summary>
+    public const string ClusterByOperation = "CLUSTER BY";
+
     /// <summary>What one alteration changes, gathered property by property.</summary>
     private sealed class Change(Snapshot table)
     {

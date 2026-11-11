@@ -169,9 +169,11 @@ public static class SchemaEvolution
                 : "."));
     }
 
-    /// <summary>The merged type when both are structs, arrays or maps; null for other types.</summary>
-    /// <param name="contained">Collects widenings of array elements and map keys and values, by their path.</param>
-    /// <param name="relative">The path of <paramref name="table"/> below the nearest struct field (null: the field itself).</param>
+    /// <summary>
+    /// The merged type when both are structs, arrays or maps; null for other types. Widenings of array elements and
+    /// map keys and values are collected in <c>contained</c>, by their path below the nearest struct field
+    /// (<c>relative</c>; null for the field itself).
+    /// </summary>
     private static DeltaType? MergeNested(
         DeltaType table, DeltaType given, MergeContext context, string name, List<(string Path, DeltaType From, DeltaType To)> contained, string? relative)
     {

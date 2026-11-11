@@ -128,6 +128,9 @@ public static class Delta
     /// <param name="path">The table location: a local directory or a cloud URL.</param>
     /// <param name="schema">The columns of the table.</param>
     /// <param name="partitionBy">Partition columns; none when null.</param>
+    /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields, at most four), as Spark's
+    /// <c>CLUSTER BY</c>: <see cref="Optimize"/> clusters the table's data by them. Cannot be combined with
+    /// <paramref name="partitionBy"/>; the columns must be of a type with statistics and among the columns that get them.</param>
     /// <param name="properties">Table properties, such as <see cref="DeltaTableProperties.EnableRowTracking"/>; the
     /// features they turn on come into the protocol.</param>
     /// <param name="identityColumns">Identity columns.</param>
@@ -137,6 +140,7 @@ public static class Delta
         string path,
         IntoSchema schema,
         string[]? partitionBy = null,
+        IEnumerable<string>? clusterBy = null,
         Dictionary<string, string>? properties = null,
         IEnumerable<DeltaIdentityColumn>? identityColumns = null,
         CloudOptions? cloudOptions = null)
@@ -162,7 +166,23 @@ public static class Delta
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values);
+            values,
+            clusterBy?.ToArray());
+    }
+
+    /// <summary>
+    /// Changes the liquid clustering columns of a table, as Spark's <c>ALTER TABLE … CLUSTER BY</c> (no columns:
+    /// <c>CLUSTER BY NONE</c>). A table that is not clustered becomes clustered; a partitioned one cannot. Data already
+    /// clustered keeps its layout until <see cref="Optimize"/> with <c>full</c>; new data is clustered by the new columns.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The clustering columns, dotted for nested fields; at most four. Empty for none.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void ClusterBy(string path, IEnumerable<string> columns, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaClusterBy(path, [.. columns], keys, values);
     }
 
     /// <summary>
@@ -452,14 +472,24 @@ public static class Delta
     /// <para>Z-Ordering co-locates data based on these columns, significantly speeding up queries that filter on them.</para>
     /// </param>
     /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
+    /// <param name="full">
+    /// On a table with liquid clustering, also recluster the data clustered by earlier clustering columns (Spark's
+    /// <c>OPTIMIZE FULL</c>). Without it, an optimize of such a table clusters new data only.
+    /// </param>
     /// <returns>The number of new data files created during the optimization process.</returns>
+    /// <remarks>
+    /// On a table with liquid clustering (<see cref="ClusterBy"/>), optimize clusters the data by the clustering
+    /// columns instead of compacting it: rows are laid out along a Hilbert curve over those columns, so that filters
+    /// on any of them skip files. <paramref name="zOrderColumns"/> cannot be given then.
+    /// </remarks>
     /// <exception cref="ArgumentException">Thrown if the path is empty or target size is invalid.</exception>
     public static long Optimize(
         string path,
         long targetSizeMb = 128,
         Dictionary<string, string>? partitionFilters = null,
         IEnumerable<string>? zOrderColumns = null,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool full = false)
     {
         // 1. Validation
         if (string.IsNullOrWhiteSpace(path))
@@ -502,7 +532,8 @@ public static class Delta
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            full
         );
 
         return (long)result;

@@ -143,6 +143,7 @@ type Delta =
     /// <param name="path">The table location: a local directory or a cloud URL.</param>
     /// <param name="schema">The columns of the table.</param>
     /// <param name="partitionBy">Partition columns.</param>
+    /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields, at most four), as Spark's CLUSTER BY: Delta.Optimize clusters the table's data by them. Cannot be combined with partitionBy; the columns must be of a type with statistics and among the columns that get them.</param>
     /// <param name="properties">Table properties, such as DeltaTableProperties.EnableRowTracking; the features they turn on come into the protocol.</param>
     /// <param name="identityColumns">Identity columns.</param>
     /// <param name="cloudOptions">Cloud storage configuration.</param>
@@ -150,6 +151,7 @@ type Delta =
         path: string,
         schema: PolarsSchema,
         ?partitionBy: seq<string>,
+        ?clusterBy: seq<string>,
         ?properties: seq<string * string>,
         ?identityColumns: seq<DeltaIdentityColumn>,
         ?cloudOptions: CloudOptions
@@ -174,8 +176,21 @@ type Delta =
             cMaxMs,
             cCache,
             cKeys,
-            cVals
+            cVals,
+            (match clusterBy with Some c -> Seq.toArray c | None -> null)
         )
+
+    /// <summary>
+    /// Changes the liquid clustering columns of a table, as Spark's ALTER TABLE … CLUSTER BY (no columns: CLUSTER BY
+    /// NONE). A table that is not clustered becomes clustered; a partitioned one cannot. Data already clustered keeps
+    /// its layout until Delta.Optimize with full; new data is clustered by the new columns.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The clustering columns, dotted for nested fields; at most four. Empty for none.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member ClusterBy(path: string, columns: seq<string>, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaClusterBy(path, Seq.toArray columns, cKeys, cVals)
 
     /// <summary>
     /// Represents a column from the incoming Source LazyFrame.
@@ -479,13 +494,16 @@ type Delta =
     /// <para>Z-Ordering co-locates data based on these columns, significantly speeding up queries that filter on them.</para>
     /// </param>
     /// <param name="cloudOptions">Cloud storage credentials and configuration.</param>
+    /// <param name="full">On a table with liquid clustering, also recluster the data clustered by earlier clustering columns (Spark's OPTIMIZE FULL); without it only new data is clustered.</param>
     /// <returns>The number of new data files created during the optimization process.</returns>
+    /// <remarks>On a table with liquid clustering (Delta.ClusterBy), optimize clusters the data by the clustering columns (a Hilbert curve over them) instead of compacting it; zOrderColumns cannot be given then.</remarks>
     static member Optimize(
         path: string,
         ?targetSizeMb: int64,
         ?partitionFilters: seq<string * string>,
         ?zOrderColumns: seq<string>,
-        ?cloudOptions: CloudOptions
+        ?cloudOptions: CloudOptions,
+        ?full: bool
     ) : int64 =
         // 1. Validation
         if System.String.IsNullOrWhiteSpace path then
@@ -527,7 +545,8 @@ type Delta =
             cMaxMs,
             cCache,
             cKeys,
-            cVals
+            cVals,
+            defaultArg full false
         )
 
         int64 result
@@ -826,7 +845,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         ?maintainOrder: bool,
         ?syncOnClose: SyncOnClose,
         ?mkdir: bool,
-        ?cloudOptions: CloudOptions) =
+        ?cloudOptions: CloudOptions,
+        ?clusterBy: seq<string>) =
 
         let saveMode = defaultArg mode DeltaSaveMode.Append
         let evolve = defaultArg canEvolve false
@@ -889,8 +909,20 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            (match clusterBy with Some c -> Seq.toArray c | None -> null)
         )
+    /// <summary>
+    /// Changes the liquid clustering columns of a catalog table (no columns: none); see Delta.ClusterBy.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="columns">The clustering columns, dotted for nested fields; at most four. Empty for none.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.ClusterCatalogTable(catalogName: string, schemaName: string, tableName: string, columns: seq<string>, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogClusterBy(this.Handle, catalogName, schemaName, tableName, Seq.toArray columns, keys, values)
     /// <summary>
     /// Initializes a MERGE (Upsert) operation against a Unity Catalog table using a <see cref="LazyFrame"/> as the data source.
     /// This method provides an ACID-compliant way to perform atomic updates, inserts, or deletes by joining the source data with the target table.
@@ -1062,6 +1094,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     /// <param name="partitionFilters">Optional filters to limit the optimization to specific partitions. If null, the entire table is processed.</param>
     /// <param name="zOrderColumns">An optional collection of column names to use for Z-Order clustering.</param>
     /// <param name="cloudOptions">Cloud-specific configurations, including storage credentials and retry logic.</param>
+    /// <param name="full">On a table with liquid clustering, also recluster the data clustered by earlier clustering columns (see Delta.Optimize).</param>
     /// <returns>The total number of files that were successfully compacted/optimized during the operation.</returns>
     member this.OptimizeCatalogTable(
         catalogName: string,
@@ -1070,7 +1103,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         ?targetSizeMb: int64,
         ?partitionFilters: Map<string, string>,
         ?zOrderColumns: seq<string>,
-        ?cloudOptions: CloudOptions) =
+        ?cloudOptions: CloudOptions,
+        ?full: bool) =
 
         let targetSize = defaultArg targetSizeMb 128L
         if targetSize <= 0L then
@@ -1107,7 +1141,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            defaultArg full false
         )
 
         int64 result

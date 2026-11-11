@@ -174,7 +174,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues)
+        string[]? cloudValues,
+        string[]? clusterBy = null)
     {
         TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
@@ -204,7 +205,8 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues);
+            cloudValues,
+            clusterBy);
     }
 
     public static void DeleteCatalogRecords(
@@ -295,7 +297,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        bool full = false
     )
     {
         TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
@@ -312,7 +315,16 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues);
+            cloudValues,
+            full);
+    }
+
+    /// <summary>Changes a catalog table's liquid clustering columns (empty: none).</summary>
+    public static void CatalogClusterBy(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[] columns, string[]? cloudKeys, string[]? cloudValues)
+    {
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaClusterBy(access.Location, columns, cloudKeys, cloudValues);
     }
 
     public static void CreateCatalogTable

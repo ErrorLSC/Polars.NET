@@ -76,7 +76,8 @@ internal static class DeltaKernelWrite
     /// widening on, widens column types); an overwrite replaces the schema and partitioning with the data's.</param>
     public static long Write(
         string tablePath, LazyFrameHandle data, KernelWriteMode mode, string[]? partitionBy = null, CloudArgs? cloud = null,
-        IReadOnlyDictionary<string, string>? configuration = null, bool canEvolve = false, KernelWriteOptions? options = null)
+        IReadOnlyDictionary<string, string>? configuration = null, bool canEvolve = false, KernelWriteOptions? options = null,
+        string[]? clusterBy = null)
     {
         options ??= KernelWriteOptions.Default;
         using LazyFrameHandle owned = data; // consumed by the sink; disposed here when the write fails before it
@@ -110,7 +111,11 @@ internal static class DeltaKernelWrite
                 partitions = partitionBy ?? [];
                 MetadataAction metadata;
                 (metadata, schema) = NewTableMetadata(incoming, partitions, configuration);
-                transaction = Transaction.Create(fileSystem, ProtocolFor(schema, metadata.Configuration), metadata, "WRITE");
+                List<StructField[]> clustered = Clustering.Resolve(schema, clusterBy ?? [], partitions, metadata.Configuration);
+                ProtocolAction protocol = ProtocolFor(schema, metadata.Configuration);
+                if (clustered.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [Clustering.Feature]);
+                transaction = Transaction.Create(fileSystem, protocol, metadata, "WRITE");
+                if (clustered.Count > 0) transaction.Add(Clustering.DomainFor(clustered.Select(Clustering.PhysicalPath)));
             }
             else
             {
@@ -129,6 +134,10 @@ internal static class DeltaKernelWrite
                     changed = SchemaEvolution.Replace(existing.Metadata, incoming, partitions);
                     schema = StructType.Parse(changed.SchemaString);
                     SchemaEvolution.EnsureSupported(existing.Protocol, schema);
+                    // The clustering columns stay; under column mapping they now have new physical names.
+                    if (ClusteringNames(existing) is { Length: > 0 } names)
+                        transaction.Add(Clustering.DomainFor(
+                            Clustering.Resolve(schema, names, partitions, changed.Configuration).Select(Clustering.PhysicalPath)));
                 }
                 else
                 {
@@ -140,6 +149,11 @@ internal static class DeltaKernelWrite
                     schema = SchemaEvolution.Merge(existing.Metadata, existing.Protocol, incoming, canEvolve, out changed);
                 }
             }
+            if (existing is not null && clusterBy is { Length: > 0 }
+                && !(ClusteringNames(existing) ?? []).SequenceEqual(clusterBy, StringComparer.OrdinalIgnoreCase))
+                throw new PolarsException(
+                    $"The table is clustered by [{string.Join(", ", ClusteringNames(existing) ?? [])}], not [{string.Join(", ", clusterBy)}]; " +
+                    "change the clustering columns with Delta.ClusterBy.");
             transaction.WithParameter("mode", mode switch
             {
                 KernelWriteMode.Overwrite => "Overwrite",
@@ -233,6 +247,12 @@ internal static class DeltaKernelWrite
             return null;
         }
     }
+
+    /// <summary>The logical names of a table's clustering columns; null when it is not clustered.</summary>
+    internal static string[]? ClusteringNames(Snapshot table) =>
+        Clustering.PhysicalColumns(table.DomainMetadata) is { } columns
+            ? [.. Clustering.Fields(table.Schema, columns).Select(Clustering.LogicalName)]
+            : null;
 
     /// <summary>Whether data of <paramref name="incoming"/> written with <paramref name="partitionBy"/> leaves the table as it is.</summary>
     private static bool SameShape(Snapshot existing, StructType incoming, string[] partitionBy) =>
@@ -488,15 +508,18 @@ internal static class DeltaKernelWrite
     /// <param name="maxRowsPerFile">The most rows in one file; 0 for no limit.</param>
     /// <param name="approxBytesPerFile">The approximate in-memory size of the rows of one file; null for the
     /// table's <c>delta.targetFileSize</c>, else 128 MiB; 0 for no limit.</param>
+    /// <param name="bucketColumn">A column of the rows (not of the table) whose values split the rows into files, as
+    /// a partition column would but without directories or partition values (clustering's buckets); null for none.</param>
     internal static List<AddAction> WriteFiles(
         DmlTable table, LazyFrameHandle rows, StructType schema, long now, bool checkNotNull,
-        ulong maxRowsPerFile = 0, ulong? approxBytesPerFile = null)
+        ulong maxRowsPerFile = 0, ulong? approxBytesPerFile = null, string? bucketColumn = null)
     {
         IReadOnlyDictionary<string, string> properties = table.Snapshot.Metadata.Configuration;
+        string[] extra = bucketColumn is null ? table.RowIdColumns : [.. table.RowIdColumns, bucketColumn];
         return DataFiles(
-            table.FileSystem, table.Root, NormalizeLazy(rows, schema, table.RowIdColumns), schema, table.PartitionColumns, now, properties, checkNotNull,
+            table.FileSystem, table.Root, NormalizeLazy(rows, schema, extra), schema, table.PartitionColumns, now, properties, checkNotNull,
             KernelWriteOptions.Default with { MaxRowsPerFile = maxRowsPerFile }, approxBytesPerFile ?? TargetFileSize(properties),
-            table.MaterializedRowColumns, table.Cloud);
+            table.MaterializedRowColumns, table.Cloud, bucketColumn);
     }
 
     /// <summary>
@@ -516,7 +539,7 @@ internal static class DeltaKernelWrite
     private static List<AddAction> DataFiles(
         TrackingFileSystem fileSystem, string root, LazyFrameHandle rows, StructType schema, string[] partitions, long now,
         IReadOnlyDictionary<string, string>? tableProperties, bool checkNotNull, KernelWriteOptions options, ulong approxBytesPerFile,
-        (string RowId, string CommitVersion)? materialized, CloudArgs? cloud)
+        (string RowId, string CommitVersion)? materialized, CloudArgs? cloud, string? bucketColumn = null)
     {
         if (checkNotNull && schema.Fields.Any(f => (f.Type is StructType s && HasNotNullInside(s)) || (!f.Nullable && f.Type is StructType or ArrayType or MapType)))
         {
@@ -527,7 +550,8 @@ internal static class DeltaKernelWrite
             rows = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(collected));
         }
 
-        List<SunkFile> files = SinkFiles(fileSystem, root, rows, schema, partitions, changeData: false, options, approxBytesPerFile, materialized, cloud);
+        List<SunkFile> files = SinkFiles(
+            fileSystem, root, rows, schema, partitions, changeData: false, options, approxBytesPerFile, materialized, cloud, bucketColumn);
 
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
         // NOT NULL primitive columns are checked on the footers' null counts (nested ones were checked on the rows).
@@ -568,7 +592,8 @@ internal static class DeltaKernelWrite
     /// </summary>
     private static List<SunkFile> SinkFiles(
         TrackingFileSystem fileSystem, string root, LazyFrameHandle rows, StructType schema, string[] partitions, bool changeData,
-        KernelWriteOptions options, ulong approxBytesPerFile, (string RowId, string CommitVersion)? materialized, CloudArgs? cloud)
+        KernelWriteOptions options, ulong approxBytesPerFile, (string RowId, string CommitVersion)? materialized, CloudArgs? cloud,
+        string? bucketColumn = null)
     {
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
         EnsureNoMaps(dataFields);
@@ -577,6 +602,8 @@ internal static class DeltaKernelWrite
         ExprHandle[] columns =
         [
             .. partitions.Select(PolarsWrapper.Col),
+            // A bucket column is a sink key like the partition columns: it splits files and is left out of them.
+            .. bucketColumn is null ? Array.Empty<ExprHandle>() : [PolarsWrapper.Col(bucketColumn)],
             .. dataFields.Select(f => PolarsWrapper.Alias(DeltaKernelScan.Renamed(PolarsWrapper.Col(f.Name), f.Type, toPhysical: true), f.PhysicalName)),
             .. materialized is var (rowId, commitVersion)
                 ? [PolarsWrapper.Alias(PolarsWrapper.Col(DeltaKernelScan.RowIdColumn), rowId),
@@ -589,8 +616,9 @@ internal static class DeltaKernelWrite
         var written = new List<(string Relative, Dictionary<string, string?> Values)>();
         string suffix = CodecSuffix(options.Compression);
         string[] notNullPartitions = [.. partitions.Where(p => !schema.Field(p)!.Nullable)];
+        string[] sinkKeys = bucketColumn is null ? partitions : [.. partitions, bucketColumn];
         HostPathSink.Sink(
-            shaped, root, partitions, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile,
+            shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile,
             (keys, index) =>
             {
                 Dictionary<string, string?> values = PartitionValues(keys, schema, partitions);

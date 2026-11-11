@@ -276,6 +276,41 @@ let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Liquid clustering: CreateTable clusterBy, Optimize clusters, ClusterBy changes the columns`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_clustered_{Guid.NewGuid()}")
+    try
+        Delta.CreateTable(path, PolarsSchema([ "k", DataType.Int64; "v", DataType.String ]), clusterBy = [ "k" ])
+        for i in 0 .. 2 do
+            DataFrame.create [| Series.create("k", [ int64 i; int64 (i + 10) ]); Series.create("v", [ "a"; "b" ]) |]
+            |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+        Assert.True(Delta.Optimize(path) > 0L)
+        // Z-ordering does not apply to a clustered table; FULL only to clustered ones.
+        Assert.ThrowsAny<exn>(fun () -> Delta.Optimize(path, zOrderColumns = [ "v" ]) |> ignore) |> ignore
+        Delta.ClusterBy(path, [ "v" ])
+        Assert.Equal(0L, Delta.Optimize(path)) // nothing new: the old cube stays
+        Assert.True(Delta.Optimize(path, full = true) > 0L)
+        Delta.ClusterBy(path, [])
+
+        let history = Delta.History(path)
+        let operations = history.["operation"].ToArray<string>() |> List.ofArray
+        Assert.Equal(2, operations |> List.filter ((=) "CLUSTER BY") |> List.length)
+        Assert.Equal(2, operations |> List.filter ((=) "OPTIMIZE") |> List.length)
+        let read = DataFrame.ReadDelta(path).Sort("k")
+        Assert.Equal<int64 list>([ 0L; 1L; 2L; 10L; 11L; 12L ], read.["k"].ToArray<int64>() |> List.ofArray)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
+let ``Clustering refuses partitioning`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_clustered_bad_{Guid.NewGuid()}")
+    try
+        let e = Assert.ThrowsAny<exn>(fun () ->
+            Delta.CreateTable(path, PolarsSchema([ "k", DataType.Int64; "p", DataType.String ]), partitionBy = [ "p" ], clusterBy = [ "k" ]))
+        Assert.Contains("cannot both be specified", e.Message)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Suspended row tracking gives appended rows ids only once it is turned on again`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_rt_suspended_{Guid.NewGuid()}")
     try

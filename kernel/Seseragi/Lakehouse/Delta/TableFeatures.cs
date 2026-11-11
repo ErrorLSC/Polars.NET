@@ -108,7 +108,7 @@ public static class TableFeatures
     {
         AppendOnly, Invariants, CheckConstraints, ChangeDataFeed, GeneratedColumns, ColumnMapping, IdentityColumns,
         DeletionVectors, TimestampNtz, DomainMetadata, VacuumProtocolCheck, V2Checkpoint, InCommitTimestamp,
-        TypeWidening, TypeWideningPreview, RowTracking.Feature,
+        TypeWidening, TypeWideningPreview, RowTracking.Feature, Clustering.Feature,
     };
 
     /// <summary>The writer features a protocol puts in force: listed for version 7, implied by the older versions.</summary>
@@ -203,8 +203,9 @@ public static class TableFeatures
         var readerNow = ReaderFeaturesOf(current).ToList();
         var newWriter = new List<string>();
         var newReader = new List<string>();
-        // Features that need another one bring it in first (row tracking keeps its high water mark in a domain).
-        IEnumerable<string> withDependencies = features.SelectMany(f => f == RowTracking.Feature ? new[] { DomainMetadata, f } : [f]);
+        // Features that need another one bring it in first (row tracking keeps its high water mark in a domain,
+        // clustering its columns).
+        IEnumerable<string> withDependencies = features.SelectMany(f => f is RowTracking.Feature or Clustering.Feature ? new[] { DomainMetadata, f } : [f]);
         foreach (string feature in withDependencies.Distinct(StringComparer.Ordinal))
         {
             if (!writerNow.Contains(feature, StringComparer.Ordinal)) newWriter.Add(feature);

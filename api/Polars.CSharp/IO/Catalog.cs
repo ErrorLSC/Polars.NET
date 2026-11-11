@@ -113,7 +113,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
     /// <param name="tableName">The name of the table to sink.</param>
     /// <param name="lf">The LazyFrame ready to be sinked.</param>
-    /// <inheritdoc cref="LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?, IEnumerable{string}?)"/>
     public void SinkCatalogTable(
         string catalogName,
         string schemaName,
@@ -135,7 +135,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IEnumerable<string>? clusterBy = null)
     {
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
@@ -177,8 +178,24 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            clusterBy?.ToArray()
         );
+    }
+    /// <summary>
+    /// Changes the liquid clustering columns of a catalog table (no columns: none); see <see cref="Delta.ClusterBy"/>.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="columns">The clustering columns, dotted for nested fields; at most four. Empty for none.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void ClusterCatalogTable(
+        string catalogName, string schemaName, string tableName, IEnumerable<string> columns, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogClusterBy(Handle, catalogName, schemaName, tableName, [.. columns], keys, values);
     }
     /// <summary>
     /// Creates a new table registration within the Unity Catalog.
@@ -366,6 +383,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// </param>
     /// <param name="zOrderColumns">An optional collection of column names to use for Z-Order clustering.</param>
     /// <param name="cloudOptions">Cloud-specific configurations, including storage credentials and retry logic for concurrent commits.</param>
+    /// <param name="full">On a table with liquid clustering, also recluster the data clustered by earlier clustering columns (see <see cref="Delta.Optimize"/>).</param>
     /// <returns>The total number of files that were successfully compacted/optimized during the operation.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="targetSizeMb"/> is less than or equal to 0.</exception>
     public long OptimizeCatalogTable(
@@ -375,7 +393,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         long targetSizeMb = 128,
         Dictionary<string, string>? partitionFilters = null,
         IEnumerable<string>? zOrderColumns = null,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool full = false)
     {
         if (targetSizeMb <= 0)
             throw new ArgumentException("Target size must be greater than 0 MB.", nameof(targetSizeMb));
@@ -412,7 +431,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            full
         );
 
         return (long)result;
@@ -822,7 +842,7 @@ public static class UnityCatalogExtensions
     /// <summary>
     /// Sinks the <see cref="LazyFrame"/> to a Unity Catalog table.
     /// </summary>
-    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?, IEnumerable{string}?)"/>
     public static void SinkCatalogTable(
         this LazyFrame lf,
         UnityCatalog catalog,
@@ -859,7 +879,7 @@ public static class UnityCatalogExtensions
     /// <summary>
     /// Writes the <see cref="DataFrame"/> into a Unity Catalog table by converting it to a <see cref="LazyFrame"/>.
     /// </summary>
-    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?, IEnumerable{string}?)"/>
     public static void WriteCatalogTable(
         this DataFrame df,
         UnityCatalog catalog,

@@ -36,6 +36,19 @@ internal static class DeltaKernelAlter
         return Run(tablePath, cloud, table => AlterTable.AddFeatures(table.FileSystem, table.Snapshot, [feature], allowProtocolIncrease));
     }
 
+    /// <summary>
+    /// Changes the clustering columns (liquid clustering; empty for none); returns the version committed, or null
+    /// when the table was not clustered and none are given.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The clustering columns, dotted for nested fields; at most four.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long? ClusterBy(string tablePath, IReadOnlyList<string> columns, CloudArgs? cloud = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        return Run(tablePath, cloud, table => AlterTable.ClusterBy(table.FileSystem, table.Snapshot, columns));
+    }
+
     private static long? Run(string tablePath, CloudArgs? cloud, Func<DmlTable, long?> alter)
     {
         try

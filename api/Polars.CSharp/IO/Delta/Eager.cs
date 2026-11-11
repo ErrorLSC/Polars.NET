@@ -61,7 +61,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <summary>
     /// Write a DataFrame into a delta table
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?, IEnumerable{string}?)"/>
     public void WriteDelta(
         string path,
         IntoSelector? partitionBy = null,
@@ -80,7 +80,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IEnumerable<string>? clusterBy = null)
     {
         var lf = Lazy();
         lf.SinkDelta(
@@ -110,7 +111,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             mkdir,
 
             // --- Cloud Params ---
-            cloudOptions
+            cloudOptions,
+            clusterBy
         );
     }
     /// <summary>

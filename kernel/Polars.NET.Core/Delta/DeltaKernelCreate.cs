@@ -27,10 +27,11 @@ internal static class DeltaKernelCreate
     /// <param name="configuration">Table properties (they bring the features they turn on); null for none.</param>
     /// <param name="identity">Identity columns; null for none.</param>
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields); null for none.</param>
     /// <exception cref="PolarsException">A table exists at the path, or the declaration is not valid.</exception>
     public static long Create(
         string tablePath, StructType schema, string[]? partitionBy = null, IReadOnlyDictionary<string, string>? configuration = null,
-        IReadOnlyList<KernelIdentityColumn>? identity = null, CloudArgs? cloud = null)
+        IReadOnlyList<KernelIdentityColumn>? identity = null, CloudArgs? cloud = null, string[]? clusterBy = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
         if (schema.Fields.Count == 0) throw new PolarsException("A table needs at least one column.");
@@ -58,11 +59,15 @@ internal static class DeltaKernelCreate
             var (metadata, tableSchema) = DeltaKernelWrite.NewTableMetadata(new StructType(fields), partitions, configuration);
             ProtocolAction protocol = DeltaKernelWrite.ProtocolFor(tableSchema, metadata.Configuration);
             if (declared.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.IdentityColumns]);
+            List<StructField[]> clustered = Clustering.Resolve(tableSchema, clusterBy ?? [], partitions, metadata.Configuration);
+            if (clustered.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [Clustering.Feature]);
 
-            return Transaction.Create(store, protocol, metadata, "CREATE TABLE")
+            var transaction = Transaction.Create(store, protocol, metadata, "CREATE TABLE")
                 .WithParameter("partitionBy", JsonText.StringArray(partitions))
-                .WithParameter("properties", JsonText.Object(configuration ?? new Dictionary<string, string>()))
-                .Commit();
+                .WithParameter("clusterBy", JsonText.StringArray([.. clustered.Select(Clustering.LogicalName)]))
+                .WithParameter("properties", JsonText.Object(configuration ?? new Dictionary<string, string>()));
+            if (clustered.Count > 0) transaction.Add(Clustering.DomainFor(clustered.Select(Clustering.PhysicalPath)));
+            return transaction.Commit();
         }
         catch (DeltaException e)
         {

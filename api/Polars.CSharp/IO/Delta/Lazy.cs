@@ -127,6 +127,10 @@ public partial class LazyFrame : IDisposable
     /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
     /// <param name="mkdir">Ignored since 1.2.0 (the managed Delta kernel always creates the table directory); removed in 2.0.</param>
     /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
+    /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields, at most four) of a table this
+    /// write creates; <see cref="Delta.Optimize"/> then clusters its data by them. On an existing table they must be
+    /// its clustering columns (change them with <see cref="Delta.ClusterBy"/>). Cannot be combined with
+    /// <paramref name="partitionBy"/>.</param>
     public void SinkDelta(
         string path,
         IntoSelector? partitionBy = null,
@@ -145,7 +149,8 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IEnumerable<string>? clusterBy = null)
     {
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
             CloudOptions.ParseCloudOptions(cloudOptions);
@@ -185,7 +190,8 @@ public partial class LazyFrame : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            clusterBy?.ToArray()
         );
     }
     /// <summary>

@@ -43,6 +43,7 @@ module DeltaWrite =
         /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
         /// <param name="mkdir">Ignored since 1.2.0 (the managed Delta kernel always creates the table directory); removed in 2.0.</param>
         /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
+        /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields, at most four) of a table this write creates; Delta.Optimize then clusters its data by them. On an existing table they must be its clustering columns (change them with Delta.ClusterBy). Cannot be combined with partitionBy.</param>
         member this.SinkDelta(
             path: string,
             ?partitionBy: Selector,
@@ -61,7 +62,8 @@ module DeltaWrite =
             ?maintainOrder: bool,
             ?syncOnClose: SyncOnClose,
             ?mkdir: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?clusterBy: seq<string>
         ) =
             // 1. Resolve Defaults
             let pMode = defaultArg mode DeltaSaveMode.Append
@@ -135,7 +137,8 @@ module DeltaWrite =
                 cMaxMs,
                 cCache,
                 cKeys,
-                cVals
+                cVals,
+                (match clusterBy with Some c -> Seq.toArray c | None -> null)
             )
     type DataFrame with
         /// <summary>
@@ -172,6 +175,7 @@ module DeltaWrite =
         /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
         /// <param name="mkdir">Ignored since 1.2.0 (the managed Delta kernel always creates the table directory); removed in 2.0.</param>
         /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
+        /// <param name="clusterBy">Liquid clustering columns of a table this write creates (see LazyFrame.SinkDelta).</param>
         member this.WriteDelta(
             path: string,
             ?partitionBy: Selector,
@@ -190,7 +194,8 @@ module DeltaWrite =
             ?maintainOrder: bool,
             ?syncOnClose: SyncOnClose,
             ?mkdir: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?clusterBy: seq<string>
         ) =
             this.Lazy().SinkDelta(
                 path,
@@ -219,7 +224,8 @@ module DeltaWrite =
                 ?mkdir=mkdir,
                 
                 // --- Cloud Params ---
-                ?cloudOptions=cloudOptions
+                ?cloudOptions=cloudOptions,
+                ?clusterBy=clusterBy
             )
 
 [<Extension>]

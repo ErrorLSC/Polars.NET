@@ -269,7 +269,7 @@ public class TransactionTests
     }
 
     [Theory]
-    [InlineData("clustering", null, null)]
+    [InlineData("allowColumnDefaults", null, null)]
     [InlineData("invariants", "delta.invariants", null)]
     [InlineData("generatedColumns", "delta.generationExpression", null)]
     [InlineData("identityColumns", "delta.identity.start", null)]

@@ -69,7 +69,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        bool full = false
     )
     {
         Dictionary<string, string?>? filters = null;
@@ -82,7 +83,7 @@ public readonly partial struct PolarsWrapper
         }
         var result = Delta.DeltaKernelOptimize.Optimize(path, checked(targetSizeMb * 1024 * 1024), filters,
             zOrderCols is { Length: > 0 } ? zOrderCols : null, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path), full);
         // The number of data files the optimize wrote.
         return (ulong)result.AddedFiles;
     }
@@ -96,6 +97,12 @@ public readonly partial struct PolarsWrapper
     )
     {
         Delta.DeltaKernelAlter.AddFeature(path, featureName, allowProtocolIncrease, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    }
+    /// <summary>Changes a table's liquid clustering columns (empty: none).</summary>
+    public static void DeltaClusterBy(string path, string[] columns, string[]? cloudKeys, string[]? cloudValues)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        Delta.DeltaKernelAlter.ClusterBy(path, columns, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     }
     public static void SetTableProperties(
         string path,
@@ -191,7 +198,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        string[]? clusterBy = null
     )
     {
         // The managed Delta kernel writes: the engine streams the files, partition columns are never written into
@@ -226,7 +234,8 @@ public readonly partial struct PolarsWrapper
             KeysPreGrouped: keysPreGrouped,
             MaintainOrder: maintainOrder,
             SyncOnClose: syncOnClose);
-        Delta.DeltaKernelWrite.Write(path, lf, kernelMode, partitions, cloud, configuration: null, canEvolve, options);
+        Delta.DeltaKernelWrite.Write(path, lf, kernelMode, partitions, cloud, configuration: null, canEvolve, options,
+            clusterBy is { Length: > 0 } ? clusterBy : null);
     }
     /// <summary>
     /// Creates an empty Delta table (version 0) with the schema (borrowed), partition columns, table properties and
@@ -249,7 +258,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues)
+        string[]? cloudValues,
+        string[]? clusterBy = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
         Dictionary<string, string>? properties = null;
@@ -270,7 +280,8 @@ public readonly partial struct PolarsWrapper
         var tableSchema = Delta.DeltaKernelWrite.SchemaOf(empty);
         var cloud = new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
             cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path);
-        Delta.DeltaKernelCreate.Create(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud);
+        Delta.DeltaKernelCreate.Create(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud,
+            clusterBy is { Length: > 0 } ? clusterBy : null);
     }
     public static void DeltaDelete(
         string path,

@@ -19,7 +19,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
 logs=${REGRESS_LOG_DIR:-${TMPDIR:-/tmp}/polars-regress}
 mkdir -p "$logs"
-rm -f "$logs"/*.log
+rm -f "$logs"/*.log "$logs"/failures.txt
 
 summary=()
 failed=0

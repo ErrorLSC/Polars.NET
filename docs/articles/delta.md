@@ -391,7 +391,45 @@ let withIds = DataFrame.ReadDelta("./lake/orders", rowIdColumn = "row_id", rowCo
 
 ---
 
-## 8. Concurrency
+## 8. Liquid Clustering
+
+Liquid clustering (Spark's `CLUSTER BY`) lays out a table's data by up to four clustering columns, so that filters on any of them skip files, without partitioning the table. `Delta.CreateTable` (or a write that creates the table) takes the columns; `Delta.Optimize` then clusters the data: rows are cut into ranges of a Hilbert curve over the columns, each range written to its own files. Appends, updates, deletes and merges write unclustered files, as Spark's do; the next optimize clusters them, merging them with the small clustered cubes. `Delta.ClusterBy` changes the columns (none to stop clustering); data already clustered keeps its layout until an optimize with `full`. Tables Spark or Databricks clustered are read, written and optimized the same way, and Spark recognizes the files clustered here.
+
+Clustering columns must be of a type with statistics (numbers, strings, dates, timestamps, decimals) and among the columns that get them (`delta.dataSkippingNumIndexedCols`, `delta.dataSkippingStatsColumns`); a clustered table cannot be partitioned, and Z-ordering does not apply to it.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+Delta.CreateTable(
+    "./lake/events",
+    new PolarsSchema().Add("ts", DataType.Datetime()).Add("user", DataType.String).Add("kind", DataType.String),
+    clusterBy: ["user", "ts"]);
+
+events.WriteDelta("./lake/events", mode: DeltaSaveMode.Append);
+Delta.Optimize("./lake/events");                  // clusters the new data
+
+Delta.ClusterBy("./lake/events", ["kind"]);       // new clustering columns
+Delta.Optimize("./lake/events", full: true);      // reclusters the data clustered by the old ones
+```
+
+```fsharp [F# (Pipeline)]
+Delta.CreateTable(
+    "./lake/events",
+    PolarsSchema([ "ts", DataType.Datetime(TimeUnit.Microseconds); "user", DataType.String; "kind", DataType.String ]),
+    clusterBy = [ "user"; "ts" ])
+
+events.WriteDelta("./lake/events", mode = DeltaSaveMode.Append)
+Delta.Optimize("./lake/events") |> ignore
+
+Delta.ClusterBy("./lake/events", [ "kind" ])
+Delta.Optimize("./lake/events", full = true) |> ignore
+```
+
+:::
+
+---
+
+## 9. Concurrency
 
 Writers coordinate through the log alone: a commit is a put-if-absent of the next log file. When another writer committed first, a commit that does not conflict with it lands after it; a delete, update, merge or optimize that does conflict is planned again from the new table state and retried, up to `POLARS_DELTA_MAX_RETRIES` times (5 by default). Files written by a failed attempt are removed again.
 
