@@ -145,7 +145,9 @@ internal sealed class AzureClient : ObjectStoreClient
             case HttpStatusCode.NotFound:
                 return null;
             case HttpStatusCode.RequestedRangeNotSatisfiable:
-                return []; // the blob ends before the offset
+                // The blob ends before the offset, or (hierarchical namespace) it is a directory: Azure answers a
+                // range of a directory with 416 and no x-ms-resource-type, so only a HEAD tells them apart.
+                return Head(key) is null ? null : [];
             case HttpStatusCode.PartialContent:
                 return IsDirectory(response) ? null : response.Body;
             case HttpStatusCode.OK:

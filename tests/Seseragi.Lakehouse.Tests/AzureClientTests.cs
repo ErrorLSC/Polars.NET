@@ -228,3 +228,38 @@ public class AzureClientTests
         Assert.Null(last);
     }
 }
+
+public class AzureDirectoryRangeTests
+{
+    private static CloudFileSystem Open(FakeHttpServer server)
+    {
+        var keys = new Dictionary<string, string>
+        {
+            ["account_name"] = "acct", ["access_key"] = AzureSettings.EmulatorKey, ["endpoint"] = server.Url, ["allow_http"] = "true",
+        };
+        return CloudStorage.TryOpen("az://c/t", keys, RetrySettings.Default, new Dictionary<string, string>(), null, out string? reason)
+            ?? throw new InvalidOperationException(reason);
+    }
+
+    // A real ADLS Gen2 account answers a range of a directory with 416 and no x-ms-resource-type; only its HEAD says
+    // it is a directory.
+    [Fact]
+    public void ARangeOfADirectory_IsNoFile()
+    {
+        using var server = new FakeHttpServer(r => r.Method == "HEAD" ? (200, "") : (416, ""))
+        {
+            ResponseHeaders = ["x-ms-resource-type: directory"],
+        };
+        var fs = Open(server);
+        Assert.Null(fs.ReadRange("dir", 0, 1));
+        Assert.Equal(["GET", "HEAD"], server.Requests.Select(r => r.Method));
+    }
+
+    [Fact]
+    public void ARangePastTheEndOfAFile_IsEmpty()
+    {
+        using var server = new FakeHttpServer(r => r.Method == "HEAD" ? (200, "") : (416, ""));
+        var fs = Open(server);
+        Assert.Equal([], fs.ReadRange("empty.json", 0, 1)!);
+    }
+}
