@@ -494,7 +494,7 @@ public static class Delta
             df = df.Sort("timestamp", descending: true);
         }
 
-        var priorityCols = new[] { "version", "timestamp", "operation", "mode", "predicate", "userName" };
+        string[] priorityCols = ["version", "timestamp", "operation", "mode", "predicate", "userName"];
         var existingCols = df.ColumnNames;
         var selection = priorityCols.Where(c => existingCols.Contains(c)).ToList();
 
@@ -663,12 +663,14 @@ public static class Delta
     /// <param name="startVersion">The starting version (inclusive).</param>
     /// <param name="endVersion">The ending version (inclusive).</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream.</returns>
     public static LazyFrame ReadChangeDataFeed(
         string path,
         long startVersion,
         long endVersion,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool allowSchemaChanges = false)
     {
         if (startVersion > endVersion)
         {
@@ -689,7 +691,8 @@ public static class Delta
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            allowSchemaChanges
         );
 
         return new LazyFrame(handle);
@@ -702,12 +705,14 @@ public static class Delta
     /// <param name="startTimestamp">The starting datetime (inclusive).</param>
     /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
     public static LazyFrame ReadChangeDataFeed(
         string path,
         DateTime startTimestamp,
         DateTime? endTimestamp = null,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool allowSchemaChanges = false)
     {
         DateTime actualEnd = endTimestamp ?? DateTime.UtcNow;
 
@@ -733,7 +738,8 @@ public static class Delta
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            allowSchemaChanges
         );
 
         return new LazyFrame(handle);

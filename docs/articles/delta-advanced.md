@@ -17,15 +17,18 @@ With `DeltaTableProperties.EnableRowTracking`, every row keeps a stable row id t
 ```csharp [C# (Fluent)]
 Delta.CreateTable(
     "./lake/orders",
-    new PolarsSchema().Add("order_id", DataType.Int64).Add("item", DataType.String),
+    PolarsSchema.From<Order>(),
     properties: new() { [DeltaTableProperties.EnableRowTracking] = "true" },
-    identityColumns: [new DeltaIdentityColumn("order_id", Start: 1000, Step: 1)]);
+    identityColumns: [new DeltaIdentityColumn("OrderId", Start: 1000, Step: 1)]);
 
-// order_id is generated: 1000, 1001, ...
-using var items = DataFrame.FromColumns(new { item = new[] { "pen", "ink" } });
+// OrderId is generated: 1000, 1001, ...
+using var items = DataFrame.From<NewItem>([new("pen"), new("ink")]);
 items.WriteDelta("./lake/orders", mode: DeltaSaveMode.Append);
 
 var withIds = DataFrame.ReadDelta("./lake/orders", rowIdColumn: "row_id", rowCommitVersionColumn: "row_version");
+
+record Order(long OrderId, string Item);
+record NewItem(string Item);
 ```
 
 ```fsharp [F# (Pipeline)]
@@ -54,16 +57,15 @@ Clustering columns must be of a type with statistics (numbers, strings, dates, t
 ::: code-group
 
 ```csharp [C# (Fluent)]
-Delta.CreateTable(
-    "./lake/events",
-    new PolarsSchema().Add("ts", DataType.Datetime()).Add("user", DataType.String).Add("kind", DataType.String),
-    clusterBy: ["user", "ts"]);
+Delta.CreateTable("./lake/events", PolarsSchema.From<Event>(), clusterBy: ["User", "Ts"]);
 
 events.WriteDelta("./lake/events", mode: DeltaSaveMode.Append);
 Delta.Optimize("./lake/events");                  // clusters the new data
 
-Delta.ClusterBy("./lake/events", ["kind"]);       // new clustering columns
+Delta.ClusterBy("./lake/events", ["Kind"]);       // new clustering columns
 Delta.Optimize("./lake/events", full: true);      // reclusters the data clustered by the old ones
+
+record Event(DateTime Ts, string User, string Kind);
 ```
 
 ```fsharp [F# (Pipeline)]

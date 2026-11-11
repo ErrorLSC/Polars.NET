@@ -1,6 +1,7 @@
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
+using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
 namespace Kaminari.Seseragi.Lakehouse.Delta;
 
@@ -71,6 +72,19 @@ public sealed class ChangeFile
     }
 }
 
+/// <summary>The changes of a range of versions and the table state whose schema they are read with.</summary>
+public sealed class ChangeRange
+{
+    /// <summary>The files holding the changes, in commit order.</summary>
+    public required List<ChangeFile> Files { get; init; }
+
+    /// <summary>
+    /// The table at the version whose schema the changes are read with (Spark's choice): the end version when the
+    /// table maps columns (at its latest version), else the latest version.
+    /// </summary>
+    public required Snapshot ReadSnapshot { get; init; }
+}
+
 /// <summary>Finds the files that hold the row-level changes between two versions of a table.</summary>
 public static class ChangeFeed
 {
@@ -87,8 +101,31 @@ public static class ChangeFeed
     /// </param>
     /// <param name="parquet">Reads checkpoints, see <see cref="Snapshot.Load"/>.</param>
     /// <exception cref="DeltaException">A version is not in the log, or the feed was not enabled.</exception>
+    /// <param name="allowSchemaChanges">Read the range even when the table's schema changed in it in a way the read
+    /// schema cannot hold (Spark's <c>unsafeBatchReadOnIncompatibleSchemaChanges</c>); see <see cref="ReadRange"/>.</param>
     public static List<ChangeFile> Read(
-        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true, IParquetReader? parquet = null)
+        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        bool allowSchemaChanges = false) =>
+        ReadRange(fileSystem, startVersion, endVersion, requireEnabled, parquet, allowSchemaChanges).Files;
+
+    /// <summary>
+    /// The change files of the commits from <paramref name="startVersion"/> to <paramref name="endVersion"/> (both
+    /// included), and the table state whose schema they are read with. As Spark, a range is refused when the table's
+    /// schema in it cannot be read with that schema: a column renamed, dropped (or dropped and added again) or
+    /// changed in type. The change feed does not record such changes, so a consumer replaying it
+    /// would not see them; read the parts before and after the change separately. Columns added are fine.
+    /// </summary>
+    /// <param name="fileSystem">The table storage.</param>
+    /// <param name="startVersion">The first commit to report.</param>
+    /// <param name="endVersion">The last commit to report, or null for the latest.</param>
+    /// <param name="requireEnabled">Fail unless the change data feed was enabled for the whole range.</param>
+    /// <param name="parquet">Reads checkpoints, see <see cref="Snapshot.Load"/>.</param>
+    /// <param name="allowSchemaChanges">Skip the schema check: older changes are read with the read schema, by
+    /// physical name under column mapping (Spark's <c>unsafeBatchReadOnIncompatibleSchemaChanges</c>).</param>
+    /// <exception cref="DeltaException">A version is not in the log, the feed was not enabled, or the schema changed incompatibly.</exception>
+    public static ChangeRange ReadRange(
+        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        bool allowSchemaChanges = false)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
 
@@ -110,6 +147,16 @@ public static class ChangeFeed
             metadata = before.Metadata;
         }
 
+        // Spark reads a column-mapped table with the end version's schema, any other with the latest one.
+        Snapshot latest = Snapshot.Load(fileSystem, null, parquet);
+        Snapshot readSnapshot = latest.ColumnMappingMode != ColumnMappingMode.None && end != latest.Version
+            ? Snapshot.Load(fileSystem, end, parquet)
+            : latest;
+        bool byPhysicalName = readSnapshot.ColumnMappingMode != ColumnMappingMode.None;
+        StructType readSchema = readSnapshot.Schema;
+        long? changedAt = null;
+        MetadataAction? startMetadata = null;
+
         var result = new List<ChangeFile>();
         for (long version = startVersion; version <= end; version++)
         {
@@ -117,11 +164,20 @@ public static class ChangeFeed
                 ?? throw new DeltaException($"The commit of version {version} disappeared while reading the log.");
             List<DeltaAction> actions = ActionParser.ParseCommit(content);
 
+            bool metadataChanged = false;
             foreach (DeltaAction action in actions)
             {
                 if (action is ProtocolAction p) protocol = p;
-                else if (action is MetadataAction m) metadata = m;
+                else if (action is MetadataAction m)
+                {
+                    metadata = m;
+                    metadataChanged = true;
+                }
             }
+            if (version == startVersion) startMetadata = metadata;
+            else if (metadataChanged && changedAt is null && !allowSchemaChanges && metadata is not null
+                && !ReadCompatible(StructType.Parse(metadata.SchemaString), readSchema, byPhysicalName))
+                changedAt = version;
             if (protocol is null || metadata is null)
                 throw new DeltaException($"The commit of version {version} comes before any protocol or metaData action.");
             TableFeatures.EnsureReadable(protocol, metadata);
@@ -130,7 +186,49 @@ public static class ChangeFeed
 
             AppendCommit(result, actions, version, timeline.TimestampOf(version));
         }
-        return result;
+
+        if (changedAt is long at)
+            throw new DeltaException(
+                $"Reading the changes from version {startVersion} to {end} failed: the schema changed incompatibly at version {at} " +
+                $"(a column renamed, dropped or changed in type), and the changes are read with the schema of version {readSnapshot.Version}. " +
+                $"Read versions {startVersion} to {at - 1} and {at} to {end} separately, or allow schema changes.");
+        if (!allowSchemaChanges && startMetadata is not null
+            && !ReadCompatible(StructType.Parse(startMetadata.SchemaString), readSchema, byPhysicalName))
+            throw new DeltaException(
+                $"Reading the changes from version {startVersion} to {end} failed: the data of version {startVersion} cannot be read with " +
+                $"the schema of version {readSnapshot.Version}, which renamed, dropped or changed the type of a column. Start the range " +
+                "at the version that made the change, or allow schema changes.");
+        return new ChangeRange { Files = result, ReadSnapshot = readSnapshot };
+    }
+
+    /// <summary>
+    /// Whether data written with <paramref name="data"/> reads correctly with <paramref name="read"/>, as Spark's
+    /// <c>isReadCompatible</c>: every field is still there (names any case; under column mapping the same physical
+    /// field too, so a column dropped and added again does not pass) and of the same type (a widening does not pass).
+    /// Fields the read schema adds are fine; nullability is not compared (Spark reads across NOT NULL changes).
+    /// </summary>
+    internal static bool ReadCompatible(DeltaType data, DeltaType read, bool byPhysicalName)
+    {
+        switch (data, read)
+        {
+            case (StructType d, StructType r):
+                foreach (StructField field in d.Fields)
+                {
+                    StructField? match = r.Fields.FirstOrDefault(f => string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+                    if (match is null) return false;
+                    if (byPhysicalName && match.PhysicalName != field.PhysicalName) return false;
+                    if (!ReadCompatible(field.Type, match.Type, byPhysicalName)) return false;
+                }
+                return true;
+            case (ArrayType d, ArrayType r):
+                return ReadCompatible(d.ElementType, r.ElementType, byPhysicalName);
+            case (MapType d, MapType r):
+                return ReadCompatible(d.KeyType, r.KeyType, byPhysicalName) && ReadCompatible(d.ValueType, r.ValueType, byPhysicalName);
+            case (StructType or ArrayType or MapType, _) or (_, StructType or ArrayType or MapType):
+                return false;
+            default:
+                return data.ToString() == read.ToString();
+        }
     }
 
     /// <summary>
@@ -138,20 +236,30 @@ public static class ChangeFeed
     /// included. Returns an empty list when no commit falls in the range.
     /// </summary>
     public static List<ChangeFile> ReadBetween(
-        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, IParquetReader? parquet = null)
+        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        bool allowSchemaChanges = false) =>
+        ReadRangeBetween(fileSystem, start, end, requireEnabled, parquet, allowSchemaChanges)?.Files ?? [];
+
+    /// <summary>
+    /// <see cref="ReadRange"/> for the commits made from <paramref name="start"/> to <paramref name="end"/>, both
+    /// included; null when no commit falls in the range.
+    /// </summary>
+    public static ChangeRange? ReadRangeBetween(
+        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        bool allowSchemaChanges = false)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
 
         CommitTimeline timeline = CommitTimeline.Load(fileSystem, parquet);
         long? first = timeline.VersionAtOrAfter(start);
-        if (first is null) return [];
+        if (first is null) return null;
         long last = timeline.LatestVersion;
         if (end is DateTimeOffset until)
         {
-            if (until < timeline.TimestampOf(timeline.EarliestVersion)) return [];
+            if (until < timeline.TimestampOf(timeline.EarliestVersion)) return null;
             last = timeline.VersionAsOf(until);
         }
-        return first > last ? [] : Read(fileSystem, first.Value, last, requireEnabled, parquet);
+        return first > last ? null : ReadRange(fileSystem, first.Value, last, requireEnabled, parquet, allowSchemaChanges);
     }
 
     private static void AppendCommit(List<ChangeFile> result, List<DeltaAction> actions, long version, DateTimeOffset timestamp)

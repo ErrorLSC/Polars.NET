@@ -31,9 +31,9 @@ public class AlterColumnTests
     private static MemoryFileSystem Table(bool partitioned = true, bool mapped = true, bool widening = true, string? statsColumns = "a,b,s.x")
     {
         var fs = new MemoryFileSystem();
-        var configuration = new Dictionary<string, string>();
-        var readerFeatures = new List<string>();
-        var writerFeatures = new List<string> { "appendOnly", "invariants" };
+        Dictionary<string, string> configuration = [];
+        List<string> readerFeatures = [];
+        List<string> writerFeatures = ["appendOnly", "invariants"];
         if (mapped)
         {
             configuration["delta.columnMapping.mode"] = "name";

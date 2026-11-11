@@ -749,6 +749,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="startVersion">The starting version (inclusive).</param>
     /// <param name="endVersion">The ending version (inclusive).</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream.</returns>
     public LazyFrame ReadChangeDataFeed(
         string catalogName,
@@ -756,7 +757,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string tableName,
         long startVersion,
         long endVersion,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool allowSchemaChanges = false)
     {
         if (startVersion > endVersion)
         {
@@ -780,7 +782,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            allowSchemaChanges
         );
 
         return new LazyFrame(handle);
@@ -796,6 +799,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="startTimestamp">The starting datetime (inclusive).</param>
     /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
     public LazyFrame ReadChangeDataFeed(
         string catalogName,
@@ -803,7 +807,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string tableName,
         DateTime startTimestamp,
         DateTime? endTimestamp = null,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool allowSchemaChanges = false)
     {
         DateTime actualEnd = endTimestamp ?? DateTime.UtcNow;
 
@@ -832,7 +837,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             maxBackoff,
             cacheTtl,
             keys,
-            values
+            values,
+            allowSchemaChanges
         );
 
         return new LazyFrame(handle);

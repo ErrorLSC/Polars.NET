@@ -156,35 +156,38 @@ public static class DeltaKernelScan
     /// Reads the row-level changes of the commits from <paramref name="startVersion"/> to
     /// <paramref name="endVersion"/>, both included: the table's columns followed by
     /// <see cref="ChangeTypeColumn"/>, <see cref="CommitVersionColumn"/> and <see cref="CommitTimestampColumn"/>.
-    /// The columns are those of the table at the end version.
+    /// The columns are those Spark reads the range with: the table's at the end version when it maps columns, else at
+    /// the latest version.
     /// </summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="startVersion">The first commit to report.</param>
     /// <param name="endVersion">The last commit to report; null for the latest.</param>
     /// <param name="requireEnabled">Fail unless the change data feed was enabled for the whole range.</param>
     /// <param name="cloud">Cloud settings for a cloud URL; null for a local table.</param>
+    /// <param name="allowSchemaChanges">Read a range across a schema change Spark refuses to read across (see
+    /// <see cref="ChangeFeed.ReadRange"/>).</param>
     public static LazyFrameHandle ReadChangeFeed(
-        string tablePath, long startVersion, long? endVersion = null, bool requireEnabled = true, CloudArgs? cloud = null) =>
+        string tablePath, long startVersion, long? endVersion = null, bool requireEnabled = true, CloudArgs? cloud = null,
+        bool allowSchemaChanges = false) =>
         WithTable(tablePath, cloud, (fileSystem, root, parquet) =>
         {
-            List<ChangeFile> changes = ChangeFeed.Read(fileSystem, startVersion, endVersion, requireEnabled, parquet);
-            Snapshot snapshot = Snapshot.Load(fileSystem, endVersion, parquet);
-            return ChangeFrame(fileSystem, root, snapshot, changes, cloud ?? CloudArgs.Local);
+            ChangeRange range = ChangeFeed.ReadRange(fileSystem, startVersion, endVersion, requireEnabled, parquet, allowSchemaChanges);
+            return ChangeFrame(fileSystem, root, range.ReadSnapshot, range.Files, cloud ?? CloudArgs.Local);
         });
 
     /// <summary>
     /// Reads the row-level changes of the commits made from <paramref name="start"/> to <paramref name="end"/>,
-    /// both included. See <see cref="ReadChangeFeed(string, long, long?, bool, CloudArgs?)"/>.
+    /// both included. See <see cref="ReadChangeFeed(string, long, long?, bool, CloudArgs?, bool)"/>.
     /// </summary>
     public static LazyFrameHandle ReadChangeFeed(
-        string tablePath, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, CloudArgs? cloud = null) =>
+        string tablePath, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, CloudArgs? cloud = null,
+        bool allowSchemaChanges = false) =>
         WithTable(tablePath, cloud, (fileSystem, root, parquet) =>
         {
-            List<ChangeFile> changes = ChangeFeed.ReadBetween(fileSystem, start, end, requireEnabled, parquet);
-            Snapshot snapshot = changes.Count > 0
-                ? Snapshot.Load(fileSystem, changes[^1].Version, parquet)
-                : Snapshot.Load(fileSystem, null, parquet);
-            return ChangeFrame(fileSystem, root, snapshot, changes, cloud ?? CloudArgs.Local);
+            ChangeRange? range = ChangeFeed.ReadRangeBetween(fileSystem, start, end, requireEnabled, parquet, allowSchemaChanges);
+            return range is null
+                ? ChangeFrame(fileSystem, root, Snapshot.Load(fileSystem, null, parquet), [], cloud ?? CloudArgs.Local)
+                : ChangeFrame(fileSystem, root, range.ReadSnapshot, range.Files, cloud ?? CloudArgs.Local);
         });
 
     private static LazyFrameHandle WithTable(

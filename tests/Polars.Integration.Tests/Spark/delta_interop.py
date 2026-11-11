@@ -130,10 +130,12 @@ def write(spark, root):
     read_changes(spark, tables[0])
 
 
-def read_changes(spark, path, start=0):
-    """The change feed from version start (0 by default), without the commit time."""
-    df = (spark.read.format("delta").option("readChangeFeed", "true").option("startingVersion", start).load(path)
-          .drop("_commit_timestamp"))
+def read_changes(spark, path, start=0, end=None):
+    """The change feed from version start (0 by default) to end (the latest by default), without the commit time."""
+    reader = spark.read.format("delta").option("readChangeFeed", "true").option("startingVersion", start)
+    if end is not None:
+        reader = reader.option("endingVersion", end)
+    df = reader.load(path).drop("_commit_timestamp")
     rows = [canonical(r) for r in df.collect()]
     rows.sort(key=lambda r: (r["_commit_version"], r["id"], r["_change_type"]))
     print(json.dumps({"path": path, "changes": True, "rows": rows}, ensure_ascii=False), flush=True)
@@ -162,6 +164,17 @@ def run(spark, command, args):
         path, start = args[0], int(args[1])
         read(spark, path)
         read_changes(spark, path, start)
+    elif command == "read_changes_range":
+        # The change feed from start to end only; a refused range prints its error class instead of failing.
+        path, start, end = args[0], int(args[1]), int(args[2])
+        try:
+            read_changes(spark, path, start, end)
+        except Exception as e:
+            text = str(e)
+            kind = next((k for k in ("DELTA_CHANGE_DATA_FEED_INCOMPATIBLE_SCHEMA_CHANGE", "DELTA_CHANGE_DATA_FEED_INCOMPATIBLE_DATA_SCHEMA") if k in text), None)
+            if kind is None:
+                raise
+            print(json.dumps({"path": path, "refused": kind}), flush=True)
     elif command == "delete":
         # DELETE FROM the table WHERE the given SQL condition; then the table.
         path, condition = args[0], args[1]

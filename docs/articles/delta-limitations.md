@@ -45,7 +45,6 @@ A table that needs a feature not listed here is refused with an error naming the
 These differences are deliberate: each avoids a state Spark can leave a table in, or saves work.
 
 * **Dropping a struct that holds a clustering column is refused.** Spark refuses dropping a clustering column but allows dropping the struct that holds it, after which its later `ALTER TABLE` changes on the table fail.
-* **The change data feed reads across column changes.** Spark refuses to read changes over a range that includes a rename or a drop. Polars.NET reads such a range in the schema of the last version read: rows written before a rename come under the new name, and a dropped column is left out of every row.
 * **Turning on row tracking for an existing table is one commit** (Spark takes three: protocol, backfill, property), so no reader sees the table half done. Lifting `delta.rowTrackingSuspended` and turning tracking on can also be one change, and a table with both set (which Spark cannot repair) is repaired by setting either to false.
 * **Identity values of one write are consecutive.** Spark leaves gaps between its tasks.
 * **Optimize clusters a table into one cube per run.** Spark splits very large runs into cubes of about 150 GiB.

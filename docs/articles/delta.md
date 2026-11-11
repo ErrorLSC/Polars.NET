@@ -41,12 +41,7 @@ Polars.NET supports both Eager (`DataFrame`) and Lazy (`LazyFrame`) modes for De
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
-var df = DataFrame.FromColumns(new
-{
-    Id = new[] { 1, 2, 3, 4 },
-    Device = new[] { "A", "A", "B", "B" },
-    Reading = new[] { 45.2, 78.0, 22.5, 91.3 }
-});
+var df = DataFrame.From<DeviceReading>([new(1, "A", 45.2), new(2, "A", 78.0), new(3, "B", 22.5), new(4, "B", 91.3)]);
 
 // 1. Atomically overwrite a Delta table with Hive-style directory partitioning
 df.WriteDelta(
@@ -59,6 +54,8 @@ df.WriteDelta(
 // 2. Lazily scan the Delta table (with automatic partition pruning)
 var lf = LazyFrame.ScanDelta("./lake/devices");
 var collected = lf.Filter(Col("Device") == "A").Collect();
+
+record DeviceReading(int Id, string Device, double Reading);
 ```
 
 ```fsharp [F# (Pipeline)]
@@ -172,7 +169,7 @@ Polars.NET provides native table maintenance operations:
 long compactedFiles = Delta.Optimize(
     path: "./lake/devices",
     targetSizeMb: 128,
-    zOrderColumns: new[] { "Id", "Device" }
+    zOrderColumns: ["Id", "Device"]
 );
 
 // 2. Purge unreferenced files older than 7 days (168 hours)
@@ -211,6 +208,8 @@ When `DeltaTableProperties.EnableChangeDataFeed` is enabled, row-level mutations
 
 > [!NOTE] Reading the feed
 > As in Spark, the feed can be read only for versions at which it was enabled; a range that starts earlier is refused. `_commit_version` is `Int64` and `_commit_timestamp` is `Datetime(us, UTC)`.
+>
+> The changes are read with one schema, as Spark reads them: the table's at the end version when it maps columns, else its latest. The feed records data changes only, not schema changes, so a range across a column rename, drop or type change is refused, as in Spark: read the parts before and after the change separately, so that whoever consumes the feed can apply the change in between. `allowSchemaChanges: true` reads such a range anyway (Spark's `unsafeBatchReadOnIncompatibleSchemaChanges`): earlier changes come in the read schema, under a renamed column's new name, and without the values of dropped columns.
 
 ::: code-group
 
@@ -260,18 +259,12 @@ Polars.NET provides `MergeDeltaOrdered`, ensuring strict evaluation matching ANS
 ::: code-group
 
 ```csharp [C# (Fluent)]
-var sourceBatch = DataFrame.FromColumns(new
-{
-    Id = new[] { 2, 4, 5 },
-    Device = new[] { "A", "B", "C" },
-    Reading = new[] { 85.0, 95.5, 33.1 },
-    IsDeleted = new[] { false, true, false }
-});
+var sourceBatch = DataFrame.From<IncomingReading>([new(2, "A", 85.0, false), new(4, "B", 95.5, true), new(5, "C", 33.1, false)]);
 
 // Chain merge actions in strict evaluation order
 sourceBatch.MergeDeltaOrdered(
     path: "./lake/devices",
-    mergeKeys: new[] { "Id" },
+    mergeKeys: ["Id"],
     canEvolve: true // Enable automatic schema evolution
 )
 // 1. Delete rows marked as deleted in the source
@@ -285,6 +278,8 @@ sourceBatch.MergeDeltaOrdered(
 
 // 4. Atomically commit the transaction
 .Execute();
+
+record IncomingReading(int Id, string Device, double Reading, bool IsDeleted);
 ```
 
 ```fsharp [F# (Pipeline)]
@@ -322,14 +317,14 @@ To update target rows from a frame by key, `UpdateDelta` is a merge with only a 
 
 ```csharp [C# (Fluent)]
 // Double the reading of device 2 only
-Delta.Update("./lake/devices", Polars.Col("Id") == 2,
-    new Dictionary<string, Expr> { ["Reading"] = Polars.Col("Reading") * 2.0 });
+Delta.Update("./lake/devices", Pl.Col("Id") == 2,
+    new Dictionary<string, Expr> { ["Reading"] = Pl.Col("Reading") * 2.0 });
 
 // Update matched rows by key; unmatched rows are not inserted
-sourceBatch.UpdateDelta("./lake/devices", mergeKeys: new[] { "Id" });
+sourceBatch.UpdateDelta("./lake/devices", mergeKeys:  ["Id"]);
 
 // Only where the incoming reading is higher than the stored one
-sourceBatch.UpdateDelta("./lake/devices", new[] { "Id" }, m => m.Source("Reading") > m.Target("Reading"));
+sourceBatch.UpdateDelta("./lake/devices", ["Id"], m => m.Source("Reading") > m.Target("Reading"));
 ```
 
 ```fsharp [F# (Pipeline)]

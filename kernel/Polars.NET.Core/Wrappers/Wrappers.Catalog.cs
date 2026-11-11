@@ -570,7 +570,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        bool allowSchemaChanges = false
     )
     {
         TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
@@ -586,7 +587,8 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues);
+            cloudValues,
+            allowSchemaChanges);
     }
 
     public static LazyFrameHandle CatalogReadCdcByTime(
@@ -603,7 +605,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        bool allowSchemaChanges = false
     )
     {
         TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
@@ -619,6 +622,7 @@ public readonly partial struct PolarsWrapper
             cloudRetryMaxBackoffMs,
             cloudCacheTtl,
             cloudKeys,
-            cloudValues);
+            cloudValues,
+            allowSchemaChanges);
     }
 }

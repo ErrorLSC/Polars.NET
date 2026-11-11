@@ -98,7 +98,8 @@ public partial class SparkColumnDdlTests
         InRoot(root =>
         {
             string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
-            foreach (string table in new[] { kernel, spark })
+            string[] tables = [kernel, spark];
+            foreach (string table in tables)
             {
                 LocalSpark.Run("sql", table, Create.Replace("{mapping}", mapping, StringComparison.Ordinal));
                 LocalSpark.Run("sql", table, Rows);
@@ -174,6 +175,86 @@ public partial class SparkColumnDdlTests
             Assert.DoesNotContain("\"one\"", Spark(table).Rows);
             using DataFrame read = DataFrame.ReadDelta(table).Sort("id");
             Assert.Equal([null, null, "new"], read["b"].ToArray<string?>());
+        });
+    }
+
+    // ------------------------------------------------------------------ change data feed across schema changes
+
+    /// <summary>The changes the kernel reads for a range ("version:id:type" in order, then the columns), or the refusal.</summary>
+    private static string KernelChanges(string table, long start, long end, bool allowSchemaChanges = false)
+    {
+        try
+        {
+            using DataFrame changes = Delta.ReadChangeDataFeed(table, start, end, allowSchemaChanges: allowSchemaChanges).Collect();
+            long[] versions = changes["_commit_version"].ToArray<long>();
+            long[] ids = changes["id"].Cast(DataType.Int64).ToArray<long>();
+            string[] types = changes["_change_type"].ToArray<string>();
+            string rows = string.Join(" ", Enumerable.Range(0, (int)changes.Height).Select(i => $"{versions[i]}:{ids[i]}:{types[i]}").Order(StringComparer.Ordinal));
+            return rows + " | " + (changes.Height == 0 ? "" : string.Join(",", changes.Columns.Where(c => c != "_commit_timestamp")));
+        }
+        catch (Polars.NET.Core.Exceptions.PolarsException e) when (e.Message.Contains("schema", StringComparison.Ordinal))
+        {
+            return "refused";
+        }
+    }
+
+    private static string SparkChanges(string table, long start, long end)
+    {
+        JsonElement result = LocalSpark.Run("read_changes_range", table, start.ToString(), end.ToString())[0].RootElement;
+        if (result.TryGetProperty("refused", out _)) return "refused";
+        JsonElement[] rows = [.. result.GetProperty("rows").EnumerateArray()];
+        string described = string.Join(" ", rows.Select(r => $"{r.GetProperty("_commit_version").GetInt64()}:{r.GetProperty("id").GetInt64()}:{r.GetProperty("_change_type").GetString()}").Order(StringComparer.Ordinal));
+        return described + " | " + (rows.Length == 0 ? "" : string.Join(",", rows[0].EnumerateObject().Select(p => p.Name)));
+    }
+
+    [SparkTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [Trait("DeltaKernel", "Spark")]
+    public void ChangeFeed_RefusesTheRangesSparkRefuses_AndReadsTheOthersAsSpark(bool mapped)
+    {
+        InRoot(root =>
+        {
+            string table = Path.Combine(root, "table");
+            LocalSpark.Run("sql", table,
+                "CREATE TABLE {table} (id INT, b STRING, c STRING) USING delta TBLPROPERTIES (" +
+                (mapped ? "'delta.columnMapping.mode'='name', " : "") + "'delta.enableChangeDataFeed'='true', 'delta.enableTypeWidening'='true')");
+            string[] steps = mapped
+                ?
+                [
+                    "INSERT INTO {table} VALUES (1, 'b', 'c')", "ALTER TABLE {table} ADD COLUMN d STRING", "INSERT INTO {table} VALUES (2, 'b', 'c', 'd')",
+                    "ALTER TABLE {table} RENAME COLUMN b TO b2", "INSERT INTO {table} VALUES (3, 'b', 'c', 'd')",
+                    "ALTER TABLE {table} DROP COLUMN c", "INSERT INTO {table} VALUES (4, 'b', 'd')",
+                    "ALTER TABLE {table} ADD COLUMN c STRING", "INSERT INTO {table} VALUES (5, 'b', 'd', 'c')", // c again: a new column
+                    "ALTER TABLE {table} ALTER COLUMN id TYPE BIGINT", "INSERT INTO {table} VALUES (6, 'b', 'd', 'c')",
+                ]
+                :
+                [
+                    "INSERT INTO {table} VALUES (1, 'b', 'c')", "ALTER TABLE {table} ADD COLUMN d STRING", "INSERT INTO {table} VALUES (2, 'b', 'c', 'd')",
+                    "ALTER TABLE {table} ALTER COLUMN id TYPE BIGINT", "INSERT INTO {table} VALUES (3, 'b', 'c', 'd')",
+                    "ALTER TABLE {table} SET TBLPROPERTIES ('x'='y')", "INSERT INTO {table} VALUES (4, 'b', 'c', 'd')",
+                ];
+            foreach (string step in steps) LocalSpark.Run("sql", table, step);
+
+            int refused = 0;
+            for (long start = 0; start <= steps.Length; start++)
+            {
+                for (long end = start; end <= steps.Length; end++)
+                {
+                    string spark = SparkChanges(table, start, end);
+                    Assert.True(spark == KernelChanges(table, start, end), $"[{start}, {end}]: Spark {spark}, kernel {KernelChanges(table, start, end)}");
+                    if (spark == "refused") refused++;
+                }
+            }
+            Assert.True(refused > 10); // the check is exercised, not vacuous
+
+            // Allowed explicitly, the whole feed reads in the read schema (end version's under column mapping).
+            string[] inserts = mapped
+                ? ["1:1:insert", "3:2:insert", "5:3:insert", "7:4:insert", "9:5:insert", "11:6:insert"]
+                : ["1:1:insert", "3:2:insert", "5:3:insert", "7:4:insert"];
+            string columns = mapped ? "id,b2,d,c,_change_type,_commit_version" : "id,b,c,d,_change_type,_commit_version";
+            Assert.Equal(string.Join(" ", inserts.Order(StringComparer.Ordinal)) + " | " + columns,
+                KernelChanges(table, 0, steps.Length, allowSchemaChanges: true));
         });
     }
 }

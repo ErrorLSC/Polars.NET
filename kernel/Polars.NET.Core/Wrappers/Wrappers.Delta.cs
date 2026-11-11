@@ -394,11 +394,12 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        bool allowSchemaChanges = false
     )
     {
         return Delta.DeltaKernelScan.ReadChangeFeed(path, startVersion, endVersion, requireEnabled: true, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path), allowSchemaChanges);
     }
     public static LazyFrameHandle DeltaReadCdcByTime(
         string path,
@@ -411,11 +412,12 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        bool allowSchemaChanges = false
     )
     {
         return Delta.DeltaKernelScan.ReadChangeFeed(path, DateTimeOffset.FromUnixTimeMilliseconds(startTimestampMs),
             DateTimeOffset.FromUnixTimeMilliseconds(endTimestampMs), requireEnabled: true, new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path));
+            cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path), allowSchemaChanges);
     }
 }

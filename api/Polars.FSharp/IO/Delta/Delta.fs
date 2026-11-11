@@ -670,12 +670,14 @@ type Delta =
     /// <param name="startVersion">The starting version (inclusive).</param>
     /// <param name="endVersion">The ending version (inclusive).</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream.</returns>
     static member ReadChangeDataFeed(
         path: string,
         startVersion: int64,
         endVersion: int64,
-        ?cloudOptions: CloudOptions
+        ?cloudOptions: CloudOptions,
+        ?allowSchemaChanges: bool
     ) : LazyFrame =
         if startVersion > endVersion then
             invalidArg "startVersion" "startVersion cannot be greater than endVersion."
@@ -695,7 +697,8 @@ type Delta =
                 maxBackoff,
                 cacheTtl,
                 keys,
-                values
+                values,
+                defaultArg allowSchemaChanges false
             )
 
         new LazyFrame(handle)
@@ -708,12 +711,14 @@ type Delta =
     /// <param name="startTimestamp">The starting datetime (inclusive).</param>
     /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
     static member ReadChangeDataFeed(
         path: string,
         startTimestamp: System.DateTime,
         ?endTimestamp: System.DateTime,
-        ?cloudOptions: CloudOptions
+        ?cloudOptions: CloudOptions,
+        ?allowSchemaChanges: bool
     ) : LazyFrame =
         let actualEnd = defaultArg endTimestamp System.DateTime.UtcNow
 
@@ -738,7 +743,8 @@ type Delta =
                 maxBackoff,
                 cacheTtl,
                 keys,
-                values
+                values,
+                defaultArg allowSchemaChanges false
             )
 
         new LazyFrame(handle)
@@ -1505,6 +1511,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     /// <param name="startVersion">The starting version (inclusive).</param>
     /// <param name="endVersion">The ending version (inclusive).</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream.</returns>
     member this.ReadChangeDataFeed(
         catalogName: string,
@@ -1512,7 +1519,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         tableName: string,
         startVersion: int64,
         endVersion: int64,
-        ?cloudOptions: CloudOptions
+        ?cloudOptions: CloudOptions,
+        ?allowSchemaChanges: bool
     ) : LazyFrame =
         if startVersion > endVersion then
             invalidArg "startVersion" "startVersion cannot be greater than endVersion."
@@ -1535,7 +1543,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
                 maxBackoff,
                 cacheTtl,
                 keys,
-                values
+                values,
+                defaultArg allowSchemaChanges false
             )
 
         new LazyFrame(handle)
@@ -1550,6 +1559,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     /// <param name="startTimestamp">The starting datetime (inclusive).</param>
     /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
     /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <param name="allowSchemaChanges">Read a range across a change Spark refuses to read across (a column renamed, dropped or changed in type), with the schema the changes are read with; by default such a range is refused, as in Spark, since the feed does not record the change (read the parts before and after it separately).</param>
     /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
     member this.ReadChangeDataFeed(
         catalogName: string,
@@ -1557,7 +1567,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         tableName: string,
         startTimestamp: System.DateTime,
         ?endTimestamp: System.DateTime,
-        ?cloudOptions: CloudOptions
+        ?cloudOptions: CloudOptions,
+        ?allowSchemaChanges: bool
     ) : LazyFrame =
         let actualEnd = defaultArg endTimestamp System.DateTime.UtcNow
 
@@ -1585,7 +1596,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
                 maxBackoff,
                 cacheTtl,
                 keys,
-                values
+                values,
+                defaultArg allowSchemaChanges false
             )
 
         new LazyFrame(handle)
