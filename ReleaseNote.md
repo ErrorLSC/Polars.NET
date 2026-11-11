@@ -21,6 +21,7 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 * `AddFeature` and `SetTableProperties` follow Spark's `ALTER TABLE ... SET TBLPROPERTIES`: properties that turn a feature on bring it into the protocol, `delta.feature.<name>` adds a feature, `delta.minReaderVersion` / `delta.minWriterVersion` raise the versions. Column mapping can be turned on (`none` to `name`), and in-commit timestamps for an existing table.
 * The table properties `delta.dataSkippingNumIndexedCols` and `delta.dataSkippingStatsColumns` choose the columns that get statistics.
 * Delete, merge and optimize are retried as a whole when another writer's commit conflicts with them (`POLARS_DELTA_MAX_RETRIES`, 5 by default); files of a failed attempt are removed.
+* On S3, the kernel's own file access (log, checkpoints, deletion vectors, vacuum listings) goes through a managed S3 client when static credentials are given (configuration keys, `AWS_*` environment variables, or credentials vended by Unity Catalog). The same configuration keys apply as before. Other setups (instance metadata, web identity, profiles in `~/.aws/credentials`, server-side encryption, requester pays, proxies) and other stores keep using the native object store. `POLARS_NET_OBJECT_STORE=native` always uses the native store; `managed` makes a setup the managed client cannot serve an error instead of a fallback.
 
 ### Behaviour changes
 

@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Seseragi.Lakehouse.Tests" />
+    <InternalsVisibleTo Include="Polars.Integration.Tests" />
   </ItemGroup>
 
   <ItemGroup>

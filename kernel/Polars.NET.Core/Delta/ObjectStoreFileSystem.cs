@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Lakehouse.Storage;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Native;
@@ -56,26 +57,64 @@ public sealed record CloudArgs(
     }
 }
 
+/// <summary>Which object store implementation serves the Delta kernel's file access.</summary>
+public enum ObjectStoreBackend
+{
+    /// <summary>The managed clients where they serve the location and settings, else the native store.</summary>
+    Auto,
+
+    /// <summary>The managed clients only; a location they cannot serve is an error (the reason is in the message).</summary>
+    Managed,
+
+    /// <summary>The native store only.</summary>
+    Native,
+}
+
 /// <summary>
-/// A table on an object store (or a local path), reached through the store the engine itself uses, so the same
-/// credentials and retry settings apply to the log as to the data.
+/// A table on an object store (or a local path). S3 locations are served by the managed clients
+/// (<see cref="CloudStorage"/>) when they implement the given settings; anything else goes through the native store
+/// the engine itself uses, with the same credentials and retry settings.
 /// </summary>
 public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
 {
-    private readonly StorageHandle _handle;
+    /// <summary>The environment variable choosing the backend: <c>auto</c> (default), <c>managed</c> or <c>native</c>.</summary>
+    public const string BackendVariable = "POLARS_NET_OBJECT_STORE";
+
+    private readonly CloudFileSystem? _managed;
+    private readonly StorageHandle? _handle;
     private readonly string _root;
     private readonly CloudArgs _cloud;
-    // Stores opened for absolute URIs outside the table, by the directory of the file.
+    // Native stores opened for absolute URIs outside the table, by the directory of the file.
     private readonly Dictionary<string, ObjectStoreFileSystem> _outside = new(StringComparer.Ordinal);
+
+    /// <summary>The backend <see cref="BackendVariable"/> selects.</summary>
+    public static ObjectStoreBackend ConfiguredBackend =>
+        Environment.GetEnvironmentVariable(BackendVariable)?.Trim().ToLowerInvariant() switch
+        {
+            "managed" => ObjectStoreBackend.Managed,
+            "native" => ObjectStoreBackend.Native,
+            _ => ObjectStoreBackend.Auto,
+        };
 
     /// <summary>Opens the store behind a table location.</summary>
     /// <param name="tableUrl">The table location: a cloud URL or a local path.</param>
     /// <param name="cloud">Cloud settings; null for none.</param>
-    public ObjectStoreFileSystem(string tableUrl, CloudArgs? cloud = null)
+    /// <param name="backend">The implementation to use; null for <see cref="ConfiguredBackend"/>.</param>
+    public ObjectStoreFileSystem(string tableUrl, CloudArgs? cloud = null, ObjectStoreBackend? backend = null)
     {
         cloud ??= CloudArgs.Local;
         _root = tableUrl.TrimEnd('/');
         _cloud = cloud;
+        backend ??= ConfiguredBackend;
+
+        if (backend != ObjectStoreBackend.Native)
+        {
+            _managed = CloudStorage.TryOpen(_root, Options(cloud), Retry(cloud), out string? reason);
+            if (_managed is not null) return;
+            if (backend == ObjectStoreBackend.Managed)
+                throw new NotSupportedException($"The managed object store cannot open '{_root}': {reason}.");
+        }
+
         _handle = ErrorHelper.Check(NativeBindings.pl_storage_open(
             tableUrl,
             cloud.Provider,
@@ -89,10 +128,28 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
             (nuint)(cloud.Keys?.Length ?? 0)));
     }
 
+    /// <summary>The implementation serving this location: <c>managed</c> or <c>native</c>.</summary>
+    public string Implementation => _managed is null ? "native" : "managed";
+
+    private static Dictionary<string, string> Options(CloudArgs cloud)
+    {
+        var options = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (cloud.Keys is { } keys && cloud.Values is { } values)
+            for (int i = 0; i < Math.Min(keys.Length, values.Length); i++) options[keys[i]] = values[i];
+        return options;
+    }
+
+    private static RetrySettings Retry(CloudArgs cloud) => new(
+        (int)Math.Min(cloud.Retries, int.MaxValue),
+        TimeSpan.FromMilliseconds(cloud.RetryTimeoutMs),
+        TimeSpan.FromMilliseconds(cloud.RetryInitBackoffMs),
+        TimeSpan.FromMilliseconds(cloud.RetryMaxBackoffMs));
+
     /// <inheritdoc/>
     public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null)
     {
-        NativeBindings.pl_storage_list(_handle, directory, startFrom, out FfiBuffer raw);
+        if (_managed is not null) return _managed.List(directory, startFrom);
+        NativeBindings.pl_storage_list(_handle!, directory, startFrom, out FfiBuffer raw);
         byte[] bytes = NativeBuffer.TakeToArray(raw);
         ErrorHelper.CheckVoid();
         return Parse(bytes, directory);
@@ -112,23 +169,31 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
                 DateTimeOffset.FromUnixTimeMilliseconds(long.Parse(parts[2], CultureInfo.InvariantCulture))));
         }
         entries.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
+        // Listing from an offset fetches the file named exactly the offset on its own; Azure's offset listing
+        // (startFrom) already includes it, so it would be reported twice.
+        int kept = 0;
+        for (int i = 0; i < entries.Count; i++)
+            if (kept == 0 || entries[i].Path != entries[kept - 1].Path) entries[kept++] = entries[i];
+        entries.RemoveRange(kept, entries.Count - kept);
         return entries;
     }
 
     /// <inheritdoc/>
     public IReadOnlyList<FileEntry> ListAll(string directory)
     {
-        NativeBindings.pl_storage_list_all(_handle, directory, out FfiBuffer raw);
+        if (_managed is not null) return _managed.ListAll(directory);
+        NativeBindings.pl_storage_list_all(_handle!, directory, out FfiBuffer raw);
         byte[] bytes = NativeBuffer.TakeToArray(raw);
         ErrorHelper.CheckVoid();
         return Parse(bytes, directory);
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadAll(string path) => Read(path, 0, -1);
+    public byte[]? ReadAll(string path) => _managed is not null ? _managed.ReadAll(path) : Read(path, 0, -1);
 
     /// <inheritdoc/>
-    public byte[]? ReadRange(string path, long offset, int length) => Read(path, (ulong)offset, length);
+    public byte[]? ReadRange(string path, long offset, int length) =>
+        _managed is not null ? _managed.ReadRange(path, offset, length) : Read(path, (ulong)offset, length);
 
     private byte[]? Read(string path, ulong offset, long length)
     {
@@ -145,27 +210,33 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
                 int slash = path.LastIndexOf('/');
                 string directory = path[..slash];
                 if (!_outside.TryGetValue(directory, out ObjectStoreFileSystem? store))
-                    _outside[directory] = store = new ObjectStoreFileSystem(directory, _cloud);
+                    _outside[directory] = store = new ObjectStoreFileSystem(directory, _cloud, ObjectStoreBackend.Native);
                 return store.Read(Uri.UnescapeDataString(path[(slash + 1)..]), offset, length);
             }
         }
 
-        NativeBindings.pl_storage_read(_handle, path, offset, length, out FfiBuffer raw, out bool found);
+        NativeBindings.pl_storage_read(_handle!, path, offset, length, out FfiBuffer raw, out bool found);
         byte[] bytes = NativeBuffer.TakeToArray(raw);
         ErrorHelper.CheckVoid();
         return found ? bytes : null;
     }
 
     /// <inheritdoc/>
-    public bool TryCreate(string path, ReadOnlyMemory<byte> content) => Put(path, content, createOnly: true);
+    public bool TryCreate(string path, ReadOnlyMemory<byte> content) =>
+        _managed is not null ? _managed.TryCreate(path, content) : Put(path, content, createOnly: true);
 
     /// <inheritdoc/>
-    public void Overwrite(string path, ReadOnlyMemory<byte> content) => Put(path, content, createOnly: false);
+    public void Overwrite(string path, ReadOnlyMemory<byte> content)
+    {
+        if (_managed is not null) _managed.Overwrite(path, content);
+        else Put(path, content, createOnly: false);
+    }
 
     /// <inheritdoc/>
     public bool Delete(string path)
     {
-        NativeBindings.pl_storage_delete(_handle, path, out bool deleted);
+        if (_managed is not null) return _managed.Delete(path);
+        NativeBindings.pl_storage_delete(_handle!, path, out bool deleted);
         ErrorHelper.CheckVoid();
         return deleted;
     }
@@ -175,7 +246,7 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
         bool created;
         fixed (byte* data = content.Span)
         {
-            NativeBindings.pl_storage_put(_handle, path, data, (nuint)content.Length, createOnly, out created);
+            NativeBindings.pl_storage_put(_handle!, path, data, (nuint)content.Length, createOnly, out created);
         }
         ErrorHelper.CheckVoid();
         return created;
@@ -186,6 +257,6 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, IDisposable
     {
         foreach (ObjectStoreFileSystem store in _outside.Values) store.Dispose();
         _outside.Clear();
-        _handle.Dispose();
+        _handle?.Dispose();
     }
 }
