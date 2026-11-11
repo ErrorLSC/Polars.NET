@@ -7,20 +7,45 @@ namespace Kaminari.Seseragi.Lakehouse.Parquet;
 // stopgap until the engine can write Parquet maps (or Seseragi has its own Parquet IO), and is meant to be replaced.
 //
 // What it writes: optional and required fields, structs, MAP (repeated key_value groups) and three-level LIST
-// columns; INT32, INT64, BOOLEAN and BYTE_ARRAY (UTF8) leaves. One row group, one data page (v1) per column, PLAIN
-// values, RLE levels, no compression, converted types only (the oldest annotations, which every reader knows).
+// columns; BOOLEAN, INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY leaves, annotated (as Spark
+// annotates them) as strings, 8- and 16-bit integers, dates, decimals and timestamps. One row group, one data page
+// (v1) per column, PLAIN values, RLE levels, no compression.
 
 /// <summary>The repetition of a Parquet schema node.</summary>
 internal enum Repetition { Required = 0, Optional = 1, Repeated = 2 }
 
 /// <summary>The physical types this writer supports.</summary>
-internal enum PhysicalType { Boolean = 0, Int32 = 1, Int64 = 2, ByteArray = 6 }
+internal enum PhysicalType { Boolean = 0, Int32 = 1, Int64 = 2, Float = 4, Double = 5, ByteArray = 6, FixedLenByteArray = 7 }
+
+/// <summary>What a leaf's values mean beyond their physical type.</summary>
+internal enum Annotation
+{
+    /// <summary>Plain values.</summary>
+    None,
+    /// <summary>INT32 holding a signed 8-bit integer.</summary>
+    Int8,
+    /// <summary>INT32 holding a signed 16-bit integer.</summary>
+    Int16,
+    /// <summary>INT32 days since 1970-01-01.</summary>
+    Date,
+    /// <summary>An unscaled decimal: INT32, INT64 (values as numbers) or FIXED_LEN_BYTE_ARRAY (big-endian two's complement bytes).</summary>
+    Decimal,
+    /// <summary>INT64 microseconds since the epoch, an instant (UTC).</summary>
+    TimestampMicros,
+    /// <summary>INT64 microseconds since the epoch, a local date-time (no time zone).</summary>
+    LocalTimestampMicros,
+}
 
 /// <summary>A node of a Parquet schema as the writer sees it.</summary>
 internal abstract record ParquetNode(string Name, Repetition Repetition);
 
-/// <summary>A column of values. <see cref="Utf8"/> marks strings.</summary>
-internal sealed record ParquetLeaf(string Name, Repetition Repetition, PhysicalType Type, bool Utf8 = false) : ParquetNode(Name, Repetition);
+/// <summary>
+/// A column of values. <see cref="Utf8"/> marks strings; <see cref="Annotation"/> other meanings, with the decimal's
+/// <see cref="Precision"/> and <see cref="Scale"/> and a fixed-length array's <see cref="TypeLength"/>.
+/// </summary>
+internal sealed record ParquetLeaf(
+    string Name, Repetition Repetition, PhysicalType Type, bool Utf8 = false, Annotation Annotation = Annotation.None,
+    int Precision = 0, int Scale = 0, int TypeLength = 0) : ParquetNode(Name, Repetition);
 
 /// <summary>A struct: values are <c>IReadOnlyDictionary&lt;string, object?&gt;</c> keyed by child name.</summary>
 internal sealed record ParquetStruct(string Name, Repetition Repetition, IReadOnlyList<ParquetNode> Children) : ParquetNode(Name, Repetition);
@@ -296,12 +321,35 @@ internal static class MinimalParquetWriter
                     stream.Write(buffer);
                 }
                 break;
+            case PhysicalType.Float:
+                foreach (object v in column.Values)
+                {
+                    BinaryPrimitives.WriteSingleLittleEndian(buffer, Convert.ToSingle(v, System.Globalization.CultureInfo.InvariantCulture));
+                    stream.Write(buffer[..4]);
+                }
+                break;
+            case PhysicalType.Double:
+                foreach (object v in column.Values)
+                {
+                    BinaryPrimitives.WriteDoubleLittleEndian(buffer, Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture));
+                    stream.Write(buffer);
+                }
+                break;
             case PhysicalType.ByteArray:
                 foreach (object v in column.Values)
                 {
                     byte[] bytes = v as byte[] ?? Encoding.UTF8.GetBytes((string)v);
                     BinaryPrimitives.WriteInt32LittleEndian(buffer, bytes.Length);
                     stream.Write(buffer[..4]);
+                    stream.Write(bytes);
+                }
+                break;
+            case PhysicalType.FixedLenByteArray:
+                foreach (object v in column.Values)
+                {
+                    var bytes = (byte[])v;
+                    if (bytes.Length != column.Leaf.TypeLength)
+                        throw new InvalidOperationException($"The value of '{column.Leaf.Name}' has {bytes.Length} bytes, not {column.Leaf.TypeLength}.");
                     stream.Write(bytes);
                 }
                 break;
@@ -365,13 +413,7 @@ internal static class MinimalParquetWriter
         switch (node)
         {
             case ParquetLeaf leaf:
-                elements.Add(w =>
-                {
-                    w.I32(1, (int)leaf.Type);
-                    w.I32(3, (int)leaf.Repetition);
-                    w.Binary(4, leaf.Name);
-                    if (leaf.Utf8) w.I32(6, 0); // converted_type: UTF8
-                });
+                elements.Add(w => LeafElement(w, leaf));
                 break;
             case ParquetStruct s:
                 elements.Add(w =>
@@ -401,6 +443,71 @@ internal static class MinimalParquetWriter
                 foreach (ParquetNode child in repeated.Children) Elements(child, elements);
                 break;
         }
+    }
+
+    /// <summary>A leaf's schema element: converted type and logical type as parquet-mr writes them.</summary>
+    private static void LeafElement(CompactWriter w, ParquetLeaf leaf)
+    {
+        w.I32(1, (int)leaf.Type);
+        if (leaf.Type == PhysicalType.FixedLenByteArray) w.I32(2, leaf.TypeLength);
+        w.I32(3, (int)leaf.Repetition);
+        w.Binary(4, leaf.Name);
+        // converted_type: UTF8 0, DECIMAL 5, DATE 6, TIMESTAMP_MICROS 10, INT_8 15, INT_16 16 (a local timestamp has none)
+        int? converted = leaf.Utf8 ? 0 : leaf.Annotation switch
+        {
+            Annotation.Decimal => 5,
+            Annotation.Date => 6,
+            Annotation.TimestampMicros => 10,
+            Annotation.Int8 => 15,
+            Annotation.Int16 => 16,
+            _ => null,
+        };
+        if (converted is int c) w.I32(6, c);
+        if (leaf.Annotation == Annotation.Decimal)
+        {
+            w.I32(7, leaf.Scale);
+            w.I32(8, leaf.Precision);
+        }
+        if (!leaf.Utf8 && leaf.Annotation == Annotation.None) return;
+
+        w.BeginStruct(10); // logicalType (a union)
+        if (leaf.Utf8)
+        {
+            w.BeginStruct(1); // STRING
+            w.EndStruct();
+        }
+        else
+        {
+            switch (leaf.Annotation)
+            {
+                case Annotation.Decimal:
+                    w.BeginStruct(5);
+                    w.I32(1, leaf.Scale);
+                    w.I32(2, leaf.Precision);
+                    w.EndStruct();
+                    break;
+                case Annotation.Date:
+                    w.BeginStruct(6);
+                    w.EndStruct();
+                    break;
+                case Annotation.TimestampMicros or Annotation.LocalTimestampMicros:
+                    w.BeginStruct(8);
+                    w.Bool(1, leaf.Annotation == Annotation.TimestampMicros); // isAdjustedToUTC
+                    w.BeginStruct(2); // unit
+                    w.BeginStruct(2); // MICROS
+                    w.EndStruct();
+                    w.EndStruct();
+                    w.EndStruct();
+                    break;
+                case Annotation.Int8 or Annotation.Int16:
+                    w.BeginStruct(10);
+                    w.I8(1, (sbyte)(leaf.Annotation == Annotation.Int8 ? 8 : 16)); // bitWidth
+                    w.Bool(2, true); // isSigned
+                    w.EndStruct();
+                    break;
+            }
+        }
+        w.EndStruct();
     }
 
     private static void WriteVarint(Stream stream, ulong value)
@@ -442,6 +549,14 @@ internal static class MinimalParquetWriter
         {
             FieldHeader(id, I32Type);
             WriteVarint(_out, ZigZag(value));
+        }
+
+        public void Bool(short id, bool value) => FieldHeader(id, value ? (byte)1 : (byte)2);
+
+        public void I8(short id, sbyte value)
+        {
+            FieldHeader(id, 3);
+            _out.WriteByte((byte)value);
         }
 
         public void I64(short id, long value)

@@ -48,4 +48,5 @@ These differences are deliberate: each avoids a state Spark can leave a table in
 * **Turning on row tracking for an existing table is one commit** (Spark takes three: protocol, backfill, property), so no reader sees the table half done. Lifting `delta.rowTrackingSuspended` and turning tracking on can also be one change, and a table with both set (which Spark cannot repair) is repaired by setting either to false.
 * **Identity values of one write are consecutive.** Spark leaves gaps between its tasks.
 * **Optimize clusters a table into one cube per run.** Spark splits very large runs into cubes of about 150 GiB.
+* **Checkpoints store timestamps as 64-bit microseconds.** Spark writes the `timestamp` columns of a checkpoint's typed statistics as legacy INT96 values; Polars.NET writes the standard INT64 microsecond encoding, which Spark and other readers read the same.
 * **Writes can create clustered tables.** `WriteDelta` / `SinkDelta` with `clusterBy` create a clustered table; Spark's `DataFrameWriter.clusterBy` (open-source Delta) does not.

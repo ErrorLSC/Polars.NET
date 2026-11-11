@@ -37,7 +37,7 @@ public static class FileStatistics
 
     /// <summary>
     /// The stats JSON of a data file for the given leaves: paths of fields from a table column down to a field that
-    /// is not a struct (see <see cref="IndexedLeaves"/>). Nested fields' statistics nest under their structs, keyed
+    /// is not a struct (see <see cref="IndexedLeaves(IReadOnlyList{StructField}, IReadOnlyDictionary{string, string}?)"/>). Nested fields' statistics nest under their structs, keyed
     /// by physical names, as Spark writes them. A leaf inside a struct counts as null where the struct is null.
     /// </summary>
     /// <param name="metadata">The file footer.</param>
@@ -206,7 +206,16 @@ public static class FileStatistics
     /// <param name="dataFields">The table columns that are not partition columns, in schema order.</param>
     /// <param name="configuration">The table properties.</param>
     /// <returns>Paths of fields from a column down to the leaf, in schema order.</returns>
-    public static IReadOnlyList<StructField[]> IndexedLeaves(IReadOnlyList<StructField> dataFields, IReadOnlyDictionary<string, string>? configuration)
+    public static IReadOnlyList<StructField[]> IndexedLeaves(IReadOnlyList<StructField> dataFields, IReadOnlyDictionary<string, string>? configuration) =>
+        IndexedLeaves(dataFields, configuration, includeContainers: false);
+
+    /// <summary>
+    /// <see cref="IndexedLeaves(IReadOnlyList{StructField}, IReadOnlyDictionary{string, string}?)"/>, with arrays and
+    /// maps kept when <paramref name="includeContainers"/>: Spark counts their nulls (a checkpoint's
+    /// <c>nullCount</c> lists them) though it keeps no bounds for them.
+    /// </summary>
+    internal static IReadOnlyList<StructField[]> IndexedLeaves(
+        IReadOnlyList<StructField> dataFields, IReadOnlyDictionary<string, string>? configuration, bool includeContainers)
     {
         ArgumentNullException.ThrowIfNull(dataFields);
         List<StructField[]> leaves;
@@ -227,7 +236,7 @@ public static class FileStatistics
             leaves = Leaves(dataFields, _ => true);
             if (count >= 0) leaves = [.. leaves.Take(count)];
         }
-        return [.. leaves.Where(p => p[^1].Type is not (ArrayType or MapType))];
+        return includeContainers ? leaves : [.. leaves.Where(p => p[^1].Type is not (ArrayType or MapType))];
     }
 
     /// <summary>

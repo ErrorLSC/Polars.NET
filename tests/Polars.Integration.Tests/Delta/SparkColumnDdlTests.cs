@@ -174,7 +174,7 @@ public partial class SparkColumnDdlTests
             // The old values of b stay in the old files, read by neither.
             Assert.DoesNotContain("\"one\"", Spark(table).Rows);
             using DataFrame read = DataFrame.ReadDelta(table).Sort("id");
-            Assert.Equal([null, null, "new"], read["b"].ToArray<string?>());
+            Assert.Equal([null, null, "new"], read["b"].ToArray<string?>().AsEnumerable());
         });
     }
 

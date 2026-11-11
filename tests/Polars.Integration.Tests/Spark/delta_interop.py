@@ -164,6 +164,16 @@ def run(spark, command, args):
         path, start = args[0], int(args[1])
         read(spark, path)
         read_changes(spark, path, start)
+    elif command == "checkpoint_adds":
+        # The add actions of a classic checkpoint file: the add column's schema, and per file its typed statistics
+        # and partition values as JSON (by path).
+        f = args[0]
+        df = spark.read.parquet(f).where("add is not null")
+        add_type = [x for x in df.schema.fields if x.name == "add"][0].dataType
+        names = add_type.fieldNames()
+        cols = ["add.path"] + [f"to_json(add.{c}) as {c}" for c in ("stats_parsed", "partitionValues_parsed") if c in names]
+        rows = {r["path"]: {k: r[k] for k in r.asDict() if k != "path"} for r in df.selectExpr(*cols).collect()}
+        print(json.dumps({"schema": add_type.simpleString(), "adds": rows}, ensure_ascii=False), flush=True)
     elif command == "read_changes_range":
         # The change feed from start to end only; a refused range prints its error class instead of failing.
         path, start, end = args[0], int(args[1]), int(args[2])
@@ -185,6 +195,11 @@ def run(spark, command, args):
         path, assignments, condition = args[0], args[1], args[2]
         spark.sql(f"UPDATE delta.`{path}` SET {assignments} WHERE {condition}")
         read(spark, path)
+    elif command == "query":
+        # The rows of a query, {table} standing for the table.
+        path, statement = args[0], args[1]
+        rows = [canonical(r) for r in spark.sql(statement.replace("{table}", f"delta.`{path}`")).collect()]
+        print(json.dumps({"path": path, "rows": rows}, ensure_ascii=False), flush=True)
     elif command == "sql":
         # Runs a statement, {table} standing for the table; then the table.
         path, statement = args[0], args[1]

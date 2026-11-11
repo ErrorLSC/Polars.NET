@@ -153,7 +153,7 @@ public static class Clustering
     public static string[] PhysicalPath(StructField[] path) => [.. path.Select(f => f.PhysicalName)];
 
     /// <summary>Whether Spark collects min/max statistics for a type (its data skipping types).</summary>
-    private static bool HasStatistics(DeltaType type) => type switch
+    internal static bool HasStatistics(DeltaType type) => type switch
     {
         DecimalType => true,
         PrimitiveType p => p.Name is PrimitiveType.Byte or PrimitiveType.Short or PrimitiveType.Integer or PrimitiveType.Long
@@ -162,7 +162,7 @@ public static class Clustering
         _ => false,
     };
 
-    /// <summary>Whether Spark's statistics include the column (see <see cref="FileStatistics.IndexedLeaves"/>).</summary>
+    /// <summary>Whether Spark's statistics include the column (see <see cref="FileStatistics.IndexedLeaves(IReadOnlyList{StructField}, IReadOnlyDictionary{string, string}?)"/>).</summary>
     private static bool InStatistics(StructType schema, StructField[] path, IReadOnlyDictionary<string, string>? configuration)
     {
         string logical = LogicalName(path);

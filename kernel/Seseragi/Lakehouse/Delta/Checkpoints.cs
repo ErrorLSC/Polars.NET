@@ -76,16 +76,19 @@ public static class Checkpoints
         }
         else
         {
-            var rows = new List<IReadOnlyDictionary<string, object?>>
-            {
+            // Statistics as JSON text and, by default, typed (stats_parsed, partitionValues_parsed), as Spark writes them.
+            bool json = CheckpointStatistics.WritesJson(snapshot.Metadata);
+            CheckpointStatistics? typed = CheckpointStatistics.For(snapshot.Metadata, snapshot.Protocol);
+            List<IReadOnlyDictionary<string, object?>> rows =
+            [
                 Row("protocol", Protocol(snapshot.Protocol)),
                 Row("metaData", Metadata(snapshot.Metadata)),
-            };
-            rows.AddRange(snapshot.AppTransactions.Values.Select(t => Row("txn", Txn(t))));
-            rows.AddRange(snapshot.DomainMetadata.Values.Select(d => Row("domainMetadata", Domain(d))));
-            rows.AddRange(snapshot.Files.Select(a => Row("add", Add(a))));
-            rows.AddRange(tombstones.Select(r => Row("remove", Remove(r))));
-            content = MinimalParquetWriter.Write(Schema, rows);
+                .. snapshot.AppTransactions.Values.Select(t => Row("txn", Txn(t))),
+                .. snapshot.DomainMetadata.Values.Select(d => Row("domainMetadata", Domain(d))),
+                .. snapshot.Files.Select(a => Row("add", Add(a, json, typed))),
+                .. tombstones.Select(r => Row("remove", Remove(r))),
+            ];
+            content = MinimalParquetWriter.Write(Schema(json, typed), rows);
             actionCount = rows.Count;
             path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.parquet";
             // The same version always gives the same checkpoint, so replacing one written concurrently is harmless.
@@ -188,13 +191,20 @@ public static class Checkpoints
     private static ParquetStruct Struct(string name, params ParquetNode[] children) => new(name, Repetition.Optional, children);
 
     private static ParquetStruct DeletionVectorNode() => Struct("deletionVector",
-        Str("storageType"), Str("pathOrInlineDv"), I32("offset"), I32("sizeInBytes"), I64("cardinality"));
+        Str("storageType"), Str("pathOrInlineDv"), I32("offset"), I32("sizeInBytes"), I64("cardinality"), I64("maxRowIndex"));
 
-    private static readonly IReadOnlyList<ParquetNode> Schema =
+    /// <summary>The checkpoint schema; the <c>add</c> columns in Spark's order, statistics as the table asks.</summary>
+    private static IReadOnlyList<ParquetNode> Schema(bool json, CheckpointStatistics? typed) =>
     [
         Struct("txn", Str("appId"), I64("version"), I64("lastUpdated")),
-        Struct("add", Str("path"), Map("partitionValues"), I64("size"), I64("modificationTime"), Bool("dataChange"), Str("stats"),
-            Map("tags"), DeletionVectorNode(), I64("baseRowId"), I64("defaultRowCommitVersion"), Str("clusteringProvider")),
+        Struct("add",
+        [
+            Str("path"), Map("partitionValues"), I64("size"), I64("modificationTime"), Bool("dataChange"), Map("tags"),
+            DeletionVectorNode(), I64("baseRowId"), I64("defaultRowCommitVersion"), Str("clusteringProvider"),
+            .. json ? [Str("stats")] : (ParquetNode[])[],
+            .. typed?.PartitionNode() is { } partitions ? [partitions] : (ParquetNode[])[],
+            .. typed is null ? [] : (ParquetNode[])[typed.StatsNode()],
+        ]),
         Struct("remove", Str("path"), I64("deletionTimestamp"), Bool("dataChange"), Bool("extendedFileMetadata"), Map("partitionValues"),
             I64("size"), DeletionVectorNode(), I64("baseRowId"), I64("defaultRowCommitVersion")),
         Struct("metaData", Str("id"), Str("name"), Str("description"), Struct("format", Str("provider"), Map("options")),
@@ -253,21 +263,30 @@ public static class Checkpoints
         ["removed"] = d.Removed,
     };
 
-    private static Dictionary<string, object?> Add(AddAction a) => new()
+    private static Dictionary<string, object?> Add(AddAction a, bool json, CheckpointStatistics? typed)
     {
-        ["path"] = a.Path,
-        ["partitionValues"] = NullablePairs(a.PartitionValues),
-        ["size"] = a.Size,
-        ["modificationTime"] = a.ModificationTime,
-        // Files in a checkpoint do not change data; they are the table as it is.
-        ["dataChange"] = false,
-        ["stats"] = a.Stats,
-        ["tags"] = NullablePairs(a.Tags),
-        ["deletionVector"] = DeletionVector(a.DeletionVector),
-        ["baseRowId"] = a.BaseRowId,
-        ["defaultRowCommitVersion"] = a.DefaultRowCommitVersion,
-        ["clusteringProvider"] = a.ClusteringProvider,
-    };
+        Dictionary<string, object?> add = new()
+        {
+            ["path"] = a.Path,
+            ["partitionValues"] = NullablePairs(a.PartitionValues),
+            ["size"] = a.Size,
+            ["modificationTime"] = a.ModificationTime,
+            // Files in a checkpoint do not change data; they are the table as it is.
+            ["dataChange"] = false,
+            ["tags"] = NullablePairs(a.Tags),
+            ["deletionVector"] = DeletionVector(a.DeletionVector),
+            ["baseRowId"] = a.BaseRowId,
+            ["defaultRowCommitVersion"] = a.DefaultRowCommitVersion,
+            ["clusteringProvider"] = a.ClusteringProvider,
+        };
+        if (json) add["stats"] = a.Stats;
+        if (typed is not null)
+        {
+            add["partitionValues_parsed"] = typed.PartitionValue(a);
+            add["stats_parsed"] = typed.StatsValue(a.Stats);
+        }
+        return add;
+    }
 
     private static Dictionary<string, object?> Remove(RemoveAction r) => new()
     {
