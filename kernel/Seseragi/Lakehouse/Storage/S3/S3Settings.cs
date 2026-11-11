@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Kaminari.Seseragi.Lakehouse.Storage.Http;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.S3;
 
@@ -8,7 +9,8 @@ namespace Kaminari.Seseragi.Lakehouse.Storage.S3;
 /// keys means the same here as in an engine built on that library. Settings this client does not implement leave
 /// the location to another implementation (see <see cref="Resolve"/>).
 /// </summary>
-internal sealed record S3Settings(string BucketEndpoint, string Region, CredentialSource<AwsCredential>? Credential, S3Headers? Headers = null)
+internal sealed record S3Settings(
+    string BucketEndpoint, string Region, CredentialSource<AwsCredential>? Credential, S3Headers? Headers = null, HttpOptions? Http = null)
 {
     /// <summary>Canonical names by every spelling object_store accepts (after lower-casing).</summary>
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
@@ -92,7 +94,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
     /// <param name="retry">Retry settings for fetching temporary credentials.</param>
     internal static S3Settings? Resolve(
         string bucket, IReadOnlyDictionary<string, string> options, IReadOnlyDictionary<string, string> environment,
-        string? awsConfigFile, out string? reason, Func<string, string?>? lookupRegion = null,
+        string? awsConfigFile, out string? reason, Func<string, HttpOptions, string?>? lookupRegion = null,
         string? awsCredentialsFile = null, RetrySettings? retry = null)
     {
         // The environment first, then the engine's reading of ~/.aws/credentials (keys the environment lacks),
@@ -112,10 +114,12 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
             if (Ignored.Contains(key) || CredentialKeys.Contains(key) || key is "region" or "default_region" or "endpoint"
                 or "s3_endpoint" or "virtual_hosted_style_request")
                 continue;
-            if (key is "request_payer" or "sse" or "sse_kms_key_id" or "sse_bucket_key_enabled" or "sse_customer_key") continue;
+            if (key is "request_payer" or "sse" or "sse_kms_key_id" or "sse_bucket_key_enabled" or "sse_customer_key"
+                || HttpOptions.Keys.Contains(key))
+                continue;
             bool harmless = key switch
             {
-                "s3_express" or "allow_invalid_certificates" => IsFalse(value),
+                "s3_express" => IsFalse(value),
                 "conditional_put" => value.Equals("etag", StringComparison.OrdinalIgnoreCase),
                 _ => false,
             };
@@ -134,6 +138,8 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
             }
         }
 
+        if (HttpOptions.From(config, out reason) is not { } http) return null;
+
         string? endpoint = config.GetValueOrDefault("s3_endpoint") ?? config.GetValueOrDefault("endpoint");
         // A default region never replaces a region set before it; the config file fills in after the environment.
         string? region = explicitKeys.GetValueOrDefault("region")
@@ -149,7 +155,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
         {
             if (endpoint is null)
             {
-                region = lookupRegion?.Invoke(bucket);
+                region = lookupRegion?.Invoke(bucket, http);
                 if (region is null)
                 {
                     reason = "no region is given and the bucket's region could not be looked up";
@@ -162,7 +168,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
             }
         }
 
-        CredentialSource<AwsCredential>? credential = Credentials(config, region, retry ?? RetrySettings.Default, out reason);
+        CredentialSource<AwsCredential>? credential = Credentials(config, region, retry ?? RetrySettings.Default, http, out reason);
         if (reason is not null) return null;
         if (S3Headers.From(config, out reason) is not { } headers) return null;
 
@@ -174,7 +180,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
             (null, true) => $"https://{bucket}.s3.{region}.amazonaws.com",
             (null, false) => $"https://s3.{region}.amazonaws.com/{bucket}",
         };
-        return new S3Settings(bucketEndpoint, region, credential, headers);
+        return new S3Settings(bucketEndpoint, region, credential, headers, http);
     }
 
     /// <summary>
@@ -207,7 +213,7 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
     /// metadata service. Null with no reason: unsigned requests.
     /// </summary>
     private static CredentialSource<AwsCredential>? Credentials(
-        Dictionary<string, string> config, string region, RetrySettings retry, out string? reason)
+        Dictionary<string, string> config, string region, RetrySettings retry, HttpOptions http, out string? reason)
     {
         reason = null;
         string? Value(string key) => config.GetValueOrDefault(key);
@@ -228,20 +234,20 @@ internal sealed record S3Settings(string BucketEndpoint, string Region, Credenti
         {
             string session = Value("role_session_name") ?? "WebIdentitySession";
             string sts = Value("sts_endpoint") ?? $"https://sts.{region}.amazonaws.com";
-            return AwsCredentialSources.Shared(["web", tokenFile, roleArn, session, sts],
-                () => AwsCredentialSources.WebIdentity(tokenFile, roleArn, session, sts, retry));
+            return AwsCredentialSources.Shared(["web", tokenFile, roleArn, session, sts, http.Key],
+                () => AwsCredentialSources.WebIdentity(tokenFile, roleArn, session, sts, retry, http: http));
         }
         if (Value("container_credentials_relative_uri") is { } relative)
         {
             string url = AwsCredentialSources.TaskEndpoint + relative;
-            return AwsCredentialSources.Shared(["task", url], () => AwsCredentialSources.Task(url, retry));
+            return AwsCredentialSources.Shared(["task", url, http.Key], () => AwsCredentialSources.Task(url, retry, http: http));
         }
         if (Value("container_credentials_full_uri") is { } full && Value("container_authorization_token_file") is { } podToken)
-            return AwsCredentialSources.Shared(["pod", full, podToken], () => AwsCredentialSources.Pod(full, podToken, retry));
+            return AwsCredentialSources.Shared(["pod", full, podToken, http.Key], () => AwsCredentialSources.Pod(full, podToken, retry, http: http));
         string metadata = Value("metadata_endpoint") ?? AwsCredentialSources.DefaultMetadataEndpoint;
         bool v1 = IsTrue(Value("imdsv1_fallback") ?? "false");
-        return AwsCredentialSources.Shared(["instance", metadata, v1 ? "v1" : "v2"],
-            () => AwsCredentialSources.Instance(metadata, v1, retry));
+        return AwsCredentialSources.Shared(["instance", metadata, v1 ? "v1" : "v2", http.Key],
+            () => AwsCredentialSources.Instance(metadata, v1, retry, http: http));
     }
 
     private static bool IsTrue(string value) => ConfigValues.IsTrue(value);

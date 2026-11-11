@@ -30,7 +30,7 @@ internal static class AwsCredentialSources
     /// The instance metadata service: an IMDSv2 session token, then the role and its credentials. With
     /// <paramref name="imdsv1Fallback"/> a refused token request (403) goes on without one (IMDSv1).
     /// </summary>
-    public static CachedCredential<AwsCredential> Instance(string endpoint, bool imdsv1Fallback, RetrySettings retry, Func<DateTimeOffset>? clock = null)
+    public static CachedCredential<AwsCredential> Instance(string endpoint, bool imdsv1Fallback, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null)
     {
         endpoint = endpoint.TrimEnd('/');
         return new(() =>
@@ -43,7 +43,7 @@ internal static class AwsCredentialSources
                     var request = new HttpRequestMessage(HttpMethod.Put, $"{endpoint}/latest/api/token");
                     request.Headers.TryAddWithoutValidation("X-aws-ec2-metadata-token-ttl-seconds", "600");
                     return request;
-                }, retry, metadata: true);
+                }, retry, metadata: true, http: http);
             }
             catch (StorageException e) when (e.Status is null)
             {
@@ -62,26 +62,26 @@ internal static class AwsCredentialSources
                 if (token is not null) request.Headers.TryAddWithoutValidation("X-aws-ec2-metadata-token", token);
                 return request;
             }
-            StoreResponse roleResponse = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/"), retry, metadata: true);
+            StoreResponse roleResponse = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/"), retry, metadata: true, http: http);
             if (!roleResponse.IsSuccess) throw Failure(roleResponse, "find the instance's role in the instance metadata service");
             string role = Encoding.UTF8.GetString(roleResponse.Body);
-            StoreResponse credentials = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/{role}"), retry, metadata: true);
+            StoreResponse credentials = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/{role}"), retry, metadata: true, http: http);
             if (!credentials.IsSuccess) throw Failure(credentials, "get the instance role's credentials");
             return FromJson(credentials.Body, "the instance metadata service");
         }, clock: clock) { Origin = $"instance metadata {endpoint}" + (imdsv1Fallback ? " (IMDSv1 fallback)" : "") };
     }
 
     /// <summary>An ECS task role: the credentials endpoint plus the task's relative URI.</summary>
-    public static CachedCredential<AwsCredential> Task(string url, RetrySettings retry, Func<DateTimeOffset>? clock = null) =>
+    public static CachedCredential<AwsCredential> Task(string url, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
-            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Get, url), retry);
+            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Get, url), retry, http: http);
             if (!response.IsSuccess) throw Failure(response, "get the task role's credentials");
             return FromJson(response.Body, "the container credentials endpoint");
         }, clock: clock) { Origin = $"task role {url}" };
 
     /// <summary>EKS Pod Identity: the full URI, authorized with the token the file holds (read for every fetch).</summary>
-    public static CachedCredential<AwsCredential> Pod(string url, string tokenFile, RetrySettings retry, Func<DateTimeOffset>? clock = null) =>
+    public static CachedCredential<AwsCredential> Pod(string url, string tokenFile, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
             string token = ReadTokenFile(tokenFile, "EKS Pod Identity token").TrimEnd('\r', '\n');
@@ -90,7 +90,7 @@ internal static class AwsCredentialSources
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.TryAddWithoutValidation("Authorization", token);
                 return request;
-            }, retry);
+            }, retry, http: http);
             if (!response.IsSuccess) throw Failure(response, "get the pod's credentials");
             return FromJson(response.Body, "the container credentials endpoint");
         }, clock: clock) { Origin = $"pod identity {url}" };
@@ -107,7 +107,7 @@ internal static class AwsCredentialSources
     /// <param name="clock">The current time.</param>
     public static CachedCredential<AwsCredential> WebIdentity(
         string tokenFile, string roleArn, string sessionName, string endpoint, RetrySettings retry, bool allowHttp = false,
-        Func<DateTimeOffset>? clock = null) =>
+        Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
             if (!allowHttp && !endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -124,7 +124,7 @@ internal static class AwsCredentialSources
             };
             string url = endpoint + (endpoint.Contains('?') ? "&" : "?") + string.Join('&', query.Select(p =>
                 PercentEncoding.Encode(p.Key, encodeSlash: true) + "=" + PercentEncoding.Encode(p.Value, encodeSlash: true)));
-            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, url), retry);
+            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, url), retry, http: http);
             if (!response.IsSuccess) throw Failure(response, "assume the role with the web identity token");
             return FromStsXml(response.Body);
         }, clock: clock) { Origin = $"web identity {roleArn} at {endpoint}" };

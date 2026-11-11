@@ -184,8 +184,8 @@ public class GcsClientTests
     }
 
     [Theory]
-    [InlineData("google_proxy_url", "http://proxy")]
-    [InlineData("allow_invalid_certificates", "true")]
+    [InlineData("google_proxy_url", "https://proxy")]
+    [InlineData("allow_invalid_certificates", "perhaps")]
     [InlineData("skip_signature", "perhaps")]
     public void SetupsTheClientLacks_AreLeftToTheEngine(string key, string value)
     {

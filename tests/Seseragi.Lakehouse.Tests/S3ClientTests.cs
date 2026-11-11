@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Kaminari.Seseragi.Lakehouse.Storage;
+using Kaminari.Seseragi.Lakehouse.Storage.Http;
 using Kaminari.Seseragi.Lakehouse.Storage.S3;
 
 namespace Seseragi.Lakehouse.Tests;
@@ -162,7 +163,11 @@ public class S3ClientTests
         Assert.Null(Resolve(new(keys) { ["aws_server_side_encryption"] = "sse-c" })); // without its key
         Assert.Null(Resolve(new(keys) { ["aws_request_payer"] = "sometimes" }));
         Assert.Null(Resolve(new(keys) { ["aws_s3_express"] = "true" }));
-        Assert.Null(Resolve(new(keys) { ["proxy_url"] = "http://proxy" }));
+        Assert.Null(Resolve(new(keys) { ["proxy_url"] = "socks5://proxy" }));
+        Assert.Null(Resolve(new(keys) { ["proxy_url"] = "http://proxy", ["proxy_ca_certificate"] = "not a certificate" }));
+        Assert.Null(Resolve(new(keys) { ["aws_allow_invalid_certificates"] = "maybe" }));
+        Assert.Equal(new HttpOptions("http://proxy:3128", null, "localhost", true),
+            Resolve(new(keys) { ["aws_proxy_url"] = "http://proxy:3128", ["proxy_excludes"] = "localhost", ["allow_invalid_certificates"] = "1" })!.Http);
         Assert.Null(Resolve(new(keys) { ["aws_conditional_put"] = "dynamo:table" }));
         S3Headers kms = Resolve(new(keys) { ["aws_server_side_encryption"] = "aws:kms", ["aws_sse_bucket_key_enabled"] = "yes" },
             new() { ["AWS_SSE_KMS_KEY_ID"] = "k" })!.Headers!;
@@ -187,17 +192,17 @@ public class S3ClientTests
         // Vended credentials name no region: the bucket's region is asked for, as the engine's own store does.
         var keys = new Dictionary<string, string> { ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "secret" };
         var asked = new List<string>();
-        S3Settings found = S3Settings.Resolve("bucket", keys, NoEnvironment, null, out _, b => { asked.Add(b); return "eu-central-1"; })!;
+        S3Settings found = S3Settings.Resolve("bucket", keys, NoEnvironment, null, out _, (b, _) => { asked.Add(b); return "eu-central-1"; })!;
         Assert.Equal("eu-central-1", found.Region);
         Assert.Equal("https://s3.eu-central-1.amazonaws.com/bucket", found.BucketEndpoint);
         Assert.Equal(["bucket"], asked);
 
-        Assert.Null(S3Settings.Resolve("bucket", keys, NoEnvironment, null, out string? reason, _ => null));
+        Assert.Null(S3Settings.Resolve("bucket", keys, NoEnvironment, null, out string? reason, (_, _) => null));
         Assert.Contains("region", reason);
         Assert.Equal("us-east-1", S3Settings.Resolve("bucket", new Dictionary<string, string>(keys) { ["aws_endpoint"] = "http://h:1" }, NoEnvironment, null, out _,
-            _ => throw new InvalidOperationException("no lookup with an endpoint"))!.Region);
+            (_, _) => throw new InvalidOperationException("no lookup with an endpoint"))!.Region);
         // Without credentials the instance's are used, in the bucket's region.
-        S3Settings instance = S3Settings.Resolve("bucket", new Dictionary<string, string>(), NoEnvironment, null, out _, _ => "eu-north-1")!;
+        S3Settings instance = S3Settings.Resolve("bucket", new Dictionary<string, string>(), NoEnvironment, null, out _, (_, _) => "eu-north-1")!;
         Assert.Equal("eu-north-1", instance.Region);
         Assert.StartsWith("instance metadata", Assert.IsType<CachedCredential<AwsCredential>>(instance.Credential).Origin);
     }

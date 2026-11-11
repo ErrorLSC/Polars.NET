@@ -1,5 +1,6 @@
 using System.Collections;
 using Kaminari.Seseragi.Lakehouse.Storage.Azure;
+using Kaminari.Seseragi.Lakehouse.Storage.Http;
 using Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 using Kaminari.Seseragi.Lakehouse.Storage.S3;
 
@@ -25,12 +26,12 @@ public static class CloudStorage
     public static CloudFileSystem? TryOpen(
         string url, IReadOnlyDictionary<string, string> options, RetrySettings? retry, out string? reason) =>
         TryOpen(url, options, retry ?? RetrySettings.Default, ProcessEnvironment(), AwsFile("config"), out reason,
-            bucket => BucketRegions.Find(bucket, retry ?? RetrySettings.Default), AwsFile("credentials"));
+            (bucket, http) => BucketRegions.Find(bucket, retry ?? RetrySettings.Default, http), AwsFile("credentials"));
 
     internal static CloudFileSystem? TryOpen(
         string url, IReadOnlyDictionary<string, string> options, RetrySettings retry,
         IReadOnlyDictionary<string, string> environment, string? awsConfigFile, out string? reason,
-        Func<string, string?>? regionLookup = null, string? awsCredentialsFile = null)
+        Func<string, HttpOptions, string?>? regionLookup = null, string? awsCredentialsFile = null)
     {
         ArgumentNullException.ThrowIfNull(url);
         int schemeEnd = url.IndexOf("://", StringComparison.Ordinal);
@@ -49,7 +50,7 @@ public static class CloudStorage
         {
             S3Client? Open(string bucket, out string? why) =>
                 S3Settings.Resolve(bucket, options, environment, awsConfigFile, out why, regionLookup, awsCredentialsFile, retry) is { } settings
-                    ? new S3Client(settings.BucketEndpoint, settings.Region, settings.Credential, retry, settings.Headers)
+                    ? new S3Client(settings.BucketEndpoint, settings.Region, settings.Credential, retry, settings.Headers, settings.Http)
                     : null;
 
             if (Open(authority, out reason) is not { } client) return null;

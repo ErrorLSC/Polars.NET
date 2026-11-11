@@ -318,7 +318,7 @@ public sealed class ManagedS3FileSystemContractTests(MinioFixture minio) : FileS
         Assert.True(MinioKeys.Open(root, MinioKeys.Of(minio)).TryCreate("a.json", Encoding.UTF8.GetBytes("a")));
 
         var keys = MinioKeys.Of(minio);
-        keys["aws_allow_invalid_certificates"] = "true"; // nothing to check over http; the managed client refuses it
+        keys["aws_checksum_algorithm"] = "sha256"; // MinIO takes the checksums; the managed client does not send them
         keys["aws_s3_force_path_style"] = "true";
         CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
         using (var fs = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Auto))
@@ -327,7 +327,7 @@ public sealed class ManagedS3FileSystemContractTests(MinioFixture minio) : FileS
             Assert.Equal("a", Encoding.UTF8.GetString(fs.ReadAll("a.json")!));
         }
         var refused = Assert.Throws<NotSupportedException>(() => new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed));
-        Assert.Contains("allow_invalid_certificates", refused.Message);
+        Assert.Contains("checksum", refused.Message);
     }
 
     [Fact]
@@ -549,7 +549,7 @@ public sealed class ManagedAzureFileSystemContractTests(AzuriteFixture azurite) 
         Assert.True(AzuriteKeys.Open(root, AzuriteKeys.Of(azurite)).TryCreate("a.json", Encoding.UTF8.GetBytes("a")));
 
         var keys = AzuriteKeys.Of(azurite);
-        keys["azure_allow_invalid_certificates"] = "true"; // nothing to check over http; the managed client refuses it
+        keys["azure_use_fabric_endpoint"] = "true"; // the endpoint key wins in the engine; the managed client refuses Fabric
         CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
         using (var fs = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Auto))
         {
@@ -557,7 +557,7 @@ public sealed class ManagedAzureFileSystemContractTests(AzuriteFixture azurite) 
             Assert.Equal("a", Encoding.UTF8.GetString(fs.ReadAll("a.json")!));
         }
         var refused = Assert.Throws<NotSupportedException>(() => new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed));
-        Assert.Contains("allow_invalid_certificates", refused.Message);
+        Assert.Contains("Fabric", refused.Message);
     }
 
     [Fact]
@@ -703,7 +703,9 @@ public sealed class ManagedGcsFileSystemContractTests(FakeGcsFixture gcs) : File
     public void TheFacade_FallsBack_ForSettingsTheManagedClientLacks_UnlessManagedIsRequired()
     {
         var keys = GcsKeys.Of(gcs);
-        keys["google_allow_invalid_certificates"] = "true"; // nothing to check over http; the managed client refuses it
+        // An https proxy (bypassed for the emulator): the engine connects directly, the managed client takes http proxies only.
+        keys["google_proxy_url"] = "https://127.0.0.1:1";
+        keys["google_proxy_excludes"] = "127.0.0.1";
         string root = $"gs://{FakeGcsFixture.BucketName}/{FakeGcsFixture.Prefix}/{SampleTables.Names[0]}";
         CloudArgs args = CloudArgs.ForLocation(root, [.. keys.Keys], [.. keys.Values]);
         using (var fs = new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Auto))
@@ -712,7 +714,7 @@ public sealed class ManagedGcsFileSystemContractTests(FakeGcsFixture gcs) : File
             Assert.NotEmpty(fs.List("_delta_log"));
         }
         var refused = Assert.Throws<NotSupportedException>(() => new ObjectStoreFileSystem(root, args, ObjectStoreBackend.Managed));
-        Assert.Contains("allow_invalid_certificates", refused.Message);
+        Assert.Contains("http:// proxies", refused.Message);
     }
 
     [Fact]
@@ -912,5 +914,115 @@ internal static class AmbientCredentials
         }
         Assert.True(found.Count == 0,
             "This test needs a machine without ambient cloud credentials (they come first in the credential chain): " + string.Join(", ", found));
+    }
+}
+
+/// <summary>
+/// Connection options against stand-ins (an S3 that answers anything, served over https with certificates from a
+/// throwaway authority, and a proxy): certificate checks, a trusted extra authority, a proxy with its bypass list
+/// and https through a proxy's tunnel. Every case runs on both stores, with its negative.
+/// </summary>
+[Trait("FileSystemContract", "Cloud")]
+public sealed class S3ConnectionOptionTests : IDisposable
+{
+    private readonly Seseragi.Lakehouse.Tests.TestCertificates _certificates = new();
+
+    public void Dispose() => _certificates.Dispose();
+
+    private static (int, string) AnyS3(Seseragi.Lakehouse.Tests.SeenRequest r) => r.Method switch
+    {
+        "PUT" => (200, ""),
+        "GET" => (200, "x"),
+        _ => (405, ""),
+    };
+
+    private static readonly string[] S3Headers = ["ETag: \"e\"", "Last-Modified: Wed, 11 Nov 2026 09:00:00 GMT"];
+
+    private static Seseragi.Lakehouse.Tests.FakeHttpServer S3(System.Security.Cryptography.X509Certificates.X509Certificate2? certificate = null) =>
+        new(AnyS3, certificate) { ResponseHeaders = S3Headers };
+
+    /// <summary>Writes and reads one file through each store; the failures, by store (none: it worked).</summary>
+    private static Dictionary<ObjectStoreBackend, string?> RoundTrip(string endpoint, Dictionary<string, string> extra)
+    {
+        var keys = new Dictionary<string, string>(extra)
+        {
+            ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "secret", ["aws_region"] = "us-east-1",
+            ["aws_endpoint"] = endpoint, ["aws_allow_http"] = "true",
+        };
+        string root = "s3://bucket/t";
+        var cloud = new CloudOptions { Provider = CloudProvider.Aws, Credentials = keys, MaxRetries = 0 };
+        CloudArgs args = KernelObjectStoreCheck.ToArgs(cloud);
+        var outcome = new Dictionary<ObjectStoreBackend, string?>();
+        foreach (var backend in new[] { ObjectStoreBackend.Managed, ObjectStoreBackend.Native })
+        {
+            try
+            {
+                using var fs = new ObjectStoreFileSystem(root, args, backend);
+                fs.Overwrite("a.json", Encoding.UTF8.GetBytes("x"));
+                Assert.Equal("x", Encoding.UTF8.GetString(fs.ReadAll("a.json")!));
+                outcome[backend] = null;
+            }
+            catch (Exception e) when (e is not Xunit.Sdk.XunitException)
+            {
+                outcome[backend] = e.Message;
+            }
+        }
+        return outcome;
+    }
+
+    private static void BothWork(Dictionary<ObjectStoreBackend, string?> outcome) =>
+        Assert.True(outcome.Values.All(v => v is null), "expected both stores to work: " + string.Join(" | ", outcome.Select(o => $"{o.Key}: {o.Value}")));
+
+    private static void BothFail(Dictionary<ObjectStoreBackend, string?> outcome) =>
+        Assert.True(outcome.Values.All(v => v is not null), "expected both stores to fail: " + string.Join(" | ", outcome.Select(o => $"{o.Key}: {o.Value ?? "worked"}")));
+
+    [Fact]
+    public void UncheckedCertificates_AreAccepted_OnlyWhenAllowed()
+    {
+        using var s3 = S3(_certificates.Server());
+        BothFail(RoundTrip(s3.Url, []));
+        BothWork(RoundTrip(s3.Url, new() { ["aws_allow_invalid_certificates"] = "true" }));
+    }
+
+    [Fact]
+    public void TheProxyCaCertificate_IsTrusted_ButNamesAreStillChecked()
+    {
+        // With a proxy configured (bypassed for this host), its CA certificate is trusted for every connection.
+        using var s3 = S3(_certificates.Server());
+        var trusted = new Dictionary<string, string>
+        {
+            ["proxy_url"] = "http://127.0.0.1:1", ["proxy_excludes"] = "127.0.0.1", ["proxy_ca_certificate"] = _certificates.AuthorityPem,
+        };
+        BothWork(RoundTrip(s3.Url, trusted));
+        BothFail(RoundTrip(s3.Url, new() { ["proxy_url"] = "http://127.0.0.1:1", ["proxy_excludes"] = "127.0.0.1" }));
+
+        using var other = S3(_certificates.Server("other.invalid"));
+        BothFail(RoundTrip(other.Url, trusted));
+    }
+
+    [Fact]
+    public void AProxy_CarriesTheRequests_UnlessTheHostIsExcluded()
+    {
+        // The store's host does not resolve: only the proxy can reach it.
+        using var proxy = new Seseragi.Lakehouse.Tests.FakeHttpServer(AnyS3) { ResponseHeaders = S3Headers };
+        BothWork(RoundTrip("http://s3.invalid:9000", new() { ["aws_proxy_url"] = proxy.Url }));
+        Assert.Contains(proxy.Requests, r => r is { Method: "PUT", PathAndQuery: "http://s3.invalid:9000/bucket/t/a.json" });
+
+        int seen = proxy.Requests.Count;
+        BothFail(RoundTrip("http://s3.invalid:9000", new() { ["aws_proxy_url"] = proxy.Url, ["aws_proxy_excludes"] = "example.org, .invalid" }));
+        Assert.Equal(seen, proxy.Requests.Count);
+    }
+
+    [Fact]
+    public void Https_GoesThroughTheProxysTunnel()
+    {
+        using var proxy = new Seseragi.Lakehouse.Tests.FakeHttpServer(AnyS3)
+        {
+            ResponseHeaders = S3Headers,
+            TunnelCertificate = _certificates.Server("s3.invalid"),
+        };
+        BothWork(RoundTrip("https://s3.invalid:9443", new() { ["proxy_url"] = proxy.Url, ["proxy_ca_certificate"] = _certificates.AuthorityPem }));
+        Assert.Contains(proxy.Requests, r => r is { Method: "CONNECT", PathAndQuery: "s3.invalid:9443" });
+        Assert.Contains(proxy.Requests, r => r is { Method: "PUT", PathAndQuery: "/bucket/t/a.json" });
     }
 }

@@ -19,14 +19,19 @@ internal sealed class S3Client : ObjectStoreClient
     private readonly CredentialSource<AwsCredential>? _credential;
     private readonly RetrySettings _retry;
     private readonly S3Headers _headers;
+    private readonly HttpOptions? _http;
 
     /// <param name="bucketEndpoint">The bucket's URL: <c>https://s3.region.amazonaws.com/bucket</c>, <c>http://localhost:9000/bucket</c> or <c>https://bucket.s3.region.amazonaws.com</c>.</param>
     /// <param name="region">The signing region.</param>
     /// <param name="credential">Where the credentials come from; null sends unsigned requests.</param>
     /// <param name="retry">Retry settings.</param>
     /// <param name="headers">Encryption and requester-pays headers.</param>
-    public S3Client(string bucketEndpoint, string region, CredentialSource<AwsCredential>? credential, RetrySettings retry, S3Headers? headers = null)
+    /// <param name="http">Connection options.</param>
+    public S3Client(
+        string bucketEndpoint, string region, CredentialSource<AwsCredential>? credential, RetrySettings retry, S3Headers? headers = null,
+        HttpOptions? http = null)
     {
+        _http = http;
         _headers = headers ?? S3Headers.None;
         var uri = new Uri(bucketEndpoint.TrimEnd('/'));
         _origin = uri.GetLeftPart(UriPartial.Authority);
@@ -74,7 +79,7 @@ internal sealed class S3Client : ObjectStoreClient
                 if (name != "host") request.Headers.TryAddWithoutValidation(name, value);
             if (body is { } bytes) request.Content = new ReadOnlyMemoryContent(bytes);
             return request;
-        }, _retry, alsoRetry);
+        }, _retry, alsoRetry, http: _http);
     }
 
     private static Dictionary<string, string> With(IReadOnlyDictionary<string, string> headers, params (string Name, string Value)[] more)

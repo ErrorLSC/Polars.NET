@@ -26,14 +26,14 @@ internal static class AzureCredentialSources
         $"{authorityHost ?? PublicAuthorityHost}/{tenantId}/oauth2/v2.0/token";
 
     /// <summary>A service principal with a client secret (client credentials grant).</summary>
-    public static CachedCredential<string> ClientSecret(string tokenUrl, string clientId, string clientSecret, RetrySettings retry, Func<DateTimeOffset>? clock = null) =>
-        new(() => OAuth(tokenUrl, [new("client_id", clientId), new("client_secret", clientSecret)], retry, clock), clock: clock)
+    public static CachedCredential<string> ClientSecret(string tokenUrl, string clientId, string clientSecret, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
+        new(() => OAuth(tokenUrl, [new("client_id", clientId), new("client_secret", clientSecret)], retry, clock, http), clock: clock)
         {
             Origin = $"client secret of {clientId} at {tokenUrl}",
         };
 
     /// <summary>Workload identity: the federated token the file holds (read for every fetch) as the client assertion.</summary>
-    public static CachedCredential<string> WorkloadIdentity(string tokenUrl, string clientId, string tokenFile, RetrySettings retry, Func<DateTimeOffset>? clock = null) =>
+    public static CachedCredential<string> WorkloadIdentity(string tokenUrl, string clientId, string tokenFile, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
             string assertion;
@@ -50,14 +50,14 @@ internal static class AzureCredentialSources
                 new("client_id", clientId),
                 new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"),
                 new("client_assertion", assertion),
-            ], retry, clock);
+            ], retry, clock, http);
         }, clock: clock)
         {
             Origin = $"workload identity of {clientId} at {tokenUrl}",
         };
 
     private static Temporary<string> OAuth(
-        string tokenUrl, List<KeyValuePair<string, string>> form, RetrySettings retry, Func<DateTimeOffset>? clock)
+        string tokenUrl, List<KeyValuePair<string, string>> form, RetrySettings retry, Func<DateTimeOffset>? clock, HttpOptions? http)
     {
         form.Add(new("scope", StorageScope));
         form.Add(new("grant_type", "client_credentials"));
@@ -66,7 +66,7 @@ internal static class AzureCredentialSources
             var request = new HttpRequestMessage(HttpMethod.Post, tokenUrl) { Content = new FormUrlEncodedContent(form) };
             request.Headers.TryAddWithoutValidation("Accept", "application/json");
             return request;
-        }, retry);
+        }, retry, http: http);
         if (!response.IsSuccess) throw Failure(response, "get a token from Microsoft Entra ID");
         DateTimeOffset now = clock?.Invoke() ?? DateTimeOffset.UtcNow;
         return Parse(response.Body, "Microsoft Entra ID", root =>
@@ -79,7 +79,7 @@ internal static class AzureCredentialSources
     /// </summary>
     public static CachedCredential<string> ManagedIdentity(
         string endpoint, string? clientId, string? objectId, string? resourceId, string? identityHeader, RetrySettings retry,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null, HttpOptions? http = null)
     {
         var query = new List<KeyValuePair<string, string>> { new("api-version", "2019-08-01"), new("resource", "https://storage.azure.com") };
         KeyValuePair<string, string>? identity = null;
@@ -101,7 +101,7 @@ internal static class AzureCredentialSources
                     request.Headers.TryAddWithoutValidation("metadata", "true");
                     if (identityHeader is not null) request.Headers.TryAddWithoutValidation("x-identity-header", identityHeader);
                     return request;
-                }, retry, metadata: true);
+                }, retry, metadata: true, http: http);
             }
             catch (StorageException e) when (e.Status is null)
             {

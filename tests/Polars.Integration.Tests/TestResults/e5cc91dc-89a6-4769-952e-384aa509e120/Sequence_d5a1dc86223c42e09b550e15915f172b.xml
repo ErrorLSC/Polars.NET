@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<TestSequence>
+  <Test Name="Polars.Integration.Tests.S3ConnectionOptionTests.AProxy_CarriesTheRequests_UnlessTheHostIsExcluded" DisplayName="Polars.Integration.Tests.S3ConnectionOptionTests.AProxy_CarriesTheRequests_UnlessTheHostIsExcluded" Source="/home/qinglei/Projects/Polars.NET/tests/Polars.Integration.Tests/bin/Debug/net10.0/Polars.Integration.Tests.dll" Completed="True" />
+  <Test Name="Polars.Integration.Tests.S3ConnectionOptionTests.Https_GoesThroughTheProxysTunnel" DisplayName="Polars.Integration.Tests.S3ConnectionOptionTests.Https_GoesThroughTheProxysTunnel" Source="/home/qinglei/Projects/Polars.NET/tests/Polars.Integration.Tests/bin/Debug/net10.0/Polars.Integration.Tests.dll" Completed="True" />
+  <Test Name="Polars.Integration.Tests.S3ConnectionOptionTests.UncheckedCertificates_AreAccepted_OnlyWhenAllowed" DisplayName="Polars.Integration.Tests.S3ConnectionOptionTests.UncheckedCertificates_AreAccepted_OnlyWhenAllowed" Source="/home/qinglei/Projects/Polars.NET/tests/Polars.Integration.Tests/bin/Debug/net10.0/Polars.Integration.Tests.dll" Completed="False" />
+</TestSequence>

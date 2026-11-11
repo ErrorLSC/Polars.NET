@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace Seseragi.Lakehouse.Tests;
@@ -19,11 +21,16 @@ public sealed class FakeHttpServer : IDisposable
     private readonly Func<SeenRequest, (int Status, string Body)> _respond;
     private volatile bool _stopped;
 
-    public FakeHttpServer(Func<SeenRequest, (int Status, string Body)> respond)
+    private readonly X509Certificate2? _certificate;
+
+    /// <param name="respond">The answer to a request.</param>
+    /// <param name="certificate">The server certificate (with its key) for https, or null for http.</param>
+    public FakeHttpServer(Func<SeenRequest, (int Status, string Body)> respond, X509Certificate2? certificate = null)
     {
         _respond = respond;
+        _certificate = certificate;
         _listener.Start();
-        Url = $"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
+        Url = $"{(certificate is null ? "http" : "https")}://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
         new Thread(Serve) { IsBackground = true }.Start();
     }
 
@@ -59,40 +66,68 @@ public sealed class FakeHttpServer : IDisposable
         {
             try
             {
-                NetworkStream stream = client.GetStream();
-                string head = ReadHead(stream);
-                string[] lines = head.Split("\r\n");
-                string[] requestLine = lines[0].Split(' ');
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (string line in lines.Skip(1))
-                {
-                    int colon = line.IndexOf(':');
-                    if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
-                }
-                byte[] content = [];
-                if (headers.TryGetValue("Content-Length", out string? length) && int.Parse(length) is > 0 and var n)
-                {
-                    content = new byte[n];
-                    stream.ReadExactly(content);
-                }
-
-                var seen = new SeenRequest(requestLine[0], requestLine[1], headers, Encoding.UTF8.GetString(content));
-                Requests.Enqueue(seen);
-                var (status, body) = _respond(seen);
-                byte[] bytes = Encoding.UTF8.GetBytes(body);
-                string extra = string.Concat(ResponseHeaders.Select(h => h + "\r\n"));
-                string response = $"HTTP/1.1 {status} {(HttpStatusCode)status}\r\nContent-Length: {bytes.Length}\r\n{extra}Connection: close\r\n\r\n";
-                stream.Write(Encoding.ASCII.GetBytes(response));
-                stream.Write(bytes);
+                Stream stream = client.GetStream();
+                if (_certificate is not null) stream = Secure(stream);
+                Serve(stream);
             }
-            catch (Exception e) when (e is IOException or SocketException or ObjectDisposedException or EndOfStreamException)
+            catch (Exception)
             {
-                // The client went away or the server is stopping.
+                // The client went away (or refused the certificate), or the server is stopping: a stand-in never
+                // takes the test process down.
             }
         }
     }
 
-    private static string ReadHead(NetworkStream stream)
+    private SslStream Secure(Stream stream)
+    {
+        var ssl = new SslStream(stream);
+        ssl.AuthenticateAsServer(_certificate!);
+        return ssl;
+    }
+
+    private void Serve(Stream stream)
+    {
+        string head = ReadHead(stream);
+        string[] lines = head.Split("\r\n");
+        string[] requestLine = lines[0].Split(' ');
+        if (requestLine.Length < 2) return; // the client went away before asking
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string line in lines.Skip(1))
+        {
+            int colon = line.IndexOf(':');
+            if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+        }
+        byte[] content = [];
+        if (headers.TryGetValue("Content-Length", out string? length) && int.Parse(length) is > 0 and var n)
+        {
+            content = new byte[n];
+            stream.ReadExactly(content);
+        }
+
+        var seen = new SeenRequest(requestLine[0], requestLine[1], headers, Encoding.UTF8.GetString(content));
+        Requests.Enqueue(seen);
+        if (seen.Method == "CONNECT" && TunnelCertificate is { } tunnel)
+        {
+            // A proxy's tunnel: agree, then play the destination itself over TLS on the same connection.
+            stream.Write(Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection established\r\n\r\n"));
+            var ssl = new SslStream(stream);
+            ssl.AuthenticateAsServer(tunnel);
+            Serve(ssl);
+            return;
+        }
+        var (status, body) = _respond(seen);
+        byte[] bytes = Encoding.UTF8.GetBytes(body);
+        string extra = string.Concat(ResponseHeaders.Select(h => h + "\r\n"));
+        string response = $"HTTP/1.1 {status} {(HttpStatusCode)status}\r\nContent-Length: {bytes.Length}\r\n{extra}Connection: close\r\n\r\n";
+        stream.Write(Encoding.ASCII.GetBytes(response));
+        stream.Write(bytes);
+        stream.Flush();
+    }
+
+    /// <summary>The certificate a proxy's tunnel presents as its destination (null: CONNECT is answered as any request).</summary>
+    public X509Certificate2? TunnelCertificate { get; init; }
+
+    private static string ReadHead(Stream stream)
     {
         var head = new List<byte>();
         int b;

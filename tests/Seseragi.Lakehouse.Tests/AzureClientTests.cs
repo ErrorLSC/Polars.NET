@@ -153,8 +153,8 @@ public class AzureClientTests
     [Theory]
     [InlineData("use_azure_cli", "maybe", "use_azure_cli")]
     [InlineData("azure_use_fabric_endpoint", "true", "Fabric")]
-    [InlineData("azure_proxy_url", "http://proxy", "proxy_url")]
-    [InlineData("allow_invalid_certificates", "true", "allow_invalid_certificates")]
+    [InlineData("azure_proxy_url", "socks5://proxy", "http:// proxies")]
+    [InlineData("allow_invalid_certificates", "perhaps", "allow_invalid_certificates")]
     [InlineData("use_emulator", "maybe", "use_emulator")]
     public void SetupsTheClientLacks_AreLeftToTheEngine(string key, string value, string reason)
     {

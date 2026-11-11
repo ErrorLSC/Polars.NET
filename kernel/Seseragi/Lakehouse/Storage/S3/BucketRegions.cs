@@ -12,13 +12,13 @@ internal static class BucketRegions
     private static readonly ConcurrentDictionary<string, string> Known = new(StringComparer.Ordinal);
 
     /// <summary>The bucket's region, or null when S3 does not say.</summary>
-    public static string? Find(string bucket, RetrySettings retry)
+    public static string? Find(string bucket, RetrySettings retry, HttpOptions? http = null)
     {
         if (Known.TryGetValue(bucket, out string? region)) return region;
         try
         {
             StoreResponse response = HttpTransport.Send(
-                () => new HttpRequestMessage(HttpMethod.Head, $"https://{bucket}.s3.amazonaws.com"), retry);
+                () => new HttpRequestMessage(HttpMethod.Head, $"https://{bucket}.s3.amazonaws.com"), retry, http: http);
             region = response.Header("x-amz-bucket-region");
         }
         catch (StorageException)

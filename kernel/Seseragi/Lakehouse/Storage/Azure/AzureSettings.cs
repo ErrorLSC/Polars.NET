@@ -1,3 +1,5 @@
+using Kaminari.Seseragi.Lakehouse.Storage.Http;
+
 namespace Kaminari.Seseragi.Lakehouse.Storage.Azure;
 
 /// <summary>How requests to Azure Blob Storage are authorized.</summary>
@@ -21,7 +23,7 @@ internal abstract record AzureAuth
 /// <param name="ServiceUrl">The blob service, without a trailing slash; the emulator's includes the account.</param>
 /// <param name="Account">The storage account.</param>
 /// <param name="Auth">The credentials; null sends unsigned requests.</param>
-internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAuth? Auth)
+internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAuth? Auth, HttpOptions? Http = null)
 {
     /// <summary>The well-known account of Azurite and the storage emulator.</summary>
     internal const string EmulatorAccount = "devstoreaccount1";
@@ -112,7 +114,7 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
             bool served = key switch
             {
                 "use_emulator" or "skip_signature" or "use_fabric_endpoint" or "use_azure_cli" => ConfigValues.Bool(value) is not null,
-                "allow_invalid_certificates" => ConfigValues.IsFalse(value),
+                _ when HttpOptions.Keys.Contains(key) => true,
                 "access_key" or "account_name" or "sas_key" or "token" or "endpoint" => true,
                 _ => Ignored.Contains(key),
             };
@@ -128,7 +130,7 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
             return null;
         }
 
-        reason = null;
+        if (HttpOptions.From(config, out reason) is not { } http) return null;
         bool skipSignature = ConfigValues.IsTrue(config.GetValueOrDefault("skip_signature"));
         string? account = urlAccount ?? config.GetValueOrDefault("account_name");
         string? accessKey = config.GetValueOrDefault("access_key");
@@ -150,7 +152,7 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
                 if (emulatorAuth is null) return null;
             }
             reason = null;
-            return new AzureSettings(url.TrimEnd('/') + "/" + account, account, emulatorAuth);
+            return new AzureSettings(url.TrimEnd('/') + "/" + account, account, emulatorAuth, http);
         }
 
         if (string.IsNullOrEmpty(account))
@@ -180,12 +182,12 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
             else if (Has("client_id") && Has("tenant_id") && Has("federated_token_file"))
             {
                 string url = TokenUrl(), client = Value("client_id")!, file = Value("federated_token_file")!;
-                auth = Bearer(["workload", url, client, file], () => AzureCredentialSources.WorkloadIdentity(url, client, file, tokenRetry));
+                auth = Bearer(["workload", url, client, file, http.Key], () => AzureCredentialSources.WorkloadIdentity(url, client, file, tokenRetry, http: http));
             }
             else if (Has("client_id") && Has("client_secret") && Has("tenant_id"))
             {
                 string url = TokenUrl(), client = Value("client_id")!, secret = Value("client_secret")!;
-                auth = Bearer(["secret", url, client, secret], () => AzureCredentialSources.ClientSecret(url, client, secret, tokenRetry));
+                auth = Bearer(["secret", url, client, secret, http.Key], () => AzureCredentialSources.ClientSecret(url, client, secret, tokenRetry, http: http));
             }
             else if (sas is not null)
                 auth = SasAuth(sas, out reason);
@@ -196,15 +198,15 @@ internal sealed record AzureSettings(string ServiceUrl, string Account, AzureAut
                 string msi = Value("msi_endpoint") ?? AzureCredentialSources.DefaultMsiEndpoint;
                 string? header = environment.GetValueOrDefault("IDENTITY_HEADER");
                 string?[] identity = [Value("client_id"), Value("object_id"), Value("msi_resource_id")];
-                auth = Bearer(["msi", msi, identity[0] ?? "", identity[1] ?? "", identity[2] ?? "", header ?? ""],
-                    () => AzureCredentialSources.ManagedIdentity(msi, identity[0], identity[1], identity[2], header, tokenRetry));
+                auth = Bearer(["msi", msi, identity[0] ?? "", identity[1] ?? "", identity[2] ?? "", header ?? "", http.Key],
+                    () => AzureCredentialSources.ManagedIdentity(msi, identity[0], identity[1], identity[2], header, tokenRetry, http: http));
             }
             if (auth is null) return null;
         }
 
         string endpoint = config.GetValueOrDefault("endpoint") ?? $"https://{account}.blob.core.windows.net";
         reason = null;
-        return new AzureSettings(endpoint.TrimEnd('/'), account, auth);
+        return new AzureSettings(endpoint.TrimEnd('/'), account, auth, http);
     }
 
     private static AzureAuth? KeyAuth(string key, out string? reason)

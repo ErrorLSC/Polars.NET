@@ -22,7 +22,7 @@ internal static class GcsCredentialSources
     private static readonly TimeSpan MinTtl = TimeSpan.FromMinutes(4);
 
     /// <summary>The metadata server: its host name first, then its address.</summary>
-    public static CachedCredential<string> MetadataServer(string host, string ip, RetrySettings retry, Func<DateTimeOffset>? clock = null) =>
+    public static CachedCredential<string> MetadataServer(string host, string ip, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
             StoreResponse? answer = null;
@@ -37,7 +37,7 @@ internal static class GcsCredentialSources
                             $"http://{server}/computeMetadata/v1/instance/service-accounts/default/token?audience=https%3A%2F%2Fwww.googleapis.com%2Foauth2%2Fv4%2Ftoken");
                         request.Headers.TryAddWithoutValidation("Metadata-Flavor", "Google");
                         return request;
-                    }, retry, metadata: true);
+                    }, retry, metadata: true, http: http);
                     if (answer.IsSuccess) break;
                     failure = new StorageException($"The metadata server {server} answered HTTP {(int)answer.Status}.", answer.Status);
                     answer = null;
@@ -68,7 +68,7 @@ internal static class GcsCredentialSources
     /// <param name="clock">The current time.</param>
     public static CachedCredential<string> AuthorizedUser(
         string clientId, string clientSecret, string refreshToken, RetrySettings retry, string? tokenUri = null,
-        Func<DateTimeOffset>? clock = null) =>
+        Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
             StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, tokenUri ?? DefaultTokenUri)
@@ -80,7 +80,7 @@ internal static class GcsCredentialSources
                     new("client_secret", clientSecret),
                     new("refresh_token", refreshToken),
                 ]),
-            }, retry);
+            }, retry, http: http);
             if (!response.IsSuccess)
                 throw new StorageException($"Failed to refresh the gcloud user's token: HTTP {(int)response.Status}.", response.Status);
             return Token(response.Body, "Google's token endpoint", clock);

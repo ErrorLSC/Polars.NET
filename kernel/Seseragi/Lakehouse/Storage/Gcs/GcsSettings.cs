@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Kaminari.Seseragi.Lakehouse.Storage.Http;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 
@@ -10,7 +11,7 @@ namespace Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 /// <param name="BaseUrl">The storage service, without a trailing slash.</param>
 /// <param name="Token">The token source; null sends requests without a token.</param>
 /// <param name="SkipSignature">Whether reads (and listings) go without a token.</param>
-internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Token, bool SkipSignature = false)
+internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Token, bool SkipSignature = false, HttpOptions? Http = null)
 {
     internal const string DefaultBaseUrl = "https://storage.googleapis.com";
 
@@ -79,7 +80,7 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
             bool served = key switch
             {
                 "skip_signature" => ConfigValues.Bool(value) is not null,
-                "allow_invalid_certificates" => ConfigValues.IsFalse(value),
+                _ when HttpOptions.Keys.Contains(key) => true,
                 "service_account" or "service_account_key" or "base_url" or "application_credentials" => true,
                 _ => Ignored.Contains(key),
             };
@@ -125,7 +126,7 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
                 string? type = CredentialType(adc);
                 if (type == "authorized_user")
                 {
-                    if (AuthorizedUser(adc, tokenRetry, out reason) is not { } user) return null;
+                    if (AuthorizedUser(adc, tokenRetry, ConnectionOptions(config), out reason) is not { } user) return null;
                     userToken = user;
                 }
                 else if (type != "service_account")
@@ -143,11 +144,12 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
         }
 
         bool skipSignature = ConfigValues.IsTrue(config.GetValueOrDefault("skip_signature"));
+        if (HttpOptions.From(config, out reason) is not { } http) return null;
         if (staticToken is not null)
         {
             reason = null;
             string tokenBaseUrl = config.GetValueOrDefault("base_url") ?? account?.BaseUrl ?? DefaultBaseUrl;
-            return new GcsSettings(tokenBaseUrl.TrimEnd('/'), new StaticCredential<string>(staticToken), skipSignature);
+            return new GcsSettings(tokenBaseUrl.TrimEnd('/'), new StaticCredential<string>(staticToken), skipSignature, http);
         }
         CredentialSource<string>? token = userToken;
         if (account is null && token is null)
@@ -157,7 +159,7 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
             string host = environment.GetValueOrDefault("GCE_METADATA_HOST") ?? environment.GetValueOrDefault("GCE_METADATA_ROOT")
                 ?? GcsCredentialSources.DefaultMetadataHost;
             string ip = environment.GetValueOrDefault("GCE_METADATA_IP") ?? GcsCredentialSources.DefaultMetadataIp;
-            token = SharedCredentials<string>.Get(["gcp-metadata", host, ip], () => GcsCredentialSources.MetadataServer(host, ip, tokenRetry));
+            token = SharedCredentials<string>.Get(["gcp-metadata", host, ip, http.Key], () => GcsCredentialSources.MetadataServer(host, ip, tokenRetry, http: http));
         }
 
         // Unsigned requests are reads only: as in the engine's object store, uploads and deletes keep the token.
@@ -172,11 +174,11 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
         }
         string baseUrl = config.GetValueOrDefault("base_url") ?? account?.BaseUrl ?? DefaultBaseUrl;
         reason = null;
-        return new GcsSettings(baseUrl.TrimEnd('/'), token, skipSignature);
+        return new GcsSettings(baseUrl.TrimEnd('/'), token, skipSignature, http);
     }
 
     /// <summary>The token source of gcloud user credentials (client id, client secret, refresh token).</summary>
-    private static CredentialSource<string>? AuthorizedUser(string json, RetrySettings retry, out string? reason)
+    private static CredentialSource<string>? AuthorizedUser(string json, RetrySettings retry, HttpOptions http, out string? reason)
     {
         try
         {
@@ -190,7 +192,7 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
                 return null;
             }
             reason = null;
-            return SharedCredentials<string>.Get(["gcp-user", id, refresh], () => GcsCredentialSources.AuthorizedUser(id, secret, refresh, retry));
+            return SharedCredentials<string>.Get(["gcp-user", id, refresh, http.Key], () => GcsCredentialSources.AuthorizedUser(id, secret, refresh, retry, http: http));
         }
         catch (JsonException)
         {
@@ -198,6 +200,9 @@ internal sealed record GcsSettings(string BaseUrl, CredentialSource<string>? Tok
             return null;
         }
     }
+
+    // The connection options while reading the credentials (invalid ones are refused later, before any request).
+    private static HttpOptions ConnectionOptions(Dictionary<string, string> config) => HttpOptions.From(config, out _) ?? HttpOptions.Default;
 
     private static string? CredentialType(string json)
     {

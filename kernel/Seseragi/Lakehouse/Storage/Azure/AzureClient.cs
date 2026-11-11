@@ -18,6 +18,7 @@ internal sealed class AzureClient : ObjectStoreClient
     private readonly string _account;
     private readonly AzureAuth? _auth;
     private readonly RetrySettings _retry;
+    private readonly HttpOptions? _http;
 
     /// <param name="settings">The service, account and credentials.</param>
     /// <param name="container">The container.</param>
@@ -30,6 +31,7 @@ internal sealed class AzureClient : ObjectStoreClient
         _account = settings.Account;
         _auth = settings.Auth;
         _retry = retry;
+        _http = settings.Http;
     }
 
     /// <summary>Blobs per listing page; small values let tests cross page boundaries.</summary>
@@ -77,7 +79,7 @@ internal sealed class AzureClient : ObjectStoreClient
             }
             if (body is { } bytes) request.Content = new ReadOnlyMemoryContent(bytes);
             return request;
-        }, _retry);
+        }, _retry, http: _http);
     }
 
     private static string? ErrorCode(StoreResponse response) => response.Header("x-ms-error-code");

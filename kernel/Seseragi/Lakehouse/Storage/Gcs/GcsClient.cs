@@ -19,6 +19,7 @@ internal sealed class GcsClient : ObjectStoreClient
     private readonly CredentialSource<string>? _token;
     private readonly bool _unsignedReads;
     private readonly RetrySettings _retry;
+    private readonly HttpOptions? _http;
 
     /// <param name="settings">The service and the credentials.</param>
     /// <param name="bucket">The bucket.</param>
@@ -30,6 +31,7 @@ internal sealed class GcsClient : ObjectStoreClient
         _token = settings.Token;
         _unsignedReads = settings.SkipSignature;
         _retry = retry;
+        _http = settings.Http;
     }
 
     /// <summary>Objects per listing page; small values let tests cross page boundaries.</summary>
@@ -62,7 +64,7 @@ internal sealed class GcsClient : ObjectStoreClient
                 request.Content.Headers.TryAddWithoutValidation("Content-Type", "application/octet-stream");
             }
             return request;
-        }, _retry);
+        }, _retry, http: _http);
     }
 
     private static StorageException Failure(StoreResponse response, string what)
