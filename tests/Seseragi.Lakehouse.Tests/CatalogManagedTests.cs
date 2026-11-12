@@ -209,6 +209,73 @@ public class CatalogManagedTests
     }
 
     /// <summary>A catalog that ratifies the next version only, as Unity Catalog does.</summary>
+    private static ProtocolAction CatalogProtocol => new()
+    {
+        MinReaderVersion = 3,
+        MinWriterVersion = 7,
+        ReaderFeatures = [TableFeatures.CatalogManaged, TableFeatures.DeletionVectors],
+        WriterFeatures = [TableFeatures.CatalogManaged, TableFeatures.InCommitTimestamp, TableFeatures.DeletionVectors],
+    };
+
+    private static MetadataAction CatalogMetadata(bool inCommitTimestamps = true) => new()
+    {
+        Id = "t",
+        SchemaString = """{"type":"struct","fields":[{"name":"id","type":"long","nullable":true,"metadata":{}}]}""",
+        PartitionColumns = [],
+        Configuration = inCommitTimestamps
+            ? new Dictionary<string, string> { [CommitTimeline.InCommitTimestampsKey] = "true" }
+            : new Dictionary<string, string>(),
+    };
+
+    [Fact]
+    public void Create_WritesVersion0Published_ThenTheCatalogTakesTheNextCommit()
+    {
+        var store = new MemoryFileSystem();
+        long created = Transaction.CreateCatalogManaged(store, CatalogProtocol, CatalogMetadata()).Commit();
+
+        Assert.Equal(0, created);
+        byte[] v0 = store.ReadAll(LogFile.CommitPath(0))!;
+        Assert.NotNull(ActionParser.ParseCommit(v0).OfType<CommitInfoAction>().Single().InCommitTimestamp);
+        Assert.Empty(store.List(CatalogManaged.StagedDirectory, ""));
+
+        // Registered with its catalog (which knows version 0 only as published): commits go through the catalog.
+        var catalog = new FakeCatalog(store);
+        var fs = new CatalogManagedFileSystem(store, catalog);
+        long next = Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(NewFile("a.parquet")).Commit();
+        Assert.Equal(1, next);
+        Assert.Single(catalog.Offered);
+        Assert.Equal(["a.parquet"], Snapshot.Load(fs).Files.Select(f => f.Path));
+    }
+
+    [Fact]
+    public void Create_OnLocalStorage_LeavesTheStagedCommitsDirectory_AsSpark()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_cm_{Guid.NewGuid():N}");
+        try
+        {
+            Transaction.CreateCatalogManaged(new LocalFileSystem(root), CatalogProtocol, CatalogMetadata()).Commit();
+            // Spark's Hadoop file system stages commits only into an existing directory.
+            Assert.True(Directory.Exists(Path.Combine(root, "_delta_log", "_staged_commits")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void Create_OnlyThroughCreateCatalogManaged_AndWithInCommitTimestamps()
+    {
+        var store = new MemoryFileSystem();
+        Assert.Contains("created through its catalog",
+            Assert.Throws<DeltaProtocolException>(() => Transaction.Create(store, CatalogProtocol, CatalogMetadata()).Commit()).Message);
+        Assert.Contains("in-commit timestamps",
+            Assert.Throws<DeltaProtocolException>(() => Transaction.CreateCatalogManaged(store, CatalogProtocol, CatalogMetadata(false)).Commit()).Message);
+        Assert.Throws<DeltaProtocolException>(() => Transaction.CreateCatalogManaged(
+            store, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, CatalogMetadata()));
+        Assert.Null(store.ReadAll(LogFile.CommitPath(0)));
+    }
+
     private sealed class FakeCatalog(MemoryFileSystem store) : ICatalogCommitter
     {
         private readonly List<RatifiedCommit> _ratified = [];

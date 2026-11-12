@@ -249,6 +249,14 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
     }
 
     /// <inheritdoc/>
+    /// <remarks>Only local storage reached by a <c>file://</c> URL has directories.</remarks>
+    public void CreateDirectory(string directory)
+    {
+        if (_root.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            Directory.CreateDirectory(new Uri($"{_root}/{directory}").LocalPath);
+    }
+
+    /// <inheritdoc/>
     public bool TryCreate(string path, ReadOnlyMemory<byte> content) =>
         _managed is not null ? _managed.TryCreate(path, content) : Put(path, content, createOnly: true);
 

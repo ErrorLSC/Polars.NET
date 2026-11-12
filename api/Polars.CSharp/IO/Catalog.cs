@@ -245,37 +245,73 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         PolarsWrapper.CatalogChangeColumnType(Handle, catalogName, schemaName, tableName, column, type.Handle, keys, values);
     }
     /// <summary>
-    /// Creates a new table registration within the Unity Catalog.
+    /// Creates a table in Unity Catalog. A managed table is created as Delta Spark creates one through the catalog's
+    /// Delta API: the catalog stages it, version 0 is written at the location the catalog gives, then the catalog
+    /// registers it. Such a table is catalog-managed (<c>catalogManaged</c>): it is read and written through the
+    /// catalog (<see cref="ScanCatalogTable"/>, <see cref="SinkCatalogTable"/>, …), never by its path. It gets the
+    /// protocol and properties the catalog requires and, unless <paramref name="properties"/> sets them otherwise,
+    /// those it suggests (Unity Catalog suggests column mapping, row tracking and random file prefixes), as Spark.
+    /// An external table is only registered at <paramref name="storageLocation"/>: create its Delta table there first
+    /// (<see cref="Delta.CreateTable"/>).
     /// </summary>
     /// <param name="catalogName">The name of the catalog where the table will be created.</param>
     /// <param name="schemaName">The name of the schema (database) within the catalog.</param>
     /// <param name="tableName">The name of the table to be created.</param>
-    /// <param name="IntoSchema">The structural definition of the table columns and data types via <see cref="IntoSchema"/>.</param>
+    /// <param name="IntoSchema">The columns of the table.</param>
     /// <param name="tableType">
-    /// The management type of the table.
-    /// <see cref="CatalogTableType.Managed"/>: Unity Catalog manages both metadata and physical data.
-    /// <see cref="CatalogTableType.External"/>: Unity Catalog manages metadata, but data resides at a specific <paramref name="storageLocation"/>.
+    /// <see cref="CatalogTableType.Managed"/>: the catalog chooses the location and manages the table.
+    /// <see cref="CatalogTableType.External"/>: the data stays at <paramref name="storageLocation"/>.
     /// </param>
-    /// <param name="storageLocation">
-    /// The physical URI for the table data (e.g., s3://my-bucket/path/).
-    /// Required if <paramref name="tableType"/> is set to External; typically null for Managed tables.
-    /// </param>
+    /// <param name="storageLocation">The location of an external table (e.g., s3://my-bucket/path/); null for a managed table.</param>
+    /// <param name="partitionBy">Partition columns of a managed table; none when null.</param>
+    /// <param name="clusterBy">Liquid clustering columns of a managed table (see <see cref="Delta.CreateTable"/>).</param>
+    /// <param name="properties">Table properties of a managed table. A property the catalog requires cannot be set to
+    /// another value.</param>
+    /// <param name="identityColumns">Identity columns of a managed table.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <remarks>Fails when the table exists, or when a declaration is not valid.</remarks>
     public void CreateCatalogTable(
         string catalogName,
         string schemaName,
         string tableName,
         IntoSchema IntoSchema,
         CatalogTableType tableType = CatalogTableType.Managed,
-        string? storageLocation = null
-    )
-    => PolarsWrapper.CreateCatalogTable(
-        Handle,
-        catalogName,
-        schemaName,
-        tableName,
-        IntoSchema.Consume().Handle,
-        tableType.ToNative(),
-        storageLocation);
+        string? storageLocation = null,
+        string[]? partitionBy = null,
+        IEnumerable<string>? clusterBy = null,
+        Dictionary<string, string>? properties = null,
+        IEnumerable<DeltaIdentityColumn>? identityColumns = null,
+        CloudOptions? cloudOptions = null)
+    {
+        DeltaIdentityColumn[] identity = identityColumns?.ToArray() ?? [];
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        // The schema is borrowed: only one made from a dictionary, names etc. is disposed afterwards.
+        try
+        {
+            PolarsWrapper.CreateCatalogTable(
+                Handle,
+                catalogName,
+                schemaName,
+                tableName,
+                IntoSchema.Consume().Handle,
+                tableType.ToNative(),
+                storageLocation,
+                partitionBy,
+                clusterBy?.ToArray(),
+                properties?.Keys.ToArray(),
+                properties?.Values.ToArray(),
+                [.. identity.Select(c => c.Column)],
+                [.. identity.Select(c => c.Start)],
+                [.. identity.Select(c => c.Step)],
+                [.. identity.Select(c => c.GeneratedAlways)],
+                keys,
+                values);
+        }
+        finally
+        {
+            IntoSchema.DisposeTempSchema();
+        }
+    }
     /// <summary>
     /// Deletes (drops) a table from the Unity Catalog.
     /// For Managed tables, this typically removes both the metadata and the underlying physical data.

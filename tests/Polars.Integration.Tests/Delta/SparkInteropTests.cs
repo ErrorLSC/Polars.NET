@@ -33,32 +33,45 @@ public static class LocalSpark
     private static string Script => Path.Combine(AppContext.BaseDirectory, "Spark", "delta_interop.py");
 
     /// <summary>
-    /// Runs one command of the interop script; returns its JSON result lines. Commands go to one Spark process kept
-    /// for the whole test run (the JVM, the Spark context and Delta start once), one at a time. Set
+    /// Runs one command of the interop script; returns its JSON result lines. Commands go to a pool of Spark
+    /// processes kept for the whole test run (each starts its JVM, Spark context and Delta once), one command per
+    /// process at a time, so test classes running in parallel use up to SESERAGI_SPARK_SERVERS processes (4 by
+    /// default; 1 serializes every command). Commands share no state: tables are passed by path. Set
     /// SESERAGI_SPARK_SERVER=0 to start a process per command instead.
     /// </summary>
     public static List<JsonDocument> Run(params string[] args)
     {
         if (Environment.GetEnvironmentVariable("SESERAGI_SPARK_SERVER") == "0") return RunOnce(args);
-        lock (s_lock)
+        s_slots.Wait();
+        SparkServer? server = null;
+        try
         {
-            s_server ??= SparkServer.Start();
-            try
-            {
-                return s_server.Run(args);
-            }
-            catch (SparkServer.ServerGoneException)
-            {
-                // The process died (not a failed command): start a new one for the next command.
-                s_server.Dispose();
-                s_server = null;
-                throw;
-            }
+            server = s_idle.TryTake(out SparkServer? idle) ? idle : SparkServer.Start();
+            List<JsonDocument> results = server.Run(args);
+            s_idle.Add(server);
+            server = null;
+            return results;
+        }
+        catch (InvalidOperationException e) when (server is not null && e is not SparkServer.ServerGoneException)
+        {
+            // A failed command leaves its process serving.
+            s_idle.Add(server);
+            server = null;
+            throw;
+        }
+        finally
+        {
+            // Only a process that died (not a failed command) is still held here: it is not used again.
+            server?.Dispose();
+            s_slots.Release();
         }
     }
 
-    private static readonly object s_lock = new();
-    private static SparkServer? s_server;
+    private static int PoolSize =>
+        int.TryParse(Environment.GetEnvironmentVariable("SESERAGI_SPARK_SERVERS"), out int n) && n > 0 ? n : 4;
+
+    private static readonly SemaphoreSlim s_slots = new(PoolSize, PoolSize);
+    private static readonly System.Collections.Concurrent.ConcurrentBag<SparkServer> s_idle = [];
 
     private static ProcessStartInfo StartInfo(params string[] args)
     {

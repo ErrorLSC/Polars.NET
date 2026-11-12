@@ -1,5 +1,6 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
+using Kaminari.Seseragi.Lakehouse.Delta.Log;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.NET.Core.Exceptions;
@@ -20,6 +21,9 @@ internal sealed record KernelIdentityColumn(string Column, long Start = 1, long 
 /// </summary>
 internal static class DeltaKernelCreate
 {
+    /// <summary>Version 0 of a table as committed: its metadata, protocol, domains and in-commit timestamp.</summary>
+    public sealed record CreatedTable(MetadataAction Metadata, ProtocolAction Protocol, IReadOnlyList<DomainMetadataAction> Domains, long Timestamp);
+
     /// <summary>Creates the table; returns its version, 0.</summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="schema">The columns.</param>
@@ -31,7 +35,51 @@ internal static class DeltaKernelCreate
     /// <exception cref="PolarsException">A table exists at the path, or the declaration is not valid.</exception>
     public static long Create(
         string tablePath, StructType schema, string[]? partitionBy = null, IReadOnlyDictionary<string, string>? configuration = null,
-        IReadOnlyList<KernelIdentityColumn>? identity = null, CloudArgs? cloud = null, string[]? clusterBy = null)
+        IReadOnlyList<KernelIdentityColumn>? identity = null, CloudArgs? cloud = null, string[]? clusterBy = null) =>
+        CreateCore(tablePath, schema, partitionBy, configuration, identity, cloud, clusterBy, features: null);
+
+    /// <summary>
+    /// Creates version 0 of a catalog-managed table at the location its catalog staged, as Delta Spark writes it (a
+    /// published commit); returns what that version holds, from which the caller registers the table with the
+    /// catalog.
+    /// </summary>
+    /// <param name="location">The staged location.</param>
+    /// <param name="schema">The columns.</param>
+    /// <param name="partitionBy">Partition columns; null for none.</param>
+    /// <param name="configuration">Table properties, the catalog's included.</param>
+    /// <param name="identity">Identity columns; null for none.</param>
+    /// <param name="cloud">Cloud settings (the catalog's credentials) for a cloud URL.</param>
+    /// <param name="clusterBy">Liquid clustering columns; null for none.</param>
+    /// <param name="features">Table features the catalog asks for, on top of those the schema and properties bring
+    /// (<see cref="TableFeatures.CatalogManaged"/> among them).</param>
+    /// <exception cref="PolarsException">A table exists at the location, or the declaration is not valid.</exception>
+    public static CreatedTable CreateCatalogManaged(
+        string location, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string> configuration,
+        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string> features)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+        CreateCore(location, schema, partitionBy, configuration, identity, cloud, clusterBy, features);
+        IWritableFileSystem store = TableStorage.Open(location, cloud).Store;
+        try
+        {
+            byte[] commit = store.ReadAll(LogFile.CommitPath(0)) ?? throw new PolarsException($"Version 0 of the table at {location} was not written.");
+            IReadOnlyList<DeltaAction> actions = ActionParser.ParseCommit(commit);
+            CommitInfoAction info = actions.OfType<CommitInfoAction>().Single();
+            return new CreatedTable(
+                actions.OfType<MetadataAction>().Single(),
+                actions.OfType<ProtocolAction>().Single(),
+                [.. actions.OfType<DomainMetadataAction>()],
+                info.InCommitTimestamp ?? throw new PolarsException("Version 0 of a catalog-managed table has no in-commit timestamp."));
+        }
+        finally
+        {
+            (store as IDisposable)?.Dispose();
+        }
+    }
+
+    private static long CreateCore(
+        string tablePath, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string>? configuration,
+        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string>? features)
     {
         ArgumentNullException.ThrowIfNull(schema);
         if (schema.Fields.Count == 0) throw new PolarsException("A table needs at least one column.");
@@ -60,8 +108,11 @@ internal static class DeltaKernelCreate
             if (declared.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.IdentityColumns]);
             List<StructField[]> clustered = Clustering.Resolve(tableSchema, clusterBy ?? [], partitions, metadata.Configuration);
             if (clustered.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [Clustering.Feature]);
+            if (features is not null) protocol = TableFeatures.WithFeatures(protocol, features);
 
-            var transaction = Transaction.Create(store, protocol, metadata, "CREATE TABLE")
+            var transaction = (features is null
+                    ? Transaction.Create(store, protocol, metadata, "CREATE TABLE")
+                    : Transaction.CreateCatalogManaged(store, protocol, metadata, "CREATE TABLE").WithParameter("isManaged", "true"))
                 .WithParameter("partitionBy", JsonText.StringArray(partitions))
                 .WithParameter("clusterBy", JsonText.StringArray([.. clustered.Select(Clustering.LogicalName)]))
                 .WithParameter("properties", JsonText.Object(configuration ?? new Dictionary<string, string>()));

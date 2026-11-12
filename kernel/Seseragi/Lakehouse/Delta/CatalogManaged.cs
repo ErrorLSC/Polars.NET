@@ -107,6 +107,9 @@ public sealed class CatalogManagedFileSystem(IWritableFileSystem inner, ICatalog
     public IReadOnlyList<string> ListDirectories(string directory) => Inner.ListDirectories(directory);
     /// <inheritdoc/>
     public bool DeleteDirectoryIfEmpty(string directory) => Inner.DeleteDirectoryIfEmpty(directory);
+
+    /// <inheritdoc/>
+    public void CreateDirectory(string directory) => Inner.CreateDirectory(directory);
     /// <inheritdoc/>
     public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null) => Inner.List(directory, startFrom);
     /// <inheritdoc/>

@@ -1093,30 +1093,42 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             ?cloudOptions = cloudOptions
         )
     /// <summary>
-    /// Creates a new table registration within the Unity Catalog.
+    /// Creates a table in Unity Catalog. A managed table is created as Delta Spark creates one through the catalog's
+    /// Delta API: the catalog stages it, version 0 is written at the location the catalog gives, then the catalog
+    /// registers it. Such a table is catalog-managed (catalogManaged): it is read and written through the catalog
+    /// (ScanCatalogTable, SinkCatalogTable, …), never by its path. It gets the protocol and properties the catalog
+    /// requires and, unless properties sets them otherwise, those it suggests (Unity Catalog suggests column mapping,
+    /// row tracking and random file prefixes), as Spark. An external table is only registered at storageLocation:
+    /// create its Delta table there first (Delta.CreateTable).
     /// </summary>
     /// <param name="catalogName">The name of the catalog where the table will be created.</param>
     /// <param name="schemaName">The name of the schema (database) within the catalog.</param>
     /// <param name="tableName">The name of the table to be created.</param>
-    /// <param name="polarsSchema">The structural definition of the table columns and data types via <see cref="PolarsSchema"/>.</param>
-    /// <param name="tableType">
-    /// The management type of the table. 
-    /// <see cref="CatalogTableType.Managed"/>: Unity Catalog manages both metadata and physical data.
-    /// <see cref="CatalogTableType.External"/>: Unity Catalog manages metadata, but data resides at a specific <paramref name="storageLocation"/>.
-    /// </param>
-    /// <param name="storageLocation">
-    /// The physical URI for the table data (e.g., s3://my-bucket/path/). 
-    /// Required if <paramref name="tableType"/> is set to External; typically null for Managed tables.
-    /// </param>
+    /// <param name="polarsSchema">The columns of the table.</param>
+    /// <param name="tableType">Managed (the default): the catalog chooses the location and manages the table. External: the data stays at storageLocation.</param>
+    /// <param name="storageLocation">The location of an external table (e.g., s3://my-bucket/path/).</param>
+    /// <param name="partitionBy">Partition columns of a managed table.</param>
+    /// <param name="clusterBy">Liquid clustering columns of a managed table (see Delta.CreateTable).</param>
+    /// <param name="properties">Table properties of a managed table. A property the catalog requires cannot be set to another value.</param>
+    /// <param name="identityColumns">Identity columns of a managed table.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
     member this.CreateCatalogTable(
         catalogName: string,
         schemaName: string,
         tableName: string,
         polarsSchema: PolarsSchema,
         ?tableType: CatalogTableType,
-        ?storageLocation: string) =
+        ?storageLocation: string,
+        ?partitionBy: seq<string>,
+        ?clusterBy: seq<string>,
+        ?properties: seq<string * string>,
+        ?identityColumns: seq<DeltaIdentityColumn>,
+        ?cloudOptions: CloudOptions) =
 
         let actualTableType = defaultArg tableType CatalogTableType.Managed
+        let props = defaultArg properties Seq.empty |> Seq.toArray
+        let identity = defaultArg identityColumns Seq.empty |> Seq.toArray
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
 
         PolarsWrapper.CreateCatalogTable(
             this.Handle,
@@ -1125,7 +1137,17 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             tableName,
             polarsSchema.Handle,
             actualTableType.ToNative(),
-            Option.toObj storageLocation
+            Option.toObj storageLocation,
+            (match partitionBy with Some p -> Seq.toArray p | None -> null),
+            (match clusterBy with Some c -> Seq.toArray c | None -> null),
+            (props |> Array.map fst),
+            (props |> Array.map snd),
+            (identity |> Array.map (fun c -> c.Column)),
+            (identity |> Array.map (fun c -> c.Start)),
+            (identity |> Array.map (fun c -> c.Step)),
+            (identity |> Array.map (fun c -> c.GeneratedAlways)),
+            cKeys,
+            cVals
         )
 
     /// <summary>

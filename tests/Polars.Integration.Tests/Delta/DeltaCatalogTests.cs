@@ -846,7 +846,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {
-            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            var rnd = new Random(ChaosSeed(workerName)); // the same faults every run
             int maxWorkerRetries = 100;
 
             for (int attempt = 1; attempt <= maxWorkerRetries; attempt++)
@@ -1302,13 +1302,14 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {
-            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            var rnd = new Random(ChaosSeed(workerName)); // the same faults every run
             for (int attempt = 1; attempt <= 3; attempt++)
             {
                 await Task.Delay(rnd.Next(10, 300));
                 try
                 {
-                    if (rnd.NextDouble() < 0.20) throw new Exception("Simulated Transient Network Failure!");
+                    // The last attempt gets no simulated fault: only a real failure fails the test.
+                    if (attempt < 3 && rnd.NextDouble() < 0.20) throw new Exception("Simulated Transient Network Failure!");
                     action();
                     return;
                 }
@@ -1658,5 +1659,13 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using (var result = lf.Collect())
             Assert.Equal([1, 2], result["Id"].ToArray<int>().Order());
         Assert.Equal(1, CredentialRequests());
+    }
+
+    /// <summary>A seed that stays the same across runs (string.GetHashCode differs per process): FNV-1a of the name.</summary>
+    private static int ChaosSeed(string name)
+    {
+        uint hash = 2166136261;
+        foreach (char c in name) hash = (hash ^ c) * 16777619;
+        return (int)hash;
     }
 }

@@ -180,6 +180,10 @@ The same table cannot be read or written by its path: the catalog may know of co
 ```csharp [C# (Fluent)]
 using var uc = new UnityCatalog("https://my-workspace.cloud.databricks.com", token);
 
+// A managed table: staged by the catalog, version 0 written, then registered.
+using var schema = PolarsSchema.From<Event>();
+uc.CreateCatalogTable("main", "sales", "events", schema, partitionBy: ["kind"]);
+
 using var events = uc.ScanCatalogTable("main", "sales", "events").Collect();
 
 using var more = DataFrame.From<Event>([new(7, "click")]);
@@ -192,10 +196,13 @@ record Event(long id, string kind);
 ```fsharp [F# (Pipeline)]
 use uc = new UnityCatalog("https://my-workspace.cloud.databricks.com", token)
 
+use schema = new PolarsSchema([ "id", DataType.Int64; "kind", DataType.String ])
+uc.CreateCatalogTable("main", "sales", "events", schema, partitionBy = [ "kind" ])
+
 let events = uc.ScanCatalogTable("main", "sales", "events").Collect()
 uc.DeleteCatalogRecords("main", "sales", "events", pl.col "id" .== pl.lit 3L)
 ```
 
 :::
 
-Creating catalog-managed tables is not supported yet: create them with Spark or Databricks, then use them here.
+`CreateCatalogTable` (managed, the default) creates such a table as Delta Spark does with Unity Catalog: the catalog stages the table and says what its version 0 needs, version 0 is written at the location the catalog gives, and the catalog registers the table. The table gets the protocol and properties the catalog requires (Unity Catalog: deletion vectors, V2 checkpoints, in-commit timestamps, …) and, unless `properties` sets them otherwise, the ones it suggests (column mapping, row tracking, random file prefixes); a property contradicting a required one is refused before anything is written. Partition columns, clustering columns and identity columns are declared here, as with `Delta.CreateTable`.

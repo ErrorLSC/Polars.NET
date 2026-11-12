@@ -161,26 +161,33 @@ public static class Delta
         ArgumentNullException.ThrowIfNull(schema);
         DeltaIdentityColumn[] identity = identityColumns?.ToArray() ?? [];
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-        using var schemaHandle = schema.Consume().Handle;
-        PolarsWrapper.DeltaCreateTable(
-            path,
-            schemaHandle,
-            partitionBy,
-            properties?.Keys.ToArray(),
-            properties?.Values.ToArray(),
-            [.. identity.Select(c => c.Column)],
-            [.. identity.Select(c => c.Start)],
-            [.. identity.Select(c => c.Step)],
-            [.. identity.Select(c => c.GeneratedAlways)],
-            provider.ToNative(),
-            retries,
-            retryTimeoutMs,
-            retryInitBackoffMs,
-            retryMaxBackoffMs,
-            cacheTtl,
-            keys,
-            values,
-            clusterBy?.ToArray());
+        // The schema is borrowed: only one made from a dictionary, names etc. is disposed afterwards.
+        try
+        {
+            PolarsWrapper.DeltaCreateTable(
+                path,
+                schema.Consume().Handle,
+                partitionBy,
+                properties?.Keys.ToArray(),
+                properties?.Values.ToArray(),
+                [.. identity.Select(c => c.Column)],
+                [.. identity.Select(c => c.Start)],
+                [.. identity.Select(c => c.Step)],
+                [.. identity.Select(c => c.GeneratedAlways)],
+                provider.ToNative(),
+                retries,
+                retryTimeoutMs,
+                retryInitBackoffMs,
+                retryMaxBackoffMs,
+                cacheTtl,
+                keys,
+                values,
+                clusterBy?.ToArray());
+        }
+        finally
+        {
+            schema.DisposeTempSchema();
+        }
     }
 
     /// <summary>

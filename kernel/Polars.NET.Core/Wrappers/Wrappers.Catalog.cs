@@ -381,6 +381,12 @@ public readonly partial struct PolarsWrapper
         DeltaChangeColumnType(access.Location, column, type, cloudKeys, cloudValues);
     }
 
+    /// <summary>
+    /// Creates a catalog table. A managed table is created as Delta Spark creates one through Unity Catalog's Delta
+    /// API: staged by the catalog, version 0 written at the staged location (catalog-managed, with the protocol and
+    /// properties the catalog requires and the ones it suggests), then registered. An external table is registered at
+    /// <paramref name="storageLocation"/> only (create its Delta table there by path).
+    /// </summary>
     public static void CreateCatalogTable
     (
         CatalogHandle handle,
@@ -389,18 +395,38 @@ public readonly partial struct PolarsWrapper
         string tableName,
         SchemaHandle schema,
         PlCatalogTableType tableType,
-        string? storageLocation
+        string? storageLocation,
+        string[]? partitionBy = null,
+        string[]? clusterBy = null,
+        string[]? propertyKeys = null,
+        string[]? propertyValues = null,
+        string[]? identityColumns = null,
+        long[]? identityStarts = null,
+        long[]? identitySteps = null,
+        bool[]? identityGeneratedAlways = null,
+        string[]? cloudKeys = null,
+        string[]? cloudValues = null
     )
     {
         ArgumentNullException.ThrowIfNull(handle);
         if (schema is null || schema.IsInvalid) throw new PolarsException("Schema pointer is null");
 
-        string unityTableType = tableType switch
+        if (tableType == PlCatalogTableType.Managed)
         {
-            PlCatalogTableType.Managed => UnityTableTypes.Managed,
-            PlCatalogTableType.External => UnityTableTypes.External,
-            _ => throw new PolarsException("Invalid table_type"),
-        };
+            Dictionary<string, string>? properties = Properties(propertyKeys, propertyValues);
+            List<Delta.KernelIdentityColumn> identity = IdentityColumns(identityColumns, identityStarts, identitySteps, identityGeneratedAlways);
+            using DataFrameHandle empty = DataFrameFromSchema(schema, 0);
+            CreateManagedTable(
+                handle, catalogName, schemaName, tableName, Delta.DeltaKernelWrite.SchemaOf(empty),
+                partitionBy is { Length: > 0 } ? partitionBy : null, clusterBy is { Length: > 0 } ? clusterBy : null,
+                properties, identity, cloudKeys, cloudValues);
+            return;
+        }
+        if (tableType != PlCatalogTableType.External) throw new PolarsException("Invalid table_type");
+        if (partitionBy is { Length: > 0 } || clusterBy is { Length: > 0 } || propertyKeys is { Length: > 0 } || identityColumns is { Length: > 0 })
+            throw new PolarsException(
+                "Partitioning, clustering, properties and identity columns are declared when a managed table is created; " +
+                "for an external table, create the Delta table at its location (Delta.CreateTable), then register it.");
 
         ulong len = GetSchemaLen(schema);
         var columns = new List<ColumnInfo>((int)len);
@@ -419,7 +445,7 @@ public readonly partial struct PolarsWrapper
                 catalogName,
                 schemaName,
                 tableName,
-                unityTableType,
+                UnityTableTypes.External,
                 UnityDataSourceFormats.Delta,
                 columns,
                 storageLocation);
@@ -428,6 +454,72 @@ public readonly partial struct PolarsWrapper
         {
             throw new PolarsException($"Failed to create table: {e.Message}", e);
         }
+    }
+
+    /// <summary>
+    /// Creates a managed, catalog-managed table as Delta Spark does with Unity Catalog's Delta API: the name checked,
+    /// the table staged, version 0 written at the staged location with the catalog's credentials (the catalog's
+    /// required protocol and properties, its suggested ones the caller does not override), then the table registered
+    /// with what version 0 holds.
+    /// </summary>
+    private static void CreateManagedTable(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType schema,
+        string[]? partitionBy, string[]? clusterBy, Dictionary<string, string>? properties, List<Delta.KernelIdentityColumn> identity,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        string name = $"{catalogName}.{schemaName}.{tableName}";
+        UnityStagingTable staging;
+        Dictionary<string, string> configuration;
+        IReadOnlyList<string> features;
+        try
+        {
+            if (handle.Client.DeltaTableExists(catalogName, schemaName, tableName))
+                throw new PolarsException($"The catalog table {name} already exists.");
+            staging = handle.Client.CreateStagingTable(catalogName, schemaName, tableName);
+            configuration = staging.TableProperties(properties);
+            features = staging.Features();
+        }
+        catch (CatalogException e)
+        {
+            throw new PolarsException($"Failed to create the catalog table {name}: {e.Message}", e);
+        }
+
+        // The catalog's credentials over the caller's cloud options, for this one write (no renewal needed).
+        var options = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int i = 0; i < Math.Min(cloudKeys?.Length ?? 0, cloudValues?.Length ?? 0); i++) options[cloudKeys![i]] = cloudValues![i];
+        foreach (var (key, value) in staging.Credentials.ToStorageOptions()) options[key] = value;
+        var cloud = new Delta.CloudArgs(Keys: [.. options.Keys], Values: [.. options.Values]).WithProviderFrom(staging.Location);
+
+        Delta.DeltaKernelCreate.CreatedTable created = Delta.DeltaKernelCreate.CreateCatalogManaged(
+            staging.Location, schema, partitionBy, configuration, identity, cloud, clusterBy, features);
+        try
+        {
+            handle.Client.CreateDeltaTable(catalogName, schemaName, UnityManagedTables.CreateRequest(
+                tableName, staging.Location, created.Metadata, created.Protocol, created.Domains, created.Timestamp));
+        }
+        catch (CatalogException e)
+        {
+            throw new PolarsException(e.StatusCode is null
+                ? $"Version 0 of {name} was written at {staging.Location}, but whether the catalog registered the table is not known (no answer): {e.Message}"
+                : $"Version 0 of {name} was written at {staging.Location}, but the catalog did not register the table: {e.Message}", e);
+        }
+    }
+
+    private static Dictionary<string, string>? Properties(string[]? keys, string[]? values)
+    {
+        if (keys is not { Length: > 0 }) return null;
+        if (values is null || values.Length != keys.Length) throw new ArgumentException("Every property needs a value.", nameof(values));
+        var properties = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int i = 0; i < keys.Length; i++) properties[keys[i]] = values[i];
+        return properties;
+    }
+
+    private static List<Delta.KernelIdentityColumn> IdentityColumns(string[]? columns, long[]? starts, long[]? steps, bool[]? generatedAlways)
+    {
+        List<Delta.KernelIdentityColumn> identity = [];
+        for (int i = 0; i < (columns?.Length ?? 0); i++)
+            identity.Add(new Delta.KernelIdentityColumn(columns![i], starts?[i] ?? 1, steps?[i] ?? 1, generatedAlways?[i] ?? true));
+        return identity;
     }
 
     /// <summary>

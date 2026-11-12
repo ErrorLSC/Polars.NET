@@ -181,6 +181,9 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
     }
 
     /// <inheritdoc/>
+    public void CreateDirectory(string directory) => Directory.CreateDirectory(Resolve(directory));
+
+    /// <inheritdoc/>
     public bool DeleteDirectoryIfEmpty(string directory)
     {
         string target = Resolve(directory);

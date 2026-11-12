@@ -6,12 +6,32 @@ namespace Polars.CSharp.Tests;
 public class DeltaIdentityRowTrackingTests
 {
     [Fact]
+    public void CreateTable_BorrowsTheSchema_WhichStaysUsable()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"delta_schema_{Guid.NewGuid():N}");
+        try
+        {
+            using PolarsSchema schema = PolarsSchema.From<Row>();
+            Delta.CreateTable(Path.Combine(path, "a"), schema);
+            Delta.CreateTable(Path.Combine(path, "b"), schema);
+            Assert.Equal(["Id", "Name"], schema.Keys);
+            using DataFrame read = DataFrame.ReadDelta(Path.Combine(path, "b"));
+            Assert.Equal(["Id", "Name"], read.Columns);
+        }
+        finally
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, true);
+        }
+    }
+
+    private sealed record Row(long Id, string Name);
+
+    [Fact]
     public void CreateTable_DeclaresIdentity_AndScanDelta_ReturnsStableRowIds()
     {
         string path = Path.Combine(Path.GetTempPath(), $"delta_identity_{Guid.NewGuid():N}");
         try
         {
-            // A schema is consumed by the call that takes it.
             static PolarsSchema Schema() => new PolarsSchema().Add("id", DataType.Int64).Add("v", DataType.String);
             Delta.CreateTable(path, Schema(),
                 properties: new() { [DeltaTableProperties.EnableRowTracking] = "true" },

@@ -34,4 +34,10 @@ public interface IWritableFileSystem : IFileSystem
 
     /// <summary>Deletes a directory when it is empty; returns whether it did. Stores without real directories never do.</summary>
     bool DeleteDirectoryIfEmpty(string directory) => false;
+
+    /// <summary>
+    /// Creates a directory (with its parents) where the store has real directories; stores without them (object
+    /// stores) have none to create.
+    /// </summary>
+    void CreateDirectory(string directory) { }
 }

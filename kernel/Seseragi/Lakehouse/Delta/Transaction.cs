@@ -64,6 +64,8 @@ public sealed class Transaction
     private readonly string _txnId = Guid.NewGuid().ToString();
     /// <summary>For a catalog-managed table, what its catalog said last (refreshed after each conflict).</summary>
     private CatalogLog? _catalogLog;
+    /// <summary>Whether this transaction writes version 0 of a catalog-managed table its catalog then registers.</summary>
+    private bool _createsForCatalog;
 
     private Transaction(IWritableFileSystem fileSystem, Snapshot? read, string operation)
     {
@@ -81,6 +83,22 @@ public sealed class Transaction
         var transaction = new Transaction(fileSystem, null, operation);
         transaction.SetProtocol(protocol);
         transaction.SetMetadata(metadata);
+        return transaction;
+    }
+
+    /// <summary>
+    /// Starts a transaction that writes version 0 of a catalog-managed table at the location its catalog staged for it:
+    /// a published commit, as Delta Spark writes it, since the catalog does not know the table yet. The caller then
+    /// registers the table with the catalog; from then on every commit goes through the catalog.
+    /// </summary>
+    /// <exception cref="DeltaProtocolException">The protocol does not name <see cref="TableFeatures.CatalogManaged"/>.</exception>
+    public static Transaction CreateCatalogManaged(
+        IWritableFileSystem fileSystem, ProtocolAction protocol, MetadataAction metadata, string operation = "CREATE TABLE")
+    {
+        Transaction transaction = Create(fileSystem, protocol, metadata, operation);
+        if (!CatalogManaged.IsCatalogManaged(protocol))
+            throw new DeltaProtocolException($"The protocol of a catalog-managed table names the feature '{TableFeatures.CatalogManaged}'.");
+        transaction._createsForCatalog = true;
         return transaction;
     }
 
@@ -243,7 +261,12 @@ public sealed class Transaction
             if (catalog is null
                     ? _fileSystem.TryCreate(LogFile.CommitPath(version), content)
                     : TryCommitThroughCatalog(catalog, version, content, inCommitTimestamp!.Value))
+            {
+                // As Delta Spark lays out a new catalog-managed table: writers whose storage needs the directory to
+                // exist (Hadoop's local file system) stage their commits there.
+                if (_createsForCatalog) _fileSystem.CreateDirectory(CatalogManaged.StagedDirectory);
                 return version;
+            }
 
             if (_read is null) throw new DeltaCommitConflictException(version, "the table was created concurrently");
             if (attempt >= maxRetries) throw new DeltaCommitConflictException(version, $"still behind after {maxRetries} retries");
@@ -265,11 +288,14 @@ public sealed class Transaction
     private ICatalogCommitter? ManagingCatalog(ProtocolAction protocol, MetadataAction metadata)
     {
         if (!CatalogManaged.IsCatalogManaged(protocol)) return null;
-        ICatalogCommitter catalog = CatalogManaged.CatalogOf(_fileSystem) ?? throw new DeltaProtocolException(
+        if (_read is null && !_createsForCatalog)
+            throw new DeltaProtocolException("A catalog-managed table is created through its catalog, which registers its version 0.");
+        ICatalogCommitter? catalog = _read is null ? null : CatalogManaged.CatalogOf(_fileSystem) ?? throw new DeltaProtocolException(
             "The table is catalog-managed (catalogManaged): it is written through the catalog that manages it, not by its path.");
-        if (_read is null) throw new DeltaProtocolException("Creating a catalog-managed table is not supported yet.");
         if (!InCommitTimestampsOn(metadata))
             throw new DeltaProtocolException("A catalog-managed table needs in-commit timestamps (delta.enableInCommitTimestamps = true).");
+        // Version 0 is written by path, published, before the catalog registers the table.
+        if (catalog is null) return null;
         _catalogLog = catalog.GetLog();
         return catalog;
     }
