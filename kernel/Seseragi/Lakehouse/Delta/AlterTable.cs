@@ -30,6 +30,7 @@ public static partial class AlterTable
         SchemaEvolution.MaxColumnIdKey, ChangeFeed.EnableKey, SchemaEvolution.EnableTypeWideningKey,
         CommitTimeline.InCommitTimestampsKey, CommitTimeline.EnablementVersionKey, CommitTimeline.EnablementTimestampKey,
         Checkpoints.IntervalKey, Checkpoints.TombstoneRetentionKey, CheckpointPolicyKey, LogCleanup.RetentionKey, LogCleanup.EnabledKey, LogCleanup.TruncateHistoryRetentionKey,
+        "delta.checkpointRetentionDuration", "delta.sampleRetentionDuration",
         "delta.checkpoint.writeStatsAsJson", "delta.checkpoint.writeStatsAsStruct", "delta.targetFileSize",
         "delta.tuneFileSizesForRewrites", "delta.dataSkippingNumIndexedCols", "delta.dataSkippingStatsColumns",
         "delta.isolationLevel", FilePrefixes.RandomizeKey, FilePrefixes.LengthKey, "delta.setTransactionRetentionDuration",
@@ -85,6 +86,8 @@ public static partial class AlterTable
             ArgumentNullException.ThrowIfNull(value, nameof(properties));
             recorded.Add(new(change.Apply(key, value, refuseUnknown), value));
         }
+        // Spark checks the retentions set together (not against the table's other properties).
+        Intervals.ValidateSet(recorded.GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Last().Value));
         return change.Commit(fileSystem, recorded, now);
     }
 
@@ -225,6 +228,10 @@ public static partial class AlterTable
             else if (known is FilePrefixes.RandomizeKey or FilePrefixes.LengthKey)
             {
                 FilePrefixes.Validate(known, value);
+            }
+            else if (Intervals.Keys.Contains(known))
+            {
+                Intervals.Validate(known, value);
             }
             else if (known == CheckpointPolicyKey)
             {

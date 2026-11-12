@@ -205,7 +205,10 @@ internal static class DeltaKernelOptimize
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     /// <param name="choose">The files to rewrite, from the table as it is now.</param>
     /// <param name="targetFileSize">The size, in bytes, files are packed toward.</param>
-    internal static DeltaOptimizeResult? Reorg(string tablePath, CloudArgs? cloud, Func<DmlTable, IReadOnlyList<AddAction>> choose, long targetFileSize = 128L * 1024 * 1024) =>
+    /// <param name="predicate">The commit's <c>predicate</c> parameter, as Spark records the REORG's WHERE.</param>
+    internal static DeltaOptimizeResult? Reorg(
+        string tablePath, CloudArgs? cloud, Func<DmlTable, IReadOnlyList<AddAction>> choose, long targetFileSize = 128L * 1024 * 1024,
+        string predicate = "[]") =>
         ConflictRetry.Run(() =>
         {
             try
@@ -217,12 +220,25 @@ internal static class DeltaKernelOptimize
                 if (files.Count == 0) return (DeltaOptimizeResult?)null;
 
                 var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                foreach (List<AddAction> bin in ByPartition(snapshot, files).SelectMany(p => Pack(p, targetFileSize)))
-                    Rewrite(table, bin, null, targetFileSize, plan);
+                if (Clustering.PhysicalColumns(snapshot.DomainMetadata) is { Count: > 0 } clustering)
+                {
+                    // On a clustered table Spark rewrites through clustering: the files become new cubes of the
+                    // current clustering columns.
+                    List<StructField[]> columns = Clustering.Fields(snapshot.Schema, clustering);
+                    string cubeColumns = JsonText.StringArray([.. columns.Select(Clustering.LogicalName)]);
+                    foreach (List<AddAction> cube in CubeBins([.. files], CubeSizes.Default))
+                        ClusterCube(table, cube, columns, targetFileSize, cubeColumns, plan);
+                    foreach (AddAction file in files) plan.Remove(file, dataChange: false);
+                }
+                else
+                {
+                    foreach (List<AddAction> bin in ByPartition(snapshot, files).SelectMany(p => Pack(p, targetFileSize)))
+                        Rewrite(table, bin, null, targetFileSize, plan);
+                }
 
                 var transaction = Transaction.Start(table.FileSystem, snapshot, "REORG");
                 transaction.ReadFiles(files);
-                transaction.WithParameter("predicate", "[]").WithParameter("applyPurge", true);
+                transaction.WithParameter("predicate", predicate).WithParameter("applyPurge", true);
                 return Commit(table, tablePath, transaction, plan, files.Count, cloud);
             }
             catch (DeltaException e)
@@ -239,7 +255,36 @@ internal static class DeltaKernelOptimize
     /// </summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
-    internal static DeltaOptimizeResult? Purge(string tablePath, CloudArgs? cloud) => Reorg(tablePath, cloud, PurgeFiles);
+    /// <param name="partitionFilters">Only partitions whose partition columns have these values (text as in the log;
+    /// null: the column is null), as Spark's <c>REORG TABLE … WHERE</c>; null or empty: the whole table.</param>
+    internal static DeltaOptimizeResult? Purge(string tablePath, CloudArgs? cloud, IReadOnlyDictionary<string, string?>? partitionFilters = null)
+    {
+        if (partitionFilters is not { Count: > 0 }) return Reorg(tablePath, cloud, PurgeFiles);
+        return Reorg(tablePath, cloud, table =>
+        {
+            Snapshot snapshot = table.Snapshot;
+            // The filter's columns as the table names them (any case, as Spark resolves them).
+            List<(string Column, string? Value)> filters = [.. partitionFilters.Select(f => (
+                snapshot.PartitionColumns.FirstOrDefault(c => string.Equals(c, f.Key, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new PolarsException(
+                        $"Predicate references non-partition column '{f.Key}'. Only the partition columns may be referenced: [{string.Join(", ", snapshot.PartitionColumns)}]"),
+                f.Value))];
+            return [.. PurgeFiles(table).Where(file =>
+            {
+                Dictionary<string, string?> values = snapshot.PartitionValuesOf(file);
+                return filters.All(f => values.GetValueOrDefault(f.Column) == f.Value);
+            })];
+        }, predicate: ReorgPredicate(partitionFilters));
+    }
+
+    /// <summary>
+    /// The WHERE of a REORG as Spark records it: the unresolved expression's text, <c>('p = v)</c> or
+    /// <c>isnull('p)</c>, joined left to right by <c>AND</c>.
+    /// </summary>
+    internal static string ReorgPredicate(IReadOnlyDictionary<string, string?> filters) =>
+        JsonText.StringArray([filters
+            .Select(f => f.Value is null ? $"isnull('{f.Key})" : $"('{f.Key} = {f.Value})")
+            .Aggregate((left, right) => $"({left} AND {right})")]);
 
     /// <summary>
     /// The files a purge rewrites, as Spark's <c>DeltaPurgeOperation</c>: those whose footer holds a column the
@@ -335,8 +380,27 @@ internal static class DeltaKernelOptimize
             return new DeltaOptimizeResult(null, 0, 0, 0, 0, 0);
         List<AddAction> files = [.. fresh, .. smallCubes, .. stale];
 
-        // Spark's bins: a file that would take the cube past its target starts the next one. The target is at least
-        // the small-cube size (Spark takes the larger of the two).
+        var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        foreach (List<AddAction> cube in CubeBins(files, cubeSizes)) ClusterCube(table, cube, columns, target, cubeColumns, plan);
+        foreach (AddAction file in files) plan.Remove(file, dataChange: false);
+
+        var transaction = Transaction.Start(table.FileSystem, snapshot, "OPTIMIZE");
+        transaction.ReadFiles(files);
+        // As Spark records an OPTIMIZE of a clustered table.
+        transaction.WithParameter("clusterBy", cubeColumns)
+                   .WithParameter("predicate", "[]")
+                   .WithParameter("auto", "false")
+                   .WithParameter("isFull", full ? "true" : "false")
+                   .WithParameter("zOrderBy", "[]");
+        return Commit(table, tablePath, transaction, plan, files.Count, cloud);
+    }
+
+    /// <summary>
+    /// Spark's cube bins: in order, a file that would take the cube past its target starts the next one. The target is
+    /// at least the small-cube size (Spark takes the larger of the two).
+    /// </summary>
+    private static List<List<AddAction>> CubeBins(List<AddAction> files, CubeSizes cubeSizes)
+    {
         long cubeTarget = Math.Max(cubeSizes.Target, cubeSizes.Min);
         List<List<AddAction>> cubes = [];
         long cubeBytes = 0;
@@ -350,20 +414,7 @@ internal static class DeltaKernelOptimize
             cubes[^1].Add(file);
             cubeBytes += file.Size;
         }
-
-        var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        foreach (List<AddAction> cube in cubes) ClusterCube(table, cube, columns, target, cubeColumns, plan);
-        foreach (AddAction file in files) plan.Remove(file, dataChange: false);
-
-        var transaction = Transaction.Start(table.FileSystem, snapshot, "OPTIMIZE");
-        transaction.ReadFiles(files);
-        // As Spark records an OPTIMIZE of a clustered table.
-        transaction.WithParameter("clusterBy", cubeColumns)
-                   .WithParameter("predicate", "[]")
-                   .WithParameter("auto", "false")
-                   .WithParameter("isFull", full ? "true" : "false")
-                   .WithParameter("zOrderBy", "[]");
-        return Commit(table, tablePath, transaction, plan, files.Count, cloud);
+        return cubes;
     }
 
     /// <summary>

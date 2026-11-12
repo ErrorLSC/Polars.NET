@@ -229,7 +229,7 @@ let ``A scan returns each row's id and commit version under the names asked for`
         Assert.Equal<(int * int64 * int64) list>([ (1, 0L, 0L); (2, 1L, 2L); (4, 3L, 1L) ], scanWithRowIds path)
 
         // With the other options: a schema may name them, a version reads the ids of then.
-        let schema = PolarsSchema([ "row_id", DataType.Int64; "id", DataType.Int32 ])
+        let schema = new PolarsSchema([ "row_id", DataType.Int64; "id", DataType.Int32 ])
         let options = KernelScanOptions(RowIdColumn = "row_id", Schema = schema.Handle)
         use picked = (new LazyFrame(DeltaKernelScan.Scan(path, options = options))).Collect().Sort(pl.col "id")
         Assert.Equal<string list>([ "row_id"; "id" ], picked.Columns |> List.ofArray)

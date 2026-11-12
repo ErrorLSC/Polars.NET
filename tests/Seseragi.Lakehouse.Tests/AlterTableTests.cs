@@ -278,4 +278,33 @@ public class AlterTableTests
         AlterTable.AddFeatures(modern, Snapshot.Load(modern), [TableFeatures.DeletionVectors], allowProtocolIncrease: false);
         Assert.Contains("deletionVectors", Snapshot.Load(modern).Protocol.ReaderFeatures!);
     }
+
+    [Fact]
+    public void IntervalProperties_AreCheckedAsSparkChecksThem()
+    {
+        MemoryFileSystem fs = Table();
+        string Refused(params (string Key, string Value)[] properties) => Assert.Throws<DeltaException>(() =>
+            AlterTable.SetProperties(fs, Snapshot.Load(fs), properties.ToDictionary(p => p.Key, p => p.Value))).Message;
+
+        Assert.Contains("not a valid INTERVAL", Refused(("delta.logRetentionDuration", "abc")));
+        Assert.Contains("not a valid INTERVAL", Refused(("delta.logRetentionDuration", "1.5 days")));
+        Assert.Contains("null or blank", Refused(("delta.dropFeatureTruncateHistory.retentionDuration", " ")));
+        Assert.Contains("Months and years are not accepted", Refused(("delta.logRetentionDuration", "interval 1 month")));
+        Assert.Contains("Months and years are not accepted", Refused(("delta.deletedFileRetentionDuration", "-1 days")));
+        // The log retention may not be shorter than the deleted file retention set with it, or its default (1 week).
+        Assert.Contains("greater than or equal to", Refused(("delta.logRetentionDuration", "3 days")));
+        Assert.Contains("less than or equal to", Refused(("delta.deletedFileRetentionDuration", "40 days")));
+        long before = Snapshot.Load(fs).Version;
+
+        AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string>
+        {
+            ["delta.deletedFileRetentionDuration"] = "1 day", ["delta.logRetentionDuration"] = "3 days",
+            ["delta.checkpointRetentionDuration"] = "2 days", ["delta.dropFeatureTruncateHistory.retentionDuration"] = "1 day 12 hours",
+        });
+        Snapshot after = Snapshot.Load(fs);
+        Assert.Equal(before + 1, after.Version);
+        Assert.Equal("3 days", after.Metadata.Configuration["delta.logRetentionDuration"]);
+        // Like Spark, each change is checked on its own: the table's 3 days do not count against a new 5 days here.
+        AlterTable.SetProperties(fs, after, new Dictionary<string, string> { ["delta.deletedFileRetentionDuration"] = "5 days" });
+    }
 }

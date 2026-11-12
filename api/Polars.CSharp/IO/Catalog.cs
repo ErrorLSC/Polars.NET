@@ -843,11 +843,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <param name="partitionFilters">Only these partitions; see <see cref="Delta.Purge"/>.</param>
     /// <returns>The number of files rewritten; 0 when no file needed it.</returns>
-    public long PurgeCatalogTable(string catalogName, string schemaName, string tableName, CloudOptions? cloudOptions = null)
+    public long PurgeCatalogTable(
+        string catalogName, string schemaName, string tableName, CloudOptions? cloudOptions = null, IReadOnlyDictionary<string, string?>? partitionFilters = null)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-        return (long)PolarsWrapper.CatalogPurge(Handle, catalogName, schemaName, tableName, keys, values);
+        return (long)PolarsWrapper.CatalogPurge(Handle, catalogName, schemaName, tableName, keys, values, partitionFilters?.Keys.ToArray(), partitionFilters?.Values.ToArray());
     }
     /// <summary>
     /// Adds a feature to the Unity Catalog Delta table.

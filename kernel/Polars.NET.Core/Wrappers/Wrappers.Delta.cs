@@ -105,8 +105,19 @@ public readonly partial struct PolarsWrapper
     /// Rewrites the files with deletion vectors and the files holding dropped columns (Spark's REORG … APPLY (PURGE));
     /// returns the number of files rewritten.
     /// </summary>
-    public static ulong DeltaPurge(string path, string[]? cloudKeys, string[]? cloudValues) =>
-        (ulong)(Delta.DeltaKernelOptimize.Purge(path, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues))?.RemovedFiles ?? 0);
+    public static ulong DeltaPurge(
+        string path, string[]? cloudKeys, string[]? cloudValues, string[]? filterColumns = null, string?[]? filterValues = null) =>
+        (ulong)(Delta.DeltaKernelOptimize.Purge(path, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues), Filters(filterColumns, filterValues))?.RemovedFiles ?? 0);
+
+    /// <summary>Partition filters as columns and values side by side (a null value: the column is null); null when none.</summary>
+    internal static Dictionary<string, string?>? Filters(string[]? columns, string?[]? values)
+    {
+        if (columns is not { Length: > 0 }) return null;
+        if (values is null || values.Length != columns.Length) throw new ArgumentException("Each partition filter column needs one value.", nameof(values));
+        Dictionary<string, string?> filters = new(StringComparer.Ordinal);
+        for (int i = 0; i < columns.Length; i++) filters[columns[i]] = values[i];
+        return filters;
+    }
     /// <summary>Changes a table's liquid clustering columns (empty: none).</summary>
     public static void DeltaClusterBy(string path, string[] columns, string[]? cloudKeys, string[]? cloudValues)
     {

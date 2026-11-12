@@ -726,11 +726,13 @@ public static class Delta
     /// </summary>
     /// <param name="path">The root URI of the Delta table.</param>
     /// <param name="cloudOptions">Cloud storage credentials.</param>
+    /// <param name="partitionFilters">Only the partitions whose partition columns have these values (a null value: the
+    /// column is null), as Spark's <c>REORG TABLE … WHERE</c>; other columns are refused. Null: the whole table.</param>
     /// <returns>The number of files rewritten; 0 when no file needed it (nothing is committed then).</returns>
-    public static long Purge(string path, CloudOptions? cloudOptions = null)
+    public static long Purge(string path, CloudOptions? cloudOptions = null, IReadOnlyDictionary<string, string?>? partitionFilters = null)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-        return (long)PolarsWrapper.DeltaPurge(path, keys, values);
+        return (long)PolarsWrapper.DeltaPurge(path, keys, values, partitionFilters?.Keys.ToArray(), partitionFilters?.Values.ToArray());
     }
     /// <summary>
     /// Sets or updates properties on the Delta Table.

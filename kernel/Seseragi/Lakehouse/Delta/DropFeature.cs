@@ -74,11 +74,13 @@ public static class DropFeature
     /// <param name="now">The writer's clock; the current time when null.</param>
     /// <param name="truncateHistory">Spark's <c>TRUNCATE HISTORY</c>: delete the history instead of protecting it.</param>
     /// <param name="snapshotAt">Loads the table at a version (to check the oldest remaining one); <see cref="Snapshot.Load"/> by default.</param>
+    /// <param name="afterCommit">Called with each version the drop committed that has no checkpoint (the engine
+    /// checkpoints it when the interval is due, as Spark's post-commit hook does); after each step, failed ones too.</param>
     /// <exception cref="DeltaException">The feature is not in the protocol, cannot be dropped, or something depends on
     /// it; with <paramref name="truncateHistory"/>, also when the history cannot be truncated yet.</exception>
     public static long Run(
         IWritableFileSystem fileSystem, Func<Snapshot> latest, string featureName, IFeatureRewriter? rewriter = null, DateTimeOffset? now = null,
-        bool truncateHistory = false, Func<long, Snapshot>? snapshotAt = null)
+        bool truncateHistory = false, Func<long, Snapshot>? snapshotAt = null, Action<long>? afterCommit = null)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(latest);
@@ -86,12 +88,42 @@ public static class DropFeature
 
         Snapshot table = latest();
         string feature = Validate(table, featureName, rewriter, truncateHistory);
-        if (truncateHistory)
+        long settled = table.Version;
+        try
         {
-            return feature == TableFeatures.CheckpointProtection
-                ? DropCheckpointProtection(fileSystem, latest, now)
-                : DropTruncatingHistory(fileSystem, latest, feature, rewriter, snapshotAt ?? (v => Snapshot.Load(fileSystem, v)), now);
+            if (truncateHistory)
+            {
+                return feature == TableFeatures.CheckpointProtection
+                    ? DropCheckpointProtection(fileSystem, latest, Settle, now)
+                    : DropTruncatingHistory(fileSystem, latest, feature, rewriter, snapshotAt ?? (v => Snapshot.Load(fileSystem, v)), Settle, now);
+            }
+            return DropProtectingHistory(fileSystem, latest, feature, rewriter, Settle, now);
         }
+        finally
+        {
+            Settle();
+        }
+
+        // The versions committed since the last call that have no checkpoint go to afterCommit.
+        void Settle()
+        {
+            if (afterCommit is null) return;
+            long version = latest().Version;
+            if (version <= settled) return;
+            HashSet<long> checkpointed = [.. LogSegment.ListLog(fileSystem, null)
+                .Where(f => f.Kind is LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint or LogFileKind.V2Checkpoint && f.Version > settled)
+                .Select(f => f.Version)];
+            for (long v = settled + 1; v <= version; v++)
+                if (!checkpointed.Contains(v)) afterCommit(v);
+            settled = version;
+        }
+    }
+
+    /// <summary>The drop without history truncation: a reader feature under checkpoint protection.</summary>
+    private static long DropProtectingHistory(
+        IWritableFileSystem fileSystem, Func<Snapshot> latest, string feature, IFeatureRewriter? rewriter, Action settle, DateTimeOffset? now)
+    {
+        Snapshot table;
         bool protect = TableFeatures.IsReaderWriterFeature(feature);
 
         // Traces can come back while the drop runs (a writer that read the table before a property was turned off):
@@ -99,6 +131,7 @@ public static class DropFeature
         for (int attempt = 0; attempt < 5; attempt++)
         {
             RemoveTraces(fileSystem, latest, feature, rewriter, now);
+            settle();
             if (protect)
             {
                 for (int i = 0; i < BarrierCheckpoints; i++)
@@ -146,10 +179,12 @@ public static class DropFeature
     /// when no remaining version uses the feature, it leaves the protocol (no checkpoint protection added).
     /// </summary>
     private static long DropTruncatingHistory(
-        IWritableFileSystem fileSystem, Func<Snapshot> latest, string feature, IFeatureRewriter? rewriter, Func<long, Snapshot> snapshotAt, DateTimeOffset? now)
+        IWritableFileSystem fileSystem, Func<Snapshot> latest, string feature, IFeatureRewriter? rewriter, Func<long, Snapshot> snapshotAt,
+        Action settle, DateTimeOffset? now)
     {
         bool removed = Traces(latest(), feature) is not null;
         RemoveTraces(fileSystem, latest, feature, rewriter, now);
+        settle();
         EmptyCommitWithCheckpoint(fileSystem, latest, now);
         Snapshot table = latest();
         if (removed)
@@ -192,7 +227,7 @@ public static class DropFeature
     /// retention, failing when that does not reach the protected version; then the property is unset (committed even
     /// when absent, as Spark does) and the feature leaves the protocol.
     /// </summary>
-    private static long DropCheckpointProtection(IWritableFileSystem fileSystem, Func<Snapshot> latest, DateTimeOffset? now)
+    private static long DropCheckpointProtection(IWritableFileSystem fileSystem, Func<Snapshot> latest, Action settle, DateTimeOffset? now)
     {
         Snapshot table = latest();
         if (!HistoryBeforeBoundaryTruncated(fileSystem, table))
@@ -206,6 +241,7 @@ public static class DropFeature
                     $"retention period ({LogCleanup.TruncateHistoryRetentionKey} = {Retention(table.Metadata)}) to pass and run the drop again.");
         }
         Unset(fileSystem, latest(), TableFeatures.RequireCheckpointProtectionBeforeVersionKey, now);
+        settle();
 
         for (int retry = 0; retry < 10; retry++)
         {

@@ -17,6 +17,10 @@ public class CheckpointWriteTests
     [InlineData("interval 2 days", 48)]
     [InlineData("INTERVAL 36 HOURS", 36)]
     [InlineData("interval 90 minutes", 1.5)]
+    [InlineData("30 days", 30 * 24)]          // no "interval": as Spark stores what was set
+    [InlineData("1 day 12 hours", 36)]        // several units
+    [InlineData("2 weeks 1 day", 15 * 24)]
+    [InlineData("1 month", 7 * 24)]           // months cannot be used: the default
     [InlineData("nonsense", 7 * 24)]
     public void TombstoneRetention_ReadsTheIntervalProperty(string value, double hours) =>
         Assert.Equal(TimeSpan.FromHours(hours), Checkpoints.Retention(Metadata((Checkpoints.TombstoneRetentionKey, value))));

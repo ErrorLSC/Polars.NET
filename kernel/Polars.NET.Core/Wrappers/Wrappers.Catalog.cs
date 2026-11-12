@@ -811,10 +811,11 @@ public readonly partial struct PolarsWrapper
 
     /// <summary>Purges a catalog table (Spark's REORG … APPLY (PURGE)); returns the number of files rewritten.</summary>
     public static ulong CatalogPurge(
-        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[]? cloudKeys, string[]? cloudValues)
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[]? cloudKeys, string[]? cloudValues,
+        string[]? filterColumns = null, string?[]? filterValues = null)
     {
         using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "REORG");
-        return DeltaPurge(access.Location, cloudKeys, cloudValues);
+        return DeltaPurge(access.Location, cloudKeys, cloudValues, filterColumns, filterValues);
     }
 
     public static LazyFrameHandle CatalogReadCdc(

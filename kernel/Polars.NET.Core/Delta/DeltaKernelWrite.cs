@@ -333,6 +333,7 @@ internal static class DeltaKernelWrite
             CreatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
         FilePrefixes.Validate(metadata.Configuration);
+        Intervals.ValidateSet(metadata.Configuration);
         if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None)
         {
             // Column mapping from the start: every column gets an id and a physical name.

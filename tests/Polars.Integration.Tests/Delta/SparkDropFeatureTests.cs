@@ -300,7 +300,13 @@ public partial class SparkDropFeatureTests
 
     /// <summary>The commits and checkpoints left in the log (Spark's .crc files aside).</summary>
     private static string[] LogLeft(string table) =>
-        [.. LogNames(table).Where(n => n.EndsWith(".json", StringComparison.Ordinal) || n.EndsWith(".checkpoint.parquet", StringComparison.Ordinal))];
+        [.. LogNames(table)
+            .Where(n => !n.StartsWith('.') && !n.EndsWith(".crc", StringComparison.Ordinal)
+                && (n.EndsWith(".json", StringComparison.Ordinal) || n.Contains(".checkpoint.", StringComparison.Ordinal)))
+            .Select(n => CheckpointId().Replace(n, ".checkpoint.*."))]; // V2 checkpoints are named by a random id
+
+    [GeneratedRegex(@"\.checkpoint\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.")]
+    private static partial Regex CheckpointId();
 
     /// <summary>
     /// DROP FEATURE … TRUNCATE HISTORY run by the kernel on one table and by Spark on the other, after the same
@@ -354,6 +360,12 @@ public partial class SparkDropFeatureTests
     // Column mapping: the files are rewritten under logical names first.
     [InlineData("columnMapping", "(id INT, v STRING) USING delta", "'delta.columnMapping.mode'='name'", 2,
         "INSERT INTO {table} VALUES (1, 'a')", "ALTER TABLE {table} RENAME COLUMN v TO w")]
+    // Type widening: the file in the older type is rewritten and the type changes leave the schema first.
+    [InlineData("typeWidening", "(id INT, s SHORT) USING delta", "'delta.enableTypeWidening'='true'", 2,
+        "INSERT INTO {table} VALUES (1, 1)", "ALTER TABLE {table} ALTER COLUMN s TYPE INT", "INSERT INTO {table} VALUES (2, 70000)")]
+    // V2 checkpoints: the policy goes back to classic first (the history still holds v2 checkpoints and the policy).
+    [InlineData("v2Checkpoint", "(id INT) USING delta", "'delta.checkpointPolicy'='v2', 'delta.checkpointInterval'='2'", 2,
+        "INSERT INTO {table} VALUES (1)", "INSERT INTO {table} VALUES (2)", "INSERT INTO {table} VALUES (3)")]
     [Trait("DeltaKernel", "Spark")]
     public void TruncateHistory_DropsAReaderFeature_AsSpark(string feature, string definition, string properties, int runs, params string[] setup)
     {
@@ -518,6 +530,96 @@ public partial class SparkDropFeatureTests
                 f => Assert.False(FileTypes.HasExtraColumns(snapshot.Schema, hidden, f.Footer)));
             // Spark writes the table on.
             LocalSpark.Run("sql", kernel, "INSERT INTO {table} (id) VALUES (8)");
+        });
+    }
+
+    [SparkTheory]
+    [InlineData("p", "p1")]
+    [InlineData("p", "p1", "q", "1")]
+    [InlineData("p", null)]
+    [InlineData("p", "zz")] // no file: no commit
+    [Trait("DeltaKernel", "Spark")]
+    public void Purge_OfSomePartitions_RewritesTheFilesSparkRewrites_AndRecordsItsWhere(params string?[] filter)
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                LocalSpark.Run("sql", table,
+                    "CREATE TABLE {table} (id INT, p STRING, q INT) USING delta PARTITIONED BY (p, q) TBLPROPERTIES ('delta.enableDeletionVectors'='true')");
+                LocalSpark.Run("sql", table,
+                    "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, 'p1', 1), (2, 'p1', 1), (3, 'p1', 2), (4, 'p1', 2), " +
+                    "(5, 'p2', 1), (6, 'p2', 1), (7, NULL, 1), (8, NULL, 1) AS x(id, p, q)");
+                LocalSpark.Run("sql", table, "DELETE FROM {table} WHERE id IN (1, 3, 5, 7)");
+            }
+            Dictionary<string, string?> filters = [];
+            for (int i = 0; i < filter.Length; i += 2) filters[filter[i]!] = filter[i + 1];
+            string where = string.Join(" AND ", filters.Select(f => f.Value is null ? $"{f.Key} IS NULL" : $"{f.Key} = '{f.Value}'"));
+            const long From = 3;
+
+            long purged = Delta.Purge(kernel, partitionFilters: filters);
+            LocalSpark.Run("sql", spark, $"REORG TABLE {{table}} WHERE {where} APPLY (PURGE)");
+
+            List<string> bySpark = Commits(spark, From), byKernel = Commits(kernel, From);
+            Assert.True(bySpark.SequenceEqual(byKernel), $"Spark:\n{string.Join("\n", bySpark)}\nkernel:\n{string.Join("\n", byKernel)}");
+            long[] removed = RemovedFilesAddedIn(spark, From);
+            Assert.Equal(removed, RemovedFilesAddedIn(kernel, From));
+            Assert.Equal(removed.Length, purged);
+            Assert.Equal(SparkRows(spark), SparkRows(kernel));
+        });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void Purge_OfAClusteredTable_WritesANewCube_AsSpark()
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                LocalSpark.Run("sql", table, "CREATE TABLE {table} (id INT, v STRING) USING delta CLUSTER BY (id) TBLPROPERTIES ('delta.enableDeletionVectors'='true')");
+                LocalSpark.Run("sql", table, "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, 'a'), (2, 'b'), (3, 'c') AS x(id, v)");
+                LocalSpark.Run("sql", table, "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (4, 'd'), (5, 'e') AS x(id, v)");
+                LocalSpark.Run("sql", table, "OPTIMIZE {table}");
+                LocalSpark.Run("sql", table, "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (6, 'f'), (7, 'g') AS x(id, v)");
+                LocalSpark.Run("sql", table, "DELETE FROM {table} WHERE id IN (2, 6)"); // a vector in the cube and in the new file
+            }
+            const long From = 6;
+
+            Assert.Equal(2, Delta.Purge(kernel));
+            LocalSpark.Run("sql", spark, "REORG TABLE {table} APPLY (PURGE)");
+
+            List<string> bySpark = Commits(spark, From), byKernel = Commits(kernel, From);
+            Assert.True(bySpark.SequenceEqual(byKernel), $"Spark:\n{string.Join("\n", bySpark)}\nkernel:\n{string.Join("\n", byKernel)}");
+            // The rewritten rows are one new cube of the clustering columns, as Spark writes them.
+            AddAction[] added = [.. File.ReadAllLines(Path.Combine(kernel, "_delta_log", $"{From:D20}.json"))
+                .SelectMany(line => ActionParser.ParseCommit(System.Text.Encoding.UTF8.GetBytes(line))).OfType<AddAction>()];
+            Assert.NotEmpty(added);
+            Assert.All(added, a => Assert.Equal("liquid", a.ClusteringProvider));
+            Assert.All(added, a => Assert.Equal("""["id"]""", a.Tags!["ZCUBE_ZORDER_BY"]));
+            Assert.Single(added.Select(a => a.Tags!["ZCUBE_ID"]).Distinct());
+            Assert.Equal(SparkRows(spark), SparkRows(kernel));
+            // Spark's next OPTIMIZE treats both tables alike.
+            foreach (string table in (string[])[kernel, spark]) LocalSpark.Run("sql", table, "OPTIMIZE {table}");
+            Assert.Equal(Commits(spark, From + 1), Commits(kernel, From + 1));
+        });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void Purge_OfAColumnThatIsNoPartition_IsRefused_AsSpark()
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+                LocalSpark.Run("sql", table, "CREATE TABLE {table} (id INT, p STRING) USING delta PARTITIONED BY (p) TBLPROPERTIES ('delta.enableDeletionVectors'='true')");
+            Assert.Contains("non-partition column 'id'",
+                Assert.ThrowsAny<Exception>(() => Delta.Purge(kernel, partitionFilters: new Dictionary<string, string?> { ["id"] = "1" })).Message);
+            Assert.Contains("DELTA_NON_PARTITION_COLUMN_REFERENCE",
+                Assert.ThrowsAny<Exception>(() => LocalSpark.Run("sql", spark, "REORG TABLE {table} WHERE id = 1 APPLY (PURGE)")).Message);
         });
     }
 

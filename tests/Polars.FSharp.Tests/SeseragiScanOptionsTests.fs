@@ -57,12 +57,12 @@ let ``Row limit, row index and path column`` () =
 let ``A schema selects and casts the table's columns, and refuses unknown ones`` () =
     withTable "schema" (fun path ->
         table path
-        let wanted = PolarsSchema([ "region", DataType.String; "id", DataType.Int64 ])
+        let wanted = new PolarsSchema([ "region", DataType.String; "id", DataType.Int64 ])
         use df = scan path (KernelScanOptions(Schema = wanted.Handle))
         Assert.Equal<string list>([ "region"; "id" ], df.Columns |> List.ofSeq)
         Assert.Equal(DataType.Int64, df.["id"].DataType)
         Assert.Equal(9L, df.Height)
-        let unknown = PolarsSchema([ "nope", DataType.Int64 ])
+        let unknown = new PolarsSchema([ ("nope", DataType.Int64) ])
         Assert.ThrowsAny<Exception>(fun () -> scan path (KernelScanOptions(Schema = unknown.Handle)) |> ignore) |> ignore)
 
 [<Fact>]

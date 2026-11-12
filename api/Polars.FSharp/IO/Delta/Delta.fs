@@ -679,10 +679,13 @@ type Delta =
     /// </summary>
     /// <param name="path">The root URI of the Delta table.</param>
     /// <param name="cloudOptions">Cloud storage credentials.</param>
+    /// <param name="partitionFilters">Only the partitions whose partition columns have these values (a null value: the
+    /// column is null), as Spark's REORG TABLE … WHERE; other columns are refused. Omitted: the whole table.</param>
     /// <returns>The number of files rewritten; 0 when no file needed it (nothing is committed then).</returns>
-    static member Purge(path: string, ?cloudOptions: CloudOptions) =
+    static member Purge(path: string, ?cloudOptions: CloudOptions, ?partitionFilters: seq<string * string>) =
         let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
-        int64 (PolarsWrapper.DeltaPurge(path, cKeys, cVals))
+        let filters = partitionFilters |> Option.map Array.ofSeq
+        int64 (PolarsWrapper.DeltaPurge(path, cKeys, cVals, filters |> Option.map (Array.map fst) |> Option.toObj, filters |> Option.map (Array.map snd) |> Option.toObj))
 
     /// <summary>
     /// Enables a specific feature on the Delta Table.
@@ -1674,10 +1677,13 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
     /// <param name="tableName">The name of the table.</param>
     /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <param name="partitionFilters">Only these partitions; see Delta.Purge.</param>
     /// <returns>The number of files rewritten; 0 when no file needed it.</returns>
-    member this.PurgeCatalogTable(catalogName: string, schemaName: string, tableName: string, ?cloudOptions: CloudOptions) =
+    member this.PurgeCatalogTable(catalogName: string, schemaName: string, tableName: string, ?cloudOptions: CloudOptions, ?partitionFilters: seq<string * string>) =
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
-        int64 (PolarsWrapper.CatalogPurge(this.Handle, catalogName, schemaName, tableName, keys, values))
+        let filters = partitionFilters |> Option.map Array.ofSeq
+        int64 (PolarsWrapper.CatalogPurge(this.Handle, catalogName, schemaName, tableName, keys, values,
+                                          filters |> Option.map (Array.map fst) |> Option.toObj, filters |> Option.map (Array.map snd) |> Option.toObj))
 
     /// <summary>
     /// Adds a feature to the Unity Catalog Delta table.

@@ -147,7 +147,8 @@ internal static class DeltaKernelAlter
             var parquet = new EngineParquetReader(table.Root, cloud);
             return Kaminari.Seseragi.Lakehouse.Delta.DropFeature.Run(
                 table.FileSystem, () => Snapshot.Load(table.FileSystem, null, parquet), feature, new EngineRewriter(tablePath, cloud),
-                truncateHistory: truncateHistory, snapshotAt: version => Snapshot.Load(table.FileSystem, version, parquet));
+                truncateHistory: truncateHistory, snapshotAt: version => Snapshot.Load(table.FileSystem, version, parquet),
+                afterCommit: version => DeltaKernelWrite.TryCheckpoint(table.FileSystem, tablePath, version, cloud));
         }
         catch (DeltaException e)
         {

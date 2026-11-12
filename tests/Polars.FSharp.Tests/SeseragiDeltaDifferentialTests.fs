@@ -305,13 +305,13 @@ let ``Delta Acceptance Tests content through the kernel scan`` (caseName: string
     let snapshot = Snapshot.Load(LocalFileSystem tablePath, version, EngineParquetReader tablePath)
     let sortColumns =
         snapshot.Schema.Fields
-        |> Seq.filter (fun f -> (f.Type :? Schema.PrimitiveType && f.Type.ToString() <> "binary") || f.Type :? Schema.DecimalType)
+        |> Seq.filter (fun f -> f.Type :? Schema.PrimitiveType && f.Type.ToString() <> "binary" || f.Type :? Schema.DecimalType)
         |> Seq.map (fun f -> pl.col f.Name)
         |> List.ofSeq
     let columns = actual.ColumnNames |> Seq.map pl.col |> List.ofSeq
-    use expected = expectedRaw.Select(columns).Sort(sortColumns)
-    use sorted = actual.Sort(sortColumns)
-    Assert.True(sorted.Equals(expected), $"content differs\nactual:\n{sorted}\nexpected:\n{expected}")
+    use expected = expectedRaw.Select(columns).Sort sortColumns
+    use sorted = actual.Sort sortColumns
+    Assert.True(sorted.Equals expected, $"content differs\nactual:\n{sorted}\nexpected:\n{expected}")
 
 /// Files written before the table schema widened a column or added a nested field must still read.
 [<Fact>]
@@ -858,7 +858,9 @@ let ``Kernel checkpoints give the state of the log, and other readers use them``
 [<Fact>]
 let ``Kernel cleans up the expired log after a checkpoint, and the table stays readable`` () =
     withTable "kernel_cleanup" (fun path ->
-        let properties = readOnlyDict [ "delta.checkpointInterval", "3"; "delta.logRetentionDuration", "interval 0 seconds" ]
+        // The log retention may not be shorter than the deleted file retention (Spark): both go to zero.
+        let properties =
+            readOnlyDict [ "delta.checkpointInterval", "3"; "delta.logRetentionDuration", "interval 0 seconds"; "delta.deletedFileRetentionDuration", "interval 0 seconds" ]
         let write (df: DataFrame) mode =
             Polars.NET.Core.Delta.DeltaKernelWrite.Write(path, df.Lazy().CloneHandle(), mode, null, null, properties) |> ignore
         use first = frame [ 1 ] "east"

@@ -166,27 +166,8 @@ public static class Checkpoints
             : DefaultRetention;
 
     /// <summary>Reads a duration property such as <c>interval 7 days</c>.</summary>
-    internal static bool TryParseInterval(string text, out TimeSpan value)
-    {
-        value = default;
-        string[] parts = text.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 3 || parts[0] != "interval"
-            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
-            return false;
-        TimeSpan? unit = parts[2].TrimEnd('s') switch
-        {
-            "millisecond" => TimeSpan.FromMilliseconds(1),
-            "second" => TimeSpan.FromSeconds(1),
-            "minute" => TimeSpan.FromMinutes(1),
-            "hour" => TimeSpan.FromHours(1),
-            "day" => TimeSpan.FromDays(1),
-            "week" => TimeSpan.FromDays(7),
-            _ => null,
-        };
-        if (unit is not TimeSpan u) return false;
-        value = u * n;
-        return true;
-    }
+    /// <summary>Reads an interval property as Spark reads it (see <see cref="Intervals"/>); false when it cannot be used.</summary>
+    internal static bool TryParseInterval(string text, out TimeSpan value) => Intervals.TryRead(text, out value);
 
     // ------------------------------------------------------------------
     // The checkpoint schema (the classic one; every action column is a nullable struct)
