@@ -8,7 +8,8 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// <summary>
 /// Removes log files that are past the log retention (the protocol's metadata cleanup): everything before the
 /// newest checkpoint whose commit is older than <c>delta.logRetentionDuration</c> (30 days by default). That
-/// checkpoint and every later file stay, so each version still inside the retention can be read.
+/// checkpoint and every later file stay, so each version still inside the retention can be read. Under checkpoint
+/// protection, history before the protected version is removed only all at once.
 /// </summary>
 public static class LogCleanup
 {
@@ -50,8 +51,15 @@ public static class LogCleanup
         }
         if (keepFrom <= 0) return [];
 
-        var deleted = new List<string>();
-        foreach (LogFile file in files)
+        // Checkpoint protection (a feature was dropped at the boundary version): history before the boundary goes
+        // only in one go, all of it, so the protected checkpoints keep hiding the commits that need the dropped
+        // feature. Until the retention reaches the boundary nothing is cleaned up.
+        if (TableFeatures.CheckpointProtectionBoundary(snapshot.Protocol, snapshot.Metadata) is long boundary && keepFrom < boundary) return [];
+
+        // Commits (and the files beside them) go before the checkpoints, so a checkpoint never disappears while a
+        // commit it hides is still there.
+        List<string> deleted = [];
+        foreach (LogFile file in files.Where(f => !IsCheckpoint(f)).Concat(files.Where(IsCheckpoint)))
         {
             bool before = file.Kind switch
             {
@@ -65,6 +73,9 @@ public static class LogCleanup
         deleted.AddRange(CleanSidecars(fileSystem, files.Where(f => f.Kind == LogFileKind.V2Checkpoint && f.Version >= keepFrom), cutoff));
         return deleted;
     }
+
+    private static bool IsCheckpoint(LogFile file) =>
+        file.Kind is LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint or LogFileKind.V2Checkpoint;
 
     /// <summary>
     /// Deletes sidecar files no remaining V2 checkpoint refers to, once they are past the retention. Only when every

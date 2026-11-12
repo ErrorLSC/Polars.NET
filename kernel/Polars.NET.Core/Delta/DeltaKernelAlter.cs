@@ -1,4 +1,7 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
+using Kaminari.Seseragi.Lakehouse.Delta.Actions;
+using Kaminari.Seseragi.Lakehouse.Delta.Schema;
+using Kaminari.Seseragi.Lakehouse.Parquet;
 using Polars.NET.Core.Exceptions;
 
 namespace Polars.NET.Core.Delta;
@@ -89,6 +92,105 @@ internal static class DeltaKernelAlter
         ArgumentNullException.ThrowIfNull(type);
         Kaminari.Seseragi.Lakehouse.Delta.Schema.DeltaType deltaType = DeltaKernelWrite.DeltaTypeOf(type, column);
         return Run(tablePath, cloud, table => AlterTable.ChangeColumnType(table.FileSystem, table.Snapshot, column, deltaType));
+    }
+
+    /// <summary>
+    /// Drops a table feature, as Spark's <c>ALTER TABLE … DROP FEATURE</c> (see <see cref="Kaminari.Seseragi.Lakehouse.Delta.DropFeature"/>);
+    /// returns the version of the commit that dropped it.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="feature">The feature name, any case.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long DropFeature(string tablePath, string feature, CloudArgs? cloud = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(feature);
+        try
+        {
+            // The drop itself writes log files only; each data rewrite opens the table on its own, so its rollback
+            // covers its own commit and never the drop's other commits.
+            using DmlTable table = DmlTable.Open(tablePath, cloud);
+            EnsureRewritable(table.Snapshot, feature);
+            var parquet = new EngineParquetReader(table.Root, cloud);
+            return Kaminari.Seseragi.Lakehouse.Delta.DropFeature.Run(
+                table.FileSystem, () => Snapshot.Load(table.FileSystem, null, parquet), feature, new EngineRewriter(tablePath, cloud));
+        }
+        catch (DeltaException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+
+        // Refuses, before anything is committed, a drop whose data rewrite could not write the table's files (map
+        // columns; see DeltaKernelWrite.EnsureNoMaps).
+        static void EnsureRewritable(Snapshot snapshot, string feature)
+        {
+            bool rewrites = feature.ToLowerInvariant() switch
+            {
+                "deletionvectors" => snapshot.Files.Any(f => f.DeletionVector is not null),
+                "typewidening" or "typewidening-preview" =>
+                    snapshot.Files.Count > 0 && snapshot.Metadata.SchemaString.Contains(SchemaEvolution.TypeChangesKey, StringComparison.Ordinal),
+                "columnmapping" => snapshot.Files.Count > 0 && snapshot.ColumnMappingMode != ColumnMappingMode.None,
+                _ => false,
+            };
+            if (rewrites) DeltaKernelWrite.EnsureNoMaps(snapshot.Schema.Fields.Where(f => !snapshot.PartitionColumns.Contains(f.Name)));
+        }
+    }
+
+    /// <summary>The data rewrites of a drop, through the engine; each one opens the table at its latest version.</summary>
+    private sealed class EngineRewriter(string tablePath, CloudArgs? cloud) : IFeatureRewriter
+    {
+        public long? PurgeDeletionVectors() =>
+            DeltaKernelOptimize.Reorg(tablePath, cloud, t => [.. t.Snapshot.Files.Where(f => f.DeletionVector is not null)]);
+
+        public long? RewriteWidenedFiles() => DeltaKernelOptimize.Reorg(tablePath, cloud, Widened);
+
+        /// <summary>
+        /// Spark's REMOVE COLUMN MAPPING: every file rewritten under the logical column names (one by one, deleted
+        /// rows left out, row ids kept), committed with the table's metadata without column mapping, as data that
+        /// did not change.
+        /// </summary>
+        public long? RemoveColumnMapping() => ConflictRetry.Run(() =>
+        {
+            try
+            {
+                using DmlTable dml = DmlTable.Open(tablePath, cloud);
+                Snapshot snapshot = dml.Snapshot;
+                if (snapshot.ColumnMappingMode == ColumnMappingMode.None) return (long?)null;
+                var (metadata, clustering) = Kaminari.Seseragi.Lakehouse.Delta.DropFeature.WithoutColumnMapping(snapshot);
+                StructType schema = StructType.Parse(metadata.SchemaString);
+
+                var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                foreach (AddAction file in snapshot.Files)
+                {
+                    foreach (AddAction add in DeltaKernelWrite.WriteFiles(dml, dml.ScanFile(file), schema, plan.Now, checkNotNull: false))
+                        plan.Adds.Add(DeltaKernelOptimize.Rearranged(add));
+                    plan.Remove(file, dataChange: false);
+                }
+
+                Transaction transaction = Transaction.Start(dml.FileSystem, snapshot, "REMOVE COLUMN MAPPING")
+                    .ReadFiles(snapshot.Files)
+                    .SetMetadata(metadata)
+                    .WithMetric("numOutputBytes", plan.Adds.Sum(a => a.Size));
+                if (clustering is not null) transaction.Add(clustering);
+                foreach (RemoveAction remove in plan.Removes) transaction.Add(remove);
+                foreach (AddAction add in plan.Adds) transaction.Add(add);
+                long version = transaction.Commit();
+                DeltaKernelWrite.TryCheckpoint(dml.FileSystem, tablePath, version, cloud);
+                return version;
+            }
+            catch (DeltaException e)
+            {
+                throw new PolarsException(e.Message, e);
+            }
+        });
+
+        /// <summary>The files holding a column in a type older than the table's, found by their footers.</summary>
+        private static List<AddAction> Widened(DmlTable table)
+        {
+            Snapshot snapshot = table.Snapshot;
+            IReadOnlyList<AddAction> files = snapshot.Files;
+            (long Size, ParquetMetadata Footer)[] footers = ParquetFooters.Read(table.FileSystem, [.. files.Select(f => f.DecodedPath)]);
+            return [.. files.Where((_, i) => FileTypes.HasOlderTypes(snapshot.Schema, snapshot.PartitionColumns, footers[i].Footer))];
+        }
     }
 
     private static long? Run(string tablePath, CloudArgs? cloud, Func<DmlTable, long?> alter)

@@ -621,6 +621,25 @@ public static class Delta
         );
     }
     /// <summary>
+    /// Drops a table feature, as Spark's <c>ALTER TABLE … DROP FEATURE</c>: the feature's traces are removed first
+    /// (its properties turned off, and for deletion vectors, type widening and column mapping the data files rewritten),
+    /// each step its own commit, then the feature leaves the protocol. A reader feature (deletionVectors, typeWidening,
+    /// columnMapping, v2Checkpoint, vacuumProtocolCheck) is dropped under checkpoint protection: three empty commits
+    /// with checkpoints, then the drop, so readers without the feature can read the table at once (no waiting for the
+    /// history to expire); the table gets the checkpointProtection writer feature. Writer features (inCommitTimestamp,
+    /// rowTracking, domainMetadata, checkConstraints) are dropped in one commit. An interrupted drop is finished by
+    /// running it again. appendOnly, invariants, changeDataFeed, generatedColumns, identityColumns, timestampNtz,
+    /// clustering and checkpointProtection cannot be dropped (Spark's history truncation is not offered).
+    /// </summary>
+    /// <param name="path">The root URI of the Delta table.</param>
+    /// <param name="featureName">The feature, any case (see <see cref="DeltaTableFeatures"/>).</param>
+    /// <param name="cloudOptions">Cloud storage credentials.</param>
+    public static void DropFeature(string path, string featureName, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DropFeature(path, featureName, keys, values);
+    }
+    /// <summary>
     /// Sets or updates properties on the Delta Table.
     /// </summary>
     /// <param name="path">The root URI of the Delta table.</param>

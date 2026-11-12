@@ -51,7 +51,7 @@ public sealed class Transaction
     private readonly IWritableFileSystem _fileSystem;
     private readonly Snapshot? _read;
     private readonly List<DeltaAction> _actions = [];
-    private readonly Dictionary<string, string> _operationParameters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, object> _operationParameters = new(StringComparer.Ordinal); // string or bool
     private readonly Dictionary<string, long> _operationMetrics = new(StringComparer.Ordinal);
     private ProtocolAction? _protocol;
     private MetadataAction? _metadata;
@@ -129,6 +129,13 @@ public sealed class Transaction
         return this;
     }
 
+    /// <summary>Records a boolean operation parameter (written as JSON true / false, as Spark writes some).</summary>
+    public Transaction WithParameter(string name, bool value)
+    {
+        _operationParameters[name] = value;
+        return this;
+    }
+
     /// <summary>Records an operation metric in <c>commitInfo.operationMetrics</c>, such as <c>numDeletedRows</c>.</summary>
     public Transaction WithMetric(string name, long value)
     {
@@ -147,7 +154,7 @@ public sealed class Transaction
                 return SetMetadata(metadata);
             case CommitInfoAction:
                 throw new ArgumentException("The transaction writes its own commitInfo.", nameof(action));
-            case DomainMetadataAction { Domain: RowTracking.Domain }:
+            case DomainMetadataAction { Domain: RowTracking.Domain, Removed: false }:
                 throw new ArgumentException("The transaction records the row id high water mark itself.", nameof(action));
             case null:
                 throw new ArgumentNullException(nameof(action));
@@ -345,7 +352,11 @@ public sealed class Transaction
             json.WriteNumber("timestamp", timestamp);
             json.WriteString("operation", Operation);
             json.WriteStartObject("operationParameters");
-            foreach (var (name, value) in _operationParameters) json.WriteString(name, value);
+            foreach (var (name, value) in _operationParameters)
+            {
+                if (value is bool flag) json.WriteBoolean(name, flag);
+                else json.WriteString(name, (string)value);
+            }
             json.WriteEndObject();
             if (_operationMetrics.Count > 0)
             {

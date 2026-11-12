@@ -98,6 +98,9 @@ public readonly partial struct PolarsWrapper
     {
         Delta.DeltaKernelAlter.AddFeature(path, featureName, allowProtocolIncrease, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     }
+    /// <summary>Drops a table feature (Spark's ALTER TABLE … DROP FEATURE).</summary>
+    public static void DropFeature(string path, string featureName, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.DropFeature(path, featureName, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     /// <summary>Changes a table's liquid clustering columns (empty: none).</summary>
     public static void DeltaClusterBy(string path, string[] columns, string[]? cloudKeys, string[]? cloudValues)
     {

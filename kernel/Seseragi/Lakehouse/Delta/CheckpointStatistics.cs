@@ -74,7 +74,7 @@ internal sealed class CheckpointStatistics
     /// <summary>The <c>stats_parsed</c> node.</summary>
     public ParquetStruct StatsNode()
     {
-        var children = new List<ParquetNode> { Int64Leaf("numRecords") };
+        List<ParquetNode> children = [Int64Leaf("numRecords")];
         if (_bounds.Length > 0)
         {
             children.Add(Nest("minValues", [.. _bounds.Select(l => (l.Path, (ParquetNode)l.Node))]));
@@ -186,7 +186,7 @@ internal sealed class CheckpointStatistics
     /// <summary>A struct named <paramref name="name"/> holding the leaves at their paths, nested structs in first-seen order.</summary>
     private static ParquetStruct Nest(string name, (string[] Path, ParquetNode Leaf)[] leaves)
     {
-        var children = new List<ParquetNode>();
+        List<ParquetNode> children = [];
         foreach (var group in leaves.GroupBy(l => l.Path[0]))
         {
             (string[] Path, ParquetNode Leaf)[] items = [.. group];

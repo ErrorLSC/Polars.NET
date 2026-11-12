@@ -19,6 +19,9 @@ public static class Checkpoints
     /// <summary>The table property giving how long removed files stay referenced (for time travel and vacuum).</summary>
     public const string TombstoneRetentionKey = "delta.deletedFileRetentionDuration";
 
+    /// <summary>The table property choosing classic or V2 checkpoints.</summary>
+    public const string PolicyKey = "delta.checkpointPolicy";
+
     private const int DefaultInterval = 10;
     private static readonly TimeSpan DefaultRetention = TimeSpan.FromDays(7);
 
@@ -38,7 +41,7 @@ public static class Checkpoints
     /// <summary>
     /// Writes the checkpoint of the snapshot's version and points <c>_last_checkpoint</c> at it. A table with the
     /// <c>v2Checkpoint</c> feature gets a V2 checkpoint (<c>n.checkpoint.UUID.json</c> holding its file actions
-    /// inline); any other a classic one (<c>n.checkpoint.parquet</c>).
+    /// inline) when its <c>delta.checkpointPolicy</c> is <c>v2</c>; any other a classic one (<c>n.checkpoint.parquet</c>).
     /// </summary>
     /// <param name="fileSystem">The table storage.</param>
     /// <param name="snapshot">The state to write.</param>
@@ -51,23 +54,26 @@ public static class Checkpoints
 
         long expiredBefore = ((now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata)).ToUnixTimeMilliseconds();
         RemoveAction[] tombstones = [.. snapshot.Tombstones.Where(r => r.DeletionTimestamp is null || r.DeletionTimestamp >= expiredBefore)];
-        bool v2 = (snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint);
+        // V2 checkpoints only under the v2 policy (Spark): a table keeping the feature with the classic policy (as while
+        // the feature is being dropped) gets classic ones.
+        bool v2 = (snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint)
+            && snapshot.Metadata.Configuration.TryGetValue(PolicyKey, out string? policy) && policy == "v2";
 
         string path;
         byte[] content;
         int actionCount;
         if (v2)
         {
-            var actions = new List<DeltaAction>
-            {
+            List<DeltaAction> actions =
+            [
                 new CheckpointMetadataAction { Version = snapshot.Version },
                 snapshot.Protocol,
                 snapshot.Metadata,
-            };
-            actions.AddRange(snapshot.AppTransactions.Values);
-            actions.AddRange(snapshot.DomainMetadata.Values);
-            actions.AddRange(snapshot.Files.Select(WithoutDataChange));
-            actions.AddRange(tombstones.Select(WithoutDataChange));
+                .. snapshot.AppTransactions.Values,
+                .. snapshot.DomainMetadata.Values,
+                .. snapshot.Files.Select(WithoutDataChange),
+                .. tombstones.Select(WithoutDataChange),
+            ];
             content = ActionWriter.WriteCommit(actions);
             actionCount = actions.Count;
             // A V2 checkpoint has a unique name, so writers checkpointing the same version never collide.

@@ -33,7 +33,22 @@ public static class TableFeatures
     public const string InCommitTimestamp = "inCommitTimestamp";
     public const string TypeWidening = "typeWidening";
     public const string TypeWideningPreview = "typeWidening-preview";
+    public const string CheckpointProtection = "checkpointProtection";
 #pragma warning restore CS1591
+
+    /// <summary>
+    /// The table property of <see cref="CheckpointProtection"/>: the version before which writers keep checkpoints
+    /// and truncate history only in one go (set by DROP FEATURE to its own commit version).
+    /// </summary>
+    public const string RequireCheckpointProtectionBeforeVersionKey = "delta.requireCheckpointProtectionBeforeVersion";
+
+    /// <summary>The version <see cref="CheckpointProtection"/> protects history before; null when the table does not use it.</summary>
+    public static long? CheckpointProtectionBoundary(ProtocolAction protocol, MetadataAction metadata) =>
+        WriterFeaturesOf(protocol).Contains(CheckpointProtection)
+        && metadata.Configuration.TryGetValue(RequireCheckpointProtectionBeforeVersionKey, out string? text)
+        && long.TryParse(text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long version)
+            ? version
+            : null;
 
     /// <summary>The table property that makes a table append-only.</summary>
     public const string AppendOnlyKey = "delta.appendOnly";
@@ -108,7 +123,7 @@ public static class TableFeatures
     {
         AppendOnly, Invariants, CheckConstraints, ChangeDataFeed, GeneratedColumns, ColumnMapping, IdentityColumns,
         DeletionVectors, TimestampNtz, DomainMetadata, VacuumProtocolCheck, V2Checkpoint, InCommitTimestamp,
-        TypeWidening, TypeWideningPreview, RowTracking.Feature, Clustering.Feature,
+        TypeWidening, TypeWideningPreview, RowTracking.Feature, Clustering.Feature, CheckpointProtection,
     };
 
     /// <summary>The writer features a protocol puts in force: listed for version 7, implied by the older versions.</summary>
@@ -233,6 +248,39 @@ public static class TableFeatures
             MinWriterVersion = 7,
             ReaderFeatures = readerVersion >= 3 ? readerFeatures ?? [] : null,
             WriterFeatures = [.. writerNow, .. newWriter],
+        };
+    }
+
+    /// <summary>
+    /// The protocol after dropping <paramref name="feature"/>, as Spark's DROP FEATURE gives it: every feature
+    /// <paramref name="current"/> puts in force (the old versions' implied ones listed), plus
+    /// <see cref="CheckpointProtection"/> when <paramref name="protect"/>, minus the feature; then the lowest versions
+    /// that say so: the legacy versions when they imply exactly these features, else reader 1 (2 with column mapping
+    /// only, 3 with reader features) and writer 7 with the list.
+    /// </summary>
+    public static ProtocolAction WithoutFeature(ProtocolAction current, string feature, bool protect)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentException.ThrowIfNullOrEmpty(feature);
+        List<string> writer = [.. WriterFeaturesOf(current).Where(f => f != feature).Distinct(StringComparer.Ordinal)];
+        List<string> reader = [.. ReaderFeaturesOf(current).Where(f => f != feature).Distinct(StringComparer.Ordinal)];
+        if (protect && !writer.Contains(CheckpointProtection)) writer.Add(CheckpointProtection);
+
+        bool legacyReader = reader.All(f => f == ColumnMapping);
+        int readerVersion = reader.Count == 0 ? 1 : legacyReader ? 2 : 3;
+        // A legacy writer version that implies exactly these features (and, with column mapping, writer 5 or 6).
+        for (int version = 2; version <= 6 && legacyReader; version++)
+        {
+            var implied = WriterFeaturesOf(new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = version }).ToHashSet(StringComparer.Ordinal);
+            if (implied.SetEquals(writer))
+                return new ProtocolAction { MinReaderVersion = readerVersion, MinWriterVersion = version };
+        }
+        return new ProtocolAction
+        {
+            MinReaderVersion = readerVersion,
+            MinWriterVersion = 7,
+            ReaderFeatures = readerVersion == 3 ? reader : null,
+            WriterFeatures = writer,
         };
     }
 

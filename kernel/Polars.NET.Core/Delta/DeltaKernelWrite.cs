@@ -698,7 +698,7 @@ internal static class DeltaKernelWrite
     /// as the table's map, so a rewrite would leave the table unreadable to them.
     /// TEMPORARY: remove once the engine writes Parquet MAP columns (an upstream Polars release with a map type).
     /// </summary>
-    private static void EnsureNoMaps(IEnumerable<StructField> dataFields)
+    internal static void EnsureNoMaps(IEnumerable<StructField> dataFields)
     {
         string[] maps = [.. dataFields.Where(f => HasMap(f.Type)).Select(f => f.Name)];
         if (maps.Length > 0)

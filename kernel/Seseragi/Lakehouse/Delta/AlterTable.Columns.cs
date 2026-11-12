@@ -88,7 +88,7 @@ public static partial class AlterTable
         StructType schema = table.Schema;
         IReadOnlyList<string[]> clustering = Clustering.PhysicalColumns(table.DomainMetadata) ?? [];
         var configuration = new Dictionary<string, string>(table.Metadata.Configuration);
-        var dropped = new List<string>();
+        List<string> dropped = [];
         foreach (string column in columns)
         {
             ArgumentException.ThrowIfNullOrEmpty(column, nameof(columns));
@@ -196,7 +196,7 @@ public static partial class AlterTable
     private static List<Step> Resolve(StructType schema, string column)
     {
         IReadOnlyList<string> parts = ColumnNames.Split(column);
-        var steps = new List<Step>(parts.Count);
+        List<Step> steps = [];
         DeltaType type = schema;
         foreach (string part in parts)
         {
@@ -301,7 +301,7 @@ public static partial class AlterTable
     {
         if (!configuration.TryGetValue(FileStatistics.StatsColumnsKey, out string? property)) return;
         bool changed = false;
-        var entries = new List<IReadOnlyList<string>>();
+        List<IReadOnlyList<string>> entries = [];
         foreach (IReadOnlyList<string> entry in FileStatistics.StatsColumns(property))
         {
             bool under = entry.Count >= steps.Count

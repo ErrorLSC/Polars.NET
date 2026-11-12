@@ -113,3 +113,32 @@ Delta.ChangeColumnType("./lake/orders", "quantity", DataType.Int64)
 ```
 
 :::
+
+## 4. Dropping Table Features
+
+`Delta.DropFeature` removes a table feature, as Spark's `ALTER TABLE … DROP FEATURE` does, so readers and writers that lack the feature can use the table again. The feature's traces go first, each step its own commit and each skipped when already done, so a drop that was interrupted is finished by running it again:
+
+* **Deletion vectors:** the property is turned off, the files with deletion vectors are rewritten without the deleted rows (`REORG … APPLY (PURGE)`), and the vector files are recorded for vacuum.
+* **Type widening:** the property is turned off, the files that still hold a column in an older type (found from their Parquet footers) are rewritten in the table's types, and the type changes leave the schema.
+* **Column mapping:** every file is rewritten with the columns under their logical names (deleted rows left out), in one commit that also takes the mapping out of the schema. Column names that a Parquet file cannot hold without column mapping (with any of ` ,;{}()\n\t=`) are refused: rename them first.
+* **Row tracking:** tracking is suspended and turned off, then the row ids leave the log.
+* **In-commit timestamps, V2 checkpoints:** the properties are turned off.
+* **Check constraints, domain metadata:** refused while the table still has constraints or domains.
+
+Row ids are kept through every rewrite. A reader feature (`deletionVectors`, `typeWidening`, `columnMapping`, `v2Checkpoint`, `vacuumProtocolCheck`) then leaves the protocol behind three empty commits with checkpoints, under the `checkpointProtection` writer feature: readers start at those checkpoints and never need the older commits, so the table is readable without the feature at once, and log cleanup keeps the history before the drop until it can all go together. A writer feature (`inCommitTimestamp`, `rowTracking`, `domainMetadata`, `checkConstraints`) leaves in one commit. Unity Catalog tables take `UnityCatalog.DropFeature(catalog, schema, table, feature)`. `appendOnly`, `invariants`, `changeDataFeed`, `generatedColumns`, `identityColumns`, `timestampNtz`, `clustering` and `checkpointProtection` cannot be dropped, nor can a feature another feature depends on (`domainMetadata` under row tracking or clustering).
+
+::: code-group
+
+```csharp [C# (Fluent)]
+Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors);
+Delta.DropFeature("./lake/orders", DeltaTableFeatures.ColumnMapping);
+Delta.DropFeature("./lake/orders", "typeWidening");
+```
+
+```fsharp [F# (Pipeline)]
+Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors)
+Delta.DropFeature("./lake/orders", DeltaTableFeatures.ColumnMapping)
+Delta.DropFeature("./lake/orders", "typeWidening")
+```
+
+:::

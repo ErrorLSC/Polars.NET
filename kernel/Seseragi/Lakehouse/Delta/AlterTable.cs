@@ -21,7 +21,7 @@ public static partial class AlterTable
     private const string ConstraintPrefix = "delta.constraints.";
     private const string MinReaderVersionKey = "delta.minReaderVersion";
     private const string MinWriterVersionKey = "delta.minWriterVersion";
-    private const string CheckpointPolicyKey = "delta.checkpointPolicy";
+    private const string CheckpointPolicyKey = Checkpoints.PolicyKey;
 
     /// <summary>The table properties Delta defines, in their canonical spelling; keys match without regard to case.</summary>
     private static readonly string[] KnownKeys =
@@ -34,7 +34,7 @@ public static partial class AlterTable
         "delta.tuneFileSizesForRewrites", "delta.dataSkippingNumIndexedCols", "delta.dataSkippingStatsColumns",
         "delta.isolationLevel", "delta.randomizeFilePrefixes", "delta.randomPrefixLength", "delta.setTransactionRetentionDuration",
         "delta.compatibility.symlinkFormatManifest.enabled", "delta.autoOptimize.optimizeWrite", "delta.autoOptimize.autoCompact",
-        "delta.enableRowTracking", RowTracking.SuspendedKey, "delta.enableIcebergCompatV1", "delta.enableIcebergCompatV2", "delta.universalFormat.enabledFormats",
+        "delta.enableRowTracking", RowTracking.SuspendedKey, TableFeatures.RequireCheckpointProtectionBeforeVersionKey, "delta.enableIcebergCompatV1", "delta.enableIcebergCompatV2", "delta.universalFormat.enabledFormats",
     ];
 
     /// <summary>Properties that turn a feature on: true brings the feature into the protocol.</summary>

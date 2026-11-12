@@ -66,19 +66,15 @@ internal static class DeltaKernelOptimize
             Check(snapshot, partitionFilters, zOrderColumns);
 
             // Files of the chosen partitions, by partition.
-            var partitions = new Dictionary<string, List<AddAction>>(StringComparer.Ordinal);
-            foreach (AddAction file in snapshot.Files)
+            List<List<AddAction>> partitions = [.. ByPartition(snapshot, snapshot.Files.Where(file =>
             {
                 Dictionary<string, string?> values = snapshot.PartitionValuesOf(file);
-                if (partitionFilters is not null && partitionFilters.Any(f => values.GetValueOrDefault(f.Key) != f.Value)) continue;
-                string key = string.Join("\u0001", snapshot.PartitionColumns.Select(c => values.GetValueOrDefault(c) is string v ? "V" + v : "N"));
-                if (!partitions.TryGetValue(key, out List<AddAction>? list)) partitions[key] = list = [];
-                list.Add(file);
-            }
+                return partitionFilters is null || partitionFilters.All(f => values.GetValueOrDefault(f.Key) == f.Value);
+            }))];
 
             List<List<AddAction>> bins = zOrderColumns is null
-                ? [.. partitions.Values.SelectMany(files => CompactionBins(files, targetFileSize))]
-                : [.. partitions.Values]; // Z-ordering rewrites every file of a chosen partition
+                ? [.. partitions.SelectMany(files => CompactionBins(files, targetFileSize))]
+                : partitions; // Z-ordering rewrites every file of a chosen partition
             if (bins.Count == 0) return new DeltaOptimizeResult(null, 0, 0, 0, 0, 0);
 
             var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
@@ -93,7 +89,7 @@ internal static class DeltaKernelOptimize
                 .WithParameter("zOrderBy", JsonText.StringArray(zOrderColumns ?? []))
                 .WithParameter("clusterBy", "[]")
                 .WithParameter("auto", "false");
-            return Commit(table, tablePath, transaction, plan, partitions.Values.Sum(p => p.Count), cloud);
+            return Commit(table, tablePath, transaction, plan, partitions.Sum(p => p.Count), cloud);
         }
         catch (DeltaException e)
         {
@@ -152,27 +148,77 @@ internal static class DeltaKernelOptimize
     /// deletion vector, packed in size order up to 1.2 times the target. A bin worth no rewrite (a single file
     /// without a deletion vector) is dropped.
     /// </summary>
-    private static IEnumerable<List<AddAction>> CompactionBins(List<AddAction> files, long target)
+    private static IEnumerable<List<AddAction>> CompactionBins(List<AddAction> files, long target) =>
+        Pack(files.Where(f => f.Size < target / 2 || f.DeletionVector is not null), target)
+            .Where(bin => bin.Count > 1 || bin.Any(f => f.DeletionVector is not null));
+
+    /// <summary>Files of one partition packed in size order into bins of up to 1.2 times the target size.</summary>
+    private static IEnumerable<List<AddAction>> Pack(IEnumerable<AddAction> files, long target)
     {
-        var candidates = files.Where(f => f.Size < target / 2 || f.DeletionVector is not null).OrderBy(f => f.Size).ToList();
         long max = target + target / 5;
-        var bin = new List<AddAction>();
+        List<AddAction> bin = [];
         long size = 0;
-        foreach (AddAction file in candidates)
+        foreach (AddAction file in files.OrderBy(f => f.Size))
         {
             if (bin.Count > 0 && size + file.Size > max)
             {
-                if (Worth(bin)) yield return bin;
+                yield return bin;
                 bin = [];
                 size = 0;
             }
             bin.Add(file);
             size += file.Size;
         }
-        if (Worth(bin)) yield return bin;
-
-        static bool Worth(List<AddAction> bin) => bin.Count > 1 || bin.Any(f => f.DeletionVector is not null);
+        if (bin.Count > 0) yield return bin;
     }
+
+    /// <summary>The files of the table grouped by partition (all of them in one group for an unpartitioned table).</summary>
+    private static IEnumerable<List<AddAction>> ByPartition(Snapshot snapshot, IEnumerable<AddAction> files) =>
+        files.GroupBy(f =>
+            {
+                Dictionary<string, string?> values = snapshot.PartitionValuesOf(f);
+                return string.Join("\u0001", snapshot.PartitionColumns.Select(c => values.GetValueOrDefault(c) is string v ? "V" + v : "N"));
+            }, StringComparer.Ordinal)
+            .Select(List<AddAction> (g) => [.. g]);
+
+    // ------------------------------------------------------------------ reorg
+
+    /// <summary>
+    /// Rewrites the chosen files of a table as Spark's <c>REORG TABLE … APPLY (PURGE)</c> does, which is also how
+    /// dropping deletion vectors and type widening rewrites them: their live rows, in the table's types, packed per
+    /// partition into files of about the target size, committed as data that did not change. Rows keep their row
+    /// ids. Retried as a whole on a commit conflict (the files are chosen anew); returns the version committed, or
+    /// null when no file is chosen.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    /// <param name="choose">The files to rewrite, from the table as it is now.</param>
+    /// <param name="targetFileSize">The size, in bytes, files are packed toward.</param>
+    internal static long? Reorg(string tablePath, CloudArgs? cloud, Func<DmlTable, IReadOnlyList<AddAction>> choose, long targetFileSize = 128L * 1024 * 1024) =>
+        ConflictRetry.Run(() =>
+        {
+            try
+            {
+                // Its own table and rollback: the files it writes are deleted again only if its own commit fails.
+                using DmlTable table = DmlTable.Open(tablePath, cloud);
+                Snapshot snapshot = table.Snapshot;
+                IReadOnlyList<AddAction> files = choose(table);
+                if (files.Count == 0) return (long?)null;
+
+                var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                foreach (List<AddAction> bin in ByPartition(snapshot, files).SelectMany(p => Pack(p, targetFileSize)))
+                    Rewrite(table, bin, null, targetFileSize, plan);
+
+                var transaction = Transaction.Start(table.FileSystem, snapshot, "REORG");
+                transaction.ReadFiles(files);
+                transaction.WithParameter("predicate", "[]").WithParameter("applyPurge", true);
+                return Commit(table, tablePath, transaction, plan, files.Count, cloud).Version;
+            }
+            catch (DeltaException e)
+            {
+                throw new PolarsException(e.Message, e);
+            }
+        });
 
     /// <summary>Replaces the files of a bin (all of one partition) with files holding their live rows.</summary>
     private static void Rewrite(DmlTable table, List<AddAction> bin, string[]? zOrderColumns, long target, DmlPlan plan)
@@ -197,7 +243,7 @@ internal static class DeltaKernelOptimize
     }
 
     /// <summary>The same file, marked as rows rearranged rather than changed (clustered files with their cube).</summary>
-    private static AddAction Rearranged(AddAction add, IReadOnlyDictionary<string, string?>? tags = null, string? clusteringProvider = null) => new()
+    internal static AddAction Rearranged(AddAction add, IReadOnlyDictionary<string, string?>? tags = null, string? clusteringProvider = null) => new()
     {
         Path = add.Path,
         PartitionValues = add.PartitionValues,

@@ -55,3 +55,7 @@ docs/.vitepress/cache/
 tests/Seseragi.Lakehouse.Tests/TestData/dat/
 
 .secrets/
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -706,6 +706,17 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         return df.Select(selection);
     }
 
+    /// <summary>Drops a table feature of a catalog table; see <see cref="Delta.DropFeature"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="featureName">The feature, any case.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void DropFeature(string catalogName, string schemaName, string tableName, string featureName, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogDropFeature(Handle, catalogName, schemaName, tableName, featureName, keys, values);
+    }
     /// <summary>
     /// Adds a feature to the Unity Catalog Delta table.
     /// </summary>

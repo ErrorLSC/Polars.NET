@@ -5,7 +5,10 @@ namespace Seseragi.Lakehouse.Tests;
 
 public class LogCleanupTests
 {
-    private static (MemoryFileSystem Fs, Snapshot Latest) TableWithCheckpoints(params (string Key, string Value)[] configuration)
+    private static (MemoryFileSystem Fs, Snapshot Latest) TableWithCheckpoints(params (string Key, string Value)[] configuration) =>
+        TableWithCheckpoints(new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, configuration);
+
+    private static (MemoryFileSystem Fs, Snapshot Latest) TableWithCheckpoints(ProtocolAction protocol, params (string Key, string Value)[] configuration)
     {
         var fs = new MemoryFileSystem();
         var metadata = new MetadataAction
@@ -14,7 +17,7 @@ public class LogCleanupTests
             SchemaString = """{"type":"struct","fields":[{"name":"id","type":"long","nullable":true,"metadata":{}}]}""",
             Configuration = configuration.Append((Key: Checkpoints.IntervalKey, Value: "2")).ToDictionary(c => c.Key, c => c.Value),
         };
-        Transaction.Create(fs, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, metadata).Commit();
+        Transaction.Create(fs, protocol, metadata).Commit();
         for (int v = 1; v <= 7; v++)
         {
             Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(new AddAction { Path = $"f{v}.parquet" }).Commit();
@@ -42,6 +45,27 @@ public class LogCleanupTests
         Assert.Equal(["00000000000000000006.checkpoint.parquet", "00000000000000000006.json", "00000000000000000007.json", "_last_checkpoint"], Log(fs));
         // Running again finds nothing more.
         Assert.Empty(LogCleanup.Run(fs, latest, DateTimeOffset.UtcNow.AddDays(31)));
+    }
+
+    [Fact]
+    public void CheckpointProtection_KeepsHistoryBeforeTheBoundary_UntilItCanAllGoAtOnce()
+    {
+        var protocol = new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 7, WriterFeatures = ["appendOnly", "invariants", "checkpointProtection"] };
+
+        // Protected before version 7: the newest expired checkpoint (6) does not reach it, so nothing goes, not even
+        // the history before checkpoint 2 that the protection would let go only together with the rest.
+        var (fs, latest) = TableWithCheckpoints(protocol, (TableFeatures.RequireCheckpointProtectionBeforeVersionKey, "7"));
+        Assert.Empty(LogCleanup.Run(fs, latest, DateTimeOffset.UtcNow.AddDays(31)));
+        Assert.Equal(12, Log(fs).Length); // commits 0-7, checkpoints 2, 4, 6, _last_checkpoint
+
+        // Protected before version 5: the cleanup reaches past it, so everything before checkpoint 6 goes in one run.
+        var (reached, latestReached) = TableWithCheckpoints(protocol, (TableFeatures.RequireCheckpointProtectionBeforeVersionKey, "5"));
+        Assert.Equal(8, LogCleanup.Run(reached, latestReached, DateTimeOffset.UtcNow.AddDays(31)).Count);
+        Assert.Equal(["00000000000000000006.checkpoint.parquet", "00000000000000000006.json", "00000000000000000007.json", "_last_checkpoint"], Log(reached));
+
+        // The property without the feature protects nothing (as the protocol reads it).
+        var (unprotected, latestUnprotected) = TableWithCheckpoints((TableFeatures.RequireCheckpointProtectionBeforeVersionKey, "7"));
+        Assert.Equal(8, LogCleanup.Run(unprotected, latestUnprotected, DateTimeOffset.UtcNow.AddDays(31)).Count);
     }
 
     [Fact]

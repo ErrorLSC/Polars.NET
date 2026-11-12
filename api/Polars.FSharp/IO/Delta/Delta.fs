@@ -594,6 +594,24 @@ type Delta =
 
         int64 result
     /// <summary>
+    /// Drops a table feature, as Spark's ALTER TABLE … DROP FEATURE: the feature's traces are removed first
+    /// (its properties turned off, and for deletion vectors, type widening and column mapping the data files rewritten),
+    /// each step its own commit, then the feature leaves the protocol. A reader feature (deletionVectors, typeWidening,
+    /// columnMapping, v2Checkpoint, vacuumProtocolCheck) is dropped under checkpoint protection: three empty commits
+    /// with checkpoints, then the drop, so readers without the feature can read the table at once (no waiting for the
+    /// history to expire); the table gets the checkpointProtection writer feature. Writer features (inCommitTimestamp,
+    /// rowTracking, domainMetadata, checkConstraints) are dropped in one commit. An interrupted drop is finished by
+    /// running it again. appendOnly, invariants, changeDataFeed, generatedColumns, identityColumns, timestampNtz,
+    /// clustering and checkpointProtection cannot be dropped (Spark's history truncation is not offered).
+    /// </summary>
+    /// <param name="path">The root URI of the Delta table.</param>
+    /// <param name="featureName">The feature, any case (see DeltaTableFeatures).</param>
+    /// <param name="cloudOptions">Cloud storage credentials.</param>
+    static member DropFeature(path: string, featureName: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DropFeature(path, featureName, cKeys, cVals)
+
+    /// <summary>
     /// Enables a specific feature on the Delta Table.
     /// <para>
     /// WARNING: Enabling features may upgrade the Delta Protocol version (e.g., to Reader v3 / Writer v7).
@@ -1467,6 +1485,16 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         let finalCols = Array.append selection rest
         
         df.Select(finalCols |> Array.map Expr.Col |> Array.map (fun x -> x :> IColumnExpr))
+
+    /// <summary>Drops a table feature of a catalog table; see Delta.DropFeature.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="featureName">The feature, any case.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.DropFeature(catalogName: string, schemaName: string, tableName: string, featureName: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogDropFeature(this.Handle, catalogName, schemaName, tableName, featureName, keys, values)
 
     /// <summary>
     /// Adds a feature to the Unity Catalog Delta table.

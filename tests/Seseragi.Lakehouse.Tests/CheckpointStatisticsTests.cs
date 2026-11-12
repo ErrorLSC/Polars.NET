@@ -65,7 +65,8 @@ public class CheckpointStatisticsTests
         var max = (Dictionary<string, object?>)value["maxValues"]!;
         Assert.Equal(3L, value["numRecords"]);
         Assert.Equal(-1, min["i"]);
-        Assert.Equal(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }, min["big"]); // -1 unscaled, 11 bytes
+        byte[] minusOne = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]; // -1 unscaled, 11 bytes
+        Assert.Equal(minusOne, min["big"]);
         Assert.Equal(1250, min["small"]);
         Assert.Equal(1704164645123000L, min["tn"]);   // the local date-time as microseconds since the epoch
         Assert.Equal(-302486400000000L, min["ts"]);   // before the epoch

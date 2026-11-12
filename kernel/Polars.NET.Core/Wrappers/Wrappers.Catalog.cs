@@ -556,6 +556,14 @@ public readonly partial struct PolarsWrapper
         AddFeature(access.Location, featureName, allowProtocolIncrease, cloudKeys, cloudValues);
     }
 
+    /// <summary>Drops a table feature of a catalog table.</summary>
+    public static void CatalogDropFeature(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string featureName, string[]? cloudKeys, string[]? cloudValues)
+    {
+        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DropFeature(access.Location, featureName, cloudKeys, cloudValues);
+    }
+
     public static LazyFrameHandle CatalogReadCdc(
         CatalogHandle handle,
         string catalogName,

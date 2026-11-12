@@ -26,6 +26,27 @@ public class RestoreAndHistoryTests
     }
 
     [Fact]
+    public void Restore_KeepsTheCheckpointProtectionBoundary()
+    {
+        // A feature was dropped at version 4: the protocol keeps checkpointProtection through a restore, and its
+        // boundary stays with it (Spark's restore drops the property with the old metadata; the protection then reads as off).
+        MemoryFileSystem fs = Table();
+        Transaction.Start(fs, Snapshot.Load(fs), "DROP FEATURE")
+            .SetProtocol(new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 7, WriterFeatures = ["appendOnly", "invariants", "checkpointProtection"] })
+            .SetMetadata(new MetadataAction
+            {
+                Id = "t", SchemaString = Schema,
+                Configuration = new Dictionary<string, string> { [TableFeatures.RequireCheckpointProtectionBeforeVersionKey] = "4" },
+            })
+            .Commit();
+
+        Restore.Run(fs, Snapshot.Load(fs), Snapshot.Load(fs, 1));
+        Snapshot restored = Snapshot.Load(fs);
+        Assert.Contains(TableFeatures.CheckpointProtection, restored.Protocol.WriterFeatures!);
+        Assert.Equal(4, TableFeatures.CheckpointProtectionBoundary(restored.Protocol, restored.Metadata));
+    }
+
+    [Fact]
     public void Restore_BringsBackFilesAndMetadata_KeepingTheProtocol()
     {
         MemoryFileSystem fs = Table();

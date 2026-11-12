@@ -65,7 +65,7 @@ public static class Restore
         ProtocolAction? protocol = Protocol(current.Protocol, target.Protocol, protocolDowngradeAllowed);
         // The metadata of the target version, except that identity columns keep their high water marks: values
         // generated since must not be handed out again (as Spark restores).
-        MetadataAction restoredMetadata = IdentityColumns.KeepHighWaterMarks(target.Metadata, current.Metadata);
+        MetadataAction restoredMetadata = KeepCheckpointProtection(IdentityColumns.KeepHighWaterMarks(target.Metadata, current.Metadata), current.Metadata);
         bool metadataChanges = !SameMetadata(current.Metadata, restoredMetadata);
         if (restored.Count == 0 && removed.Length == 0 && protocol is null && !metadataChanges)
             return new RestoreResult(null, 0, 0, 0, 0, missing);
@@ -121,6 +121,23 @@ public static class Restore
     }
 
     /// <summary>The protocol the restore commits, or null to keep the current one.</summary>
+    /// <summary>
+    /// The restored metadata with the current checkpoint protection boundary kept: the protocol keeps the feature
+    /// (features are never removed by a restore), so its boundary must stay too. Spark loses it here.
+    /// </summary>
+    private static MetadataAction KeepCheckpointProtection(MetadataAction restored, MetadataAction current)
+    {
+        string key = TableFeatures.RequireCheckpointProtectionBeforeVersionKey;
+        if (!current.Configuration.TryGetValue(key, out string? boundary)) return restored;
+        if (restored.Configuration.TryGetValue(key, out string? had) && had == boundary) return restored;
+        return new MetadataAction
+        {
+            Id = restored.Id, Name = restored.Name, Description = restored.Description, FormatProvider = restored.FormatProvider,
+            FormatOptions = restored.FormatOptions, SchemaString = restored.SchemaString, PartitionColumns = restored.PartitionColumns,
+            Configuration = new Dictionary<string, string>(restored.Configuration) { [key] = boundary }, CreatedTime = restored.CreatedTime,
+        };
+    }
+
     private static ProtocolAction? Protocol(ProtocolAction current, ProtocolAction target, bool downgradeAllowed)
     {
         if (downgradeAllowed) return SameProtocol(current, target) ? null : target;

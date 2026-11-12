@@ -61,7 +61,7 @@ public sealed class ChangeFile
     // Both inputs ascend, so one pass finds the values of the first that the second lacks.
     private static long[] Except(long[] values, long[] without)
     {
-        var result = new List<long>();
+        List<long> result = [];
         int j = 0;
         foreach (long value in values)
         {
@@ -157,7 +157,7 @@ public static class ChangeFeed
         long? changedAt = null;
         MetadataAction? startMetadata = null;
 
-        var result = new List<ChangeFile>();
+        List<ChangeFile> result = [];
         for (long version = startVersion; version <= end; version++)
         {
             byte[] content = fileSystem.ReadAll(LogFile.CommitPath(version))

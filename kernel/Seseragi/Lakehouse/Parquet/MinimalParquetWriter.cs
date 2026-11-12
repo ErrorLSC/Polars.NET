@@ -64,7 +64,7 @@ internal static class MinimalParquetWriter
     /// <summary>Writes the rows; each row is keyed by the names of the top-level fields.</summary>
     public static byte[] Write(IReadOnlyList<ParquetNode> schema, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
     {
-        var columns = new List<Column>();
+        List<Column> columns = [];
         foreach (ParquetNode node in schema) Collect(Normalize(node), [], 0, 0, columns);
 
         ParquetNode[] normalized = [.. schema.Select(Normalize)];
@@ -77,7 +77,7 @@ internal static class MinimalParquetWriter
 
         using var file = new MemoryStream();
         file.Write("PAR1"u8);
-        var chunks = new List<(Column Column, long Offset, long Size)>();
+        List<(Column Column, long Offset, long Size)> chunks = [];
         foreach (Column column in columns)
         {
             long offset = file.Position;
@@ -362,15 +362,15 @@ internal static class MinimalParquetWriter
 
     private static byte[] FileMetadata(IReadOnlyList<ParquetNode> schema, long rows, List<(Column Column, long Offset, long Size)> chunks)
     {
-        var elements = new List<Action<CompactWriter>>
-        {
+        List<Action<CompactWriter>> elements =
+        [
             // The root, then the tree depth first.
             w =>
             {
                 w.Binary(4, "schema");
                 w.I32(5, schema.Count);
             }
-        };
+        ];
         foreach (ParquetNode node in schema) Elements(Normalize(node), elements);
 
         var meta = new CompactWriter();

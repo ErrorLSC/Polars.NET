@@ -52,11 +52,27 @@ public class CheckpointWriteTests
     }
 
     [Fact]
+    public void V2Feature_WithoutTheV2Policy_GetsClassicCheckpoints()
+    {
+        // Spark 4.1: V2 checkpoints only when delta.checkpointPolicy is v2 (the feature alone, or the classic policy
+        // while the feature is being dropped, gives classic ones).
+        var protocol = new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = ["v2Checkpoint"], WriterFeatures = ["v2Checkpoint"] };
+        string?[] policies = [null, "classic"];
+        foreach (string? policy in policies)
+        {
+            var fs = new MemoryFileSystem();
+            (string, string)[] configuration = policy is null ? [] : [(Checkpoints.PolicyKey, policy)];
+            Transaction.Create(fs, protocol, Metadata(configuration)).Add(new AddAction { Path = "a.parquet" }).Commit();
+            Assert.Equal("_delta_log/00000000000000000000.checkpoint.parquet", Checkpoints.Write(fs, Snapshot.Load(fs)));
+        }
+    }
+
+    [Fact]
     public void V2Tables_GetAJsonV2Checkpoint_WithTheirFileActionsInline()
     {
         var fs = new MemoryFileSystem();
         var protocol = new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = ["v2Checkpoint"], WriterFeatures = ["v2Checkpoint"] };
-        Transaction.Create(fs, protocol, Metadata((Checkpoints.IntervalKey, "2"))).Add(new AddAction { Path = "a.parquet" }).Commit();
+        Transaction.Create(fs, protocol, Metadata((Checkpoints.IntervalKey, "2"), (Checkpoints.PolicyKey, "v2"))).Add(new AddAction { Path = "a.parquet" }).Commit();
         Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(new TxnAction { AppId = "app", Version = 3 }).Add(new AddAction { Path = "b.parquet" }).Commit();
         Transaction.Start(fs, Snapshot.Load(fs), "DELETE").Add(new RemoveAction { Path = "a.parquet", DeletionTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }).Commit();
         Snapshot v2 = Snapshot.Load(fs);

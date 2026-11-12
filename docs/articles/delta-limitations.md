@@ -23,6 +23,7 @@ Protocol versions up to reader 3 and writer 7 are supported.
 | Identity columns (`identityColumns`) | ✓ | ✓ |
 | Row tracking (`rowTracking`) | ✓ | ✓ |
 | Liquid clustering (`clustering`) | ✓ | ✓ |
+| Checkpoint protection (`checkpointProtection`, left by dropping a reader feature) | ✓ | ✓ |
 | Column invariants, check constraints, generated columns | ✓ | Tables that use them are read only (see below) |
 
 A table that needs a feature not listed here is refused with an error naming the feature, rather than read or written wrongly.
@@ -31,10 +32,12 @@ A table that needs a feature not listed here is refused with an error naming the
 
 ## 2. Not Supported Yet
 
-* **Map columns cannot be written.** Tables with map columns (made by Spark or Databricks) are read, but the engine has no map type: it would write maps as Parquet lists, which Spark then cannot read. Appends of map data, and updates, merges, optimize and deletes that rewrite files of such tables, are refused with an error. Deletes that only add deletion vectors work. This is lifted once the engine writes Parquet maps.
+* **Map columns cannot be written.** Tables with map columns (made by Spark or Databricks) are read, but the engine has no map type: it would write maps as Parquet lists, which Spark then cannot read. Appends of map data, and updates, merges, optimize and deletes that rewrite files of such tables, are refused with an error, as are dropping deletion vectors (when a file has one), type widening (when the schema records type changes) and column mapping, refused before anything is committed. Deletes that only add deletion vectors work. This is lifted once the engine writes Parquet maps.
 * **SQL expressions.** Column invariants, check constraints and generated columns hold SQL expressions the kernel does not evaluate yet, so tables that use them are read but not written. Check constraints cannot be added, and `delta.constraints.*` properties are refused.
 * **Table features not implemented:** variant columns (`variantType`; such tables cannot be read), column defaults (`allowColumnDefaults`), collations, Iceberg compatibility / UniForm (`icebergCompatV1`, `icebergCompatV2`), and catalog-managed tables.
-* **Table changes not offered:** dropping a table feature (`DROP FEATURE`), `ALTER COLUMN … DROP NOT NULL`, column comments and column positions. Column mapping can be turned on (`none` to `name`) but not off.
+* **Table changes not offered:** `ALTER COLUMN … DROP NOT NULL`, column comments and column positions. Column mapping is turned on with `delta.columnMapping.mode` (`none` to `name`) and off with `Delta.DropFeature`, not by setting the mode.
+* **History truncation:** `DROP FEATURE … TRUNCATE HISTORY` is not offered, so `checkpointProtection` cannot be dropped.
+* **Purging dropped columns:** Spark's `REORG … APPLY (PURGE)`, which dropping deletion vectors runs, also rewrites files that still hold the data of dropped columns; Polars.NET rewrites only the files with deletion vectors.
 * **Statistics of arrays and maps:** data files get no statistics for array and map columns (their null counts cannot be read from a Parquet footer), so filters on them do not skip files.
 * **Legacy deletion vectors:** deletion vectors written by Polars.NET before 1.2.0 did not follow the protocol and are refused with a hint: run `Delta.Optimize` with the earlier version first.
 
@@ -50,3 +53,5 @@ These differences are deliberate: each avoids a state Spark can leave a table in
 * **Optimize clusters a table into one cube per run.** Spark splits very large runs into cubes of about 150 GiB.
 * **Checkpoints store timestamps as 64-bit microseconds.** Spark writes the `timestamp` columns of a checkpoint's typed statistics as legacy INT96 values; Polars.NET writes the standard INT64 microsecond encoding, which Spark and other readers read the same.
 * **Writes can create clustered tables.** `WriteDelta` / `SinkDelta` with `clusterBy` create a clustered table; Spark's `DataFrameWriter.clusterBy` (open-source Delta) does not.
+* **Restore keeps checkpoint protection.** Restoring a version from before a feature was dropped keeps `delta.requireCheckpointProtectionBeforeVersion`; Spark's restore loses it, after which a log cleanup may remove the history protected checkpoints still need.
+* **Dropping column mapping from a clustered table renames the clustering columns.** The clustering domain names its columns by physical name; Spark leaves the old names in place, after which its own `OPTIMIZE` and `DESCRIBE DETAIL` fail on the table. Polars.NET records the columns under the names the files now hold.

@@ -24,9 +24,12 @@ public enum ParquetTimeUnit
 /// <param name="DecimalScale">The scale of a decimal, from the logical or the converted type.</param>
 /// <param name="TimeUnit">The unit of a timestamp, from the logical or the converted type.</param>
 /// <param name="FieldId">The field id, when the writer gave one (Delta's column mapping does).</param>
+/// <param name="IntBitWidth">The bit width of an annotated integer (8, 16, 32 or 64), from the logical or the converted type.</param>
+/// <param name="DecimalPrecision">The precision of a decimal, from the logical or the converted type.</param>
+/// <param name="IsDate">Whether the leaf is annotated as a date.</param>
 public sealed record ParquetSchemaElement(
     string Name, int? PhysicalType, int? Repetition, int ChildCount, int? TypeLength, int? DecimalScale, ParquetTimeUnit? TimeUnit,
-    int? FieldId = null);
+    int? FieldId = null, int? IntBitWidth = null, int? DecimalPrecision = null, bool IsDate = false);
 
 /// <summary>The statistics of one column chunk: the raw PLAIN-encoded bounds and the null count, each absent when not written.</summary>
 public sealed record ParquetColumnStatistics(byte[]? Min, byte[]? Max, long? NullCount);
@@ -134,20 +137,41 @@ public sealed class ParquetMetadata
 
     private static ParquetSchemaElement SchemaElement(ThriftStruct e)
     {
-        int? scale = null;
+        int? scale = null, precision = null, bitWidth = null;
         ParquetTimeUnit? unit = null;
+        bool date = false;
         if (e.Struct(10) is ThriftStruct logical)
         {
-            if (logical.Struct(5) is ThriftStruct dec) scale = (int?)dec.Long(1);
+            if (logical.Struct(5) is ThriftStruct dec)
+            {
+                scale = (int?)dec.Long(1);
+                precision = (int?)dec.Long(2);
+            }
+            date = logical.Has(6);
             if (logical.Struct(8) is ThriftStruct ts && ts.Struct(2) is ThriftStruct u)
                 unit = u.Has(1) ? ParquetTimeUnit.Millis : u.Has(2) ? ParquetTimeUnit.Micros : u.Has(3) ? ParquetTimeUnit.Nanos : null;
+            if (logical.Struct(10) is ThriftStruct integer) bitWidth = (int?)integer.Long(1);
         }
         long? converted = e.Long(6);
-        if (scale is null && converted == 5) scale = (int?)e.Long(7) ?? 0;   // DECIMAL
+        if (scale is null && converted == 5)                                  // DECIMAL
+        {
+            scale = (int?)e.Long(7) ?? 0;
+            precision = (int?)e.Long(8);
+        }
         if (unit is null && converted == 9) unit = ParquetTimeUnit.Millis;    // TIMESTAMP_MILLIS
         if (unit is null && converted == 10) unit = ParquetTimeUnit.Micros;   // TIMESTAMP_MICROS
+        date |= converted == 6;                                               // DATE
+        bitWidth ??= converted switch                                         // INT_8 … INT_64, UINT_8 … UINT_64
+        {
+            11 or 15 => 8,
+            12 or 16 => 16,
+            13 or 17 => 32,
+            14 or 18 => 64,
+            _ => null,
+        };
         return new ParquetSchemaElement(
-            e.String(4) ?? "", (int?)e.Long(1), (int?)e.Long(3), (int)(e.Long(5) ?? 0), (int?)e.Long(2), scale, unit, (int?)e.Long(9));
+            e.String(4) ?? "", (int?)e.Long(1), (int?)e.Long(3), (int)(e.Long(5) ?? 0), (int?)e.Long(2), scale, unit, (int?)e.Long(9),
+            bitWidth, precision, date);
     }
 
     private static ParquetRowGroup RowGroup(ThriftStruct g) => new(

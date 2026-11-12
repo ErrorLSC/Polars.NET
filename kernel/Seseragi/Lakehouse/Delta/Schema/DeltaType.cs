@@ -147,22 +147,39 @@ public sealed class StructType : DeltaType
     /// One field as the schema JSON writes it, under <paramref name="name"/> (Spark's <c>CHANGE COLUMN</c> records
     /// the changed field so, with its dotted path as the name).
     /// </summary>
-    internal static string FieldJson(StructField field, string name)
+    /// <param name="field">The field.</param>
+    /// <param name="name">The name to write.</param>
+    /// <param name="typeName">Write the type as its name only (<c>struct</c>, <c>array</c>, <c>map</c> for the nested
+    /// ones), as Spark's <c>commitInfo</c> records the columns of some operations.</param>
+    internal static string FieldJson(StructField field, string name, bool typeName = false)
     {
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
         {
-            WriteField(json, field, name);
+            WriteField(json, field, name, typeName);
         }
         return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    private static void WriteField(Utf8JsonWriter json, StructField field, string name)
+    private static void WriteField(Utf8JsonWriter json, StructField field, string name, bool typeName = false)
     {
         json.WriteStartObject();
         json.WriteString("name", name);
         json.WritePropertyName("type");
-        WriteType(json, field.Type);
+        if (typeName)
+        {
+            json.WriteStringValue(field.Type switch
+            {
+                StructType => "struct",
+                ArrayType => "array",
+                MapType => "map",
+                DeltaType primitive => primitive.ToString(),
+            });
+        }
+        else
+        {
+            WriteType(json, field.Type);
+        }
         json.WriteBoolean("nullable", field.Nullable);
         json.WriteStartObject("metadata");
         foreach (var (key, value) in field.Metadata)

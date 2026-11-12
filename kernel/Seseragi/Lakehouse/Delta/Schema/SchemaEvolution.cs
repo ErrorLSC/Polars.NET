@@ -387,6 +387,9 @@ public static class SchemaEvolution
         }
     }
 
+    /// <summary>The schema without column mapping: no column ids or physical names on any field.</summary>
+    public static StructType WithoutColumnMapping(StructType schema) => (StructType)UnmappedType(schema);
+
     private static StructField Unmapped(StructField field)
     {
         var metadata = field.Metadata.Where(kv => kv.Key is not (StructField.ColumnIdKey or StructField.PhysicalNameKey)).ToDictionary(kv => kv.Key, kv => kv.Value);
