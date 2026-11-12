@@ -25,7 +25,7 @@ public interface IFeatureRewriter
 }
 
 /// <summary>
-/// Drops a table feature, as delta-spark 4.1's <c>ALTER TABLE … DROP FEATURE</c> (without <c>TRUNCATE HISTORY</c>):
+/// Drops a table feature, as delta-spark 4.4's <c>ALTER TABLE … DROP FEATURE</c> (without <c>TRUNCATE HISTORY</c>):
 /// the feature's traces are removed first (properties turned off, data rewritten), each step its own commit and
 /// each skipped when already done, so an interrupted drop is finished by running it again. A writer feature then
 /// leaves the protocol in one commit. A reader feature is dropped under checkpoint protection: three empty commits

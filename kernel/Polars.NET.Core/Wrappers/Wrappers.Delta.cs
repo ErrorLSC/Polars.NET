@@ -165,7 +165,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues,
         string? rowIdColumn = null,
-        string? rowCommitVersionColumn = null)
+        string? rowCommitVersionColumn = null,
+        bool variantAsJson = false)
     {
         // The managed Delta kernel resolves the table; partition values come from the log, so the glob and Hive
         // options do not apply.
@@ -175,7 +176,7 @@ public readonly partial struct PolarsWrapper
         DateTimeOffset? asOf = datetime is null ? null : Delta.DeltaKernelScan.ParseAsOf(datetime);
         long? atVersion = version is ulong v ? checked((long)v) : null;
         var options = new Delta.KernelScanOptions(nRows, rowIndexName, rowIndexOffset, includePathColumn, parallel, lowMemory,
-            useStatistics, rechunk, cache, schema, rowIdColumn, rowCommitVersionColumn);
+            useStatistics, rechunk, cache, schema, rowIdColumn, rowCommitVersionColumn, variantAsJson);
         return Delta.DeltaKernelScan.Scan(path, atVersion, asOf, filter: null, cloud, options);
     }
     public static void SinkDelta(

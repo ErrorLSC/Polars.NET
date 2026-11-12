@@ -8,7 +8,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <summary>
     /// Read a delta table into a new DataFrame
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.ScanDelta(string, ulong?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?, string?, string?)"/>
+    /// <inheritdoc cref="LazyFrame.ScanDelta(string, ulong?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?, string?, string?, bool)"/>
     public static DataFrame ReadDelta(
         string path,
         ulong? version = null,
@@ -29,7 +29,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null,
         string? rowIdColumn = null,
-        string? rowCommitVersionColumn = null)
+        string? rowCommitVersionColumn = null,
+        bool variantAsJson = false)
     {
 
         var lf = LazyFrame.ScanDelta(
@@ -52,7 +53,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             tryParseHiveDates,
             cloudOptions,
             rowIdColumn,
-            rowCommitVersionColumn
+            rowCommitVersionColumn,
+            variantAsJson
         );
 
         return lf.Collect();

@@ -11,7 +11,7 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// <c>delta.clustering</c> domain (paths of physical names), and OPTIMIZE lays out the rows by them. Files written by
 /// clustering carry <c>clusteringProvider: "liquid"</c> and the tags of their cube (<see cref="CubeIdTag"/>,
 /// <see cref="CubeColumnsTag"/>); other files are unclustered. A clustered table is not partitioned. Follows
-/// delta-spark 4.1.
+/// delta-spark 4.4.
 /// </summary>
 public static class Clustering
 {

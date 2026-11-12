@@ -1,6 +1,6 @@
 # Delta Lake: Compatibility & Known Limitations
 
-Polars.NET reads and writes Delta tables with its own managed kernel, checked against Apache Spark with delta-spark 4.1 in both directions. This page lists the table features it supports, what it cannot do yet, and the few places where it deliberately behaves differently from Spark. The features themselves are described in [Delta Lake & Modern Lakehouse Storage](/articles/delta) and [Advanced Table Features](/articles/delta-advanced).
+Polars.NET reads and writes Delta tables with its own managed kernel, checked against Apache Spark 4.2 with delta-spark 4.4 in both directions. This page lists the table features it supports, what it cannot do yet, and the few places where it deliberately behaves differently from Spark. The features themselves are described in [Delta Lake & Modern Lakehouse Storage](/articles/delta) and [Advanced Table Features](/articles/delta-advanced).
 
 ---
 
@@ -24,6 +24,7 @@ Protocol versions up to reader 3 and writer 7 are supported.
 | Row tracking (`rowTracking`) | ✓ | ✓ |
 | Liquid clustering (`clustering`) | ✓ | ✓ |
 | Checkpoint protection (`checkpointProtection`, left by dropping a reader feature) | ✓ | ✓ |
+| Variant columns (`variantType`) | ✓ through our own patch (see below) | — |
 | Column invariants, check constraints, generated columns | ✓ | Tables that use them are read only (see below) |
 
 A table that needs a feature not listed here is refused with an error naming the feature, rather than read or written wrongly.
@@ -33,8 +34,9 @@ A table that needs a feature not listed here is refused with an error naming the
 ## 2. Not Supported Yet
 
 * **Map columns cannot be written.** Tables with map columns (made by Spark or Databricks) are read, but the engine has no map type: it would write maps as Parquet lists, which Spark then cannot read. Appends of map data, and updates, merges, optimize and deletes that rewrite files of such tables, are refused with an error, as are dropping deletion vectors (when a file has one), type widening (when the schema records type changes) and column mapping, refused before anything is committed. Deletes that only add deletion vectors work. This is lifted once the engine writes Parquet maps.
+* **Variant columns are read through our own patch, at a cost.** The Parquet engine (Polars, up to its latest release) refuses every file that annotates a column as VARIANT, which every variant column Spark and Databricks write carries ([pola-rs/polars#28627](https://github.com/pola-rs/polars/issues/28627)). Polars.NET works around it with a patch of its own, not a feature of the engine: each data file of a table with variant columns is **read whole into memory**, the annotation is removed from its footer, and the engine reads the patched copy. Scans of such tables therefore do **no ranged reads and no column pruning**: every byte of every file selected is read, even for a query that touches one column or takes a few rows (`Head`). The files are read **when the scan is created** (`ScanDelta`), not when it is collected, and **stay in memory until the frame is released**, so the memory a scan needs is the size of the files it selects (all of the version read, less what the log statistics skip). A warning is written to standard error (and `Trace`) the first time a process scans such a table. Variant columns are read as they are stored, a struct of two binaries (`value`, `metadata`, the Parquet Variant encoding), or with `variantAsJson: true` (`ScanDelta`, `ReadDelta`, `ScanCatalogTable`) as JSON text, rendered as Spark's `to_json` renders them (timestamps in UTC); tables with them are read only. Decoding variants to JSON is Polars.NET's own and not part of the patch. Tables without variant columns are not affected. The patch is removed once the engine reads VARIANT.
 * **SQL expressions.** Column invariants, check constraints and generated columns hold SQL expressions the kernel does not evaluate yet, so tables that use them are read but not written. Check constraints cannot be added, and `delta.constraints.*` properties are refused.
-* **Table features not implemented:** variant columns (`variantType`; such tables cannot be read), column defaults (`allowColumnDefaults`), collations, Iceberg compatibility / UniForm (`icebergCompatV1`, `icebergCompatV2`), and catalog-managed tables.
+* **Table features not implemented:** variant shredding (`variantShredding`), column defaults (`allowColumnDefaults`), collations, Iceberg compatibility / UniForm (`icebergCompatV1`, `icebergCompatV2`), and catalog-managed tables.
 * **Table changes not offered:** `ALTER COLUMN … DROP NOT NULL`, column comments and column positions. Column mapping is turned on with `delta.columnMapping.mode` (`none` to `name`) and off with `Delta.DropFeature`, not by setting the mode.
 * **History truncation:** `DROP FEATURE … TRUNCATE HISTORY` is not offered, so `checkpointProtection` cannot be dropped.
 * **Purging dropped columns:** Spark's `REORG … APPLY (PURGE)`, which dropping deletion vectors runs, also rewrites files that still hold the data of dropped columns; Polars.NET rewrites only the files with deletion vectors.

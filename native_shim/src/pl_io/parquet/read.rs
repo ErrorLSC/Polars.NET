@@ -109,59 +109,109 @@ pub extern "C" fn pl_scan_parquet_files(
             cloud_keys, cloud_values, cloud_len
         );
 
-        // Built from the plan pieces rather than `LazyFrame::scan_parquet_files`, which always raises on a column
-        // the schema does not name. A table format lists the columns it wants; anything else in a file is not its.
-        use polars_plan::dsl::{DslBuilder, ExtraColumnsPolicy, MissingColumnsPolicy, CastColumnsPolicy, ScanSources, UnifiedScanArgs};
-        use polars_utils::slice_enum::Slice;
+        let lf = table_scan(ScanSources::Paths(polars_buffer::Buffer::from(paths)), args, ignore_extra_columns, lenient_casts)?;
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
+    })
+}
 
-        let parquet_options = polars_io::prelude::ParquetOptions {
-            schema: args.schema,
-            parallel: args.parallel,
-            low_memory: args.low_memory,
-            use_statistics: args.use_statistics,
-        };
-        let unified_scan_args = UnifiedScanArgs {
-            schema: None,
-            cloud_options: args.cloud_options,
-            hive_options: args.hive_options,
-            rechunk: args.rechunk,
-            cache: args.cache,
-            glob: false,
-            hidden_file_prefix: None,
-            projection: None,
-            column_mapping: None,
-            default_values: None,
-            row_index: None,
-            pre_slice: args.n_rows.map(|len| Slice::Positive { offset: 0, len }),
-            // A table's files are written over time and by different engines: older files may hold a narrower
-            // type than the table schema now has, nanosecond timestamps, or structs from before a field was added.
-            cast_columns_policy: if lenient_casts {
-                CastColumnsPolicy {
-                    integer_upcast: true,
-                    integer_to_float_cast: true,
-                    float_upcast: true,
-                    datetime_nanoseconds_downcast: true,
-                    datetime_convert_timezone: true,
-                    missing_struct_fields: MissingColumnsPolicy::Insert,
-                    extra_struct_fields: ExtraColumnsPolicy::Ignore,
-                    ..CastColumnsPolicy::ERROR_ON_MISMATCH
-                }
-            } else {
-                CastColumnsPolicy::ERROR_ON_MISMATCH
-            },
-            missing_columns_policy: if args.allow_missing_columns { MissingColumnsPolicy::Insert } else { MissingColumnsPolicy::Raise },
-            extra_columns_policy: if ignore_extra_columns { ExtraColumnsPolicy::Ignore } else { ExtraColumnsPolicy::Raise },
-            include_file_paths: args.include_file_paths,
-            deletion_files: None,
-            table_statistics: None,
-            row_count: None,
-        };
-        let mut lf: LazyFrame = DslBuilder::scan_parquet(
-            ScanSources::Paths(polars_buffer::Buffer::from(paths)), parquet_options, unified_scan_args,
-        )?.build().into();
-        if let Some(row_index) = args.row_index {
-            lf = lf.with_row_index(row_index.name, Some(row_index.offset));
-        }
+/// A scan of a table format's data files: built from the plan pieces rather than `LazyFrame::scan_parquet_files`,
+/// which always raises on a column the schema does not name. A table format lists the columns it wants; anything
+/// else in a file is not its.
+fn table_scan(
+    sources: ScanSources,
+    args: ScanArgsParquet,
+    ignore_extra_columns: bool,
+    lenient_casts: bool,
+) -> PolarsResult<LazyFrame> {
+    use polars_plan::dsl::{DslBuilder, ExtraColumnsPolicy, MissingColumnsPolicy, CastColumnsPolicy, UnifiedScanArgs};
+    use polars_utils::slice_enum::Slice;
+
+    let parquet_options = polars_io::prelude::ParquetOptions {
+        schema: args.schema,
+        parallel: args.parallel,
+        low_memory: args.low_memory,
+        use_statistics: args.use_statistics,
+    };
+    let unified_scan_args = UnifiedScanArgs {
+        schema: None,
+        cloud_options: args.cloud_options,
+        hive_options: args.hive_options,
+        rechunk: args.rechunk,
+        cache: args.cache,
+        glob: false,
+        hidden_file_prefix: None,
+        projection: None,
+        column_mapping: None,
+        default_values: None,
+        row_index: None,
+        pre_slice: args.n_rows.map(|len| Slice::Positive { offset: 0, len }),
+        // A table's files are written over time and by different engines: older files may hold a narrower
+        // type than the table schema now has, nanosecond timestamps, or structs from before a field was added.
+        cast_columns_policy: if lenient_casts {
+            CastColumnsPolicy {
+                integer_upcast: true,
+                integer_to_float_cast: true,
+                float_upcast: true,
+                datetime_nanoseconds_downcast: true,
+                datetime_convert_timezone: true,
+                missing_struct_fields: MissingColumnsPolicy::Insert,
+                extra_struct_fields: ExtraColumnsPolicy::Ignore,
+                ..CastColumnsPolicy::ERROR_ON_MISMATCH
+            }
+        } else {
+            CastColumnsPolicy::ERROR_ON_MISMATCH
+        },
+        missing_columns_policy: if args.allow_missing_columns { MissingColumnsPolicy::Insert } else { MissingColumnsPolicy::Raise },
+        extra_columns_policy: if ignore_extra_columns { ExtraColumnsPolicy::Ignore } else { ExtraColumnsPolicy::Raise },
+        include_file_paths: args.include_file_paths,
+        deletion_files: None,
+        table_statistics: None,
+        row_count: None,
+    };
+    let mut lf: LazyFrame = DslBuilder::scan_parquet(sources, parquet_options, unified_scan_args)?.build().into();
+    if let Some(row_index) = args.row_index {
+        lf = lf.with_row_index(row_index.name, Some(row_index.offset));
+    }
+    Ok(lf)
+}
+
+// ---------------------------------------------------------
+// Scan Parquet (one file in memory, as a table format's data file)
+// ---------------------------------------------------------
+/// Scans one Parquet file held in memory (released through `release` once the plan no longer needs it) with the
+/// policies of `pl_scan_parquet_files`. For files the engine cannot open from storage as they are (Delta tables
+/// with variant columns, whose footers the caller patches).
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_scan_parquet_buffer(
+    buffer_ptr: *const u8,
+    buffer_len: usize,
+    release: Option<crate::pl_io::managed_buffer::ReleaseCallback>,
+    user_data: *mut std::ffi::c_void,
+    n_rows: *const usize,
+    parallel_code: u8,
+    low_memory: bool,
+    use_statistics: bool,
+    allow_missing_columns: bool,
+    ignore_extra_columns: bool,
+    lenient_casts: bool,
+    rechunk: bool,
+    cache: bool,
+    row_index_name_ptr: *const c_char,
+    row_index_offset: u32,
+    schema_ptr: *mut SchemaContext,
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let buffer = unsafe { crate::pl_io::managed_buffer::buffer_from_ffi(buffer_ptr, buffer_len, release, user_data) };
+        let args = build_scan_args(
+            n_rows, parallel_code, low_memory, use_statistics,
+            false, allow_missing_columns,
+            row_index_name_ptr, row_index_offset, std::ptr::null(),
+            schema_ptr, false, std::ptr::null_mut(), false,
+            rechunk, cache,
+            0, 0, 0, 0, 0, 0,
+            std::ptr::null(), std::ptr::null(), 0
+        );
+        let lf = table_scan(ScanSources::Buffers(Arc::new([buffer])), args, ignore_extra_columns, lenient_casts)?;
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
     })
 }

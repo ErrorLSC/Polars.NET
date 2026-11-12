@@ -25,6 +25,7 @@ time.tzset()
 
 from delta import configure_spark_with_delta_pip
 from pyspark.sql import Row, SparkSession
+from pyspark.sql.types import VariantVal
 
 EPOCH_DAY = datetime.date(1970, 1, 1)
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
@@ -70,6 +71,9 @@ def canonical(value):
         return str(value)
     if isinstance(value, (bytes, bytearray)):
         return base64.b64encode(bytes(value)).decode()
+    if isinstance(value, VariantVal):
+        # A variant as Spark's to_json renders it.
+        return {"variant": value.toJson()}
     return value
 
 

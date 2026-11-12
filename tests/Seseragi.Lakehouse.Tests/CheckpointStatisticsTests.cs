@@ -4,7 +4,7 @@ using Kaminari.Seseragi.Lakehouse.Parquet;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>The typed checkpoint columns (values checked against delta-spark 4.1 in SparkCheckpointStatisticsTests).</summary>
+/// <summary>The typed checkpoint columns (values checked against delta-spark 4.4 in SparkCheckpointStatisticsTests).</summary>
 public class CheckpointStatisticsTests
 {
     private const string Schema =

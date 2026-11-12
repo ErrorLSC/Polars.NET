@@ -18,6 +18,7 @@ module DeltaRead =
         /// <param name="tryParseHiveDates">Ignored since 1.2.0 (the managed Delta kernel types partition values by the table schema); removed in 2.0.</param>
         /// <param name="rowIdColumn">Adds each row's row id (Int64) under this name: stable across updates, merges and optimize (Spark's <c>_metadata.row_id</c>). The table must have row tracking on (<c>delta.enableRowTracking</c>).</param>
         /// <param name="rowCommitVersionColumn">Adds the version that last changed each row (Int64) under this name (Spark's <c>_metadata.row_commit_version</c>). The table must have row tracking on.</param>
+        /// <param name="variantAsJson">Reads variant columns (at any depth) as JSON text, as Spark's <c>to_json</c> renders them, instead of as stored (a struct of the <c>value</c> and <c>metadata</c> binaries). Timestamps in variants are rendered in UTC.</param>
         /// <returns>A new LazyFrame.</returns>
         static member ScanDelta(
             path: string,
@@ -39,7 +40,8 @@ module DeltaRead =
             ?tryParseHiveDates: bool,
             ?cloudOptions: CloudOptions,
             ?rowIdColumn: string,
-            ?rowCommitVersionColumn: string
+            ?rowCommitVersionColumn: string,
+            ?variantAsJson: bool
         ) : LazyFrame =
             
             // Time Travel Mutual Exclusivity Check
@@ -101,7 +103,8 @@ module DeltaRead =
                 cKeys,
                 cVals,
                 Option.toObj rowIdColumn,
-                Option.toObj rowCommitVersionColumn
+                Option.toObj rowCommitVersionColumn,
+                defaultArg variantAsJson false
             )
 
             new LazyFrame(h)
@@ -133,7 +136,8 @@ module DeltaRead =
             ?tryParseHiveDates: bool,
             ?cloudOptions: CloudOptions,
             ?rowIdColumn: string,
-            ?rowCommitVersionColumn: string
+            ?rowCommitVersionColumn: string,
+            ?variantAsJson: bool
         ) : DataFrame =
             let lf = LazyFrame.ScanDelta(
                 path,
@@ -155,6 +159,7 @@ module DeltaRead =
                 ?tryParseHiveDates=tryParseHiveDates,
                 ?cloudOptions=cloudOptions,
                 ?rowIdColumn=rowIdColumn,
-                ?rowCommitVersionColumn=rowCommitVersionColumn
+                ?rowCommitVersionColumn=rowCommitVersionColumn,
+                ?variantAsJson=variantAsJson
             )
             lf.Collect()

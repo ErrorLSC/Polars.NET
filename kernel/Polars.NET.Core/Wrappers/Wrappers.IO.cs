@@ -357,6 +357,50 @@ public readonly partial struct PolarsWrapper
             return ErrorHelper.Check(h);
         }
     }
+    /// <summary>
+    /// Scans one Parquet file held in memory as a table format's data file, with the policies of
+    /// <see cref="ScanParquetFiles"/> (extra columns ignored, lenient casts).
+    /// </summary>
+    public static LazyFrameHandle ScanParquetBuffer(
+        NativeBytes buffer,
+        SchemaHandle? schema,
+        string? rowIndexName,
+        PlParallelStrategy parallel = PlParallelStrategy.Auto,
+        bool lowMemory = false,
+        bool useStatistics = true,
+        bool allowMissingColumns = true,
+        bool ignoreExtraColumns = false,
+        bool lenientCasts = false,
+        bool rechunk = false,
+        bool cache = true)
+    {
+        if (buffer.Length == 0) throw new ArgumentException("Buffer cannot be empty", nameof(buffer));
+        unsafe
+        {
+            using var schemaLock = new SafeHandleLock<SchemaHandle>(schema != null ? [schema] : null);
+            IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+            fixed (byte* copyPointer = buffer.CopySource)
+            {
+                var lease = buffer.Acquire(copyPointer);
+                LazyFrameHandle h;
+                try
+                {
+                    h = NativeBindings.pl_scan_parquet_buffer(
+                        (IntPtr)lease.Pointer, (UIntPtr)lease.Length, lease.Release, lease.UserData,
+                        IntPtr.Zero, parallel, lowMemory, useStatistics, allowMissingColumns, ignoreExtraColumns, lenientCasts,
+                        rechunk, cache, rowIndexName, 0, schemaPtr);
+                }
+                catch
+                {
+                    // The native function was not reached: it did not take the pin.
+                    NativeBytes.ReleaseUnused(lease);
+                    throw;
+                }
+                return ErrorHelper.Check(h);
+            }
+        }
+    }
+
     public static LazyFrameHandle ScanParquet(
         NativeBytes buffer,
         ulong? nRows,

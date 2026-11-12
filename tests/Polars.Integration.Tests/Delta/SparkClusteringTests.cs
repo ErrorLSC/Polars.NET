@@ -12,7 +12,7 @@ using Polars.NET.Core.Wrappers;
 
 namespace Polars.Integration.Tests;
 
-/// <summary>Liquid clustering between the kernel and Spark (delta-spark 4.1).</summary>
+/// <summary>Liquid clustering between the kernel and Spark (delta-spark 4.4).</summary>
 public class SparkClusteringTests
 {
     private static void InRoot(Action<string> body)

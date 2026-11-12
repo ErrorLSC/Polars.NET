@@ -115,7 +115,7 @@ public class SparkTypeWideningTests
 
             DeltaKernelWrite.Write(table, DeltaKernelScan.Scan(wider), KernelWriteMode.Append, canEvolve: true);
 
-            // As Spark's mergeSchema records them (delta-spark 4.1): on the struct field itself, or on the column
+            // As Spark's mergeSchema records them (delta-spark 4.4): on the struct field itself, or on the column
             // with the path to the array element.
             StructType schema = Snapshot.Load(new LocalFileSystem(table)).Schema;
             StructField a = ((StructType)schema.Field("s")!.Type).Field("a")!;

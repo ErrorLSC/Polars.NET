@@ -26,6 +26,10 @@ public partial class LazyFrame : IDisposable
     /// optimize (Spark's <c>_metadata.row_id</c>). The table must have row tracking on (<c>delta.enableRowTracking</c>).</param>
     /// <param name="rowCommitVersionColumn">Adds the version that last changed each row (Int64) under this name
     /// (Spark's <c>_metadata.row_commit_version</c>). The table must have row tracking on.</param>
+    /// <param name="variantAsJson">Reads variant columns (at any depth) as JSON text, as Spark's <c>to_json</c> renders them,
+    /// instead of as stored (a struct of the <c>value</c> and <c>metadata</c> binaries). Timestamps in variants are rendered in UTC.
+    /// A table with variant columns is read through Polars.NET's own patch: every file the scan selects is read into memory
+    /// when the scan is created and kept until the frame is released (no ranged reads, no column pruning).</param>
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanDelta(
         string path,
@@ -47,7 +51,8 @@ public partial class LazyFrame : IDisposable
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null,
         string? rowIdColumn = null,
-        string? rowCommitVersionColumn = null)
+        string? rowCommitVersionColumn = null,
+        bool variantAsJson = false)
     {
         if (version.HasValue && datetime != null)
         {
@@ -86,7 +91,8 @@ public partial class LazyFrame : IDisposable
             keys,
             values,
             rowIdColumn,
-            rowCommitVersionColumn
+            rowCommitVersionColumn,
+            variantAsJson
         );
 
         return new LazyFrame(h);

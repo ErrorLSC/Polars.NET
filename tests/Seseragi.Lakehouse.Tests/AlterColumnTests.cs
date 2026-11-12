@@ -7,7 +7,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>RENAME COLUMN, DROP COLUMNS and ALTER COLUMN TYPE, checked against what delta-spark 4.1 commits.</summary>
+/// <summary>RENAME COLUMN, DROP COLUMNS and ALTER COLUMN TYPE, checked against what delta-spark 4.4 commits.</summary>
 public class AlterColumnTests
 {
     private static string F(string name, string type, int id, string physical) =>

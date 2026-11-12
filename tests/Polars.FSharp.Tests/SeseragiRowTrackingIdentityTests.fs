@@ -1,5 +1,5 @@
 /// Row tracking (stable row ids through deletes, updates, merges and optimize) and identity columns (generated
-/// values, Spark's refusals) through the kernel's writers. Expectations follow delta-spark 4.1.
+/// values, Spark's refusals) through the kernel's writers. Expectations follow delta-spark 4.4.
 module Polars.FSharp.Tests.SeseragiRowTrackingIdentityTests
 
 open System

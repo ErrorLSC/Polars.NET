@@ -810,7 +810,7 @@ let ``Overwrite with evolution and no partitionBy leaves the table unpartitioned
         use first = frame [ 1; 2 ] "east"
         create path first [| "region" |] []
         use again = frame [ 3 ] "west"
-        // Without evolution the partitioning stays; with it and no partitionBy it goes (delta-spark 4.1).
+        // Without evolution the partitioning stays; with it and no partitionBy it goes (delta-spark 4.4).
         writeWith path again KernelWriteMode.Overwrite null false
         Assert.Equal<string list>([ "region" ], Snapshot.Load(LocalFileSystem path).PartitionColumns |> List.ofSeq)
         writeWith path again KernelWriteMode.Overwrite null true

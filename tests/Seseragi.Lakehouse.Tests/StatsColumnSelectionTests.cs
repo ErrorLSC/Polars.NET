@@ -3,7 +3,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>Which columns get statistics, checked against what delta-spark 4.1 writes for the same table properties.</summary>
+/// <summary>Which columns get statistics, checked against what delta-spark 4.4 writes for the same table properties.</summary>
 public class StatsColumnSelectionTests
 {
     // a INT, s STRUCT<x INT, y STRING>, b STRING, c DOUBLE, arr ARRAY<INT>, d DATE

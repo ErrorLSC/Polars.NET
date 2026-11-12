@@ -168,7 +168,7 @@ public class SchemaEvolutionTests
     [Fact]
     public void ArrayElementsAndMapKeysAndValues_AreWidened_WithTheirPathOnTheField_AsSpark()
     {
-        // delta-spark 4.1: ALTER COLUMN arr.element / mm.key / mm.value.element record on the column with fieldPath.
+        // delta-spark 4.4: ALTER COLUMN arr.element / mm.key / mm.value.element record on the column with fieldPath.
         var table = new StructType([
             F("arr", new ArrayType(Int, true)),
             F("mm", new MapType(Int, new ArrayType(Int, true), true)),
@@ -228,7 +228,7 @@ public class SchemaEvolutionTests
             Id = "t", SchemaString = """{"type":"struct","fields":[]}""",
             Configuration = new Dictionary<string, string> { [TableFeatures.ColumnMappingModeKey] = "id" },
         };
-        // Spark 4.1: id INT, s STRUCT<a, b STRUCT<c>>, arr ARRAY<STRUCT<x>>, m MAP<STRING, STRUCT<y>> numbers 1..9.
+        // Spark 4.2: id INT, s STRUCT<a, b STRUCT<c>>, arr ARRAY<STRUCT<x>>, m MAP<STRING, STRUCT<y>> numbers 1..9.
         var schema = new StructType([
             F("id", Int),
             F("s", new StructType([F("a", Int), F("b", new StructType([F("c", Str)]))])),

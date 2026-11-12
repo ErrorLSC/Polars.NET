@@ -123,7 +123,7 @@ internal static class DeltaKernelWrite
                 if (mode == KernelWriteMode.Overwrite && canEvolve && !SameShape(existing, incoming, partitionBy ?? []))
                 {
                     // overwriteSchema, as Spark: the data's schema replaces the table's, and so does the partitioning:
-                    // partitionBy, or none when it is not given (checked against delta-spark 4.1).
+                    // partitionBy, or none when it is not given (checked against delta-spark 4.4).
                     partitions = partitionBy ?? [];
                     foreach (string column in partitions)
                     {

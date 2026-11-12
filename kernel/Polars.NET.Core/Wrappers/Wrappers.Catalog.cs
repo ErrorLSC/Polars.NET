@@ -96,7 +96,8 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues,
         string? rowIdColumn = null,
-        string? rowCommitVersionColumn = null)
+        string? rowCommitVersionColumn = null,
+        bool variantAsJson = false)
     {
         TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
@@ -133,7 +134,8 @@ public readonly partial struct PolarsWrapper
             cloudKeys,
             cloudValues,
             rowIdColumn,
-            rowCommitVersionColumn);
+            rowCommitVersionColumn,
+            variantAsJson);
     }
 
     public static void SinkCatalogTable

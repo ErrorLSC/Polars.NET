@@ -54,7 +54,7 @@ public class CheckpointWriteTests
     [Fact]
     public void V2Feature_WithoutTheV2Policy_GetsClassicCheckpoints()
     {
-        // Spark 4.1: V2 checkpoints only when delta.checkpointPolicy is v2 (the feature alone, or the classic policy
+        // Spark 4.2: V2 checkpoints only when delta.checkpointPolicy is v2 (the feature alone, or the classic policy
         // while the feature is being dropped, gives classic ones).
         var protocol = new ProtocolAction { MinReaderVersion = 3, MinWriterVersion = 7, ReaderFeatures = ["v2Checkpoint"], WriterFeatures = ["v2Checkpoint"] };
         string?[] policies = [null, "classic"];

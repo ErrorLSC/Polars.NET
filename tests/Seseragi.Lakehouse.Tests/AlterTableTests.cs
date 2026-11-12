@@ -6,7 +6,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>Protocols and commits checked against what delta-spark 4.1 writes for the same ALTER TABLE.</summary>
+/// <summary>Protocols and commits checked against what delta-spark 4.4 writes for the same ALTER TABLE.</summary>
 public class AlterTableTests
 {
     private const string Schema =
@@ -38,7 +38,7 @@ public class AlterTableTests
     [Fact]
     public void WithFeatures_UpgradesAsSpark()
     {
-        // Spark 4.1, ALTER TABLE on a 1/2 table:
+        // Spark 4.2, ALTER TABLE on a 1/2 table:
         AssertProtocol(TableFeatures.WithFeatures(P(1, 2), [TableFeatures.DeletionVectors]),
             3, 7, ["deletionVectors"], ["deletionVectors", "appendOnly", "invariants"]);
         AssertProtocol(TableFeatures.WithFeatures(P(1, 2), [TableFeatures.ChangeDataFeed]),

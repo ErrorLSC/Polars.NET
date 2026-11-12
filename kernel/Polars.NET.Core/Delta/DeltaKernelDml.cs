@@ -82,6 +82,16 @@ internal sealed class DmlTable : IDisposable
             string root = store is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
             Snapshot snapshot = DeltaKernelWrite.TryLoad(fileSystem, tablePath, cloud)
                 ?? throw new PolarsException($"No Delta table at {tablePath}.");
+            // Every operation through here writes: refused before it reads or writes any data file, as Spark checks a
+            // write when it starts (one with nothing to do would otherwise never reach the commit's check).
+            try
+            {
+                TableFeatures.EnsureWritable(snapshot.Protocol, snapshot.Metadata);
+            }
+            catch (DeltaException e)
+            {
+                throw new PolarsException(e.Message, e);
+            }
             return new DmlTable(tablePath, fileSystem, root, cloud, snapshot);
         }
         catch

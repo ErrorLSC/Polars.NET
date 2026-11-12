@@ -172,7 +172,8 @@ public class SnapshotTests
 
     [Theory]
     [InlineData("""{"protocol":{"minReaderVersion":4,"minWriterVersion":7}}""", "", "reader version 4")]
-    [InlineData("""{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["variantType"],"writerFeatures":[]}}""", "", "variantType")]
+    // Variant columns are read (variantType); shredded variants are not.
+    [InlineData("""{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["variantShredding-preview"],"writerFeatures":[]}}""", "", "variantShredding-preview")]
     [InlineData("""{"protocol":{"minReaderVersion":2,"minWriterVersion":5}}""", "\"delta.columnMapping.mode\":\"sideways\"", "Unknown column mapping mode")]
     [InlineData("""{"protocol":{"minReaderVersion":1,"minWriterVersion":2}}""", "\"delta.columnMapping.mode\":\"name\"", "reader version is below 2")]
     public void UnsupportedTables_AreRefused(string protocol, string configuration, string expected)

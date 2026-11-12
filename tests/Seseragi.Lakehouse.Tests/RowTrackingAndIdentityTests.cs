@@ -7,7 +7,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>Row tracking and identity columns, checked against what delta-spark 4.1 writes.</summary>
+/// <summary>Row tracking and identity columns, checked against what delta-spark 4.4 writes.</summary>
 public class RowTrackingAndIdentityTests
 {
     private const string Schema =
@@ -40,7 +40,7 @@ public class RowTrackingAndIdentityTests
     public void NewFiles_GetConsecutiveRowIds_AndTheCommitVersion_AsSpark()
     {
         MemoryFileSystem fs = TrackedTable();
-        // Spark 4.1: two files of 1 and 2 rows at version 1 get base ids 0 and 1, high water mark 2.
+        // Spark 4.2: two files of 1 and 2 rows at version 1 get base ids 0 and 1, high water mark 2.
         Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("a", 1)).Add(Add("b", 2)).Commit();
         var adds = Commit(fs, 1).OfType<AddAction>().ToList();
         Assert.Equal([0L, 1L], adds.Select(a => a.BaseRowId!.Value));
@@ -135,7 +135,7 @@ public class RowTrackingAndIdentityTests
         MemoryFileSystem fs = TrackedTable();
         Transaction.Start(fs, Snapshot.Load(fs), "WRITE").Add(Add("a", 2)).Commit(); // ids 0..1
 
-        // Spark 4.1: suspending while tracking is on is DELTA_ROW_TRACKING_ILLEGAL_PROPERTY_COMBINATION.
+        // Spark 4.2: suspending while tracking is on is DELTA_ROW_TRACKING_ILLEGAL_PROPERTY_COMBINATION.
         var both = Assert.ThrowsAny<DeltaException>(() =>
             AlterTable.SetProperties(fs, Snapshot.Load(fs), new Dictionary<string, string> { [RowTracking.SuspendedKey] = "true" }));
         Assert.Contains("both set to true", both.Message);
@@ -180,7 +180,7 @@ public class RowTrackingAndIdentityTests
         });
         Assert.ThrowsAny<DeltaException>(() => Transaction.Create(new MemoryFileSystem(), Tracking, Metadata(configuration: configuration)).Commit());
 
-        // Spark 4.1 creates such a table, then refuses every commit to it, the repairing ALTER included; here the
+        // Spark 4.2 creates such a table, then refuses every commit to it, the repairing ALTER included; here the
         // ALTER that sets either property to false goes through.
         var fs = new MemoryFileSystem();
         Assert.True(fs.TryCreate(LogFile.CommitPath(0), ActionWriter.WriteCommit([Tracking, Metadata(configuration: configuration)])));

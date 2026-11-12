@@ -85,7 +85,7 @@ public class ChangeFeedTests
         Assert.Empty(ChangeFeed.Read(fs, 3, 4));
     }
 
-    // ---- schema changes (rules probed against delta-spark 4.1) ----
+    // ---- schema changes (rules probed against delta-spark 4.4) ----
 
     private static MemoryFileSystem SchemaTable(bool mapped)
     {

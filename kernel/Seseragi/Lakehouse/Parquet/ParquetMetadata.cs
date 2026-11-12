@@ -27,9 +27,10 @@ public enum ParquetTimeUnit
 /// <param name="IntBitWidth">The bit width of an annotated integer (8, 16, 32 or 64), from the logical or the converted type.</param>
 /// <param name="DecimalPrecision">The precision of a decimal, from the logical or the converted type.</param>
 /// <param name="IsDate">Whether the leaf is annotated as a date.</param>
+/// <param name="IsVariant">Whether the group is annotated as a variant (its <c>value</c> and <c>metadata</c> binaries).</param>
 public sealed record ParquetSchemaElement(
     string Name, int? PhysicalType, int? Repetition, int ChildCount, int? TypeLength, int? DecimalScale, ParquetTimeUnit? TimeUnit,
-    int? FieldId = null, int? IntBitWidth = null, int? DecimalPrecision = null, bool IsDate = false);
+    int? FieldId = null, int? IntBitWidth = null, int? DecimalPrecision = null, bool IsDate = false, bool IsVariant = false);
 
 /// <summary>The statistics of one column chunk: the raw PLAIN-encoded bounds and the null count, each absent when not written.</summary>
 public sealed record ParquetColumnStatistics(byte[]? Min, byte[]? Max, long? NullCount);
@@ -139,9 +140,10 @@ public sealed class ParquetMetadata
     {
         int? scale = null, precision = null, bitWidth = null;
         ParquetTimeUnit? unit = null;
-        bool date = false;
+        bool date = false, variant = false;
         if (e.Struct(10) is ThriftStruct logical)
         {
+            variant = logical.Has(16);
             if (logical.Struct(5) is ThriftStruct dec)
             {
                 scale = (int?)dec.Long(1);
@@ -171,7 +173,7 @@ public sealed class ParquetMetadata
         };
         return new ParquetSchemaElement(
             e.String(4) ?? "", (int?)e.Long(1), (int?)e.Long(3), (int)(e.Long(5) ?? 0), (int?)e.Long(2), scale, unit, (int?)e.Long(9),
-            bitWidth, precision, date);
+            bitWidth, precision, date, variant);
     }
 
     private static ParquetRowGroup RowGroup(ThriftStruct g) => new(

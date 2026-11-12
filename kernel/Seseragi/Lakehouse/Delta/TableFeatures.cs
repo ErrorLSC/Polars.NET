@@ -34,6 +34,8 @@ public static class TableFeatures
     public const string TypeWidening = "typeWidening";
     public const string TypeWideningPreview = "typeWidening-preview";
     public const string CheckpointProtection = "checkpointProtection";
+    public const string VariantType = "variantType";
+    public const string VariantTypePreview = "variantType-preview";
 #pragma warning restore CS1591
 
     /// <summary>
@@ -87,6 +89,10 @@ public static class TableFeatures
         // and data skipping allows for statistics in the older type (see Skipping.FileFilter).
         TypeWidening,
         TypeWideningPreview,
+        // Variant columns are read as stored (value and metadata binaries); writing them is not supported, so the
+        // feature is not among the writer features and such tables are read only.
+        VariantType,
+        VariantTypePreview,
     };
 
     /// <summary>Throws when reading the table needs something this kernel does not implement.</summary>

@@ -381,6 +381,26 @@ unsafe internal partial class NativeBindings
         UIntPtr cloud_len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_scan_parquet_buffer(
+        IntPtr buffer_ptr,
+        UIntPtr buffer_len,
+        delegate* unmanaged[Cdecl]<void*, void> release, // null: the engine copies the buffer
+        void* userData,
+        IntPtr n_rows,
+        PlParallelStrategy parallel_code,
+        [MarshalAs(UnmanagedType.U1)] bool low_memory,
+        [MarshalAs(UnmanagedType.U1)] bool use_statistics,
+        [MarshalAs(UnmanagedType.U1)] bool allow_missing_columns,
+        [MarshalAs(UnmanagedType.U1)] bool ignore_extra_columns,
+        [MarshalAs(UnmanagedType.U1)] bool lenient_casts,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk,
+        [MarshalAs(UnmanagedType.U1)] bool cache,
+        string? row_index_name,
+        uint row_index_offset,
+        IntPtr schema
+    );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet_memory(
         IntPtr buffer_ptr,
         UIntPtr buffer_len,

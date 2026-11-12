@@ -39,6 +39,9 @@ public static class Restore
             throw new DeltaException($"Version {target.Version} is after the latest version {current.Version}; there is nothing to restore.");
         if (target.Metadata.Id != current.Metadata.Id)
             throw new DeltaException("The version to restore belongs to another table (its table id differs).");
+        // Refused up front, as Spark checks a write when it starts: a restore with nothing to do commits nothing and
+        // would otherwise never reach the commit's check.
+        TableFeatures.EnsureWritable(current.Protocol, current.Metadata);
 
         static (string, string?) Key(AddAction f) => (f.Path, f.DeletionVector?.UniqueId);
         var currentKeys = current.Files.Select(Key).ToHashSet();

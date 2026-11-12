@@ -1,6 +1,6 @@
 # Delta Lake: Advanced Table Features
 
-The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, and column changes. Each follows Spark's delta-spark 4.1, and tables Spark or Databricks created with these features are read and written as Spark reads and writes them. What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
+The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, and column changes. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them. What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
 
 ---
 

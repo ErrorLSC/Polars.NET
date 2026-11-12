@@ -6,7 +6,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Log;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>DROP FEATURE, checked against what delta-spark 4.1 commits for the same tables.</summary>
+/// <summary>DROP FEATURE, checked against what delta-spark 4.4 commits for the same tables.</summary>
 public class DropFeatureTests
 {
     private const string Schema = """{"type":"struct","fields":[{"name":"id","type":"long","nullable":true,"metadata":{}}]}""";
@@ -59,7 +59,7 @@ public class DropFeatureTests
     [Fact]
     public void WithoutFeature_GivesTheProtocolsSparkGives()
     {
-        // Spark 4.1 (probe outputs): deletion vectors from 3/7 → 1/7 with checkpoint protection.
+        // Spark 4.2 (probe outputs): deletion vectors from 3/7 → 1/7 with checkpoint protection.
         AssertProtocol(TableFeatures.WithoutFeature(P(3, 7, ["deletionVectors"], ["deletionVectors", "appendOnly", "invariants"]), "deletionVectors", true),
             1, 7, null, ["appendOnly", "invariants", "checkpointProtection"]);
         // Column mapping from legacy 2/5: every feature 5 implied listed, but column mapping.
