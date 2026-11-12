@@ -1,5 +1,4 @@
 using System.Data.SqlTypes;
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Apache.Arrow;
@@ -28,14 +27,7 @@ internal sealed class ArrowRowNode(IArrowArray array, Field field, string path, 
 
     public ArrowTypeId TypeId { get; } = array.Data.DataType.TypeId;
 
-    public int? FieldId { get; } = ParseFieldId(field, path, fieldIdKey);
-
-    private static int? ParseFieldId(Field field, string path, string? key) =>
-        key is not null && field.HasMetadata && field.Metadata.TryGetValue(key, out string? id)
-            ? int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
-                ? value
-                : throw new FormatException($"Field '{path}' has an invalid id '{id}'.")
-            : null;
+    public int? FieldId { get; } = fieldIdKey is null ? null : ArrowFieldIds.Of(field, fieldIdKey);
 
     public bool IsNull(int index) => Array.IsNull(index);
 

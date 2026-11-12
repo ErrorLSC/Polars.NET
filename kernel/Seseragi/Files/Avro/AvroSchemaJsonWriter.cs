@@ -38,7 +38,6 @@ internal static class AvroSchemaJsonWriter
                 w.WriteStartObject();
                 w.WriteString("type"u8, "record"u8);
                 WriteName(w, record, enclosingNs);
-                if (record.Doc is { } doc) w.WriteString("doc"u8, doc);
                 w.WriteStartArray("fields"u8);
                 foreach (var f in record.Fields)
                 {
@@ -52,9 +51,12 @@ internal static class AvroSchemaJsonWriter
                         w.WritePropertyName("default"u8);
                         w.WriteRawValue(def);
                     }
+                    WriteAliases(w, f.Aliases);
+                    WriteProperties(w, f.Properties);
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();
+                WriteProperties(w, record.Properties);
                 w.WriteEndObject();
                 return;
 
@@ -66,6 +68,7 @@ internal static class AvroSchemaJsonWriter
                 foreach (var s in e.Symbols) w.WriteStringValue(s);
                 w.WriteEndArray();
                 if (e.Default is { } d) w.WriteString("default"u8, d);
+                WriteProperties(w, e.Properties);
                 w.WriteEndObject();
                 return;
 
@@ -75,6 +78,7 @@ internal static class AvroSchemaJsonWriter
                 WriteName(w, f, enclosingNs);
                 w.WriteNumber("size"u8, f.Size);
                 WriteLogical(w, f);
+                WriteProperties(w, f.Properties);
                 w.WriteEndObject();
                 return;
 
@@ -83,6 +87,7 @@ internal static class AvroSchemaJsonWriter
                 w.WriteString("type"u8, "array"u8);
                 w.WritePropertyName("items"u8);
                 WriteSchema(w, a.Items, enclosingNs, written);
+                WriteProperties(w, a.Properties);
                 w.WriteEndObject();
                 return;
 
@@ -91,11 +96,12 @@ internal static class AvroSchemaJsonWriter
                 w.WriteString("type"u8, "map"u8);
                 w.WritePropertyName("values"u8);
                 WriteSchema(w, m.Values, enclosingNs, written);
+                WriteProperties(w, m.Properties);
                 w.WriteEndObject();
                 return;
 
             default:
-                if (schema.Logical == AvroLogicalKind.None)
+                if (schema.Logical == AvroLogicalKind.None && schema.Properties.Count == 0)
                 {
                     w.WriteStringValue(PrimitiveName(schema.Type));
                     return;
@@ -103,15 +109,36 @@ internal static class AvroSchemaJsonWriter
                 w.WriteStartObject();
                 w.WriteString("type"u8, PrimitiveName(schema.Type));
                 WriteLogical(w, schema);
+                WriteProperties(w, schema.Properties);
                 w.WriteEndObject();
                 return;
         }
     }
 
+    private static void WriteProperties(Utf8JsonWriter w, IReadOnlyDictionary<string, JsonElement> properties)
+    {
+        foreach (var (name, value) in properties)
+        {
+            w.WritePropertyName(name);
+            value.WriteTo(w);
+        }
+    }
+
+    private static void WriteAliases(Utf8JsonWriter w, IReadOnlyList<string> aliases)
+    {
+        if (aliases.Count == 0) return;
+        w.WriteStartArray("aliases"u8);
+        foreach (string alias in aliases) w.WriteStringValue(alias);
+        w.WriteEndArray();
+    }
+
+    // Name, namespace, doc and aliases of a named type.
     private static void WriteName(Utf8JsonWriter w, AvroNamedSchema s, string? enclosingNs)
     {
         w.WriteString("name"u8, s.Name);
         if (s.Namespace != enclosingNs) w.WriteString("namespace"u8, s.Namespace ?? "");
+        if (s.Doc is { } doc) w.WriteString("doc"u8, doc);
+        WriteAliases(w, s.Aliases);
     }
 
     private static void WriteLogical(Utf8JsonWriter w, AvroSchema s)

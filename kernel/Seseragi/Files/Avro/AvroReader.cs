@@ -78,7 +78,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     private bool _started;
 
     // Projection, kept so that parallel workers can build their own decoders.
-    private IReadOnlyList<(string Name, AvroSchema Schema)> _fields = [];
+    private IReadOnlyList<(string Name, AvroSchema Schema, int? FieldId)> _fields = [];
     private bool[] _selected = [];
 
     // Parallel decoding (MaxDegreeOfParallelism > 1).
@@ -118,7 +118,10 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     /// <summary>The file metadata, including <c>avro.schema</c> and <c>avro.codec</c>.</summary>
     public IReadOnlyDictionary<string, byte[]> Metadata { get; private set; } = new Dictionary<string, byte[]>();
 
-    internal AvroSchema WriterSchema { get; private set; } = null!;
+    /// <summary>The writer schema stored in the file, parsed. Ids (<c>field-id</c>, <c>element-id</c>,
+    /// <c>key-id</c>, <c>value-id</c>) also appear in <see cref="Schema"/> as
+    /// <see cref="Kaminari.Sazanami.Arrow.ArrowFieldIds.MetadataKey"/> field metadata.</summary>
+    public AvroSchema WriterSchema { get; private set; } = null!;
 
     /// <summary>Opens an Avro file and reads its header.</summary>
     public static Task<AvroReader> OpenAsync(string path, AvroReadOptions? options = null, CancellationToken cancellationToken = default) =>
@@ -269,7 +272,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
 
         List<Field> arrowFields = [];
         for (int i = 0; i < fields.Count; i++)
-            if (selected[i]) arrowFields.Add(AvroReadSchema.ToField(fields[i].Name, fields[i].Schema));
+            if (selected[i]) arrowFields.Add(AvroReadSchema.ToField(fields[i].Name, fields[i].Schema, fields[i].FieldId));
         Schema = new Schema(arrowFields, null);
         _fields = fields;
         _selected = selected;

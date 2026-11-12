@@ -25,7 +25,7 @@ adding features.
 | Where | What |
 | :--- | :--- |
 | `CompressionType.cs` | Codec objects shared by formats: `NoCompression`, `DeflateCompression(Level)`, `SnappyCompression`, `ZstandardCompression(Level)`. Which format accepts which codec is a compile-time fact: marker interfaces (`IAvroCompression`, with an `internal` member so only this package implements it). Add `IParquetCompression` etc. when a format needs it. |
-| `Avro/AvroSchema.cs` | Schema model (`AvroSchema` and subclasses, `AvroLogicalKind`) and the parser. Named types and namespaces, recursion, logical types (an invalid or unknown one falls back to the base type, as the spec requires), Spark's `spark.sql.catalyst.type` intervals, our `kaminari.timezone` attribute. |
+| `Avro/AvroSchema.cs` | Schema model (public, read-only: `AvroSchema` and subclasses, `AvroField`, `AvroLogicalKind`; internal constructors) and the parser. Named types and namespaces, recursion, logical types (an invalid or unknown one falls back to the base type, as the spec requires, and stays in `Properties`), Spark's `spark.sql.catalyst.type` intervals, our `kaminari.timezone` attribute. Every attribute a node or field does not interpret is kept in `Properties` (JSON) and written back; `FieldId` / `ElementId` / `KeyId` / `ValueId` read Iceberg's ids. Attributes on a named-type reference or a `{"type": {…}}` wrapper are dropped (no node of their own). |
 | `Avro/AvroSchemaJsonWriter.cs` | Schema to JSON (named types written once, then by full name). |
 | `Avro/AvroBinary.cs` | `AvroSpanReader` (bounds-checked, SWAR varint fast path) and `AvroBufferWriter` (native buffer, SWAR varint encode). `AvroFormatException` for malformed input. |
 | `Avro/AvroCodecs.cs` | Block codecs (null, deflate, snappy with CRC32, zstandard); bzip2 / xz are refused by name. |
@@ -44,6 +44,7 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeColumnBuilders.cs` | Arrow column builders in native memory (fixed width, boolean, binary, fixed-size binary, dictionary, list/map, struct, null), lazy validity. |
 | `Arrow/NativeArrayExport.cs` | Turns builders into a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`, layout-identical because Apache.Arrow keeps `CArrowArray.release` internal) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O scratch buffers (block bytes, decompression, writer output) and a write stream over them. |
+| `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an id on an Arrow field. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` / `StructArray`: `ArrowRows.Over(batch, fieldIdKey)`, `row.Get<T>(ordinal or name)`, `GetStruct`, `GetList<T>`, `GetMap<K, V>`, `GetBytes`; field ids from a metadata key; no allocation per row (tests in `Sazanami.Tests/ArrowRowsTests.cs`, over Avro batches in `AvroRowViewTests.cs`). |
 
 In Polars.NET (the engine integration):
@@ -90,6 +91,9 @@ Reading (Avro → Arrow):
 * `timestamp-*` → Timestamp(unit, "UTC" or the `kaminari.timezone` attribute); `local-timestamp-*` → Timestamp without zone;
   `date`, `time-millis`, `time-micros` → Date32, Time32(ms), Time64(us); Spark intervals → Duration(us) / Interval(YearMonth).
 * A non-record top-level schema → one column `value` (Spark and Polars refuse; DuckDB names it `avro_schema`).
+* Ids: `field-id` → the field's `PARQUET:field_id` metadata (`ArrowFieldIds.MetadataKey` in Sazanami, the key pyarrow,
+  pyiceberg and our Parquet writer use); `element-id` → the list item field; `key-id` / `value-id` → the map key and
+  value fields. Only present ids are attached, so files without ids read exactly as before. Writing does the reverse.
 * Recursive records are refused unless projected away (skippers handle recursion).
 * `string` and map keys must be valid UTF-8.
 
@@ -155,10 +159,18 @@ verified against real files first:
    Iceberg 1.12.0 on Spark 4.1.1 (no Iceberg runtime runs on Spark 4.2 yet) and pyiceberg 0.12.0 (v1/v2 only;
    it cannot write v3). Findings so far: maps are key/value record arrays with `logicalType: map` and field ids on
    key/value (no `key-id` / `value-id`); `element-id` on lists; unions always `["null", T]`; decimal partitions are
-   minimal `fixed`; codec deflate. Not exercised yet: timestamp and uuid partitions (`adjust-to-utc`, `fixed(16)`).*
-2. **Public schema API.** `AvroSchema` and its subclasses become public. Keep attributes the parser now drops:
-   `field-id` on fields, `element-id` on arrays, `key-id` / `value-id` on maps, and other custom properties; expose
-   field ids on read (Arrow field metadata) and write them back.
+   minimal `fixed`; codec deflate. Timestamp partitions: `timestamp-micros` with `adjust-to-utc` true (timestamptz) /
+   false (timestamp); `days` → `int` + `date`, `hours` / `months` → plain `int`. uuid partitions: `fixed(16)` named
+   `uuid_fixed` with `logicalType: uuid`, big-endian bytes; decimal(38, 10) → `fixed(16)`. An identity partition on a
+   `fixed(5)` column (table made with the Iceberg 1.12 Java API, rows inserted from Spark 4.1) stored its value in
+   Avro `bytes` encoding although the schema says `fixed(5)` (verified: decoding it as `bytes` parses every record).
+   Two-record files then fail in every reader (fastavro, Java, ours); one-record files decode silently as garbage,
+   since Avro has no checks. Cause (Iceberg core or that write path) not determined.*
+2. **Public schema API.** *Done (2026-11-13) as a read-only model (`AvroSchema.Parse`, `AvroReader.WriterSchema`,
+   `Properties`, id accessors, `ToJson`); a construction API waits for step 6. Parse → `ToJson` reproduces all 138
+   reference schemas exactly (order-insensitive).* Attributes the parser used to drop (`field-id`, `element-id`,
+   `key-id` / `value-id`, other custom properties) are kept; ids are exposed on read as Arrow field metadata and
+   written back.
 3. **Maps with non-string keys.** Iceberg writes `map<int, …>` (`column_sizes`, `value_counts`, `lower_bounds`, …)
    as an `array` of key/value records annotated `logicalType: map`. Read it as an Arrow Map; write Arrow Maps with
    non-string keys that way (refused today).
@@ -168,8 +180,10 @@ verified against real files first:
    with their default or null, skip extra fields (the skippers exist), promote int → long and float → double (and the
    rest of Avro's promotions), match union branches. Manifest schemas differ across format versions and partition
    specs.
-6. **Per-field write encodings.** Iceberg needs decimals as `fixed` of the minimal size for the precision and uuids
-   as `fixed(16)`; the default stays a `bytes` decimal.
+6. **Write against a given Avro schema** (absorbs per-field encodings; includes the public construction API). Manifests
+   need record names (`r2`, `k117_v118`, `manifest_entry`), required vs optional and `"default": null`, which the Arrow
+   mapping cannot produce. It also covers per-field encodings: Iceberg needs decimals as `fixed` of the minimal size
+   for the precision and uuids as `fixed(16)`; the default mapping keeps a `bytes` decimal.
 7. **Small files.** Cache compiled decoders by (writer schema, reader schema); a synchronous whole-buffer fast path.
 8. **Row view in Sazanami.** *Done (2026-11-13): `ArrowRows` in Sazanami's `Arrow/` (see the code map); it already
    reads all 59 generated v2 / v3 manifests and lists from the Avro reader (maps as lists of key/value structs until

@@ -1,4 +1,7 @@
 using Apache.Arrow;
+using ArrowField = Apache.Arrow.Field;
+using ArrowSchema = Apache.Arrow.Schema;
+using ArrowTypes = Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Avro;
 using static Polars.CSharp.Polars;
 
@@ -28,6 +31,44 @@ public class AvroManagedTests
         Assert.Equal("null", Dtype(df, "nul"));
         Assert.Equal(1L << 40, df.GetValue<long>(1, "il"));
         Assert.Equal("BLUE", df.GetValue<string>(0, "e"));
+    }
+
+    [Fact]
+    public void Files_with_field_ids_read_and_scan()
+    {
+        // Iceberg-style ids (field-id, element-id, key-id, value-id) arrive as Arrow field metadata; the engine
+        // import must accept them at every level.
+        static ArrowField Id(ArrowField f, int id) => Kaminari.Sazanami.Arrow.ArrowFieldIds.With(f, id);
+        ArrowSchema schema = new([
+            Id(new ArrowField("n", ArrowTypes.Int64Type.Default, false), 1),
+            Id(new ArrowField("splits", new ArrowTypes.ListType(Id(new ArrowField("item", ArrowTypes.Int64Type.Default, true), 133)), true), 132),
+            Id(new ArrowField("props", new ArrowTypes.MapType(
+                Id(new ArrowField("key", ArrowTypes.StringType.Default, false), 7),
+                Id(new ArrowField("value", ArrowTypes.StringType.Default, true), 8)), true), 6),
+        ], []);
+        var splits = new ListArray.Builder(ArrowTypes.Int64Type.Default);
+        splits.Append();
+        ((Int64Array.Builder)splits.ValueBuilder).Append(4).Append(8);
+        var props = new MapArray.Builder((ArrowTypes.MapType)schema.FieldsList[2].DataType);
+        props.Append();
+        ((StringArray.Builder)props.KeyBuilder).Append("k");
+        ((StringArray.Builder)props.ValueBuilder).Append("v");
+        RecordBatch batch = new(schema, [new Int64Array.Builder().Append(42).Build(), splits.Build(), props.Build()], 1);
+
+        string path = Path.Combine(Path.GetTempPath(), $"avro-ids-{Guid.NewGuid():N}.avro");
+        try
+        {
+            AvroWriter.Write(path, schema, [batch]);
+            using var df = DataFrame.ReadAvro(path);
+            Assert.Equal(42L, df.GetValue<long>(0, "n"));
+            Assert.Equal("list[i64]", Dtype(df, "splits"));
+            using var scanned = LazyFrame.ScanAvro(path).Collect();
+            Assert.True(df.Equals(scanned));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

@@ -1,29 +1,71 @@
 using System.Buffers;
 using System.Collections.Frozen;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Kaminari.Seseragi.Files.Avro;
 
-internal enum AvroType
+/// <summary>The type of an Avro schema node (Avro 1.12 specification).</summary>
+public enum AvroType
 {
-    Null, Boolean, Int, Long, Float, Double, Bytes, String,
-    Record, Enum, Array, Map, Union, Fixed,
+    /// <summary><c>null</c>.</summary>
+    Null,
+    /// <summary><c>boolean</c>.</summary>
+    Boolean,
+    /// <summary><c>int</c> (32-bit).</summary>
+    Int,
+    /// <summary><c>long</c> (64-bit).</summary>
+    Long,
+    /// <summary><c>float</c>.</summary>
+    Float,
+    /// <summary><c>double</c>.</summary>
+    Double,
+    /// <summary><c>bytes</c>.</summary>
+    Bytes,
+    /// <summary><c>string</c> (UTF-8).</summary>
+    String,
+    /// <summary><c>record</c>.</summary>
+    Record,
+    /// <summary><c>enum</c>.</summary>
+    Enum,
+    /// <summary><c>array</c>.</summary>
+    Array,
+    /// <summary><c>map</c> (string keys).</summary>
+    Map,
+    /// <summary>A union (JSON array of branches).</summary>
+    Union,
+    /// <summary><c>fixed</c>.</summary>
+    Fixed,
 }
 
-internal enum AvroLogicalKind
+/// <summary>A logical type annotation understood by this package.</summary>
+public enum AvroLogicalKind
 {
+    /// <summary>No (valid) logical type.</summary>
     None,
+    /// <summary><c>decimal</c> on <c>bytes</c> or <c>fixed</c>, with <see cref="AvroSchema.Precision"/> and <see cref="AvroSchema.Scale"/>.</summary>
     Decimal,
+    /// <summary><c>uuid</c> on <c>string</c> or <c>fixed(16)</c>.</summary>
     Uuid,
+    /// <summary><c>date</c>: days since the epoch, on <c>int</c>.</summary>
     Date,
+    /// <summary><c>time-millis</c> on <c>int</c>.</summary>
     TimeMillis,
+    /// <summary><c>time-micros</c> on <c>long</c>.</summary>
     TimeMicros,
+    /// <summary><c>timestamp-millis</c>: an instant, on <c>long</c>.</summary>
     TimestampMillis,
+    /// <summary><c>timestamp-micros</c>: an instant, on <c>long</c>.</summary>
     TimestampMicros,
+    /// <summary><c>timestamp-nanos</c>: an instant, on <c>long</c>.</summary>
     TimestampNanos,
+    /// <summary><c>local-timestamp-millis</c>: a wall-clock time, on <c>long</c>.</summary>
     LocalTimestampMillis,
+    /// <summary><c>local-timestamp-micros</c>: a wall-clock time, on <c>long</c>.</summary>
     LocalTimestampMicros,
+    /// <summary><c>local-timestamp-nanos</c>: a wall-clock time, on <c>long</c>.</summary>
     LocalTimestampNanos,
+    /// <summary><c>duration</c>: months, days and milliseconds, on <c>fixed(12)</c>.</summary>
     Duration,
     /// <summary>Spark's day-time interval: a long of microseconds tagged with <c>spark.sql.catalyst.type</c>.</summary>
     SparkDayTimeInterval,
@@ -31,94 +73,249 @@ internal enum AvroLogicalKind
     SparkYearMonthInterval,
 }
 
-/// <summary>A node of a parsed Avro schema (Avro 1.12 specification).</summary>
-internal abstract class AvroSchema(AvroType type)
+/// <summary>
+/// A node of a parsed Avro schema (Avro 1.12 specification). Obtain one with <see cref="Parse(string)"/> or from
+/// <see cref="AvroReader.WriterSchema"/>; the model is read-only.
+/// </summary>
+/// <remarks>
+/// Attributes this package does not interpret (for example Iceberg's <c>field-id</c>, <c>element-id</c>,
+/// <c>key-id</c> and <c>value-id</c>, or a logical type it does not know) are kept in <see cref="Properties"/> and
+/// written back by <see cref="ToJson"/>. Attributes on a reference to a named type (<c>{"type": "Name", …}</c>) or
+/// on a wrapper (<c>{"type": {…}, …}</c>) have no node of their own and are dropped.
+/// </remarks>
+public abstract class AvroSchema
 {
-    public AvroType Type { get; } = type;
+    internal AvroSchema(AvroType type) => Type = type;
 
-    /// <summary>A valid logical type annotation; invalid or unknown annotations are dropped at parse time,
-    /// as the specification requires (the value is read as its underlying type).</summary>
-    public AvroLogicalKind Logical { get; init; }
+    /// <summary>The kind of node.</summary>
+    public AvroType Type { get; }
 
-    public int Precision { get; init; }
-    public int Scale { get; init; }
+    /// <summary>A valid logical type annotation; invalid or unknown annotations are not interpreted, as the
+    /// specification requires (the value is read as its underlying type), and stay in <see cref="Properties"/>.</summary>
+    public AvroLogicalKind Logical { get; internal init; }
+
+    /// <summary>The precision of a <see cref="AvroLogicalKind.Decimal"/>.</summary>
+    public int Precision { get; internal init; }
+
+    /// <summary>The scale of a <see cref="AvroLogicalKind.Decimal"/>.</summary>
+    public int Scale { get; internal init; }
 
     /// <summary>
     /// The time zone of a <c>timestamp-*</c> (instant) value, kept in the <see cref="TimezoneProperty"/> schema
     /// attribute. Avro itself has no place for it; other readers ignore the attribute and read a UTC instant.
     /// </summary>
-    public string? Timezone { get; init; }
+    public string? Timezone { get; internal init; }
 
     /// <summary>Schema attribute carrying the original Arrow time zone of a <c>timestamp-*</c> field.</summary>
     public const string TimezoneProperty = "kaminari.timezone";
 
+    /// <summary>The attributes of this node that the package does not interpret, by name, as JSON.</summary>
+    public IReadOnlyDictionary<string, JsonElement> Properties { get; internal init; } = AvroProperties.Empty;
+
+    /// <summary>Parses Avro schema JSON.</summary>
+    /// <exception cref="AvroFormatException">The JSON is not a valid Avro schema.</exception>
     public static AvroSchema Parse(string json) => AvroSchemaParser.Parse(json);
 
+    /// <inheritdoc cref="Parse(string)"/>
     public static AvroSchema Parse(ReadOnlySpan<byte> utf8Json) => AvroSchemaParser.Parse(utf8Json);
 
+    /// <summary>The schema as Avro JSON; named types are written in full once, then by full name.</summary>
     public string ToJson() => AvroSchemaJsonWriter.Write(this);
 
+    /// <inheritdoc cref="ToJson"/>
     public override string ToString() => ToJson();
 }
 
-internal sealed class AvroPrimitiveSchema(AvroType type) : AvroSchema(type);
-
-internal abstract class AvroNamedSchema(AvroType type, string name, string? ns) : AvroSchema(type)
+/// <summary>A primitive type (<c>null</c>, <c>boolean</c>, <c>int</c>, <c>long</c>, <c>float</c>, <c>double</c>,
+/// <c>bytes</c>, <c>string</c>), possibly with a logical type.</summary>
+public sealed class AvroPrimitiveSchema : AvroSchema
 {
-    public string Name { get; } = name;
-    public string? Namespace { get; } = ns;
-    public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";
-    public string? Doc { get; init; }
-    public IReadOnlyList<string> Aliases { get; init; } = [];
+    internal AvroPrimitiveSchema(AvroType type) : base(type) { }
 }
 
-internal sealed class AvroRecordSchema(string name, string? ns) : AvroNamedSchema(AvroType.Record, name, ns)
+/// <summary>A named type: record, enum or fixed.</summary>
+public abstract class AvroNamedSchema : AvroSchema
 {
+    internal AvroNamedSchema(AvroType type, string name, string? ns) : base(type)
+    {
+        Name = name;
+        Namespace = ns;
+    }
+
+    /// <summary>The name, without the namespace.</summary>
+    public string Name { get; }
+
+    /// <summary>The namespace, or null for the null namespace.</summary>
+    public string? Namespace { get; }
+
+    /// <summary>The name qualified by the namespace.</summary>
+    public string FullName => string.IsNullOrEmpty(Namespace) ? Name : $"{Namespace}.{Name}";
+
+    /// <summary>The <c>doc</c> attribute.</summary>
+    public string? Doc { get; internal init; }
+
+    /// <summary>The <c>aliases</c> attribute (not used for resolution yet).</summary>
+    public IReadOnlyList<string> Aliases { get; internal init; } = [];
+}
+
+/// <summary>A record. Records can be recursive: a field's schema may be the record itself.</summary>
+public sealed class AvroRecordSchema : AvroNamedSchema
+{
+    internal AvroRecordSchema(string name, string? ns) : base(AvroType.Record, name, ns) { }
+
+    /// <summary>The fields, in order.</summary>
     // Filled after construction so that recursive references can point back at the record.
     public IReadOnlyList<AvroField> Fields { get; internal set; } = [];
 }
 
-internal sealed record AvroField(string Name, AvroSchema Schema, int Position)
+/// <summary>A field of a record.</summary>
+public sealed class AvroField
 {
-    public string? Doc { get; init; }
-    /// <summary>The raw JSON default value, if the field declares one.</summary>
-    public string? DefaultJson { get; init; }
+    internal AvroField(string name, AvroSchema schema, int position)
+    {
+        Name = name;
+        Schema = schema;
+        Position = position;
+    }
+
+    /// <summary>The field name.</summary>
+    public string Name { get; }
+
+    /// <summary>The field type.</summary>
+    public AvroSchema Schema { get; }
+
+    /// <summary>The position of the field in its record.</summary>
+    public int Position { get; }
+
+    /// <summary>The <c>doc</c> attribute.</summary>
+    public string? Doc { get; internal init; }
+
+    /// <summary>The <c>aliases</c> attribute (not used for resolution yet).</summary>
+    public IReadOnlyList<string> Aliases { get; internal init; } = [];
+
+    /// <summary>The <c>default</c> value, if the field declares one (JSON, as the specification encodes it).</summary>
+    public JsonElement? Default { get; internal init; }
+
+    // The default as raw JSON text, for the schema writer.
+    internal string? DefaultJson => Default?.GetRawText();
+
+    /// <summary>The attributes of the field the package does not interpret (for example <c>field-id</c>, <c>order</c>).</summary>
+    public IReadOnlyDictionary<string, JsonElement> Properties { get; internal init; } = AvroProperties.Empty;
+
+    /// <summary>The <c>field-id</c> attribute (Iceberg), or null.</summary>
+    public int? FieldId => AvroProperties.Id(Properties, AvroProperties.FieldId);
 }
 
-internal sealed class AvroEnumSchema(string name, string? ns, IReadOnlyList<string> symbols)
-    : AvroNamedSchema(AvroType.Enum, name, ns)
+/// <summary>An enum.</summary>
+public sealed class AvroEnumSchema : AvroNamedSchema
 {
-    public IReadOnlyList<string> Symbols { get; } = symbols;
-    public string? Default { get; init; }
+    internal AvroEnumSchema(string name, string? ns, IReadOnlyList<string> symbols) : base(AvroType.Enum, name, ns) =>
+        Symbols = symbols;
+
+    /// <summary>The symbols, in order (a value is encoded as its index).</summary>
+    public IReadOnlyList<string> Symbols { get; }
+
+    /// <summary>The symbol readers use for an unknown symbol, or null.</summary>
+    public string? Default { get; internal init; }
 }
 
-internal sealed class AvroFixedSchema(string name, string? ns, int size) : AvroNamedSchema(AvroType.Fixed, name, ns)
+/// <summary>A fixed-size binary.</summary>
+public sealed class AvroFixedSchema : AvroNamedSchema
 {
-    public int Size { get; } = size;
+    internal AvroFixedSchema(string name, string? ns, int size) : base(AvroType.Fixed, name, ns) => Size = size;
+
+    /// <summary>The size in bytes.</summary>
+    public int Size { get; }
 }
 
-internal sealed class AvroArraySchema(AvroSchema items) : AvroSchema(AvroType.Array)
+/// <summary>An array.</summary>
+public sealed class AvroArraySchema : AvroSchema
 {
-    public AvroSchema Items { get; } = items;
+    internal AvroArraySchema(AvroSchema items) : base(AvroType.Array) => Items = items;
+
+    /// <summary>The item type.</summary>
+    public AvroSchema Items { get; }
+
+    /// <summary>The <c>element-id</c> attribute (Iceberg), or null.</summary>
+    public int? ElementId => AvroProperties.Id(Properties, AvroProperties.ElementId);
 }
 
-internal sealed class AvroMapSchema(AvroSchema values) : AvroSchema(AvroType.Map)
+/// <summary>A map (string keys).</summary>
+public sealed class AvroMapSchema : AvroSchema
 {
-    public AvroSchema Values { get; } = values;
+    internal AvroMapSchema(AvroSchema values) : base(AvroType.Map) => Values = values;
+
+    /// <summary>The value type.</summary>
+    public AvroSchema Values { get; }
+
+    /// <summary>The <c>key-id</c> attribute (Iceberg), or null.</summary>
+    public int? KeyId => AvroProperties.Id(Properties, AvroProperties.KeyId);
+
+    /// <summary>The <c>value-id</c> attribute (Iceberg), or null.</summary>
+    public int? ValueId => AvroProperties.Id(Properties, AvroProperties.ValueId);
 }
 
-internal sealed class AvroUnionSchema(IReadOnlyList<AvroSchema> branches) : AvroSchema(AvroType.Union)
+/// <summary>A union.</summary>
+public sealed class AvroUnionSchema : AvroSchema
 {
-    public IReadOnlyList<AvroSchema> Branches { get; } = branches;
+    internal AvroUnionSchema(IReadOnlyList<AvroSchema> branches) : base(AvroType.Union)
+    {
+        Branches = branches;
+        NullIndex = IndexOfNull(branches);
+    }
+
+    /// <summary>The branches, in order (a value is encoded with its branch index).</summary>
+    public IReadOnlyList<AvroSchema> Branches { get; }
 
     /// <summary>Index of the <c>null</c> branch, or -1.</summary>
-    public int NullIndex { get; } = IndexOfNull(branches);
+    public int NullIndex { get; }
 
     private static int IndexOfNull(IReadOnlyList<AvroSchema> branches)
     {
         for (int i = 0; i < branches.Count; i++)
             if (branches[i].Type == AvroType.Null) return i;
         return -1;
+    }
+}
+
+/// <summary>Schema attributes kept as JSON, and the id attributes Iceberg defines.</summary>
+internal static class AvroProperties
+{
+    public const string FieldId = "field-id";
+    public const string ElementId = "element-id";
+    public const string KeyId = "key-id";
+    public const string ValueId = "value-id";
+
+    public static readonly IReadOnlyDictionary<string, JsonElement> Empty = FrozenDictionary<string, JsonElement>.Empty;
+
+    /// <summary>An integer id attribute: a JSON number, or a string holding one.</summary>
+    public static int? Id(IReadOnlyDictionary<string, JsonElement> properties, string name) =>
+        properties.TryGetValue(name, out JsonElement value) && value.ValueKind switch
+        {
+            JsonValueKind.Number => value.TryGetInt32(out int n) ? n : (int?)null,
+            JsonValueKind.String => int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) ? n : null,
+            _ => null,
+        } is int id
+            ? id
+            : null;
+
+    /// <summary>Properties holding one integer attribute, or none when <paramref name="id"/> is null.</summary>
+    public static IReadOnlyDictionary<string, JsonElement> OfId(string name, int? id)
+    {
+        if (id is not int value) return Empty;
+        using JsonDocument doc = JsonDocument.Parse(value.ToString(CultureInfo.InvariantCulture));
+        return new Dictionary<string, JsonElement> { [name] = doc.RootElement.Clone() };
+    }
+
+    /// <summary>Properties holding several integer attributes (null ids are left out).</summary>
+    public static IReadOnlyDictionary<string, JsonElement> OfIds(params ReadOnlySpan<(string Name, int? Id)> ids)
+    {
+        Dictionary<string, JsonElement>? result = null;
+        foreach (var (name, id) in ids)
+        {
+            if (OfId(name, id) is { Count: 1 } one) (result ??= [])[name] = one[name];
+        }
+        return result ?? Empty;
     }
 }
 
@@ -152,6 +349,15 @@ internal static class AvroSchemaParser
         ["local-timestamp-nanos"] = AvroLogicalKind.LocalTimestampNanos,
         ["duration"] = AvroLogicalKind.Duration,
     }.ToFrozenDictionary();
+
+    // Attributes each kind of node interprets itself; every other attribute is kept in Properties.
+    private static readonly FrozenSet<string> PrimitiveKeys = FrozenSet.ToFrozenSet(["type"]);
+    private static readonly FrozenSet<string> ArrayKeys = FrozenSet.ToFrozenSet(["type", "items"]);
+    private static readonly FrozenSet<string> MapKeys = FrozenSet.ToFrozenSet(["type", "values"]);
+    private static readonly FrozenSet<string> RecordKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "fields"]);
+    private static readonly FrozenSet<string> EnumKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "symbols", "default"]);
+    private static readonly FrozenSet<string> FixedKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "size"]);
+    private static readonly FrozenSet<string> FieldKeys = FrozenSet.ToFrozenSet(["name", "type", "doc", "aliases", "default"]);
 
     private static readonly SearchValues<char> NameStart =
         SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_");
@@ -227,8 +433,8 @@ internal static class AvroSchemaParser
                 "record" or "error" => ParseRecord(e, enclosingNs),
                 "enum" => ParseEnum(e, enclosingNs),
                 "fixed" => ParseFixed(e, enclosingNs),
-                "array" => new AvroArraySchema(Parse(Required(e, "items"), enclosingNs)),
-                "map" => new AvroMapSchema(Parse(Required(e, "values"), enclosingNs)),
+                "array" => new AvroArraySchema(Parse(Required(e, "items"), enclosingNs)) { Properties = Rest(e, ArrayKeys) },
+                "map" => new AvroMapSchema(Parse(Required(e, "values"), enclosingNs)) { Properties = Rest(e, MapKeys) },
                 _ when Primitives.TryGetValue(type, out var t) => WithLogical(e, new AvroPrimitiveSchema(t), t),
                 _ => Reference(type, enclosingNs),
             };
@@ -241,9 +447,13 @@ internal static class AvroSchemaParser
                 && e.TryGetProperty(AvroSchema.TimezoneProperty, out var tz) && tz.ValueKind == JsonValueKind.String && tz.GetString() is { Length: > 0 } zone
                 ? zone
                 : null;
-            return kind == AvroLogicalKind.None
+            var properties = Rest(e, PrimitiveKeys, Interpreted(kind, timezone is not null));
+            return kind == AvroLogicalKind.None && properties.Count == 0
                 ? baseSchema
-                : new AvroPrimitiveSchema(type) { Logical = kind, Precision = precision, Scale = scale, Timezone = timezone };
+                : new AvroPrimitiveSchema(type)
+                {
+                    Logical = kind, Precision = precision, Scale = scale, Timezone = timezone, Properties = properties,
+                };
         }
 
         private static (AvroLogicalKind Kind, int Precision, int Scale) LogicalOf(JsonElement e, AvroType type, int fixedSize)
@@ -286,6 +496,30 @@ internal static class AvroSchemaParser
             return (AvroLogicalKind.Decimal, precision, scale);
         }
 
+        /// <summary>The attributes a logical type annotation used (they are not kept as properties).</summary>
+        private static string[] Interpreted(AvroLogicalKind kind, bool timezone) => kind switch
+        {
+            AvroLogicalKind.None => [],
+            AvroLogicalKind.Decimal => ["logicalType", "precision", "scale"],
+            AvroLogicalKind.SparkDayTimeInterval or AvroLogicalKind.SparkYearMonthInterval => ["spark.sql.catalyst.type"],
+            _ when timezone => ["logicalType", AvroSchema.TimezoneProperty],
+            _ => ["logicalType"],
+        };
+
+        /// <summary>The attributes of <paramref name="e"/> other than <paramref name="known"/> and
+        /// <paramref name="interpreted"/>, detached from the document.</summary>
+        private static IReadOnlyDictionary<string, JsonElement> Rest(JsonElement e, FrozenSet<string> known,
+            params ReadOnlySpan<string> interpreted)
+        {
+            Dictionary<string, JsonElement>? rest = null;
+            foreach (var property in e.EnumerateObject())
+            {
+                if (known.Contains(property.Name) || interpreted.Contains(property.Name)) continue;
+                (rest ??= new(StringComparer.Ordinal))[property.Name] = property.Value.Clone();
+            }
+            return rest ?? AvroProperties.Empty;
+        }
+
         /// <summary>floor(log10(2^(8n-1) - 1)): the most decimal digits a signed n-byte value holds.</summary>
         private static int MaxDecimalPrecision(int bytes) =>
             bytes <= 0 ? 0 : (int)Math.Floor(Math.Log10(Math.Pow(2, 8.0 * bytes - 1) - 1));
@@ -321,7 +555,7 @@ internal static class AvroSchemaParser
         private AvroRecordSchema ParseRecord(JsonElement e, string? enclosingNs)
         {
             var (name, ns) = NameOf(e, enclosingNs);
-            var record = new AvroRecordSchema(name, ns) { Doc = Doc(e), Aliases = Aliases(e) };
+            var record = new AvroRecordSchema(name, ns) { Doc = Doc(e), Aliases = Aliases(e), Properties = Rest(e, RecordKeys) };
             Register(record);
             var fieldsProp = Required(e, "fields");
             if (fieldsProp.ValueKind != JsonValueKind.Array) throw Bad($"the fields of Avro record '{record.FullName}' must be an array");
@@ -335,7 +569,9 @@ internal static class AvroSchemaParser
                 fields.Add(new AvroField(fieldName, schema, fields.Count)
                 {
                     Doc = Doc(f),
-                    DefaultJson = f.TryGetProperty("default", out var def) ? def.GetRawText() : null,
+                    Aliases = Aliases(f),
+                    Default = f.TryGetProperty("default", out var def) ? def.Clone() : null,
+                    Properties = Rest(f, FieldKeys),
                 });
             }
             record.Fields = fields;
@@ -354,6 +590,7 @@ internal static class AvroSchemaParser
                 Doc = Doc(e),
                 Aliases = Aliases(e),
                 Default = e.TryGetProperty("default", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null,
+                Properties = Rest(e, EnumKeys),
             };
             Register(schema);
             return schema;
@@ -371,6 +608,7 @@ internal static class AvroSchemaParser
                 Logical = kind,
                 Precision = precision,
                 Scale = scale,
+                Properties = Rest(e, FixedKeys, Interpreted(kind, timezone: false)),
             };
             Register(schema);
             return schema;

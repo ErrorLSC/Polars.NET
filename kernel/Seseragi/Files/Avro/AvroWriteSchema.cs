@@ -1,6 +1,7 @@
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow;
 
 namespace Kaminari.Seseragi.Files.Avro;
 
@@ -26,12 +27,18 @@ internal static class AvroWriteSchema
         foreach (var f in arrow.FieldsList)
         {
             var (schema, encoder) = context.Map(f, root.FullName, f.Name);
-            fields.Add(new AvroField(f.Name, schema, fields.Count));
+            fields.Add(Field(f, schema, fields.Count));
             encoders.Add(encoder);
         }
         root.Fields = fields;
         return (root, new RowEncoder([.. encoders]));
     }
+
+    /// <summary>An Avro field for an Arrow field; its id metadata becomes the <c>field-id</c> attribute.</summary>
+    private static AvroField Field(Field arrow, AvroSchema schema, int position) => new(arrow.Name, schema, position)
+    {
+        Properties = AvroProperties.OfId(AvroProperties.FieldId, ArrowFieldIds.Of(arrow)),
+    };
 
     /// <summary>Whether a batch column of type <paramref name="actual"/> can be written by encoders compiled for
     /// <paramref name="expected"/>: same physical layout and the same parameters that change the encoding.</summary>
@@ -221,7 +228,12 @@ internal static class AvroWriteSchema
                     throw new NotSupportedException($"Cannot write {what} to Avro: Avro map keys must be strings.");
                 var (_, keyEncoder) = MapType(m.KeyField.DataType, parentFullName, fieldName, path + ".key");
                 var (valueSchema, valueEncoder) = this.Map(m.ValueField, parentFullName, path + ".value", fieldName);
-                return (new AvroMapSchema(valueSchema), new MapEncoder(keyEncoder, valueEncoder));
+                var map = new AvroMapSchema(valueSchema)
+                {
+                    Properties = AvroProperties.OfIds(
+                        (AvroProperties.KeyId, ArrowFieldIds.Of(m.KeyField)), (AvroProperties.ValueId, ArrowFieldIds.Of(m.ValueField))),
+                };
+                return (map, new MapEncoder(keyEncoder, valueEncoder));
             }
 
             (AvroSchema, AvroEncoder) Record(StructType s)
@@ -233,7 +245,7 @@ internal static class AvroWriteSchema
                 foreach (var f in s.Fields)
                 {
                     var (schema, encoder) = this.Map(f, record.FullName, $"{path}.{f.Name}");
-                    fields.Add(new AvroField(f.Name, schema, fields.Count));
+                    fields.Add(AvroWriteSchema.Field(f, schema, fields.Count));
                     encoders.Add(encoder);
                 }
                 record.Fields = fields;
@@ -244,7 +256,11 @@ internal static class AvroWriteSchema
         private (AvroSchema, AvroEncoder) List(Field item, ListLayout layout, int size, string parentFullName, string fieldName, string path)
         {
             var (itemSchema, itemEncoder) = Map(item, parentFullName, path + ".item", fieldName);
-            return (new AvroArraySchema(itemSchema), new ListEncoder(layout, size, itemEncoder));
+            var array = new AvroArraySchema(itemSchema)
+            {
+                Properties = AvroProperties.OfId(AvroProperties.ElementId, ArrowFieldIds.Of(item)),
+            };
+            return (array, new ListEncoder(layout, size, itemEncoder));
         }
 
         private static NotSupportedException Unsupported(string what) => new($"Cannot write {what} to Avro: the type has no Avro mapping.");

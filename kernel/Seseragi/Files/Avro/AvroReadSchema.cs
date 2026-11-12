@@ -1,4 +1,6 @@
+using System.Globalization;
 using Apache.Arrow;
+using Kaminari.Sazanami.Arrow;
 using Apache.Arrow.Types;
 
 namespace Kaminari.Seseragi.Files.Avro;
@@ -41,16 +43,22 @@ internal static class AvroReadSchema
     }
 
     /// <summary>The top-level fields a file exposes (record fields, or the single <c>value</c> column).</summary>
-    public static IReadOnlyList<(string Name, AvroSchema Schema)> TopLevelFields(AvroSchema schema) =>
+    public static IReadOnlyList<(string Name, AvroSchema Schema, int? FieldId)> TopLevelFields(AvroSchema schema) =>
         schema is AvroRecordSchema record
-            ? [.. record.Fields.Select(f => (f.Name, f.Schema))]
-            : [(TopLevelValueColumn, schema)];
+            ? [.. record.Fields.Select(f => (f.Name, f.Schema, f.FieldId))]
+            : [(TopLevelValueColumn, schema, null)];
 
-    public static Field ToField(string name, AvroSchema schema)
+    /// <summary>The Arrow field for an Avro field; an id attribute becomes <see cref="ArrowFieldIds.MetadataKey"/>
+    /// metadata (on the field, the list item, or the map key and value).</summary>
+    public static Field ToField(string name, AvroSchema schema, int? fieldId = null)
     {
         var type = ToArrowType(schema, out bool nullable, []);
-        return new Field(name, type, nullable);
+        return NewField(name, type, nullable, fieldId);
     }
+
+    private static Field NewField(string name, IArrowType type, bool nullable, int? fieldId) => fieldId is int id
+        ? new Field(name, type, nullable, [new(ArrowFieldIds.MetadataKey, id.ToString(CultureInfo.InvariantCulture))])
+        : new Field(name, type, nullable);
 
     private static IArrowType ToArrowType(AvroSchema schema, out bool nullable, HashSet<AvroRecordSchema> inProgress)
     {
@@ -64,17 +72,17 @@ internal static class AvroReadSchema
             AvroFixedSchema { Logical: AvroLogicalKind.Decimal } f when IsArrowDecimal(f) => DecimalType(f.Precision, f.Scale),
             AvroFixedSchema { Logical: AvroLogicalKind.Duration } => IntervalType.MonthDayNanosecond,
             AvroFixedSchema f => new FixedSizeBinaryType(f.Size),
-            AvroArraySchema a => new ListType(Child("item", a.Items)),
-            AvroMapSchema m => new MapType(new Field("key", StringType.Default, false), Child("value", m.Values)),
+            AvroArraySchema a => new ListType(Child("item", a.Items, a.ElementId)),
+            AvroMapSchema m => new MapType(NewField("key", StringType.Default, false, m.KeyId), Child("value", m.Values, m.ValueId)),
             _ => PrimitiveType(schema),
         };
         nullable |= innerNullable;
         return type;
 
-        Field Child(string name, AvroSchema s)
+        Field Child(string name, AvroSchema s, int? fieldId = null)
         {
             var t = ToArrowType(s, out bool n, inProgress);
-            return new Field(name, t, n);
+            return NewField(name, t, n, fieldId);
         }
 
         IArrowType Union(AvroUnionSchema union, out bool singleNullable)
@@ -96,7 +104,7 @@ internal static class AvroReadSchema
             if (!inProgress.Add(record))
                 throw new NotSupportedException(
                     $"The Avro record '{record.FullName}' is recursive, which Arrow cannot represent; project it away to read the other columns.");
-            var fields = record.Fields.Select(f => Child(f.Name, f.Schema)).ToList();
+            var fields = record.Fields.Select(f => Child(f.Name, f.Schema, f.FieldId)).ToList();
             inProgress.Remove(record);
             return new StructType(fields);
         }
