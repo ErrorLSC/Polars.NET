@@ -280,6 +280,29 @@ public readonly partial struct PolarsWrapper
                 catalogFeatures);
     }
 
+    /// <summary>Updates columns of the rows of a catalog table matching a predicate (all rows without one).</summary>
+    public static void UpdateCatalogRecords(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ExprHandle? predicate,
+        string[] columns,
+        ExprHandle[] values,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaUpdate(access.Location, predicate, columns, values, cloudProvider, cloudRetries, cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs, cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues);
+    }
+
     public static void DeleteCatalogRecords(
         CatalogHandle handle,
         string catalogName,

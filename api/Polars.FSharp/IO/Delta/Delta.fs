@@ -1172,6 +1172,49 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             tableName
         )
     /// <summary>
+    /// Updates the columns of the rows of a Unity Catalog table that match a predicate, as SQL
+    /// <c>UPDATE table SET col = expr WHERE predicate</c>; see Delta.Update. Catalog-managed tables are committed
+    /// through the catalog.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog containing the table.</param>
+    /// <param name="schemaName">The name of the schema (database) containing the table.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="set">Column names paired with the expressions of their new values.</param>
+    /// <param name="predicate">Filter expression to identify rows to update; omit to update every row.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.UpdateCatalogRecords(
+        catalogName: string,
+        schemaName: string,
+        tableName: string,
+        set: seq<string * Expr>,
+        ?predicate: Expr,
+        ?cloudOptions: CloudOptions) =
+
+        let pairs = set |> Seq.toArray
+        if pairs.Length = 0 then raise (ArgumentException("An update sets at least one column.", nameof set))
+        let provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values =
+            CloudOptions.ParseCloudOptions cloudOptions
+
+        // The native call consumes the handles it is given.
+        PolarsWrapper.UpdateCatalogRecords(
+            this.Handle,
+            catalogName,
+            schemaName,
+            tableName,
+            (match predicate with Some p -> p.CloneHandle() | None -> null),
+            (pairs |> Array.map fst),
+            (pairs |> Array.map (fun (_, value) -> value.CloneHandle())),
+            provider,
+            retries,
+            retryTimeoutMs,
+            retryInitBackoffMs,
+            retryMaxBackoffMs,
+            cacheTtl,
+            keys,
+            values
+        )
+
+    /// <summary>
     /// Deletes records from a Unity Catalog table that match the specified predicate.
     /// This operation is ACID-compliant and leverages the underlying Delta Lake protocol. 
     /// If Deletion Vectors (DVs) are enabled on the table, it performs a metadata-only delete; 

@@ -333,6 +333,42 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             schemaName,
             tableName);
     /// <summary>
+    /// Updates the columns of the rows of a Unity Catalog table that match a predicate, as SQL
+    /// <c>UPDATE table SET col = expr WHERE predicate</c>; see <see cref="Delta.Update"/>. Catalog-managed tables are
+    /// committed through the catalog.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog containing the table.</param>
+    /// <param name="schemaName">The name of the schema (database) containing the table.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="predicate">Filter expression to identify rows to update; null updates every row.</param>
+    /// <param name="set">Column names mapped to the expressions of their new values.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <example>
+    /// <code>
+    /// uc.UpdateCatalogRecords("main", "sales", "orders", Col("Id") == 3, new Dictionary&lt;string, Expr&gt; { ["Price"] = Col("Price") * 2 });
+    /// </code>
+    /// </example>
+    public void UpdateCatalogRecords(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        Expr? predicate,
+        IReadOnlyDictionary<string, Expr> set,
+        CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        if (set.Count == 0) throw new ArgumentException("An update sets at least one column.", nameof(set));
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
+            CloudOptions.ParseCloudOptions(cloudOptions);
+        // The native call consumes the handles it is given.
+        PolarsWrapper.UpdateCatalogRecords(
+            Handle, catalogName, schemaName, tableName,
+            predicate?.CloneHandle(),
+            [.. set.Keys],
+            [.. set.Values.Select(v => v.CloneHandle())],
+            provider.ToNative(), retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values);
+    }
+    /// <summary>
     /// Deletes records from a Unity Catalog table that match the specified predicate.
     /// This operation is ACID-compliant and leverages the underlying Delta Lake protocol.
     /// If Deletion Vectors (DVs) are enabled on the table, it performs a metadata-only delete;
@@ -1060,4 +1096,56 @@ public static class UnityCatalogExtensions
         canEvolve,
         cloudOptions
     );
+
+    /// <summary>
+    /// Updates the rows of a Unity Catalog table that match a row of this frame on the merge keys, with that row's
+    /// values (SQL <c>MERGE ... WHEN MATCHED UPDATE</c>); see <see cref="LazyFrame.UpdateDelta(string, string[], Expr?, CloudOptions?)"/>.
+    /// Unmatched rows of this frame are ignored: nothing is inserted.
+    /// </summary>
+    /// <param name="sourceData">The rows with the new values.</param>
+    /// <param name="catalog">The catalog connection.</param>
+    /// <param name="catalogName">The name of the catalog containing the table.</param>
+    /// <param name="schemaName">The name of the schema (database) containing the table.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="mergeKeys">The columns that identify a row, present in both this frame and the table.</param>
+    /// <param name="condition">Optional: only matched rows satisfying it are updated.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public static void UpdateCatalogRecords(
+        this LazyFrame sourceData, UnityCatalog catalog, string catalogName, string schemaName, string tableName,
+        string[] mergeKeys, Expr? condition = null, CloudOptions? cloudOptions = null) =>
+        catalog.MergeCatalogRecords(catalogName, schemaName, tableName, sourceData, mergeKeys, false, cloudOptions)
+            .WhenMatchedUpdate(condition).Execute();
+
+    /// <summary>
+    /// <see cref="UpdateCatalogRecords(LazyFrame, UnityCatalog, string, string, string, string[], Expr?, CloudOptions?)"/>
+    /// where a condition over both sides holds: <c>m =&gt; m.Source("Version") &gt; m.Target("Version")</c>.
+    /// </summary>
+    /// <param name="sourceData">The rows with the new values.</param>
+    /// <param name="catalog">The catalog connection.</param>
+    /// <param name="catalogName">The name of the catalog containing the table.</param>
+    /// <param name="schemaName">The name of the schema (database) containing the table.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="mergeKeys">The columns that identify a row, present in both this frame and the table.</param>
+    /// <param name="condition">Builds the condition; <c>m.Source(name)</c> is this frame's column, <c>m.Target(name)</c> the table's.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public static void UpdateCatalogRecords(
+        this LazyFrame sourceData, UnityCatalog catalog, string catalogName, string schemaName, string tableName,
+        string[] mergeKeys, Func<MergeContext, Expr> condition, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        catalog.MergeCatalogRecords(catalogName, schemaName, tableName, sourceData, mergeKeys, false, cloudOptions)
+            .WhenMatchedUpdate(condition).Execute();
+    }
+
+    /// <inheritdoc cref="UpdateCatalogRecords(LazyFrame, UnityCatalog, string, string, string, string[], Expr?, CloudOptions?)"/>
+    public static void UpdateCatalogRecords(
+        this DataFrame sourceData, UnityCatalog catalog, string catalogName, string schemaName, string tableName,
+        string[] mergeKeys, Expr? condition = null, CloudOptions? cloudOptions = null) =>
+        sourceData.Lazy().UpdateCatalogRecords(catalog, catalogName, schemaName, tableName, mergeKeys, condition, cloudOptions);
+
+    /// <inheritdoc cref="UpdateCatalogRecords(LazyFrame, UnityCatalog, string, string, string, string[], Func{MergeContext, Expr}, CloudOptions?)"/>
+    public static void UpdateCatalogRecords(
+        this DataFrame sourceData, UnityCatalog catalog, string catalogName, string schemaName, string tableName,
+        string[] mergeKeys, Func<MergeContext, Expr> condition, CloudOptions? cloudOptions = null) =>
+        sourceData.Lazy().UpdateCatalogRecords(catalog, catalogName, schemaName, tableName, mergeKeys, condition, cloudOptions);
 }

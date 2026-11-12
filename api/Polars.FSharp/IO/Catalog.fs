@@ -53,6 +53,39 @@ module UnityCatalogExtensions =
 
     type LazyFrame with
         /// <summary>
+        /// Updates the rows of a Unity Catalog table that match a row of this frame on the merge keys, with that row's
+        /// values (SQL <c>MERGE ... WHEN MATCHED UPDATE</c>); see UpdateDelta. Unmatched rows of this frame are ignored.
+        /// </summary>
+        member this.UpdateCatalogRecords(
+            catalog: UnityCatalog,
+            catalogName: string,
+            schemaName: string,
+            tableName: string,
+            mergeKeys: string array,
+            ?condition: Expr,
+            ?cloudOptions: CloudOptions) =
+
+            catalog.MergeCatalogRecords(catalogName, schemaName, tableName, this, mergeKeys, ?cloudOptions = cloudOptions)
+                .WhenMatchedUpdate(?condition = condition).Execute()
+
+    type DataFrame with
+        /// <summary>
+        /// Updates the rows of a Unity Catalog table that match a row of this frame on the merge keys, with that row's
+        /// values (SQL <c>MERGE ... WHEN MATCHED UPDATE</c>); see UpdateDelta. Unmatched rows of this frame are ignored.
+        /// </summary>
+        member this.UpdateCatalogRecords(
+            catalog: UnityCatalog,
+            catalogName: string,
+            schemaName: string,
+            tableName: string,
+            mergeKeys: string array,
+            ?condition: Expr,
+            ?cloudOptions: CloudOptions) =
+
+            this.Lazy().UpdateCatalogRecords(catalog, catalogName, schemaName, tableName, mergeKeys, ?condition = condition, ?cloudOptions = cloudOptions)
+
+    type LazyFrame with
+        /// <summary>
         /// Sinks the <see cref="LazyFrame"/> to a Unity Catalog table.
         /// </summary>
         member this.SinkCatalogTable(

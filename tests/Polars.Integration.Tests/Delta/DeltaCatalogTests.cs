@@ -605,6 +605,13 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using var dfBackV2 = uc.ScanCatalogTable(catalog, schema, table, version: 1, cloudOptions: cloudOptions).Collect();
         Assert.Equal(4, dfBackV2.Height);
         Assert.DoesNotContain(4, dfBackV2["Id"].ToArray<int>());
+
+        // Updates: by predicate, and by the rows of a frame matched on a key.
+        uc.UpdateCatalogRecords(catalog, schema, table, Pl.Col("Id") == 3, new Dictionary<string, Expr> { ["Msg"] = Pl.Lit("C2") }, cloudOptions);
+        using (var changes = DataFrame.FromColumns(new { Id = new[] { 5 }, Msg = new[] { "E2" }, Year = new[] { "2024" } }))
+            changes.UpdateCatalogRecords(uc, catalog, schema, table, ["Id"], cloudOptions: cloudOptions);
+        using var updated = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect().Sort("Id");
+        Assert.Equal(["C2", "E2"], updated["Msg"].ToArray<string>());
     }
     [Fact]
     [Trait("Catalog", "DeleteConcurrent")]

@@ -316,6 +316,8 @@ sourceBatch.MergeDeltaOrdered("./lake/devices", [| "Id" |], canEvolve = true)
 
 To update target rows from a frame by key, `UpdateDelta` is a merge with only a `WHEN MATCHED UPDATE` clause: unmatched rows of the frame are ignored, nothing is inserted. A condition can compare both sides: `m.Source(name)` is the frame's column, `m.Target(name)` the table's (`Delta.Source` / `Delta.Target` in F#).
 
+On Unity Catalog tables the same two updates are `uc.UpdateCatalogRecords(catalog, schema, table, predicate, set)` and `frame.UpdateCatalogRecords(uc, catalog, schema, table, mergeKeys, condition)`.
+
 ::: code-group
 
 ```csharp [C# (Fluent)]

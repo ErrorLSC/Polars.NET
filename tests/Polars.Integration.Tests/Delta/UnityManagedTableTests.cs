@@ -301,4 +301,21 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
         LocalSpark.Run("uc_sql", uc.Url, catalog, $"INSERT INTO {table} VALUES (3, 'c')");
         Assert.Equal("""[{"id":1,"s":"a"},{"id":2,"s":"b"},{"id":3,"s":"c"}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
     }
+
+    [SparkFact]
+    public async Task Updates_ByPredicate_AndByMatchedRows_CommitThroughTheCatalog()
+    {
+        var (catalog, table) = await SparksTableAsync();
+        using var client = new UnityCatalog(uc.Url, "");
+
+        client.UpdateCatalogRecords(catalog, "s", "t", Col("id") == 1, new Dictionary<string, Expr> { ["s"] = Lit("A") });
+        using (DataFrame changes = DataFrame.From<Row>([new(2, "B"), new(9, "never inserted")]))
+            changes.UpdateCatalogRecords(client, catalog, "s", "t", ["id"]);
+
+        Assert.Equal("""[{"id":1,"s":"A"},{"id":2,"s":"B"}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
+        using JsonDocument state = Load(catalog);
+        Assert.Equal(3, state.RootElement.GetProperty("latest-table-version").GetInt64()); // create, insert, two updates
+        using JsonDocument history = JsonDocument.Parse(SparkRows(catalog, $"DESCRIBE HISTORY {table}"));
+        Assert.Equal(["MERGE", "UPDATE"], history.RootElement.EnumerateArray().Take(2).Select(r => r.GetProperty("operation").GetString()));
+    }
 }
