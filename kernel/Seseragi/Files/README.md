@@ -143,10 +143,39 @@ refused); Interval → `duration` (negative or sub-ms refused) or Spark year-mon
 * **A new format:** a folder beside `Avro/`, its own marker interface for codecs, reuse the Sazanami native builders
   and buffers.
 
+## Iceberg roadmap (next)
+
+The Avro module exists to back a managed Iceberg kernel in Seseragi.Lakehouse: Iceberg's metadata layer (manifest
+lists `snap-*.avro` and manifest files) is Avro. Agreed plan (2026-11), in order; the Iceberg specifics are to be
+verified against real files first:
+
+1. **Reference files.** Generate v1 / v2 / v3 manifest lists and manifests with pyiceberg and with Spark's Iceberg
+   runtime, and check each item below against them (Iceberg spec, Appendix A, Avro).
+2. **Public schema API.** `AvroSchema` and its subclasses become public. Keep attributes the parser now drops:
+   `field-id` on fields, `element-id` on arrays, `key-id` / `value-id` on maps, and other custom properties; expose
+   field ids on read (Arrow field metadata) and write them back.
+3. **Maps with non-string keys.** Iceberg writes `map<int, …>` (`column_sizes`, `value_counts`, `lower_bounds`, …)
+   as an `array` of key/value records annotated `logicalType: map`. Read it as an Arrow Map; write Arrow Maps with
+   non-string keys that way (refused today).
+4. **`adjust-to-utc`.** Iceberg distinguishes `timestamp` and `timestamptz` by this attribute on `timestamp-micros` /
+   `-nanos`; today every `timestamp-*` reads as UTC.
+5. **Reader-schema resolution.** Read with an expected schema: match fields by id (else name), fill missing fields
+   with their default or null, skip extra fields (the skippers exist), promote int → long and float → double (and the
+   rest of Avro's promotions), match union branches. Manifest schemas differ across format versions and partition
+   specs.
+6. **Per-field write encodings.** Iceberg needs decimals as `fixed` of the minimal size for the precision and uuids
+   as `fixed(16)`; the default stays a `bytes` decimal.
+7. **Small files.** Cache compiled decoders by (writer schema, reader schema); a synchronous whole-buffer fast path.
+8. **Row view in Sazanami.** The kernel reads manifests as Arrow batches through a generic, allocation-free row
+   cursor with typed getters by name or field id (scalars, structs, lists, `GetMap<K, V>`, nulls). This is preferred
+   over a separate Avro typed-record reader: one decoding path. The same view can later replace the Delta kernel's
+   JSON detour (checkpoints are read today as Parquet → engine → JSON lines via `IParquetReader.ReadAsJsonLines`).
+9. **Interop both ways.** Read manifests written by Java Iceberg and pyiceberg; have Spark and pyiceberg read ours.
+
 ## Open items
 
-* Not implemented (Python Polars lacks them too): reader-schema evolution (resolving against a reader schema),
-  single-object encoding, the Confluent / Kafka framing (could feed a Kafka source later), Avro aliases on read.
+* Not planned yet: single-object encoding, the Confluent / Kafka framing (could feed a Kafka source later), Avro
+  aliases, Avro data files inside Iceberg tables (field-id projection plus `schema.name-mapping.default`).
 * Hand `NativeCArray` batches to the engine directly instead of through Apache.Arrow (see traps).
 * Remaining write cost is per-row virtual dispatch; a specialised loop for flat schemas would help. A file written
   as one huge block (as the engine's old writer did) cannot be decoded in parallel.
