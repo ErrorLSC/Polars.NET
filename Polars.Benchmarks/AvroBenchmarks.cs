@@ -69,6 +69,23 @@ public class AvroBenchmarks
         return rows;
     }
 
+    /// <summary>Reading through schema resolution with the writer's own schema: the plan collapses to the direct
+    /// decoders, so this should cost what <see cref="Read"/> costs.</summary>
+    [Benchmark]
+    public long ReadWithReaderSchema()
+    {
+        AvroSchema writer;
+        using (var probe = AvroReader.Open(FilePath)) writer = probe.WriterSchema;
+        long rows = 0;
+        using var reader = AvroReader.Open(FilePath, new() { ReaderSchema = writer });
+        foreach (var b in reader.ReadBatches())
+        {
+            rows += b.Length;
+            b.Dispose();
+        }
+        return rows;
+    }
+
     [Benchmark]
     public long ReadProjected()
     {

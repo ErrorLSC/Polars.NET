@@ -12,7 +12,7 @@ public class AvroSchemaApiTests
 {
     // Shapes taken from Iceberg manifests written by Spark 4.1 / Iceberg 1.12 (partition tuple r102, data_file r2,
     // map-as-array k117_v118), plus a real Avro map with key-id / value-id and attributes we must not lose.
-    private const string IcebergLike = """
+    internal const string IcebergLike = """
         {"type": "record", "name": "manifest_entry", "fields": [
           {"name": "status", "type": "int", "field-id": 0},
           {"name": "data_file", "field-id": 2, "type": {"type": "record", "name": "r2", "fields": [

@@ -92,7 +92,7 @@ public class AvroManagedTests
             Assert.Equal("list[struct[key: i32, value: str]]", Dtype(df, "m"));
             using var keys = df.Select(Col("m").List.Eval(Element().Struct.Field("key")).Alias("k"));
             Assert.Equal([1, 2], keys.GetValue<List<int>>(0, "k"));
-            Assert.Null(keys.GetValue<List<int>?>(1, "k"));
+            Assert.Null(keys.GetValue<List<int>>(1, "k"));
             using var scanned = LazyFrame.ScanAvro(path).Collect();
             Assert.True(df.Equals(scanned));
         }

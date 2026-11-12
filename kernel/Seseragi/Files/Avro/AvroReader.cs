@@ -25,6 +25,19 @@ public sealed record AvroReadOptions
     /// <summary>Top-level columns to read, by zero-based position. Columns come back in file order.</summary>
     public IReadOnlyList<int>? ColumnIndices { get; init; }
 
+    /// <summary>
+    /// Read the data as this schema instead of the writer's (Avro schema resolution): the batches have the reader
+    /// schema's Arrow type; writer-only fields are skipped, reader fields the writer lacks take their default (an
+    /// error without one), numbers promote (lossy promotions are checked per value), decimals may widen. Records are
+    /// matched by <see cref="FieldMatching"/>, never by record name. <see cref="Columns"/> and
+    /// <see cref="ColumnIndices"/> then select reader fields. Mismatches raise <see cref="AvroResolutionException"/>.
+    /// </summary>
+    public AvroSchema? ReaderSchema { get; init; }
+
+    /// <summary>How reader fields find writer fields when <see cref="ReaderSchema"/> is set: by name (default) or by
+    /// Iceberg field id.</summary>
+    public AvroFieldMatching FieldMatching { get; init; } = AvroFieldMatching.ByName;
+
     /// <summary>Stop after this many rows.</summary>
     public long? RowLimit { get; init; }
 
@@ -74,12 +87,13 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     private long _rowsEmitted;
 
     private NativeStructBuilder? _root;
-    private RowDecoder? _rowDecoder;
+    private AvroDecoder? _rowDecoder;
     private bool _started;
 
     // Projection, kept so that parallel workers can build their own decoders.
     private IReadOnlyList<(string Name, AvroSchema Schema, int? FieldId)> _fields = [];
     private bool[] _selected = [];
+    private ResolvedNode? _plan; // with a reader schema: the resolution of the writer schema against it
 
     // Parallel decoding (MaxDegreeOfParallelism > 1).
     private readonly int _parallelism;
@@ -243,7 +257,8 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
 
     private void BuildProjection()
     {
-        var fields = AvroReadSchema.TopLevelFields(WriterSchema);
+        var readerSchema = _options.ReaderSchema;
+        var fields = AvroReadSchema.TopLevelFields(readerSchema ?? WriterSchema);
         var selected = new bool[fields.Count];
         if (_options.Columns is { } names)
         {
@@ -276,13 +291,24 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
         Schema = new Schema(arrowFields, null);
         _fields = fields;
         _selected = selected;
+        if (readerSchema is not null)
+        {
+            _plan = readerSchema switch
+            {
+                AvroRecordSchema record => AvroResolver.ResolveTop(WriterSchema,
+                    [.. record.Fields.Where((_, i) => selected[i])], _options.FieldMatching),
+                _ when selected[0] => AvroResolver.ResolveValue(WriterSchema, readerSchema, _options.FieldMatching),
+                _ => new SkipRowNode(WriterSchema),
+            };
+        }
         (_root, _rowDecoder) = CreateDecoders();
     }
 
     /// <summary>A fresh builder tree for the projected schema and the row decoder that fills it.</summary>
-    private (NativeStructBuilder Root, RowDecoder Decoder) CreateDecoders()
+    private (NativeStructBuilder Root, AvroDecoder Decoder) CreateDecoders()
     {
         var root = (NativeStructBuilder)NativeColumnBuilder.Create(new StructType(Schema.FieldsList));
+        if (_plan is not null) return (root, _plan.Compile(root));
         var decoders = new AvroDecoder?[_fields.Count];
         var skippers = new AvroSkipper?[_fields.Count];
         int child = 0;
@@ -383,10 +409,10 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     private sealed record Chunk(List<RawBlock> Blocks, long RowCap);
 
     /// <summary>One decoding context per concurrently running chunk: builders, decoders and codec state.</summary>
-    private sealed class Worker(NativeStructBuilder root, RowDecoder decoder, AvroCodec codec) : IDisposable
+    private sealed class Worker(NativeStructBuilder root, AvroDecoder decoder, AvroCodec codec) : IDisposable
     {
         public NativeStructBuilder Root { get; } = root;
-        public RowDecoder Decoder { get; } = decoder;
+        public AvroDecoder Decoder { get; } = decoder;
         public AvroCodec Codec { get; } = codec;
         public NativeByteBuffer Decompressed { get; } = new();
 

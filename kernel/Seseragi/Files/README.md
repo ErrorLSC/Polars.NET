@@ -26,12 +26,15 @@ adding features.
 | :--- | :--- |
 | `CompressionType.cs` | Codec objects shared by formats: `NoCompression`, `DeflateCompression(Level)`, `SnappyCompression`, `ZstandardCompression(Level)`. Which format accepts which codec is a compile-time fact: marker interfaces (`IAvroCompression`, with an `internal` member so only this package implements it). Add `IParquetCompression` etc. when a format needs it. |
 | `Avro/AvroSchema.cs` | Schema model (public, read-only: `AvroSchema` and subclasses, `AvroField`, `AvroLogicalKind`; internal constructors) and the parser. Named types and namespaces, recursion, logical types (an invalid or unknown one falls back to the base type, as the spec requires, and stays in `Properties`), Spark's `spark.sql.catalyst.type` intervals, our `kaminari.timezone` attribute. Every attribute a node or field does not interpret is kept in `Properties` (JSON) and written back; `FieldId` / `ElementId` / `KeyId` / `ValueId` read Iceberg's ids. Attributes on a named-type reference or a `{"type": {…}}` wrapper are dropped (no node of their own). |
-| `Avro/AvroSchemaJsonWriter.cs` | Schema to JSON (named types written once, then by full name). |
+| `Avro/AvroSchema.Construction.cs` | Public factory methods (`AvroSchema.Record / Array / ArrayMap / Map / Union / Nullable / TimestampMicros(adjustToUtc) / DecimalFixed / UuidFixed …`, `AvroField.Required / Optional(name, type, fieldId)`); every node validated as built (names, logical types, unions, defaults); a constructed schema parses back to the same model; not recursive. |
+| `Avro/AvroDefaults.cs` | A field's JSON `default` encoded as Avro binary for its type (validation at construction; filling missing fields when reading with a reader schema). |
+| `Avro/AvroSchemaJsonWriter.cs` | Schema to JSON (named types written once, then by full name; two different types of one name are refused). |
 | `Avro/AvroBinary.cs` | `AvroSpanReader` (bounds-checked, SWAR varint fast path) and `AvroBufferWriter` (native buffer, SWAR varint encode). `AvroFormatException` for malformed input. |
 | `Avro/AvroCodecs.cs` | Block codecs (null, deflate, snappy with CRC32, zstandard); bzip2 / xz are refused by name. |
 | `Avro/AvroReadSchema.cs` | Avro → Arrow type mapping, union shapes. |
 | `Avro/AvroDecoders.cs` | Decoders compiled once per schema, appending to native builders; skippers for projected-away columns; fast paths for arrays of long / int / float / double. |
-| `Avro/AvroReader.cs` | Container reader: header, block loop, batching, projection, row limit, opt-in parallel decoding. |
+| `Avro/AvroReader.cs` | Container reader: header, block loop, batching, projection, row limit, opt-in parallel decoding; `ReaderSchema` / `FieldMatching` read through a resolution plan. |
+| `Avro/AvroResolution.cs` | Schema resolution: `AvroResolver` turns (writer, reader) into an immutable plan (`ResolvedNode` tree; all schema checks at open), compiled per decoder set (sequential reader, each parallel worker); identity subtrees collapse to the reader's own decoders; `AvroResolutionException`; decoders for promotions (lossy ones checked per value), defaults (encoded once, replayed), enum remaps, unions. |
 | `Avro/AvroWriteSchema.cs` | Arrow → Avro mapping and encoder compilation; `SameEncoding` (per-batch type check). |
 | `Avro/AvroEncoders.cs` | Encoders over pinned Arrow buffers; `EncodeRange` loops for list items. |
 | `Avro/AvroWriter.cs` | Container writer (blocks by size, header on first block, failure handling). |
@@ -172,8 +175,9 @@ verified against real files first:
    Avro `bytes` encoding although the schema says `fixed(5)` (verified: decoding it as `bytes` parses every record).
    Two-record files then fail in every reader (fastavro, Java, ours); one-record files decode silently as garbage,
    since Avro has no checks. Cause (Iceberg core or that write path) not determined.*
-2. **Public schema API.** *Done (2026-11-13) as a read-only model (`AvroSchema.Parse`, `AvroReader.WriterSchema`,
-   `Properties`, id accessors, `ToJson`); a construction API waits for step 6. Parse → `ToJson` reproduces all 150
+2. **Public schema API.** *Done (2026-11-13): `AvroSchema.Parse`, `AvroReader.WriterSchema`, `Properties`, id
+   accessors, `ToJson`; the factory-method construction API came with step 5 (rebuilding all 150 reference schemas
+   with it reproduces their JSON). Parse → `ToJson` reproduces all 150
    reference schemas exactly (order-insensitive).* Attributes the parser used to drop (`field-id`, `element-id`,
    `key-id` / `value-id`, other custom properties) are kept; ids are exposed on read as Arrow field metadata and
    written back.
@@ -186,11 +190,21 @@ verified against real files first:
    `local-timestamp-*` (the reference writers never emit the attribute); exact Iceberg schemas come from step 6.*
    Iceberg distinguishes `timestamp` and `timestamptz` by this attribute on `timestamp-micros` / `-nanos` (verified
    on Spark and pyiceberg partition tuples: `true` for timestamptz, `false` for timestamp).
-5. **Reader-schema resolution.** Read with an expected schema: match fields by id (else name), fill missing fields
+5. **Reader-schema resolution.** *Done (2026-11-13): 5a construction API, 5b `AvroReadOptions.ReaderSchema` +
+   `FieldMatching` (`ByName` / `ByFieldId`). One superset reader schema built with the factory methods reads every
+   v1–v3 reference manifest and manifest list by id, matching fastavro's values (and the pyiceberg-style defaults) on
+   all 9144 values. Decisions:
+   two matching modes (by name / by field id only), record names never compared, a reader field missing from the
+   writer without a default is an error (as the spec says), lossy promotions checked per value, different logical types
+   refused, decimal precision may widen at equal scale. Rules not in the user's list, decided conservatively: timestamps
+   compare by unit and meaning (instant vs wall clock; `timestamp-*` + `adjust-to-utc: false` = `local-timestamp-*`);
+   a logical writer read as a plain reader is allowed; record branches of a union are matched by name first (the one
+   place names count); a projected-away reader field needs no default; a bad default fails at open only when used;
+   an Arrow map key is never null, even when the reader's key type is nullable.* Read with an expected schema: match fields by id (else name), fill missing fields
    with their default or null, skip extra fields (the skippers exist), promote int → long and float → double (and the
    rest of Avro's promotions), match union branches. Manifest schemas differ across format versions and partition
    specs.
-6. **Write against a given Avro schema** (absorbs per-field encodings; includes the public construction API). Manifests
+6. **Write against a given Avro schema** (absorbs per-field encodings; the construction API it needs already exists). Manifests
    need record names (`r2`, `k117_v118`, `manifest_entry`), required vs optional and `"default": null`, which the Arrow
    mapping cannot produce. It also covers per-field encodings: Iceberg needs decimals as `fixed` of the minimal size
    for the precision and uuids as `fixed(16)`; the default mapping keeps a `bytes` decimal. Its encoder must accept a

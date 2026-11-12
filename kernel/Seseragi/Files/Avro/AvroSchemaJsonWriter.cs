@@ -15,12 +15,12 @@ internal static class AvroSchemaJsonWriter
         var buffer = new ArrayBufferWriter<byte>();
         using (var w = new Utf8JsonWriter(buffer))
         {
-            WriteSchema(w, schema, null, []);
+            WriteSchema(w, schema, null, new Dictionary<string, AvroNamedSchema>(StringComparer.Ordinal));
         }
         return buffer.WrittenSpan.ToArray();
     }
 
-    private static void WriteSchema(Utf8JsonWriter w, AvroSchema schema, string? enclosingNs, HashSet<string> written)
+    private static void WriteSchema(Utf8JsonWriter w, AvroSchema schema, string? enclosingNs, Dictionary<string, AvroNamedSchema> written)
     {
         switch (schema)
         {
@@ -30,9 +30,16 @@ internal static class AvroSchemaJsonWriter
                 w.WriteEndArray();
                 return;
 
-            case AvroNamedSchema named when !written.Add(named.FullName):
+            // A named type is defined once and referenced by name after; a different type of the same name would be
+            // read back as the first one.
+            case AvroNamedSchema named when written.TryGetValue(named.FullName, out var first):
+                if (!ReferenceEquals(first, named))
+                    throw new InvalidOperationException($"Two different Avro types are named '{named.FullName}'.");
                 w.WriteStringValue(named.FullName);
                 return;
+
+            case AvroNamedSchema named when !written.TryAdd(named.FullName, named):
+                throw new InvalidOperationException("Unreachable.");
 
             case AvroRecordSchema record:
                 w.WriteStartObject();

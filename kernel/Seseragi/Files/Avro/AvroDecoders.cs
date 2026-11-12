@@ -66,7 +66,7 @@ internal abstract class AvroDecoder
         _ => throw new InvalidOperationException($"Unexpected Avro type {s.Type}."),
     };
 
-    private static AvroDecoder CompileDecimal(NativeColumnBuilder b, int fixedSize) => b.Type switch
+    internal static AvroDecoder CompileDecimal(NativeColumnBuilder b, int fixedSize) => b.Type switch
     {
         Decimal128Type => new Decimal128Decoder(Fixed<Int128>(b), fixedSize),
         _ => new Decimal256Decoder(Fixed<Int256Bits>(b), fixedSize),

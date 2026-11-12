@@ -86,7 +86,7 @@ public enum AvroLogicalKind
 /// written back by <see cref="ToJson"/>. Attributes on a reference to a named type (<c>{"type": "Name", …}</c>) or
 /// on a wrapper (<c>{"type": {…}, …}</c>) have no node of their own and are dropped.
 /// </remarks>
-public abstract class AvroSchema
+public abstract partial class AvroSchema
 {
     internal AvroSchema(AvroType type) => Type = type;
 
@@ -184,7 +184,7 @@ public sealed class AvroRecordSchema : AvroNamedSchema
 }
 
 /// <summary>A field of a record.</summary>
-public sealed class AvroField
+public sealed partial class AvroField
 {
     internal AvroField(string name, AvroSchema schema, int position)
     {
@@ -338,6 +338,13 @@ internal static class AvroProperties
         return new Dictionary<string, JsonElement> { [name] = doc.RootElement.Clone() };
     }
 
+    /// <summary>Properties holding one boolean attribute.</summary>
+    public static IReadOnlyDictionary<string, JsonElement> OfBool(string name, bool value)
+    {
+        using JsonDocument doc = JsonDocument.Parse(value ? "true" : "false");
+        return new Dictionary<string, JsonElement> { [name] = doc.RootElement.Clone() };
+    }
+
     /// <summary>Properties holding several integer attributes (null ids are left out).</summary>
     public static IReadOnlyDictionary<string, JsonElement> OfIds(params ReadOnlySpan<(string Name, int? Id)> ids)
     {
@@ -382,13 +389,13 @@ internal static class AvroSchemaParser
     }.ToFrozenDictionary();
 
     // Attributes each kind of node interprets itself; every other attribute is kept in Properties.
-    private static readonly FrozenSet<string> PrimitiveKeys = FrozenSet.ToFrozenSet(["type"]);
-    private static readonly FrozenSet<string> ArrayKeys = FrozenSet.ToFrozenSet(["type", "items"]);
-    private static readonly FrozenSet<string> MapKeys = FrozenSet.ToFrozenSet(["type", "values"]);
-    private static readonly FrozenSet<string> RecordKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "fields"]);
-    private static readonly FrozenSet<string> EnumKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "symbols", "default"]);
-    private static readonly FrozenSet<string> FixedKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "size"]);
-    private static readonly FrozenSet<string> FieldKeys = FrozenSet.ToFrozenSet(["name", "type", "doc", "aliases", "default"]);
+    internal static readonly FrozenSet<string> PrimitiveKeys = FrozenSet.ToFrozenSet(["type"]);
+    internal static readonly FrozenSet<string> ArrayKeys = FrozenSet.ToFrozenSet(["type", "items"]);
+    internal static readonly FrozenSet<string> MapKeys = FrozenSet.ToFrozenSet(["type", "values"]);
+    internal static readonly FrozenSet<string> RecordKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "fields"]);
+    internal static readonly FrozenSet<string> EnumKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "symbols", "default"]);
+    internal static readonly FrozenSet<string> FixedKeys = FrozenSet.ToFrozenSet(["type", "name", "namespace", "doc", "aliases", "size"]);
+    internal static readonly FrozenSet<string> FieldKeys = FrozenSet.ToFrozenSet(["name", "type", "doc", "aliases", "default"]);
 
     private static readonly SearchValues<char> NameStart =
         SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_");
@@ -412,6 +419,9 @@ internal static class AvroSchemaParser
     /// <summary>Whether <paramref name="name"/> is a valid Avro name (<c>[A-Za-z_][A-Za-z0-9_]*</c>).</summary>
     public static bool IsValidName(ReadOnlySpan<char> name) =>
         !name.IsEmpty && NameStart.Contains(name[0]) && !name[1..].ContainsAnyExcept(NameRest);
+
+    /// <summary>The most decimal digits a signed value of <paramref name="bytes"/> bytes holds.</summary>
+    internal static int MaxDecimalDigits(int bytes) => Context.MaxDecimalPrecision(bytes);
 
     private sealed class Context
     {
@@ -564,7 +574,7 @@ internal static class AvroSchemaParser
         }
 
         /// <summary>floor(log10(2^(8n-1) - 1)): the most decimal digits a signed n-byte value holds.</summary>
-        private static int MaxDecimalPrecision(int bytes) =>
+        internal static int MaxDecimalPrecision(int bytes) =>
             bytes <= 0 ? 0 : (int)Math.Floor(Math.Log10(Math.Pow(2, 8.0 * bytes - 1) - 1));
 
         private (string Name, string? Ns) NameOf(JsonElement e, string? enclosingNs)
