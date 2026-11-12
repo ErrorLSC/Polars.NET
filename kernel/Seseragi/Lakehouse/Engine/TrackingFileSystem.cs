@@ -11,9 +11,11 @@ namespace Kaminari.Seseragi.Lakehouse.Engine;
 /// Deleting is only safe when the commit certainly did not happen. That is the case when the operation failed
 /// before trying to write its commit, or when the commit was refused (put-if-absent said the version exists, up to
 /// a <see cref="DeltaCommitConflictException"/>). When writing the commit file itself failed (a timeout, a broken
-/// connection), the store may still have taken it: the files are kept.
+/// connection), the store may still have taken it: the files are kept. For a catalog-managed table the catalog
+/// decides instead: ratified is committed, refused is not, and a commit whose fate the catalog could not tell is
+/// unknown.
 /// </remarks>
-public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFileSystem, ITailReadable, IDisposable
+public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFileSystem, ITailReadable, ICatalogManagedStorage, IDisposable
 {
     /// <summary>Disposes the wrapped storage, which this wrapper owns.</summary>
     public void Dispose() => (Inner as IDisposable)?.Dispose();
@@ -24,6 +26,31 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
 
     /// <summary>The wrapped storage.</summary>
     public IWritableFileSystem Inner { get; } = inner ?? throw new ArgumentNullException(nameof(inner));
+
+    /// <summary>The wrapped storage's managing catalog, watched for the commit's fate; null when there is none.</summary>
+    public ICatalogCommitter? Catalog => field ??= CatalogManaged.CatalogOf(Inner) is { } catalog ? new TrackedCatalog(catalog, this) : null;
+
+    /// <summary>Marks the operation committed when the catalog ratifies, its fate unknown when the catalog cannot tell.</summary>
+    private sealed class TrackedCatalog(ICatalogCommitter inner, TrackingFileSystem owner) : ICatalogCommitter
+    {
+        public CatalogLog GetLog() => inner.GetLog();
+
+        public CatalogCommitOutcome Ratify(CatalogCommit commit)
+        {
+            try
+            {
+                CatalogCommitOutcome outcome = inner.Ratify(commit);
+                if (outcome == CatalogCommitOutcome.Ratified) owner._committed = true;
+                return outcome;
+            }
+            catch (Exception e) when (e is not CatalogCommitRejectedException)
+            {
+                // Anything but a definite refusal may have reached the catalog.
+                owner._commitOutcomeUnknown = true;
+                throw;
+            }
+        }
+    }
 
     /// <summary>
     /// Records a file about to be written to this storage by another writer (the engine's own), so a rollback deletes
@@ -64,7 +91,8 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
     /// <inheritdoc/>
     public bool TryCreate(string path, ReadOnlyMemory<byte> content)
     {
-        if (!IsCommit(path))
+        // Under a catalog, writing a commit file publishes a commit the catalog already ratified (see Catalog).
+        if (!IsCommit(path) || Catalog is not null)
         {
             bool created = Inner.TryCreate(path, content);
             if (created && !path.StartsWith("_delta_log/", StringComparison.Ordinal))

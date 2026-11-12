@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace Kaminari.Seseragi.Catalog;
+namespace Kaminari.Seseragi.Lakehouse.Catalog;
 
 /// <summary>
 /// A catalog request failed: the service answered with an error status, could not be reached,

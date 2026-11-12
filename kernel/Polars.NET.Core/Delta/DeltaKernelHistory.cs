@@ -38,11 +38,9 @@ internal static class DeltaKernelHistory
     /// <summary>The newest <paramref name="limit"/> commits (0: all), newest first.</summary>
     public static List<HistoryEntry> Read(string tablePath, int limit = 0, CloudArgs? cloud = null)
     {
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IFileSystem fileSystem = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        var (fileSystem, root) = TableStorage.Open(tablePath, cloud);
         try
         {
-            string root = fileSystem is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
             return History.Read(fileSystem, limit, new EngineParquetReader(root, cloud));
         }
         catch (DeltaException e)

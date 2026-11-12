@@ -1,3 +1,4 @@
+#nullable enable
 using System.Data;
 using Apache.Arrow;
 using Kaminari.Sazanami.Data;

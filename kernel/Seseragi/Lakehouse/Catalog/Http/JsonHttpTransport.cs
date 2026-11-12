@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 
-namespace Kaminari.Seseragi.Catalog.Http;
+namespace Kaminari.Seseragi.Lakehouse.Catalog.Http;
 
 /// <summary>
 /// Sends JSON requests with a bearer token and returns the response bytes. Each call runs either

@@ -172,16 +172,16 @@ public sealed class CatalogHandle : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(string TableId, bool Write), ulong> _credentials = new();
     private volatile bool _disposed;
 
-    internal Kaminari.Seseragi.Catalog.Unity.UnityCatalogClient Client { get; }
+    internal Kaminari.Seseragi.Lakehouse.Catalog.Unity.UnityCatalogClient Client { get; }
 
-    internal CatalogHandle(Kaminari.Seseragi.Catalog.Unity.UnityCatalogClient client) => Client = client;
+    internal CatalogHandle(Kaminari.Seseragi.Lakehouse.Catalog.Unity.UnityCatalogClient client) => Client = client;
 
     /// <summary>
     /// The id of the renewable credential source of a table, for <see cref="Delta.HostCredentials.Key"/>: one per
     /// table and access, taking the credentials just vended. Renewal asks the catalog again; after this handle is
     /// disposed the credentials held are used until they expire.
     /// </summary>
-    internal ulong RenewableCredentials(string tableId, bool write, Kaminari.Seseragi.Catalog.Unity.TemporaryCredentials vended)
+    internal ulong RenewableCredentials(string tableId, bool write, Kaminari.Seseragi.Lakehouse.Catalog.Unity.TemporaryCredentials vended)
     {
         var current = Vended(vended);
         ulong id = _credentials.GetOrAdd((tableId, write), key =>
@@ -197,7 +197,7 @@ public sealed class CatalogHandle : IDisposable
         return Vended(Client.GetTableCredentials(tableId, write));
     }
 
-    private static Kaminari.Seseragi.Lakehouse.Storage.VendedCredentials Vended(Kaminari.Seseragi.Catalog.Unity.TemporaryCredentials credentials) =>
+    private static Kaminari.Seseragi.Lakehouse.Storage.VendedCredentials Vended(Kaminari.Seseragi.Lakehouse.Catalog.Unity.TemporaryCredentials credentials) =>
         new(credentials.ToStorageOptions(), credentials.ExpiresAt);
 
     public void Dispose()

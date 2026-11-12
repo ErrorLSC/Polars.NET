@@ -60,6 +60,10 @@ public sealed class Transaction
     private readonly HashSet<(string Path, string? Dv)> _readFiles = [];
     /// <summary>The row id high water mark of the newest commit seen (the read state, then concurrent commits).</summary>
     private long? _rowIdHighWaterMark;
+    /// <summary>The unique id of this transaction, in <c>commitInfo.txnId</c>.</summary>
+    private readonly string _txnId = Guid.NewGuid().ToString();
+    /// <summary>For a catalog-managed table, what its catalog said last (refreshed after each conflict).</summary>
+    private CatalogLog? _catalogLog;
 
     private Transaction(IWritableFileSystem fileSystem, Snapshot? read, string operation)
     {
@@ -189,6 +193,13 @@ public sealed class Transaction
     /// <param name="maxRetries">How often to move past concurrent commits before giving up.</param>
     /// <exception cref="DeltaCommitConflictException">A concurrent commit conflicts, or the retries ran out.</exception>
     /// <exception cref="DeltaProtocolException">The commit would break a rule of the protocol or of the table.</exception>
+    /// <exception cref="CatalogCommitRejectedException">A catalog-managed table's catalog refused the commit.</exception>
+    /// <exception cref="CatalogCommitOutcomeUnknownException">Whether the catalog took the commit is not known.</exception>
+    /// <remarks>
+    /// A catalog-managed table is committed to through its catalog (which the storage brings along): the commit is
+    /// written as a staged file, ratified by the catalog, then published to the log. Commits other writers left
+    /// unpublished are published first, in order. Once ratified the commit stands: publishing it is best effort.
+    /// </remarks>
     public long Commit(DateTimeOffset? now = null, int maxRetries = 20)
     {
         ProtocolAction protocol = _protocol ?? _read?.Protocol ?? throw new DeltaProtocolException("A new table needs a protocol action.");
@@ -196,6 +207,7 @@ public sealed class Transaction
         TableFeatures.EnsureWritable(protocol, metadata);
         Validate(metadata);
         long timestamp = (now ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
+        ICatalogCommitter? catalog = ManagingCatalog(protocol, metadata);
 
         // Suspension is read from the metadata this commit leaves (Spark reads the snapshot's): one ALTER can then
         // lift it and turn tracking on, with the backfilled files getting their ids in that same commit.
@@ -227,18 +239,97 @@ public sealed class Transaction
                 actions.AddRange(_actions);
             }
 
-            if (_fileSystem.TryCreate(LogFile.CommitPath(version), ActionWriter.WriteCommit(actions)))
+            byte[] content = ActionWriter.WriteCommit(actions);
+            if (catalog is null
+                    ? _fileSystem.TryCreate(LogFile.CommitPath(version), content)
+                    : TryCommitThroughCatalog(catalog, version, content, inCommitTimestamp!.Value))
                 return version;
 
             if (_read is null) throw new DeltaCommitConflictException(version, "the table was created concurrently");
             if (attempt >= maxRetries) throw new DeltaCommitConflictException(version, $"still behind after {maxRetries} retries");
 
             // Check every commit made since the last attempt, then try after the newest of them.
-            while (_fileSystem.ReadAll(LogFile.CommitPath(version)) is byte[] winner)
+            if (catalog is not null) _catalogLog = catalog.GetLog();
+            while (ReadCommit(version) is byte[] winner)
             {
                 CheckConflicts(version, ActionParser.ParseCommit(winner));
                 version++;
             }
+        }
+    }
+
+    /// <summary>
+    /// The catalog to commit through, for a catalog-managed table (whose storage must bring it); null for a table
+    /// committed to by path.
+    /// </summary>
+    private ICatalogCommitter? ManagingCatalog(ProtocolAction protocol, MetadataAction metadata)
+    {
+        if (!CatalogManaged.IsCatalogManaged(protocol)) return null;
+        ICatalogCommitter catalog = CatalogManaged.CatalogOf(_fileSystem) ?? throw new DeltaProtocolException(
+            "The table is catalog-managed (catalogManaged): it is written through the catalog that manages it, not by its path.");
+        if (_read is null) throw new DeltaProtocolException("Creating a catalog-managed table is not supported yet.");
+        if (!InCommitTimestampsOn(metadata))
+            throw new DeltaProtocolException("A catalog-managed table needs in-commit timestamps (delta.enableInCommitTimestamps = true).");
+        _catalogLog = catalog.GetLog();
+        return catalog;
+    }
+
+    /// <summary>The commit of <paramref name="version"/> (for a catalog-managed table, as its catalog has it), or null.</summary>
+    private byte[]? ReadCommit(long version) => CatalogManaged.ReadCommit(_fileSystem, _catalogLog, version);
+
+    /// <summary>
+    /// Offers the commit to the catalog: publishes what others ratified before it, writes it as a staged file, has
+    /// the catalog ratify it, then publishes it. False when another writer's commit took the version.
+    /// </summary>
+    private bool TryCommitThroughCatalog(ICatalogCommitter catalog, long version, byte[] content, long inCommitTimestamp)
+    {
+        long published = PublishRatifiedBefore(version);
+        string name = CatalogManaged.NewStagedName(version);
+        string staged = CatalogManaged.StagedPath(name);
+        if (!_fileSystem.TryCreate(staged, content))
+            throw new DeltaException($"The staged commit {staged} exists already.");
+        DateTimeOffset written = _fileSystem.List(CatalogManaged.StagedDirectory, name)
+            .Where(f => f.Path == staged).Select(f => f.LastModified).DefaultIfEmpty(DateTimeOffset.UtcNow).First();
+        var commit = new CatalogCommit(
+            version, name, content.Length, written, inCommitTimestamp, published, _read!.Protocol, _read.Metadata,
+            _protocol, _metadata, [.. _actions.OfType<DomainMetadataAction>()]);
+        if (catalog.Ratify(commit) == CatalogCommitOutcome.Conflict) return false;
+
+        // Ratified: the version is this commit's whatever happens next. A later writer publishes it if this one cannot.
+        TryPublish(version, content);
+        return true;
+    }
+
+    /// <summary>
+    /// Publishes, in order, the commits before <paramref name="version"/> the catalog ratified but nobody published,
+    /// so that the log has no gap once this commit is published. Returns the newest version published without a gap.
+    /// </summary>
+    private long PublishRatifiedBefore(long version)
+    {
+        foreach (RatifiedCommit commit in (_catalogLog?.Commits ?? []).Where(c => c.Version < version).OrderBy(c => c.Version))
+        {
+            if (_fileSystem.List(LogFile.LogDirectory, $"{commit.Version:D20}").Any(f => f.Path == LogFile.CommitPath(commit.Version))) continue;
+            if (_fileSystem.ReadAll(CatalogManaged.StagedPath(commit.FileName)) is not byte[] content || !TryPublish(commit.Version, content))
+                return commit.Version - 1;
+        }
+        return version - 1;
+    }
+
+    /// <summary>
+    /// Copies a ratified commit to <c>_delta_log</c>. Best effort: false when it could not be written (an existing
+    /// file holds the same ratified commit, which counts as published).
+    /// </summary>
+    private bool TryPublish(long version, byte[] content)
+    {
+        try
+        {
+            _fileSystem.TryCreate(LogFile.CommitPath(version), content);
+            return true;
+        }
+        catch (Exception e)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Could not publish the ratified commit of version {version}: {e.Message}");
+            return false;
         }
     }
 
@@ -316,10 +407,10 @@ public sealed class Transaction
     /// <summary>The in-commit timestamp to write, or null when the table does not use them.</summary>
     private long? InCommitTimestamp(MetadataAction metadata, long now, long previousVersion)
     {
-        if (!IsOn(metadata)) return null;
+        if (!InCommitTimestampsOn(metadata)) return null;
         if (_read is null) return now; // on from the first version
 
-        if (!IsOn(_read.Metadata))
+        if (!InCommitTimestampsOn(_read.Metadata))
         {
             // Turned on by this commit: the metadata names this version and its in-commit timestamp (as Spark does).
             if (metadata.Configuration.TryGetValue(CommitTimeline.EnablementVersionKey, out string? v) && v == (previousVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -330,15 +421,15 @@ public sealed class Transaction
         }
 
         // Strictly after the previous commit's own in-commit timestamp, whatever the clock says.
-        byte[] previous = _fileSystem.ReadAll(LogFile.CommitPath(previousVersion))
+        byte[] previous = ReadCommit(previousVersion)
             ?? throw new DeltaException($"The commit of version {previousVersion} is missing.");
         long? last = (ActionParser.ParseCommit(previous).OfType<CommitInfoAction>().FirstOrDefault()?.InCommitTimestamp) ?? throw new DeltaException($"The commit of version {previousVersion} has no in-commit timestamp.");
         return Math.Max(now, last.Value + 1);
-
-        static bool IsOn(MetadataAction m) =>
-            m.Configuration.TryGetValue(CommitTimeline.InCommitTimestampsKey, out string? on)
-            && string.Equals(on, "true", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool InCommitTimestampsOn(MetadataAction metadata) =>
+        metadata.Configuration.TryGetValue(CommitTimeline.InCommitTimestampsKey, out string? on)
+        && string.Equals(on, "true", StringComparison.OrdinalIgnoreCase);
 
     private CommitInfoAction CommitInfo(long timestamp, long? inCommitTimestamp)
     {
@@ -368,6 +459,8 @@ public sealed class Transaction
             if (_read is not null) json.WriteNumber("readVersion", _read.Version);
             json.WriteBoolean("isBlindAppend", blindAppend);
             json.WriteString("engineInfo", EngineInfo);
+            // A unique id per transaction, as Spark writes it (the catalogManaged feature requires it).
+            json.WriteString("txnId", _txnId);
             json.WriteEndObject();
         }
         return new CommitInfoAction

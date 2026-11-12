@@ -1,4 +1,4 @@
-namespace Kaminari.Seseragi.Catalog.Unity;
+namespace Kaminari.Seseragi.Lakehouse.Catalog.Unity;
 
 /// <summary>Which cloud the temporary credentials belong to.</summary>
 public enum CredentialKind
@@ -9,6 +9,8 @@ public enum CredentialKind
     Azure,
     /// <summary>Google Cloud OAuth token.</summary>
     Gcp,
+    /// <summary>No credentials: the table is on local storage (<c>file://</c>), which needs none.</summary>
+    None,
 }
 
 /// <summary>

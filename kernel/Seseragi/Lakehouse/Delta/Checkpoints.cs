@@ -51,6 +51,10 @@ public static class Checkpoints
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(snapshot);
+        // A catalog-managed table gets checkpoints only for published versions (the protocol's rule).
+        if (CatalogManaged.IsCatalogManaged(snapshot.Protocol)
+            && !fileSystem.List(LogFile.LogDirectory, $"{snapshot.Version:D20}").Any(f => f.Path == LogFile.CommitPath(snapshot.Version)))
+            throw new DeltaException($"Version {snapshot.Version} is not published yet: a checkpoint waits until it is.");
 
         long expiredBefore = ((now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata)).ToUnixTimeMilliseconds();
         RemoveAction[] tombstones = [.. snapshot.Tombstones.Where(r => r.DeletionTimestamp is null || r.DeletionTimestamp >= expiredBefore)];

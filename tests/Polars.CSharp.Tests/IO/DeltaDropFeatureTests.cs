@@ -1,3 +1,4 @@
+#nullable enable
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using static Polars.CSharp.Polars;
@@ -32,8 +33,8 @@ public class DeltaDropFeatureTests
 
     private static Snapshot Latest(string path) => Snapshot.Load(new LocalFileSystem(path));
 
-    private static string?[] Operations(string path, long from) =>
-        [.. History.Read(new LocalFileSystem(path)).Where(h => h.Version >= from).OrderBy(h => h.Version).Select(h => h.CommitInfo?.Operation)];
+    private static string[] Operations(string path, long from) =>
+        [.. History.Read(new LocalFileSystem(path)).Where(h => h.Version >= from).OrderBy(h => h.Version).Select(h => h.CommitInfo?.Operation ?? "(none)")];
 
     [Fact]
     public void DeletionVectors_ArePurged_TheRowsStay()

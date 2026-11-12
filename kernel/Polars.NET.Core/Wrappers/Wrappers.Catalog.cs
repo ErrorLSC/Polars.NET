@@ -1,5 +1,5 @@
-using Kaminari.Seseragi.Catalog;
-using Kaminari.Seseragi.Catalog.Unity;
+using Kaminari.Seseragi.Lakehouse.Catalog;
+using Kaminari.Seseragi.Lakehouse.Catalog.Unity;
 using Polars.NET.Core.Delta;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
@@ -25,16 +25,20 @@ public readonly partial struct PolarsWrapper
     /// <summary>
     /// Asks the catalog where the table lives and for temporary credentials, and lays those credentials
     /// over the caller's cloud options. Credentials that expire are renewed: the options also name the table's
-    /// renewable source (<see cref="HostCredentials"/>), which asks the catalog again before they expire.
+    /// renewable source (<see cref="HostCredentials"/>), which asks the catalog again before they expire. A
+    /// catalog-managed table is read and committed through the catalog while the result is not disposed; an operation
+    /// the catalog does not allow on such a table (<paramref name="refusedWhenManaged"/>) is refused before anything
+    /// else happens.
     /// </summary>
-    private static TableAccess ResolveCatalogTable(
+    private static CatalogTable ResolveCatalogTable(
         CatalogHandle handle,
         string catalogName,
         string schemaName,
         string tableName,
         bool needsWrite,
         ref string[]? cloudKeys,
-        ref string[]? cloudValues)
+        ref string[]? cloudValues,
+        string? refusedWhenManaged = null)
     {
         ArgumentNullException.ThrowIfNull(handle);
 
@@ -61,7 +65,28 @@ public readonly partial struct PolarsWrapper
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
         cloudKeys = [.. merged.Keys];
         cloudValues = [.. merged.Values];
-        return access;
+
+        if (!IsCatalogManaged(access.Table)) return new CatalogTable(access, null);
+        if (refusedWhenManaged is not null)
+            throw new PolarsException(
+                $"{refusedWhenManaged} is not supported on the catalog-managed table {catalogName}.{schemaName}.{tableName} (Delta Spark refuses it too).");
+        var catalog = new UnityCatalogCommitter(handle.Client, catalogName, schemaName, tableName);
+        return new CatalogTable(access, CatalogScope.Enter(access.Location, catalog));
+
+        static bool IsCatalogManaged(TableInfo table) =>
+            table.Properties.TryGetValue("delta.feature.catalogManaged", out string? state)
+            && state is "supported" or "enabled";
+    }
+
+    /// <summary>
+    /// A catalog table resolved for one operation: where it is, and for a catalog-managed table its catalog, in scope
+    /// (<see cref="CatalogScope"/>) until disposed.
+    /// </summary>
+    private sealed class CatalogTable(TableAccess access, IDisposable? scope) : IDisposable
+    {
+        public TableInfo Table => access.Table;
+        public string Location => access.Location;
+        public void Dispose() => scope?.Dispose();
     }
 
     public static LazyFrameHandle ScanCatalogTable
@@ -99,7 +124,7 @@ public readonly partial struct PolarsWrapper
         string? rowCommitVersionColumn = null,
         bool variantAsJson = false)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
         string? format = access.Table.DataSourceFormat;
         if (format is null)
@@ -179,7 +204,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues,
         string[]? clusterBy = null)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
         SinkDelta(
             lf,
@@ -228,7 +253,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
         DeltaDelete(
             access.Location,
@@ -264,7 +289,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
 
         DeltaMergeOrdered(
             sourceLf,
@@ -303,7 +328,7 @@ public readonly partial struct PolarsWrapper
         bool full = false
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "OPTIMIZE");
 
         return Optimize(
             access.Location,
@@ -325,7 +350,7 @@ public readonly partial struct PolarsWrapper
     public static void CatalogClusterBy(
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string[] columns, string[]? cloudKeys, string[]? cloudValues)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
         DeltaClusterBy(access.Location, columns, cloudKeys, cloudValues);
     }
 
@@ -334,7 +359,7 @@ public readonly partial struct PolarsWrapper
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string newName,
         string[]? cloudKeys, string[]? cloudValues)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "ALTER TABLE RENAME COLUMN");
         DeltaRenameColumn(access.Location, column, newName, cloudKeys, cloudValues);
     }
 
@@ -343,7 +368,7 @@ public readonly partial struct PolarsWrapper
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string[] columns, bool ifExists,
         string[]? cloudKeys, string[]? cloudValues)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
         DeltaDropColumns(access.Location, columns, ifExists, cloudKeys, cloudValues);
     }
 
@@ -352,7 +377,7 @@ public readonly partial struct PolarsWrapper
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, DataTypeHandle type,
         string[]? cloudKeys, string[]? cloudValues)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
         DeltaChangeColumnType(access.Location, column, type, cloudKeys, cloudValues);
     }
 
@@ -507,7 +532,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "VACUUM");
         return Vacuum(access.Location, retentionHours, enforceRetention, dryRun, vacuumModeFull, cloudKeys, cloudValues);
     }
 
@@ -525,7 +550,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
         return Restore(access.Location, targetVersion, targetTimestamp, ignoreMissingFiles, protocolDowngradeAllowed, cloudKeys, cloudValues);
     }
 
@@ -539,7 +564,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
         return History(access.Location, limit, cloudKeys, cloudValues);
     }
 
@@ -554,7 +579,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
         AddFeature(access.Location, featureName, allowProtocolIncrease, cloudKeys, cloudValues);
     }
 
@@ -562,7 +587,7 @@ public readonly partial struct PolarsWrapper
     public static void CatalogDropFeature(
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string featureName, string[]? cloudKeys, string[]? cloudValues)
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "DROP FEATURE");
         DropFeature(access.Location, featureName, cloudKeys, cloudValues);
     }
 
@@ -584,7 +609,7 @@ public readonly partial struct PolarsWrapper
         bool allowSchemaChanges = false
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
         return DeltaReadCdc(
             access.Location,
@@ -619,7 +644,7 @@ public readonly partial struct PolarsWrapper
         bool allowSchemaChanges = false
     )
     {
-        TableAccess access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
         return DeltaReadCdcByTime(
             access.Location,

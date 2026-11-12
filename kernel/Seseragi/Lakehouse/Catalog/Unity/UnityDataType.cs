@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 
-namespace Kaminari.Seseragi.Catalog.Unity;
+namespace Kaminari.Seseragi.Lakehouse.Catalog.Unity;
 
 /// <summary>The kinds of column type Unity Catalog accepts.</summary>
 public enum UnityTypeKind

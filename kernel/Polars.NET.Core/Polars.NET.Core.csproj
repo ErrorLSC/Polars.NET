@@ -81,7 +81,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sazanami\Sazanami.csproj" />
-    <ProjectReference Include="..\Seseragi\Catalog\Seseragi.Catalog.csproj" />
     <ProjectReference Include="..\Seseragi\Lakehouse\Seseragi.Lakehouse.csproj" />
   </ItemGroup>
 

@@ -81,8 +81,7 @@ internal static class DeltaKernelWrite
     {
         options ??= KernelWriteOptions.Default;
         using LazyFrameHandle owned = data; // consumed by the sink; disposed here when the write fails before it
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        IWritableFileSystem store = TableStorage.Open(tablePath, cloud).Store;
         // Data files are deleted again if the write fails before its commit lands.
         var fileSystem = new TrackingFileSystem(store);
         try
@@ -261,8 +260,7 @@ internal static class DeltaKernelWrite
         && incoming.Fields.Zip(existing.Schema.Fields).All(p => p.First.Name == p.Second.Name && p.First.Type.ToString() == p.Second.Type.ToString());
 
     /// <summary>The location data file paths are relative to: the local directory, or the URL.</summary>
-    internal static string RootOf(IFileSystem fileSystem, string tablePath) =>
-        (fileSystem is TrackingFileSystem tracking ? tracking.Inner : fileSystem) is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
+    internal static string RootOf(IFileSystem fileSystem, string tablePath) => TableStorage.RootOf(fileSystem, tablePath);
 
     /// <summary>
     /// The lowest protocol for the schema and table properties: reader 1 / writer 2, writer 4 for the change data

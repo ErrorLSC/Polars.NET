@@ -31,6 +31,10 @@ EPOCH_DAY = datetime.date(1970, 1, 1)
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 
 
+# Unity Catalog's Spark connector, for catalog-managed tables (matches Spark 4.2 and the UC 0.7 server image).
+UC_PACKAGE = "io.unitycatalog:unitycatalog-spark_4.2_2.13:0.7.0"
+
+
 def session():
     builder = (
         SparkSession.builder.master("local[2]")
@@ -46,7 +50,7 @@ def session():
         # VACUUM ... RETAIN 0 HOURS in the tests.
         .config("spark.databricks.delta.retentionDurationCheck.enabled", "false")
     )
-    spark = configure_spark_with_delta_pip(builder).getOrCreate()
+    spark = configure_spark_with_delta_pip(builder, extra_packages=[UC_PACKAGE]).getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
@@ -222,6 +226,19 @@ def run(spark, command, args):
         finally:
             spark.conf.unset(prefix + "threshold")
             spark.conf.unset(prefix + "targetCubeSize")
+    elif command == "uc_sql":
+        # Statements against a Unity Catalog server: [uri, catalog, statement...]; the catalog is registered in the
+        # session under its own name the first time.
+        uri, catalog, *statements = args
+        uc_catalog(spark, uri, catalog)
+        for statement in statements:
+            spark.sql(statement)
+    elif command == "uc_query":
+        # The rows of a query against a Unity Catalog server: [uri, catalog, statement].
+        uri, catalog, statement = args
+        uc_catalog(spark, uri, catalog)
+        rows = [canonical(r) for r in spark.sql(statement).collect()]
+        print(json.dumps({"rows": rows}, ensure_ascii=False), flush=True)
     elif command == "create_widened":
         # A table whose columns were widened after a first insert, so its first file holds the older types.
         path = args[0]
@@ -274,6 +291,15 @@ def run(spark, command, args):
         read(spark, path)
     else:
         raise ValueError(f"unknown command {command}")
+
+
+def uc_catalog(spark, uri, name):
+    """Registers the Unity Catalog catalog `name` of the server at `uri` (no token) in the session, once."""
+    key = f"spark.sql.catalog.{name}"
+    if spark.conf.get(key, None) is None:
+        spark.conf.set(key, "io.unitycatalog.spark.UCSingleCatalog")
+        spark.conf.set(key + ".uri", uri)
+        spark.conf.set(key + ".token", "")
 
 
 def serve(spark):

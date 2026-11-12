@@ -73,13 +73,11 @@ internal sealed class DmlTable : IDisposable
     /// <exception cref="PolarsException">There is no table at the path.</exception>
     public static DmlTable Open(string tablePath, CloudArgs? cloud)
     {
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        var (store, root) = TableStorage.Open(tablePath, cloud);
         // Files the operation writes are deleted again if it fails before its commit lands (see TrackingFileSystem).
         var fileSystem = new TrackingFileSystem(store);
         try
         {
-            string root = store is LocalFileSystem local ? local.Root : tablePath.TrimEnd('/');
             Snapshot snapshot = DeltaKernelWrite.TryLoad(fileSystem, tablePath, cloud)
                 ?? throw new PolarsException($"No Delta table at {tablePath}.");
             // Every operation through here writes: refused before it reads or writes any data file, as Spark checks a

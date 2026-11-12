@@ -29,31 +29,37 @@ internal sealed class LogSegment
     /// <param name="useCheckpoints">False when no Parquet reader is at hand: the segment then starts from commit 0.</param>
     public static LogSegment Find(IFileSystem fileSystem, long? version, bool useCheckpoints)
     {
+        // A catalog-managed table is what its catalog says: asked once, before listing.
+        CatalogLog? log = CatalogManaged.CatalogOf(fileSystem)?.GetLog();
+
         // The hint lets a long log be listed from its last checkpoint on. It may be stale or missing, and it is of
         // no use for a version before it; then the whole log is listed.
         long? hint = useCheckpoints ? ReadLastCheckpointHint(fileSystem) : null;
         if (hint is long from && (version is null || version >= from))
         {
-            List<LogFile> tail = ListLog(fileSystem, $"{from:D20}");
+            List<LogFile> tail = Listed(fileSystem, $"{from:D20}", log);
             LogSegment? segment = TryBuild(tail, version, useCheckpoints, requireCheckpoint: true, out _);
             if (segment is not null) return segment;
         }
 
-        List<LogFile> all = ListLog(fileSystem, null);
+        List<LogFile> all = Listed(fileSystem, null, log);
         return TryBuild(all, version, useCheckpoints, requireCheckpoint: false, out string? error)
             ?? throw (all.Count == 0 || error is null
                 ? new DeltaTableNotFoundException("No Delta table found: the log directory holds no commit.")
                 : new DeltaException(error));
     }
 
-    /// <summary>The commit files still present in the log, oldest first.</summary>
+    /// <summary>The commit files still present in the log, oldest first (for a catalog-managed table, as its catalog has them).</summary>
     public static List<LogFile> ListCommits(IFileSystem fileSystem)
     {
-        List<LogFile> commits = ListLog(fileSystem, null);
+        List<LogFile> commits = Listed(fileSystem, null, CatalogManaged.CatalogOf(fileSystem)?.GetLog());
         commits.RemoveAll(static f => f.Kind != LogFileKind.Commit);
         commits.Sort(static (a, b) => a.Version.CompareTo(b.Version));
         return commits;
     }
+
+    private static List<LogFile> Listed(IFileSystem fileSystem, string? startFrom, CatalogLog? log) =>
+        log is null ? ListLog(fileSystem, startFrom) : CatalogManaged.Apply(ListLog(fileSystem, startFrom), log);
 
     internal static List<LogFile> ListLog(IFileSystem fileSystem, string? startFrom)
     {

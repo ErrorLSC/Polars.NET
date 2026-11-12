@@ -57,7 +57,6 @@ integration=tests/Polars.Integration.Tests
 # One build of everything the tier runs; every test run after it uses --no-build.
 projects=(tests/Seseragi.Lakehouse.Tests tests/Polars.FSharp.Tests tests/Polars.CSharp.Tests)
 [ "$tier" != quick ] || [ -n "$extra" ] && projects+=("$integration")
-[ "$tier" != quick ] && projects+=(tests/Seseragi.Catalog.Tests)
 [ "$tier" = full ] && projects+=(tests/Sazanami.Tests tests/Polars.Config.Tests)
 for p in "${projects[@]}"; do step "build $(basename "$p")" dotnet build "$p"; done
 if [ $failed -ne 0 ]; then
@@ -79,11 +78,11 @@ fi
 [ -n "$extra" ] && test_run "integration: $extra" "$integration" "$extra"
 
 if [ "$tier" != quick ]; then
-    test_run "Seseragi.Catalog" tests/Seseragi.Catalog.Tests
     test_run "Spark interop" "$integration" "DeltaKernel=Spark"
     test_run "kernel on object stores" "$integration" "DeltaKernel=Cloud"
     test_run "DeltaLakeTests" "$integration" "FullyQualifiedName~DeltaLakeTests"
     test_run "Unity Catalog" "$integration" "FullyQualifiedName~CatalogIntegrationTests"
+    test_run "UC managed tables" "$integration" "DeltaKernel=UnityManaged"
     test_run "file system contract" "$integration" "FileSystemContract=Local|FileSystemContract=Cloud"
 fi
 

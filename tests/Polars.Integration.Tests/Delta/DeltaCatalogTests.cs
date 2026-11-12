@@ -1557,7 +1557,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
     }
 
     private int CredentialRequests() =>
-        _catalogMockServer.LogEntries.Count(e => e.RequestMessage.Path.EndsWith("/temporary-table-credentials", StringComparison.Ordinal));
+        _catalogMockServer.LogEntries.Count(e => e.RequestMessage?.Path.EndsWith("/temporary-table-credentials", StringComparison.Ordinal) == true);
 
     private CloudOptions MinioOptions((string Key, string Secret)? user = null)
     {

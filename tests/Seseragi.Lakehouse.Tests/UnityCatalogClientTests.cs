@@ -1,10 +1,10 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using Kaminari.Seseragi.Catalog;
-using Kaminari.Seseragi.Catalog.Unity;
+using Kaminari.Seseragi.Lakehouse.Catalog;
+using Kaminari.Seseragi.Lakehouse.Catalog.Unity;
 
-namespace Seseragi.Catalog.Tests;
+namespace Seseragi.Lakehouse.Tests;
 
 /// <summary>Answers requests from a script and records what was sent. Serves both the blocking and the async path.</summary>
 internal sealed class StubHandler(Func<StubHandler.Recorded, (HttpStatusCode Status, string Body)> respond) : HttpMessageHandler

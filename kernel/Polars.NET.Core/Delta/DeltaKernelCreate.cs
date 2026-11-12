@@ -37,8 +37,7 @@ internal static class DeltaKernelCreate
         if (schema.Fields.Count == 0) throw new PolarsException("A table needs at least one column.");
         string[] partitions = partitionBy ?? [];
         identity ??= [];
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IWritableFileSystem store = isUrl ? new ObjectStoreFileSystem(tablePath.TrimEnd('/'), cloud) : new LocalFileSystem(tablePath);
+        IWritableFileSystem store = TableStorage.Open(tablePath, cloud).Store;
         try
         {
             if (DeltaKernelWrite.TryLoad(store, tablePath, cloud) is not null)

@@ -36,6 +36,7 @@ public static class TableFeatures
     public const string CheckpointProtection = "checkpointProtection";
     public const string VariantType = "variantType";
     public const string VariantTypePreview = "variantType-preview";
+    public const string CatalogManaged = "catalogManaged";
 #pragma warning restore CS1591
 
     /// <summary>
@@ -93,6 +94,8 @@ public static class TableFeatures
         // feature is not among the writer features and such tables are read only.
         VariantType,
         VariantTypePreview,
+        // Read through the managing catalog only: Snapshot.Load refuses the table when its storage brings no catalog.
+        CatalogManaged,
     };
 
     /// <summary>Throws when reading the table needs something this kernel does not implement.</summary>
@@ -130,6 +133,8 @@ public static class TableFeatures
         AppendOnly, Invariants, CheckConstraints, ChangeDataFeed, GeneratedColumns, ColumnMapping, IdentityColumns,
         DeletionVectors, TimestampNtz, DomainMetadata, VacuumProtocolCheck, V2Checkpoint, InCommitTimestamp,
         TypeWidening, TypeWideningPreview, RowTracking.Feature, Clustering.Feature, CheckpointProtection,
+        // Committed through the managing catalog only (see Transaction.Commit).
+        CatalogManaged,
     };
 
     /// <summary>The writer features a protocol puts in force: listed for version 7, implied by the older versions.</summary>
@@ -186,6 +191,7 @@ public static class TableFeatures
     private static readonly HashSet<string> ReaderWriterFeatures = new(StringComparer.Ordinal)
     {
         DeletionVectors, TimestampNtz, ColumnMapping, VacuumProtocolCheck, V2Checkpoint, TypeWidening, TypeWideningPreview,
+        CatalogManaged,
     };
 
     /// <summary>Whether a feature is a reader (and writer) feature, not a writer feature only.</summary>
@@ -199,7 +205,8 @@ public static class TableFeatures
     {
         ArgumentNullException.ThrowIfNull(name);
         if (string.Equals(name, "TimestampWithoutTimezone", StringComparison.OrdinalIgnoreCase)) return TimestampNtz;
-        return SupportedWriterFeatures.FirstOrDefault(f => string.Equals(f, name, StringComparison.OrdinalIgnoreCase));
+        // A table becomes catalog-managed only when its catalog creates it (Spark refuses the upgrade too).
+        return SupportedWriterFeatures.FirstOrDefault(f => f != CatalogManaged && string.Equals(f, name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>The reader features a protocol puts in force: listed for version 3, column mapping for version 2.</summary>

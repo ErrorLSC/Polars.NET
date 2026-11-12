@@ -7,6 +7,12 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
+  <!-- C# 14 for every C# project (net8 targets included: the features used are compiler-only). Pinned, not latest,
+       so a newer SDK does not change the language under us; F# has its own versions, hence the condition. -->
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <LangVersion>14</LangVersion>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
     <ParallelCompilation>true</ParallelCompilation>
     <OtherFlags>$(OtherFlags) --parallelcompilation+</OtherFlags>

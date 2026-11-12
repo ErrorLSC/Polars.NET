@@ -116,6 +116,11 @@ public sealed class Snapshot
         ProtocolAction protocol = replay.Protocol ?? throw new DeltaException("The log holds no protocol action.");
         MetadataAction metadata = replay.Metadata ?? throw new DeltaException("The log holds no metaData action.");
         TableFeatures.EnsureReadable(protocol, metadata);
+        // Recent commits of a catalog-managed table may be known to its catalog only: reading it by path could miss
+        // them, so it is read through the catalog or not at all.
+        if (CatalogManaged.IsCatalogManaged(protocol) && CatalogManaged.CatalogOf(fileSystem) is null)
+            throw new DeltaProtocolException(
+                "The table is catalog-managed (catalogManaged): it is read and written through the catalog that manages it, not by its path.");
 
         var snapshot = new Snapshot
         {

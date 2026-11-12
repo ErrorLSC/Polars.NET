@@ -25,6 +25,7 @@ Protocol versions up to reader 3 and writer 7 are supported.
 | Liquid clustering (`clustering`) | ✓ | ✓ |
 | Checkpoint protection (`checkpointProtection`, left by dropping a reader feature) | ✓ | ✓ |
 | Variant columns (`variantType`) | ✓ through our own patch (see below) | — |
+| Catalog-managed tables (`catalogManaged`) | ✓ through Unity Catalog | ✓ through Unity Catalog (not created; see below) |
 | Column invariants, check constraints, generated columns | ✓ | Tables that use them are read only (see below) |
 
 A table that needs a feature not listed here is refused with an error naming the feature, rather than read or written wrongly.
@@ -41,7 +42,8 @@ A table that needs a feature not listed here is refused with an error naming the
 
   Variant columns are read as stored, a struct of two binaries (`value`, `metadata`, the Parquet Variant encoding), or with `variantAsJson: true` (`ScanDelta`, `ReadDelta`, `ScanCatalogTable`) as JSON text, rendered as Spark's `to_json` renders them; decoding to JSON is Polars.NET's own, not part of the patch. Tables with variant columns are read only. Variants holding a time or a nanosecond timestamp (types Spark 4.2 does not write yet) cannot be read as JSON.
 * **SQL expressions.** Column invariants, check constraints and generated columns hold SQL expressions the kernel does not evaluate yet, so tables that use them are read but not written. Check constraints cannot be added, and `delta.constraints.*` properties are refused.
-* **Table features not implemented:** variant shredding (`variantShredding-preview`), column defaults (`allowColumnDefaults`), collations, Iceberg compatibility / UniForm (`icebergCompatV1`, `icebergCompatV2`), and catalog-managed tables.
+* **Table features not implemented:** variant shredding (`variantShredding-preview`), column defaults (`allowColumnDefaults`), collations, and Iceberg compatibility / UniForm (`icebergCompatV1`, `icebergCompatV2`).
+* **Catalog-managed tables** are read and written through Unity Catalog only (verified against open-source Unity Catalog 0.7 and Delta Spark 4.4; Databricks documents external access to these tables, but it has not been verified there). Not supported yet: creating them (create them with Spark or Databricks), and the random directory prefixes their data files get from Spark (`delta.randomizeFilePrefixes`; files written here go to the table root, which every reader accepts). By their path, and for `OptimizeCatalogTable`, `DeltaVacuum`, `RenameCatalogColumn` and `DropFeature`, they are refused, as Delta Spark refuses them. Turning on the change data feed is refused by Unity Catalog 0.7 itself (for Spark too).
 * **Table changes not offered:** `ALTER COLUMN … DROP NOT NULL`, column comments and column positions. Column mapping is turned on with `delta.columnMapping.mode` (`none` to `name`) and off with `Delta.DropFeature`, not by setting the mode.
 * **History truncation:** `DROP FEATURE … TRUNCATE HISTORY` is not offered, so `checkpointProtection` cannot be dropped.
 * **Purging dropped columns:** Spark's `REORG … APPLY (PURGE)`, which dropping deletion vectors runs, also rewrites files that still hold the data of dropped columns; Polars.NET rewrites only the files with deletion vectors.

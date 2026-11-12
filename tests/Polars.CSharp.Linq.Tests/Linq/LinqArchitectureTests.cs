@@ -66,10 +66,9 @@ public class LinqArchitectureTests
     {
         Assert.Empty(ProjectReferences("kernel", "Sazanami", "Sazanami.csproj"));
         Assert.Equal(["Sazanami"], ProjectReferences("kernel", "Samidare", "Samidare.fsproj"));
-        Assert.Equal(["Sazanami", "Seseragi.Catalog", "Seseragi.Lakehouse"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
-        // IO kernels: the catalog client stands alone; the lakehouse kernels implement Samidare's contracts,
-        // so they may see the compiler, never the other way round.
-        Assert.Empty(ProjectReferences("kernel", "Seseragi", "Catalog", "Seseragi.Catalog.csproj"));
+        Assert.Equal(["Sazanami", "Seseragi.Lakehouse"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
+        // IO kernels (table formats and their catalogs): they implement Samidare's contracts, so they may see the
+        // compiler, never the other way round.
         Assert.Equal(["Sazanami", "Samidare"], ProjectReferences("kernel", "Seseragi", "Lakehouse", "Seseragi.Lakehouse.csproj"));
     }
 

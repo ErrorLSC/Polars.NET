@@ -120,20 +120,7 @@ public static class DeltaKernelScan
             throw new ArgumentException("Give a version or a time, not both.");
 
         // A local table is read with plain file calls; anything with a scheme goes through the object store.
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IFileSystem fileSystem;
-        string root;
-        if (isUrl)
-        {
-            root = tablePath.TrimEnd('/');
-            fileSystem = new ObjectStoreFileSystem(root, cloud);
-        }
-        else
-        {
-            var local = new LocalFileSystem(tablePath);
-            root = local.Root;
-            fileSystem = local;
-        }
+        var (fileSystem, root) = TableStorage.Open(tablePath, cloud);
 
         try
         {
@@ -197,20 +184,7 @@ public static class DeltaKernelScan
     private static LazyFrameHandle WithTable(
         string tablePath, CloudArgs? cloud, Func<IFileSystem, string, IParquetReader, LazyFrameHandle> body)
     {
-        bool isUrl = tablePath.Contains("://", StringComparison.Ordinal);
-        IFileSystem fileSystem;
-        string root;
-        if (isUrl)
-        {
-            root = tablePath.TrimEnd('/');
-            fileSystem = new ObjectStoreFileSystem(root, cloud);
-        }
-        else
-        {
-            var local = new LocalFileSystem(tablePath);
-            root = local.Root;
-            fileSystem = local;
-        }
+        var (fileSystem, root) = TableStorage.Open(tablePath, cloud);
 
         try
         {

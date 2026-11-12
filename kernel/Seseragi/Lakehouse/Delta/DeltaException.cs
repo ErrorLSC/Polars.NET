@@ -7,7 +7,7 @@ public class DeltaException : Exception
     public DeltaException(string message) : base(message) { }
 
     /// <summary>Creates an exception that wraps the failure underneath it.</summary>
-    public DeltaException(string message, Exception inner) : base(message, inner) { }
+    public DeltaException(string message, Exception? inner) : base(message, inner) { }
 }
 
 /// <summary>There is no Delta table at the location: the log directory holds no commit.</summary>

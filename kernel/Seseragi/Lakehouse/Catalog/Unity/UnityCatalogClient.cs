@@ -1,14 +1,14 @@
 using System.Buffers;
 using System.Text.Json;
-using Kaminari.Seseragi.Catalog.Http;
+using Kaminari.Seseragi.Lakehouse.Catalog.Http;
 
-namespace Kaminari.Seseragi.Catalog.Unity;
+namespace Kaminari.Seseragi.Lakehouse.Catalog.Unity;
 
 /// <summary>
 /// A client for the Unity Catalog REST API: catalogs, schemas, tables and temporary table credentials.
 /// Every operation has a blocking form and an <c>Async</c> form. The client is safe to share between threads.
 /// </summary>
-public sealed class UnityCatalogClient : IDisposable
+public sealed partial class UnityCatalogClient : IDisposable
 {
     private const string ApiRoot = "/api/2.1/unity-catalog";
 
@@ -482,6 +482,9 @@ public sealed class UnityCatalogClient : IDisposable
             };
         }
 
+        // Local storage needs no credentials, and the catalog vends none for it; anywhere else they must be there.
+        if (Str(e, "url") is string url && url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            return new TemporaryCredentials { Kind = CredentialKind.None, ExpiresAt = expiresAt };
         throw new CatalogException("Unsupported or missing credentials in the catalog response.");
     }
 

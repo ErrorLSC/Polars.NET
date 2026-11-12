@@ -1,4 +1,4 @@
-namespace Kaminari.Seseragi.Catalog.Unity;
+namespace Kaminari.Seseragi.Lakehouse.Catalog.Unity;
 
 /// <summary>Well-known values of <see cref="TableInfo.TableType"/>.</summary>
 public static class UnityTableTypes

@@ -166,3 +166,36 @@ let json = DataFrame.ReadDelta("./lake/events", variantAsJson = true) // payload
 ```
 
 :::
+
+## 6. Catalog-Managed Tables
+
+A catalog-managed table (the `catalogManaged` feature, which Unity Catalog's managed Delta tables use) is committed to through its catalog rather than by writing log files: a writer stages a commit, the catalog ratifies it as the next version, and the commit is then published to `_delta_log`. The catalog is the authority on the table's latest version, which may include commits not published yet.
+
+Polars.NET reads and writes such tables through `UnityCatalog`, as Delta Spark 4.4 does with the Unity Catalog connector: scans see every commit the catalog ratified, and appends, deletes, merges, schema evolution, `ClusterCatalogTable`, `DropCatalogColumns`, `ChangeCatalogColumnType`, properties and `DeltaRestore` commit through it. The catalog keeps a copy of the table's properties, columns, protocol and clustering, and each commit updates it. Commits other writers left unpublished are published first, in order.
+
+The same table cannot be read or written by its path: the catalog may know of commits the files do not show yet. Operations Delta Spark refuses on these tables are refused here too: `OptimizeCatalogTable`, `DeltaVacuum`, `RenameCatalogColumn` and `DropFeature`. Log cleanup is left to the catalog.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+using var uc = new UnityCatalog("https://my-workspace.cloud.databricks.com", token);
+
+using var events = uc.ScanCatalogTable("main", "sales", "events").Collect();
+
+using var more = DataFrame.From<Event>([new(7, "click")]);
+more.Lazy().SinkCatalogTable(uc, "main", "sales", "events");
+uc.DeleteCatalogRecords("main", "sales", "events", Col("id") == 3);
+
+record Event(long id, string kind);
+```
+
+```fsharp [F# (Pipeline)]
+use uc = new UnityCatalog("https://my-workspace.cloud.databricks.com", token)
+
+let events = uc.ScanCatalogTable("main", "sales", "events").Collect()
+uc.DeleteCatalogRecords("main", "sales", "events", pl.col "id" .== pl.lit 3L)
+```
+
+:::
+
+Creating catalog-managed tables is not supported yet: create them with Spark or Databricks, then use them here.

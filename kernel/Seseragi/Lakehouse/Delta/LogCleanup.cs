@@ -32,6 +32,8 @@ public static class LogCleanup
         if (snapshot.Metadata.Configuration.TryGetValue(EnabledKey, out string? enabled)
             && string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
             return [];
+        // The log of a catalog-managed table is cleaned up only where its catalog allows it (by default nowhere).
+        if (CatalogManaged.IsCatalogManaged(snapshot.Protocol)) return [];
         DateTimeOffset cutoff = (now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata);
         List<LogFile> files = LogSegment.ListLog(fileSystem, null);
         CommitTimeline timeline = CommitTimeline.Load(fileSystem, snapshot.Metadata);
