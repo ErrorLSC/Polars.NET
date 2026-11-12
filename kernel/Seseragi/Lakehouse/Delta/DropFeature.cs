@@ -14,7 +14,10 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// </summary>
 public interface IFeatureRewriter
 {
-    /// <summary>Rewrites every file with a deletion vector without it (Spark's <c>REORG … APPLY (PURGE)</c>).</summary>
+    /// <summary>
+    /// Spark's <c>REORG … APPLY (PURGE)</c>: rewrites every file with a deletion vector without it, and every file
+    /// that still holds the data of dropped columns without them.
+    /// </summary>
     long? PurgeDeletionVectors();
 
     /// <summary>Rewrites every file holding a column in a type older than the table's (type widening) in the table's types.</summary>
@@ -143,22 +146,18 @@ public static class DropFeature
         if (dependents.Length > 0)
             throw new DeltaException($"Cannot drop table feature `{feature}` because some other features ({string.Join(", ", dependents)}) in this table depend on `{feature}`.");
 
-        switch (feature)
+        return feature switch
         {
-            case TableFeatures.CheckConstraints when table.Metadata.Configuration.Keys.Any(k => k.StartsWith("delta.constraints.", StringComparison.OrdinalIgnoreCase)):
-                throw new DeltaException("Cannot drop the CHECK constraints table feature: the table has check constraints; drop them first.");
-            case TableFeatures.DomainMetadata when table.DomainMetadata.Values.Any(d => !d.Removed):
-                throw new DeltaException(
-                    $"Cannot drop domainMetadata: the table has domains ({string.Join(", ", table.DomainMetadata.Values.Where(d => !d.Removed).Select(d => d.Domain))}).");
-            case TableFeatures.ColumnMapping when InvalidNames(table.Schema).FirstOrDefault() is string name:
-                throw new DeltaException(
-                    $"Found invalid character(s) among ' ,;{{}}()\\n\\t=' in the column names of your schema ('{name}'): without column mapping " +
-                    "the data files hold the columns under these names. Rename the columns first.");
-            case TableFeatures.DeletionVectors or TableFeatures.TypeWidening or TableFeatures.TypeWideningPreview or TableFeatures.ColumnMapping
-                when rewriter is null:
-                throw new DeltaException($"Dropping {feature} rewrites data files, which needs the engine.");
-        }
-        return feature;
+            TableFeatures.CheckConstraints when table.Metadata.Configuration.Keys.Any(k => k.StartsWith("delta.constraints.", StringComparison.OrdinalIgnoreCase)) => throw new DeltaException("Cannot drop the CHECK constraints table feature: the table has check constraints; drop them first."),
+            TableFeatures.DomainMetadata when table.DomainMetadata.Values.Any(d => !d.Removed) => throw new DeltaException(
+                                $"Cannot drop domainMetadata: the table has domains ({string.Join(", ", table.DomainMetadata.Values.Where(d => !d.Removed).Select(d => d.Domain))})."),
+            TableFeatures.ColumnMapping when InvalidNames(table.Schema).FirstOrDefault() is string name => throw new DeltaException(
+                                $"Found invalid character(s) among ' ,;{{}}()\\n\\t=' in the column names of your schema ('{name}'): without column mapping " +
+                                "the data files hold the columns under these names. Rename the columns first."),
+            TableFeatures.DeletionVectors or TableFeatures.TypeWidening or TableFeatures.TypeWideningPreview or TableFeatures.ColumnMapping
+                            when rewriter is null => throw new DeltaException($"Dropping {feature} rewrites data files, which needs the engine."),
+            _ => feature,
+        };
     }
 
     /// <summary>The characters Parquet column names cannot hold without column mapping (Spark's check).</summary>

@@ -981,55 +981,95 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(50, restoredDf.Height);
 
         using var historyDf = uc.DeltaHistory(catalog, schema, table, cloudOptions: cloudOptions);
-        // long deletedFiles = uc.DeltaVacuum(
-        //     catalog, schema, table,
-        //     retentionHours: 0,          
-        //     enforceRetention: false,    
-        //     cloudOptions: cloudOptions
-        // );
-        // --- Table History ---
-        // shape: (20, 21)
-        // ┌─────────┬────────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬───────────┐
-        // │ version ┆ timestamp  ┆ operation ┆ mode      ┆ … ┆ numRemove ┆ numRestor ┆ engineMak ┆ engine    │
-        // │ ---     ┆ ---        ┆ ---       ┆ ---       ┆   ┆ dFile     ┆ edFile    ┆ er        ┆ ---       │
-        // │ str     ┆ datetime[m ┆ str       ┆ str       ┆   ┆ ---       ┆ ---       ┆ ---       ┆ str       │
-        // │         ┆ s, UCT]    ┆           ┆           ┆   ┆ i64       ┆ i64       ┆ str       ┆           │
-        // ╞═════════╪════════════╪═══════════╪═══════════╪═══╪═══════════╪═══════════╪═══════════╪═══════════╡
-        // │ null    ┆ 2026-03-20 ┆ DELETE    ┆ null      ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:17.3 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 11 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ DELETE    ┆ null      ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:16.5 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 07 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ DELETE    ┆ null      ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:16.0 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 66 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ OPTIMIZE  ┆ null      ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:15.8 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 89 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ MERGE     ┆ null      ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:15.7 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 15 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ …       ┆ …          ┆ …         ┆ …         ┆ … ┆ …         ┆ …         ┆ …         ┆ …         │
-        // │ null    ┆ 2026-03-20 ┆ WRITE     ┆ Append    ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:14.5 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 07 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ ADD       ┆ null      ┆ … ┆ null      ┆ null      ┆ null      ┆ null      │
-        // │         ┆ 07:16:14.2 ┆ FEATURE   ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │         ┆ 19 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ WRITE     ┆ Overwrite ┆ … ┆ null      ┆ null      ┆ ErrorLSC  ┆ Polars.NE │
-        // │         ┆ 07:16:14.0 ┆           ┆           ┆   ┆           ┆           ┆           ┆ T         │
-        // │         ┆ 32 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ null    ┆ 2026-03-20 ┆ CREATE    ┆ ErrorIfEx ┆ … ┆ null      ┆ null      ┆ null      ┆ null      │
-        // │         ┆ 07:16:14.0 ┆ TABLE     ┆ ists      ┆   ┆           ┆           ┆           ┆           │
-        // │         ┆ 04 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │ 1       ┆ 2026-03-20 ┆ RESTORE   ┆ null      ┆ … ┆ 1         ┆ 1         ┆ null      ┆ null      │
-        // │         ┆ 07:16:17.8 ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // │         ┆ 29 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
-        // └─────────┴────────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴───────────┘
 
+        long deletedFiles = uc.DeltaVacuum(
+            catalog, schema, table,
+            retentionHours: 0,          
+            enforceRetention: false,    
+            cloudOptions: cloudOptions
+        );
+        Assert.True(deletedFiles > 0);
+        // --- Table History ---
+        // shape: (21, 48)
+        // ┌─────────┬────────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬───────────┐
+        // │ version ┆ timestamp  ┆ operation ┆ mode      ┆ … ┆ readVersi ┆ isBlindAp ┆ engineInf ┆ txnId     │
+        // │ ---     ┆ ---        ┆ ---       ┆ ---       ┆   ┆ on        ┆ pend      ┆ o         ┆ ---       │
+        // │ i64     ┆ datetime[m ┆ str       ┆ str       ┆   ┆ ---       ┆ ---       ┆ ---       ┆ str       │
+        // │         ┆ s, UCT]    ┆           ┆           ┆   ┆ i64       ┆ bool      ┆ str       ┆           │
+        // ╞═════════╪════════════╪═══════════╪═══════════╪═══╪═══════════╪═══════════╪═══════════╪═══════════╡
+        // │ 20      ┆ 2026-11-12 ┆ RESTORE   ┆ null      ┆ … ┆ 19        ┆ false     ┆ Kaminari. ┆ 394ad82c- │
+        // │         ┆ 07:49:48.9 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 1079-47b2 │
+        // │         ┆ 65 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -bfb4-9ee │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 50a…      │
+        // │ 19      ┆ 2026-11-12 ┆ OPTIMIZE  ┆ null      ┆ … ┆ 18        ┆ false     ┆ Kaminari. ┆ 69cd6be4- │
+        // │         ┆ 07:49:48.7 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 249e-4a78 │
+        // │         ┆ 37 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -91cc-cdb │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 16a…      │
+        // │ 18      ┆ 2026-11-12 ┆ OPTIMIZE  ┆ null      ┆ … ┆ 17        ┆ false     ┆ Kaminari. ┆ 68029a5b- │
+        // │         ┆ 07:49:48.5 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 49bf-460e │
+        // │         ┆ 38 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -95b8-5c0 │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 7b6…      │
+        // │ 17      ┆ 2026-11-12 ┆ DELETE    ┆ null      ┆ … ┆ 16        ┆ false     ┆ Kaminari. ┆ 5a48a00b- │
+        // │         ┆ 07:49:47.5 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ e1fb-4c0a │
+        // │         ┆ 53 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -a5a5-980 │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 862…      │
+        // │ 16      ┆ 2026-11-12 ┆ DELETE    ┆ null      ┆ … ┆ 15        ┆ false     ┆ Kaminari. ┆ 323100c3- │
+        // │         ┆ 07:49:45.2 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 9e93-43a2 │
+        // │         ┆ 62 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -aa02-8fa │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ f3f…      │
+        // │ …       ┆ …          ┆ …         ┆ …         ┆ … ┆ …         ┆ …         ┆ …         ┆ …         │
+        // │ 4       ┆ 2026-11-12 ┆ MERGE     ┆ null      ┆ … ┆ 1         ┆ false     ┆ Kaminari. ┆ 418961e2- │
+        // │         ┆ 07:49:21.4 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ ed0e-4c49 │
+        // │         ┆ 85 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -90cd-27b │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 22d…      │
+        // │ 3       ┆ 2026-11-12 ┆ WRITE     ┆ Append    ┆ … ┆ 1         ┆ true      ┆ Kaminari. ┆ c04a5d51- │
+        // │         ┆ 07:49:21.4 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 510d-45cb │
+        // │         ┆ 03 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -8ba8-aa6 │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ c29…      │
+        // │ 2       ┆ 2026-11-12 ┆ WRITE     ┆ Append    ┆ … ┆ 1         ┆ true      ┆ Kaminari. ┆ 67d07634- │
+        // │         ┆ 07:49:21.3 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 537a-4830 │
+        // │         ┆ 57 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -874b-483 │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 6a3…      │
+        // │ 1       ┆ 2026-11-12 ┆ SET TBLPR ┆ null      ┆ … ┆ 0         ┆ false     ┆ Kaminari. ┆ 64026127- │
+        // │         ┆ 07:49:21.2 ┆ OPERTIES  ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ ecae-4ad0 │
+        // │         ┆ 52 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -baaf-d9d │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 744…      │
+        // │ 0       ┆ 2026-11-12 ┆ WRITE     ┆ Overwrite ┆ … ┆ null      ┆ false     ┆ Kaminari. ┆ 8a948970- │
+        // │         ┆ 07:49:21.1 ┆           ┆           ┆   ┆           ┆           ┆ Seseragi. ┆ 89b3-4c90 │
+        // │         ┆ 96 UTC     ┆           ┆           ┆   ┆           ┆           ┆ Lakehouse ┆ -bf0e-03f │
+        // │         ┆            ┆           ┆           ┆   ┆           ┆           ┆           ┆ 502…      │
+        // └─────────┴────────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴───────────┘
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }
+    [Fact]
+    [Trait("Catalog", "Purge")]
+    public void PurgeCatalogTable_RewritesTheFileWithADeletionVector_OnTheObjectStore()
+    {
+        const string catalog = "main", schema = "default", token = "dapi-purge-token";
+        string table = $"delta_purge_{Guid.NewGuid():N}";
+        SetupUnityCatalogMock(catalog, schema, table, $"s3://{_minio.BucketName}/{table}", token, _minio.AccessKey, _minio.SecretKey);
+
+        string endpoint = $"http://{_minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}";
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: endpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], token);
+
+        using (var rows = DataFrame.From([.. Enumerable.Range(1, 20).Select(i => new PurgeRow(i, $"t{i}"))]))
+            rows.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        uc.AddFeature(catalog, schema, table, "deletionVectors", allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        uc.DeleteCatalogRecords(catalog, schema, table, Pl.Col("Id") <= 5, cloudOptions: cloudOptions);
+
+        Assert.Equal(1, uc.PurgeCatalogTable(catalog, schema, table, cloudOptions));
+        Assert.Equal(0, uc.PurgeCatalogTable(catalog, schema, table, cloudOptions));
+
+        using DataFrame read = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect().Sort("Id");
+        Assert.Equal([.. Enumerable.Range(6, 15)], read["Id"].ToArray<int>());
+    }
+
+    private sealed record PurgeRow(int Id, string Team);
+
     [Fact]
     [Trait("Catalog", "DeleteDV")]
     public async Task Test_Isolation_Pure_Delete_With_DV_Async()

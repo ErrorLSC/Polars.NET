@@ -21,7 +21,7 @@ This is the project's highest rule. It applies to new code, to code you touch, a
 - Search for characters or patterns with `SearchValues<T>` (SIMD-accelerated).
 - P/Invoke always uses `[LibraryImport]` on a `partial` method; never `[DllImport]`.
 - Regular expressions always use the `[GeneratedRegex]` source generator; never `new Regex(...)` at run time.
-- Lock with `System.Threading.Lock` (.NET 9+); never `lock (new object())`-style lock objects.
+- Lock with `System.Threading.Lock` (.NET 9+); never `lock (new object())`-style lock objects. Exception: the libraries target net8.0, where `Lock` does not exist, so they lock on a `private readonly object _lock = new();` field; projects targeting .NET 9+ (tests, benchmarks) use `Lock`.
 
 ### Code samples in the docs
 

@@ -109,7 +109,7 @@ internal static class DeltaKernelAlter
             // The drop itself writes log files only; each data rewrite opens the table on its own, so its rollback
             // covers its own commit and never the drop's other commits.
             using DmlTable table = DmlTable.Open(tablePath, cloud);
-            EnsureRewritable(table.Snapshot, feature);
+            EnsureRewritable(table, feature);
             var parquet = new EngineParquetReader(table.Root, cloud);
             return Kaminari.Seseragi.Lakehouse.Delta.DropFeature.Run(
                 table.FileSystem, () => Snapshot.Load(table.FileSystem, null, parquet), feature, new EngineRewriter(tablePath, cloud));
@@ -121,11 +121,13 @@ internal static class DeltaKernelAlter
 
         // Refuses, before anything is committed, a drop whose data rewrite could not write the table's files (map
         // columns; see DeltaKernelWrite.EnsureNoMaps).
-        static void EnsureRewritable(Snapshot snapshot, string feature)
+        static void EnsureRewritable(DmlTable table, string feature)
         {
+            Snapshot snapshot = table.Snapshot;
+            if (!snapshot.Schema.Fields.Any(f => !snapshot.PartitionColumns.Contains(f.Name) && DeltaKernelWrite.HasMap(f.Type))) return;
             bool rewrites = feature.ToLowerInvariant() switch
             {
-                "deletionvectors" => snapshot.Files.Any(f => f.DeletionVector is not null),
+                "deletionvectors" => DeltaKernelOptimize.PurgeFiles(table).Count > 0,
                 "typewidening" or "typewidening-preview" =>
                     snapshot.Files.Count > 0 && snapshot.Metadata.SchemaString.Contains(SchemaEvolution.TypeChangesKey, StringComparison.Ordinal),
                 "columnmapping" => snapshot.Files.Count > 0 && snapshot.ColumnMappingMode != ColumnMappingMode.None,
@@ -138,10 +140,9 @@ internal static class DeltaKernelAlter
     /// <summary>The data rewrites of a drop, through the engine; each one opens the table at its latest version.</summary>
     private sealed class EngineRewriter(string tablePath, CloudArgs? cloud) : IFeatureRewriter
     {
-        public long? PurgeDeletionVectors() =>
-            DeltaKernelOptimize.Reorg(tablePath, cloud, t => [.. t.Snapshot.Files.Where(f => f.DeletionVector is not null)]);
+        public long? PurgeDeletionVectors() => DeltaKernelOptimize.Reorg(tablePath, cloud, DeltaKernelOptimize.PurgeFiles)?.Version;
 
-        public long? RewriteWidenedFiles() => DeltaKernelOptimize.Reorg(tablePath, cloud, Widened);
+        public long? RewriteWidenedFiles() => DeltaKernelOptimize.Reorg(tablePath, cloud, Widened)?.Version;
 
         /// <summary>
         /// Spark's REMOVE COLUMN MAPPING: every file rewritten under the logical column names (one by one, deleted

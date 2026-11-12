@@ -1,6 +1,7 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
+using Kaminari.Seseragi.Lakehouse.Parquet;
 using Apache.Arrow;
 using Kaminari.Sazanami.Curves;
 using Kaminari.Sazanami.Ordering;
@@ -197,14 +198,14 @@ internal static class DeltaKernelOptimize
     /// Rewrites the chosen files of a table as Spark's <c>REORG TABLE … APPLY (PURGE)</c> does, which is also how
     /// dropping deletion vectors and type widening rewrites them: their live rows, in the table's types, packed per
     /// partition into files of about the target size, committed as data that did not change. Rows keep their row
-    /// ids. Retried as a whole on a commit conflict (the files are chosen anew); returns the version committed, or
+    /// ids. Retried as a whole on a commit conflict (the files are chosen anew); returns what was committed, or
     /// null when no file is chosen.
     /// </summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     /// <param name="choose">The files to rewrite, from the table as it is now.</param>
     /// <param name="targetFileSize">The size, in bytes, files are packed toward.</param>
-    internal static long? Reorg(string tablePath, CloudArgs? cloud, Func<DmlTable, IReadOnlyList<AddAction>> choose, long targetFileSize = 128L * 1024 * 1024) =>
+    internal static DeltaOptimizeResult? Reorg(string tablePath, CloudArgs? cloud, Func<DmlTable, IReadOnlyList<AddAction>> choose, long targetFileSize = 128L * 1024 * 1024) =>
         ConflictRetry.Run(() =>
         {
             try
@@ -213,7 +214,7 @@ internal static class DeltaKernelOptimize
                 using DmlTable table = DmlTable.Open(tablePath, cloud);
                 Snapshot snapshot = table.Snapshot;
                 IReadOnlyList<AddAction> files = choose(table);
-                if (files.Count == 0) return (long?)null;
+                if (files.Count == 0) return (DeltaOptimizeResult?)null;
 
                 var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                 foreach (List<AddAction> bin in ByPartition(snapshot, files).SelectMany(p => Pack(p, targetFileSize)))
@@ -222,13 +223,39 @@ internal static class DeltaKernelOptimize
                 var transaction = Transaction.Start(table.FileSystem, snapshot, "REORG");
                 transaction.ReadFiles(files);
                 transaction.WithParameter("predicate", "[]").WithParameter("applyPurge", true);
-                return Commit(table, tablePath, transaction, plan, files.Count, cloud).Version;
+                return Commit(table, tablePath, transaction, plan, files.Count, cloud);
             }
             catch (DeltaException e)
             {
                 throw new PolarsException(e.Message, e);
             }
         });
+
+    /// <summary>
+    /// Spark's <c>REORG TABLE … APPLY (PURGE)</c>: rewrites the files with deletion vectors and the files that still
+    /// hold the data of dropped columns, so that neither the deleted rows nor the dropped columns are left in the
+    /// table's current files (a vacuum then removes the old ones). Returns what was committed, or null when no file
+    /// needs it.
+    /// </summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    internal static DeltaOptimizeResult? Purge(string tablePath, CloudArgs? cloud) => Reorg(tablePath, cloud, PurgeFiles);
+
+    /// <summary>
+    /// The files a purge rewrites, as Spark's <c>DeltaPurgeOperation</c>: those whose footer holds a column the
+    /// table no longer has, then those with a deletion vector that deletes rows (or whose row count is unknown).
+    /// </summary>
+    internal static List<AddAction> PurgeFiles(DmlTable table)
+    {
+        Snapshot snapshot = table.Snapshot;
+        IReadOnlyList<AddAction> files = snapshot.Files;
+        string[] hidden = RowTracking.MaterializedColumns(snapshot.Metadata) is var (rowId, commitVersion) ? [rowId, commitVersion] : [];
+        (long Size, ParquetMetadata Footer)[] footers = ParquetFooters.Read(table.FileSystem, [.. files.Select(f => f.DecodedPath)]);
+        List<AddAction> extra = [.. files.Where((_, i) => FileTypes.HasExtraColumns(snapshot.Schema, hidden, footers[i].Footer))];
+        IEnumerable<AddAction> deleted = files.Where(f =>
+            f.DeletionVector is { } vector && (f.ParsedStats?.NumRecords is null || vector.Cardinality > 0));
+        return [.. extra.Concat(deleted).Distinct()];
+    }
 
     /// <summary>Replaces the files of a bin (all of one partition) with files holding their live rows.</summary>
     private static void Rewrite(DmlTable table, List<AddAction> bin, string[]? zOrderColumns, long target, DmlPlan plan)

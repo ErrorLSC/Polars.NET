@@ -732,15 +732,16 @@ internal static class DeltaKernelWrite
                 $"The table has map columns ({string.Join(", ", maps)}), which cannot be written yet in a form other readers " +
                 "(Spark, Databricks) read, so data files of this table are not written. Deletes on a table with deletion " +
                 "vectors (delta.enableDeletionVectors) need no rewrite and are not affected.");
-
-        static bool HasMap(DeltaType type) => type switch
-        {
-            MapType => true,
-            StructType s => s.Fields.Any(f => HasMap(f.Type)),
-            ArrayType a => HasMap(a.ElementType),
-            _ => false,
-        };
     }
+
+    /// <summary>Whether the type holds a map at any depth (see <see cref="EnsureNoMaps"/>).</summary>
+    internal static bool HasMap(DeltaType type) => type switch
+    {
+        MapType => true,
+        StructType s => s.Fields.Any(f => HasMap(f.Type)),
+        ArrayType a => HasMap(a.ElementType),
+        _ => false,
+    };
 
     /// <summary>Partition values as the log keys them: by physical column name.</summary>
     private static Dictionary<string, string?> Logged(Dictionary<string, string?> values, StructType schema, string[] partitions) =>

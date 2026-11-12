@@ -220,7 +220,7 @@ type Delta =
 
     /// <summary>
     /// Drops columns, as Spark's ALTER TABLE … DROP COLUMNS: one metadata commit; the data stays in the files until they
-    /// are rewritten but is no longer read, and a column added later under the same name is a new column. Needs column
+    /// are rewritten (Delta.Purge) but is no longer read, and a column added later under the same name is a new column. Needs column
     /// mapping. Partition columns, clustering columns (and structs holding them) and the last column of the table or of
     /// a struct cannot be dropped.
     /// </summary>
@@ -623,6 +623,20 @@ type Delta =
     static member DropFeature(path: string, featureName: string, ?cloudOptions: CloudOptions) =
         let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.DropFeature(path, featureName, cKeys, cVals)
+
+    /// <summary>
+    /// Purges deleted rows and dropped columns from the table's current files, as Spark's REORG TABLE … APPLY
+    /// (PURGE): the files with deletion vectors and the files that still hold the data of dropped columns (DropColumns
+    /// under column mapping only hides them) are rewritten with their live rows and the table's columns, packed per
+    /// partition, in one commit that changes no data. The old files stay for time travel until Vacuum removes them,
+    /// so purge and then vacuum to remove the data from storage.
+    /// </summary>
+    /// <param name="path">The root URI of the Delta table.</param>
+    /// <param name="cloudOptions">Cloud storage credentials.</param>
+    /// <returns>The number of files rewritten; 0 when no file needed it (nothing is committed then).</returns>
+    static member Purge(path: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        int64 (PolarsWrapper.DeltaPurge(path, cKeys, cVals))
 
     /// <summary>
     /// Enables a specific feature on the Delta Table.
@@ -1578,6 +1592,16 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     member this.DropFeature(catalogName: string, schemaName: string, tableName: string, featureName: string, ?cloudOptions: CloudOptions) =
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.CatalogDropFeature(this.Handle, catalogName, schemaName, tableName, featureName, keys, values)
+
+    /// <summary>Purges deleted rows and dropped columns from a catalog table's files; see Delta.Purge.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <returns>The number of files rewritten; 0 when no file needed it.</returns>
+    member this.PurgeCatalogTable(catalogName: string, schemaName: string, tableName: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        int64 (PolarsWrapper.CatalogPurge(this.Handle, catalogName, schemaName, tableName, keys, values))
 
     /// <summary>
     /// Adds a feature to the Unity Catalog Delta table.

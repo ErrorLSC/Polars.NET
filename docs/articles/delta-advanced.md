@@ -90,6 +90,7 @@ Delta.Optimize("./lake/events", full = true) |> ignore
 Columns are renamed, dropped and widened as Spark's `ALTER TABLE` does it: one commit that changes the schema, without rewriting data. Nested fields are named with dots, `element` for an array's element and `key` / `value` for a map's (`items.element.price`); a part holding a dot goes in backticks.
 
 * `Delta.RenameColumn` and `Delta.DropColumns` need column mapping (`delta.columnMapping.mode` = `name`, which `Delta.SetTableProperties` turns on for an existing table without rewriting it): data files keep their physical column names, so a renamed column reads its old data, and a dropped one is no longer read (a column added later under the same name is a new, empty column). Partition columns and `delta.dataSkippingStatsColumns` follow a rename. Partition columns, clustering columns (and structs holding one) and the last column of the table or of a struct cannot be dropped.
+* `Delta.Purge` (Spark's `REORG TABLE … APPLY (PURGE)`; Unity Catalog: `PurgeCatalogTable`) removes what a drop or a delete only hides from the current files: the files that still hold a dropped column (at any depth) and the files with deletion vectors are rewritten without it, packed per partition, in one commit that changes no data. It returns the number of files rewritten, and commits nothing when no file needs it. The old files stay for time travel until `Delta.Vacuum` removes them, so purge and then vacuum to remove the data from storage. Catalog-managed tables refuse it, as Spark does.
 * `Delta.ChangeColumnType` needs type widening (`delta.enableTypeWidening` = `true`). Allowed: integers to wider integers, a wide enough decimal, or (from Int8, Int16, Int32) Float64; Float32 to Float64; decimals to wider decimals; Date to Datetime without a time zone (needs the `timestampNtz` feature). Older files are read in their own types and cast.
 
 ::: code-group
@@ -101,6 +102,9 @@ Delta.RenameColumn("./lake/orders", "customer", "client");
 Delta.RenameColumn("./lake/orders", "address.zip", "postcode");      // a nested field
 Delta.DropColumns("./lake/orders", ["comment", "address.line2"]);
 Delta.ChangeColumnType("./lake/orders", "quantity", DataType.Int64);  // Int32 → Int64
+
+long rewritten = Delta.Purge("./lake/orders");                       // the dropped columns leave the files
+Delta.Vacuum("./lake/orders", retentionHours: 168);                   // and, once out of the retention, the storage
 ```
 
 ```fsharp [F# (Pipeline)]
@@ -110,6 +114,9 @@ Delta.RenameColumn("./lake/orders", "customer", "client")
 Delta.RenameColumn("./lake/orders", "address.zip", "postcode")
 Delta.DropColumns("./lake/orders", [ "comment"; "address.line2" ])
 Delta.ChangeColumnType("./lake/orders", "quantity", DataType.Int64)
+
+let rewritten = Delta.Purge("./lake/orders")
+Delta.Vacuum("./lake/orders", retentionHours = 168) |> ignore
 ```
 
 :::
@@ -118,7 +125,7 @@ Delta.ChangeColumnType("./lake/orders", "quantity", DataType.Int64)
 
 `Delta.DropFeature` removes a table feature, as Spark's `ALTER TABLE … DROP FEATURE` does, so readers and writers that lack the feature can use the table again. The feature's traces go first, each step its own commit and each skipped when already done, so a drop that was interrupted is finished by running it again:
 
-* **Deletion vectors:** the property is turned off, the files with deletion vectors are rewritten without the deleted rows (`REORG … APPLY (PURGE)`), and the vector files are recorded for vacuum.
+* **Deletion vectors:** the property is turned off, the files with deletion vectors are rewritten without the deleted rows, together with the files that still hold dropped columns (`REORG … APPLY (PURGE)`, as `Delta.Purge`), and the vector files are recorded for vacuum.
 * **Type widening:** the property is turned off, the files that still hold a column in an older type (found from their Parquet footers) are rewritten in the table's types, and the type changes leave the schema.
 * **Column mapping:** every file is rewritten with the columns under their logical names (deleted rows left out), in one commit that also takes the mapping out of the schema. Column names that a Parquet file cannot hold without column mapping (with any of ` ,;{}()\n\t=`) are refused: rename them first.
 * **Row tracking:** tracking is suspended and turned off, then the row ids leave the log.
@@ -173,7 +180,7 @@ A catalog-managed table (the `catalogManaged` feature, which Unity Catalog's man
 
 Polars.NET reads and writes such tables through `UnityCatalog`, as Delta Spark 4.4 does with the Unity Catalog connector: scans see every commit the catalog ratified, and appends, deletes, updates (`UpdateCatalogRecords`), merges, schema evolution, `ClusterCatalogTable`, `DropCatalogColumns`, `ChangeCatalogColumnType`, properties and `DeltaRestore` commit through it. The catalog keeps a copy of the table's properties, columns, protocol and clustering, and each commit updates it. Commits other writers left unpublished are published first, in order.
 
-The same table cannot be read or written by its path: the catalog may know of commits the files do not show yet. Operations Delta Spark refuses on these tables are refused here too: `OptimizeCatalogTable`, `DeltaVacuum`, `RenameCatalogColumn` and `DropFeature`. Log cleanup is left to the catalog.
+The same table cannot be read or written by its path: the catalog may know of commits the files do not show yet. Operations Delta Spark refuses on these tables are refused here too: `OptimizeCatalogTable`, `PurgeCatalogTable`, `DeltaVacuum`, `RenameCatalogColumn` and `DropFeature`. Log cleanup is left to the catalog.
 
 ::: code-group
 

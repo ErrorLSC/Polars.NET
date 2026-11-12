@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
@@ -9,7 +10,7 @@ using Delta = Polars.CSharp.Delta;
 namespace Polars.Integration.Tests;
 
 /// <summary>Dropping table features (Spark's ALTER TABLE … DROP FEATURE) and tables Spark dropped features on.</summary>
-public class SparkDropFeatureTests
+public partial class SparkDropFeatureTests
 {
     private static void InRoot(Action<string> body)
     {
@@ -106,7 +107,8 @@ public class SparkDropFeatureTests
                         parts.Add("conf " + string.Join(",", action.Value.GetProperty("configuration").EnumerateObject()
                             .Select(c => $"{c.Name}={(c.Name.Contains("materialized", StringComparison.Ordinal) || c.Name.Contains("Enablement", StringComparison.Ordinal) ? "*" : c.Value.GetString())}")
                             .Order(StringComparer.Ordinal)));
-                        parts.Add("schema " + action.Value.GetProperty("schemaString").GetString());
+                        // Physical names under column mapping are random per table.
+                        parts.Add("schema " + PhysicalName().Replace(action.Value.GetProperty("schemaString").GetString()!, "col-*"));
                         break;
                     case "domainMetadata":
                         kinds.Add($"domain {action.Value.GetProperty("domain").GetString()} removed={action.Value.GetProperty("removed").GetBoolean()}");
@@ -172,6 +174,16 @@ public class SparkDropFeatureTests
         "DELETE FROM {table} WHERE id = 2",
         "DELETE FROM {table} WHERE id = 4",
         "DELETE FROM {table} WHERE id = 5")]
+    // … with a dropped column: the purge also rewrites the file that still holds it (with and without a vector elsewhere).
+    [InlineData("deletionVectors", "(id INT, v STRING, w STRING) USING delta", "'delta.enableDeletionVectors'='true', 'delta.columnMapping.mode'='name'",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, 'a', 'x'), (2, 'b', 'y') AS x(id, v, w)",
+        "ALTER TABLE {table} DROP COLUMN v",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (3, 'z'), (4, 'q') AS x(id, w)",
+        "DELETE FROM {table} WHERE id = 3")]
+    [InlineData("deletionVectors", "(id INT, v STRING, w STRING) USING delta", "'delta.enableDeletionVectors'='true', 'delta.columnMapping.mode'='name'",
+        "INSERT INTO {table} VALUES (1, 'a', 'x')",
+        "ALTER TABLE {table} DROP COLUMN v",
+        "INSERT INTO {table} VALUES (2, 'y')")]
     // Type widening: each file but the last holds older types; the one before it only an older short (16-bit int).
     [InlineData("typeWidening", "(id INT, s SHORT, i INT, f FLOAT, d DECIMAL(5,2), a ARRAY<SHORT>, st STRUCT<x: SHORT>) USING delta", "'delta.enableTypeWidening'='true'",
         "INSERT INTO {table} VALUES (1, 1, 1, 1.5, 1.25, array(1), named_struct('x', 1))",
@@ -253,6 +265,95 @@ public class SparkDropFeatureTests
             }
             // Spark writes the table on.
             LocalSpark.Run("sql", kernel, "INSERT INTO {table} (id) VALUES (7)");
+        });
+    }
+
+    [GeneratedRegex("col-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")]
+    private static partial Regex PhysicalName();
+
+    /// <summary>The version each file of the log was added in, by path.</summary>
+    private static Dictionary<string, long> AddedIn(string table)
+    {
+        Dictionary<string, long> added = [];
+        for (long v = 0; File.Exists(Path.Combine(table, "_delta_log", $"{v:D20}.json")); v++)
+            foreach (string line in File.ReadAllLines(Path.Combine(table, "_delta_log", $"{v:D20}.json")))
+            {
+                using JsonDocument doc = JsonDocument.Parse(line);
+                if (doc.RootElement.TryGetProperty("add", out JsonElement add)) added[add.GetProperty("path").GetString()!] = v;
+            }
+        return added;
+    }
+
+    /// <summary>The files a commit removed, named by the version that added each (the same in both tables).</summary>
+    private static long[] RemovedFilesAddedIn(string table, long version)
+    {
+        string commit = Path.Combine(table, "_delta_log", $"{version:D20}.json");
+        if (!File.Exists(commit)) return [];
+        Dictionary<string, long> added = AddedIn(table);
+        return [.. File.ReadAllLines(commit)
+            .Select(line => JsonDocument.Parse(line).RootElement)
+            .Where(a => a.TryGetProperty("remove", out _))
+            .Select(a => added[a.GetProperty("remove").GetProperty("path").GetString()!])
+            .Order()];
+    }
+
+    [SparkTheory]
+    // Dropped columns: top level, a struct field, a field of the structs in an array.
+    [InlineData("(id INT, v STRING, w STRING)", "'delta.columnMapping.mode'='name'",
+        "INSERT INTO {table} VALUES (1, 'a', 'x')", "ALTER TABLE {table} DROP COLUMN v", "INSERT INTO {table} VALUES (2, 'y')")]
+    [InlineData("(id INT, st STRUCT<x: INT, y: INT>)", "'delta.columnMapping.mode'='name'",
+        "INSERT INTO {table} VALUES (1, named_struct('x', 1, 'y', 1))", "ALTER TABLE {table} DROP COLUMN st.y",
+        "INSERT INTO {table} VALUES (2, named_struct('x', 2))")]
+    [InlineData("(id INT, a ARRAY<STRUCT<x: INT, y: INT>>)", "'delta.columnMapping.mode'='name'",
+        "INSERT INTO {table} VALUES (1, array(named_struct('x', 1, 'y', 1)))", "ALTER TABLE {table} DROP COLUMN a.element.y",
+        "INSERT INTO {table} VALUES (2, array(named_struct('x', 2)))")]
+    // Files holding the materialized row tracking columns only: nothing to purge, no commit.
+    [InlineData("(id INT, v STRING)", "'delta.enableRowTracking'='true', 'delta.enableDeletionVectors'='false'",
+        "INSERT INTO {table} VALUES (1, 'a')", "INSERT INTO {table} VALUES (2, 'b')", "UPDATE {table} SET v = 'c' WHERE id = 2")]
+    // Deletion vectors and a dropped column: a file with a vector, one holding the column, one with both, one clean;
+    // in two partitions (packed per partition).
+    [InlineData("(id INT, v STRING, p STRING) USING delta PARTITIONED BY (p)", "'delta.columnMapping.mode'='name', 'delta.enableDeletionVectors'='true'",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, 'a', 'p1'), (2, 'b', 'p1') AS x(id, v, p)",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (3, 'c', 'p1'), (4, 'd', 'p2') AS x(id, v, p)",
+        "DELETE FROM {table} WHERE id = 1",
+        "ALTER TABLE {table} DROP COLUMN v",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (5, 'p2'), (6, 'p2') AS x(id, p)",
+        "DELETE FROM {table} WHERE id = 5",
+        "INSERT INTO {table} VALUES (7, 'p1')")]
+    [Trait("DeltaKernel", "Spark")]
+    public void Purge_RewritesTheFilesSparkRewrites(string definition, string properties, params string[] setup)
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                string create = definition.Contains("USING", StringComparison.Ordinal) ? definition : definition + " USING delta";
+                LocalSpark.Run("sql", table, $"CREATE TABLE {{table}} {create} TBLPROPERTIES ({properties})");
+                foreach (string statement in setup) LocalSpark.Run("sql", table, statement);
+            }
+            long from = setup.Length + 1;
+            string before = SparkRows(spark);
+
+            long purged = Delta.Purge(kernel);
+            LocalSpark.Run("sql", spark, "REORG TABLE {table} APPLY (PURGE)");
+
+            List<string> bySpark = Commits(spark, from), byKernel = Commits(kernel, from);
+            Assert.True(bySpark.SequenceEqual(byKernel), $"Spark:\n{string.Join("\n", bySpark)}\nkernel:\n{string.Join("\n", byKernel)}");
+            long[] removed = RemovedFilesAddedIn(spark, from);
+            Assert.Equal(removed, RemovedFilesAddedIn(kernel, from));
+            Assert.Equal(removed.Length, purged);
+            Assert.Equal(before, SparkRows(spark));
+            Assert.Equal(before, SparkRows(kernel));
+            // No current file holds a dropped column or a deletion vector any more.
+            var fs = new LocalFileSystem(kernel);
+            Snapshot snapshot = Snapshot.Load(fs);
+            string[] hidden = RowTracking.MaterializedColumns(snapshot.Metadata) is var (id, version) ? [id, version] : [];
+            Assert.DoesNotContain(snapshot.Files, f => f.DeletionVector is not null);
+            Assert.All(Kaminari.Seseragi.Lakehouse.Parquet.ParquetFooters.Read(fs, [.. snapshot.Files.Select(f => f.DecodedPath)]),
+                f => Assert.False(FileTypes.HasExtraColumns(snapshot.Schema, hidden, f.Footer)));
+            // Spark writes the table on.
+            LocalSpark.Run("sql", kernel, "INSERT INTO {table} (id) VALUES (8)");
         });
     }
 

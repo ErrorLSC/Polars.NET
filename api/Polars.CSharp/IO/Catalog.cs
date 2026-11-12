@@ -797,6 +797,18 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         PolarsWrapper.CatalogDropFeature(Handle, catalogName, schemaName, tableName, featureName, keys, values);
     }
+
+    /// <summary>Purges deleted rows and dropped columns from a catalog table's files; see <see cref="Delta.Purge"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <returns>The number of files rewritten; 0 when no file needed it.</returns>
+    public long PurgeCatalogTable(string catalogName, string schemaName, string tableName, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        return (long)PolarsWrapper.CatalogPurge(Handle, catalogName, schemaName, tableName, keys, values);
+    }
     /// <summary>
     /// Adds a feature to the Unity Catalog Delta table.
     /// </summary>

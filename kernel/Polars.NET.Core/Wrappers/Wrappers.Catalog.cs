@@ -782,6 +782,14 @@ public readonly partial struct PolarsWrapper
         DropFeature(access.Location, featureName, cloudKeys, cloudValues);
     }
 
+    /// <summary>Purges a catalog table (Spark's REORG … APPLY (PURGE)); returns the number of files rewritten.</summary>
+    public static ulong CatalogPurge(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "REORG");
+        return DeltaPurge(access.Location, cloudKeys, cloudValues);
+    }
+
     public static LazyFrameHandle CatalogReadCdc(
         CatalogHandle handle,
         string catalogName,

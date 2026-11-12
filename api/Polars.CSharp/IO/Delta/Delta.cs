@@ -224,8 +224,8 @@ public static class Delta
 
     /// <summary>
     /// Drops columns, as Spark's <c>ALTER TABLE … DROP COLUMNS</c>: one metadata commit; the data stays in the files
-    /// until they are rewritten but is no longer read, and a column added later under the same name is a new column.
-    /// Needs column mapping (see <see cref="RenameColumn"/>). Partition columns, clustering columns (and structs holding
+    /// until they are rewritten (<see cref="Purge"/>) but is no longer read, and a column added later under the same
+    /// name is a new column. Needs column mapping (see <see cref="RenameColumn"/>). Partition columns, clustering columns (and structs holding
     /// them) and the last column of the table or of a struct cannot be dropped.
     /// </summary>
     /// <param name="path">The table location: a local directory or a cloud URL.</param>
@@ -658,6 +658,21 @@ public static class Delta
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         PolarsWrapper.DropFeature(path, featureName, keys, values);
+    }
+    /// <summary>
+    /// Purges deleted rows and dropped columns from the table's current files, as Spark's <c>REORG TABLE … APPLY
+    /// (PURGE)</c>: the files with deletion vectors and the files that still hold the data of dropped columns (a
+    /// <see cref="DropColumns"/> under column mapping only hides them) are rewritten with their live rows and the
+    /// table's columns, packed per partition, in one commit that changes no data. The old files stay for time travel
+    /// until <see cref="Vacuum"/> removes them, so purge and then vacuum to remove the data from storage.
+    /// </summary>
+    /// <param name="path">The root URI of the Delta table.</param>
+    /// <param name="cloudOptions">Cloud storage credentials.</param>
+    /// <returns>The number of files rewritten; 0 when no file needed it (nothing is committed then).</returns>
+    public static long Purge(string path, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        return (long)PolarsWrapper.DeltaPurge(path, keys, values);
     }
     /// <summary>
     /// Sets or updates properties on the Delta Table.

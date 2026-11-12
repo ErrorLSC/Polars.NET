@@ -101,6 +101,12 @@ public readonly partial struct PolarsWrapper
     /// <summary>Drops a table feature (Spark's ALTER TABLE … DROP FEATURE).</summary>
     public static void DropFeature(string path, string featureName, string[]? cloudKeys, string[]? cloudValues) =>
         Delta.DeltaKernelAlter.DropFeature(path, featureName, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>
+    /// Rewrites the files with deletion vectors and the files holding dropped columns (Spark's REORG … APPLY (PURGE));
+    /// returns the number of files rewritten.
+    /// </summary>
+    public static ulong DeltaPurge(string path, string[]? cloudKeys, string[]? cloudValues) =>
+        (ulong)(Delta.DeltaKernelOptimize.Purge(path, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues))?.RemovedFiles ?? 0);
     /// <summary>Changes a table's liquid clustering columns (empty: none).</summary>
     public static void DeltaClusterBy(string path, string[] columns, string[]? cloudKeys, string[]? cloudValues)
     {

@@ -4,7 +4,9 @@ using Kaminari.Seseragi.Lakehouse.Parquet;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>Which data files a type widening left in an older type, from their footers.</summary>
+/// <summary>
+/// Which data files a type widening left in an older type, and which still hold dropped columns, from their footers.
+/// </summary>
 public class FileTypesTests
 {
     private const int Int32 = 1, Int64 = 2, Float = 4, Double = 5, ByteArray = 6;
@@ -86,5 +88,59 @@ public class FileTypesTests
         Assert.False(FileTypes.HasOlderTypes(schema, [], Footer(Leaf("id", Int32))));      // the logical name is not the file's column
         Assert.False(FileTypes.HasOlderTypes(schema, ["p"], Footer(Leaf("col-1", Int64), Leaf("p", Int32))));
         Assert.False(FileTypes.HasOlderTypes(schema, [], Footer(Leaf("col-1", Int64))));   // "later" is not in the file
+    }
+
+    private static string Mapped(string name, string physical, string type) =>
+        $$$"""{"name":"{{{name}}}","type":{{{type}}},"nullable":true,"metadata":{"delta.columnMapping.physicalName":"{{{physical}}}"}}""";
+
+    [Fact]
+    public void ADroppedTopLevelColumn_IsExtra_FoundByPhysicalNameInAnyCase()
+    {
+        StructType schema = Table(string.Join(",", Mapped("id", "col-1", "\"integer\""), Field("later", "\"long\"")));
+
+        Assert.False(FileTypes.HasExtraColumns(schema, [], Footer(Leaf("col-1", Int32))));
+        Assert.False(FileTypes.HasExtraColumns(schema, [], Footer(Leaf("COL-1", Int32))));          // any case, as Spark
+        Assert.True(FileTypes.HasExtraColumns(schema, [], Footer(Leaf("col-1", Int32), Leaf("col-2", ByteArray))));
+        Assert.True(FileTypes.HasExtraColumns(schema, [], Footer(Leaf("id", Int32))));              // the logical name is not the column
+        Assert.False(FileTypes.HasExtraColumns(schema, [], Footer()));
+    }
+
+    [Fact]
+    public void TheMaterializedRowTrackingColumns_AreNotExtra()
+    {
+        StructType schema = Table(Field("id", "\"integer\""));
+        ParquetMetadata footer = Footer(Leaf("id", Int32), Leaf("_row-id-col-1", Int64), Leaf("_row-commit-version-col-1", Int64));
+
+        Assert.False(FileTypes.HasExtraColumns(schema, ["_row-id-col-1", "_row-commit-version-col-1"], footer));
+        Assert.True(FileTypes.HasExtraColumns(schema, ["_row-id-col-1"], footer));
+    }
+
+    [Fact]
+    public void DroppedNestedFields_InStructsArrayElementsAndMapValues_AreExtra()
+    {
+        const string Xy = """{"type":"struct","fields":[{"name":"x","type":"integer","nullable":true,"metadata":{}}]}""";
+        StructType schema = Table(string.Join(",",
+            Field("s", Xy),
+            Field("a", $$"""{"type":"array","elementType":{{Xy}},"containsNull":true}"""),
+            Field("m", $$"""{"type":"map","keyType":"string","valueType":{{Xy}},"valueContainsNull":true}""")));
+        static ParquetMetadata Of(bool structY, bool arrayY, bool mapY) => Footer([
+            Group("s", structY ? 2 : 1), Leaf("x", Int32), .. Y(structY),
+            Group("a", 1), Group("list", 1, repetition: 2), Group("element", arrayY ? 2 : 1), Leaf("x", Int32), .. Y(arrayY),
+            Group("m", 1), Group("key_value", 2, repetition: 2), Leaf("key", ByteArray), Group("value", mapY ? 2 : 1), Leaf("x", Int32), .. Y(mapY)]);
+
+        // The dropped field y, when the file still holds it.
+        static ParquetSchemaElement[] Y(bool held) => held ? [Leaf("y", Int32)] : [];
+
+        Assert.False(FileTypes.HasExtraColumns(schema, [], Of(false, false, false)));
+        Assert.True(FileTypes.HasExtraColumns(schema, [], Of(true, false, false)));
+        Assert.True(FileTypes.HasExtraColumns(schema, [], Of(false, true, false)));
+        Assert.True(FileTypes.HasExtraColumns(schema, [], Of(false, false, true)));
+    }
+
+    [Fact]
+    public void AStructWhereTheTableHoldsAPlainValue_IsExtra()
+    {
+        StructType schema = Table(Field("c", "\"integer\""));
+        Assert.True(FileTypes.HasExtraColumns(schema, [], Footer(Group("c", 1), Leaf("x", Int32))));
     }
 }

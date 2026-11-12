@@ -111,6 +111,7 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
         Assert.Contains("VACUUM", Assert.ThrowsAny<Exception>(() => client.DeltaVacuum(catalog, "s", "t")).Message);
         Assert.Contains("RENAME COLUMN", Assert.ThrowsAny<Exception>(() => client.RenameCatalogColumn(catalog, "s", "t", "s", "x")).Message);
         Assert.Contains("DROP FEATURE", Assert.ThrowsAny<Exception>(() => client.DropFeature(catalog, "s", "t", "deletionVectors")).Message);
+        Assert.Contains("REORG", Assert.ThrowsAny<Exception>(() => client.PurgeCatalogTable(catalog, "s", "t")).Message);
         // Nothing was committed.
         using JsonDocument after = Load(catalog);
         Assert.Equal(1, after.RootElement.GetProperty("latest-table-version").GetInt64());

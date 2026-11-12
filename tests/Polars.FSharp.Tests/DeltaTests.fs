@@ -304,6 +304,27 @@ let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the da
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Purge rewrites the files that hold a dropped column`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_purge_{Guid.NewGuid()}")
+    try
+        Delta.CreateTable(path, PolarsSchema([ "id", DataType.Int32; "note", DataType.String ]), properties = [ "delta.columnMapping.mode", "name" ])
+        DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("note", [ "x"; "y" ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+        Delta.DropColumns(path, [ "note" ])
+        DataFrame.create [| Series.create("id", [ 3 ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        Assert.Equal(1L, Delta.Purge(path)) // the first file only
+        Assert.Equal(0L, Delta.Purge(path)) // nothing left: no commit
+
+        let read = DataFrame.ReadDelta(path).Sort("id")
+        Assert.Equal<int list>([ 1; 2; 3 ], read.["id"].ToArray<int>() |> List.ofArray)
+        let operations = Delta.History(path).["operation"].ToArray<string>() |> List.ofArray
+        Assert.Equal<string list>([ "REORG"; "WRITE"; "DROP COLUMNS"; "WRITE"; "CREATE TABLE" ], operations)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Liquid clustering: CreateTable clusterBy, Optimize clusters, ClusterBy changes the columns`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_clustered_{Guid.NewGuid()}")
     try
