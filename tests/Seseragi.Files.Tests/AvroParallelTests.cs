@@ -102,6 +102,30 @@ public class AvroParallelTests
         }
     }
 
+    [Fact]
+    public void Stopping_early_with_sync_dispose_releases_in_flight_work()
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            using var reader = AvroReader.Open(AvroReadTests.Fixture("many_zstandard"), new() { BatchSize = 50, MaxDegreeOfParallelism = 4 });
+            using var first = reader.ReadBatches().First();
+            Assert.Equal(50, first.Length);
+        }
+    }
+
+    [Fact]
+    public async Task Async_dispose_waits_for_in_flight_chunks()
+    {
+        var reader = await AvroReader.OpenAsync(AvroReadTests.Fixture("many_deflate"), new() { BatchSize = 20, MaxDegreeOfParallelism = 8 });
+        await using (var e = reader.ReadBatchesAsync().GetAsyncEnumerator())
+        {
+            Assert.True(await e.MoveNextAsync()); // several chunks are now decoding on the pool
+            e.Current.Dispose();
+        }
+        await reader.DisposeAsync();
+        await reader.DisposeAsync(); // idempotent
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-2)]

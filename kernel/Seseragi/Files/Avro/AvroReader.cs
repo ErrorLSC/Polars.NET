@@ -523,13 +523,14 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     }
 
     /// <summary>Waits for chunks still being decoded and frees everything they and the queues hold.</summary>
-    private void DrainParallel()
+    private async ValueTask DrainParallelAsync(bool useAsync)
     {
         while (_inflight.TryDequeue(out var task))
         {
             try
             {
-                foreach (var b in task.GetAwaiter().GetResult()) b.Dispose();
+                var batches = useAsync ? await task.ConfigureAwait(false) : task.GetAwaiter().GetResult();
+                foreach (var b in batches) b.Dispose();
             }
             catch
             {
@@ -599,7 +600,6 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
 
     private void ReleaseBuffers()
     {
-        DrainParallel();
         _root?.Dispose();
         _root = null;
         _io.Release();
@@ -610,6 +610,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        DrainParallelAsync(false).AsTask().GetAwaiter().GetResult();
         ReleaseBuffers();
         if (!_leaveOpen) _stream.Dispose();
     }
@@ -617,6 +618,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
+        await DrainParallelAsync(true).ConfigureAwait(false); // in-flight chunks finish on the pool; do not block a thread on them
         ReleaseBuffers();
         if (!_leaveOpen) await _stream.DisposeAsync().ConfigureAwait(false);
     }
