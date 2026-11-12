@@ -757,7 +757,7 @@ lf.Filter(pl.col "Price" .> pl.lit 10.0).SinkAvro("copy.avro", AvroCompression.Z
 | `fixed` | `Binary` |
 | `decimal` up to 38 digits | `Decimal` (wider decimals are refused with an error naming the column) |
 | `duration` | `Struct{months: Int32, days: Int32, nanoseconds: Duration(ns)}` |
-| `timestamp-millis/micros/nanos` | `Datetime` in UTC, or in the time zone the writer recorded (see below) |
+| `timestamp-millis/micros/nanos` | `Datetime` in UTC, or in the time zone the writer recorded (see below); without a time zone when the type carries Iceberg's `"adjust-to-utc": false` |
 | `local-timestamp-*` | `Datetime` without a time zone |
 | `date`, `time-millis`, `time-micros` | `Date`, `Time` |
 | `uuid` | `String` |

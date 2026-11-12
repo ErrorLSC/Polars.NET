@@ -112,8 +112,20 @@ public abstract class AvroSchema
     /// <summary>Schema attribute carrying the original Arrow time zone of a <c>timestamp-*</c> field.</summary>
     public const string TimezoneProperty = "kaminari.timezone";
 
-    /// <summary>The attributes of this node that the package does not interpret, by name, as JSON.</summary>
+    /// <summary>The attributes of this node that the parser does not turn into typed members, by name, as JSON,
+    /// written back as they are. A few of them also have a typed accessor (<see cref="AdjustToUtc"/>,
+    /// <see cref="AvroArraySchema.ElementId"/>, …).</summary>
     public IReadOnlyDictionary<string, JsonElement> Properties { get; internal init; } = AvroProperties.Empty;
+
+    /// <summary>
+    /// Iceberg's <c>adjust-to-utc</c> attribute on a <c>timestamp-*</c> type: <c>true</c> for an instant
+    /// (<c>timestamptz</c>), <c>false</c> for a wall-clock time (<c>timestamp</c>), null when absent or not a JSON
+    /// boolean. A <c>timestamp-*</c> with <c>false</c> reads as a timestamp without a time zone.
+    /// </summary>
+    public bool? AdjustToUtc => Properties.TryGetValue(AvroProperties.AdjustToUtc, out JsonElement value)
+        && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
 
     /// <summary>Parses Avro schema JSON.</summary>
     /// <exception cref="AvroFormatException">The JSON is not a valid Avro schema.</exception>
@@ -303,6 +315,7 @@ internal static class AvroProperties
     public const string ElementId = "element-id";
     public const string KeyId = "key-id";
     public const string ValueId = "value-id";
+    public const string AdjustToUtc = "adjust-to-utc";
 
     public static readonly IReadOnlyDictionary<string, JsonElement> Empty = FrozenDictionary<string, JsonElement>.Empty;
 

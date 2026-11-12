@@ -8,7 +8,9 @@ namespace Kaminari.Sazanami.Arrow;
 /// <remarks>
 /// <para>
 /// <see cref="Get{T}(int)"/> reads <c>bool</c>, the integer types, <see cref="Half"/>, <c>float</c>, <c>double</c>,
-/// <c>decimal</c>, <see cref="System.Data.SqlTypes.SqlDecimal"/> (38 digits), <see cref="DateOnly"/>, <see cref="DateTimeOffset"/>, <see cref="Guid"/>, <see cref="string"/>,
+/// <c>decimal</c>, <see cref="System.Data.SqlTypes.SqlDecimal"/> (38 digits), <see cref="DateOnly"/>, <see cref="DateTime"/>,
+/// <see cref="DateTimeOffset"/> (zoned timestamps only: a zone-less one is a wall-clock time; <see cref="DateTime"/>
+/// reads it with <see cref="DateTimeKind.Unspecified"/>), <see cref="Guid"/>, <see cref="string"/>,
 /// <c>byte[]</c> and <see cref="ArrowRow"/>, each also as its nullable form. Integers and floating-point values
 /// widen without loss (an <c>int</c> column reads as <c>long</c>, a <c>float</c> one as <c>double</c>); a narrowing
 /// or a different kind of value throws <see cref="InvalidCastException"/> naming the field. Temporal columns read

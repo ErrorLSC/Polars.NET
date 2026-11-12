@@ -293,6 +293,30 @@ public class ArrowRowsTests
             BitConverter.ToUInt64(rows[1].GetBytes("d")[8..]), BitConverter.ToUInt64(rows[1].GetBytes("d")[..8])));
     }
 
+    [Fact]
+    public void Timestamps_read_as_instants_only_when_zoned()
+    {
+        long micros = 1_709_296_496_123_456; // 2024-03-01T12:34:56.123456
+        var zoned = new TimestampArray.Builder(new TimestampType(TimeUnit.Microsecond, "UTC")).Append(DateTimeOffset.FromUnixTimeMilliseconds(0)).Build();
+        var naive = new TimestampArray(new ArrayData(new TimestampType(TimeUnit.Microsecond, (string?)null), 1, 0, 0,
+            [ArrowBuffer.Empty, new ArrowBuffer.Builder<long>().Append(micros).Build()]));
+        var nanos = new TimestampArray(new ArrayData(new TimestampType(TimeUnit.Nanosecond, "UTC"), 2, 0, 0,
+            [ArrowBuffer.Empty, new ArrowBuffer.Builder<long>().Append(1_000_000_100).Append(1_000_000_001).Build()]));
+        RecordBatch batch = new(new Schema([new("z", zoned.Data.DataType, true), new("n", naive.Data.DataType, true)], []), [zoned, naive], 1);
+        ArrowRow row = ArrowRows.Over(batch)[0];
+
+        Assert.Equal(DateTimeOffset.UnixEpoch, row.Get<DateTimeOffset>("z"));
+        Assert.Equal(DateTimeKind.Utc, row.Get<DateTime>("z").Kind);
+        DateTime wall = row.Get<DateTime>("n");
+        Assert.Equal((DateTimeKind.Unspecified, new DateTime(2024, 3, 1, 12, 34, 56).AddTicks(1_234_560)), (wall.Kind, wall));
+        Assert.Throws<InvalidCastException>(() => row.Get<DateTimeOffset>("n")); // a wall-clock time has no offset
+        Assert.Equal(micros, row.Get<long>("n"));
+
+        ArrowRows ns = ArrowRows.Over(new RecordBatch(new Schema([new("t", nanos.Data.DataType, true)], []), [nanos], 2));
+        Assert.Equal(DateTimeOffset.UnixEpoch.AddTicks(10_000_001), ns[0].Get<DateTimeOffset>("t"));
+        Assert.Throws<OverflowException>(() => ns[1].Get<DateTimeOffset>("t")); // 1 ns is not a whole tick
+    }
+
     // ---- slices -------------------------------------------------------------------------------------------------
 
     [Fact]

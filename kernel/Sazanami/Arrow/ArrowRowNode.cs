@@ -56,6 +56,7 @@ internal sealed class ArrowRowNode(IArrowArray array, Field field, string path, 
         if (typeof(T) == typeof(decimal) || typeof(T) == typeof(decimal?)) return As<decimal, T>(ReadDecimal(index, typeof(T)));
         if (typeof(T) == typeof(DateOnly) || typeof(T) == typeof(DateOnly?)) return As<DateOnly, T>(ReadDate(index, typeof(T)));
         if (typeof(T) == typeof(DateTimeOffset) || typeof(T) == typeof(DateTimeOffset?)) return As<DateTimeOffset, T>(ReadTimestamp(index, typeof(T)));
+        if (typeof(T) == typeof(DateTime) || typeof(T) == typeof(DateTime?)) return As<DateTime, T>(ReadDateTime(index, typeof(T)));
         if (typeof(T) == typeof(Guid) || typeof(T) == typeof(Guid?)) return As<Guid, T>(ReadGuid(index, typeof(T)));
         if (typeof(T) == typeof(SqlDecimal) || typeof(T) == typeof(SqlDecimal?)) return As<SqlDecimal, T>(ReadSqlDecimal(index, typeof(T)));
         throw new NotSupportedException($"Values cannot be read as {typeof(T)}.");
@@ -183,9 +184,34 @@ internal sealed class ArrowRowNode(IArrowArray array, Field field, string path, 
         _ => throw Mismatch(target),
     };
 
+    // A zoned timestamp as an instant; a zone-less one is a wall-clock time and has no offset to give.
     private DateTimeOffset ReadTimestamp(int index, Type target) => TypeId == ArrowTypeId.Timestamp
-        ? ((TimestampArray)Array).GetTimestampUnchecked(index)
-        : throw Mismatch(target);
+        && !string.IsNullOrEmpty(((TimestampType)Array.Data.DataType).Timezone)
+            ? new DateTimeOffset(TimestampTicks(index), TimeSpan.Zero)
+            : throw Mismatch(target);
+
+    // Zoned → DateTimeKind.Utc (the instant), zone-less → DateTimeKind.Unspecified (the wall-clock time).
+    private DateTime ReadDateTime(int index, Type target) => TypeId == ArrowTypeId.Timestamp
+        ? new DateTime(TimestampTicks(index), string.IsNullOrEmpty(((TimestampType)Array.Data.DataType).Timezone)
+            ? DateTimeKind.Unspecified
+            : DateTimeKind.Utc)
+        : throw Mismatch(typeof(DateTime));
+
+    // Ticks since 0001-01-01; nanoseconds that are not whole ticks (100 ns) are refused, not truncated.
+    private long TimestampTicks(int index)
+    {
+        long value = ((TimestampArray)Array).Values[index];
+        long ticks = ((TimestampType)Array.Data.DataType).Unit switch
+        {
+            TimeUnit.Second => checked(value * TimeSpan.TicksPerSecond),
+            TimeUnit.Millisecond => checked(value * TimeSpan.TicksPerMillisecond),
+            TimeUnit.Microsecond => checked(value * 10),
+            _ when value % 100 != 0 => throw new OverflowException(
+                $"'{Path}' holds {value} ns, which is not a whole number of 100 ns ticks; read it as long."),
+            _ => value / 100,
+        };
+        return checked(DateTime.UnixEpoch.Ticks + ticks);
+    }
 
     // A uuid: 16 bytes in big-endian (RFC 4122) order, or its text form.
     private Guid ReadGuid(int index, Type target) => TypeId switch

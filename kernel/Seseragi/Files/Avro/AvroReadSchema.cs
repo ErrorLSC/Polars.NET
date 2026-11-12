@@ -125,6 +125,11 @@ internal static class AvroReadSchema
     private static IArrowType DecimalType(int precision, int scale) =>
         precision <= 38 ? new Decimal128Type(precision, scale) : new Decimal256Type(precision, scale);
 
+    /// <summary>A <c>timestamp-*</c>: in UTC or the zone kept in <c>kaminari.timezone</c>, but without a zone when
+    /// Iceberg's <c>adjust-to-utc</c> is false (a wall-clock <c>timestamp</c>, which wins over our zone attribute).</summary>
+    private static TimestampType Instant(TimeUnit unit, AvroSchema s) =>
+        new(unit, s.AdjustToUtc == false ? null : s.Timezone ?? "UTC");
+
     private static IArrowType PrimitiveType(AvroSchema s) => (s.Type, s.Logical) switch
     {
         (AvroType.Null, _) => NullType.Default,
@@ -134,9 +139,9 @@ internal static class AvroReadSchema
         (AvroType.Int, AvroLogicalKind.SparkYearMonthInterval) => IntervalType.YearMonth,
         (AvroType.Int, _) => Int32Type.Default,
         (AvroType.Long, AvroLogicalKind.TimeMicros) => TimeType.Microsecond,
-        (AvroType.Long, AvroLogicalKind.TimestampMillis) => new TimestampType(TimeUnit.Millisecond, s.Timezone ?? "UTC"),
-        (AvroType.Long, AvroLogicalKind.TimestampMicros) => new TimestampType(TimeUnit.Microsecond, s.Timezone ?? "UTC"),
-        (AvroType.Long, AvroLogicalKind.TimestampNanos) => new TimestampType(TimeUnit.Nanosecond, s.Timezone ?? "UTC"),
+        (AvroType.Long, AvroLogicalKind.TimestampMillis) => Instant(TimeUnit.Millisecond, s),
+        (AvroType.Long, AvroLogicalKind.TimestampMicros) => Instant(TimeUnit.Microsecond, s),
+        (AvroType.Long, AvroLogicalKind.TimestampNanos) => Instant(TimeUnit.Nanosecond, s),
         (AvroType.Long, AvroLogicalKind.LocalTimestampMillis) => new TimestampType(TimeUnit.Millisecond, (string?)null),
         (AvroType.Long, AvroLogicalKind.LocalTimestampMicros) => new TimestampType(TimeUnit.Microsecond, (string?)null),
         (AvroType.Long, AvroLogicalKind.LocalTimestampNanos) => new TimestampType(TimeUnit.Nanosecond, (string?)null),

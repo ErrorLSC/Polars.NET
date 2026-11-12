@@ -103,6 +103,17 @@ public class AvroManagedTests
     }
 
     [Fact]
+    public void Wall_clock_timestamps_read_without_a_time_zone()
+    {
+        // local-timestamp-* and Iceberg's timestamp-* with "adjust-to-utc": false both become a zone-less Arrow
+        // timestamp; the engine keeps it a Datetime without a time zone.
+        using var df = DataFrame.ReadAvro(Fixture("logical"), columns: ["ltsms", "ltsus", "ltsns"]);
+        Assert.Equal("datetime[ms]", Dtype(df, "ltsms"));
+        Assert.Equal("datetime[μs]", Dtype(df, "ltsus"));
+        Assert.Equal("datetime[ns]", Dtype(df, "ltsns"));
+    }
+
+    [Fact]
     public void Decimal_wider_than_38_digits_is_refused_with_its_column_name()
     {
         var e = Assert.Throws<NotSupportedException>(() => DataFrame.ReadAvro(Fixture("logical")));

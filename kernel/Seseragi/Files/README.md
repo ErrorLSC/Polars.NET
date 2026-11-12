@@ -90,7 +90,10 @@ Reading (Avro → Arrow):
   `null` → Null; `uuid` → Utf8 (or the fixed(16) bytes).
 * `decimal` → Decimal128 (≤ 38 digits) / Decimal256 (≤ 76), else raw bytes.
 * `duration` → Interval(MonthDayNano) (Spark reads binary; DuckDB refuses; the engine adapter turns it into a struct).
-* `timestamp-*` → Timestamp(unit, "UTC" or the `kaminari.timezone` attribute); `local-timestamp-*` → Timestamp without zone;
+* `timestamp-*` → Timestamp(unit, "UTC" or the `kaminari.timezone` attribute), but without a zone when Iceberg's
+  `adjust-to-utc` is `false` (its wall-clock `timestamp`; only a JSON boolean counts, and it wins over
+  `kaminari.timezone`); `local-timestamp-*` → Timestamp without zone. DuckDB writes a naive `TIMESTAMP` as plain
+  `timestamp-micros` without the attribute, so it reads as UTC (the file does not say otherwise);
   `date`, `time-millis`, `time-micros` → Date32, Time32(ms), Time64(us); Spark intervals → Duration(us) / Interval(YearMonth).
 * A non-record top-level schema → one column `value` (Spark and Polars refuse; DuckDB names it `avro_schema`).
 * Ids: `field-id` → the field's `PARQUET:field_id` metadata (`ArrowFieldIds.MetadataKey` in Sazanami, the key pyarrow,
@@ -178,8 +181,11 @@ verified against real files first:
    non-string keys; all 1794 stats maps of the reference manifests match fastavro; DuckDB reads ours as `MAP`.*
    Iceberg writes `map<int, …>` (`column_sizes`, `value_counts`, `lower_bounds`, …) as an `array` of key/value records
    annotated `logicalType: map`. Read it as an Arrow Map; write Arrow Maps with non-string keys that way.
-4. **`adjust-to-utc`.** Iceberg distinguishes `timestamp` and `timestamptz` by this attribute on `timestamp-micros` /
-   `-nanos`; today every `timestamp-*` reads as UTC.
+4. **`adjust-to-utc`.** *Read side done (2026-11-13): `false` reads zone-less, `AvroSchema.AdjustToUtc`; the
+   attribute round-trips in `Properties`. The default Arrow mapping still writes zone-less timestamps as
+   `local-timestamp-*` (the reference writers never emit the attribute); exact Iceberg schemas come from step 6.*
+   Iceberg distinguishes `timestamp` and `timestamptz` by this attribute on `timestamp-micros` / `-nanos` (verified
+   on Spark and pyiceberg partition tuples: `true` for timestamptz, `false` for timestamp).
 5. **Reader-schema resolution.** Read with an expected schema: match fields by id (else name), fill missing fields
    with their default or null, skip extra fields (the skippers exist), promote int → long and float → double (and the
    rest of Avro's promotions), match union branches. Manifest schemas differ across format versions and partition
@@ -187,7 +193,8 @@ verified against real files first:
 6. **Write against a given Avro schema** (absorbs per-field encodings; includes the public construction API). Manifests
    need record names (`r2`, `k117_v118`, `manifest_entry`), required vs optional and `"default": null`, which the Arrow
    mapping cannot produce. It also covers per-field encodings: Iceberg needs decimals as `fixed` of the minimal size
-   for the precision and uuids as `fixed(16)`; the default mapping keeps a `bytes` decimal.
+   for the precision and uuids as `fixed(16)`; the default mapping keeps a `bytes` decimal. Its encoder must accept a
+   zone-less Arrow timestamp for a `timestamp-*` with `"adjust-to-utc": false`.
 7. **Small files.** Cache compiled decoders by (writer schema, reader schema); a synchronous whole-buffer fast path.
 8. **Row view in Sazanami.** *Done (2026-11-13): `ArrowRows` in Sazanami's `Arrow/` (see the code map); it already
    reads all 59 generated v2 / v3 manifests and lists from the Avro reader (maps read as maps since step 3). Wide decimals read as `SqlDecimal` or unscaled bytes; a lossy `decimal` read is refused.* The kernel reads
