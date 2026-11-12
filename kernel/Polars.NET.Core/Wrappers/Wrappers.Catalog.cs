@@ -527,14 +527,14 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>A managed table the catalog staged: what its version 0 gets, and how to reach its location.</summary>
-    private sealed record StagedTable(UnityStagingTable Staging, Dictionary<string, string> Configuration, IReadOnlyList<string> Features, Delta.CloudArgs Cloud);
+    internal sealed record StagedTable(UnityStagingTable Staging, Dictionary<string, string> Configuration, IReadOnlyList<string> Features, Delta.CloudArgs Cloud);
 
     /// <summary>
     /// Stages a managed table: the catalog's location and credentials (laid over the caller's cloud options, for
-    /// writing version 0), the properties version 0 gets (the catalog's merged with <paramref name="properties"/>) and
+    /// writing version 0, renewed through the catalog when they expire), the properties version 0 gets (the catalog's merged with <paramref name="properties"/>) and
     /// the features the catalog asks for.
     /// </summary>
-    private static StagedTable StageManagedTable(
+    internal static StagedTable StageManagedTable(
         CatalogHandle handle, string catalogName, string schemaName, string tableName, Dictionary<string, string>? properties,
         string[]? cloudKeys, string[]? cloudValues)
     {
@@ -554,6 +554,10 @@ public readonly partial struct PolarsWrapper
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
         for (int i = 0; i < Math.Min(cloudKeys?.Length ?? 0, cloudValues?.Length ?? 0); i++) options[cloudKeys![i]] = cloudValues![i];
         foreach (var (key, value) in staging.Credentials.ToStorageOptions()) options[key] = value;
+        // Credentials that expire are renewed while version 0 is written (a CREATE TABLE AS SELECT may outlast them).
+        if (staging.Credentials.ExpiresAt is not null)
+            options[HostCredentials.Key] = handle.RenewableStagingCredentials(staging.TableId, staging.Location, staging.Credentials)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
         var cloud = new Delta.CloudArgs(Keys: [.. options.Keys], Values: [.. options.Values]).WithProviderFrom(staging.Location);
         return new StagedTable(staging, configuration, features, cloud);
     }

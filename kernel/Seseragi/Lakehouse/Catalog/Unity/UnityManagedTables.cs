@@ -111,6 +111,19 @@ public sealed partial class UnityCatalogClient
     public void CreateDeltaTable(string catalogName, string schemaName, byte[] request) =>
         SendCore(HttpMethod.Post, $"{DeltaSchemaPath(catalogName, schemaName)}/tables", request, false, default).GetAwaiter().GetResult();
 
+    /// <summary>
+    /// Fresh credentials for a staged table (Delta API <c>staging-tables/{id}/credentials</c>), for the writes of its
+    /// version 0 that outlast the ones the staging gave: those for <paramref name="location"/>.
+    /// </summary>
+    /// <exception cref="CatalogException">The catalog refused it or could not be reached.</exception>
+    public TemporaryCredentials GetStagingTableCredentials(string tableId, string location)
+    {
+        byte[] bytes = SendCore(HttpMethod.Get, $"/delta/v1/staging-tables/{Escape(tableId)}/credentials", null, false, default)
+            .GetAwaiter().GetResult();
+        using JsonDocument doc = Parse(bytes);
+        return StagingCredentials(doc.RootElement, location);
+    }
+
     private static string DeltaSchemaPath(string catalogName, string schemaName) =>
         $"/delta/v1/catalogs/{Escape(catalogName)}/schemas/{Escape(schemaName)}";
 

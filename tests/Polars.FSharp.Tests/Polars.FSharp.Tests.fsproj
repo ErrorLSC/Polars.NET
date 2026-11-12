@@ -29,6 +29,7 @@
     <Compile Include="SeseragiDeltaOperationTests.fs" />
     <Compile Include="SeseragiFooterStatisticsTests.fs" />
     <Compile Include="SeseragiStreamingWriteTests.fs" />
+    <Compile Include="SeseragiCatalogCredentialsTests.fs" />
     <Compile Include="SeseragiScanOptionsTests.fs" />
     <Compile Include="SeseragiRowTrackingIdentityTests.fs" />
     <Compile Include="QueryTests.fs" />

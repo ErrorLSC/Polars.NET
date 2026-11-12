@@ -170,6 +170,8 @@ public sealed class CatalogHandle : IDisposable
 {
     // The renewable credentials of each table (and access) resolved through this handle, by table id.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(string TableId, bool Write), ulong> _credentials = new();
+    // The renewable credentials of each staged table written through this handle, by staging table id.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ulong> _stagingCredentials = new();
     private volatile bool _disposed;
 
     internal Kaminari.Seseragi.Lakehouse.Catalog.Unity.UnityCatalogClient Client { get; }
@@ -188,6 +190,27 @@ public sealed class CatalogHandle : IDisposable
             Delta.HostCredentials.Register(new Kaminari.Seseragi.Lakehouse.Storage.RenewableCredentials(() => Fetch(key.TableId, key.Write), current)));
         Delta.HostCredentials.Get(id).Offer(current);
         return id;
+    }
+
+    /// <summary>
+    /// The id of the renewable credential source of a staged table (whose version 0 is being written), as
+    /// <see cref="RenewableCredentials"/> for a table: renewal asks the catalog's Delta API for the staged table's
+    /// credentials, as Delta Spark's connector does.
+    /// </summary>
+    internal ulong RenewableStagingCredentials(string stagingTableId, string location, Kaminari.Seseragi.Lakehouse.Catalog.Unity.TemporaryCredentials vended)
+    {
+        var current = Vended(vended);
+        ulong id = _stagingCredentials.GetOrAdd(stagingTableId, key =>
+            Delta.HostCredentials.Register(new Kaminari.Seseragi.Lakehouse.Storage.RenewableCredentials(() => FetchStaging(key, location), current)));
+        Delta.HostCredentials.Get(id).Offer(current);
+        return id;
+    }
+
+    private Kaminari.Seseragi.Lakehouse.Storage.VendedCredentials FetchStaging(string stagingTableId, string location)
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(CatalogHandle), "The Unity Catalog connection is closed, so the staged table's credentials cannot be renewed.");
+        return Vended(Client.GetStagingTableCredentials(stagingTableId, location));
     }
 
     private Kaminari.Seseragi.Lakehouse.Storage.VendedCredentials Fetch(string tableId, bool write)

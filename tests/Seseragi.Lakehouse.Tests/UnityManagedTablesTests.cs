@@ -166,4 +166,22 @@ public class UnityManagedTablesTests
             handler.Requests.Select(r => $"{r.Method} {r.PathAndQuery}"));
         Assert.Equal("""{"name":"plain"}""", handler.Requests[1].Body);
     }
+
+    [Fact]
+    public void StagingCredentials_AreRenewed_AtTheDeltaApi()
+    {
+        var handler = new StubHandler(_ => (HttpStatusCode.OK, """
+            {"storage-credentials":[
+              {"prefix":"s3://b/","operation":"READ_WRITE","config":{"s3.access-key-id":"wide","s3.secret-access-key":"w"},"expiration-time-ms":1},
+              {"prefix":"s3://b/uc/t1","operation":"READ_WRITE","config":{"s3.access-key-id":"AK2","s3.secret-access-key":"SK2","s3.session-token":"ST2"},"expiration-time-ms":1794461600000}]}
+            """));
+        var client = new UnityCatalogClient("http://uc.test/", "tok", new HttpClient(handler));
+
+        TemporaryCredentials renewed = client.GetStagingTableCredentials("a33b079e", "s3://b/uc/t1");
+
+        Assert.Equal(("AK2", "SK2", "ST2"), (renewed.AwsAccessKeyId, renewed.AwsSecretAccessKey, renewed.AwsSessionToken));
+        Assert.Equal(1794461600000, renewed.ExpiresAt!.Value.ToUnixTimeMilliseconds());
+        Assert.Equal("GET /api/2.1/unity-catalog/delta/v1/staging-tables/a33b079e/credentials",
+            handler.Requests.Select(r => $"{r.Method} {r.PathAndQuery}").Single());
+    }
 }
