@@ -595,6 +595,8 @@ Each method returns a `NativeBuffer` (`Polars.NET.Core`) that holds the serializ
 | JSON / NDJSON | `WriteJsonNativeMemory` (C# only) | `SinkJsonNativeMemory` (NDJSON) |
 | Avro | `WriteAvroNativeMemory` | None |
 
+`WriteAvroNativeMemory` is written by the managed Avro writer (see [Avro](#10-avro-managed-reader-and-writer)) into memory allocated with `NativeMemory`; the `NativeBuffer` behaves the same.
+
 `NativeBuffer` is a `MemoryManager<byte>`, so it is also an `IMemoryOwner<byte>`:
 
 | Member | Description |
@@ -707,3 +709,60 @@ reading.GetAwaiter().GetResult()
 * If the query fails, the exception propagates and the writer is left open. If the reader stops early, the write fails with `IOException`.
 
 ---
+
+---
+
+## 10. Avro: Managed Reader and Writer
+
+Avro files are read and written by Seseragi.Files, a managed implementation of the Avro 1.12 object container format (`Kaminari.Seseragi.Files`, referenced by `Polars.NET.Core`). The native library no longer contains an Avro reader. Files stream block by block: `ReadAvro` and `ScanAvro` read one block at a time into native memory and hand the rows to the engine as Arrow batches, so a `Stream` is never buffered whole. Codecs: `Uncompressed`, `Deflate`, `Snappy` and `Zstandard`.
+
+* `DataFrame.ReadAvro(path | byte[] | ReadOnlySpan<byte> | ReadOnlyMemory<byte> | Stream, nRows, columns, projection, parallel)`: `parallel` (default `true`; F#: `paralleling`) decodes the file's blocks on several threads; row order is kept. Columns come back in file order.
+* `LazyFrame.ScanAvro(path, ...)`: reads the header now for the schema and streams the data each time the query runs, also on the streaming engine.
+* `DataFrame.WriteAvro(...)` (path, `Stream`, async `Stream` and `PipeWriter`, `WriteAvroMemory`, `WriteAvroNativeMemory`) and `LazyFrame.SinkAvro(path | Stream, ...)`, which writes the result of the streaming engine as its batches arrive. An empty record name writes `topLevelRecord`.
+
+```csharp
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+using var df = DataFrame.From<Order>([new(1, "Widget", 19.99), new(2, "Gadget", 5.5)]);
+df.WriteAvro("orders.avro", AvroCompression.Zstandard);
+
+using var all = DataFrame.ReadAvro("orders.avro");
+using var ids = DataFrame.ReadAvro("orders.avro", columns: ["Id"], parallel: false);
+
+using var expensive = LazyFrame.ScanAvro("orders.avro")
+    .Filter(Col("Price") > 10)
+    .Collect(Engine.Streaming);
+
+LazyFrame.ScanAvro("orders.avro").Filter(Col("Id") > 1).SinkAvro("copy.avro", AvroCompression.Snappy);
+
+record Order(long Id, string Name, double Price);
+```
+
+```fsharp
+open Polars.FSharp
+
+use df = DataFrame.ReadAvro("orders.avro", paralleling = false)
+use lf = LazyFrame.ScanAvro("orders.avro", columns = [ "Id"; "Price" ])
+lf.Filter(pl.col "Price" .> pl.lit 10.0).SinkAvro("copy.avro", AvroCompression.Zstandard)
+```
+
+**Reading.** Unions follow Apache Spark: `["null", T]` is a nullable `T`; `[int, long]` reads as `Int64` and `[float, double]` as `Float64`; any other union is a struct with a nullable field per branch (`member0`, `member1`, ...). A file whose schema is not a record reads as one column named `value`. Other types:
+
+| Avro | Polars |
+| :--- | :--- |
+| `map` | `List(Struct{key: String, value})` |
+| `enum` | `Categorical` |
+| `fixed` | `Binary` |
+| `decimal` up to 38 digits | `Decimal` (wider decimals are refused with an error naming the column) |
+| `duration` | `Struct{months: Int32, days: Int32, nanoseconds: Duration(ns)}` |
+| `timestamp-millis/micros/nanos` | `Datetime` in UTC, or in the time zone the writer recorded (see below) |
+| `local-timestamp-*` | `Datetime` without a time zone |
+| `date`, `time-millis`, `time-micros` | `Date`, `Time` |
+| `uuid` | `String` |
+| `null` | `Null` |
+
+A recursive record cannot become a column and is refused, unless the column is left out with `columns` or `projection`. Strings must be valid UTF-8.
+
+**Writing.** A nullable column is written as `["null", T]`. `Int8` / `Int16` / `UInt8` / `UInt16` become `int`, `UInt32` and `UInt64` become `long`, `Float16` becomes `float`, decimals become `bytes` decimals, `Categorical` and `Enum` columns are written as their strings, `Array` as `array`, `Struct` as nested records named after their fields. A `Datetime` with a time zone is written as `timestamp-*` (the UTC instant) and the zone is kept in the attribute `kaminari.timezone`, which other readers ignore; without a time zone it is written as `local-timestamp-*`. `Duration` is written as Spark's day-time interval (a `long` of microseconds with `spark.sql.catalyst.type`). Values Avro cannot hold exactly are refused instead of being changed: a `UInt64` above `Int64.MaxValue`, a `Time` or `Duration` with nanoseconds that are not whole microseconds. A map read from Avro is a list of key/value structs in Polars and is written back as an array of records.
+

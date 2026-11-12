@@ -422,3 +422,21 @@ reading.GetAwaiter().GetResult()
 * There is no synchronous `PipeWriter` overload.
 * `CancellationToken` cancels the write with `OperationCanceledException`, including during backpressure.
 * If the query fails, the exception propagates and the writer is left open. If the reader stops early, the write fails with `IOException`.
+
+---
+
+## 10. Avro: Managed Reader and Writer
+
+Avro runs on Seseragi.Files (managed, Avro 1.12), not the native library. Files stream block by block; codecs `Uncompressed`, `Deflate`, `Snappy`, `Zstandard`.
+
+* `DataFrame.ReadAvro(path | byte[] | ReadOnlySpan<byte> | ReadOnlyMemory<byte> | Stream, nRows, columns, projection, parallel = true)` (F#: `?paralleling`). Columns in file order. A `Stream` is read block by block, not buffered, and left open.
+* `LazyFrame.ScanAvro(path, ...)` streams each time the query runs; `LazyFrame.SinkAvro(path | Stream, compression, name)` writes the streaming result as batches arrive.
+* Reading: `["null", T]` → nullable `T`; `[int, long]` → `Int64`; `[float, double]` → `Float64`; other unions → struct `member0..n`; map → `List(Struct{key, value})`; enum → `Categorical`; fixed → `Binary`; `duration` → `Struct{months: Int32, days: Int32, nanoseconds: Duration(ns)}`; decimals over 38 digits are refused; a non-record top-level schema → one column `value`; recursive records only when projected away.
+* Writing: nullable → `["null", T]`; narrow ints → `int`, `UInt32`/`UInt64` → `long` (UInt64 above Int64.MaxValue refused); decimals → `bytes` decimal; Categorical/Enum → strings; zoned `Datetime` → `timestamp-*` plus the zone in `kaminari.timezone`; naive → `local-timestamp-*`; `Duration` → long micros with `spark.sql.catalyst.type` (sub-µs refused). Empty record name → `topLevelRecord`.
+
+```csharp
+df.WriteAvro("orders.avro", AvroCompression.Zstandard);
+using var some = DataFrame.ReadAvro("orders.avro", columns: ["Id"]);
+LazyFrame.ScanAvro("orders.avro").Filter(Col("Id") > 1).SinkAvro("copy.avro");
+```
+

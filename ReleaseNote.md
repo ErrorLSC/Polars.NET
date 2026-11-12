@@ -1,3 +1,30 @@
+# Polars.NET 1.3.0 Release Note (draft)
+
+## Avro: managed reader and writer
+
+Avro now runs on Seseragi.Files, a managed implementation of the Avro 1.12 object container format (new package `Kaminari.Seseragi.Files`, referenced by `Polars.NET.Core`), instead of the engine's Avro reader and writer. Files stream block by block through Arrow record batches; blocks live in native memory and decode straight into native Arrow buffers. Behaviour is checked against fastavro, Python Polars and the Apache Avro sample files. The native library drops its `avro` feature and seven crates (`avro-schema`, `libflate`, `libflate_lz77`, `crc`, `crc-catalog`, `adler32`, `rle-decode-fast`).
+
+### New
+
+* `LazyFrame.ScanAvro(path, nRows, columns, projection, parallel)` scans lazily: the header is read when the frame is created, the data each time the query runs, block by block, also on the streaming engine.
+* `LazyFrame.SinkAvro(path | Stream, compression, name)` writes the result of the streaming engine as its batches arrive. A failed write to a path deletes the partial file.
+* `ReadAvro` and `ScanAvro` decode the file's blocks on several threads, keeping row order (`parallel`, default `true`; F#: `paralleling`). The five `ReadAvro` overloads get it as a new trailing optional parameter: recompile code built against an earlier version.
+* `AvroCompression.Zstandard`, for reading and writing.
+* `ReadAvro(Stream)` reads the stream block by block instead of copying it whole into memory first; `ReadAvro(byte[])` and `ReadAvro(ReadOnlySpan<byte>)` read the bytes in place.
+* More of Avro reads: unions as Apache Spark reads them (`[int, long]` as `Int64`, `[float, double]` as `Float64`, other unions as a struct of `member0`, `member1`, ...), maps (as a list of key/value structs), `null` columns, `timestamp-nanos` and `local-timestamp-*`, `duration` (as a struct of months, days and nanoseconds), files whose schema is not a record (one column named `value`), records with a recursive field when that field is not read, and the `zstandard` codec. Strings are checked to be valid UTF-8.
+* More types write: integers of every width (`UInt64` above `Int64.MaxValue` is refused), `Float16`, `Time`, `Duration` (as Spark's day-time interval), `Datetime` with a time zone (as `timestamp-*`, the zone kept in the schema attribute `kaminari.timezone` and restored on reading; other readers see the UTC instant), `Categorical` / `Enum` (as their strings), `Array`. Values Avro cannot hold exactly are refused with an error instead of being changed.
+
+### Changed
+
+* An empty record name now writes `topLevelRecord` (the engine wrote an empty name, which Avro does not allow).
+* Decimals of more than 38 digits are refused with an error naming the column (the engine supports at most 38).
+
+### Fixed
+
+* `LazyFrame.ScanRecordBatches` took batches in standard Arrow layouts as the engine's own physical layouts: `Utf8` strings came out empty and `Time32` values wrong. Every column now goes through the engine's Arrow import.
+
+---
+
 # Polars.NET 1.2.0 Release Note
 
 ![icon](assets/icon_lite.png)

@@ -3,7 +3,6 @@ pub mod parquet;
 pub mod json;
 pub mod ipc;
 pub mod arrow;
-pub mod avro;
 pub mod io_utils;
 pub mod ffi_buffer;
 pub mod storage;
