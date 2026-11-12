@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Apache.Arrow;
@@ -29,6 +30,15 @@ public sealed record AvroReadOptions
 
     /// <summary>Leave the stream open when the reader is disposed.</summary>
     public bool LeaveOpen { get; init; }
+
+    /// <summary>
+    /// How many blocks may be decompressed and decoded at once. 1 (the default) decodes on the reading thread and
+    /// every batch but the last has exactly <see cref="BatchSize"/> rows. Above 1 (or -1 for one per processor),
+    /// runs of whole blocks are decoded on the thread pool and returned in file order; a batch then holds at most
+    /// <see cref="BatchSize"/> rows, since batches end where such a run of blocks ends. A file with a single block
+    /// gains nothing.
+    /// </summary>
+    public int MaxDegreeOfParallelism { get; init; } = 1;
 }
 
 /// <summary>
@@ -67,6 +77,18 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     private RowDecoder? _rowDecoder;
     private bool _started;
 
+    // Projection, kept so that parallel workers can build their own decoders.
+    private IReadOnlyList<(string Name, AvroSchema Schema)> _fields = [];
+    private bool[] _selected = [];
+
+    // Parallel decoding (MaxDegreeOfParallelism > 1).
+    private readonly int _parallelism;
+    private readonly ConcurrentBag<Worker> _workers = [];
+    private readonly Queue<Task<List<RecordBatch>>> _inflight = new();
+    private readonly Queue<RecordBatch> _ready = new();
+    private RawBlock? _pendingBlock;
+    private long _rowsScheduled;
+
     private AvroReader(Stream stream, AvroReadOptions options)
     {
         _stream = stream;
@@ -76,6 +98,12 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
         if (options.RowLimit < 0) throw new ArgumentOutOfRangeException(nameof(options), "RowLimit must not be negative.");
         if (options.Columns is not null && options.ColumnIndices is not null)
             throw new ArgumentException("Specify Columns or ColumnIndices, not both.", nameof(options));
+        _parallelism = options.MaxDegreeOfParallelism switch
+        {
+            -1 => Environment.ProcessorCount,
+            >= 1 and var n => n,
+            _ => throw new ArgumentOutOfRangeException(nameof(options), "MaxDegreeOfParallelism must be positive or -1."),
+        };
     }
 
     /// <summary>The Arrow schema of the batches (after projection).</summary>
@@ -243,23 +271,32 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
         for (int i = 0; i < fields.Count; i++)
             if (selected[i]) arrowFields.Add(AvroReadSchema.ToField(fields[i].Name, fields[i].Schema));
         Schema = new Schema(arrowFields, null);
+        _fields = fields;
+        _selected = selected;
+        (_root, _rowDecoder) = CreateDecoders();
+    }
 
-        var structType = new StructType(arrowFields);
-        _root = (NativeStructBuilder)NativeColumnBuilder.Create(structType);
-        var decoders = new AvroDecoder?[fields.Count];
-        var skippers = new AvroSkipper?[fields.Count];
+    /// <summary>A fresh builder tree for the projected schema and the row decoder that fills it.</summary>
+    private (NativeStructBuilder Root, RowDecoder Decoder) CreateDecoders()
+    {
+        var root = (NativeStructBuilder)NativeColumnBuilder.Create(new StructType(Schema.FieldsList));
+        var decoders = new AvroDecoder?[_fields.Count];
+        var skippers = new AvroSkipper?[_fields.Count];
         int child = 0;
-        for (int i = 0; i < fields.Count; i++)
+        for (int i = 0; i < _fields.Count; i++)
         {
-            if (selected[i]) decoders[i] = AvroDecoder.Compile(fields[i].Schema, _root.Children[child++]);
-            else skippers[i] = AvroSkipper.Compile(fields[i].Schema);
+            if (_selected[i]) decoders[i] = AvroDecoder.Compile(_fields[i].Schema, root.Children[child++]);
+            else skippers[i] = AvroSkipper.Compile(_fields[i].Schema);
         }
-        _rowDecoder = new RowDecoder(_root, decoders, skippers);
+        return (root, new RowDecoder(root, decoders, skippers));
     }
 
     // ---------------------------------------------------------------- batches
 
-    private async ValueTask<RecordBatch?> NextBatchAsync(bool useAsync, CancellationToken ct)
+    private ValueTask<RecordBatch?> NextBatchAsync(bool useAsync, CancellationToken ct) =>
+        _parallelism > 1 ? NextBatchParallelAsync(useAsync, ct) : NextBatchSequentialAsync(useAsync, ct);
+
+    private async ValueTask<RecordBatch?> NextBatchSequentialAsync(bool useAsync, CancellationToken ct)
     {
         var root = _root!;
         long limit = _options.RowLimit ?? long.MaxValue;
@@ -334,6 +371,177 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
         }
     }
 
+    // ---------------------------------------------------------------- parallel decoding
+
+    /// <summary>A block's raw (still compressed) bytes, copied out of the input buffer.</summary>
+    private sealed record RawBlock(long Count, NativeByteBuffer Data, int Length);
+
+    /// <summary>Consecutive blocks decoded together; at most <see cref="RowCap"/> rows are kept (row limit).</summary>
+    private sealed record Chunk(List<RawBlock> Blocks, long RowCap);
+
+    /// <summary>One decoding context per concurrently running chunk: builders, decoders and codec state.</summary>
+    private sealed class Worker(NativeStructBuilder root, RowDecoder decoder, AvroCodec codec) : IDisposable
+    {
+        public NativeStructBuilder Root { get; } = root;
+        public RowDecoder Decoder { get; } = decoder;
+        public AvroCodec Codec { get; } = codec;
+        public NativeByteBuffer Decompressed { get; } = new();
+
+        public void Dispose()
+        {
+            Root.Dispose();
+            Decompressed.Release();
+        }
+    }
+
+    private async ValueTask<RecordBatch?> NextBatchParallelAsync(bool useAsync, CancellationToken ct)
+    {
+        long limit = _options.RowLimit ?? long.MaxValue;
+        while (true)
+        {
+            if (_ready.TryDequeue(out var ready))
+            {
+                _rowsEmitted += ready.Length;
+                return ready;
+            }
+            while (_inflight.Count < _parallelism && !_finished && _rowsScheduled < limit)
+            {
+                var chunk = await ReadChunkAsync(_options.BatchSize, limit - _rowsScheduled, useAsync, ct).ConfigureAwait(false);
+                if (chunk is null)
+                {
+                    _finished = true;
+                    break;
+                }
+                _rowsScheduled += chunk.RowCap;
+                _inflight.Enqueue(Task.Run(() => DecodeChunk(chunk)));
+            }
+            if (!_inflight.TryDequeue(out var next)) return null;
+            var batches = useAsync ? await next.ConfigureAwait(false) : next.GetAwaiter().GetResult();
+            foreach (var b in batches) _ready.Enqueue(b);
+        }
+    }
+
+    /// <summary>Gathers whole blocks until the next one would push the run past <paramref name="batchRows"/>
+    /// (a single larger block forms a run of its own and is split into several batches when decoded).</summary>
+    private async ValueTask<Chunk?> ReadChunkAsync(long batchRows, long rowsLeft, bool useAsync, CancellationToken ct)
+    {
+        List<RawBlock> blocks = [];
+        long rows = 0;
+        while (rows < Math.Min(batchRows, rowsLeft))
+        {
+            var block = _pendingBlock ?? await ReadRawBlockAsync(useAsync, ct).ConfigureAwait(false);
+            _pendingBlock = null;
+            if (block is null) break;
+            if (blocks.Count > 0 && rows + block.Count > batchRows)
+            {
+                _pendingBlock = block;
+                break;
+            }
+            blocks.Add(block);
+            rows += block.Count;
+        }
+        return blocks.Count == 0 ? null : new Chunk(blocks, Math.Min(rows, rowsLeft));
+    }
+
+    /// <summary>Reads the next non-empty block's raw bytes. Null at the end of the file.</summary>
+    private async ValueTask<RawBlock?> ReadRawBlockAsync(bool useAsync, CancellationToken ct)
+    {
+        while (true)
+        {
+            if (!await EnsureAsync(1, useAsync, ct).ConfigureAwait(false)) return null;
+            long count = await ReadLongAsync(useAsync, ct).ConfigureAwait(false);
+            long size = await ReadLongAsync(useAsync, ct).ConfigureAwait(false);
+            if (count < 0) throw new AvroFormatException($"Negative Avro block record count {count}.");
+            if (size < 0 || size > Array.MaxLength - SyncSize) throw new AvroFormatException($"Invalid Avro block size {size}.");
+            if (!await EnsureAsync((int)size + SyncSize, useAsync, ct).ConfigureAwait(false)) throw AvroSpanReader.Truncated();
+            if (!_io.Span.Slice(_ioStart + (int)size, SyncSize).SequenceEqual(_sync))
+                throw new AvroFormatException("Avro sync marker mismatch: the file is corrupt.");
+            RawBlock? block = null;
+            if (count > 0)
+            {
+                var data = new NativeByteBuffer((int)Math.Max(size, 1));
+                _io.Span.Slice(_ioStart, (int)size).CopyTo(data.Span);
+                block = new RawBlock(count, data, (int)size);
+            }
+            _ioStart += (int)size + SyncSize;
+            if (block is not null) return block;
+        }
+    }
+
+    /// <summary>Decodes a chunk on a pool thread into batches of at most BatchSize rows.</summary>
+    private List<RecordBatch> DecodeChunk(Chunk chunk)
+    {
+        if (!_workers.TryTake(out var worker))
+        {
+            var (root, decoder) = CreateDecoders();
+            worker = new Worker(root, decoder, AvroCodec.ForName(_codec.Name));
+        }
+        List<RecordBatch> output = [];
+        try
+        {
+            long remaining = chunk.RowCap;
+            foreach (var block in chunk.Blocks)
+            {
+                if (remaining == 0) break;
+                var raw = block.Data.Span[..block.Length];
+                ReadOnlySpan<byte> data = raw;
+                if (worker.Codec is not NullCodec)
+                {
+                    int length = worker.Codec.Decompress(raw, worker.Decompressed); // may grow the buffer: take the span after
+                    data = worker.Decompressed.Span[..length];
+                }
+                long take = Math.Min(block.Count, remaining);
+                DecodeBlock(worker, data, take, take == block.Count, output);
+                remaining -= take;
+            }
+            if (worker.Root.Length > 0) output.Add(worker.Root.ExportBatch(Schema));
+            _workers.Add(worker);
+            return output;
+        }
+        catch
+        {
+            foreach (var b in output) b.Dispose();
+            worker.Dispose(); // its builders may hold a partial row
+            throw;
+        }
+        finally
+        {
+            foreach (var block in chunk.Blocks) block.Data.Release();
+        }
+    }
+
+    private void DecodeBlock(Worker worker, ReadOnlySpan<byte> data, long rows, bool wholeBlock, List<RecordBatch> output)
+    {
+        var r = new AvroSpanReader(data);
+        for (long i = 0; i < rows; i++)
+        {
+            worker.Decoder.Decode(ref r);
+            if (worker.Root.Length == _options.BatchSize) output.Add(worker.Root.ExportBatch(Schema));
+        }
+        if (wholeBlock && !r.IsAtEnd)
+            throw new AvroFormatException($"An Avro block has {r.Remaining} bytes left after its last record.");
+    }
+
+    /// <summary>Waits for chunks still being decoded and frees everything they and the queues hold.</summary>
+    private void DrainParallel()
+    {
+        while (_inflight.TryDequeue(out var task))
+        {
+            try
+            {
+                foreach (var b in task.GetAwaiter().GetResult()) b.Dispose();
+            }
+            catch
+            {
+                // The error was either already reported to the reader's consumer or is moot now that it is disposed.
+            }
+        }
+        while (_ready.TryDequeue(out var b)) b.Dispose();
+        _pendingBlock?.Data.Release();
+        _pendingBlock = null;
+        while (_workers.TryTake(out var w)) w.Dispose();
+    }
+
     // ---------------------------------------------------------------- buffered input
 
     /// <summary>Makes at least <paramref name="n"/> bytes available at <c>_io[_ioStart..]</c>.
@@ -391,6 +599,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
 
     private void ReleaseBuffers()
     {
+        DrainParallel();
         _root?.Dispose();
         _root = null;
         _io.Release();

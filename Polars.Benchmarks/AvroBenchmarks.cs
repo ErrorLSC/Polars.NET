@@ -57,6 +57,19 @@ public class AvroBenchmarks
     }
 
     [Benchmark]
+    public long ReadParallel()
+    {
+        long rows = 0;
+        using var reader = AvroReader.Open(FilePath, new() { MaxDegreeOfParallelism = -1 });
+        foreach (var b in reader.ReadBatches())
+        {
+            rows += b.Length;
+            b.Dispose();
+        }
+        return rows;
+    }
+
+    [Benchmark]
     public long ReadProjected()
     {
         long rows = 0;
