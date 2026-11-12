@@ -348,11 +348,18 @@ jobs:
 
           echo "Detected Version: '$VERSION'"
 
-          dotnet new console -n SmokeTest
+          # The consumer project lives beside the checkout, not inside it: inside, it would inherit the repository's
+          # Directory.Build.props (LangVersion 14, which the .NET 8 SDK in the linux-arm64 container rejects), which
+          # a real consumer never sees. It targets net8.0, the libraries' floor; without -f, runners with a newer SDK
+          # installed would create (and test) a newer target framework.
+          REPO_DIR=$(basename "$PWD")
+          cd ..
+          dotnet new console -n SmokeTest -f net8.0
           cd SmokeTest
-          
+
           dotnet new nugetconfig
-          dotnet nuget add source ../local_feed --name LocalFeed
+          # A relative path works on every runner (Git Bash on Windows turns $PWD into /d/..., which dotnet rejects).
+          dotnet nuget add source "../$REPO_DIR/local_feed" --name LocalFeed
           
           dotnet add package Polars.NET --version "$VERSION"
           dotnet add package Polars.NET.Native.${{ matrix.native_rid }} --version "$VERSION"
