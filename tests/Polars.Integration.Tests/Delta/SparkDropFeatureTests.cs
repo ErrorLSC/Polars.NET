@@ -607,6 +607,52 @@ public partial class SparkDropFeatureTests
         });
     }
 
+    [SparkTheory]
+    [InlineData(null, "p", "p1")]
+    [InlineData(null, "p", "p1", "q", "1")]
+    [InlineData(null, "q", "1", "p", "p1")] // recorded in the order given
+    [InlineData(null, "p", null)]
+    [InlineData("id", "p", "p1")]
+    [Trait("DeltaKernel", "Spark")]
+    public void Optimize_OfSomePartitions_CompactsAsSpark_AndRecordsItsWhere(string? zOrderBy, params string?[] filter)
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                LocalSpark.Run("sql", table, "CREATE TABLE {table} (id INT, v INT, p STRING, q INT) USING delta PARTITIONED BY (p, q)");
+                for (int i = 0; i < 3; i++) // three small files in each partition
+                    LocalSpark.Run("sql", table, $"INSERT INTO {{table}} VALUES ({i}, {i}, 'p1', 1), ({i + 10}, {i}, 'p1', 2), ({i + 20}, {i}, NULL, 1)");
+            }
+            Dictionary<string, string> filters = [];
+            for (int i = 0; i < filter.Length; i += 2) filters[filter[i]!] = filter[i + 1]!;
+            string where = string.Join(" AND ", filters.Select(f => f.Value is null ? $"{f.Key} IS NULL" : $"{f.Key} = '{f.Value}'"));
+            const long From = 4;
+
+            Delta.Optimize(kernel, partitionFilters: filters, zOrderColumns: zOrderBy is null ? null : [zOrderBy]);
+            LocalSpark.Run("sql", spark, $"OPTIMIZE {{table}} WHERE {where}{(zOrderBy is null ? "" : $" ZORDER BY ({zOrderBy})")}");
+
+            List<string> bySpark = Commits(spark, From), byKernel = Commits(kernel, From);
+            Assert.True(bySpark.SequenceEqual(byKernel), $"Spark:\n{string.Join("\n", bySpark)}\nkernel:\n{string.Join("\n", byKernel)}");
+            Assert.Equal(RemovedFilesAddedIn(spark, From), RemovedFilesAddedIn(kernel, From));
+            Assert.Equal(SparkRows(spark), SparkRows(kernel));
+        });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void Optimize_OfAColumnThatIsNoPartition_IsRefused_AsSpark()
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel");
+            LocalSpark.Run("sql", kernel, "CREATE TABLE {table} (id INT, p STRING) USING delta PARTITIONED BY (p)");
+            Assert.Contains("non-partition column 'id'. Only the partition columns may be referenced: [p]",
+                Assert.ThrowsAny<Exception>(() => Delta.Optimize(kernel, partitionFilters: new() { ["id"] = "1" })).Message);
+        });
+    }
+
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
     public void Purge_OfAColumnThatIsNoPartition_IsRefused_AsSpark()

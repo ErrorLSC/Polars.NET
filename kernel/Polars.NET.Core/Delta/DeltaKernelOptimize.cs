@@ -70,18 +70,15 @@ internal static class DeltaKernelOptimize
                 if (zOrderColumns is not null)
                     throw new PolarsException(
                         $"OPTIMIZE for a Delta table with clustering cannot specify ZORDER BY. Please remove ZORDER BY ({string.Join(", ", zOrderColumns)}).");
-                if (partitionFilters is { Count: > 0 }) Check(snapshot, partitionFilters, null); // no partitions: always refused
+                if (partitionFilters is { Count: > 0 }) PartitionFilters(snapshot, partitionFilters); // no partitions: always refused
                 return Cluster(table, tablePath, Clustering.Fields(snapshot.Schema, clustering), targetFileSize, full, cubeSizes, cloud);
             }
             if (full) throw new PolarsException("OPTIMIZE FULL is only supported for clustered tables.");
-            Check(snapshot, partitionFilters, zOrderColumns);
+            List<(string Column, string? Value)> filters = PartitionFilters(snapshot, partitionFilters);
+            Check(snapshot, zOrderColumns);
 
             // Files of the chosen partitions, by partition.
-            List<List<AddAction>> partitions = [.. ByPartition(snapshot, snapshot.Files.Where(file =>
-            {
-                Dictionary<string, string?> values = snapshot.PartitionValuesOf(file);
-                return partitionFilters is null || partitionFilters.All(f => values.GetValueOrDefault(f.Key) == f.Value);
-            }))];
+            List<List<AddAction>> partitions = [.. ByPartition(snapshot, snapshot.Files.Where(file => InPartitions(snapshot, file, filters)))];
 
             List<List<AddAction>> bins = zOrderColumns is null
                 ? [.. partitions.SelectMany(files => CompactionBins(files, targetFileSize))]
@@ -95,11 +92,10 @@ internal static class DeltaKernelOptimize
             var transaction = Transaction.Start(table.FileSystem, snapshot, "OPTIMIZE");
             // Rewriting reads the files: a concurrent change to one of them is a conflict; new files are not.
             transaction.ReadFiles(bins.SelectMany(b => b));
-            transaction.WithParameter("predicate", JsonText.StringArray(
-                    (partitionFilters ?? new Dictionary<string, string?>()).Select(f => f.Value is null ? $"{f.Key} IS NULL" : $"{f.Key} = '{f.Value}'").ToArray()))
+            transaction.WithParameter("predicate", WherePredicate(partitionFilters))
                 .WithParameter("zOrderBy", JsonText.StringArray(zOrderColumns ?? []))
                 .WithParameter("clusterBy", "[]")
-                .WithParameter("auto", "false");
+                .WithParameter("auto", false);
             return Commit(table, tablePath, transaction, plan, partitions.Sum(p => p.Count), cloud);
         }
         catch (DeltaException e)
@@ -136,13 +132,8 @@ internal static class DeltaKernelOptimize
         return new DeltaOptimizeResult(version, plan.Removes.Count, plan.Adds.Count, removedBytes, addedBytes, vectorsRemoved);
     }
 
-    private static void Check(Snapshot snapshot, IReadOnlyDictionary<string, string?>? partitionFilters, string[]? zOrderColumns)
+    private static void Check(Snapshot snapshot, string[]? zOrderColumns)
     {
-        foreach (string column in partitionFilters?.Keys ?? [])
-        {
-            if (!snapshot.PartitionColumns.Contains(column))
-                throw new PolarsException($"'{column}' is not a partition column; optimize filters by partition columns only.");
-        }
         foreach (string column in zOrderColumns ?? [])
         {
             StructField field = snapshot.Schema.Field(column) ?? throw new PolarsException($"The table has no column '{column}' to Z-order by.");
@@ -262,27 +253,37 @@ internal static class DeltaKernelOptimize
         if (partitionFilters is not { Count: > 0 }) return Reorg(tablePath, cloud, PurgeFiles);
         return Reorg(tablePath, cloud, table =>
         {
-            Snapshot snapshot = table.Snapshot;
-            // The filter's columns as the table names them (any case, as Spark resolves them).
-            List<(string Column, string? Value)> filters = [.. partitionFilters.Select(f => (
-                snapshot.PartitionColumns.FirstOrDefault(c => string.Equals(c, f.Key, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new PolarsException(
-                        $"Predicate references non-partition column '{f.Key}'. Only the partition columns may be referenced: [{string.Join(", ", snapshot.PartitionColumns)}]"),
-                f.Value))];
-            return [.. PurgeFiles(table).Where(file =>
-            {
-                Dictionary<string, string?> values = snapshot.PartitionValuesOf(file);
-                return filters.All(f => values.GetValueOrDefault(f.Column) == f.Value);
-            })];
-        }, predicate: ReorgPredicate(partitionFilters));
+            List<(string Column, string? Value)> filters = PartitionFilters(table.Snapshot, partitionFilters);
+            return [.. PurgeFiles(table).Where(file => InPartitions(table.Snapshot, file, filters))];
+        }, predicate: WherePredicate(partitionFilters));
     }
 
     /// <summary>
-    /// The WHERE of a REORG as Spark records it: the unresolved expression's text, <c>('p = v)</c> or
-    /// <c>isnull('p)</c>, joined left to right by <c>AND</c>.
+    /// The partition filters of an OPTIMIZE or REORG … WHERE, by the table's partition column names (any case, as
+    /// Spark resolves them); empty when none. Refuses other columns as Spark does.
     /// </summary>
-    internal static string ReorgPredicate(IReadOnlyDictionary<string, string?> filters) =>
-        JsonText.StringArray([filters
+    private static List<(string Column, string? Value)> PartitionFilters(Snapshot snapshot, IReadOnlyDictionary<string, string?>? filters) =>
+        [.. (filters ?? new Dictionary<string, string?>()).Select(f => (
+            snapshot.PartitionColumns.FirstOrDefault(c => string.Equals(c, f.Key, StringComparison.OrdinalIgnoreCase))
+                ?? throw new PolarsException(
+                    $"Predicate references non-partition column '{f.Key}'. Only the partition columns may be referenced: [{string.Join(", ", snapshot.PartitionColumns)}]"),
+            f.Value))];
+
+    /// <summary>Whether the file is in a partition the filters choose (text as in the log; null: the column is null).</summary>
+    private static bool InPartitions(Snapshot snapshot, AddAction file, List<(string Column, string? Value)> filters)
+    {
+        if (filters.Count == 0) return true;
+        Dictionary<string, string?> values = snapshot.PartitionValuesOf(file);
+        return filters.All(f => values.GetValueOrDefault(f.Column) == f.Value);
+    }
+
+    /// <summary>
+    /// The WHERE of an OPTIMIZE or REORG as Spark records it in <c>predicate</c>: the unresolved expression's text,
+    /// <c>('p = v)</c> or <c>isnull('p)</c>, joined left to right by <c>AND</c>; <c>[]</c> without one.
+    /// </summary>
+    internal static string WherePredicate(IReadOnlyDictionary<string, string?>? filters) => filters is not { Count: > 0 }
+        ? "[]"
+        : JsonText.StringArray([filters
             .Select(f => f.Value is null ? $"isnull('{f.Key})" : $"('{f.Key} = {f.Value})")
             .Aggregate((left, right) => $"({left} AND {right})")]);
 
@@ -389,8 +390,8 @@ internal static class DeltaKernelOptimize
         // As Spark records an OPTIMIZE of a clustered table.
         transaction.WithParameter("clusterBy", cubeColumns)
                    .WithParameter("predicate", "[]")
-                   .WithParameter("auto", "false")
-                   .WithParameter("isFull", full ? "true" : "false")
+                   .WithParameter("auto", false)
+                   .WithParameter("isFull", full)
                    .WithParameter("zOrderBy", "[]");
         return Commit(table, tablePath, transaction, plan, files.Count, cloud);
     }
