@@ -21,6 +21,15 @@ namespace Polars.NET.Core.Delta;
 internal sealed record DeltaOptimizeResult(
     long? Version, int RemovedFiles, int AddedFiles, long RemovedBytes, long AddedBytes, int DeletionVectorsRemoved);
 
+/// <summary>The cube sizes of clustering, Spark's <c>optimize.clustering.mergeStrategy.minCubeSize.*</c>.</summary>
+/// <param name="Min">A cube this large no longer takes new data in (<c>threshold</c>, 100 GiB).</param>
+/// <param name="Target">Files go into one cube until the next would take it past this size (<c>targetCubeSize</c>,
+/// 150 GiB; at least <paramref name="Min"/>); the rest start a new cube.</param>
+internal sealed record CubeSizes(long Min, long Target)
+{
+    public static readonly CubeSizes Default = new(100L << 30, 150L << 30);
+}
+
 /// <summary>
 /// Rewrites the data files of a Delta table through the managed kernel without changing its rows: compaction of
 /// small files and of files with deletion vectors (whose deleted rows are dropped), or Z-ordering. Every change is
@@ -38,15 +47,16 @@ internal static class DeltaKernelOptimize
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     /// <param name="full">On a clustered table, also recluster the data clustered by earlier clustering columns (OPTIMIZE
     /// FULL); otherwise only new data is clustered.</param>
+    /// <param name="cubeSizes">The cube sizes of clustering; null for Spark's defaults (tests make them small).</param>
     public static DeltaOptimizeResult Optimize(
         string tablePath, long targetFileSize = 128L * 1024 * 1024, IReadOnlyDictionary<string, string?>? partitionFilters = null,
-        string[]? zOrderColumns = null, CloudArgs? cloud = null, bool full = false) =>
+        string[]? zOrderColumns = null, CloudArgs? cloud = null, bool full = false, CubeSizes? cubeSizes = null) =>
         // Retried as a whole on a commit conflict (the files to compact are chosen anew).
-        ConflictRetry.Run(() => OptimizeOnce(tablePath, targetFileSize, partitionFilters, zOrderColumns, cloud, full));
+        ConflictRetry.Run(() => OptimizeOnce(tablePath, targetFileSize, partitionFilters, zOrderColumns, cloud, full, cubeSizes ?? CubeSizes.Default));
 
     private static DeltaOptimizeResult OptimizeOnce(
         string tablePath, long targetFileSize, IReadOnlyDictionary<string, string?>? partitionFilters,
-        string[]? zOrderColumns, CloudArgs? cloud, bool full)
+        string[]? zOrderColumns, CloudArgs? cloud, bool full, CubeSizes cubeSizes)
     {
         if (targetFileSize <= 0) throw new ArgumentOutOfRangeException(nameof(targetFileSize), "The target file size must be positive.");
         if (zOrderColumns is { Length: 0 }) zOrderColumns = null;
@@ -60,7 +70,7 @@ internal static class DeltaKernelOptimize
                     throw new PolarsException(
                         $"OPTIMIZE for a Delta table with clustering cannot specify ZORDER BY. Please remove ZORDER BY ({string.Join(", ", zOrderColumns)}).");
                 if (partitionFilters is { Count: > 0 }) Check(snapshot, partitionFilters, null); // no partitions: always refused
-                return Cluster(table, tablePath, Clustering.Fields(snapshot.Schema, clustering), targetFileSize, full, cloud);
+                return Cluster(table, tablePath, Clustering.Fields(snapshot.Schema, clustering), targetFileSize, full, cubeSizes, cloud);
             }
             if (full) throw new PolarsException("OPTIMIZE FULL is only supported for clustered tables.");
             Check(snapshot, partitionFilters, zOrderColumns);
@@ -263,39 +273,81 @@ internal static class DeltaKernelOptimize
     /// <summary>The rows sampled for the range boundaries.</summary>
     private const int SampleRows = 100_000;
 
-    /// <summary>A cube this large is no longer merged with new data (Spark's <c>minCubeSize.threshold</c>, 100 GiB).</summary>
-    private const long MinCubeSize = 100L * 1024 * 1024 * 1024;
-
     private const string BucketColumn = "__seseragi_cluster_bucket";
     private const string SampleIndexColumn = "__seseragi_sample_index";
 
     /// <summary>
     /// Clusters the table's data by its clustering columns, as Spark's OPTIMIZE on a table with liquid clustering:
     /// new (unclustered) files, merged with the cubes clustered by the same columns that are still small, or with
-    /// <paramref name="full"/> also the data clustered by other columns. Nothing new: no commit. The rows are cut
-    /// into ranges of a Hilbert curve over each column's range ids (boundaries from a sample) and every range is
-    /// written to its own files; rows are not sorted within a file (Spark's default). One pass over the data
-    /// besides the sample; nothing is collected but the sample.
+    /// <paramref name="full"/> also the data clustered by other columns. Nothing new and at most one small cube:
+    /// no commit. In Spark's order (new files, then by cube id) the files are packed into cubes of about
+    /// <see cref="CubeSizes.Target"/>, each clustered on its own; one commit for all.
     /// </summary>
     private static DeltaOptimizeResult Cluster(
-        DmlTable table, string tablePath, List<StructField[]> columns, long target, bool full, CloudArgs? cloud)
+        DmlTable table, string tablePath, List<StructField[]> columns, long target, bool full, CubeSizes cubeSizes, CloudArgs? cloud)
     {
         Snapshot snapshot = table.Snapshot;
         string[] names = [.. columns.Select(Clustering.LogicalName)];
         string cubeColumns = JsonText.StringArray(names);
 
+        static string? CubeId(AddAction f) => f.Tags?.GetValueOrDefault(Clustering.CubeIdTag);
         bool Current(AddAction f) =>
             f.ClusteringProvider == Clustering.Provider && f.Tags is { } t && t.GetValueOrDefault(Clustering.CubeColumnsTag) == cubeColumns;
         List<AddAction> fresh = [.. snapshot.Files.Where(f => f.ClusteringProvider != Clustering.Provider)];
-        List<AddAction> stale = full ? [.. snapshot.Files.Where(f => f.ClusteringProvider == Clustering.Provider && !Current(f))] : [];
-        if (fresh.Count == 0 && stale.Count == 0) return new DeltaOptimizeResult(null, 0, 0, 0, 0, 0);
         // Cubes of the current columns that are still small take the new data in (Spark's merge strategy).
-        var smallCubes = snapshot.Files.Where(Current)
-            .GroupBy(f => f.Tags![Clustering.CubeIdTag])
-            .Where(cube => cube.Sum(f => f.Size) < MinCubeSize)
-            .SelectMany(cube => cube);
-        List<AddAction> files = [.. fresh, .. stale, .. smallCubes];
+        List<AddAction> smallCubes = [.. snapshot.Files.Where(Current)
+            .GroupBy(CubeId)
+            .Where(cube => cube.Sum(f => f.Size) < cubeSizes.Min)
+            .OrderBy(cube => cube.Key, StringComparer.Ordinal)
+            .SelectMany(cube => cube)];
+        List<AddAction> stale = full
+            ? [.. snapshot.Files.Where(f => f.ClusteringProvider == Clustering.Provider && !Current(f)).OrderBy(CubeId, StringComparer.Ordinal)]
+            : [];
+        // A single cube alone is left as it is (Spark's filterOutSingleZCubes); two small ones are merged.
+        if (fresh.Count == 0 && stale.Count == 0 && smallCubes.Select(CubeId).Distinct().Count() <= 1)
+            return new DeltaOptimizeResult(null, 0, 0, 0, 0, 0);
+        List<AddAction> files = [.. fresh, .. smallCubes, .. stale];
 
+        // Spark's bins: a file that would take the cube past its target starts the next one. The target is at least
+        // the small-cube size (Spark takes the larger of the two).
+        long cubeTarget = Math.Max(cubeSizes.Target, cubeSizes.Min);
+        List<List<AddAction>> cubes = [];
+        long cubeBytes = 0;
+        foreach (AddAction file in files)
+        {
+            if (cubes.Count == 0 || cubeBytes + file.Size > cubeTarget)
+            {
+                cubes.Add([]);
+                cubeBytes = 0;
+            }
+            cubes[^1].Add(file);
+            cubeBytes += file.Size;
+        }
+
+        var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        foreach (List<AddAction> cube in cubes) ClusterCube(table, cube, columns, target, cubeColumns, plan);
+        foreach (AddAction file in files) plan.Remove(file, dataChange: false);
+
+        var transaction = Transaction.Start(table.FileSystem, snapshot, "OPTIMIZE");
+        transaction.ReadFiles(files);
+        // As Spark records an OPTIMIZE of a clustered table.
+        transaction.WithParameter("clusterBy", cubeColumns)
+                   .WithParameter("predicate", "[]")
+                   .WithParameter("auto", "false")
+                   .WithParameter("isFull", full ? "true" : "false")
+                   .WithParameter("zOrderBy", "[]");
+        return Commit(table, tablePath, transaction, plan, files.Count, cloud);
+    }
+
+    /// <summary>
+    /// Writes the rows of <paramref name="files"/> as one new cube into <paramref name="plan"/>. The rows are cut
+    /// into ranges of a Hilbert curve over each column's range ids (boundaries from a sample) and every range is
+    /// written to its own files; rows are not sorted within a file (Spark's default). One pass over the data
+    /// besides the sample; nothing is collected but the sample.
+    /// </summary>
+    private static void ClusterCube(
+        DmlTable table, List<AddAction> files, List<StructField[]> columns, long target, string cubeColumns, DmlPlan plan)
+    {
         long totalRows = files.Sum(f => Math.Max(0, (f.ParsedStats?.NumRecords ?? 0) - (f.DeletionVector?.Cardinality ?? 0)));
         long totalBytes = files.Sum(f => f.Size);
         int buckets = (int)Math.Clamp((totalBytes + target - 1) / target, 1, 1 << 20);
@@ -328,7 +380,6 @@ internal static class DeltaKernelOptimize
         }, PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32)), BucketColumn);
         LazyFrameHandle bucketed = PolarsWrapper.LazyWithColumns(Rows(), [bucket]);
 
-        var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         // Files of about the target size: a bucket holds about that much; a skewed one (equal keys) is cut by rows.
         ulong maxRows = (ulong)Math.Max(1, (totalRows + buckets - 1) / buckets);
         var tags = new Dictionary<string, string?>(StringComparer.Ordinal)
@@ -337,19 +388,8 @@ internal static class DeltaKernelOptimize
             [Clustering.CubeColumnsTag] = cubeColumns,
         };
         foreach (AddAction add in DeltaKernelWrite.WriteFiles(
-                     table, bucketed, snapshot.Schema, plan.Now, checkNotNull: false, maxRows, approxBytesPerFile: 0, bucketColumn: BucketColumn))
+                     table, bucketed, table.Snapshot.Schema, plan.Now, checkNotNull: false, maxRows, approxBytesPerFile: 0, bucketColumn: BucketColumn))
             plan.Adds.Add(Rearranged(add, tags, Clustering.Provider));
-        foreach (AddAction file in files) plan.Remove(file, dataChange: false);
-
-        var transaction = Transaction.Start(table.FileSystem, snapshot, "OPTIMIZE");
-        transaction.ReadFiles(files);
-        // As Spark records an OPTIMIZE of a clustered table.
-        transaction.WithParameter("clusterBy", cubeColumns)
-                   .WithParameter("predicate", "[]")
-                   .WithParameter("auto", "false")
-                   .WithParameter("isFull", full ? "true" : "false")
-                   .WithParameter("zOrderBy", "[]");
-        return Commit(table, tablePath, transaction, plan, files.Count, cloud);
     }
 
     /// <summary>The expression of a clustering column (a nested field by its path).</summary>

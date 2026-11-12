@@ -209,6 +209,19 @@ def run(spark, command, args):
         path, statement = args[0], args[1]
         spark.sql(statement.replace("{table}", f"delta.`{path}`"))
         read(spark, path)
+    elif command == "optimize_cubes":
+        # OPTIMIZE (FULL when the last argument is "full") with the given small-cube and target cube sizes, put back
+        # afterwards: the session serves every test.
+        path, threshold, target = args[0], args[1], args[2]
+        full = len(args) > 3 and args[3] == "full"
+        prefix = "spark.databricks.delta.optimize.clustering.mergeStrategy.minCubeSize."
+        spark.conf.set(prefix + "threshold", threshold)
+        spark.conf.set(prefix + "targetCubeSize", target)
+        try:
+            spark.sql(f"OPTIMIZE delta.`{path}`" + (" FULL" if full else ""))
+        finally:
+            spark.conf.unset(prefix + "threshold")
+            spark.conf.unset(prefix + "targetCubeSize")
     elif command == "create_widened":
         # A table whose columns were widened after a first insert, so its first file holds the older types.
         path = args[0]

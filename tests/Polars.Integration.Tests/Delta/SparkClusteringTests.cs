@@ -177,6 +177,51 @@ public class SparkClusteringTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void Optimize_PacksFilesIntoCubesOfTheTargetSize_AsSpark()
+    {
+        InRoot(root =>
+        {
+            string bySpark = Path.Combine(root, "spark"), byKernel = Path.Combine(root, "kernel");
+            LocalSpark.Run("sql", bySpark, "CREATE TABLE {table} (id BIGINT, s STRING) USING delta CLUSTER BY (id)");
+            for (int i = 0; i < 6; i++)
+                LocalSpark.Run("sql", bySpark, $"INSERT INTO {{table}} SELECT id, repeat('x', 100) FROM RANGE({i * 1000}, {i * 1000 + 1000})");
+            foreach (string file in Directory.EnumerateFiles(bySpark, "*", SearchOption.AllDirectories))
+            {
+                string copy = Path.Combine(byKernel, Path.GetRelativePath(bySpark, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+                File.Copy(file, copy);
+            }
+
+            // Cubes of two of the new files; every cube stays small (two files rewritten, by Spark or the kernel, are under 2.5).
+            long fileSize = Load(bySpark).Files.Max(f => f.Size);
+            var sizes = new CubeSizes(Min: fileSize * 5 / 2, Target: fileSize * 5 / 2);
+            void Optimize()
+            {
+                LocalSpark.Run("optimize_cubes", bySpark, $"{sizes.Min}", $"{sizes.Target}");
+                Assert.NotNull(DeltaKernelOptimize.Optimize(byKernel, cubeSizes: sizes).Version);
+                // The same cubes, by their rows (Spark lists the new files in its own order).
+                Assert.Equal(CubeRows(bySpark), CubeRows(byKernel));
+            }
+            static long[] CubeRows(string table) =>
+                [.. Load(table).Files.GroupBy(f => f.Tags![Clustering.CubeIdTag]).Select(c => c.Sum(f => f.ParsedStats!.NumRecords ?? 0)).Order()];
+
+            Optimize();
+            Assert.Equal([1000, 1000, 1000, 1000, 1000, 1000], CubeRows(byKernel));
+            // Nothing new, but several small cubes: Spark merges them again, each alone (too large together).
+            Optimize();
+            Assert.Equal(6, CubeRows(byKernel).Length);
+            // New data comes first and cubes on its own; the small cubes are rewritten.
+            foreach (string table in (string[])[bySpark, byKernel])
+                LocalSpark.Run("sql", table, "INSERT INTO {table} SELECT id, repeat('x', 100) FROM RANGE(9000, 10000)");
+            Optimize();
+            Assert.Equal(7, CubeRows(byKernel).Length);
+
+            Assert.Equal(Rows(bySpark), Rows(byKernel));
+        });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void ClusteredFiles_SkipFiles_AndKeepNearTheTargetSize_WithSkewedKeys()
     {
         InRoot(root =>

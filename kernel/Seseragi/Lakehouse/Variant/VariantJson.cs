@@ -268,11 +268,12 @@ public static class VariantJson
             };
             if (escape.IsEmpty)
             {
-                Span<byte> unicode = stackalloc byte[6];
+                // Written straight into the output: \u00XX.
+                Span<byte> unicode = output.GetSpan(6);
                 "\\u00"u8.CopyTo(unicode);
                 unicode[4] = HexDigits[b >> 4];
                 unicode[5] = HexDigits[b & 0xF];
-                Raw(output, unicode);
+                output.Advance(6);
             }
             else
             {

@@ -46,6 +46,7 @@ A table that needs a feature not listed here is refused with an error naming the
 * **History truncation:** `DROP FEATURE … TRUNCATE HISTORY` is not offered, so `checkpointProtection` cannot be dropped.
 * **Purging dropped columns:** Spark's `REORG … APPLY (PURGE)`, which dropping deletion vectors runs, also rewrites files that still hold the data of dropped columns; Polars.NET rewrites only the files with deletion vectors.
 * **Statistics of arrays and maps:** data files get no statistics for array and map columns (their null counts cannot be read from a Parquet footer), so filters on them do not skip files.
+* **A file holds at least 122,880 rows when writes split by size.** The engine splits files by size only in whole row groups, and a row group holds 122,880 rows unless `rowGroupSize` says otherwise. When rows are wide in memory (more than about 1 KB at the default 128 MB target: embedding vectors, long text, a few hundred columns), files are larger than `delta.targetFileSize`. Appends can pass a smaller `rowGroupSize` to `WriteDelta` / `SinkDelta` (`targetFileSize` divided by the row width in memory); updates, deletes and merges have no such setting, and `Delta.Optimize` does not split large files.
 * **Legacy deletion vectors:** deletion vectors written by Polars.NET before 1.2.0 did not follow the protocol and are refused with a hint: run `Delta.Optimize` with the earlier version first.
 
 ---
@@ -57,7 +58,6 @@ These differences are deliberate: each avoids a state Spark can leave a table in
 * **Dropping a struct that holds a clustering column is refused.** Spark refuses dropping a clustering column but allows dropping the struct that holds it, after which its later `ALTER TABLE` changes on the table fail.
 * **Turning on row tracking for an existing table is one commit** (Spark takes three: protocol, backfill, property), so no reader sees the table half done. Lifting `delta.rowTrackingSuspended` and turning tracking on can also be one change, and a table with both set (which Spark cannot repair) is repaired by setting either to false.
 * **Identity values of one write are consecutive.** Spark leaves gaps between its tasks.
-* **Optimize clusters a table into one cube per run.** Spark splits very large runs into cubes of about 150 GiB.
 * **Checkpoints store timestamps as 64-bit microseconds.** Spark writes the `timestamp` columns of a checkpoint's typed statistics as legacy INT96 values; Polars.NET writes the standard INT64 microsecond encoding, which Spark and other readers read the same.
 * **Writes can create clustered tables.** `WriteDelta` / `SinkDelta` with `clusterBy` create a clustered table; Spark's `DataFrameWriter.clusterBy` (open-source Delta) does not.
 * **Restore keeps checkpoint protection.** Restoring a version from before a feature was dropped keeps `delta.requireCheckpointProtectionBeforeVersion`; Spark's restore loses it, after which a log cleanup may remove the history protected checkpoints still need.
