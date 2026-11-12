@@ -12,7 +12,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// </summary>
     /// <param name="path">The file path to write to.</param>
     /// <param name="compression">The compression algorithm to use.</param>
-    /// <param name="name">The name of the Avro record.</param>
+    /// <param name="name">The name of the Avro record (empty: <c>topLevelRecord</c>).</param>
     public void WriteAvro(
         string path,
         AvroCompression compression = AvroCompression.Uncompressed,
@@ -23,7 +23,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// <summary>
     /// Write the DataFrame to an Apache Avro format into a <see cref="Stream"/>.
     /// <para>
-    /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
+    /// Output is written block by block as the frame is exported. The stream is flushed but not disposed.
     /// </para>
     /// </summary>
     /// <param name="stream">Writable destination stream.</param>
@@ -35,20 +35,19 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string name = "")
     {
         ArgumentNullException.ThrowIfNull(stream);
-        NativeStreamWriter.Write(stream, target =>
-            PolarsWrapper.WriteAvroCallback(Handle, target, compression.ToNative(), name));
+        PolarsWrapper.WriteAvro(Handle, stream, compression.ToNative(), name); // completing the file flushes the stream
     }
 
     /// <summary>
     /// Asynchronously write the DataFrame to an Apache Avro format into a <see cref="Stream"/>.
     /// <para>
-    /// Serialization runs on a background thread; chunks are written to the stream with async I/O,
+    /// Blocks are written to the stream with async I/O as they fill,
     /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
     /// The stream is flushed but not disposed.
     /// </para>
     /// </summary>
     /// <inheritdoc cref="WriteAvro(Stream, AvroCompression, string)"/>
-    /// <param name="cancellationToken">Cancels writing; serialization is aborted at its next write.</param>
+    /// <param name="cancellationToken">Cancels writing at the next block.</param>
     public Task WriteAvroAsync(
         Stream stream,
         AvroCompression compression = AvroCompression.Uncompressed,
@@ -56,9 +55,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        return NativeStreamWriter.WriteAsync(stream, target =>
-            PolarsWrapper.WriteAvroCallback(Handle, target, compression.ToNative(), name),
-            cancellationToken);
+        // Completing the file flushes the stream.
+        return PolarsWrapper.WriteAvroAsync(Handle, stream, compression.ToNative(), name, cancellationToken);
     }
 
     /// <summary>
@@ -75,9 +73,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        return NativeStreamWriter.WriteAsync(writer, target =>
-            PolarsWrapper.WriteAvroCallback(Handle, target, compression.ToNative(), name),
-            cancellationToken);
+        // The pipe's stream view writes into the pipe; completing the file flushes the pipe (it is not completed).
+        return PolarsWrapper.WriteAvroAsync(Handle, writer.AsStream(leaveOpen: true), compression.ToNative(), name, cancellationToken);
     }
 
     /// <summary>
@@ -105,5 +102,48 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string name = "")
     {
         return PolarsWrapper.WriteAvroNativeMemory(Handle, compression.ToNative(), name);
+    }
+}
+public partial class LazyFrame
+{
+    /// <summary>
+    /// Run the query on the streaming engine and write the result to an Avro file as batches arrive.
+    /// </summary>
+    /// <param name="path">The file path to write to (a failure deletes the partial file).</param>
+    /// <param name="compression">The compression algorithm to use.</param>
+    /// <param name="name">The name of the Avro record (empty: <c>topLevelRecord</c>).</param>
+    public void SinkAvro(
+        string path,
+        AvroCompression compression = AvroCompression.Uncompressed,
+        string name = "")
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+            SinkAvro(stream, compression, name);
+        }
+        catch
+        {
+            File.Delete(path);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Run the query on the streaming engine and write the result as Avro into a <see cref="Stream"/> as batches
+    /// arrive. The stream is flushed but not disposed.
+    /// </summary>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="compression">The compression algorithm to use.</param>
+    /// <param name="name">The name of the Avro record (empty: <c>topLevelRecord</c>).</param>
+    public void SinkAvro(
+        Stream stream,
+        AvroCompression compression = AvroCompression.Uncompressed,
+        string name = "")
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        using var sink = new PolarsWrapper.AvroBatchSink(stream, compression.ToNative(), name);
+        SinkBatches(sink.Write);
+        sink.Complete(Handle); // completing the file flushes the stream
     }
 }

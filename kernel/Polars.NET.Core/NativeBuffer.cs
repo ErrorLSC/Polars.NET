@@ -5,7 +5,8 @@ using Polars.NET.Core.Native;
 namespace Polars.NET.Core;
 
 /// <summary>
-/// A byte buffer allocated by the native (Rust) side and handed to .NET without copying.
+/// A byte buffer in native memory (allocated by the Rust side, or by managed code with <see cref="NativeMemory"/>),
+/// handed to .NET without copying.
 /// <para>
 /// Implements <see cref="IMemoryOwner{T}"/> (via <see cref="MemoryManager{T}"/>), so it can be passed
 /// to <c>PipeWriter</c>, <c>Stream.WriteAsync(ReadOnlyMemory&lt;byte&gt;)</c>, sockets, gRPC etc.
@@ -19,10 +20,10 @@ namespace Polars.NET.Core;
 /// </summary>
 public sealed unsafe class NativeBuffer : MemoryManager<byte>
 {
-    private readonly FfiBufferHandle _handle;
+    private readonly SafeHandle _handle;
     private readonly int _length;
 
-    private NativeBuffer(FfiBufferHandle handle, int length)
+    private NativeBuffer(SafeHandle handle, int length)
     {
         _handle = handle;
         _length = length;
@@ -43,6 +44,13 @@ public sealed unsafe class NativeBuffer : MemoryManager<byte>
         }
         return new NativeBuffer(handle, (int)buffer.Length);
     }
+
+    /// <summary>
+    /// Takes ownership of memory allocated with <see cref="NativeMemory.Alloc(nuint)"/> or
+    /// <see cref="NativeMemory.Realloc"/>; it is released with <see cref="NativeMemory.Free"/>.
+    /// </summary>
+    internal static NativeBuffer TakeNativeMemory(byte* pointer, int length) =>
+        new(new NativeMemoryHandle(pointer), length);
 
     /// <summary>
     /// Takes ownership of a native <see cref="FfiBuffer"/>, copies it into a managed array and frees it.
@@ -128,9 +136,9 @@ public sealed unsafe class NativeBuffer : MemoryManager<byte>
 
     private sealed class OwnedUnmanagedStream : UnmanagedMemoryStream
     {
-        private FfiBufferHandle? _handle;
+        private SafeHandle? _handle;
 
-        public OwnedUnmanagedStream(FfiBufferHandle handle, int length)
+        public OwnedUnmanagedStream(SafeHandle handle, int length)
             : base((byte*)handle.DangerousGetHandle(), length, length, FileAccess.Read)
         {
             _handle = handle;
@@ -167,6 +175,20 @@ internal sealed class FfiBufferHandle : SafeHandle
             Length = _length,
             Capacity = _capacity,
         });
+        return true;
+    }
+}
+
+/// <summary>Owns memory allocated with <see cref="NativeMemory"/> by managed code.</summary>
+internal sealed unsafe class NativeMemoryHandle : SafeHandle
+{
+    public NativeMemoryHandle(byte* pointer) : base(IntPtr.Zero, true) => SetHandle((IntPtr)pointer);
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMemory.Free((void*)handle);
         return true;
     }
 }

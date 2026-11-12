@@ -1949,18 +1949,20 @@ public readonly partial struct PolarsWrapper
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData)
+        void* userData,
+        bool strict = false)
     {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback, destroyCallback, userData);
+        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback, destroyCallback, userData, strict);
         return ErrorHelper.Check(handle);
     }
     public static unsafe LazyFrameHandle LazyFrameScanStreamBuffered(
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData)
+        void* userData,
+        bool strict = false)
     {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream_buffered(schema, callback, destroyCallback, userData);
+        var handle = NativeBindings.pl_lazy_frame_scan_stream_buffered(schema, callback, destroyCallback, userData, strict);
         return ErrorHelper.Check(handle);
     }
     public static void ExportBatches(DataFrameHandle dfHandle, Action<RecordBatch> onBatchReceived)
@@ -2038,132 +2040,6 @@ public readonly partial struct PolarsWrapper
         if (handle.IsInvalid)
             throw new ObjectDisposedException(nameof(handle), "DataFrame handle is invalid or closed.");
         NativeBindings.pl_write_excel(handle, path, sheetName, dateFormat, datetimeFormat);
-    }
-    public static DataFrameHandle ReadAvro(
-        string path,
-        ulong? nRows,
-        string[]? columns,
-        int[]? projection)
-    {
-        if (!File.Exists(path)) throw new FileNotFoundException($"Avro file not found: {path}");
-
-        unsafe
-        {
-            ulong rowsVal = nRows.GetValueOrDefault();
-            nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
-
-            nuint columnsLen = (nuint)(columns?.Length ?? 0);
-
-            nuint[]? nativeProjection = null;
-            nuint projectionLen = 0;
-            if (projection != null)
-            {
-                nativeProjection = System.Array.ConvertAll(projection, x => (nuint)x);
-                projectionLen = (nuint)projection.Length;
-            }
-
-            var h = NativeBindings.pl_read_avro(
-                path,
-                rowsPtr,
-                columns,
-                columnsLen,
-                nativeProjection,
-                projectionLen
-            );
-
-            return ErrorHelper.Check(h);
-        }
-    }
-    public static DataFrameHandle ReadAvro(
-        ReadOnlySpan<byte> buffer,
-        ulong? nRows,
-        string[]? columns,
-        int[]? projection)
-    {
-        if (buffer.Length == 0)
-            throw new ArgumentException("Buffer cannot be null or empty", nameof(buffer));
-
-        unsafe
-        {
-            ulong rowsVal = nRows.GetValueOrDefault();
-            IntPtr rowsPtr = nRows.HasValue ? (IntPtr)(&rowsVal) : IntPtr.Zero;
-
-            nuint columnsLen = (nuint)(columns?.Length ?? 0);
-
-            nuint[]? nativeProjection = null;
-            nuint projectionLen = 0;
-            if (projection != null)
-            {
-                nativeProjection = System.Array.ConvertAll(projection, x => (nuint)x);
-                projectionLen = (nuint)projection.Length;
-            }
-
-            fixed (byte* pBuffer = buffer)
-            {
-                var h = NativeBindings.pl_read_avro_mem(
-                    pBuffer,
-                    (nuint)buffer.Length,
-                    rowsPtr,
-                    columns,
-                    columnsLen,
-                    nativeProjection,
-                    projectionLen
-                );
-
-                return ErrorHelper.Check(h);
-            }
-        }
-    }
-    public static void WriteAvro(
-        DataFrameHandle df,
-        string path,
-        PlAvroCompression compression,
-        string name)
-    {
-        NativeBindings.pl_write_avro(df, path, compression, name ?? string.Empty);
-        ErrorHelper.CheckVoid();
-    }
-    private static FfiBuffer WriteAvroToMemoryRaw(
-        DataFrameHandle df,
-        PlAvroCompression compression,
-        string name)
-    {
-        NativeBindings.pl_write_avro_mem(
-            df,
-            out var ffiBuffer,
-            compression,
-            name ?? string.Empty
-        );
-
-        ErrorHelper.CheckVoid();
-        return ffiBuffer;
-    }
-    public static byte[] WriteAvroToMemory(
-        DataFrameHandle df,
-        PlAvroCompression compression,
-        string name)
-        => NativeBuffer.TakeToArray(WriteAvroToMemoryRaw(df, compression, name));
-    public static NativeBuffer WriteAvroNativeMemory(
-        DataFrameHandle df,
-        PlAvroCompression compression,
-        string name)
-        => NativeBuffer.Take(WriteAvroToMemoryRaw(df, compression, name));
-    public static void WriteAvroCallback(
-        DataFrameHandle df,
-        NativeWriteTarget target,
-        PlAvroCompression compression,
-        string name)
-    {
-        NativeBindings.pl_write_avro_callback(
-            df,
-            target.Callback,
-            target.UserData,
-            target.BufferSize,
-            compression,
-            name ?? string.Empty
-        );
-
-        ErrorHelper.CheckVoid();
     }
 
 }

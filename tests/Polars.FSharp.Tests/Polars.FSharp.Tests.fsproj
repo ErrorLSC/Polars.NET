@@ -39,6 +39,7 @@
     <Compile Include="StreamWriteTests.fs" />
     <Compile Include="StreamWriteTests.ParquetCsv.fs" />
     <Compile Include="StreamWriteTests.JsonAvro.fs" />
+    <Compile Include="AvroManagedTests.fs" />
     <Compile Include="TpchLinqTests.fs" />
     <Compile Include="LogicalPlanOptimizerTests.fs" />
     <Compile Include="GroupOrderRelaxationTests.fs" />

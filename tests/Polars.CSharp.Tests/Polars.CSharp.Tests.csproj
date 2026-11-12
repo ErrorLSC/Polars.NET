@@ -27,4 +27,9 @@
     <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Avro files written by the reference writers, shared with the Seseragi.Files tests. -->
+    <None Include="..\Seseragi.Files.Tests\TestData\avro\*.avro" Link="TestData\avro\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

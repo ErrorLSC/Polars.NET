@@ -491,7 +491,8 @@ public enum AvroCompression : byte
 {
     Uncompressed = 0,
     Deflate = 1,
-    Snappy = 2
+    Snappy = 2,
+    Zstandard = 3,
 }
 
 /// <summary>
@@ -944,6 +945,7 @@ internal static class EnumExtensions
         AvroCompression.Uncompressed => CoreEnums.PlAvroCompression.Uncompressed,
         AvroCompression.Snappy => CoreEnums.PlAvroCompression.Snappy,
         AvroCompression.Deflate => CoreEnums.PlAvroCompression.Deflate,
+        AvroCompression.Zstandard => CoreEnums.PlAvroCompression.Zstandard,
         _ => throw new ArgumentOutOfRangeException(nameof(compression), compression, null)
     };
     internal static CoreEnums.PlMergeActionType ToNative(this MergeActionType condition) => condition switch

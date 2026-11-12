@@ -408,7 +408,8 @@ public enum PlAvroCompression : byte
 {
     Uncompressed = 0,
     Deflate = 1,
-    Snappy = 2
+    Snappy = 2,
+    Zstandard = 3,
 }
 
 /// <summary>

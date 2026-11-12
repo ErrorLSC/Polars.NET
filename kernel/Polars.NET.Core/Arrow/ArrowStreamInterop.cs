@@ -147,6 +147,19 @@ public static unsafe class ArrowStreamInterop
         return PolarsWrapper.DataFrameNewFromStream(&cStream);
     }
 
+    /// <summary>
+    /// Eager import of batches in any standard Arrow layout (not just the engine's own, e.g. Utf8 rather than
+    /// Utf8View, Time32 rather than Time64[ns]): every column goes through the engine's type conversion.
+    /// </summary>
+    public static DataFrameHandle ImportEagerStrict(IEnumerable<RecordBatch> stream, Schema schema)
+    {
+        var cStream = new CArrowArrayStream();
+        using var enumerator = stream.GetEnumerator();
+        using var exporter = new ArrowStreamExporter(enumerator, schema);
+        exporter.Export(&cStream);
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type(&cStream));
+    }
+
     public static void* CreateDirectScanContext(
         Func<IEnumerable<RecordBatch>> factory,
         Schema schema)
@@ -164,10 +177,15 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Logic For Lazy Scan
     /// </summary>
+    /// <param name="streamFactory">Opens the stream each time the plan runs.</param>
+    /// <param name="schema">The stream's schema.</param>
+    /// <param name="strict">True when the batches may use any standard Arrow layout (foreign data): every column is
+    /// converted by the engine. False only for batches already in the engine's physical layout (ArrowConverter).</param>
     public static LazyFrameHandle ScanStream(
         Func<IEnumerable<RecordBatch>> streamFactory,
-        Schema schema)
-        => Scan(streamFactory, schema, buffered: false);
+        Schema schema,
+        bool strict = false)
+        => Scan(streamFactory, schema, buffered: false, strict);
 
     /// <summary>
     /// Reads the stream now into an anonymous temporary Arrow IPC file and scans that file. The engine owns the file:
@@ -175,10 +193,11 @@ public static unsafe class ArrowStreamInterop
     /// </summary>
     public static LazyFrameHandle ScanStreamBuffered(
         Func<IEnumerable<RecordBatch>> streamFactory,
-        Schema schema)
-        => Scan(streamFactory, schema, buffered: true);
+        Schema schema,
+        bool strict = false)
+        => Scan(streamFactory, schema, buffered: true, strict);
 
-    private static LazyFrameHandle Scan(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered)
+    private static LazyFrameHandle Scan(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict)
     {
         var cSchema = CArrowSchema.Create();
         try
@@ -187,8 +206,8 @@ public static unsafe class ArrowStreamInterop
             // The engine owns userData from here on and releases it through the destroy callback.
             var userData = CreateDirectScanContext(streamFactory, schema);
             return buffered
-                ? PolarsWrapper.LazyFrameScanStreamBuffered(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData)
-                : PolarsWrapper.LazyFrameScanStream(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData);
+                ? PolarsWrapper.LazyFrameScanStreamBuffered(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData, strict)
+                : PolarsWrapper.LazyFrameScanStream(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData, strict);
         }
         finally
         {

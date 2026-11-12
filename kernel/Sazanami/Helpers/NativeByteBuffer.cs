@@ -48,6 +48,18 @@ internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0) : MemoryM
     ~NativeByteBuffer() => Dispose(false);
 #pragma warning restore CA2015
 
+    /// <summary>
+    /// Hands the allocation to the caller, who frees it with <see cref="NativeMemory.Free"/>, and leaves this
+    /// buffer empty. Returns null when nothing was allocated.
+    /// </summary>
+    public byte* Detach()
+    {
+        byte* p = _ptr;
+        _ptr = null;
+        _capacity = 0;
+        return p;
+    }
+
     /// <summary>Frees the memory (also done by the finalizer as a fallback).</summary>
     public void Release()
     {

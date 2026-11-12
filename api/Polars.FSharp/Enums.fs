@@ -563,12 +563,14 @@ type AvroCompression =
     | Uncompressed
     | Deflate
     | Snappy
+    | Zstandard
 
     member internal this.ToNative() =
         match this with
         | Uncompressed -> PlAvroCompression.Uncompressed
         | Deflate -> PlAvroCompression.Deflate
         | Snappy -> PlAvroCompression.Snappy
+        | Zstandard -> PlAvroCompression.Zstandard
 
 /// <summary>
 /// Defines the type of action to perform during a Delta Merge operation.

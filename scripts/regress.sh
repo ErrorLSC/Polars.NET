@@ -5,7 +5,8 @@
 #                                       [filter] adds an integration test run, e.g. "FullyQualifiedName~SparkMapColumnTests"
 #   scripts/regress.sh delta [filter]   quick, plus the Delta integration tests: Spark interop, kernel on object stores,
 #                                       DeltaLakeTests, Unity Catalog, file system contract (starts containers)
-#   scripts/regress.sh full             every test project of the library, plus the delta tier's integration tests
+#   scripts/regress.sh full             every test project of the library (Seseragi.Files included), plus the delta
+#                                       tier's integration tests
 #                                       (not: real-cloud, ML, MSSQL, ADBC, LINQ integration, the net11 LINQ suite)
 #
 # Each step's output goes to $REGRESS_LOG_DIR (default: $TMPDIR/polars-regress); a summary table is printed at the
@@ -57,7 +58,7 @@ integration=tests/Polars.Integration.Tests
 # One build of everything the tier runs; every test run after it uses --no-build.
 projects=(tests/Seseragi.Lakehouse.Tests tests/Polars.FSharp.Tests tests/Polars.CSharp.Tests)
 [ "$tier" != quick ] || [ -n "$extra" ] && projects+=("$integration")
-[ "$tier" = full ] && projects+=(tests/Sazanami.Tests tests/Polars.Config.Tests)
+[ "$tier" = full ] && projects+=(tests/Sazanami.Tests tests/Polars.Config.Tests tests/Seseragi.Files.Tests)
 for p in "${projects[@]}"; do step "build $(basename "$p")" dotnet build "$p"; done
 if [ $failed -ne 0 ]; then
     printf '%s\n' "${summary[@]}"
@@ -70,6 +71,7 @@ if [ "$tier" = full ]; then
     test_run "F# (all)" tests/Polars.FSharp.Tests
     test_run "C# (all)" tests/Polars.CSharp.Tests
     test_run "Sazanami" tests/Sazanami.Tests
+    test_run "Seseragi.Files" tests/Seseragi.Files.Tests
     test_run "Config (serial)" tests/Polars.Config.Tests
 else
     test_run "F# Delta" tests/Polars.FSharp.Tests "FullyQualifiedName~Seseragi|FullyQualifiedName~DeltaTests"

@@ -68,9 +68,11 @@ public partial class LazyFrame : IDisposable
     {
         // ArgumentNullException.ThrowIfNull(nameof(schema));
 
+        // The batches may use any standard Arrow layout, so the engine converts every column.
         var handle = ArrowStreamInterop.ScanStream(
             () => EnsureStreamSafety(stream),
-            schema
+            schema,
+            strict: true
         );
         return new LazyFrame(handle);
     }

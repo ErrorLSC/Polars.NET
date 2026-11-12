@@ -91,35 +91,9 @@ internal sealed class DeflateCodec(CompressionLevel level) : AvroCodec
 
     public override int Compress(ReadOnlySpan<byte> input, NativeByteBuffer output)
     {
-        var sink = new GrowingSink(output);
+        var sink = new NativeByteBufferStream(output);
         using (var deflater = new DeflateStream(sink, level, leaveOpen: true)) deflater.Write(input);
         return (int)sink.Length;
-    }
-
-    /// <summary>A write-only stream appending to a native buffer that grows as needed.</summary>
-    private sealed class GrowingSink(NativeByteBuffer buffer) : Stream
-    {
-        private int _written;
-
-        public override long Length => _written;
-
-        public override void Write(ReadOnlySpan<byte> data)
-        {
-            if ((long)_written + data.Length > Array.MaxLength) throw new InvalidOperationException("A compressed Avro block exceeds 2 GB.");
-            buffer.EnsureCapacity((long)_written + data.Length);
-            data.CopyTo(buffer.Span[_written..]);
-            _written += data.Length;
-        }
-
-        public override void Write(byte[] data, int offset, int count) => Write(data.AsSpan(offset, count));
-        public override bool CanRead => false;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override void Flush() { }
-        public override int Read(byte[] data, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override long Position { get => _written; set => throw new NotSupportedException(); }
     }
 }
 
