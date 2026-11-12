@@ -310,7 +310,8 @@ internal sealed class DmlPlan(long now)
             DeletionVector fresh = DeletionVector.FromRows(f.Rows);
             return f.File.DeletionVector is null ? fresh : DeletionVector.Read(table.FileSystem, f.File.DeletionVector).Union(fresh);
         }).ToList();
-        IReadOnlyList<DeletionVectorDescriptor> descriptors = DeletionVector.WriteFile(table.FileSystem, vectors);
+        IReadOnlyList<DeletionVectorDescriptor> descriptors = DeletionVector.WriteFile(
+            table.FileSystem, vectors, FilePrefixes.ForDeletionVectors(table.Snapshot.Metadata.Configuration));
         for (int i = 0; i < files.Count; i++)
         {
             AddAction file = files[i].File;

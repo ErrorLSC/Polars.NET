@@ -32,7 +32,7 @@ public static partial class AlterTable
         Checkpoints.IntervalKey, Checkpoints.TombstoneRetentionKey, CheckpointPolicyKey, LogCleanup.RetentionKey, LogCleanup.EnabledKey,
         "delta.checkpoint.writeStatsAsJson", "delta.checkpoint.writeStatsAsStruct", "delta.targetFileSize",
         "delta.tuneFileSizesForRewrites", "delta.dataSkippingNumIndexedCols", "delta.dataSkippingStatsColumns",
-        "delta.isolationLevel", "delta.randomizeFilePrefixes", "delta.randomPrefixLength", "delta.setTransactionRetentionDuration",
+        "delta.isolationLevel", FilePrefixes.RandomizeKey, FilePrefixes.LengthKey, "delta.setTransactionRetentionDuration",
         "delta.compatibility.symlinkFormatManifest.enabled", "delta.autoOptimize.optimizeWrite", "delta.autoOptimize.autoCompact",
         "delta.enableRowTracking", RowTracking.SuspendedKey, TableFeatures.RequireCheckpointProtectionBeforeVersionKey, "delta.enableIcebergCompatV1", "delta.enableIcebergCompatV2", "delta.universalFormat.enabledFormats",
     ];
@@ -221,6 +221,10 @@ public static partial class AlterTable
             else if (known == TableFeatures.ColumnMappingModeKey)
             {
                 MappingMode(value);
+            }
+            else if (known is FilePrefixes.RandomizeKey or FilePrefixes.LengthKey)
+            {
+                FilePrefixes.Validate(known, value);
             }
             else if (known == CheckpointPolicyKey)
             {

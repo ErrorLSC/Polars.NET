@@ -64,9 +64,13 @@ public static class TableFeatures
 
     /// <summary>The column mapping mode the table metadata selects.</summary>
     /// <exception cref="DeltaProtocolException">The mode is not one the protocol defines.</exception>
-    public static ColumnMappingMode ColumnMappingModeOf(MetadataAction metadata)
+    public static ColumnMappingMode ColumnMappingModeOf(MetadataAction metadata) => ColumnMappingModeOf(metadata.Configuration);
+
+    /// <summary>The column mapping mode the table properties select.</summary>
+    /// <exception cref="DeltaProtocolException">The mode is not one the protocol defines.</exception>
+    public static ColumnMappingMode ColumnMappingModeOf(IReadOnlyDictionary<string, string> configuration)
     {
-        if (!metadata.Configuration.TryGetValue(ColumnMappingModeKey, out string? mode)) return ColumnMappingMode.None;
+        if (!configuration.TryGetValue(ColumnMappingModeKey, out string? mode)) return ColumnMappingMode.None;
         return mode switch
         {
             "none" => ColumnMappingMode.None,

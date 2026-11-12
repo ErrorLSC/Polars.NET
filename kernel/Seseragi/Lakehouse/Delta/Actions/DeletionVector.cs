@@ -359,12 +359,17 @@ public sealed class DeletionVector
     }
 
     /// <summary>
-    /// Writes vectors into one new file <c>deletion_vector_UUID.bin</c> at the table root and returns their
-    /// descriptors (storage type <c>u</c>), in the order given. The file holds a format version byte, then per vector
-    /// its size, its bytes and their CRC-32, both numbers big-endian; descriptors point at the size.
+    /// Writes vectors into one new file <c>deletion_vector_UUID.bin</c> and returns their descriptors (storage type
+    /// <c>u</c>), in the order given. The file holds a format version byte, then per vector its size, its bytes and
+    /// their CRC-32, both numbers big-endian; descriptors point at the size.
     /// </summary>
+    /// <param name="fileSystem">The table's file system.</param>
+    /// <param name="vectors">The vectors to write.</param>
+    /// <param name="prefixLength">The length of the random directory the file goes into (the descriptors carry it);
+    /// 0 for the table root. See <see cref="FilePrefixes.ForDeletionVectors"/>.</param>
     /// <exception cref="DeltaException">The file could not be created.</exception>
-    public static IReadOnlyList<DeletionVectorDescriptor> WriteFile(IWritableFileSystem fileSystem, IReadOnlyList<DeletionVector> vectors)
+    public static IReadOnlyList<DeletionVectorDescriptor> WriteFile(
+        IWritableFileSystem fileSystem, IReadOnlyList<DeletionVector> vectors, int prefixLength = 0)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(vectors);
@@ -386,8 +391,9 @@ public sealed class DeletionVector
         }
 
         Guid id = Guid.NewGuid();
-        string encodedId = Z85.Encode(id.ToByteArray(bigEndian: true));
-        string path = $"deletion_vector_{id:D}.bin";
+        string prefix = FilePrefixes.New(prefixLength);
+        string encodedId = prefix + Z85.Encode(id.ToByteArray(bigEndian: true));
+        string path = prefix.Length == 0 ? $"deletion_vector_{id:D}.bin" : $"{prefix}/deletion_vector_{id:D}.bin";
         if (!fileSystem.TryCreate(path, file.WrittenSpan.ToArray()))
             throw new DeltaException($"The deletion vector file {path} already exists.");
 

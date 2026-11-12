@@ -109,6 +109,19 @@ module DeltaTableProperties =
     [<Literal>]
     let RowTrackingSuspended = "delta.rowTrackingSuspended"
 
+    /// <summary>
+    /// If true, new data, change data and deletion vector files go into directories of random letters and digits
+    /// (Ab/part-…) instead of the partition directories, as Spark places them; the partition values are in the log.
+    /// Spreading files over many prefixes avoids an object store's request limit per prefix. Tables with column
+    /// mapping put their data and change data files under such prefixes without it, as Spark does.
+    /// </summary>
+    [<Literal>]
+    let RandomizeFilePrefixes = "delta.randomizeFilePrefixes"
+
+    /// <summary>The length of the random prefixes of RandomizeFilePrefixes, greater than 0. Default: 2.</summary>
+    [<Literal>]
+    let RandomPrefixLength = "delta.randomPrefixLength"
+
 /// <summary>
 /// An identity column to declare in Delta.CreateTable: a long (Int64) column whose values writes generate,
 /// start, start + step, … (Spark's <c>GENERATED ALWAYS | BY DEFAULT AS IDENTITY (START WITH … INCREMENT BY …)</c>).

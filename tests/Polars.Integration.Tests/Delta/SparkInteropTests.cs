@@ -550,6 +550,72 @@ public class SparkInteropTests
 
     [SparkFact]
     [Trait("DeltaKernel", "Spark")]
+    public void RandomFilePrefixes_KernelOperations_SparkReads_AndVacuumKeepsLiveFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        try
+        {
+            static ExprHandle Id(int value) => PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(value));
+            static Snapshot Load(string path) => Snapshot.Load(new LocalFileSystem(path), parquet: new EngineParquetReader(path));
+            static void AllPrefixed(string path, int length) => Assert.All(Load(path).Files, f =>
+                Assert.Matches($"^[0-9A-Za-z]{{{length}}}/part-", f.Path));
+
+            // delta.randomizeFilePrefixes: data, change data and deletion vector files under random prefixes.
+            string randomized = Path.Combine(root, "randomized");
+            CreateTable(randomized, new()
+            {
+                ["delta.randomizeFilePrefixes"] = "true", ["delta.randomPrefixLength"] = "3",
+                ["delta.enableDeletionVectors"] = "true", ["delta.enableChangeDataFeed"] = "true",
+            });
+            DeltaKernelDelete.Delete(randomized, Id(2));
+            DeltaKernelUpdate.Update(randomized, Id(7), [("price", PolarsWrapper.Lit(0.0))]);
+            AllPrefixed(randomized, 3);
+            Assert.Contains(Load(randomized).Files, f => f.DeletionVector is { } dv && dv.FilePath().Length > "deletion_vector_".Length + 40);
+            Assert.False(Directory.Exists(Path.Combine(randomized, "_change_data")));
+
+            // Column mapping alone: data files under prefixes, deletion vectors at the root (as Spark).
+            string mapped = Path.Combine(root, "mapped");
+            CreateTable(mapped, new() { ["delta.columnMapping.mode"] = "name", ["delta.enableDeletionVectors"] = "true" });
+            DeltaKernelDelete.Delete(mapped, Id(3));
+            AllPrefixed(mapped, 2);
+            Assert.All(Load(mapped).Files.Where(f => f.DeletionVector is not null), f =>
+                Assert.StartsWith("deletion_vector_", f.DeletionVector!.FilePath(), StringComparison.Ordinal));
+
+            List<JsonDocument> spark = LocalSpark.Run("read_changes", randomized);
+            spark.AddRange(LocalSpark.Run("read", mapped));
+            Assert.Equal(3, spark.Count);
+            foreach (JsonDocument table in spark)
+            {
+                string path = table.RootElement.GetProperty("path").GetString()!;
+                bool changes = table.RootElement.TryGetProperty("changes", out _);
+                AssertSameRows(changes ? path + " (change feed)" : path, table.RootElement.GetProperty("rows"),
+                    KernelRows(changes ? ChangeFeedWithoutTime(path) : DeltaKernelScan.Scan(path)));
+            }
+
+            // Optimize compacts into prefixed files; Spark deletes on top of the kernel's vectors; a full vacuum
+            // with no retention deletes only what neither the table nor its change feed's latest version needs.
+            DeltaKernelOptimize.Optimize(randomized);
+            AllPrefixed(randomized, 3);
+            LocalSpark.Run("sql", randomized, "DELETE FROM {table} WHERE id = 5");
+            var vacuumed = DeltaKernelVacuum.Vacuum(randomized, 0, enforceRetention: false, full: true);
+            Assert.NotEmpty(vacuumed.Files);
+            JsonDocument afterVacuum = LocalSpark.Run("read", randomized)[0];
+            AssertSameRows(randomized, afterVacuum.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(randomized)));
+            Assert.Equal(8, afterVacuum.RootElement.GetProperty("rows").GetArrayLength());
+            Assert.All(Load(randomized).Files, f => Assert.True(File.Exists(Path.Combine(randomized, f.DecodedPath)), f.Path));
+
+            // Spark appends to the mapped table; the kernel reads both kinds of files.
+            JsonDocument appended = LocalSpark.Run("sql", mapped, "INSERT INTO {table} SELECT * FROM {table} WHERE id = 1")[0];
+            AssertSameRows(mapped, appended.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(mapped)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
     public void Restore_ByEither_AndTheKernelReadsSparksHistory()
     {
         string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");

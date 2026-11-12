@@ -101,6 +101,19 @@ public static class DeltaTableProperties
     /// Set back to false, new files get ids again, after the highest id given so far.
     /// </summary>
     public const string RowTrackingSuspended = "delta.rowTrackingSuspended";
+
+    /// <summary>
+    /// If true, new data, change data and deletion vector files go into directories of random letters and digits
+    /// (<c>Ab/part-…</c>) instead of the partition directories, as Spark places them; the partition values are in
+    /// the log. Spreading files over many prefixes avoids an object store's request limit per prefix. Tables with
+    /// column mapping put their data and change data files under such prefixes without it, as Spark does.
+    /// </summary>
+    public const string RandomizeFilePrefixes = "delta.randomizeFilePrefixes";
+
+    /// <summary>
+    /// The length of the random prefixes of <see cref="RandomizeFilePrefixes"/>, greater than 0. Default: 2.
+    /// </summary>
+    public const string RandomPrefixLength = "delta.randomPrefixLength";
 }
 
 /// <summary>

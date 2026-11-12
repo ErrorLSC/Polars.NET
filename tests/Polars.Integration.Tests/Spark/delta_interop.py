@@ -34,8 +34,57 @@ EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 # Unity Catalog's Spark connector, for catalog-managed tables (matches Spark 4.2 and the UC 0.7 server image).
 UC_PACKAGE = "io.unitycatalog:unitycatalog-spark_4.2_2.13:0.7.0"
 
+# Resolving spark.jars.packages through Ivy costs seconds at every start even when everything is cached. The first
+# start that resolves a package set records the jars Spark ended up with; later starts hand Spark those local files
+# through spark.jars and skip Ivy. A missing jar (or no manifest) falls back to resolving.
+JARS_MANIFEST = os.path.join(os.path.expanduser("~"), ".cache", "seseragi", "spark-jars.json")
 
-def session():
+
+def _manifest_key(uc):
+    return "delta+uc" if uc else "delta"
+
+
+def _read_manifest():
+    try:
+        with open(JARS_MANIFEST) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _cached_jars(uc):
+    """The local jar paths recorded for this package set, or None when absent or any of them is gone."""
+    entry = _read_manifest().get(_manifest_key(uc))
+    if not entry or entry.get("packages") != _packages(uc) or not all(os.path.isfile(j) for j in entry["jars"]):
+        return None
+    return entry["jars"]
+
+
+def _packages(uc):
+    import importlib.metadata
+    delta = f"io.delta:delta-spark_4.2_2.13:{importlib.metadata.version('delta-spark')}"
+    return [delta, UC_PACKAGE] if uc else [delta]
+
+
+def _record_jars(spark, uc):
+    jars = spark.sparkContext.getConf().get("spark.jars", "")
+    paths = [j[len("file://"):] if j.startswith("file://") else j for j in jars.split(",") if j]
+    if not paths or not all(os.path.isfile(j) for j in paths):
+        return
+    manifest = _read_manifest()
+    manifest[_manifest_key(uc)] = {"packages": _packages(uc), "jars": paths}
+    try:
+        os.makedirs(os.path.dirname(JARS_MANIFEST), exist_ok=True)
+        tmp = f"{JARS_MANIFEST}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(manifest, f)
+        os.replace(tmp, JARS_MANIFEST)
+    except OSError:
+        pass  # only a cache
+
+
+def session(uc=True):
+    """A local Spark session with Delta and Unity Catalog's connector (loading it costs no measurable start time)."""
     builder = (
         SparkSession.builder.master("local[2]")
         .appName("seseragi-interop")
@@ -50,7 +99,12 @@ def session():
         # VACUUM ... RETAIN 0 HOURS in the tests.
         .config("spark.databricks.delta.retentionDurationCheck.enabled", "false")
     )
-    spark = configure_spark_with_delta_pip(builder, extra_packages=[UC_PACKAGE]).getOrCreate()
+    cached = _cached_jars(uc)
+    if cached is not None:
+        spark = builder.config("spark.jars", ",".join(cached)).getOrCreate()
+    else:
+        spark = configure_spark_with_delta_pip(builder, extra_packages=[UC_PACKAGE] if uc else None).getOrCreate()
+        _record_jars(spark, uc)
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 

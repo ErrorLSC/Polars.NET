@@ -293,3 +293,90 @@ let ``Change data files are streamed under _change_data, per partition`` () =
         Assert.Equal(2, cdc.Length)
         Assert.All(cdc, fun f -> Assert.Matches(@"region=(east|west)[/\\]cdc-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$", f))
         Assert.Equal<int list>([ 5 .. 10 ], ids path))
+
+/// Files on disk outside the log, relative to the table, with '/' separators.
+let private tableFiles (path: string) =
+    Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+    |> Array.map (fun f -> Path.GetRelativePath(path, f).Replace('\\', '/'))
+    |> Array.filter (fun f -> not (f.StartsWith "_delta_log/") && not (f.EndsWith ".crc"))
+
+[<Fact>]
+let ``Random file prefixes replace partition directories and _change_data, as Spark places files`` () =
+    withTable "random_prefix" (fun path ->
+        use df = frame [ 1 .. 10 ]
+        // Several files per partition: each gets its own prefix.
+        write path df KernelWriteMode.ErrorIfExists [| "region" |] (KernelWriteOptions(MaxRowsPerFile = 2UL))
+            [ ("delta.randomizeFilePrefixes", "true"); ("delta.enableChangeDataFeed", "true"); ("delta.enableDeletionVectors", "true") ] |> ignore
+        let files = (snapshot path).Files
+        Assert.Equal(6, files.Count)
+        Assert.All(files, fun f -> Assert.Matches(@"^[0-9A-Za-z]{2}/part-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$", f.Path))
+        // The partition values are in the log only, and each file holds its partition's rows.
+        Assert.Equal<string list>([ "east"; "east"; "east"; "west"; "west"; "west" ],
+                                  files |> Seq.map (fun f -> f.PartitionValues["region"]) |> Seq.sort |> List.ofSeq)
+        use byRegion = (new LazyFrame(DeltaKernelScan.Scan path)).Filter(pl.col "region" .== pl.lit "east").Collect().Sort(pl.col "id")
+        Assert.Equal<int list>([ 2; 4; 6; 8; 10 ], byRegion.["id"].ToArray<int>() |> List.ofArray)
+        Assert.DoesNotContain(tableFiles path, fun f -> f.Contains "region=")
+
+        // A delete marks rows in a deletion vector file under a prefix, which its descriptor carries.
+        DeltaKernelDelete.Delete(path, (pl.col "id" .== pl.lit 3).CloneHandle()) |> ignore
+        let vector = (snapshot path).Files |> Seq.choose (fun f -> Option.ofObj f.DeletionVector) |> Seq.exactlyOne
+        Assert.Matches(@"^[0-9A-Za-z]{2}/deletion_vector_[0-9a-f-]{36}\.bin$", vector.FilePath())
+        Assert.True(File.Exists(Path.Combine(path, vector.FilePath())))
+
+        // An update writes its change data files under prefixes too, not under _change_data.
+        DeltaKernelUpdate.Update(path, (pl.col "id" .== pl.lit 4).CloneHandle(), ResizeArray [ struct ("price", (pl.lit 0.0).CloneHandle()) ]) |> ignore
+        Assert.False(Directory.Exists(Path.Combine(path, "_change_data")))
+        let cdc = tableFiles path |> Array.filter (fun f -> (Path.GetFileName f).StartsWith "cdc-")
+        Assert.NotEmpty(cdc)
+        Assert.All(cdc, fun f -> Assert.Matches(@"^[0-9A-Za-z]{2}/cdc-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$", f))
+        Assert.All((snapshot path).Files, fun f -> Assert.Matches(@"^[0-9A-Za-z]{2}/", f.Path))
+        Assert.Equal<int list>([ 1; 2; 4; 5; 6; 7; 8; 9; 10 ], ids path)
+        use changes = (new LazyFrame(DeltaKernelScan.ReadChangeFeed(path, 2L))).Collect().Sort([ pl.col "_change_type" ])
+        Assert.Equal<string list>([ "update_postimage"; "update_preimage" ], changes.["_change_type"].ToArray<string>() |> List.ofArray)
+        Assert.Equal<string list>([ "east"; "east" ], changes.["region"].ToArray<string>() |> List.ofArray))
+
+[<Fact>]
+let ``A random prefix has the table's delta.randomPrefixLength`` () =
+    withTable "prefix_length" (fun path ->
+        use df = frame [ 1 .. 4 ]
+        write path df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default
+            [ ("delta.randomizeFilePrefixes", "true"); ("delta.randomPrefixLength", "5") ] |> ignore
+        Assert.All((snapshot path).Files, fun f -> Assert.Matches(@"^[0-9A-Za-z]{5}/part-\d{5}-[0-9a-f-]{36}-c000\.snappy\.parquet$", f.Path))
+        Assert.Equal<int list>([ 1 .. 4 ], ids path))
+
+[<Fact>]
+let ``Column mapping puts data files under random prefixes, deletion vectors stay at the root, as Spark`` () =
+    withTable "mapping_prefix" (fun path ->
+        use df = frame [ 1 .. 10 ]
+        write path df KernelWriteMode.ErrorIfExists [| "region" |] KernelWriteOptions.Default
+            [ ("delta.columnMapping.mode", "name"); ("delta.enableDeletionVectors", "true") ] |> ignore
+        Assert.All((snapshot path).Files, fun f -> Assert.Matches(@"^[0-9A-Za-z]{2}/part-", f.Path))
+        Assert.DoesNotContain(tableFiles path, fun f -> f.Contains "=")
+        DeltaKernelDelete.Delete(path, (pl.col "id" .== pl.lit 3).CloneHandle()) |> ignore
+        let vector = (snapshot path).Files |> Seq.choose (fun f -> Option.ofObj f.DeletionVector) |> Seq.exactlyOne
+        Assert.Matches(@"^deletion_vector_[0-9a-f-]{36}\.bin$", vector.FilePath())
+        Assert.Equal<int list>([ 1; 2; 4; 5; 6; 7; 8; 9; 10 ], ids path))
+
+[<Fact>]
+let ``Without random prefixes files keep the partition directories`` () =
+    withTable "no_prefix" (fun path ->
+        use df = frame [ 1 .. 4 ]
+        write path df KernelWriteMode.ErrorIfExists [| "region" |] KernelWriteOptions.Default [ ("delta.randomizeFilePrefixes", "false") ] |> ignore
+        Assert.All((snapshot path).Files, fun f -> Assert.Matches(@"^region=(east|west)/part-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$", f.Path)))
+
+[<Theory>]
+[<InlineData("delta.randomPrefixLength", "0")>]
+[<InlineData("delta.randomPrefixLength", "-1")>]
+[<InlineData("delta.randomPrefixLength", "abc")>]
+[<InlineData("delta.randomizeFilePrefixes", "yes")>]
+let ``Bad random prefix properties are refused when the table is created and when they are set`` (key: string, value: string) =
+    withTable "bad_prefix" (fun path ->
+        use df = frame [ 1 .. 4 ]
+        let created = Assert.ThrowsAny<Exception>(fun () -> write path df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [ (key, value) ] |> ignore)
+        Assert.Contains(key, created.Message)
+        Assert.False(Directory.Exists(Path.Combine(path, "_delta_log")) && Directory.GetFiles(Path.Combine(path, "_delta_log"), "*.json").Length > 0)
+
+        write path df KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [] |> ignore
+        let fs = LocalFileSystem path
+        let set = Assert.Throws<DeltaException>(fun () -> AlterTable.SetProperties(fs, Snapshot.Load fs, readOnlyDict [ key, value ]) |> ignore)
+        Assert.Contains(key, set.Message))

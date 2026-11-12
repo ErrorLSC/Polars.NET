@@ -2,6 +2,7 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using static Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp.Tests;
 
@@ -107,6 +108,33 @@ public class DeltaDropFeatureTests
             using DataFrame read = DataFrame.ReadDelta(path).Sort("Id");
             Assert.Equal(["Id", "Size", "Label"], read.Columns);
             Assert.Equal(["a", "b", "c"], read.Column("Label").ToArray<string>());
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ColumnMapping_Dropped_FilesGoBackToPartitionDirectories_UnlessPrefixesAreRandomized(bool randomized)
+    {
+        InTable("cm_layout", path =>
+        {
+            using (DataFrame df = DataFrame.From<Row>([new(1, 10, "a"), new(2, 20, "b")]))
+                df.WriteDelta(path, partitionBy: Cs.ByName("Name"), mode: DeltaSaveMode.Append, mkdir: true);
+            Delta.SetTableProperties(path, randomized
+                ? new() { ["delta.columnMapping.mode"] = "name", [DeltaTableProperties.RandomizeFilePrefixes] = "true" }
+                : new() { ["delta.columnMapping.mode"] = "name" });
+            Write<Row>(path, [new(3, 30, "a")]);
+            Assert.Contains(Latest(path).Files, f => !f.DecodedPath.Contains('='));
+
+            Delta.DropFeature(path, DeltaTableFeatures.ColumnMapping);
+
+            // As Spark: the rewrite is placed by the metadata it commits, which has no column mapping.
+            Assert.All(Latest(path).Files, f => Assert.Matches(
+                randomized ? @"^[0-9A-Za-z]{2}/part-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$" : @"^Name=(a|b)/part-\d{5}-[0-9a-f-]{36}\.c000\.snappy\.parquet$",
+                f.DecodedPath));
+            using DataFrame read = DataFrame.ReadDelta(path).Sort("Id");
+            Assert.Equal([1, 2, 3], read.Column("Id").ToArray<int>());
+            Assert.Equal(["a", "b", "a"], read.Column("Name").ToArray<string>());
         });
     }
 }

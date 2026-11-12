@@ -15,6 +15,9 @@ Polars.NET supports both Eager (`DataFrame`) and Lazy (`LazyFrame`) modes for De
 > [!NOTE] File sizes
 > `approxBytesPerFile` and the table's `delta.targetFileSize` (128 MB when unset) are measured the way the engine estimates rows **in memory**. Files on disk are smaller, being compressed: often several times smaller.
 
+> [!TIP] File layout on object stores
+> With `DeltaTableProperties.RandomizeFilePrefixes` set to `true`, new files go into directories of random letters and digits (`Ab/part-…`, length `DeltaTableProperties.RandomPrefixLength`, 2 by default) instead of partition directories, spreading the requests over the store's prefixes, as Spark does. The partition values stay in the log, so partition filters skip files as before. Tables with column mapping always place files this way.
+
 <div class="pl-pipeline">
   <div class="pl-step">
     <div class="pl-step-badge">1. Memory Pipeline</div>

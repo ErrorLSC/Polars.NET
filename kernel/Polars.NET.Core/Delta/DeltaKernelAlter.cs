@@ -161,7 +161,10 @@ internal static class DeltaKernelAlter
                 var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                 foreach (AddAction file in snapshot.Files)
                 {
-                    foreach (AddAction add in DeltaKernelWrite.WriteFiles(dml, dml.ScanFile(file), schema, plan.Now, checkNotNull: false))
+                    // Placed and given statistics as the new metadata says: without column mapping, files go back to
+                    // partition directories unless the table randomizes file prefixes (as Spark).
+                    foreach (AddAction add in DeltaKernelWrite.WriteFiles(
+                        dml, dml.ScanFile(file), schema, plan.Now, checkNotNull: false, properties: metadata.Configuration))
                         plan.Adds.Add(DeltaKernelOptimize.Rearranged(add));
                     plan.Remove(file, dataChange: false);
                 }
