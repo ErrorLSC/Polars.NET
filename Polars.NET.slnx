@@ -2,6 +2,7 @@
   <Project Path="Polars.Benchmarks/Polars.Benchmarks.csproj" />
   <Project Path="tests/Polars.Config.Tests/Polars.Config.Tests.csproj" />
   <Project Path="tests/Seseragi.Lakehouse.Tests/Seseragi.Lakehouse.Tests.csproj" />
+  <Project Path="tests/Seseragi.Files.Tests/Seseragi.Files.Tests.csproj" />
   <Project Path="tests/Polars.CSharp.Tests/Polars.CSharp.Tests.csproj" />
   <Folder Name="/kernel/" />
   <Folder Name="/tests/">
@@ -15,6 +16,7 @@
   <Project Path="kernel/Polars.NET.Core/Polars.NET.Core.csproj" />
   <Project Path="kernel/Sazanami/Sazanami.csproj" />
   <Project Path="kernel/Seseragi/Lakehouse/Seseragi.Lakehouse.csproj" />
+  <Project Path="kernel/Seseragi/Files/Seseragi.Files.csproj" />
   <Project Path="kernel/Samidare/Samidare.fsproj" />
   <Project Path="kernel/Polars.NET.Linq/Polars.NET.Linq.fsproj" />
   <Project Path="tests/Polars.NET.Linq.Conformance.Tests/Polars.NET.Linq.Conformance.Tests.fsproj" />

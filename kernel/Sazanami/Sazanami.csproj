@@ -25,6 +25,8 @@
     <InternalsVisibleTo Include="Polars.FSharp" />
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.Config.Tests" />
+    <InternalsVisibleTo Include="Kaminari.Seseragi.Files" />
+    <InternalsVisibleTo Include="Seseragi.Files.Tests" />
   </ItemGroup>
 
   <ItemGroup>

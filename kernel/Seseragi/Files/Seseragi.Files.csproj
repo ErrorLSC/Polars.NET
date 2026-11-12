@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <PackageId>Kaminari.Seseragi.Files</PackageId>
+    <AssemblyName>Kaminari.Seseragi.Files</AssemblyName>
+    <RootNamespace>Kaminari.Seseragi.Files</RootNamespace>
+    <Authors>ErrorLSC</Authors>
+    <Description>Managed file format readers and writers (Avro) streaming Apache Arrow record batches, for the Kaminari projects.</Description>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Seseragi.Files.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Snappier" Version="1.3.1" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.15" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Sazanami\Sazanami.csproj" />
+  </ItemGroup>
+
+</Project>
