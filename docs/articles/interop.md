@@ -20,11 +20,11 @@ In any project using Polars.NET, you **must reference both**:
   <PackageReference Include="Polars.NET.Linq" Version="1.0.0" />
 
   <!-- 2. Target Platform Native Binary (Pick according to your deployment OS/Arch) -->
-  <!-- Windows x64: -->
+  <!-- Windows x64 (a CPU with AVX2): -->
   <PackageReference Include="Polars.NET.Native.win-x64" Version="1.0.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-  <!-- Linux x64 (glibc / Ubuntu / Debian / RHEL): -->
+  <!-- Linux x64 (glibc 2.28 or later: Ubuntu 20.04+, Debian 10+, RHEL 8+; a CPU with AVX2): -->
   <PackageReference Include="Polars.NET.Native.linux-x64" Version="1.0.0" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
-  <!-- Linux ARM64: -->
+  <!-- Linux ARM64 (glibc 2.28 or later): -->
   <!-- <PackageReference Include="Polars.NET.Native.linux-arm64" Version="1.0.0" /> -->
   <!-- Alpine Linux (musl): -->
   <!-- <PackageReference Include="Polars.NET.Native.linux-musl-x64" Version="1.0.0" /> -->

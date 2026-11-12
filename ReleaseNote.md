@@ -130,3 +130,4 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 ## Packaging
 
 * `native_shim.dll` (`Polars.NET.Native.win-x64`) links the C runtime statically and no longer needs the Visual C++ Redistributable (`VCRUNTIME140.dll`), which a clean Windows install lacks. It used to fail on first use with "Dll was not found" (#37). The release build now checks the DLL's imports.
+* `libnative_shim.so` in `Polars.NET.Native.linux-arm64` needs glibc 2.28, as the linux-x64 one does (it is now built in the manylinux 2.28 image on an arm64 runner). It used to need glibc 2.39, so it failed on Debian 12 and Raspberry Pi OS Bookworm, Ubuntu 22.04, RHEL 9 and Amazon Linux 2023 with "`GLIBC_2.38` not found" (#40). The release build now checks the glibc versions both Linux glibc libraries need, and the arm64 package is smoke-tested on Debian 12.
