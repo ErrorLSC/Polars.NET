@@ -380,3 +380,31 @@ let ``Bad random prefix properties are refused when the table is created and whe
         let fs = LocalFileSystem path
         let set = Assert.Throws<DeltaException>(fun () -> AlterTable.SetProperties(fs, Snapshot.Load fs, readOnlyDict [ key, value ]) |> ignore)
         Assert.Contains(key, set.Message))
+
+[<Fact>]
+let ``A write for a catalog creates version 0 of a catalog-managed table with the rows, as Spark's CREATE TABLE AS SELECT`` () =
+    withTable "catalog_ctas" (fun path ->
+        use df = frame [ 1 .. 4 ]
+        let config = Dictionary<string, string>()
+        config["delta.enableInCommitTimestamps"] <- "true"
+        let features = [| TableFeatures.CatalogManaged; TableFeatures.VacuumProtocolCheck |] :> IReadOnlyList<string>
+        DeltaKernelWrite.Write(path, df.Lazy().CloneHandle(), KernelWriteMode.Append, [| "region" |],
+                               configuration = config, catalogFeatures = features) |> ignore
+
+        let created = DeltaKernelCreate.Version0(path, null)
+        Assert.Contains(TableFeatures.CatalogManaged, created.Protocol.WriterFeatures)
+        Assert.Contains(TableFeatures.VacuumProtocolCheck, created.Protocol.ReaderFeatures)
+        let actions = ActionParser.ParseCommit(File.ReadAllBytes(Path.Combine(path, "_delta_log", "00000000000000000000.json")))
+        Assert.Equal(2, actions |> Seq.filter (fun a -> a :? AddAction) |> Seq.length)
+        let info = actions |> Seq.pick (function :? CommitInfoAction as c -> Some c | _ -> None)
+        Assert.Contains("\"operation\":\"CREATE TABLE AS SELECT\"", info.Json)
+        Assert.Contains("\"isManaged\":\"true\"", info.Json)
+        Assert.True(Directory.Exists(Path.Combine(path, "_delta_log", "_staged_commits")))
+
+        // The staged location must be empty.
+        let taken = Path.Combine(path, "taken")
+        use more = frame [ 5 ]
+        write taken more KernelWriteMode.ErrorIfExists [||] KernelWriteOptions.Default [] |> ignore
+        let error = Assert.ThrowsAny<Exception>(fun () ->
+            DeltaKernelWrite.Write(taken, more.Lazy().CloneHandle(), KernelWriteMode.Append, configuration = config, catalogFeatures = features) |> ignore)
+        Assert.Contains("already exists", error.Message))

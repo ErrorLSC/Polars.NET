@@ -113,7 +113,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         return new LazyFrame(h);
     }
     /// <summary>
-    /// Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery.
+    /// Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery. A table that does not
+    /// exist is created as a managed, catalog-managed table with the rows as its version 0, as Spark's
+    /// <c>CREATE TABLE AS SELECT</c> (see <see cref="CreateCatalogTable"/>), whatever the mode.
     /// </summary>
     /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
@@ -965,14 +967,15 @@ public static class UnityCatalogExtensions
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IEnumerable<string>? clusterBy = null)
     {
         catalog.SinkCatalogTable(
             catalogName, schemaName, tableName, lf,
             partitionBy, mode, canEvolve, includeKeys, keysPreGrouped,
             maxRowsPerFile, approxBytesPerFile, compression, compressionLevel,
             statistics, rowGroupSize, dataPageSize, compatLevel,
-            maintainOrder, syncOnClose, mkdir, cloudOptions
+            maintainOrder, syncOnClose, mkdir, cloudOptions, clusterBy
         );
     }
 
@@ -1002,14 +1005,15 @@ public static class UnityCatalogExtensions
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IEnumerable<string>? clusterBy = null)
     {
         catalog.SinkCatalogTable(
             catalogName, schemaName, tableName, df.Lazy(),
             partitionBy, mode, canEvolve, includeKeys, keysPreGrouped,
             maxRowsPerFile, approxBytesPerFile, compression, compressionLevel,
             statistics, rowGroupSize, dataPageSize, compatLevel,
-            maintainOrder, syncOnClose, mkdir, cloudOptions
+            maintainOrder, syncOnClose, mkdir, cloudOptions, clusterBy
         );
     }
     /// <summary>

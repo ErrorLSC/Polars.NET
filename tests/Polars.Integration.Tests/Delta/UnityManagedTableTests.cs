@@ -47,6 +47,14 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
         return JsonDocument.Parse(http.GetStringAsync($"{uc.Url}/api/2.1/unity-catalog/delta/v1/catalogs/{catalog}/schemas/s/tables/{name}").Result);
     }
 
+    /// <summary>The actions of a table's version 0, from its published log.</summary>
+    private JsonElement[] Version0Actions(string catalog, string name)
+    {
+        using JsonDocument state = Load(catalog, name);
+        string location = new Uri(state.RootElement.GetProperty("metadata").GetProperty("location").GetString()!).LocalPath;
+        return [.. File.ReadAllLines(Path.Combine(location, "_delta_log", $"{0:D20}.json")).Select(l => JsonDocument.Parse(l).RootElement)];
+    }
+
     /// <summary>The protocol and metaData of a table's version 0, from its published log.</summary>
     private (JsonElement Protocol, JsonElement Metadata) Version0(string catalog, string name)
     {
@@ -211,5 +219,86 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
         using (DataFrame more = DataFrame.FromColumns(new { s = new[] { "b" } })) more.Lazy().SinkCatalogTable(client, catalog, "s", "t");
         LocalSpark.Run("uc_sql", uc.Url, catalog, $"INSERT INTO {table} (s) VALUES ('c')");
         Assert.Equal("""[{"id":100,"s":"a"},{"id":110,"s":"b"},{"id":120,"s":"c"}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
+    }
+
+    [SparkFact]
+    public async Task SinkingToAMissingTable_CreatesItWithTheRowsAsVersion0_AsSparksCreateTableAsSelect()
+    {
+        string catalog = await uc.NewCatalogAsync();
+        string table = $"{catalog}.s.t";
+        using var client = new UnityCatalog(uc.Url, "");
+        using (DataFrame rows = DataFrame.From<Row>([new(1, "a"), new(2, "b")]))
+            rows.Lazy().SinkCatalogTable(client, catalog, "s", "t", partitionBy: Polars.CSharp.Polars.Selectors.ByName("s"));
+        LocalSpark.Run("uc_sql", uc.Url, catalog,
+            $"CREATE TABLE {catalog}.s.spark USING delta PARTITIONED BY (s) AS SELECT CAST(id AS BIGINT) AS id, s FROM VALUES (1, 'a'), (2, 'b') AS v(id, s)");
+
+        // Registered as a catalog-managed table at version 0, which holds the rows, as Spark's.
+        using (JsonDocument state = Load(catalog))
+        {
+            Assert.Equal(0, state.RootElement.GetProperty("latest-table-version").GetInt64());
+            Assert.Equal("supported", state.RootElement.GetProperty("metadata").GetProperty("properties").GetProperty("delta.feature.catalogManaged").GetString());
+            Assert.Equal(["s"], state.RootElement.GetProperty("metadata").GetProperty("partition-columns").EnumerateArray().Select(c => c.GetString()));
+        }
+        JsonElement[] ours = Version0Actions(catalog, "t"), sparks = Version0Actions(catalog, "spark");
+        static string[] Kinds(JsonElement[] actions) => [.. actions.Select(a => a.EnumerateObject().First().Name).Distinct().Order()];
+        Assert.Equal(Kinds(sparks), Kinds(ours));
+        Assert.Equal("CREATE TABLE AS SELECT", ours[0].GetProperty("commitInfo").GetProperty("operation").GetString());
+        Assert.Contains(ours, a => a.TryGetProperty("domainMetadata", out JsonElement d) && d.GetProperty("domain").GetString() == "delta.rowTracking");
+        var (protocol, metadata) = Version0(catalog, "t");
+        var (sparkProtocol, sparkMetadata) = Version0(catalog, "spark");
+        foreach (string list in (string[])["readerFeatures", "writerFeatures"])
+            Assert.Equal(sparkProtocol.GetProperty(list).EnumerateArray().Select(f => f.GetString()).Order(),
+                protocol.GetProperty(list).EnumerateArray().Select(f => f.GetString()).Order());
+        static string[] Keys(JsonElement m) => [.. m.GetProperty("configuration").EnumerateObject().Select(p => p.Name).Order()];
+        Assert.Equal(Keys(sparkMetadata), Keys(metadata));
+        // Its data files are where the catalog's suggested properties put them (random prefixes).
+        Assert.All(ours.Where(a => a.TryGetProperty("add", out _)), a =>
+            Assert.Matches("^[0-9A-Za-z]{2}/part-", a.GetProperty("add").GetProperty("path").GetString()));
+
+        // Then a table like any other: the kernel appends through the catalog, Spark inserts, both read it.
+        using (DataFrame more = DataFrame.From<Row>([new(3, "c")])) more.Lazy().SinkCatalogTable(client, catalog, "s", "t");
+        LocalSpark.Run("uc_sql", uc.Url, catalog, $"INSERT INTO {table} VALUES (4, 'd')");
+        Assert.Equal("""[{"id":1,"s":"a"},{"id":2,"s":"b"},{"id":3,"s":"c"},{"id":4,"s":"d"}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
+        using (DataFrame read = client.ScanCatalogTable(catalog, "s", "t").Sort("id").Collect())
+            Assert.Equal("(1, a) (2, b) (3, c) (4, d)", Rows(read));
+        using JsonDocument after = Load(catalog);
+        Assert.Equal(2, after.RootElement.GetProperty("latest-table-version").GetInt64());
+    }
+
+    [Theory]
+    [InlineData(DeltaSaveMode.Append)]
+    [InlineData(DeltaSaveMode.Overwrite)]
+    [InlineData(DeltaSaveMode.ErrorIfExists)]
+    [InlineData(DeltaSaveMode.Ignore)]
+    public async Task SinkingToAMissingTable_CreatesIt_WhateverTheMode(DeltaSaveMode mode)
+    {
+        string catalog = await uc.NewCatalogAsync();
+        using var client = new UnityCatalog(uc.Url, "");
+        using (DataFrame rows = DataFrame.From<Row>([new(1, "a"), new(2, "b")]))
+            rows.Lazy().SinkCatalogTable(client, catalog, "s", "t", mode: mode);
+
+        using JsonDocument state = Load(catalog);
+        Assert.Equal(0, state.RootElement.GetProperty("latest-table-version").GetInt64());
+        using DataFrame read = client.ScanCatalogTable(catalog, "s", "t").Sort("id").Collect();
+        Assert.Equal("(1, a) (2, b)", Rows(read));
+        // The operation Spark's saveAsTable records in each mode (delta-spark 4.4 with the UC connector 0.7).
+        Assert.Equal(mode == DeltaSaveMode.Overwrite ? "CREATE OR REPLACE TABLE AS SELECT" : "CREATE TABLE AS SELECT",
+            Version0Actions(catalog, "t")[0].GetProperty("commitInfo").GetProperty("operation").GetString());
+    }
+
+    [SparkFact]
+    public async Task SinkingToAMissingTable_WithClusterBy_SparkSeesTheClustering()
+    {
+        string catalog = await uc.NewCatalogAsync();
+        string table = $"{catalog}.s.t";
+        using var client = new UnityCatalog(uc.Url, "");
+        using (DataFrame rows = DataFrame.From<Row>([new(1, "a"), new(2, "b")]))
+            rows.Lazy().SinkCatalogTable(client, catalog, "s", "t", clusterBy: ["id"]);
+
+        Assert.Contains(Version0Actions(catalog, "t"), a => a.TryGetProperty("domainMetadata", out JsonElement d) && d.GetProperty("domain").GetString() == "delta.clustering");
+        using JsonDocument detail = JsonDocument.Parse(SparkRows(catalog, $"DESCRIBE DETAIL {table}"));
+        Assert.Equal("""["id"]""", detail.RootElement[0].GetProperty("clusteringColumns").GetRawText());
+        LocalSpark.Run("uc_sql", uc.Url, catalog, $"INSERT INTO {table} VALUES (3, 'c')");
+        Assert.Equal("""[{"id":1,"s":"a"},{"id":2,"s":"b"},{"id":3,"s":"c"}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
     }
 }

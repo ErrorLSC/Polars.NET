@@ -215,7 +215,9 @@ public readonly partial struct PolarsWrapper
         ulong cloudCacheTtl,
         string[]? cloudKeys,
         string[]? cloudValues,
-        string[]? clusterBy = null
+        string[]? clusterBy = null,
+        IReadOnlyDictionary<string, string>? configuration = null,
+        IReadOnlyList<string>? catalogFeatures = null
     )
     {
         // The managed Delta kernel writes: the engine streams the files, partition columns are never written into
@@ -250,8 +252,8 @@ public readonly partial struct PolarsWrapper
             KeysPreGrouped: keysPreGrouped,
             MaintainOrder: maintainOrder,
             SyncOnClose: syncOnClose);
-        Delta.DeltaKernelWrite.Write(path, lf, kernelMode, partitions, cloud, configuration: null, canEvolve, options,
-            clusterBy is { Length: > 0 } ? clusterBy : null);
+        Delta.DeltaKernelWrite.Write(path, lf, kernelMode, partitions, cloud, configuration, canEvolve, options,
+            clusterBy is { Length: > 0 } ? clusterBy : null, catalogFeatures);
     }
     /// <summary>
     /// Creates an empty Delta table (version 0) with the schema (borrowed), partition columns, table properties and

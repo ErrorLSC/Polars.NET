@@ -74,10 +74,13 @@ internal static class DeltaKernelWrite
     /// <param name="configuration">Table properties for a new table.</param>
     /// <param name="canEvolve">Schema evolution, as Spark: an append adds the data's new columns (and, with type
     /// widening on, widens column types); an overwrite replaces the schema and partitioning with the data's.</param>
+    /// <param name="catalogFeatures">For version 0 of a catalog-managed table at the location its catalog staged (as
+    /// Spark's CREATE TABLE AS SELECT): the table features the catalog asks for, on top of those the schema and
+    /// properties bring; the caller registers the table afterwards. Null for a table written by path.</param>
     public static long Write(
         string tablePath, LazyFrameHandle data, KernelWriteMode mode, string[]? partitionBy = null, CloudArgs? cloud = null,
         IReadOnlyDictionary<string, string>? configuration = null, bool canEvolve = false, KernelWriteOptions? options = null,
-        string[]? clusterBy = null)
+        string[]? clusterBy = null, IReadOnlyList<string>? catalogFeatures = null)
     {
         options ??= KernelWriteOptions.Default;
         using LazyFrameHandle owned = data; // consumed by the sink; disposed here when the write fails before it
@@ -87,6 +90,8 @@ internal static class DeltaKernelWrite
         try
         {
             Snapshot? existing = TryLoad(fileSystem, tablePath, cloud);
+            if (existing is not null && catalogFeatures is not null)
+                throw new PolarsException($"A table already exists at {tablePath}, the location the catalog staged for a new table.");
             if (existing is not null && mode == KernelWriteMode.ErrorIfExists)
                 throw new PolarsException($"Table already exists at {tablePath} (a Delta table; the save mode is ErrorIfExists).");
 
@@ -115,7 +120,13 @@ internal static class DeltaKernelWrite
                 List<StructField[]> clustered = Clustering.Resolve(schema, clusterBy ?? [], partitions, metadata.Configuration);
                 ProtocolAction protocol = ProtocolFor(schema, metadata.Configuration);
                 if (clustered.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [Clustering.Feature]);
-                transaction = Transaction.Create(fileSystem, protocol, metadata, "WRITE");
+                if (catalogFeatures is not null) protocol = TableFeatures.WithFeatures(protocol, catalogFeatures);
+                transaction = catalogFeatures is null
+                    ? Transaction.Create(fileSystem, protocol, metadata, "WRITE")
+                    // As Spark's saveAsTable through the catalog: an overwrite records itself as a replace.
+                    : Transaction.CreateCatalogManaged(
+                        fileSystem, protocol, metadata, mode == KernelWriteMode.Overwrite ? "CREATE OR REPLACE TABLE AS SELECT" : "CREATE TABLE AS SELECT")
+                        .WithParameter("isManaged", "true");
                 if (clustered.Count > 0) transaction.Add(Clustering.DomainFor(clustered.Select(Clustering.PhysicalPath)));
             }
             else

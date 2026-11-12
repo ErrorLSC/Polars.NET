@@ -905,7 +905,9 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
 
 
     /// <summary>
-    /// Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery.
+    /// Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery. A table that does not
+    /// exist is created as a managed, catalog-managed table with the rows as its version 0, as Spark's
+    /// CREATE TABLE AS SELECT (see CreateCatalogTable), whatever the mode.
     /// </summary>
     member this.SinkCatalogTable(
         catalogName: string,

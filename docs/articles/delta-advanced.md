@@ -206,3 +206,5 @@ uc.DeleteCatalogRecords("main", "sales", "events", pl.col "id" .== pl.lit 3L)
 :::
 
 `CreateCatalogTable` (managed, the default) creates such a table as Delta Spark does with Unity Catalog: the catalog stages the table and says what its version 0 needs, version 0 is written at the location the catalog gives, and the catalog registers the table. The table gets the protocol and properties the catalog requires (Unity Catalog: deletion vectors, V2 checkpoints, in-commit timestamps, …) and, unless `properties` sets them otherwise, the ones it suggests (column mapping, row tracking, random file prefixes); a property contradicting a required one is refused before anything is written. Partition columns, clustering columns and identity columns are declared here, as with `Delta.CreateTable`.
+
+Writing to a table that does not exist (`SinkCatalogTable`, `WriteCatalogTable`, in any mode) creates it the same way, with the rows in version 0, as Spark's `saveAsTable` and `CREATE TABLE AS SELECT` do: its partitioning and clustering come from the write's `partitionBy` and `clusterBy`.

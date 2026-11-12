@@ -38,14 +38,35 @@ public readonly partial struct PolarsWrapper
         bool needsWrite,
         ref string[]? cloudKeys,
         ref string[]? cloudValues,
-        string? refusedWhenManaged = null)
+        string? refusedWhenManaged = null) =>
+        ResolveCatalogTableCore(handle, catalogName, schemaName, tableName, needsWrite, ref cloudKeys, ref cloudValues, refusedWhenManaged, allowMissing: false)!;
+
+    /// <summary><see cref="ResolveCatalogTable"/>, or null when the catalog has no such table.</summary>
+    private static CatalogTable? TryResolveCatalogTable(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, bool needsWrite, ref string[]? cloudKeys, ref string[]? cloudValues) =>
+        ResolveCatalogTableCore(handle, catalogName, schemaName, tableName, needsWrite, ref cloudKeys, ref cloudValues, null, allowMissing: true);
+
+    private static CatalogTable? ResolveCatalogTableCore(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        bool needsWrite,
+        ref string[]? cloudKeys,
+        ref string[]? cloudValues,
+        string? refusedWhenManaged,
+        bool allowMissing)
     {
         ArgumentNullException.ThrowIfNull(handle);
 
         TableAccess access;
         try
         {
-            access = handle.Client.ResolveTableAccess(catalogName, schemaName, tableName, needsWrite);
+            TableAccess? found = allowMissing
+                ? handle.Client.TryResolveTableAccess(catalogName, schemaName, tableName, needsWrite)
+                : handle.Client.ResolveTableAccess(catalogName, schemaName, tableName, needsWrite);
+            if (found is null) return null;
+            access = found;
         }
         catch (CatalogException e)
         {
@@ -204,36 +225,59 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues,
         string[]? clusterBy = null)
     {
-        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        string[]? callerKeys = cloudKeys, callerValues = cloudValues;
+        CatalogTable? access = TryResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        if (access is null)
+        {
+            // No such table: a managed table is created with the rows as its version 0, as Spark's CREATE TABLE AS
+            // SELECT creates one through the catalog.
+            StagedTable staged;
+            try
+            {
+                staged = StageManagedTable(handle, catalogName, schemaName, tableName, null, callerKeys, callerValues);
+            }
+            catch (PolarsException e)
+            {
+                throw new PolarsException(
+                    $"The catalog table {catalogName}.{schemaName}.{tableName} does not exist, and it could not be created: {e.Message}", e);
+            }
+            Sink(staged.Staging.Location, staged.Cloud.Keys, staged.Cloud.Values, staged.Configuration, staged.Features);
+            RegisterManagedTable(handle, catalogName, schemaName, tableName, staged);
+            return;
+        }
+        using (access) Sink(access.Location, cloudKeys, cloudValues, null, null);
 
-        SinkDelta(
-            lf,
-            access.Location,
-            mode,
-            canEvolve,
-            partitionBy,
-            includeKeys,
-            keysPreGrouped,
-            maxRowsPerFile,
-            approxBytesPerFile,
-            compression,
-            compressionLevel,
-            statistics,
-            rowGroupSize,
-            dataPageSize,
-            compatLevel,
-            maintainOrder,
-            syncOnClose,
-            mkdir,
-            cloudProvider,
-            cloudRetries,
-            cloudRetryTimeoutMs,
-            cloudRetryInitBackoffMs,
-            cloudRetryMaxBackoffMs,
-            cloudCacheTtl,
-            cloudKeys,
-            cloudValues,
-            clusterBy);
+        void Sink(string location, string[]? keys, string[]? values, IReadOnlyDictionary<string, string>? configuration, IReadOnlyList<string>? catalogFeatures) =>
+            SinkDelta(
+                lf,
+                location,
+                mode,
+                canEvolve,
+                partitionBy,
+                includeKeys,
+                keysPreGrouped,
+                maxRowsPerFile,
+                approxBytesPerFile,
+                compression,
+                compressionLevel,
+                statistics,
+                rowGroupSize,
+                dataPageSize,
+                compatLevel,
+                maintainOrder,
+                syncOnClose,
+                mkdir,
+                cloudProvider,
+                cloudRetries,
+                cloudRetryTimeoutMs,
+                cloudRetryInitBackoffMs,
+                cloudRetryMaxBackoffMs,
+                cloudCacheTtl,
+                keys,
+                values,
+                clusterBy,
+                configuration,
+                catalogFeatures);
     }
 
     public static void DeleteCatalogRecords(
@@ -467,41 +511,69 @@ public readonly partial struct PolarsWrapper
         string[]? partitionBy, string[]? clusterBy, Dictionary<string, string>? properties, List<Delta.KernelIdentityColumn> identity,
         string[]? cloudKeys, string[]? cloudValues)
     {
-        string name = $"{catalogName}.{schemaName}.{tableName}";
+        try
+        {
+            if (handle.Client.DeltaTableExists(catalogName, schemaName, tableName))
+                throw new PolarsException($"The catalog table {catalogName}.{schemaName}.{tableName} already exists.");
+        }
+        catch (CatalogException e)
+        {
+            throw new PolarsException($"Failed to create the catalog table {catalogName}.{schemaName}.{tableName}: {e.Message}", e);
+        }
+        StagedTable staged = StageManagedTable(handle, catalogName, schemaName, tableName, properties, cloudKeys, cloudValues);
+        Delta.DeltaKernelCreate.CreateCatalogManaged(
+            staged.Staging.Location, schema, partitionBy, staged.Configuration, identity, staged.Cloud, clusterBy, staged.Features);
+        RegisterManagedTable(handle, catalogName, schemaName, tableName, staged);
+    }
+
+    /// <summary>A managed table the catalog staged: what its version 0 gets, and how to reach its location.</summary>
+    private sealed record StagedTable(UnityStagingTable Staging, Dictionary<string, string> Configuration, IReadOnlyList<string> Features, Delta.CloudArgs Cloud);
+
+    /// <summary>
+    /// Stages a managed table: the catalog's location and credentials (laid over the caller's cloud options, for
+    /// writing version 0), the properties version 0 gets (the catalog's merged with <paramref name="properties"/>) and
+    /// the features the catalog asks for.
+    /// </summary>
+    private static StagedTable StageManagedTable(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, Dictionary<string, string>? properties,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
         UnityStagingTable staging;
         Dictionary<string, string> configuration;
         IReadOnlyList<string> features;
         try
         {
-            if (handle.Client.DeltaTableExists(catalogName, schemaName, tableName))
-                throw new PolarsException($"The catalog table {name} already exists.");
             staging = handle.Client.CreateStagingTable(catalogName, schemaName, tableName);
             configuration = staging.TableProperties(properties);
             features = staging.Features();
         }
         catch (CatalogException e)
         {
-            throw new PolarsException($"Failed to create the catalog table {name}: {e.Message}", e);
+            throw new PolarsException($"Failed to create the catalog table {catalogName}.{schemaName}.{tableName}: {e.Message}", e);
         }
-
-        // The catalog's credentials over the caller's cloud options, for this one write (no renewal needed).
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
         for (int i = 0; i < Math.Min(cloudKeys?.Length ?? 0, cloudValues?.Length ?? 0); i++) options[cloudKeys![i]] = cloudValues![i];
         foreach (var (key, value) in staging.Credentials.ToStorageOptions()) options[key] = value;
         var cloud = new Delta.CloudArgs(Keys: [.. options.Keys], Values: [.. options.Values]).WithProviderFrom(staging.Location);
+        return new StagedTable(staging, configuration, features, cloud);
+    }
 
-        Delta.DeltaKernelCreate.CreatedTable created = Delta.DeltaKernelCreate.CreateCatalogManaged(
-            staging.Location, schema, partitionBy, configuration, identity, cloud, clusterBy, features);
+    /// <summary>Registers a staged table with what its version 0 (written at the staged location) holds.</summary>
+    private static void RegisterManagedTable(CatalogHandle handle, string catalogName, string schemaName, string tableName, StagedTable staged)
+    {
+        string location = staged.Staging.Location;
+        Delta.DeltaKernelCreate.CreatedTable created = Delta.DeltaKernelCreate.Version0(location, staged.Cloud);
         try
         {
             handle.Client.CreateDeltaTable(catalogName, schemaName, UnityManagedTables.CreateRequest(
-                tableName, staging.Location, created.Metadata, created.Protocol, created.Domains, created.Timestamp));
+                tableName, location, created.Metadata, created.Protocol, created.Domains, created.Timestamp));
         }
         catch (CatalogException e)
         {
+            string name = $"{catalogName}.{schemaName}.{tableName}";
             throw new PolarsException(e.StatusCode is null
-                ? $"Version 0 of {name} was written at {staging.Location}, but whether the catalog registered the table is not known (no answer): {e.Message}"
-                : $"Version 0 of {name} was written at {staging.Location}, but the catalog did not register the table: {e.Message}", e);
+                ? $"Version 0 of {name} was written at {location}, but whether the catalog registered the table is not known (no answer): {e.Message}"
+                : $"Version 0 of {name} was written at {location}, but the catalog did not register the table: {e.Message}", e);
         }
     }
 

@@ -165,6 +165,24 @@ public sealed partial class UnityCatalogClient : IDisposable
     public TableAccess ResolveTableAccess(string catalogName, string schemaName, string tableName, bool write) =>
         ResolveTableAccessCore(catalogName, schemaName, tableName, write, false, default).GetAwaiter().GetResult();
 
+    /// <summary>
+    /// <see cref="ResolveTableAccess"/>, or null when the catalog has no such table (its lookup answers 404; a failure
+    /// of the credentials call still throws).
+    /// </summary>
+    public TableAccess? TryResolveTableAccess(string catalogName, string schemaName, string tableName, bool write)
+    {
+        TableInfo table;
+        try
+        {
+            table = GetTable(catalogName, schemaName, tableName);
+        }
+        catch (CatalogException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        return Access(table, GetTableCredentials(table.TableId, write), catalogName, schemaName, tableName);
+    }
+
     /// <inheritdoc cref="ResolveTableAccess(string, string, string, bool)"/>
     public Task<TableAccess> ResolveTableAccessAsync(string catalogName, string schemaName, string tableName, bool write, CancellationToken cancellationToken = default) =>
         ResolveTableAccessCore(catalogName, schemaName, tableName, write, true, cancellationToken).AsTask();
@@ -307,12 +325,13 @@ public sealed partial class UnityCatalogClient : IDisposable
     {
         TableInfo table = await GetTableCore(catalogName, schemaName, tableName, async, ct).ConfigureAwait(false);
         TemporaryCredentials credentials = await GetTableCredentialsCore(table.TableId, write, async, ct).ConfigureAwait(false);
-
-        if (string.IsNullOrEmpty(table.StorageLocation))
-            throw new CatalogException($"Table {catalogName}.{schemaName}.{tableName} has no storage location.");
-
-        return new TableAccess { Table = table, Location = table.StorageLocation, Credentials = credentials };
+        return Access(table, credentials, catalogName, schemaName, tableName);
     }
+
+    private static TableAccess Access(TableInfo table, TemporaryCredentials credentials, string catalogName, string schemaName, string tableName) =>
+        string.IsNullOrEmpty(table.StorageLocation)
+            ? throw new CatalogException($"Table {catalogName}.{schemaName}.{tableName} has no storage location.")
+            : new TableAccess { Table = table, Location = table.StorageLocation, Credentials = credentials };
 
     // ------------------------------------------------------------------
     // JSON

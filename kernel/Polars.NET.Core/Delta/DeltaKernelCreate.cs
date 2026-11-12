@@ -59,6 +59,12 @@ internal static class DeltaKernelCreate
     {
         ArgumentNullException.ThrowIfNull(features);
         CreateCore(location, schema, partitionBy, configuration, identity, cloud, clusterBy, features);
+        return Version0(location, cloud);
+    }
+
+    /// <summary>What version 0 of the table at <paramref name="location"/> holds, as committed.</summary>
+    public static CreatedTable Version0(string location, CloudArgs? cloud)
+    {
         IWritableFileSystem store = TableStorage.Open(location, cloud).Store;
         try
         {

@@ -177,6 +177,21 @@ public class UnityCatalogClientTests
     }
 
     [Fact]
+    public void TryResolveTableAccess_IsNull_OnlyWhenTheTableLookupFindsNoTable()
+    {
+        var (missing, _) = Make(_ => (HttpStatusCode.NotFound, """{"error_code":"TABLE_DOES_NOT_EXIST"}"""));
+        Assert.Null(missing.TryResolveTableAccess("main", "default", "t", write: true));
+
+        // The table exists but its credentials are not found: an error, not a missing table.
+        var (noCredentials, _) = Make(r => r.Method == HttpMethod.Get ? (HttpStatusCode.OK, TableJson) : (HttpStatusCode.NotFound, "{}"));
+        Assert.Equal(HttpStatusCode.NotFound,
+            Assert.Throws<CatalogException>(() => noCredentials.TryResolveTableAccess("main", "default", "t", write: true)).StatusCode);
+
+        var (found, _) = Make(r => (HttpStatusCode.OK, r.Method == HttpMethod.Get ? TableJson : AwsCredentialsJson));
+        Assert.NotNull(found.TryResolveTableAccess("main", "default", "t", write: true));
+    }
+
+    [Fact]
     public void ResolveTableAccess_WithoutLocation_Throws()
     {
         var (client, _) = Make(r => (HttpStatusCode.OK, r.Method == HttpMethod.Get
