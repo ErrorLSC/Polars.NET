@@ -44,6 +44,7 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeColumnBuilders.cs` | Arrow column builders in native memory (fixed width, boolean, binary, fixed-size binary, dictionary, list/map, struct, null), lazy validity. |
 | `Arrow/NativeArrayExport.cs` | Turns builders into a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`, layout-identical because Apache.Arrow keeps `CArrowArray.release` internal) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O scratch buffers (block bytes, decompression, writer output) and a write stream over them. |
+| `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` / `StructArray`: `ArrowRows.Over(batch, fieldIdKey)`, `row.Get<T>(ordinal or name)`, `GetStruct`, `GetList<T>`, `GetMap<K, V>`, `GetBytes`; field ids from a metadata key; no allocation per row (tests in `Sazanami.Tests/ArrowRowsTests.cs`, over Avro batches in `AvroRowViewTests.cs`). |
 
 In Polars.NET (the engine integration):
 
@@ -150,7 +151,11 @@ lists `snap-*.avro` and manifest files) is Avro. Agreed plan (2026-11), in order
 verified against real files first:
 
 1. **Reference files.** Generate v1 / v2 / v3 manifest lists and manifests with pyiceberg and with Spark's Iceberg
-   runtime, and check each item below against them (Iceberg spec, Appendix A, Avro).
+   runtime, and check each item below against them (Iceberg spec, Appendix A, Avro). *Generated (2026-11-13) with
+   Iceberg 1.12.0 on Spark 4.1.1 (no Iceberg runtime runs on Spark 4.2 yet) and pyiceberg 0.12.0 (v1/v2 only;
+   it cannot write v3). Findings so far: maps are key/value record arrays with `logicalType: map` and field ids on
+   key/value (no `key-id` / `value-id`); `element-id` on lists; unions always `["null", T]`; decimal partitions are
+   minimal `fixed`; codec deflate. Not exercised yet: timestamp and uuid partitions (`adjust-to-utc`, `fixed(16)`).*
 2. **Public schema API.** `AvroSchema` and its subclasses become public. Keep attributes the parser now drops:
    `field-id` on fields, `element-id` on arrays, `key-id` / `value-id` on maps, and other custom properties; expose
    field ids on read (Arrow field metadata) and write them back.
@@ -166,10 +171,13 @@ verified against real files first:
 6. **Per-field write encodings.** Iceberg needs decimals as `fixed` of the minimal size for the precision and uuids
    as `fixed(16)`; the default stays a `bytes` decimal.
 7. **Small files.** Cache compiled decoders by (writer schema, reader schema); a synchronous whole-buffer fast path.
-8. **Row view in Sazanami.** The kernel reads manifests as Arrow batches through a generic, allocation-free row
-   cursor with typed getters by name or field id (scalars, structs, lists, `GetMap<K, V>`, nulls). This is preferred
-   over a separate Avro typed-record reader: one decoding path. The same view can later replace the Delta kernel's
-   JSON detour (checkpoints are read today as Parquet → engine → JSON lines via `IParquetReader.ReadAsJsonLines`).
+8. **Row view in Sazanami.** *Done (2026-11-13): `ArrowRows` in Sazanami's `Arrow/` (see the code map); it already
+   reads all 59 generated v2 / v3 manifests and lists from the Avro reader (maps as lists of key/value structs until
+   step 3). Wide decimals read as `SqlDecimal` or unscaled bytes; a lossy `decimal` read is refused.* The kernel reads
+   manifests as Arrow batches through a generic, allocation-free row cursor with typed getters by name or field id
+   (scalars, structs, lists, `GetMap<K, V>`, nulls). This is preferred over a separate Avro typed-record reader: one
+   decoding path. The same view can later replace the Delta kernel's JSON detour (checkpoints are read today as
+   Parquet → engine → JSON lines via `IParquetReader.ReadAsJsonLines`).
 9. **Interop both ways.** Read manifests written by Java Iceberg and pyiceberg; have Spark and pyiceberg read ours.
 
 ## Open items
