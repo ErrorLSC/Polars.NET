@@ -802,10 +802,11 @@ public readonly partial struct PolarsWrapper
 
     /// <summary>Drops a table feature of a catalog table.</summary>
     public static void CatalogDropFeature(
-        CatalogHandle handle, string catalogName, string schemaName, string tableName, string featureName, string[]? cloudKeys, string[]? cloudValues)
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string featureName, string[]? cloudKeys, string[]? cloudValues,
+        bool truncateHistory = false)
     {
         using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues, "DROP FEATURE");
-        DropFeature(access.Location, featureName, cloudKeys, cloudValues);
+        DropFeature(access.Location, featureName, cloudKeys, cloudValues, truncateHistory);
     }
 
     /// <summary>Purges a catalog table (Spark's REORG … APPLY (PURGE)); returns the number of files rewritten.</summary>

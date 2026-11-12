@@ -830,10 +830,12 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="tableName">The name of the table.</param>
     /// <param name="featureName">The feature, any case.</param>
     /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
-    public void DropFeature(string catalogName, string schemaName, string tableName, string featureName, CloudOptions? cloudOptions = null)
+    /// <param name="truncateHistory">Delete the history instead of protecting it (Spark's <c>TRUNCATE HISTORY</c>).</param>
+    public void DropFeature(
+        string catalogName, string schemaName, string tableName, string featureName, CloudOptions? cloudOptions = null, bool truncateHistory = false)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-        PolarsWrapper.CatalogDropFeature(Handle, catalogName, schemaName, tableName, featureName, keys, values);
+        PolarsWrapper.CatalogDropFeature(Handle, catalogName, schemaName, tableName, featureName, keys, values, truncateHistory);
     }
 
     /// <summary>Purges deleted rows and dropped columns from a catalog table's files; see <see cref="Delta.Purge"/>.</summary>

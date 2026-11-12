@@ -29,7 +29,7 @@ public static partial class AlterTable
         TableFeatures.AppendOnlyKey, TableFeatures.EnableDeletionVectorsKey, TableFeatures.ColumnMappingModeKey,
         SchemaEvolution.MaxColumnIdKey, ChangeFeed.EnableKey, SchemaEvolution.EnableTypeWideningKey,
         CommitTimeline.InCommitTimestampsKey, CommitTimeline.EnablementVersionKey, CommitTimeline.EnablementTimestampKey,
-        Checkpoints.IntervalKey, Checkpoints.TombstoneRetentionKey, CheckpointPolicyKey, LogCleanup.RetentionKey, LogCleanup.EnabledKey,
+        Checkpoints.IntervalKey, Checkpoints.TombstoneRetentionKey, CheckpointPolicyKey, LogCleanup.RetentionKey, LogCleanup.EnabledKey, LogCleanup.TruncateHistoryRetentionKey,
         "delta.checkpoint.writeStatsAsJson", "delta.checkpoint.writeStatsAsStruct", "delta.targetFileSize",
         "delta.tuneFileSizesForRewrites", "delta.dataSkippingNumIndexedCols", "delta.dataSkippingStatsColumns",
         "delta.isolationLevel", FilePrefixes.RandomizeKey, FilePrefixes.LengthKey, "delta.setTransactionRetentionDuration",

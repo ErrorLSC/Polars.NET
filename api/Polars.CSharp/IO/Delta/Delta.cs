@@ -695,16 +695,27 @@ public static class Delta
     /// with checkpoints, then the drop, so readers without the feature can read the table at once (no waiting for the
     /// history to expire); the table gets the checkpointProtection writer feature. Writer features (inCommitTimestamp,
     /// rowTracking, domainMetadata, checkConstraints) are dropped in one commit. An interrupted drop is finished by
-    /// running it again. appendOnly, invariants, changeDataFeed, generatedColumns, identityColumns, timestampNtz,
-    /// clustering and checkpointProtection cannot be dropped (Spark's history truncation is not offered).
+    /// running it again. appendOnly, invariants, changeDataFeed, generatedColumns, identityColumns, timestampNtz and
+    /// clustering cannot be dropped.
+    /// <para>
+    /// With <paramref name="truncateHistory"/> (Spark's <c>DROP FEATURE … TRUNCATE HISTORY</c>; reader features and
+    /// checkpointProtection only) the history is deleted instead of protected, which <b>cannot be undone</b>: time
+    /// travel to the deleted versions ends. The traces are removed and an empty commit is checkpointed; when traces had
+    /// to be removed, the call fails asking to wait. Once the history is older than
+    /// <c>delta.dropFeatureTruncateHistory.retentionDuration</c> (24 hours), running it again deletes the log before
+    /// that checkpoint and drops the feature, with no checkpoint protection. checkpointProtection itself can only be
+    /// dropped this way, once the history before its protected version is that old. A transaction that runs longer
+    /// than that retention while the history is truncated can corrupt the table.
+    /// </para>
     /// </summary>
     /// <param name="path">The root URI of the Delta table.</param>
     /// <param name="featureName">The feature, any case (see <see cref="DeltaTableFeatures"/>).</param>
     /// <param name="cloudOptions">Cloud storage credentials.</param>
-    public static void DropFeature(string path, string featureName, CloudOptions? cloudOptions = null)
+    /// <param name="truncateHistory">Delete the history instead of protecting it (Spark's <c>TRUNCATE HISTORY</c>).</param>
+    public static void DropFeature(string path, string featureName, CloudOptions? cloudOptions = null, bool truncateHistory = false)
     {
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-        PolarsWrapper.DropFeature(path, featureName, keys, values);
+        PolarsWrapper.DropFeature(path, featureName, keys, values, truncateHistory);
     }
     /// <summary>
     /// Purges deleted rows and dropped columns from the table's current files, as Spark's <c>REORG TABLE … APPLY

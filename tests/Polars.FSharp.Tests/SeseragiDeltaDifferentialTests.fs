@@ -863,7 +863,13 @@ let ``Kernel cleans up the expired log after a checkpoint, and the table stays r
             Polars.NET.Core.Delta.DeltaKernelWrite.Write(path, df.Lazy().CloneHandle(), mode, null, null, properties) |> ignore
         use first = frame [ 1 ] "east"
         write first Polars.NET.Core.Delta.KernelWriteMode.ErrorIfExists
-        for i in 2..8 do
+        for i in 2..6 do
+            use more = frame [ i ] "east"
+            write more Polars.NET.Core.Delta.KernelWriteMode.Append
+        // The cleanup's cutoff is rounded down to midnight UTC (Spark), so versions 0-5 are made two days old.
+        for file in Directory.GetFiles(Path.Combine(path, "_delta_log")) do
+            File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddDays -2.0)
+        for i in 7..8 do
             use more = frame [ i ] "east"
             write more Polars.NET.Core.Delta.KernelWriteMode.Append
 

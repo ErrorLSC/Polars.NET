@@ -74,9 +74,54 @@ public class LogCleanupTests
         var (off, latestOff) = TableWithCheckpoints((LogCleanup.EnabledKey, "false"));
         Assert.Empty(LogCleanup.Run(off, latestOff, DateTimeOffset.UtcNow.AddDays(365)));
 
+        // The cutoff is rounded down to midnight UTC (Spark): an hour's retention still keeps today's files.
         var (shortRetention, latest) = TableWithCheckpoints((LogCleanup.RetentionKey, "interval 1 hour"));
         Assert.Empty(LogCleanup.Run(shortRetention, latest, DateTimeOffset.UtcNow.AddMinutes(30)));
-        Assert.NotEmpty(LogCleanup.Run(shortRetention, latest, DateTimeOffset.UtcNow.AddHours(2)));
+        Assert.NotEmpty(LogCleanup.Run(shortRetention, latest, DateTimeOffset.UtcNow.AddDays(2)));
+    }
+
+    /// <summary>Gives every log file a time: long ago up to a version (increasing), recent after it.</summary>
+    private static void Age(MemoryFileSystem fs, long lastOldVersion, DateTimeOffset old)
+    {
+        foreach (var entry in fs.List("_delta_log"))
+        {
+            string name = entry.Path["_delta_log/".Length..];
+            if (name.Length < 20 || !long.TryParse(name[..20], out long version)) continue;
+            fs.Touch(entry.Path, version <= lastOldVersion ? old.AddSeconds(version) : DateTimeOffset.UtcNow.AddSeconds(version));
+        }
+    }
+
+    [Fact]
+    public void TheBoundary_IsTheNewestCheckpointWhoseEarlierFilesHaveAllExpired_AsSpark()
+    {
+        DateTimeOffset old = DateTimeOffset.UtcNow.AddDays(-40);
+
+        // Files up to version 5 expired: checkpoint 6 is the boundary, though its own commit is recent.
+        var (fs, latest) = TableWithCheckpoints(); // checkpoints 2, 4, 6
+        Age(fs, 5, old);
+        Assert.Equal(8, LogCleanup.Run(fs, latest).Count);
+        Assert.Equal(["00000000000000000006.checkpoint.parquet", "00000000000000000006.json", "00000000000000000007.json", "_last_checkpoint"], Log(fs));
+
+        // Files up to version 4 expired: version 5 is recent, so only what is before checkpoint 4 goes.
+        var (other, otherLatest) = TableWithCheckpoints();
+        Age(other, 4, old);
+        LogCleanup.Run(other, otherLatest);
+        Assert.Equal("00000000000000000004.checkpoint.parquet", Log(other)[0]);
+    }
+
+    [Fact]
+    public void Truncate_UsesItsOwnRetention_ToTheMinute_EvenWhenCleanupIsOff()
+    {
+        var (fs, latest) = TableWithCheckpoints((LogCleanup.EnabledKey, "false"));
+        Age(fs, 5, DateTimeOffset.UtcNow.AddHours(-25));
+        Assert.Empty(LogCleanup.Run(fs, latest));                 // turned off (and 25 hours are within 30 days)
+        Assert.Equal(8, LogCleanup.Truncate(fs, latest).Count);    // 24 hours by default
+        Assert.Equal("00000000000000000006.checkpoint.parquet", Log(fs)[0]);
+
+        var (custom, customLatest) = TableWithCheckpoints((LogCleanup.TruncateHistoryRetentionKey, "interval 48 hours"));
+        Age(custom, 5, DateTimeOffset.UtcNow.AddHours(-25));
+        Assert.Empty(LogCleanup.Truncate(custom, customLatest));
+        Assert.NotEmpty(LogCleanup.Truncate(custom, customLatest, DateTimeOffset.UtcNow.AddHours(24)));
     }
 
     [Fact]

@@ -142,7 +142,7 @@ Delta.Vacuum("./lake/orders", retentionHours = 168) |> ignore
 * **In-commit timestamps, V2 checkpoints:** the properties are turned off.
 * **Check constraints, domain metadata:** refused while the table still has constraints or domains.
 
-Row ids are kept through every rewrite. A reader feature (`deletionVectors`, `typeWidening`, `columnMapping`, `v2Checkpoint`, `vacuumProtocolCheck`) then leaves the protocol behind three empty commits with checkpoints, under the `checkpointProtection` writer feature: readers start at those checkpoints and never need the older commits, so the table is readable without the feature at once, and log cleanup keeps the history before the drop until it can all go together. A writer feature (`inCommitTimestamp`, `rowTracking`, `domainMetadata`, `checkConstraints`) leaves in one commit. Unity Catalog tables take `UnityCatalog.DropFeature(catalog, schema, table, feature)`. `appendOnly`, `invariants`, `changeDataFeed`, `generatedColumns`, `identityColumns`, `timestampNtz`, `clustering` and `checkpointProtection` cannot be dropped, nor can a feature another feature depends on (`domainMetadata` under row tracking or clustering).
+Row ids are kept through every rewrite. A reader feature (`deletionVectors`, `typeWidening`, `columnMapping`, `v2Checkpoint`, `vacuumProtocolCheck`) then leaves the protocol behind three empty commits with checkpoints, under the `checkpointProtection` writer feature: readers start at those checkpoints and never need the older commits, so the table is readable without the feature at once, and log cleanup keeps the history before the drop until it can all go together. A writer feature (`inCommitTimestamp`, `rowTracking`, `domainMetadata`, `checkConstraints`) leaves in one commit. Unity Catalog tables take `UnityCatalog.DropFeature(catalog, schema, table, feature)`. `appendOnly`, `invariants`, `changeDataFeed`, `generatedColumns`, `identityColumns`, `timestampNtz` and `clustering` cannot be dropped, nor can a feature another feature depends on (`domainMetadata` under row tracking or clustering). `checkpointProtection` can be dropped only by truncating history (below).
 
 ::: code-group
 
@@ -156,6 +156,40 @@ Delta.DropFeature("./lake/orders", "typeWidening");
 Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors)
 Delta.DropFeature("./lake/orders", DeltaTableFeatures.ColumnMapping)
 Delta.DropFeature("./lake/orders", "typeWidening")
+```
+
+:::
+
+### Truncating history
+
+`truncateHistory: true` is Spark's `DROP FEATURE … TRUNCATE HISTORY`: instead of protecting the old history behind checkpoints, the drop deletes it. It takes a reader feature or `checkpointProtection`, and usually two runs a day apart:
+
+1. The first run removes the feature's traces as above, then commits an empty version with a checkpoint. If it had traces to remove, it fails with "partially successful": wait.
+2. Once the history is older than `delta.dropFeatureTruncateHistory.retentionDuration` (24 hours unless the table sets it), run it again. The log before the newest checkpoint older than that is deleted (the cutoff rounded down to the minute; this runs even where `delta.enableExpiredLogCleanup` is off). When no remaining version uses the feature, it leaves the protocol, with no `checkpointProtection`. While young history still holds the feature the run fails, and is repeated later.
+
+`checkpointProtection`, which the drops above leave behind, goes the same way once the history before the version it protects is old enough: an empty checkpointed commit and the cleanup, then the property is unset and the feature dropped.
+
+> [!WARNING]
+> Truncating history **cannot be undone**: time travel to the deleted versions ends, and readers that are still reading them fail. A transaction that runs longer than the retention while the history is truncated can corrupt the table, which is why Spark keeps a day by default; shorten the retention only when nothing runs that long.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+// Day 1: the deletion vectors are purged, and the drop asks to wait.
+try { Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateHistory: true); }
+catch (Exception e) { Console.WriteLine(e.Message); }
+
+// Day 2: the history goes, and the feature with it.
+Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateHistory: true);
+```
+
+```fsharp [F# (Pipeline)]
+// Day 1: the deletion vectors are purged, and the drop asks to wait.
+try Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateHistory = true)
+with e -> printfn "%s" e.Message
+
+// Day 2: the history goes, and the feature with it.
+Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateHistory = true)
 ```
 
 :::

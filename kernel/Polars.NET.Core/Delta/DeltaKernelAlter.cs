@@ -134,7 +134,8 @@ internal static class DeltaKernelAlter
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
     /// <param name="feature">The feature name, any case.</param>
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
-    public static long DropFeature(string tablePath, string feature, CloudArgs? cloud = null)
+    /// <param name="truncateHistory">Spark's <c>TRUNCATE HISTORY</c>: delete the history instead of protecting it.</param>
+    public static long DropFeature(string tablePath, string feature, CloudArgs? cloud = null, bool truncateHistory = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(feature);
         try
@@ -145,7 +146,8 @@ internal static class DeltaKernelAlter
             EnsureRewritable(table, feature);
             var parquet = new EngineParquetReader(table.Root, cloud);
             return Kaminari.Seseragi.Lakehouse.Delta.DropFeature.Run(
-                table.FileSystem, () => Snapshot.Load(table.FileSystem, null, parquet), feature, new EngineRewriter(tablePath, cloud));
+                table.FileSystem, () => Snapshot.Load(table.FileSystem, null, parquet), feature, new EngineRewriter(tablePath, cloud),
+                truncateHistory: truncateHistory, snapshotAt: version => Snapshot.Load(table.FileSystem, version, parquet));
         }
         catch (DeltaException e)
         {

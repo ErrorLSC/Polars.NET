@@ -154,6 +154,75 @@ public class DropFeatureTests
         Assert.Equal([("SET TBLPROPERTIES", "metaData"), ("ROW TRACKING UNBACKFILL", "add,add"), ("DROP FEATURE", "domainMetadata,metaData,protocol")], Commits(fs, 3));
     }
 
+    // ------------------------------------------------------------------ TRUNCATE HISTORY
+
+    private static long Truncate(MemoryFileSystem fs, string feature, DateTimeOffset? now = null) =>
+        DropFeature.Run(fs, () => Snapshot.Load(fs), feature, now: now, truncateHistory: true);
+
+    [Fact]
+    public void TruncateHistory_DropsAReaderFeatureWithoutTraces_InOneRun_WithoutCheckpointProtection()
+    {
+        MemoryFileSystem fs = Table(P(3, 7, ["vacuumProtocolCheck"], ["vacuumProtocolCheck", "appendOnly", "invariants"]));
+
+        Assert.Equal(4, Truncate(fs, "vacuumProtocolCheck"));
+
+        Assert.Equal([("Empty Commit", ""), ("DROP FEATURE", "metaData,protocol")], Commits(fs, 3));
+        Assert.True(HasCheckpoint(fs, 3));
+        Assert.False(HasCheckpoint(fs, 4));
+        AssertProtocol(Snapshot.Load(fs).Protocol, 1, 2, null, null);
+        Assert.Contains("\"truncateHistory\":true", Encoding.UTF8.GetString(fs.ReadAll(LogFile.CommitPath(4))!));
+    }
+
+    // The runs that delete history and then read the log from a checkpoint need the engine's Parquet reader: they
+    // are checked against Spark in the integration tests (SparkDropFeatureTests.TruncateHistory_*).
+
+    [Fact]
+    public void TruncateHistory_FirstRemovesTraces_ThenWaitsForTheRetention()
+    {
+        MemoryFileSystem fs = Table(P(3, 7, ["v2Checkpoint"], ["v2Checkpoint", "appendOnly", "invariants"]),
+            new Dictionary<string, string> { [Checkpoints.PolicyKey] = "v2" });
+
+        // Run 1: the policy goes back to classic, an empty commit is checkpointed, and the drop asks to wait.
+        Assert.Contains("partially successful", Assert.Throws<DeltaException>(() => Truncate(fs, "v2Checkpoint")).Message);
+        Assert.Equal([("SET TBLPROPERTIES", "metaData"), ("Empty Commit", "")], Commits(fs, 3));
+        Assert.True(HasCheckpoint(fs, 4));
+
+        // Run 2 at once: no traces left, but the young history still has the policy: nothing deleted, refused again.
+        Assert.Contains("historical versions", Assert.Throws<DeltaException>(() => Truncate(fs, "v2Checkpoint")).Message);
+        Assert.NotNull(fs.ReadAll(LogFile.CommitPath(0)));
+        Assert.Equal([("Empty Commit", "")], Commits(fs, 5));
+    }
+
+    [Fact]
+    public void TruncateHistory_OfCheckpointProtection_WaitsWhileTheProtectedHistoryIsYoung()
+    {
+        MemoryFileSystem fs = Table(P(1, 7, null, ["appendOnly", "invariants", "checkpointProtection"]),
+            new Dictionary<string, string> { [TableFeatures.RequireCheckpointProtectionBeforeVersionKey] = "2" });
+
+        Assert.Contains("CheckpointProtection cannot be dropped", Assert.Throws<DeltaException>(() => Truncate(fs, "checkpointProtection")).Message);
+        Assert.Equal([("Empty Commit", "")], Commits(fs, 3));
+        Assert.True(HasCheckpoint(fs, 3));
+        Assert.NotNull(fs.ReadAll(LogFile.CommitPath(0)));
+    }
+
+    [Fact]
+    public void TruncateHistory_OfCheckpointProtectionWithNothingProtected_UnsetsAndDropsInOneRun()
+    {
+        MemoryFileSystem fs = Table(P(1, 7, null, ["appendOnly", "invariants", "checkpointProtection"]));
+        long dropped = Truncate(fs, "checkpointProtection");
+        Assert.Equal([("UNSET TBLPROPERTIES", "metaData"), ("DROP FEATURE", "metaData,protocol")], Commits(fs, dropped - 1));
+        AssertProtocol(Snapshot.Load(fs).Protocol, 1, 2, null, null);
+    }
+
+    [Fact]
+    public void TruncateHistory_OnlyForReaderFeaturesAndCheckpointProtection()
+    {
+        MemoryFileSystem fs = Table(P(1, 7, null, ["appendOnly", "invariants", "domainMetadata", "inCommitTimestamp"]));
+        Assert.Contains("does not require history truncation", Assert.Throws<DeltaException>(() => Truncate(fs, "domainMetadata")).Message);
+        Assert.Contains("does not require history truncation", Assert.Throws<DeltaException>(() => Truncate(fs, "inCommitTimestamp")).Message);
+        Assert.Equal(2, Snapshot.Load(fs).Version);
+    }
+
     // ------------------------------------------------------------------ refusals
 
     [Fact]

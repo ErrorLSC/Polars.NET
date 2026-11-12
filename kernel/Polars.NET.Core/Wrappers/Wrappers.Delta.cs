@@ -98,9 +98,9 @@ public readonly partial struct PolarsWrapper
     {
         Delta.DeltaKernelAlter.AddFeature(path, featureName, allowProtocolIncrease, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     }
-    /// <summary>Drops a table feature (Spark's ALTER TABLE … DROP FEATURE).</summary>
-    public static void DropFeature(string path, string featureName, string[]? cloudKeys, string[]? cloudValues) =>
-        Delta.DeltaKernelAlter.DropFeature(path, featureName, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Drops a table feature (Spark's ALTER TABLE … DROP FEATURE [TRUNCATE HISTORY]).</summary>
+    public static void DropFeature(string path, string featureName, string[]? cloudKeys, string[]? cloudValues, bool truncateHistory = false) =>
+        Delta.DeltaKernelAlter.DropFeature(path, featureName, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues), truncateHistory);
     /// <summary>
     /// Rewrites the files with deletion vectors and the files holding dropped columns (Spark's REORG … APPLY (PURGE));
     /// returns the number of files rewritten.

@@ -28,13 +28,20 @@ public interface IFeatureRewriter
 }
 
 /// <summary>
-/// Drops a table feature, as delta-spark 4.4's <c>ALTER TABLE … DROP FEATURE</c> (without <c>TRUNCATE HISTORY</c>):
-/// the feature's traces are removed first (properties turned off, data rewritten), each step its own commit and
-/// each skipped when already done, so an interrupted drop is finished by running it again. A writer feature then
-/// leaves the protocol in one commit. A reader feature is dropped under checkpoint protection: three empty commits
-/// with a checkpoint each, then the commit that drops it, adds the <c>checkpointProtection</c> writer feature and
-/// records its own version as <c>delta.requireCheckpointProtectionBeforeVersion</c>, checkpointed too. Readers that
-/// lack the dropped feature then never need the commits before it.
+/// Drops a table feature, as delta-spark 4.4's <c>ALTER TABLE … DROP FEATURE</c>: the feature's traces are removed
+/// first (properties turned off, data rewritten), each step its own commit and each skipped when already done, so an
+/// interrupted drop is finished by running it again. A writer feature then leaves the protocol in one commit. A
+/// reader feature is dropped under checkpoint protection: three empty commits with a checkpoint each, then the commit
+/// that drops it, adds the <c>checkpointProtection</c> writer feature and records its own version as
+/// <c>delta.requireCheckpointProtectionBeforeVersion</c>, checkpointed too. Readers that lack the dropped feature then
+/// never need the commits before it.
+/// <para>
+/// With <c>TRUNCATE HISTORY</c> (reader features and <c>checkpointProtection</c> only) the history is deleted
+/// instead: a reader feature leaves the protocol once no remaining version of the log uses it, after a cleanup with
+/// the shorter <c>delta.dropFeatureTruncateHistory.retentionDuration</c> (24 hours); checkpoint protection goes once
+/// the history before its version is gone. When traces had to be removed, or the history is still too young, the
+/// drop fails after its first steps and is run again once the retention has passed.
+/// </para>
 /// </summary>
 public static class DropFeature
 {
@@ -65,15 +72,26 @@ public static class DropFeature
     /// <param name="featureName">The feature, any case.</param>
     /// <param name="rewriter">The data rewrites; needed for deletion vectors, type widening and column mapping.</param>
     /// <param name="now">The writer's clock; the current time when null.</param>
-    /// <exception cref="DeltaException">The feature is not in the protocol, cannot be dropped, or something depends on it.</exception>
-    public static long Run(IWritableFileSystem fileSystem, Func<Snapshot> latest, string featureName, IFeatureRewriter? rewriter = null, DateTimeOffset? now = null)
+    /// <param name="truncateHistory">Spark's <c>TRUNCATE HISTORY</c>: delete the history instead of protecting it.</param>
+    /// <param name="snapshotAt">Loads the table at a version (to check the oldest remaining one); <see cref="Snapshot.Load"/> by default.</param>
+    /// <exception cref="DeltaException">The feature is not in the protocol, cannot be dropped, or something depends on
+    /// it; with <paramref name="truncateHistory"/>, also when the history cannot be truncated yet.</exception>
+    public static long Run(
+        IWritableFileSystem fileSystem, Func<Snapshot> latest, string featureName, IFeatureRewriter? rewriter = null, DateTimeOffset? now = null,
+        bool truncateHistory = false, Func<long, Snapshot>? snapshotAt = null)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(latest);
         ArgumentException.ThrowIfNullOrEmpty(featureName);
 
         Snapshot table = latest();
-        string feature = Validate(table, featureName, rewriter);
+        string feature = Validate(table, featureName, rewriter, truncateHistory);
+        if (truncateHistory)
+        {
+            return feature == TableFeatures.CheckpointProtection
+                ? DropCheckpointProtection(fileSystem, latest, now)
+                : DropTruncatingHistory(fileSystem, latest, feature, rewriter, snapshotAt ?? (v => Snapshot.Load(fileSystem, v)), now);
+        }
         bool protect = TableFeatures.IsReaderWriterFeature(feature);
 
         // Traces can come back while the drop runs (a writer that read the table before a property was turned off):
@@ -119,10 +137,179 @@ public static class DropFeature
         throw new DeltaException($"The table feature '{feature}' could not be dropped: other writers kept bringing back its traces.");
     }
 
+    // ------------------------------------------------------------------ TRUNCATE HISTORY
+
+    /// <summary>
+    /// Spark's drop of a reader feature with history truncation: traces removed; an empty commit with a checkpoint
+    /// (every run, so the history can later be cut at a version without the feature); if traces had to be removed,
+    /// a failure asking to wait for the retention. Otherwise the log is cleaned up with the truncation retention and,
+    /// when no remaining version uses the feature, it leaves the protocol (no checkpoint protection added).
+    /// </summary>
+    private static long DropTruncatingHistory(
+        IWritableFileSystem fileSystem, Func<Snapshot> latest, string feature, IFeatureRewriter? rewriter, Func<long, Snapshot> snapshotAt, DateTimeOffset? now)
+    {
+        bool removed = Traces(latest(), feature) is not null;
+        RemoveTraces(fileSystem, latest, feature, rewriter, now);
+        EmptyCommitWithCheckpoint(fileSystem, latest, now);
+        Snapshot table = latest();
+        if (removed)
+            throw new DeltaException(
+                $"Dropping {feature} was partially successful. The feature is now no longer used in the current version of the table. However, " +
+                "the feature is still present in historical versions of the table, and cannot be dropped from the table protocol until these " +
+                $"have expired. Wait for the TRUNCATE HISTORY retention period ({LogCleanup.TruncateHistoryRetentionKey} = " +
+                $"{Retention(table.Metadata)}) to pass and run the drop with truncateHistory again.");
+
+        for (int retry = 0; retry < 10; retry++)
+        {
+            if (Traces(table, feature) is not null)
+                throw new DeltaException("Cannot drop the feature because a concurrent transaction modified the table. Please try the operation again.");
+            LogCleanup.Truncate(fileSystem, table, now);
+            if (HistoryUses(fileSystem, feature, table.Version, snapshotAt))
+                throw new DeltaException(
+                    $"Cannot drop {feature} because the Delta log contains historical versions that use the feature. Wait for the TRUNCATE " +
+                    $"HISTORY retention period ({LogCleanup.TruncateHistoryRetentionKey} = {Retention(table.Metadata)}) to pass since the " +
+                    "feature was last active, and run the drop with truncateHistory again.");
+            try
+            {
+                return Transaction.Start(fileSystem, table, Operation)
+                    .WithParameter("featureName", feature)
+                    .WithParameter("truncateHistory", true)
+                    .SetProtocol(TableFeatures.WithoutFeature(table.Protocol, feature, false))
+                    .SetMetadata(DroppedMetadata(table.Metadata, feature, null))
+                    .Commit(now, maxRetries: 0);
+            }
+            catch (DeltaCommitConflictException)
+            {
+                table = latest(); // check the new state again
+            }
+        }
+        throw new DeltaException($"The table feature '{feature}' could not be dropped: other writers kept committing.");
+    }
+
+    /// <summary>
+    /// Spark's drop of <c>checkpointProtection</c> (only with history truncation): unless the history before the
+    /// protected version is already gone, an empty commit with a checkpoint and a cleanup with the truncation
+    /// retention, failing when that does not reach the protected version; then the property is unset (committed even
+    /// when absent, as Spark does) and the feature leaves the protocol.
+    /// </summary>
+    private static long DropCheckpointProtection(IWritableFileSystem fileSystem, Func<Snapshot> latest, DateTimeOffset? now)
+    {
+        Snapshot table = latest();
+        if (!HistoryBeforeBoundaryTruncated(fileSystem, table))
+        {
+            EmptyCommitWithCheckpoint(fileSystem, latest, now);
+            LogCleanup.Truncate(fileSystem, latest(), now);
+            if (!HistoryBeforeBoundaryTruncated(fileSystem, table))
+                throw new DeltaException(
+                    "The operation did not succeed because there are still traces of dropped features in the table history. " +
+                    "CheckpointProtection cannot be dropped until these historical versions have expired: wait for the TRUNCATE HISTORY " +
+                    $"retention period ({LogCleanup.TruncateHistoryRetentionKey} = {Retention(table.Metadata)}) to pass and run the drop again.");
+        }
+        Unset(fileSystem, latest(), TableFeatures.RequireCheckpointProtectionBeforeVersionKey, now);
+
+        for (int retry = 0; retry < 10; retry++)
+        {
+            table = latest();
+            if (table.Metadata.Configuration.ContainsKey(TableFeatures.RequireCheckpointProtectionBeforeVersionKey))
+                throw new DeltaException("Cannot drop the feature because a concurrent transaction modified the table. Please try the operation again.");
+            try
+            {
+                return Transaction.Start(fileSystem, table, Operation)
+                    .WithParameter("featureName", TableFeatures.CheckpointProtection)
+                    .WithParameter("truncateHistory", true)
+                    .SetProtocol(TableFeatures.WithoutFeature(table.Protocol, TableFeatures.CheckpointProtection, false))
+                    .SetMetadata(DroppedMetadata(table.Metadata, TableFeatures.CheckpointProtection, null))
+                    .Commit(now, maxRetries: 0);
+            }
+            catch (DeltaCommitConflictException)
+            {
+            }
+        }
+        throw new DeltaException("The table feature 'checkpointProtection' could not be dropped: other writers kept committing.");
+    }
+
+    private static void EmptyCommitWithCheckpoint(IWritableFileSystem fileSystem, Func<Snapshot> latest, DateTimeOffset? now)
+    {
+        Transaction.Start(fileSystem, latest(), EmptyCommitOperation).Commit(now);
+        Checkpoints.Write(fileSystem, latest(), now);
+    }
+
+    private static string Retention(MetadataAction metadata) =>
+        metadata.Configuration.TryGetValue(LogCleanup.TruncateHistoryRetentionKey, out string? text) ? text : "interval 24 hours";
+
+    /// <summary>
+    /// Whether the history before the version checkpoint protection protects is gone (Spark's
+    /// <c>historyPriorToCheckpointProtectionVersionIsTruncated</c>): the earliest checkpoint the table can be read
+    /// from is at or after it, and no commit before it is left. True when nothing is protected.
+    /// </summary>
+    private static bool HistoryBeforeBoundaryTruncated(IFileSystem fileSystem, Snapshot table)
+    {
+        long boundary = TableFeatures.CheckpointProtectionBoundary(table.Protocol, table.Metadata) ?? 0;
+        if (boundary <= 0) return true;
+        List<LogFile> files = LogSegment.ListLog(fileSystem, null);
+        return EarliestReliableCheckpoint(files) is long earliest && earliest >= boundary
+            && !files.Any(f => f.Kind == LogFileKind.Commit && f.Version < boundary);
+    }
+
+    /// <summary>
+    /// The earliest complete checkpoint with every later commit (Spark's <c>findEarliestReliableCheckpoint</c>):
+    /// the oldest version the table can still be read at; null when there is none.
+    /// </summary>
+    private static long? EarliestReliableCheckpoint(List<LogFile> files)
+    {
+        HashSet<long> commits = [.. files.Where(f => f.Kind == LogFileKind.Commit).Select(f => f.Version)];
+        long last = commits.Count == 0 ? -1 : commits.Max();
+        foreach (IGrouping<long, LogFile> checkpoint in files
+            .Where(f => f.Kind is LogFileKind.ClassicCheckpoint or LogFileKind.MultiPartCheckpoint or LogFileKind.V2Checkpoint)
+            .GroupBy(f => f.Version).OrderBy(g => g.Key))
+        {
+            if (LogSegment.ChooseComplete([.. checkpoint]) is null) continue;
+            bool contiguous = true;
+            for (long v = checkpoint.Key + 1; v <= last && contiguous; v++) contiguous = commits.Contains(v);
+            if (contiguous) return checkpoint.Key;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Whether any remaining version uses the feature (Spark's <c>historyContainsFeature</c>): the table at the
+    /// earliest version it can be read at (its files, not its tombstones) and every commit left up to
+    /// <paramref name="toVersion"/>.
+    /// </summary>
+    private static bool HistoryUses(IFileSystem fileSystem, string feature, long toVersion, Func<long, Snapshot> snapshotAt)
+    {
+        List<LogFile> files = LogSegment.ListLog(fileSystem, null);
+        long earliest = EarliestReliableCheckpoint(files) ?? 0;
+        Snapshot first = snapshotAt(earliest);
+        if (Uses(feature, first.Metadata) || first.Files.Any(f => Uses(feature, f))) return true;
+        if (feature == TableFeatures.V2Checkpoint && files.Any(f => f.Kind == LogFileKind.V2Checkpoint && f.Version == earliest)) return true;
+        foreach (LogFile commit in files.Where(f => f.Kind == LogFileKind.Commit && f.Version <= toVersion))
+        {
+            byte[]? content = fileSystem.ReadAll(commit.Entry.Path);
+            if (content is not null && ActionParser.ParseCommit(content).Any(a => Uses(feature, a))) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Whether an action of the log uses the feature (Spark's <c>actionUsesFeature</c>).</summary>
+    private static bool Uses(string feature, DeltaAction action) => (feature, action) switch
+    {
+        (TableFeatures.DeletionVectors, MetadataAction m) => IsTrue(m.Configuration, TableFeatures.EnableDeletionVectorsKey),
+        (TableFeatures.DeletionVectors, AddAction a) => a.DeletionVector is not null,
+        (TableFeatures.DeletionVectors, RemoveAction r) => r.DeletionVector is not null,
+        (TableFeatures.ColumnMapping, MetadataAction m) =>
+            m.Configuration.TryGetValue(TableFeatures.ColumnMappingModeKey, out string? mode) && !string.Equals(mode, "none", StringComparison.OrdinalIgnoreCase),
+        (TableFeatures.TypeWidening or TableFeatures.TypeWideningPreview, MetadataAction m) =>
+            m.SchemaString.Contains($"\"{Schema.SchemaEvolution.TypeChangesKey}\"", StringComparison.Ordinal),
+        (TableFeatures.V2Checkpoint, MetadataAction m) => Is(m.Configuration, Checkpoints.PolicyKey, "v2"),
+        (TableFeatures.V2Checkpoint, CheckpointMetadataAction or SidecarAction) => true,
+        _ => false,
+    };
+
     // ------------------------------------------------------------------ checks
 
     /// <summary>The feature's protocol name, after the checks Spark makes before it changes anything.</summary>
-    private static string Validate(Snapshot table, string featureName, IFeatureRewriter? rewriter)
+    private static string Validate(Snapshot table, string featureName, IFeatureRewriter? rewriter, bool truncateHistory)
     {
         string? inProtocol = TableFeatures.WriterFeaturesOf(table.Protocol).Concat(TableFeatures.ReaderFeaturesOf(table.Protocol))
             .FirstOrDefault(f => string.Equals(f, featureName, StringComparison.OrdinalIgnoreCase));
@@ -136,9 +323,11 @@ public static class DropFeature
 
         if (NonRemovable.Contains(feature))
             throw new DeltaException($"Cannot drop {feature} because dropping this feature is not supported.");
-        if (feature == TableFeatures.CheckpointProtection)
+        if (truncateHistory && !TableFeatures.IsReaderWriterFeature(feature) && feature != TableFeatures.CheckpointProtection)
+            throw new DeltaException($"Cannot drop {feature} with TRUNCATE HISTORY: the particular feature does not require history truncation.");
+        if (feature == TableFeatures.CheckpointProtection && !truncateHistory)
             throw new DeltaException(
-                "Cannot drop checkpointProtection: that needs the history before it truncated (Spark's DROP FEATURE … TRUNCATE HISTORY), which this kernel does not offer.");
+                "Could not drop the Checkpoint Protection feature. This feature can only be dropped by truncating history (TRUNCATE HISTORY): run the drop again with truncateHistory.");
         if (!TableFeatures.SupportedWriterFeatures.Contains(feature))
             throw new DeltaException($"Cannot drop {feature}: this kernel does not support the feature.");
 

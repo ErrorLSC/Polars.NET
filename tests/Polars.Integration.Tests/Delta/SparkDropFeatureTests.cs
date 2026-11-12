@@ -268,6 +268,170 @@ public partial class SparkDropFeatureTests
         });
     }
 
+    // ------------------------------------------------------------------ TRUNCATE HISTORY
+
+    /// <summary>Makes every log file look 25 hours old (later versions a little younger), as the retention needs.</summary>
+    private static void Age(string table)
+    {
+        DateTime old = DateTime.UtcNow.AddHours(-25);
+        foreach (string file in Directory.EnumerateFiles(Path.Combine(table, "_delta_log")))
+        {
+            string name = Path.GetFileName(file);
+            long version = name.Length >= 20 && long.TryParse(name[..20], out long v) ? v : 0;
+            File.SetLastWriteTimeUtc(file, old.AddSeconds(version));
+        }
+    }
+
+    /// <summary>The protocol's features and the configuration the last commit (the drop) set; the log may start at a checkpoint.</summary>
+    private static (string[] Features, string[] Configuration) Dropped(string table)
+    {
+        string last = Directory.EnumerateFiles(Path.Combine(table, "_delta_log"), "*.json").Order(StringComparer.Ordinal).Last();
+        string[] features = [], configuration = [];
+        foreach (string line in File.ReadAllLines(last))
+        {
+            using JsonDocument doc = JsonDocument.Parse(line);
+            if (doc.RootElement.TryGetProperty("protocol", out JsonElement p))
+                features = [.. ((string[])["readerFeatures", "writerFeatures"]).SelectMany(k => p.TryGetProperty(k, out JsonElement l) ? l.EnumerateArray().Select(e => e.GetString()!) : [])];
+            if (doc.RootElement.TryGetProperty("metaData", out JsonElement m))
+                configuration = [.. m.GetProperty("configuration").EnumerateObject().Select(c => c.Name)];
+        }
+        return (features, configuration);
+    }
+
+    /// <summary>The commits and checkpoints left in the log (Spark's .crc files aside).</summary>
+    private static string[] LogLeft(string table) =>
+        [.. LogNames(table).Where(n => n.EndsWith(".json", StringComparison.Ordinal) || n.EndsWith(".checkpoint.parquet", StringComparison.Ordinal))];
+
+    /// <summary>
+    /// DROP FEATURE … TRUNCATE HISTORY run by the kernel on one table and by Spark on the other, after the same
+    /// setup, run after run until it succeeds (the log aged between runs): each run fails or succeeds for both, with
+    /// the same commits and the same log left.
+    /// </summary>
+    private static void TruncateBoth(string kernel, string spark, string feature, int expectedRuns, params string[] sparkErrors)
+    {
+        for (int run = 1; ; run++)
+        {
+            long from = LogNames(spark).Where(n => n.EndsWith(".json", StringComparison.Ordinal)).Select(n => long.Parse(n[..20])).Max() + 1;
+            Exception? byKernel = Record.Exception(() => Delta.DropFeature(kernel, feature, truncateHistory: true));
+            Exception? bySpark = Record.Exception(() => LocalSpark.Run("sql", spark, $"ALTER TABLE {{table}} DROP FEATURE {feature} TRUNCATE HISTORY"));
+            Assert.True((byKernel is null) == (bySpark is null), $"run {run}: kernel {byKernel?.Message ?? "succeeded"}; Spark {bySpark?.Message ?? "succeeded"}");
+            if (bySpark is not null)
+            {
+                Assert.Contains(sparkErrors[run - 1], bySpark.Message);
+                // The kernel fails for the same reason.
+                Assert.Contains(sparkErrors[run - 1] switch
+                {
+                    "DELTA_FEATURE_DROP_WAIT_FOR_RETENTION_PERIOD" => "partially successful",
+                    "DELTA_FEATURE_DROP_HISTORICAL_VERSIONS_EXIST" => "historical versions that use the feature",
+                    "DELTA_FEATURE_DROP_CHECKPOINT_PROTECTION_WAIT_FOR_RETENTION_PERIOD" => "CheckpointProtection cannot be dropped",
+                    var other => other,
+                }, byKernel!.Message);
+            }
+            List<string> sparkCommits = Commits(spark, from), kernelCommits = Commits(kernel, from);
+            Assert.True(sparkCommits.SequenceEqual(kernelCommits), $"run {run}\nSpark:\n{string.Join("\n", sparkCommits)}\nkernel:\n{string.Join("\n", kernelCommits)}");
+            Assert.Equal(LogLeft(spark), LogLeft(kernel));
+            if (byKernel is null)
+            {
+                Assert.Equal(expectedRuns, run);
+                return;
+            }
+            Assert.True(run < expectedRuns, $"run {run} failed: {byKernel.Message}");
+            Age(kernel);
+            Age(spark);
+        }
+    }
+
+    [SparkTheory]
+    // Nothing to remove and no trace in history: dropped in one run.
+    [InlineData("vacuumProtocolCheck", "(id INT) USING delta", "'delta.feature.vacuumProtocolCheck'='supported'", 1, "INSERT INTO {table} VALUES (1)")]
+    // Deletion vectors: the first run removes them and asks to wait; a day later the history is cut and the feature goes.
+    [InlineData("deletionVectors", "(id INT) USING delta", "'delta.enableDeletionVectors'='true'", 2,
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1), (2), (3) AS x(id)", "DELETE FROM {table} WHERE id = 2")]
+    // Already turned off and purged, but the young history still holds vectors: the first run says so, the second drops.
+    [InlineData("deletionVectors", "(id INT) USING delta", "'delta.enableDeletionVectors'='true'", 2,
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1), (2), (3) AS x(id)", "DELETE FROM {table} WHERE id = 2",
+        "ALTER TABLE {table} UNSET TBLPROPERTIES ('delta.enableDeletionVectors')", "REORG TABLE {table} APPLY (PURGE)")]
+    // Column mapping: the files are rewritten under logical names first.
+    [InlineData("columnMapping", "(id INT, v STRING) USING delta", "'delta.columnMapping.mode'='name'", 2,
+        "INSERT INTO {table} VALUES (1, 'a')", "ALTER TABLE {table} RENAME COLUMN v TO w")]
+    [Trait("DeltaKernel", "Spark")]
+    public void TruncateHistory_DropsAReaderFeature_AsSpark(string feature, string definition, string properties, int runs, params string[] setup)
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                LocalSpark.Run("sql", table, $"CREATE TABLE {{table}} {definition} TBLPROPERTIES ({properties})");
+                foreach (string statement in setup) LocalSpark.Run("sql", table, statement);
+            }
+            string before = SparkRows(spark);
+            bool tracesLeft = !setup.Any(s => s.Contains("REORG", StringComparison.Ordinal));
+            TruncateBoth(kernel, spark, feature, runs,
+                tracesLeft ? "DELTA_FEATURE_DROP_WAIT_FOR_RETENTION_PERIOD" : "DELTA_FEATURE_DROP_HISTORICAL_VERSIONS_EXIST");
+
+            var (features, _) = Dropped(kernel);
+            Assert.DoesNotContain(feature, features);
+            Assert.DoesNotContain(TableFeatures.CheckpointProtection, features);
+            Assert.Equal(before, SparkRows(spark));
+            Assert.Equal(before, SparkRows(kernel));
+            LocalSpark.Run("sql", kernel, "INSERT INTO {table} (id) VALUES (7)");
+        });
+    }
+
+    [SparkTheory]
+    // After a drop under checkpoint protection: the first run checkpoints and asks to wait; a day later the history
+    // before the protected version is gone and the feature with it.
+    [InlineData(2, "'delta.enableDeletionVectors'='true'",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1), (2), (3) AS x(id)", "DELETE FROM {table} WHERE id = 2",
+        "ALTER TABLE {table} DROP FEATURE deletionVectors")]
+    // Added by hand, nothing protected: the (absent) property is unset and the feature dropped in one run.
+    [InlineData(1, "'delta.feature.checkpointProtection'='supported'", "INSERT INTO {table} VALUES (1)")]
+    [Trait("DeltaKernel", "Spark")]
+    public void TruncateHistory_DropsCheckpointProtection_AsSpark(int runs, string properties, params string[] setup)
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                LocalSpark.Run("sql", table, $"CREATE TABLE {{table}} (id INT) USING delta TBLPROPERTIES ({properties})");
+                foreach (string statement in setup) LocalSpark.Run("sql", table, statement);
+            }
+            string before = SparkRows(spark);
+            TruncateBoth(kernel, spark, TableFeatures.CheckpointProtection, runs, "DELTA_FEATURE_DROP_CHECKPOINT_PROTECTION_WAIT_FOR_RETENTION_PERIOD");
+
+            var (features, configuration) = Dropped(kernel);
+            Assert.DoesNotContain(TableFeatures.CheckpointProtection, features);
+            Assert.DoesNotContain(TableFeatures.RequireCheckpointProtectionBeforeVersionKey, configuration);
+            Assert.Equal(before, SparkRows(kernel));
+            LocalSpark.Run("sql", kernel, "INSERT INTO {table} VALUES (9)");
+        });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void TruncateHistory_IsRefusedWhereSparkRefusesIt()
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+                LocalSpark.Run("sql", table,
+                    "CREATE TABLE {table} (id INT) USING delta TBLPROPERTIES ('delta.feature.domainMetadata'='supported', 'delta.feature.checkpointProtection'='supported')");
+
+            Assert.Contains("does not require history truncation",
+                Assert.ThrowsAny<Exception>(() => Delta.DropFeature(kernel, "domainMetadata", truncateHistory: true)).Message);
+            Assert.Contains("DELTA_FEATURE_DROP_HISTORY_TRUNCATION_NOT_ALLOWED",
+                Assert.ThrowsAny<Exception>(() => LocalSpark.Run("sql", spark, "ALTER TABLE {table} DROP FEATURE domainMetadata TRUNCATE HISTORY")).Message);
+            Assert.Contains("truncating history",
+                Assert.ThrowsAny<Exception>(() => Delta.DropFeature(kernel, "checkpointProtection")).Message);
+            Assert.Contains("DELTA_FEATURE_CAN_ONLY_DROP_CHECKPOINT_PROTECTION_WITH_HISTORY_TRUNCATION",
+                Assert.ThrowsAny<Exception>(() => LocalSpark.Run("sql", spark, "ALTER TABLE {table} DROP FEATURE checkpointProtection")).Message);
+            Assert.Equal(LogNames(spark).Count(n => n.EndsWith(".json", StringComparison.Ordinal)), LogNames(kernel).Count(n => n.EndsWith(".json", StringComparison.Ordinal)));
+        });
+    }
+
     [GeneratedRegex("col-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")]
     private static partial Regex PhysicalName();
 

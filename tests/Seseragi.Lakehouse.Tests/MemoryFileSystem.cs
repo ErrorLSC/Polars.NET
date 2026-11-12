@@ -65,6 +65,13 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
         lock (_files) _files[path] = (content.ToArray(), DateTimeOffset.UtcNow);
     }
 
+    /// <summary>Sets the modification time of a file.</summary>
+    public MemoryFileSystem Touch(string path, DateTimeOffset modified)
+    {
+        lock (_files) _files[path] = (_files[path].Content, modified);
+        return this;
+    }
+
     public MemoryFileSystem PutBytes(string path, byte[] content)
     {
         _files[path] = (content, DateTimeOffset.UnixEpoch);
