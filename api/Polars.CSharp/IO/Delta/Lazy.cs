@@ -29,7 +29,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="variantAsJson">Reads variant columns (at any depth) as JSON text, as Spark's <c>to_json</c> renders them,
     /// instead of as stored (a struct of the <c>value</c> and <c>metadata</c> binaries). Timestamps in variants are rendered in UTC.
     /// A table with variant columns is read through Polars.NET's own patch: every file the scan selects is read into memory
-    /// when the scan is created and kept until the frame is released (no ranged reads, no column pruning).</param>
+    /// when the scan is created and kept until the frame is released (no ranged reads; the engine still decodes only what it needs).</param>
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanDelta(
         string path,

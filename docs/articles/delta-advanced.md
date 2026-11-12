@@ -1,6 +1,6 @@
 # Delta Lake: Advanced Table Features
 
-The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, and column changes. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them. What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
+The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, column changes, dropping table features, and variant columns. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them (variant tables are read only). What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
 
 ---
 
@@ -139,6 +139,30 @@ Delta.DropFeature("./lake/orders", "typeWidening");
 Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors)
 Delta.DropFeature("./lake/orders", DeltaTableFeatures.ColumnMapping)
 Delta.DropFeature("./lake/orders", "typeWidening")
+```
+
+:::
+
+## 5. Variant Columns
+
+Tables with `VARIANT` columns (Spark 4 and Databricks semi-structured data, the `variantType` feature) are read, at any depth: top-level columns, struct fields, array elements and map values. A variant is read as it is stored, a struct of its `value` and `metadata` binaries (the Parquet Variant encoding), or, with `variantAsJson: true`, as JSON text, exactly as Spark's `to_json` renders it (timestamps in UTC). Such tables are read only.
+
+The Polars engine cannot open these files yet, so Polars.NET reads them through a patch of its own: every file a scan selects is read whole into memory when the scan is created. See [Compatibility & Known Limitations](/articles/delta-limitations) for what that costs.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+using var raw = DataFrame.ReadDelta("./lake/events");                        // payload: struct{value, metadata}
+using var json = DataFrame.ReadDelta("./lake/events", variantAsJson: true);  // payload: String
+
+using var clicks = json
+    .Filter(Col("payload").Str.JsonPathMatch("$.kind") == "click")
+    .Select(Col("id"), Col("payload"));
+```
+
+```fsharp [F# (Pipeline)]
+let raw = DataFrame.ReadDelta("./lake/events")                       // payload: struct{value, metadata}
+let json = DataFrame.ReadDelta("./lake/events", variantAsJson = true) // payload: String
 ```
 
 :::

@@ -9,8 +9,8 @@ namespace Polars.NET.Core.Delta;
 /// variant column Spark writes carries. A variant is stored as a plain group of two binaries (<c>value</c>,
 /// <c>metadata</c>), so the file reads correctly once the annotation is gone: this removes those bytes from the
 /// footer. Data pages, column and offset indexes lie before the footer and keep their offsets. The patched file
-/// lives in memory, so the scans of such tables read each file whole (no ranged reads, no column pruning by the
-/// object store). Delete this, and the in-memory scan path, once the engine reads VARIANT.
+/// lives in memory, so the scans of such tables read each file whole from storage (no ranged reads; the engine
+/// still decodes only the columns and row groups it needs). Delete this, and the in-memory scan path, once the engine reads VARIANT.
 /// </summary>
 internal static class VariantFooter
 {

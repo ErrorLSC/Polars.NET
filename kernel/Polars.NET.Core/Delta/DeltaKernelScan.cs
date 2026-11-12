@@ -698,8 +698,8 @@ public static class DeltaKernelScan
     /// <summary>
     /// OUR OWN PATCH around the engine (see <see cref="VariantFooter"/>): each file of a table with variant columns
     /// is read whole into memory, the VARIANT annotations are removed from its footer, and the engine scans the
-    /// patched bytes, one file after another, with the policies of a path scan. No ranged reads, no column pruning
-    /// by the object store: every byte of every file is read. Warns once per table and process. Delete with
+    /// patched bytes, one file after another, with the policies of a path scan. No ranged reads: every byte of every
+    /// file is read from storage (the engine still decodes only the columns and row groups it needs). Warns once per table and process. Delete with
     /// <see cref="VariantFooter"/> once the engine reads VARIANT.
     /// </summary>
     private static LazyFrameHandle ScanPatched(
@@ -711,7 +711,8 @@ public static class DeltaKernelScan
                 $"[Polars.NET] Warning: the Delta table at {tableRoot} has variant columns, which the Parquet engine cannot open yet. " +
                 "Polars.NET works around it with its own patch: every data file the scan selects is read whole into memory when the scan " +
                 "is created (not when it is collected) and its footer patched; the files stay in memory until the frame is released. " +
-                "Scans of this table do no ranged reads and no column pruning, and a Head() or a filter still reads every file.";
+                "Every byte of those files is read from storage (no ranged reads), though the engine still decodes only the columns " +
+                "and row groups it needs; a Head() or a filter still reads every file.";
             Console.Error.WriteLine(warning);
             System.Diagnostics.Trace.TraceWarning(warning);
         }
