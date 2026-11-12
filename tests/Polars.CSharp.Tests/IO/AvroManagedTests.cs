@@ -72,6 +72,37 @@ public class AvroManagedTests
     }
 
     [Fact]
+    public void Maps_with_integer_keys_round_trip_through_the_engine()
+    {
+        // Written as an Avro array of key/value records (logicalType map), read back as an Arrow map, which the
+        // engine imports as a list of key/value structs (as for string-key maps).
+        var type = new ArrowTypes.MapType(new ArrowField("key", ArrowTypes.Int32Type.Default, false),
+            new ArrowField("value", ArrowTypes.StringType.Default, true));
+        var m = new MapArray.Builder(type);
+        m.Append(); ((Int32Array.Builder)m.KeyBuilder).Append(1).Append(2); ((StringArray.Builder)m.ValueBuilder).Append("a").AppendNull();
+        m.AppendNull();
+        ArrowSchema schema = new([new ArrowField("m", type, true)], []);
+        RecordBatch batch = new(schema, [m.Build()], 2);
+
+        string path = Path.Combine(Path.GetTempPath(), $"avro-intmap-{Guid.NewGuid():N}.avro");
+        try
+        {
+            AvroWriter.Write(path, schema, [batch]);
+            using var df = DataFrame.ReadAvro(path);
+            Assert.Equal("list[struct[key: i32, value: str]]", Dtype(df, "m"));
+            using var keys = df.Select(Col("m").List.Eval(Element().Struct.Field("key")).Alias("k"));
+            Assert.Equal([1, 2], keys.GetValue<List<int>>(0, "k"));
+            Assert.Null(keys.GetValue<List<int>?>(1, "k"));
+            using var scanned = LazyFrame.ScanAvro(path).Collect();
+            Assert.True(df.Equals(scanned));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Decimal_wider_than_38_digits_is_refused_with_its_column_name()
     {
         var e = Assert.Throws<NotSupportedException>(() => DataFrame.ReadAvro(Fixture("logical")));

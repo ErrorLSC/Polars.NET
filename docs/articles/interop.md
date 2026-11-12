@@ -752,6 +752,7 @@ lf.Filter(pl.col "Price" .> pl.lit 10.0).SinkAvro("copy.avro", AvroCompression.Z
 | Avro | Polars |
 | :--- | :--- |
 | `map` | `List(Struct{key: String, value})` |
+| `array` of two-field records with `logicalType: map` (Iceberg, DuckDB) | `List(Struct{key, value})`, keys of any type (a null key is an error) |
 | `enum` | `Categorical` |
 | `fixed` | `Binary` |
 | `decimal` up to 38 digits | `Decimal` (wider decimals are refused with an error naming the column) |

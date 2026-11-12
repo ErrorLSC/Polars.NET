@@ -411,6 +411,7 @@ internal sealed unsafe class ListEncoder(ListLayout layout, int fixedSize, AvroE
         _offsets = layout == ListLayout.FixedSize ? null : Pin(1);
         items.Bind(array switch
         {
+            MapArray m => m.KeyValues, // the entries (MapArray.Values, which hides ListArray.Values, is the value column)
             ListArray l => l.Values,
             LargeListArray l => l.Values,
             FixedSizeListArray l => l.Values,

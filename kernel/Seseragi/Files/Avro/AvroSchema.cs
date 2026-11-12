@@ -71,6 +71,9 @@ public enum AvroLogicalKind
     SparkDayTimeInterval,
     /// <summary>Spark's year-month interval: an int of months tagged with <c>spark.sql.catalyst.type</c>.</summary>
     SparkYearMonthInterval,
+    /// <summary><c>map</c> on an <c>array</c> of two-field records (key, value): a map whose keys need not be strings,
+    /// as Iceberg and DuckDB write them. The key may be <c>["null", T]</c> (DuckDB) but no key may be null.</summary>
+    Map,
 }
 
 /// <summary>
@@ -238,6 +241,21 @@ public sealed class AvroArraySchema : AvroSchema
 
     /// <summary>The <c>element-id</c> attribute (Iceberg), or null.</summary>
     public int? ElementId => AvroProperties.Id(Properties, AvroProperties.ElementId);
+
+    /// <summary>Whether <paramref name="items"/> can be the entries of an array-encoded map: a record with exactly
+    /// two fields (the rule Iceberg applies) whose key is a single type or <c>["null", T]</c>.</summary>
+    internal static bool IsMapEntries(AvroSchema items) =>
+        items is AvroRecordSchema { Fields.Count: 2 } entries && MapKey(entries) is not null;
+
+    /// <summary>The key type of map entries (the non-null branch of a nullable key), or null when unusable.</summary>
+    internal static AvroSchema? MapKey(AvroRecordSchema entries) => entries.Fields[0].Schema switch
+    {
+        AvroUnionSchema { Branches.Count: 2, NullIndex: >= 0 } u when u.Branches[1 - u.NullIndex] is var b
+            && b.Type is not (AvroType.Null or AvroType.Union) => u.Branches[1 - u.NullIndex],
+        AvroUnionSchema => null,
+        { Type: AvroType.Null } => null,
+        var key => key,
+    };
 }
 
 /// <summary>A map (string keys).</summary>
@@ -433,10 +451,22 @@ internal static class AvroSchemaParser
                 "record" or "error" => ParseRecord(e, enclosingNs),
                 "enum" => ParseEnum(e, enclosingNs),
                 "fixed" => ParseFixed(e, enclosingNs),
-                "array" => new AvroArraySchema(Parse(Required(e, "items"), enclosingNs)) { Properties = Rest(e, ArrayKeys) },
+                "array" => ParseArray(e, enclosingNs),
                 "map" => new AvroMapSchema(Parse(Required(e, "values"), enclosingNs)) { Properties = Rest(e, MapKeys) },
                 _ when Primitives.TryGetValue(type, out var t) => WithLogical(e, new AvroPrimitiveSchema(t), t),
                 _ => Reference(type, enclosingNs),
+            };
+        }
+
+        private AvroArraySchema ParseArray(JsonElement e, string? enclosingNs)
+        {
+            var items = Parse(Required(e, "items"), enclosingNs);
+            bool map = e.TryGetProperty("logicalType", out var lt) && lt.ValueKind == JsonValueKind.String
+                && lt.GetString() == "map" && AvroArraySchema.IsMapEntries(items);
+            return new AvroArraySchema(items)
+            {
+                Logical = map ? AvroLogicalKind.Map : AvroLogicalKind.None,
+                Properties = Rest(e, ArrayKeys, map ? ["logicalType"] : []),
             };
         }
 

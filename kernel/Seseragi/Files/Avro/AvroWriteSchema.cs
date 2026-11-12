@@ -10,7 +10,8 @@ namespace Kaminari.Seseragi.Files.Avro;
 /// <c>["null", T]</c>; strings, binaries, lists, structs, dates, naive and zoned timestamps and decimals as
 /// <c>bytes</c> follow the reference dataframe writer; the rest follows spark-avro (narrow integers widen to int,
 /// nested records are named after their field inside the parent's namespace, day-time and year-month intervals
-/// carry <c>spark.sql.catalyst.type</c>, map keys must be strings). Where neither has a rule and a value could
+/// carry <c>spark.sql.catalyst.type</c>). Maps with string keys are Avro maps; other keys are written as an array of
+/// key/value records with <c>logicalType: map</c>, as Iceberg and DuckDB do. Where neither has a rule and a value could
 /// change, the value is refused at write time instead (unsigned 64-bit beyond long, sub-microsecond times,
 /// negative or sub-millisecond Avro durations).
 /// </summary>
@@ -225,7 +226,7 @@ internal static class AvroWriteSchema
             {
                 if (m.KeyField.DataType is not (StringType or LargeStringType or StringViewType
                     or DictionaryType { ValueType: StringType or LargeStringType or StringViewType }))
-                    throw new NotSupportedException($"Cannot write {what} to Avro: Avro map keys must be strings.");
+                    return ArrayMap(m);
                 var (_, keyEncoder) = MapType(m.KeyField.DataType, parentFullName, fieldName, path + ".key");
                 var (valueSchema, valueEncoder) = this.Map(m.ValueField, parentFullName, path + ".value", fieldName);
                 var map = new AvroMapSchema(valueSchema)
@@ -234,6 +235,19 @@ internal static class AvroWriteSchema
                         (AvroProperties.KeyId, ArrowFieldIds.Of(m.KeyField)), (AvroProperties.ValueId, ArrowFieldIds.Of(m.ValueField))),
                 };
                 return (map, new MapEncoder(keyEncoder, valueEncoder));
+            }
+
+            // Non-string keys: an array of key/value records with logicalType map (Iceberg, DuckDB). The entry
+            // record is named after the field, like any nested record.
+            (AvroSchema, AvroEncoder) ArrayMap(MapType m)
+            {
+                var (name, ns) = NameFor(parentFullName, fieldName);
+                var entries = new AvroRecordSchema(name, ns);
+                var (keySchema, keyEncoder) = this.Map(m.KeyField, entries.FullName, path + ".key");
+                var (valueSchema, valueEncoder) = this.Map(m.ValueField, entries.FullName, path + ".value");
+                entries.Fields = [AvroWriteSchema.Field(m.KeyField, keySchema, 0), AvroWriteSchema.Field(m.ValueField, valueSchema, 1)];
+                return (new AvroArraySchema(entries) { Logical = AvroLogicalKind.Map },
+                    new ListEncoder(ListLayout.Int32Offsets, 0, new StructEncoder([keyEncoder, valueEncoder])));
             }
 
             (AvroSchema, AvroEncoder) Record(StructType s)

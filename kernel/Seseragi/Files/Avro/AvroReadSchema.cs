@@ -72,6 +72,7 @@ internal static class AvroReadSchema
             AvroFixedSchema { Logical: AvroLogicalKind.Decimal } f when IsArrowDecimal(f) => DecimalType(f.Precision, f.Scale),
             AvroFixedSchema { Logical: AvroLogicalKind.Duration } => IntervalType.MonthDayNanosecond,
             AvroFixedSchema f => new FixedSizeBinaryType(f.Size),
+            AvroArraySchema { Logical: AvroLogicalKind.Map, Items: AvroRecordSchema entries } => MapOf(entries),
             AvroArraySchema a => new ListType(Child("item", a.Items, a.ElementId)),
             AvroMapSchema m => new MapType(NewField("key", StringType.Default, false, m.KeyId), Child("value", m.Values, m.ValueId)),
             _ => PrimitiveType(schema),
@@ -83,6 +84,14 @@ internal static class AvroReadSchema
         {
             var t = ToArrowType(s, out bool n, inProgress);
             return NewField(name, t, n, fieldId);
+        }
+
+        // An array-encoded map: the same Arrow shape as an Avro map (non-null "key", "value"), ids from the entry fields.
+        MapType MapOf(AvroRecordSchema entries)
+        {
+            var keyType = ToArrowType(AvroArraySchema.MapKey(entries)!, out _, inProgress);
+            return new MapType(NewField("key", keyType, false, entries.Fields[0].FieldId),
+                Child("value", entries.Fields[1].Schema, entries.Fields[1].FieldId));
         }
 
         IArrowType Union(AvroUnionSchema union, out bool singleNullable)

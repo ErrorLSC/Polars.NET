@@ -69,7 +69,7 @@ public class AvroEdgeCaseTests
 
     private static readonly byte[] Sync = [.. Enumerable.Range(1, 16).Select(i => (byte)i)];
 
-    private sealed class Bytes
+    internal sealed class Bytes
     {
         public readonly List<byte> Data = [];
 
@@ -95,7 +95,7 @@ public class AvroEdgeCaseTests
         public byte[] ToArray() => [.. Data];
     }
 
-    private static byte[] Container(string schema, IEnumerable<(long Count, byte[] Data)> blocks, string? codec = null, bool includeCodec = true)
+    internal static byte[] Container(string schema, IEnumerable<(long Count, byte[] Data)> blocks, string? codec = null, bool includeCodec = true)
     {
         var b = new Bytes().Raw("Obj\u0001"u8);
         List<(string, string)> meta = includeCodec ? [("avro.schema", schema), ("avro.codec", codec ?? "null")] : [("avro.schema", schema)];
@@ -106,7 +106,7 @@ public class AvroEdgeCaseTests
         return b.ToArray();
     }
 
-    private static async Task<List<string>> Read(byte[] file, AvroReadOptions? options = null)
+    internal static async Task<List<string>> Read(byte[] file, AvroReadOptions? options = null)
     {
         await using var reader = await AvroReader.OpenAsync(new MemoryStream(file), options);
         return ArrowRender.Rows(await reader.ReadBatchesAsync().ToListAsync());

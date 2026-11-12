@@ -85,6 +85,8 @@ Reading (Avro → Arrow):
 * Unions as spark-avro: `["null", T]` → nullable `T`; `[int, long]` → Int64; `[float, double]` → Float64 (each ± null);
   anything else → struct of nullable `member0..n` (null branch → null struct). `["null"]` alone → Null type (Spark: empty struct).
 * `enum` → Dictionary(Int32, Utf8) with the symbols; `fixed` → FixedSizeBinary; `map` → Map(Utf8 key);
+  an `array` with `logicalType: map` over a record of exactly two fields (Iceberg's rule; key `T` or `["null", T]`
+  as DuckDB writes it) → Map(key, value), a null key refused; any other `logicalType: map` array stays a list;
   `null` → Null; `uuid` → Utf8 (or the fixed(16) bytes).
 * `decimal` → Decimal128 (≤ 38 digits) / Decimal256 (≤ 76), else raw bytes.
 * `duration` → Interval(MonthDayNano) (Spark reads binary; DuckDB refuses; the engine adapter turns it into a struct).
@@ -100,7 +102,8 @@ Reading (Avro → Arrow):
 Writing (Arrow → Avro): nullable field → `["null", T]`; narrow integers → `int`, UInt32/UInt64 → `long` (UInt64
 above Int64.MaxValue refused); Float16 → `float`; Decimal32..256 → `bytes` decimal (user chose bytes over Spark's
 fixed); Utf8/LargeUtf8/Utf8View → `string`; dictionaries → their values; FixedSizeBinary → `fixed`; lists of every
-kind → `array`; Map (string keys only) → `map`; Struct → record named after the field in the parent's namespace
+kind → `array`; Map with string keys → `map`, with other keys → an `array` of key/value records with
+`logicalType: map` (the Iceberg and DuckDB encoding; required key, entry record named after the field); Struct → record named after the field in the parent's namespace
 (Spark); Date64 → `date` (midnight only); Time → `time-millis` / `time-micros` (sub-µs refused); zoned Timestamp →
 `timestamp-*` + `kaminari.timezone`; naive → `local-timestamp-*`; Duration → Spark day-time `long` (µs, sub-µs
 refused); Interval → `duration` (negative or sub-ms refused) or Spark year-month `int`. Default record name
@@ -167,13 +170,14 @@ verified against real files first:
    Two-record files then fail in every reader (fastavro, Java, ours); one-record files decode silently as garbage,
    since Avro has no checks. Cause (Iceberg core or that write path) not determined.*
 2. **Public schema API.** *Done (2026-11-13) as a read-only model (`AvroSchema.Parse`, `AvroReader.WriterSchema`,
-   `Properties`, id accessors, `ToJson`); a construction API waits for step 6. Parse → `ToJson` reproduces all 138
+   `Properties`, id accessors, `ToJson`); a construction API waits for step 6. Parse → `ToJson` reproduces all 150
    reference schemas exactly (order-insensitive).* Attributes the parser used to drop (`field-id`, `element-id`,
    `key-id` / `value-id`, other custom properties) are kept; ids are exposed on read as Arrow field metadata and
    written back.
-3. **Maps with non-string keys.** Iceberg writes `map<int, …>` (`column_sizes`, `value_counts`, `lower_bounds`, …)
-   as an `array` of key/value records annotated `logicalType: map`. Read it as an Arrow Map; write Arrow Maps with
-   non-string keys that way (refused today).
+3. **Maps with non-string keys.** *Done (2026-11-13): read as Arrow maps (ids from the entry fields); written for
+   non-string keys; all 1794 stats maps of the reference manifests match fastavro; DuckDB reads ours as `MAP`.*
+   Iceberg writes `map<int, …>` (`column_sizes`, `value_counts`, `lower_bounds`, …) as an `array` of key/value records
+   annotated `logicalType: map`. Read it as an Arrow Map; write Arrow Maps with non-string keys that way.
 4. **`adjust-to-utc`.** Iceberg distinguishes `timestamp` and `timestamptz` by this attribute on `timestamp-micros` /
    `-nanos`; today every `timestamp-*` reads as UTC.
 5. **Reader-schema resolution.** Read with an expected schema: match fields by id (else name), fill missing fields
@@ -186,8 +190,7 @@ verified against real files first:
    for the precision and uuids as `fixed(16)`; the default mapping keeps a `bytes` decimal.
 7. **Small files.** Cache compiled decoders by (writer schema, reader schema); a synchronous whole-buffer fast path.
 8. **Row view in Sazanami.** *Done (2026-11-13): `ArrowRows` in Sazanami's `Arrow/` (see the code map); it already
-   reads all 59 generated v2 / v3 manifests and lists from the Avro reader (maps as lists of key/value structs until
-   step 3). Wide decimals read as `SqlDecimal` or unscaled bytes; a lossy `decimal` read is refused.* The kernel reads
+   reads all 59 generated v2 / v3 manifests and lists from the Avro reader (maps read as maps since step 3). Wide decimals read as `SqlDecimal` or unscaled bytes; a lossy `decimal` read is refused.* The kernel reads
    manifests as Arrow batches through a generic, allocation-free row cursor with typed getters by name or field id
    (scalars, structs, lists, `GetMap<K, V>`, nulls). This is preferred over a separate Avro typed-record reader: one
    decoding path. The same view can later replace the Delta kernel's JSON detour (checkpoints are read today as

@@ -63,7 +63,8 @@ public class AvroSchemaApiTests
         Assert.Empty(uid.Properties); // logicalType was interpreted
 
         var columnSizes = (AvroArraySchema)((AvroUnionSchema)r2.Fields[2].Schema).Branches[1];
-        Assert.Equal("map", columnSizes.Properties["logicalType"].GetString()); // kept until map-as-array is read as a map
+        Assert.Equal(AvroLogicalKind.Map, columnSizes.Logical); // interpreted, so not kept as a property
+        Assert.False(columnSizes.Properties.ContainsKey("logicalType"));
         var kv = (AvroRecordSchema)columnSizes.Items;
         Assert.Equal([117, 118], kv.Fields.Select(f => f.FieldId));
 

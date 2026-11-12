@@ -259,14 +259,6 @@ public class AvroWriteTests
     }
 
     [Fact]
-    public void Map_with_non_string_keys_is_refused()
-    {
-        var type = new MapType(new Field("key", Int32Type.Default, false), new Field("value", Int32Type.Default, true));
-        var schema = new Schema([new Field("m", type, true)], null);
-        Assert.Throws<NotSupportedException>(() => AvroWriter.Create(new MemoryStream(), schema));
-    }
-
-    [Fact]
     public void Batch_schema_mismatch_is_refused()
     {
         var a = Batch(("c", Fixed(Int32Type.Default, [(int?)1]), false));

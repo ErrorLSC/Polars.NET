@@ -87,6 +87,7 @@ internal static class AvroSchemaJsonWriter
                 w.WriteString("type"u8, "array"u8);
                 w.WritePropertyName("items"u8);
                 WriteSchema(w, a.Items, enclosingNs, written);
+                WriteLogical(w, a);
                 WriteProperties(w, a.Properties);
                 w.WriteEndObject();
                 return;
@@ -191,6 +192,7 @@ internal static class AvroSchemaJsonWriter
         AvroLogicalKind.LocalTimestampMicros => "local-timestamp-micros",
         AvroLogicalKind.LocalTimestampNanos => "local-timestamp-nanos",
         AvroLogicalKind.Duration => "duration",
+        AvroLogicalKind.Map => "map",
         _ => throw new InvalidOperationException($"No logicalType name for {k}."),
     };
 }

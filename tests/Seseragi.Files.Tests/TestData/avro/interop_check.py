@@ -1,8 +1,10 @@
 """Checks Avro files written by the C# writer with the reference readers (fastavro, Python polars).
 
-Usage: python -I interop_check.py <wide.avro> <polars.avro>
+Usage: python -I interop_check.py <wide.avro> <polars.avro> [maps.avro]
   wide.avro    AvroWriteTests.Wide(0, 300), snappy: every type; checked with fastavro on raw (non-logical) values.
   polars.avro  PolarsSubset(): the types the Python polars reader supports; checked with polars.read_avro.
+  maps.avro    AvroInteropTests.Maps(): maps with non-string keys (arrays of key/value records, logicalType map);
+               checked with fastavro, and with DuckDB when it is installed.
 Exits non-zero with a message on the first mismatch. Needs fastavro, cramjam and polars.
 """
 import decimal
@@ -99,6 +101,29 @@ expected = pl.DataFrame(
 check("polars schema", dict(df.schema), dict(expected.schema))
 if dict(df.schema) == dict(expected.schema):
     check("polars rows", df.to_dicts(), expected.to_dicts())
+
+# ---- maps.avro: non-string map keys as arrays of key/value records
+if len(sys.argv) > 3:
+    with open(sys.argv[3], "rb") as f:
+        r = fastavro.reader(f)
+        m_schema = [x for x in r.writer_schema["fields"] if x["name"] == "m"][0]["type"][1]
+        check("maps logicalType", (m_schema["type"], m_schema.get("logicalType")), ("array", "map"))
+        rows = list(r)
+    check("maps fastavro m", [row["m"] for row in rows],
+          [[{"key": 1, "value": "a"}, {"key": 2, "value": None}], None, []])
+    check("maps fastavro big", [row["big"] for row in rows],
+          [[{"key": 5, "value": 6}], [{"key": -(2**63), "value": 0}], []])
+    try:
+        import duckdb
+    except ImportError:
+        duckdb = None
+    if duckdb is not None:
+        con = duckdb.connect()
+        con.execute("INSTALL avro; LOAD avro;")
+        types = {name: t for name, t, *_ in con.execute("DESCRIBE SELECT * FROM read_avro(?)", [sys.argv[3]]).fetchall()}
+        check("maps duckdb types", (types["m"], types["big"]), ("MAP(INTEGER, VARCHAR)", "MAP(BIGINT, BIGINT)"))
+        check("maps duckdb rows", con.execute("SELECT m, big FROM read_avro(?)", [sys.argv[3]]).fetchall(),
+              [({1: "a", 2: None}, {5: 6}), (None, {-(2**63): 0}), ({}, {})])
 
 if failures:
     print("\n".join(failures[:20]))

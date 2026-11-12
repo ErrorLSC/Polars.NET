@@ -8,7 +8,8 @@ using static Seseragi.Files.Tests.TestBatches;
 namespace Seseragi.Files.Tests;
 
 /// <summary>
-/// Files written here are read back by fastavro and Python polars (TestData/avro/interop_check.py).
+/// Files written here are read back by fastavro, Python polars and (when installed) DuckDB
+/// (TestData/avro/interop_check.py).
 /// Opt-in: set SESERAGI_AVRO_PYTHON to a Python with fastavro, cramjam and polars installed,
 /// e.g. ~/.cache/seseragi/avro-venv/bin/python. Without it the test only writes the files.
 /// </summary>
@@ -41,6 +42,22 @@ public class AvroInteropTests
             ("st", st, true));
     }
 
+    /// <summary>Maps with non-string keys, with the values interop_check.py expects.</summary>
+    internal static RecordBatch Maps()
+    {
+        var mType = new MapType(new Field("key", Int32Type.Default, false), new Field("value", StringType.Default, true));
+        var m = new MapArray.Builder(mType);
+        m.Append(); ((Int32Array.Builder)m.KeyBuilder).Append(1).Append(2); ((StringArray.Builder)m.ValueBuilder).Append("a").AppendNull();
+        m.AppendNull();
+        m.Append();
+        var bigType = new MapType(new Field("key", Int64Type.Default, false), new Field("value", Int64Type.Default, false));
+        var big = new MapArray.Builder(bigType);
+        big.Append(); ((Int64Array.Builder)big.KeyBuilder).Append(5); ((Int64Array.Builder)big.ValueBuilder).Append(6);
+        big.Append(); ((Int64Array.Builder)big.KeyBuilder).Append(long.MinValue); ((Int64Array.Builder)big.ValueBuilder).Append(0);
+        big.Append();
+        return Batch(("m", m.Build(), true), ("big", big.Build(), false));
+    }
+
     [Fact]
     public async Task Reference_readers_read_our_files()
     {
@@ -53,11 +70,14 @@ public class AvroInteropTests
             AvroWriter.Write(wide, w.Schema, [w.Slice(0, 100), w.Slice(100, 200)], new() { Compression = SnappyCompression.Instance, BlockSize = 1000 });
             var p = PolarsSubset();
             await AvroWriter.WriteAsync(polars, p.Schema, ((RecordBatch[])[p]).ToAsyncEnumerable(), new() { Compression = new DeflateCompression() });
+            string maps = Path.Combine(dir, "maps.avro");
+            var mb = Maps();
+            AvroWriter.Write(maps, mb.Schema, [mb]);
 
             string? python = Environment.GetEnvironmentVariable("SESERAGI_AVRO_PYTHON");
             if (string.IsNullOrEmpty(python)) return;
             string script = Path.Combine(AppContext.BaseDirectory, "TestData", "avro", "interop_check.py");
-            var psi = new ProcessStartInfo(python, ["-I", script, wide, polars]) { RedirectStandardOutput = true, RedirectStandardError = true };
+            var psi = new ProcessStartInfo(python, ["-I", script, wide, polars, maps]) { RedirectStandardOutput = true, RedirectStandardError = true };
             using var proc = Process.Start(psi)!;
             string stdout = await proc.StandardOutput.ReadToEndAsync();
             string stderr = await proc.StandardError.ReadToEndAsync();

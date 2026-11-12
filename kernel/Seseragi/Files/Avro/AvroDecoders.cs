@@ -76,6 +76,8 @@ internal abstract class AvroDecoder
     /// float/double, whose Avro and Arrow encodings are both little-endian IEEE 754).</summary>
     private static AvroDecoder CompileArray(AvroArraySchema a, NativeListBuilder list) => (a.Items, list.Values) switch
     {
+        (AvroRecordSchema entries, NativeStructBuilder b) when a.Logical == AvroLogicalKind.Map =>
+            new ArrayDecoder(list, CompileMapEntries(entries, b), MinEncodedBytes(entries, [])),
         (AvroUnionSchema or AvroNamedSchema, var items) => new ArrayDecoder(list, Compile(a.Items, items), MinEncodedBytes(a.Items, [])),
         ({ Type: AvroType.Long }, NativeFixedWidthBuilder<long> items) => new LongArrayDecoder(list, items),
         ({ Type: AvroType.Int }, NativeFixedWidthBuilder<int> items) => new IntArrayDecoder(list, items),
@@ -83,6 +85,15 @@ internal abstract class AvroDecoder
         ({ Type: AvroType.Float }, NativeFixedWidthBuilder<float> items) => new RawArrayDecoder<float>(list, items),
         (_, var items) => new ArrayDecoder(list, Compile(a.Items, items), MinEncodedBytes(a.Items, [])),
     };
+
+    /// <summary>The entries of an array-encoded map; a nullable key (as DuckDB writes) must not hold a null.</summary>
+    private static RecordDecoder CompileMapEntries(AvroRecordSchema entries, NativeStructBuilder b)
+    {
+        AvroDecoder key = entries.Fields[0].Schema is AvroUnionSchema u
+            ? new RequiredUnionDecoder([.. u.Branches.Select((s, i) => i == u.NullIndex ? null : Compile(s, b.Children[0]))])
+            : Compile(entries.Fields[0].Schema, b.Children[0]);
+        return new RecordDecoder(b, [key, Compile(entries.Fields[1].Schema, b.Children[1])]);
+    }
 
     private static AvroDecoder CompileMap(AvroMapSchema m, NativeListBuilder list)
     {
@@ -373,6 +384,15 @@ internal sealed class UnionDecoder(NativeColumnBuilder b, AvroDecoder?[] branche
         if (branch is null) b.AppendNull();
         else branch.Decode(ref r);
     }
+}
+
+/// <summary>A <c>["null", T]</c> union whose value must not be null (map keys).</summary>
+internal sealed class RequiredUnionDecoder(AvroDecoder?[] branches) : AvroDecoder
+{
+    public override void Decode(ref AvroSpanReader r) =>
+        (branches[ReadBranch(ref r, branches.Length)]
+            ?? throw new AvroFormatException("An Avro map key (an array with logicalType map) is null; map keys cannot be null."))
+        .Decode(ref r);
 }
 
 /// <summary>A general union read as a struct of nullable members; the struct is null for the null branch.</summary>
