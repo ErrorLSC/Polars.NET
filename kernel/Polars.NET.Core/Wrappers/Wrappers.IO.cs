@@ -1949,18 +1949,20 @@ public readonly partial struct PolarsWrapper
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData)
+        void* userData,
+        bool strict = false)
     {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback, destroyCallback, userData);
+        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback, destroyCallback, userData, strict);
         return ErrorHelper.Check(handle);
     }
     public static unsafe LazyFrameHandle LazyFrameScanStreamBuffered(
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData)
+        void* userData,
+        bool strict = false)
     {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream_buffered(schema, callback, destroyCallback, userData);
+        var handle = NativeBindings.pl_lazy_frame_scan_stream_buffered(schema, callback, destroyCallback, userData, strict);
         return ErrorHelper.Check(handle);
     }
     public static void ExportBatches(DataFrameHandle dfHandle, Action<RecordBatch> onBatchReceived)

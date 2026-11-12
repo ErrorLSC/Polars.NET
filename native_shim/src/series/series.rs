@@ -371,9 +371,10 @@ pub unsafe extern "C" fn pl_arrow_to_series(
                 .to_str()
                 .map_err(|e| polars_err!(ComputeError: "Name contains null byte: {}", e))?
         };
+        // Take the array first (C data interface "move": the caller's struct is left released), so it is released
+        // exactly once, here, also on errors and panics. The schema is only borrowed; the caller releases it.
+        let array_val = unsafe { std::ptr::replace(ptr_array, polars_arrow::ffi::ArrowArray::empty()) };
         let field = unsafe { polars_arrow::ffi::import_field_from_c(&*ptr_schema)? };
-
-        let array_val = unsafe { std::ptr::read(ptr_array) };
         let mut array = unsafe { polars_arrow::ffi::import_array_from_c(array_val, field.dtype)? };
 
         array = upgrade_to_large_list(array);

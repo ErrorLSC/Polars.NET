@@ -45,13 +45,21 @@ public static class ArrowFfiBridge
     {
         unsafe
         {
-            var cArray = new CArrowArray();
-            var cSchema = new CArrowSchema();
+            var cArray = CArrowArray.Create();
+            var cSchema = CArrowSchema.Create();
 
-            CArrowSchemaExporter.ExportType(arrowArray.Data.DataType, &cSchema);
-            CArrowArrayExporter.ExportArray(arrowArray, &cArray);
-
-            return PolarsWrapper.SeriesFromArrow(name, &cArray, &cSchema);
+            try
+            {
+                CArrowSchemaExporter.ExportType(arrowArray.Data.DataType, cSchema);
+                CArrowArrayExporter.ExportArray(arrowArray, cArray);
+                return PolarsWrapper.SeriesFromArrow(name, cArray, cSchema);
+            }
+            finally
+            {
+                // The engine takes the array (leaving it released) and only borrows the schema.
+                CArrowArray.Free(cArray);
+                CArrowSchema.Free(cSchema);
+            }
         }
     }
     // ==========================================
@@ -73,11 +81,12 @@ public static class ArrowFfiBridge
 
             return ErrorHelper.Check(handle);
         }
-        catch
+        finally
         {
+            // The engine takes the array (leaving it released, also when it fails) and only borrows the schema;
+            // Free releases what is still ours and frees both structs.
             CArrowArray.Free(cArray);
             CArrowSchema.Free(cSchema);
-            throw;
         }
     }
 
@@ -147,17 +156,17 @@ public static class ArrowFfiBridge
             CArrowSchemaExporter.ExportSchema(batch.Schema, cSchema);
             CArrowArrayExporter.ExportRecordBatch(batch, cArray);
 
-            return NativeBindings.pl_arrow_to_series(
+            return ErrorHelper.Check(NativeBindings.pl_arrow_to_series(
                 "data",
                 cArray,
                 cSchema
-            );
+            ));
         }
-        catch
+        finally
         {
+            // The engine takes the array (leaving it released) and only borrows the schema.
             CArrowArray.Free(cArray);
             CArrowSchema.Free(cSchema);
-            throw;
         }
     }
     public static RecordBatch ToRecordBatch(StructArray structArray)

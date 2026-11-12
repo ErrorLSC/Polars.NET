@@ -89,6 +89,7 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 * `SinkBatches` / `SinkTo` hand over logical Arrow types (`Decimal128`, dictionaries) instead of the engine's physical arrays. `decimal` columns used to fail with `Data type is not yet supported in import` on the streaming path.
 * `CollectBatchesAsync` / `RowsAsync` (and LINQ async enumeration) no longer end silently when the engine fails mid-stream: the error is thrown.
 * `CollectBatchesAsync` starts the query off the caller's thread.
+* `ScanRecordBatches` took batches in standard Arrow layouts as the engine's own physical layouts: `Utf8` strings came out empty and `Time32` values wrong. Every column now goes through the engine's Arrow import.
 
 ### Behaviour changes
 
@@ -124,6 +125,7 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 
 * `ScanParquet(byte[])` passed `rechunk` as `cache` and `cache` as `rechunk`.
 * `ScanParquet(byte[])` and `ScanNdjson(byte[])` refuse an empty buffer with `ArgumentException`, as the CSV and IPC scans did.
+* `DataFrame.FromArrow` and `Series.FromArrow` crashed the process (access violation) when the engine refused the data, e.g. a decimal of more than 38 digits: the Arrow array was released twice. The engine now takes the array as the Arrow C data interface specifies, and the call throws. The Arrow schema and the C structs are also freed after a successful import (they leaked).
 
 ---
 

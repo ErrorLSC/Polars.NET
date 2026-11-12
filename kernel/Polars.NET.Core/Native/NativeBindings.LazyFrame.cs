@@ -13,14 +13,16 @@ unsafe internal partial class NativeBindings
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData
+        void* userData,
+        [MarshalAs(UnmanagedType.U1)] bool strict
     );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_frame_scan_stream_buffered(
         CArrowSchema* schema,
         delegate* unmanaged[Cdecl]<void*, Kaminari.Sazanami.Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData
+        void* userData,
+        [MarshalAs(UnmanagedType.U1)] bool strict
     );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazyframe_slice(LazyFrameHandle lf, long offset, UIntPtr length);

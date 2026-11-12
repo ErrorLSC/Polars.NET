@@ -18,11 +18,15 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
             return Err(PolarsError::ComputeError("Null pointer passed to pl_from_arrow".into()));
         }
 
+        // Take the array first, leaving the caller's struct marked released (C data interface "move"): from here on
+        // it is released exactly once, by this side, whether the import succeeds, fails or panics. The schema is
+        // only borrowed; the caller releases it.
+        let arrow_array_struct = unsafe { std::ptr::replace(c_array_ptr, ffi::ArrowArray::empty()) };
+
         // Import Arrow Schema
         let field = unsafe { ffi::import_field_from_c(&*c_schema_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))? };
-        
+
         // Import Array
-        let arrow_array_struct = unsafe { std::ptr::read(c_array_ptr) };
         let array = unsafe { 
             ffi::import_array_from_c(arrow_array_struct, field.dtype.clone())
                 .map_err(|e| PolarsError::ComputeError(e.to_string().into()))? 
@@ -224,6 +228,9 @@ type DestroyUserDataCallback = unsafe extern "C" fn(*mut core::ffi::c_void);
 // Define scanner struct
 pub(crate) struct CSharpStreamScanner {
     schema: SchemaRef,
+    /// Convert every column through the engine's Arrow import (any standard Arrow layout), rather than taking
+    /// the arrays as the engine's own physical layout (only true for batches built by ArrowConverter).
+    strict: bool,
     callback: StreamFactoryCallback,
     destroy_callback: Option<DestroyUserDataCallback>,
     user_data: *mut core::ffi::c_void, 
@@ -257,7 +264,7 @@ impl CSharpStreamScanner {
         let mut restore: Vec<(PlSmallStr, DataType)> = Vec::new();
         // An empty stream still gives one (empty) batch, so the file always has a schema.
         unsafe {
-            for_each_stream_batch(stream_ptr, |mut df| {
+            for_each_stream_batch(stream_ptr, self.strict, |mut df| {
                 if writer.is_none() {
                     // The first batch's dtypes are the ones the scan restores.
                     restore = df
@@ -345,10 +352,12 @@ fn anonymous_temp_file() -> PolarsResult<std::fs::File> {
 }
 
 /// Reads an Arrow C stream batch by batch, converting each batch to a DataFrame as the stream import does
-/// (non-strict: dictionary columns convert to Categorical / Enum, the rest take the field's dtype). An empty stream
-/// gives one empty DataFrame with the stream's schema. The stream is released when reading ends.
+/// (strict: every column through the Arrow import; non-strict: dictionary columns convert to Categorical / Enum,
+/// the rest take the field's dtype as is). An empty stream gives one empty DataFrame with the stream's schema.
+/// The stream is released when reading ends.
 pub(crate) unsafe fn for_each_stream_batch(
     stream_ptr: *mut polars_arrow::ffi::ArrowArrayStream,
+    strict: bool,
     mut on_batch: impl FnMut(DataFrame) -> PolarsResult<()>,
 ) -> PolarsResult<()> {
     let stream = unsafe { &mut *stream_ptr };
@@ -366,7 +375,7 @@ pub(crate) unsafe fn for_each_stream_batch(
             .ok_or_else(|| PolarsError::ComputeError("Batch is not a StructArray".into()))?;
         let columns = fields.iter().zip(struct_array.values()).map(|(field, arr)| {
             let name = PlSmallStr::from_str(&field.name);
-            let series = if contains_dictionary(&field.dtype) {
+            let series = if strict || contains_dictionary(&field.dtype) {
                 series_from_arrow_with_metadata(name, arr.clone(), field.metadata.clone())?
             } else {
                 let p_field = PolarsField::from(field);
@@ -399,14 +408,7 @@ impl AnonymousScan for CSharpStreamScanner {
                 return Err(PolarsError::ComputeError("C# callback returned null stream".into()));
             }
 
-            let ctx_ptr = pl_dataframe_new_from_stream(stream_ptr);
-            
-            if ctx_ptr.is_null() {
-                return Err(PolarsError::ComputeError("Failed to consume stream".into()));
-            }
-
-            let ctx = Box::from_raw(ctx_ptr);
-            Ok(ctx.df) 
+            consume_stream_impl(stream_ptr, self.strict)
         }
     }
 
@@ -429,10 +431,12 @@ unsafe fn csharp_scanner(
     callback: StreamFactoryCallback,
     destroy_callback: DestroyUserDataCallback,
     user_data: *mut core::ffi::c_void,
+    strict: bool,
 ) -> PolarsResult<CSharpStreamScanner> {
     // From here on the scanner owns user_data: dropping it (also on error) releases it.
     let mut scanner = CSharpStreamScanner {
         schema: Arc::new(Schema::default()),
+        strict,
         callback,
         destroy_callback: Some(destroy_callback),
         user_data,
@@ -458,9 +462,10 @@ pub unsafe extern "C" fn pl_lazy_frame_scan_stream(
     callback: StreamFactoryCallback,
     destroy_callback: DestroyUserDataCallback,
     user_data: *mut core::ffi::c_void,
+    strict: bool,
 ) -> *mut LazyFrameContext {
     ffi_try!({
-        let scanner = unsafe { csharp_scanner(ptr_schema, callback, destroy_callback, user_data)? };
+        let scanner = unsafe { csharp_scanner(ptr_schema, callback, destroy_callback, user_data, strict)? };
         let lf = LazyFrame::anonymous_scan(
             std::sync::Arc::new(scanner),
             ScanArgsAnonymous::default()
@@ -478,9 +483,10 @@ pub unsafe extern "C" fn pl_lazy_frame_scan_stream_buffered(
     callback: StreamFactoryCallback,
     destroy_callback: DestroyUserDataCallback,
     user_data: *mut core::ffi::c_void,
+    strict: bool,
 ) -> *mut LazyFrameContext {
     ffi_try!({
-        let scanner = unsafe { csharp_scanner(ptr_schema, callback, destroy_callback, user_data)? };
+        let scanner = unsafe { csharp_scanner(ptr_schema, callback, destroy_callback, user_data, strict)? };
         let inner = scan_spooled_ipc(scanner.spool_to_ipc()?)?;
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner })))
     })
