@@ -87,9 +87,13 @@ Delta.Optimize("./lake/events", full = true) |> ignore
 
 ## 3. Column Changes
 
-Columns are renamed, dropped and widened as Spark's `ALTER TABLE` does it: one commit that changes the schema, without rewriting data. Nested fields are named with dots, `element` for an array's element and `key` / `value` for a map's (`items.element.price`); a part holding a dot goes in backticks.
+Columns are renamed, dropped, widened, commented and moved as Spark's `ALTER TABLE` does it: one commit that changes the schema, without rewriting data. Nested fields are named with dots, `element` for an array's element and `key` / `value` for a map's (`items.element.price`); a part holding a dot goes in backticks.
 
 * `Delta.RenameColumn` and `Delta.DropColumns` need column mapping (`delta.columnMapping.mode` = `name`, which `Delta.SetTableProperties` turns on for an existing table without rewriting it): data files keep their physical column names, so a renamed column reads its old data, and a dropped one is no longer read (a column added later under the same name is a new, empty column). Partition columns and `delta.dataSkippingStatsColumns` follow a rename. Partition columns, clustering columns (and structs holding one) and the last column of the table or of a struct cannot be dropped.
+* `Delta.DropColumnNotNull` (`ALTER COLUMN … DROP NOT NULL`) lets a column, a nested field, or an array's elements or a map's values (`items.element`, `tags.value`) hold nulls. There is no way back, in Spark either: Delta cannot make a nullable column NOT NULL again. Identity columns and map keys cannot be changed.
+* `Delta.SetColumnComment` (`ALTER COLUMN … COMMENT`) keeps the comment in the column's metadata, where Spark, Databricks and Unity Catalog show it. Array elements and map keys and values take no comment.
+* `Delta.MoveColumn` (`ALTER COLUMN … FIRST` / `AFTER`) moves a column, or a field within its struct, first or after another field of the same struct, named by its name only (`MoveColumn("address.zip", after: "city")`). Files hold columns by name, so only the schema's order changes; positional `INSERT INTO … VALUES` in Spark follows the new order.
+* These three always commit, also when nothing changes, as Spark does. Unity Catalog: `DropCatalogColumnNotNull`, `SetCatalogColumnComment`, `MoveCatalogColumn` (the catalog's columns follow).
 * `Delta.Purge` (Spark's `REORG TABLE … APPLY (PURGE)`; Unity Catalog: `PurgeCatalogTable`) removes what a drop or a delete only hides from the current files: the files that still hold a dropped column (at any depth) and the files with deletion vectors are rewritten without it, packed per partition, in one commit that changes no data. It returns the number of files rewritten, and commits nothing when no file needs it. The old files stay for time travel until `Delta.Vacuum` removes them, so purge and then vacuum to remove the data from storage. Catalog-managed tables refuse it, as Spark does.
 * `Delta.ChangeColumnType` needs type widening (`delta.enableTypeWidening` = `true`). Allowed: integers to wider integers, a wide enough decimal, or (from Int8, Int16, Int32) Float64; Float32 to Float64; decimals to wider decimals; Date to Datetime without a time zone (needs the `timestampNtz` feature). Older files are read in their own types and cast.
 
@@ -102,6 +106,9 @@ Delta.RenameColumn("./lake/orders", "customer", "client");
 Delta.RenameColumn("./lake/orders", "address.zip", "postcode");      // a nested field
 Delta.DropColumns("./lake/orders", ["comment", "address.line2"]);
 Delta.ChangeColumnType("./lake/orders", "quantity", DataType.Int64);  // Int32 → Int64
+Delta.DropColumnNotNull("./lake/orders", "client");
+Delta.SetColumnComment("./lake/orders", "client", "Billing name");
+Delta.MoveColumn("./lake/orders", "client", after: "id");              // or no `after`: first
 
 long rewritten = Delta.Purge("./lake/orders");                       // the dropped columns leave the files
 Delta.Vacuum("./lake/orders", retentionHours: 168);                   // and, once out of the retention, the storage
@@ -114,6 +121,9 @@ Delta.RenameColumn("./lake/orders", "customer", "client")
 Delta.RenameColumn("./lake/orders", "address.zip", "postcode")
 Delta.DropColumns("./lake/orders", [ "comment"; "address.line2" ])
 Delta.ChangeColumnType("./lake/orders", "quantity", DataType.Int64)
+Delta.DropColumnNotNull("./lake/orders", "client")
+Delta.SetColumnComment("./lake/orders", "client", "Billing name")
+Delta.MoveColumn("./lake/orders", "client", after = "id")
 
 let rewritten = Delta.Purge("./lake/orders")
 Delta.Vacuum("./lake/orders", retentionHours = 168) |> ignore

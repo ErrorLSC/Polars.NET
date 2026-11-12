@@ -249,6 +249,44 @@ type Delta =
         PolarsWrapper.DeltaChangeColumnType(path, column, handle, cKeys, cVals)
 
     /// <summary>
+    /// Lets a column hold nulls, as Spark's ALTER TABLE … ALTER COLUMN … DROP NOT NULL: one metadata commit (also when
+    /// the column already may). Delta has no way back: a nullable column cannot be made NOT NULL again, in Spark
+    /// either. Identity columns and map keys cannot be changed.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in Delta.RenameColumn; element / value for the elements of an array or the values of a map.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member DropColumnNotNull(path: string, column: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaDropColumnNotNull(path, column, cKeys, cVals)
+
+    /// <summary>
+    /// Sets the comment of a column, as Spark's ALTER TABLE … ALTER COLUMN … COMMENT: one metadata commit; the comment
+    /// is kept in the column's metadata (comment), where Spark, Databricks and Unity Catalog read it. Array elements
+    /// and map keys and values take no comment.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in Delta.RenameColumn.</param>
+    /// <param name="comment">The comment (empty is kept as an empty comment).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member SetColumnComment(path: string, column: string, comment: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaSetColumnComment(path, column, comment, cKeys, cVals)
+
+    /// <summary>
+    /// Moves a column, or a field within its struct, as Spark's ALTER TABLE … ALTER COLUMN … FIRST / AFTER: one
+    /// metadata commit that changes the order of the schema only (files hold columns by name, so no data is
+    /// rewritten). Partition and clustering columns move too.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in Delta.RenameColumn.</param>
+    /// <param name="after">The column of the same struct to place it after, by its name only; omitted to place it first.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member MoveColumn(path: string, column: string, ?after: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaMoveColumn(path, column, Option.toObj after, cKeys, cVals)
+
+    /// <summary>
     /// Represents a column from the incoming Source LazyFrame.
     /// (Internally maps to "{name}_src_tmp")
     /// </summary>
@@ -1053,6 +1091,35 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
         use handle = dataType.CreateHandle()
         PolarsWrapper.CatalogChangeColumnType(this.Handle, catalogName, schemaName, tableName, column, handle, keys, values)
+    /// <summary>Lets a column of a catalog table hold nulls; see Delta.DropColumnNotNull.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.DropCatalogColumnNotNull(catalogName: string, schemaName: string, tableName: string, column: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogDropColumnNotNull(this.Handle, catalogName, schemaName, tableName, column, keys, values)
+    /// <summary>Sets the comment of a column of a catalog table; see Delta.SetColumnComment.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="comment">The comment.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.SetCatalogColumnComment(catalogName: string, schemaName: string, tableName: string, column: string, comment: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogSetColumnComment(this.Handle, catalogName, schemaName, tableName, column, comment, keys, values)
+    /// <summary>Moves a column of a catalog table; see Delta.MoveColumn.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="after">The column of the same struct to place it after (its name only); omitted to place it first.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.MoveCatalogColumn(catalogName: string, schemaName: string, tableName: string, column: string, ?after: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogMoveColumn(this.Handle, catalogName, schemaName, tableName, column, Option.toObj after, keys, values)
     /// <summary>
     /// Initializes a MERGE (Upsert) operation against a Unity Catalog table using a <see cref="LazyFrame"/> as the data source.
     /// This method provides an ACID-compliant way to perform atomic updates, inserts, or deletes by joining the source data with the target table.

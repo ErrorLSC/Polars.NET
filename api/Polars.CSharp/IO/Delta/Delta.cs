@@ -258,6 +258,53 @@ public static class Delta
     }
 
     /// <summary>
+    /// Lets a column hold nulls, as Spark's <c>ALTER TABLE … ALTER COLUMN … DROP NOT NULL</c>: one metadata commit
+    /// (also when the column already may). Delta has no way back: a nullable column cannot be made NOT NULL again,
+    /// in Spark either. Identity columns and map keys cannot be changed.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in <see cref="RenameColumn"/>; <c>element</c> / <c>value</c> for the
+    /// elements of an array or the values of a map.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void DropColumnNotNull(string path, string column, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaDropColumnNotNull(path, column, keys, values);
+    }
+
+    /// <summary>
+    /// Sets the comment of a column, as Spark's <c>ALTER TABLE … ALTER COLUMN … COMMENT</c>: one metadata commit; the
+    /// comment is kept in the column's metadata (<c>comment</c>), where Spark, Databricks and Unity Catalog read it.
+    /// Array elements and map keys and values take no comment.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in <see cref="RenameColumn"/>.</param>
+    /// <param name="comment">The comment (empty is kept as an empty comment).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void SetColumnComment(string path, string column, string comment, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(comment);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaSetColumnComment(path, column, comment, keys, values);
+    }
+
+    /// <summary>
+    /// Moves a column, or a field within its struct, as Spark's <c>ALTER TABLE … ALTER COLUMN … FIRST</c> /
+    /// <c>AFTER</c>: one metadata commit that changes the order of the schema only (files hold columns by name, so no
+    /// data is rewritten). Partition and clustering columns move too.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, named as in <see cref="RenameColumn"/>.</param>
+    /// <param name="after">The column of the same struct to place it after, by its name only (for <c>address.zip</c>
+    /// after <c>address.city</c>: <c>"city"</c>); null to place it first.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void MoveColumn(string path, string column, string? after = null, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaMoveColumn(path, column, after, keys, values);
+    }
+
+    /// <summary>
     /// Deletes rows from a Delta Lake table that match a given predicate.
     /// <para>
     /// By default, this operation performs a Copy-on-Write (CoW), meaning any underlying data files containing matching rows are entirely rewritten.

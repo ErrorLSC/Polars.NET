@@ -94,6 +94,39 @@ internal static class DeltaKernelAlter
         return Run(tablePath, cloud, table => AlterTable.ChangeColumnType(table.FileSystem, table.Snapshot, column, deltaType));
     }
 
+    /// <summary>Lets a column hold nulls (Spark's <c>ALTER COLUMN … DROP NOT NULL</c>); returns the version committed.</summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, dotted for nested fields (<c>element</c> / <c>value</c> for an array's or map's).</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long DropNotNull(string tablePath, string column, CloudArgs? cloud = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        return Run(tablePath, cloud, table => AlterTable.DropNotNull(table.FileSystem, table.Snapshot, column))!.Value;
+    }
+
+    /// <summary>Sets a column's comment (Spark's <c>ALTER COLUMN … COMMENT</c>); returns the version committed.</summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, dotted for nested fields.</param>
+    /// <param name="comment">The comment; empty is kept as empty.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long SetComment(string tablePath, string column, string comment, CloudArgs? cloud = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        ArgumentNullException.ThrowIfNull(comment);
+        return Run(tablePath, cloud, table => AlterTable.SetComment(table.FileSystem, table.Snapshot, column, comment))!.Value;
+    }
+
+    /// <summary>Moves a column (Spark's <c>ALTER COLUMN … FIRST / AFTER</c>); returns the version committed.</summary>
+    /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">The column, dotted for nested fields.</param>
+    /// <param name="after">The field of the same struct to place it after (its name only); null for the first place.</param>
+    /// <param name="cloud">Cloud settings for a cloud URL.</param>
+    public static long MoveColumn(string tablePath, string column, string? after, CloudArgs? cloud = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        return Run(tablePath, cloud, table => AlterTable.MoveColumn(table.FileSystem, table.Snapshot, column, after))!.Value;
+    }
+
     /// <summary>
     /// Drops a table feature, as Spark's <c>ALTER TABLE … DROP FEATURE</c> (see <see cref="Kaminari.Seseragi.Lakehouse.Delta.DropFeature"/>);
     /// returns the version of the commit that dropped it.

@@ -448,6 +448,32 @@ public readonly partial struct PolarsWrapper
         DeltaChangeColumnType(access.Location, column, type, cloudKeys, cloudValues);
     }
 
+    /// <summary>Lets a column of a catalog table hold nulls.</summary>
+    public static void CatalogDropColumnNotNull(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaDropColumnNotNull(access.Location, column, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Sets the comment of a column of a catalog table.</summary>
+    public static void CatalogSetColumnComment(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string comment,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaSetColumnComment(access.Location, column, comment, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Moves a column of a catalog table.</summary>
+    public static void CatalogMoveColumn(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string? after,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaMoveColumn(access.Location, column, after, cloudKeys, cloudValues);
+    }
+
     /// <summary>
     /// Creates a catalog table. A managed table is created as Delta Spark creates one through Unity Catalog's Delta
     /// API: staged by the catalog, version 0 written at the staged location (catalog-managed, with the protocol and

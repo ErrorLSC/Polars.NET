@@ -127,13 +127,20 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
         using (DataFrame wider = DataFrame.From<WideRow>([new(3, "c", 30)]))
             wider.Lazy().SinkCatalogTable(client, catalog, "s", "t", canEvolve: true);
         client.ClusterCatalogTable(catalog, "s", "t", ["id"]);
+        // A comment and a new place for a column: the catalog's columns follow too.
+        client.SetCatalogColumnComment(catalog, "s", "t", "s", "the label");
+        client.MoveCatalogColumn(catalog, "s", "t", "n", after: "id");
+        client.DropCatalogColumnNotNull(catalog, "s", "t", "n");
 
         using (HttpClient http = new())
         {
             using JsonDocument info = JsonDocument.Parse(await http.GetStringAsync($"{uc.Url}/api/2.1/unity-catalog/tables/{table}"));
-            Assert.Equal(["id", "s", "n"], info.RootElement.GetProperty("columns").EnumerateArray().Select(c => c.GetProperty("name").GetString()));
+            JsonElement[] columns = [.. info.RootElement.GetProperty("columns").EnumerateArray()];
+            Assert.Equal(["id", "n", "s"], columns.Select(c => c.GetProperty("name").GetString()));
+            Assert.Equal("the label", columns[2].GetProperty("comment").GetString());
         }
-        Assert.Equal("""[{"id":1,"s":"a","n":null},{"id":2,"s":"b","n":null},{"id":3,"s":"c","n":30}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
+        Assert.Equal("""[{"id":1,"n":null,"s":"a"},{"id":2,"n":null,"s":"b"},{"id":3,"n":30,"s":"c"}]""", SparkRows(catalog, $"SELECT * FROM {table} ORDER BY id"));
+        Assert.Contains("the label", SparkRows(catalog, $"DESCRIBE TABLE {table}"));
         using JsonDocument detail = JsonDocument.Parse(SparkRows(catalog, $"DESCRIBE DETAIL {table}"));
         Assert.Equal("""["id"]""", detail.RootElement[0].GetProperty("clusteringColumns").GetRawText());
     }

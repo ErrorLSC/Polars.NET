@@ -7,7 +7,10 @@ using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
 namespace Seseragi.Lakehouse.Tests;
 
-/// <summary>RENAME COLUMN, DROP COLUMNS and ALTER COLUMN TYPE, checked against what delta-spark 4.4 commits.</summary>
+/// <summary>
+/// RENAME COLUMN, DROP COLUMNS and ALTER COLUMN (TYPE, DROP NOT NULL, COMMENT, FIRST / AFTER), checked against what
+/// delta-spark 4.4 commits.
+/// </summary>
 public class AlterColumnTests
 {
     private static string F(string name, string type, int id, string physical) =>
@@ -292,5 +295,128 @@ public class AlterColumnTests
         MemoryFileSystem off = Table(widening: false);
         Assert.Contains("delta.enableTypeWidening",
             Assert.Throws<DeltaException>(() => AlterTable.ChangeColumnType(off, Snapshot.Load(off), "a", longType)).Message);
+    }
+
+    // ------------------------------------------------------------------ drop not null, comment, position
+
+    private static JsonElement ColumnParameter(MemoryFileSystem fs, long version)
+    {
+        using JsonDocument doc = JsonDocument.Parse(Parameter(fs, version, "column"));
+        return doc.RootElement.Clone();
+    }
+
+    [Fact]
+    public void DropNotNull_CommitsTheFieldAsChanged_EvenWhenItAlreadyTakesNulls()
+    {
+        var fs = new MemoryFileSystem();
+        var metadata = new MetadataAction
+        {
+            Id = "t",
+            SchemaString = """
+                {"type":"struct","fields":[
+                  {"name":"id","type":"integer","nullable":false,"metadata":{}},
+                  {"name":"s","type":{"type":"struct","fields":[{"name":"x","type":"integer","nullable":false,"metadata":{}}]},"nullable":false,"metadata":{}},
+                  {"name":"ia","type":{"type":"array","elementType":"integer","containsNull":false},"nullable":true,"metadata":{}},
+                  {"name":"m","type":{"type":"map","keyType":"string","valueType":"integer","valueContainsNull":false},"nullable":true,"metadata":{}}]}
+                """,
+        };
+        Transaction.Create(fs, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }, metadata).Commit(DateTimeOffset.FromUnixTimeMilliseconds(1_000));
+
+        Assert.Equal(1, AlterTable.DropNotNull(fs, Snapshot.Load(fs), "ID"));
+        Assert.Equal("CHANGE COLUMN", CommitInfo(fs, 1).GetProperty("operation").GetString());
+        Assert.Equal("""{"name":"id","type":"integer","nullable":true,"metadata":{}}""", Parameter(fs, 1, "column"));
+        Assert.False(CommitInfo(fs, 1).GetProperty("operationParameters").TryGetProperty("position", out _));
+        Assert.Equal(2, AlterTable.DropNotNull(fs, Snapshot.Load(fs), "id")); // already: committed all the same (Spark)
+
+        AlterTable.DropNotNull(fs, Snapshot.Load(fs), "s");
+        Assert.Equal("""{"name":"s","type":"struct","nullable":true,"metadata":{}}""", Parameter(fs, 3, "column"));
+        AlterTable.DropNotNull(fs, Snapshot.Load(fs), "s.x");
+        Assert.Equal("s.x", ColumnParameter(fs, 4).GetProperty("name").GetString());
+        AlterTable.DropNotNull(fs, Snapshot.Load(fs), "ia.element");
+        Assert.Equal("""{"name":"ia.element","type":"integer","nullable":true,"metadata":{}}""", Parameter(fs, 5, "column"));
+        AlterTable.DropNotNull(fs, Snapshot.Load(fs), "m.value");
+
+        StructType schema = Snapshot.Load(fs).Schema;
+        Assert.All(schema.Fields, f => Assert.True(f.Nullable));
+        Assert.True(Field(schema, "s", "x").Nullable);
+        Assert.True(((ArrayType)Field(schema, "ia").Type).ContainsNull);
+        Assert.True(((MapType)Field(schema, "m").Type).ValueContainsNull);
+        Assert.Contains("map key", Assert.Throws<DeltaException>(() => AlterTable.DropNotNull(fs, Snapshot.Load(fs), "m.key")).Message);
+        Assert.Throws<DeltaException>(() => AlterTable.DropNotNull(fs, Snapshot.Load(fs), "nope"));
+    }
+
+    [Fact]
+    public void DropNotNull_RefusesIdentityColumns_AsSpark()
+    {
+        var fs = new MemoryFileSystem();
+        var metadata = new MetadataAction
+        {
+            Id = "t",
+            SchemaString = """{"type":"struct","fields":[{"name":"id","type":"long","nullable":false,"metadata":{"delta.identity.start":1,"delta.identity.step":1,"delta.identity.allowExplicitInsert":false}}]}""",
+        };
+        var protocol = new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 6 };
+        Transaction.Create(fs, protocol, metadata).Commit(DateTimeOffset.FromUnixTimeMilliseconds(1_000));
+
+        Assert.Contains("IDENTITY", Assert.Throws<DeltaException>(() => AlterTable.DropNotNull(fs, Snapshot.Load(fs), "id")).Message);
+        // A comment is allowed, and the identity metadata stays as it was (numbers stay numbers).
+        AlterTable.SetComment(fs, Snapshot.Load(fs), "id", "the key");
+        Assert.Equal(
+            """{"name":"id","type":"long","nullable":false,"metadata":{"delta.identity.start":1,"delta.identity.step":1,"delta.identity.allowExplicitInsert":false,"comment":"the key"}}""",
+            Parameter(fs, 1, "column"));
+    }
+
+    [Fact]
+    public void SetComment_KeepsTheCommentInTheFieldMetadata_AsSpark()
+    {
+        MemoryFileSystem fs = Table();
+        AlterTable.SetComment(fs, Snapshot.Load(fs), "B", "hello");
+        JsonElement column = ColumnParameter(fs, 1);
+        Assert.Equal("b", column.GetProperty("name").GetString());
+        Assert.Equal("hello", column.GetProperty("metadata").GetProperty("comment").GetString());
+        Assert.Equal(2, column.GetProperty("metadata").GetProperty("delta.columnMapping.id").GetInt32()); // mapping kept
+
+        AlterTable.SetComment(fs, Snapshot.Load(fs), "s.y", "nested");
+        AlterTable.SetComment(fs, Snapshot.Load(fs), "b", ""); // empty is kept, not removed
+        StructType schema = Snapshot.Load(fs).Schema;
+        Assert.Equal("", Field(schema, "b").Metadata["comment"]);
+        Assert.Equal("nested", Field(schema, "s", "y").Metadata["comment"]);
+        Assert.Equal("col-b", Field(schema, "b").PhysicalName);
+
+        foreach (string slot in (string[])["arr.element", "m.value", "m.key", "ia.element"])
+            Assert.Contains("comment", Assert.Throws<DeltaException>(() => AlterTable.SetComment(fs, Snapshot.Load(fs), slot, "x")).Message);
+    }
+
+    [Fact]
+    public void MoveColumn_ChangesTheOrderOnly_AndRecordsThePositionAsSpark()
+    {
+        MemoryFileSystem fs = Table();
+        AlterTable.MoveColumn(fs, Snapshot.Load(fs), "pc", after: null);
+        Assert.Equal("FIRST", Parameter(fs, 1, "position"));
+        Assert.Equal(["pc", "a", "b", "s", "arr", "m", "ia", "dt"], Snapshot.Load(fs).Schema.Fields.Select(f => f.Name));
+        Assert.Equal(["pc"], Snapshot.Load(fs).PartitionColumns);
+
+        AlterTable.MoveColumn(fs, Snapshot.Load(fs), "A", after: "B");
+        Assert.Equal("AFTER b", Parameter(fs, 2, "position")); // the field's name as the schema holds it
+        Assert.Equal("a", ColumnParameter(fs, 2).GetProperty("name").GetString());
+        Assert.Equal(["pc", "b", "a", "s", "arr", "m", "ia", "dt"], Snapshot.Load(fs).Schema.Fields.Select(f => f.Name));
+
+        AlterTable.MoveColumn(fs, Snapshot.Load(fs), "s.y", after: null);
+        AlterTable.MoveColumn(fs, Snapshot.Load(fs), "arr.element.g", after: null);
+        StructType schema = Snapshot.Load(fs).Schema;
+        Assert.Equal(["y", "x"], ((StructType)Field(schema, "s").Type).Fields.Select(f => f.Name));
+        Assert.Equal(["g", "f"], ((StructType)((ArrayType)Field(schema, "arr").Type).ElementType).Fields.Select(f => f.Name));
+        Assert.Equal("s.y", ColumnParameter(fs, 3).GetProperty("name").GetString());
+
+        // After itself: committed, nothing moves (Spark).
+        string before = Snapshot.Load(fs).Metadata.SchemaString;
+        Assert.Equal(5, AlterTable.MoveColumn(fs, Snapshot.Load(fs), "dt", after: "dt"));
+        Assert.Equal("AFTER dt", Parameter(fs, 5, "position"));
+        Assert.Equal(before, Snapshot.Load(fs).Metadata.SchemaString);
+
+        // AFTER names a field of the same struct only; containers' slots have no position.
+        Assert.Throws<DeltaException>(() => AlterTable.MoveColumn(fs, Snapshot.Load(fs), "s.x", after: "a"));
+        Assert.Throws<DeltaException>(() => AlterTable.MoveColumn(fs, Snapshot.Load(fs), "a", after: "x"));
+        Assert.Throws<DeltaException>(() => AlterTable.MoveColumn(fs, Snapshot.Load(fs), "arr.element", after: null));
+        Assert.Equal(5, Snapshot.Load(fs).Version);
     }
 }

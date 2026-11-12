@@ -5,10 +5,10 @@ using Kaminari.Seseragi.Lakehouse.Engine;
 namespace Kaminari.Seseragi.Lakehouse.Delta;
 
 /// <summary>
-/// Column changes, as Spark's <c>ALTER TABLE … RENAME COLUMN</c>, <c>DROP COLUMNS</c> and <c>ALTER COLUMN … TYPE</c>:
-/// metadata-only commits, no data file is rewritten. Renaming and dropping need column mapping (the files keep their
-/// physical names, so a renamed column reads its old data and a dropped one is no longer read); changing a type
-/// needs type widening. Columns are named as in Spark: dotted for nested fields (any case), backticks around a part
+/// Column changes, as Spark's <c>ALTER TABLE … RENAME COLUMN</c>, <c>DROP COLUMNS</c> and <c>ALTER COLUMN</c> (<c>TYPE</c>,
+/// <c>DROP NOT NULL</c>, <c>COMMENT</c>, <c>FIRST</c> / <c>AFTER</c>): metadata-only commits, no data file is rewritten.
+/// Renaming and dropping need column mapping (the files keep their physical names, so a renamed column reads its old
+/// data and a dropped one is no longer read); changing a type needs type widening. Columns are named as in Spark: dotted for nested fields (any case), backticks around a part
 /// holding a dot, <c>element</c> for an array element and <c>key</c> / <c>value</c> for a map's.
 /// </summary>
 public static partial class AlterTable
@@ -19,8 +19,14 @@ public static partial class AlterTable
     /// <summary>The operation name of <see cref="DropColumns"/> in <c>commitInfo</c>, as Spark records it.</summary>
     public const string DropColumnsOperation = "DROP COLUMNS";
 
-    /// <summary>The operation name of <see cref="ChangeColumnType"/> in <c>commitInfo</c>, as Spark records it.</summary>
+    /// <summary>
+    /// The operation name of <see cref="ChangeColumnType"/>, <see cref="DropNotNull"/>, <see cref="SetComment"/> and
+    /// <see cref="MoveColumn"/> in <c>commitInfo</c>, as Spark records it.
+    /// </summary>
     public const string ChangeColumnOperation = "CHANGE COLUMN";
+
+    /// <summary>The field metadata key of a column's comment.</summary>
+    public const string CommentKey = "comment";
 
     /// <summary>
     /// Renames a column (a nested field too: <paramref name="newName"/> is the new name of the last part). Partition
@@ -180,6 +186,130 @@ public static partial class AlterTable
         };
     }
 
+    /// <summary>
+    /// Lets a column (a nested field, or an array's elements or a map's values) hold nulls, as Spark's <c>ALTER COLUMN
+    /// … DROP NOT NULL</c>. Committed even when it already may, as Spark commits it. Returns the version committed.
+    /// </summary>
+    /// <exception cref="DeltaException">The column does not exist, is a map key, or is an identity column.</exception>
+    public static long DropNotNull(IWritableFileSystem fileSystem, Snapshot table, string column, DateTimeOffset? now = null)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentException.ThrowIfNullOrEmpty(column);
+
+        StructType schema = table.Schema;
+        List<Step> steps = Resolve(schema, column);
+        string shown = Display(steps);
+        StructType changed;
+        StructField recorded;
+        switch (steps[^1].Kind)
+        {
+            case StepKind.Key:
+                throw new DeltaException($"'{shown}' is a map key, which cannot be null.");
+            case StepKind.Field:
+                StructField field = FieldAt(schema, steps);
+                if (field.Metadata.ContainsKey(IdentityColumns.StartKey))
+                    throw new DeltaException($"ALTER COLUMN is not supported for IDENTITY columns ('{shown}').");
+                recorded = Copy(field, nullable: true);
+                changed = WithField(schema, steps, recorded);
+                break;
+            default:
+                // The element or value slot: the container takes nulls, recorded as Spark records the slot.
+                changed = (StructType)Replace(schema, steps[..^1], 0, container => container switch
+                {
+                    ArrayType a => new ArrayType(a.ElementType, true),
+                    MapType m => new MapType(m.KeyType, m.ValueType, true),
+                    _ => throw new InvalidOperationException("The path does not fit the schema."),
+                });
+                recorded = new StructField { Name = shown, Type = TypeAt(schema, steps), Nullable = true };
+                break;
+        }
+        return CommitChange(fileSystem, table, changed, recorded, shown, position: null, now);
+    }
+
+    /// <summary>
+    /// Sets the comment of a column or nested field (kept in its metadata under <c>comment</c>), as Spark's
+    /// <c>ALTER COLUMN … COMMENT</c>; an empty comment is kept as empty. Committed even when the comment is the same,
+    /// as Spark commits it. Returns the version committed.
+    /// </summary>
+    /// <exception cref="DeltaException">The column does not exist, or names an array element or a map key or value.</exception>
+    public static long SetComment(IWritableFileSystem fileSystem, Snapshot table, string column, string comment, DateTimeOffset? now = null)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        ArgumentNullException.ThrowIfNull(comment);
+
+        StructType schema = table.Schema;
+        List<Step> steps = Resolve(schema, column);
+        string shown = Display(steps);
+        if (steps[^1].Kind != StepKind.Field)
+            throw new DeltaException($"Can't add a comment to {shown}. Adding a comment to a map key/value or array element is not supported.");
+        StructField field = FieldAt(schema, steps);
+        StructField commented = Copy(field, metadata: new Dictionary<string, string>(field.Metadata) { [CommentKey] = comment });
+        return CommitChange(fileSystem, table, WithField(schema, steps, commented), commented, shown, position: null, now);
+    }
+
+    /// <summary>
+    /// Moves a column, or a field within its struct, to the first place or after another field of the same struct,
+    /// as Spark's <c>ALTER COLUMN … FIRST</c> / <c>AFTER</c>. Only the order in the schema changes: files hold columns
+    /// by name. Committed even when the column stays where it is, as Spark commits it. Returns the version committed.
+    /// </summary>
+    /// <param name="fileSystem">The table storage.</param>
+    /// <param name="table">The latest state of the table.</param>
+    /// <param name="column">The column or nested field to move.</param>
+    /// <param name="after">The field of the same struct (its name only, any case) to place it after; null for the first place.</param>
+    /// <param name="now">The writer's clock; the current time when null.</param>
+    /// <exception cref="DeltaException">The column or <paramref name="after"/> does not exist, or the column names an
+    /// array element or a map key or value.</exception>
+    public static long MoveColumn(IWritableFileSystem fileSystem, Snapshot table, string column, string? after, DateTimeOffset? now = null)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentException.ThrowIfNullOrEmpty(column);
+        if (after is not null) ArgumentException.ThrowIfNullOrEmpty(after);
+
+        StructType schema = table.Schema;
+        List<Step> steps = Resolve(schema, column);
+        string shown = Display(steps);
+        if (steps[^1].Kind != StepKind.Field)
+            throw new DeltaException($"'{shown}' names the {steps[^1].Name} of {Display(steps[..^1])}, which has no position to change.");
+        var parent = (StructType)TypeAt(schema, steps[..^1]);
+        StructField field = FieldAt(schema, steps);
+        StructField? anchor = after is null ? null
+            : parent.Fields.FirstOrDefault(f => f.Name == after)
+              ?? parent.Fields.FirstOrDefault(f => string.Equals(f.Name, after, StringComparison.OrdinalIgnoreCase))
+              ?? throw new DeltaException(steps.Count == 1
+                  ? $"The column '{after}' is not in the table's schema."
+                  : $"{Display(steps[..^1])} has no field '{after}'.");
+
+        // After itself: Spark commits the schema as it is.
+        StructType changed = anchor == field ? schema : (StructType)Replace(schema, steps[..^1], 0, _ =>
+        {
+            List<StructField> fields = [.. parent.Fields.Where(f => f != field)];
+            fields.Insert(anchor is null ? 0 : fields.IndexOf(anchor) + 1, field);
+            return new StructType(fields);
+        });
+        return CommitChange(fileSystem, table, changed, field, shown, anchor is null ? "FIRST" : $"AFTER {anchor.Name}", now);
+    }
+
+    /// <summary>Spark's <c>CHANGE COLUMN</c> commit: the field as changed (named by its path), the position when moved.</summary>
+    private static long CommitChange(
+        IWritableFileSystem fileSystem, Snapshot table, StructType schema, StructField recorded, string shown, string? position, DateTimeOffset? now)
+    {
+        Transaction transaction = Transaction.Start(fileSystem, table, ChangeColumnOperation)
+            .WithParameter("column", StructType.FieldJson(recorded, shown, typeName: true));
+        if (position is not null) transaction.WithParameter("position", position);
+        return transaction
+            .SetMetadata(WithSchema(table.Metadata, schema, table.PartitionColumns, table.Metadata.Configuration))
+            .Commit(now);
+    }
+
+    /// <summary>The schema with the field the path ends in replaced.</summary>
+    private static StructType WithField(StructType schema, List<Step> steps, StructField field) =>
+        (StructType)Replace(schema, steps[..^1], 0, type => new StructType(
+            [.. ((StructType)type).Fields.Select(f => f.Name == steps[^1].Name ? field : f)]));
+
     private enum StepKind { Field, Element, Key, Value }
 
     /// <summary>One part of a resolved column path: a struct field (by its name in the schema) or a container step.</summary>
@@ -286,9 +416,10 @@ public static partial class AlterTable
         };
     }
 
-    private static StructField Copy(StructField field, string? name = null, DeltaType? type = null) => new()
+    private static StructField Copy(
+        StructField field, string? name = null, DeltaType? type = null, bool? nullable = null, IReadOnlyDictionary<string, string>? metadata = null) => new()
     {
-        Name = name ?? field.Name, Type = type ?? field.Type, Nullable = field.Nullable, Metadata = field.Metadata,
+        Name = name ?? field.Name, Type = type ?? field.Type, Nullable = nullable ?? field.Nullable, Metadata = metadata ?? field.Metadata,
         JsonMetadataKeys = field.JsonMetadataKeys,
     };
 

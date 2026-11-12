@@ -125,6 +125,15 @@ public readonly partial struct PolarsWrapper
     /// <summary>Widens the type of a column of a table (type widening needed).</summary>
     public static void DeltaChangeColumnType(string path, string column, DataTypeHandle type, string[]? cloudKeys, string[]? cloudValues) =>
         Delta.DeltaKernelAlter.ChangeColumnType(path, column, type, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Lets a column hold nulls (ALTER COLUMN … DROP NOT NULL).</summary>
+    public static void DeltaDropColumnNotNull(string path, string column, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.DropNotNull(path, column, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Sets a column's comment (ALTER COLUMN … COMMENT).</summary>
+    public static void DeltaSetColumnComment(string path, string column, string comment, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.SetComment(path, column, comment, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Moves a column (ALTER COLUMN … FIRST / AFTER; after null: first).</summary>
+    public static void DeltaMoveColumn(string path, string column, string? after, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.MoveColumn(path, column, after, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
     public static void SetTableProperties(
         string path,
         string[] propKeys,

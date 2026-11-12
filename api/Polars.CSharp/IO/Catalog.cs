@@ -246,6 +246,44 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         PolarsWrapper.CatalogChangeColumnType(Handle, catalogName, schemaName, tableName, column, type.Handle, keys, values);
     }
+    /// <summary>Lets a column of a catalog table hold nulls; see <see cref="Delta.DropColumnNotNull"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void DropCatalogColumnNotNull(string catalogName, string schemaName, string tableName, string column, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogDropColumnNotNull(Handle, catalogName, schemaName, tableName, column, keys, values);
+    }
+    /// <summary>Sets the comment of a column of a catalog table; see <see cref="Delta.SetColumnComment"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="comment">The comment.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void SetCatalogColumnComment(
+        string catalogName, string schemaName, string tableName, string column, string comment, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(comment);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogSetColumnComment(Handle, catalogName, schemaName, tableName, column, comment, keys, values);
+    }
+    /// <summary>Moves a column of a catalog table; see <see cref="Delta.MoveColumn"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">The column, dotted for a nested field.</param>
+    /// <param name="after">The column of the same struct to place it after (its name only); null to place it first.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void MoveCatalogColumn(
+        string catalogName, string schemaName, string tableName, string column, string? after = null, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogMoveColumn(Handle, catalogName, schemaName, tableName, column, after, keys, values);
+    }
     /// <summary>
     /// Creates a table in Unity Catalog. A managed table is created as Delta Spark creates one through the catalog's
     /// Delta API: the catalog stages it, version 0 is written at the location the catalog gives, then the catalog

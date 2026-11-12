@@ -304,6 +304,28 @@ let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the da
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Column changes: DropColumnNotNull, SetColumnComment and MoveColumn change the schema only`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_columns2_{Guid.NewGuid()}")
+    try
+        Delta.CreateTable(path, PolarsSchema([ "id", DataType.Int32; "name", DataType.String; "note", DataType.String ]))
+        DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("name", [ "a"; "b" ]); Series.create("note", [ "x"; "y" ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        Delta.DropColumnNotNull(path, "id")
+        Delta.SetColumnComment(path, "name", "who")
+        Delta.MoveColumn(path, "note")
+        Delta.MoveColumn(path, "id", after = "name")
+
+        let read = DataFrame.ReadDelta(path).Sort("name")
+        Assert.Equal<string list>([ "note"; "name"; "id" ], read.Columns |> List.ofArray)
+        Assert.Equal<int list>([ 1; 2 ], read.["id"].ToArray<int>() |> List.ofArray)
+        let operations = Delta.History(path).["operation"].ToArray<string>() |> List.ofArray
+        Assert.Equal<string list>([ "CHANGE COLUMN"; "CHANGE COLUMN"; "CHANGE COLUMN"; "CHANGE COLUMN"; "WRITE"; "CREATE TABLE" ], operations)
+        Assert.ThrowsAny<exn>(fun () -> Delta.MoveColumn(path, "id", after = "missing")) |> ignore
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Purge rewrites the files that hold a dropped column`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_purge_{Guid.NewGuid()}")
     try

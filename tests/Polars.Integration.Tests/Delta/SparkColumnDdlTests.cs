@@ -6,8 +6,8 @@ using Delta = Polars.CSharp.Delta;
 namespace Polars.Integration.Tests;
 
 /// <summary>
-/// RENAME COLUMN, DROP COLUMNS and ALTER COLUMN TYPE through the public API, against Spark doing the same: the same
-/// commits, then each reads, writes and alters what the other left.
+/// RENAME COLUMN, DROP COLUMNS and ALTER COLUMN (TYPE, DROP NOT NULL, COMMENT, FIRST / AFTER) through the public API,
+/// against Spark doing the same: the same commits, then each reads, writes and alters what the other left.
 /// </summary>
 public partial class SparkColumnDdlTests
 {
@@ -154,6 +154,91 @@ public partial class SparkColumnDdlTests
             using DataFrame afterSpark = DataFrame.ReadDelta(kernel).Sort("id");
             Assert.Equal(["id", "b3", "s", "pc2"], afterSpark.Columns);
             Assert.Equal(4, afterSpark.Height);
+        });
+    }
+
+    [SparkTheory]
+    [InlineData("none")]
+    [InlineData("name")]
+    [Trait("DeltaKernel", "Spark")]
+    public void NullabilityCommentsAndPositions_CommitAsSpark_AndBothGoOnWithTheTable(string mapping)
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+            {
+                LocalSpark.Run("sql", table,
+                    "CREATE TABLE {table} (id INT NOT NULL, b STRING, s STRUCT<x: INT NOT NULL, y: STRING> NOT NULL, " +
+                    "arr ARRAY<STRUCT<f: INT>>, pc STRING) USING delta PARTITIONED BY (pc) " +
+                    $"TBLPROPERTIES ('delta.columnMapping.mode'='{mapping}')");
+                LocalSpark.Run("sql", table,
+                    "INSERT INTO {table} VALUES (1, 'one', named_struct('x', 1, 'y', 'a'), array(named_struct('f', 1)), 'p')");
+            }
+
+            (Action Kernel, string Spark)[] changes =
+            [
+                (() => Delta.DropColumnNotNull(kernel, "ID"), "ALTER COLUMN id DROP NOT NULL"),
+                (() => Delta.DropColumnNotNull(kernel, "id"), "ALTER COLUMN id DROP NOT NULL"), // already nullable: committed all the same
+                (() => Delta.DropColumnNotNull(kernel, "s.x"), "ALTER COLUMN s.x DROP NOT NULL"),
+                (() => Delta.DropColumnNotNull(kernel, "s"), "ALTER COLUMN s DROP NOT NULL"),
+                (() => Delta.DropColumnNotNull(kernel, "arr.element"), "ALTER COLUMN arr.element DROP NOT NULL"),
+                (() => Delta.SetColumnComment(kernel, "b", "hello"), "ALTER COLUMN b COMMENT 'hello'"),
+                (() => Delta.SetColumnComment(kernel, "S.y", "nested"), "ALTER COLUMN s.y COMMENT 'nested'"),
+                (() => Delta.SetColumnComment(kernel, "pc", "part"), "ALTER COLUMN pc COMMENT 'part'"),
+                (() => Delta.SetColumnComment(kernel, "s", "a struct"), "ALTER COLUMN s COMMENT 'a struct'"),
+                (() => Delta.SetColumnComment(kernel, "b", ""), "ALTER COLUMN b COMMENT ''"),
+                (() => Delta.MoveColumn(kernel, "b"), "ALTER COLUMN b FIRST"),
+                (() => Delta.MoveColumn(kernel, "id", "B"), "ALTER COLUMN id AFTER B"),
+                (() => Delta.MoveColumn(kernel, "s.y"), "ALTER COLUMN s.y FIRST"),
+                (() => Delta.MoveColumn(kernel, "s.y", "x"), "ALTER COLUMN s.y AFTER x"),
+                (() => Delta.MoveColumn(kernel, "pc", "id"), "ALTER COLUMN pc AFTER id"),
+                (() => Delta.MoveColumn(kernel, "s", "s"), "ALTER COLUMN s AFTER s"),
+                (() => Delta.MoveColumn(kernel, "arr"), "ALTER COLUMN arr FIRST"),
+                (() => Delta.MoveColumn(kernel, "b"), "ALTER COLUMN b FIRST"), // a first column of distinct values: Spark's read sorts by it
+            ];
+            long version = 2;
+            foreach (var (byKernel, bySpark) in changes)
+            {
+                byKernel();
+                LocalSpark.Run("sql", spark, $"ALTER TABLE {{table}} {bySpark}");
+                Assert.Equal(Commit(spark, version), Commit(kernel, version));
+                version++;
+            }
+            Assert.Equal(Spark(spark), Spark(kernel));
+
+            // Both write nulls into the columns that now take them, and Spark inserts by the new column order.
+            using (DataFrame read = DataFrame.ReadDelta(kernel))
+                Assert.Equal(["b", "arr", "id", "pc", "s"], read.Columns);
+            const string Insert = "INSERT INTO {table} VALUES ('two', array(), NULL, 'q', named_struct('x', NULL, 'y', 'b'))";
+            foreach (string table in (string[])[kernel, spark]) LocalSpark.Run("sql", table, Insert);
+            using (DataFrame again = DataFrame.ReadDelta(kernel).Filter(Polars.CSharp.Polars.Col("b") == "one")
+                .WithColumns(Polars.CSharp.Polars.Lit((string?)null).Cast(DataType.Int32).Alias("id"), Polars.CSharp.Polars.Lit("three").Alias("b")))
+                again.WriteDelta(kernel);
+            LocalSpark.Run("sql", spark, "INSERT INTO {table} SELECT 'three', arr, NULL, pc, s FROM {table} WHERE b = 'one'");
+            Assert.Equal(Spark(spark), Spark(kernel));
+        });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void MapValues_TakeNulls_AsSpark_ButMapKeysNever()
+    {
+        InRoot(root =>
+        {
+            string kernel = Path.Combine(root, "kernel"), spark = Path.Combine(root, "spark");
+            foreach (string table in (string[])[kernel, spark])
+                LocalSpark.Run("sql", table, "CREATE TABLE {table} (id INT, m MAP<STRING, INT>) USING delta");
+
+            Delta.DropColumnNotNull(kernel, "m.value");
+            LocalSpark.Run("sql", spark, "ALTER TABLE {table} ALTER COLUMN m.value DROP NOT NULL");
+            Assert.Equal(Commit(spark, 1), Commit(kernel, 1));
+
+            Assert.Contains("map key", Assert.ThrowsAny<Exception>(() => Delta.DropColumnNotNull(kernel, "m.key")).Message);
+            Assert.Contains("DELTA_UNSUPPORTED_ALTER_TABLE_CHANGE_COL_OP",
+                Assert.ThrowsAny<Exception>(() => LocalSpark.Run("sql", spark, "ALTER TABLE {table} ALTER COLUMN m.key DROP NOT NULL")).Message);
+            Assert.Contains("comment", Assert.ThrowsAny<Exception>(() => Delta.SetColumnComment(kernel, "m.value", "v")).Message);
+            Assert.False(File.Exists(Path.Combine(kernel, "_delta_log", $"{2:D20}.json")));
         });
     }
 
