@@ -22,6 +22,7 @@ Avro now runs on Seseragi.Files, a managed implementation of the Avro 1.12 objec
 ### Fixed
 
 * `LazyFrame.ScanRecordBatches` took batches in standard Arrow layouts as the engine's own physical layouts: `Utf8` strings came out empty and `Time32` values wrong. Every column now goes through the engine's Arrow import.
+* `DataFrame.FromArrow` and `Series.FromArrow` crashed the process (access violation) when the engine refused the data, e.g. a decimal of more than 38 digits: the Arrow array was released twice. The engine now takes the array as the Arrow C data interface specifies, and the call throws. The Arrow schema and the C structs are also freed after a successful import (they leaked).
 
 ---
 

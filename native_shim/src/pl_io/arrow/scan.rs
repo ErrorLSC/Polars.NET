@@ -18,11 +18,15 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
             return Err(PolarsError::ComputeError("Null pointer passed to pl_from_arrow".into()));
         }
 
+        // Take the array first, leaving the caller's struct marked released (C data interface "move"): from here on
+        // it is released exactly once, by this side, whether the import succeeds, fails or panics. The schema is
+        // only borrowed; the caller releases it.
+        let arrow_array_struct = unsafe { std::ptr::replace(c_array_ptr, ffi::ArrowArray::empty()) };
+
         // Import Arrow Schema
         let field = unsafe { ffi::import_field_from_c(&*c_schema_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))? };
-        
+
         // Import Array
-        let arrow_array_struct = unsafe { std::ptr::read(c_array_ptr) };
         let array = unsafe { 
             ffi::import_array_from_c(arrow_array_struct, field.dtype.clone())
                 .map_err(|e| PolarsError::ComputeError(e.to_string().into()))? 
