@@ -22,6 +22,12 @@ internal struct LazyValidity
         if (_materialized) _bits.Append(true);
     }
 
+    /// <summary>Marks <paramref name="count"/> slots valid.</summary>
+    public void AppendValid(long count)
+    {
+        if (_materialized) _bits.AppendMany(true, count);
+    }
+
     /// <param name="lengthBefore">Number of slots appended before this null.</param>
     public void AppendNull(long lengthBefore)
     {
@@ -87,6 +93,12 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
     {
         Validity.AppendValid();
         Length++;
+    }
+
+    protected void MarkValid(long count)
+    {
+        Validity.AppendValid(count);
+        Length += count;
     }
 
     protected void MarkNull()
@@ -186,6 +198,13 @@ internal sealed unsafe class NativeFixedWidthBuilder<T>(IArrowType type) : Nativ
     {
         _values.Append(value);
         MarkValid();
+    }
+
+    /// <summary>Appends values given as raw little-endian bytes (a whole number of <typeparamref name="T"/>).</summary>
+    public void AppendRaw(ReadOnlySpan<byte> littleEndian)
+    {
+        _values.Append(littleEndian);
+        MarkValid(littleEndian.Length / sizeof(T));
     }
 
     public override void AppendNull()

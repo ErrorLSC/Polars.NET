@@ -23,8 +23,7 @@ internal abstract class AvroDecoder
         AvroFixedSchema f when f.Logical == AvroLogicalKind.Duration => new DurationDecoder(Fixed<MonthDayNanos>(builder)),
         AvroFixedSchema f when AvroReadSchema.IsArrowDecimal(f) => CompileDecimal(builder, f.Size),
         AvroFixedSchema f => new FixedDecoder((NativeFixedSizeBinaryBuilder)builder, f.Size),
-        AvroArraySchema a => new ArrayDecoder((NativeListBuilder)builder, Compile(a.Items, ((NativeListBuilder)builder).Values),
-            MinEncodedBytes(a.Items, [])),
+        AvroArraySchema a => CompileArray(a, (NativeListBuilder)builder),
         AvroMapSchema m => CompileMap(m, (NativeListBuilder)builder),
         _ => CompilePrimitive(schema, builder),
     };
@@ -62,7 +61,8 @@ internal abstract class AvroDecoder
         AvroType.Float => new FloatDecoder(Fixed<float>(b)),
         AvroType.Double => new DoubleDecoder(Fixed<double>(b)),
         AvroType.Bytes when AvroReadSchema.IsArrowDecimal(s) => CompileDecimal(b, -1),
-        AvroType.Bytes or AvroType.String => new BinaryDecoder((NativeBinaryBuilder)b),
+        AvroType.Bytes => new BinaryDecoder((NativeBinaryBuilder)b),
+        AvroType.String => new StringDecoder((NativeBinaryBuilder)b),
         _ => throw new InvalidOperationException($"Unexpected Avro type {s.Type}."),
     };
 
@@ -70,6 +70,18 @@ internal abstract class AvroDecoder
     {
         Decimal128Type => new Decimal128Decoder(Fixed<Int128>(b), fixedSize),
         _ => new Decimal256Decoder(Fixed<Int256Bits>(b), fixedSize),
+    };
+
+    /// <summary>Arrays of plain numbers get loops without a virtual call per item (and a bulk copy for
+    /// float/double, whose Avro and Arrow encodings are both little-endian IEEE 754).</summary>
+    private static AvroDecoder CompileArray(AvroArraySchema a, NativeListBuilder list) => (a.Items, list.Values) switch
+    {
+        (AvroUnionSchema or AvroNamedSchema, var items) => new ArrayDecoder(list, Compile(a.Items, items), MinEncodedBytes(a.Items, [])),
+        ({ Type: AvroType.Long }, NativeFixedWidthBuilder<long> items) => new LongArrayDecoder(list, items),
+        ({ Type: AvroType.Int }, NativeFixedWidthBuilder<int> items) => new IntArrayDecoder(list, items),
+        ({ Type: AvroType.Double }, NativeFixedWidthBuilder<double> items) => new RawArrayDecoder<double>(list, items),
+        ({ Type: AvroType.Float }, NativeFixedWidthBuilder<float> items) => new RawArrayDecoder<float>(list, items),
+        (_, var items) => new ArrayDecoder(list, Compile(a.Items, items), MinEncodedBytes(a.Items, [])),
     };
 
     private static AvroDecoder CompileMap(AvroMapSchema m, NativeListBuilder list)
@@ -171,6 +183,12 @@ internal sealed class FloatAsDoubleDecoder(NativeFixedWidthBuilder<double> b) : 
 internal sealed class DoubleDecoder(NativeFixedWidthBuilder<double> b) : AvroDecoder
 {
     public override void Decode(ref AvroSpanReader r) => b.Append(r.ReadDouble());
+}
+
+/// <summary>Avro <c>string</c>: UTF-8 is validated, since Arrow Utf8 consumers rely on it.</summary>
+internal sealed class StringDecoder(NativeBinaryBuilder b) : AvroDecoder
+{
+    public override void Decode(ref AvroSpanReader r) => b.Append(r.ReadUtf8());
 }
 
 internal sealed class BinaryDecoder(NativeBinaryBuilder b) : AvroDecoder
@@ -283,6 +301,49 @@ internal sealed class ArrayDecoder(NativeListBuilder b, AvroDecoder items, int m
     }
 }
 
+internal sealed class LongArrayDecoder(NativeListBuilder list, NativeFixedWidthBuilder<long> items) : AvroDecoder
+{
+    public override void Decode(ref AvroSpanReader r)
+    {
+        long count;
+        while ((count = r.ReadBlockCount()) != 0)
+        {
+            CheckBlockCount(count, 1, ref r);
+            for (long i = 0; i < count; i++) items.Append(r.ReadLong());
+        }
+        list.EndList();
+    }
+}
+
+internal sealed class IntArrayDecoder(NativeListBuilder list, NativeFixedWidthBuilder<int> items) : AvroDecoder
+{
+    public override void Decode(ref AvroSpanReader r)
+    {
+        long count;
+        while ((count = r.ReadBlockCount()) != 0)
+        {
+            CheckBlockCount(count, 1, ref r);
+            for (long i = 0; i < count; i++) items.Append(r.ReadInt());
+        }
+        list.EndList();
+    }
+}
+
+/// <summary>Array of float or double: each block's items are copied in one go.</summary>
+internal sealed unsafe class RawArrayDecoder<T>(NativeListBuilder list, NativeFixedWidthBuilder<T> items) : AvroDecoder where T : unmanaged
+{
+    public override void Decode(ref AvroSpanReader r)
+    {
+        long count;
+        while ((count = r.ReadBlockCount()) != 0)
+        {
+            CheckBlockCount(count, sizeof(T), ref r);
+            items.AppendRaw(r.ReadFixed(checked((int)count * sizeof(T))));
+        }
+        list.EndList();
+    }
+}
+
 internal sealed class MapDecoder(NativeListBuilder list, NativeStructBuilder entries, NativeBinaryBuilder keys, AvroDecoder values)
     : AvroDecoder
 {
@@ -294,7 +355,7 @@ internal sealed class MapDecoder(NativeListBuilder list, NativeStructBuilder ent
             CheckBlockCount(count, 1, ref r);
             for (long i = 0; i < count; i++)
             {
-                keys.Append(r.ReadBytes());
+                keys.Append(r.ReadUtf8());
                 values.Decode(ref r);
                 entries.EndStruct();
             }

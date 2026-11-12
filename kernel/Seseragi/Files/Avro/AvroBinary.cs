@@ -37,6 +37,36 @@ internal ref struct AvroSpanReader(ReadOnlySpan<byte> data)
     [MethodImpl(MethodImplOptions.NoInlining)]
     private long ReadLongSlow()
     {
+        // Multi-byte varints up to 8 bytes (values below 2^55 after zigzag, e.g. microsecond timestamps) decode
+        // branch-free from one 8-byte load: find the terminating byte, mask it off, compact the 7-bit groups.
+        if (_data.Length - _position >= 8)
+        {
+            ulong word = BinaryPrimitives.ReadUInt64LittleEndian(_data[_position..]);
+            ulong stops = ~word & 0x8080808080808080UL;
+            if (stops != 0)
+            {
+                int length = (System.Numerics.BitOperations.TrailingZeroCount(stops) >> 3) + 1;
+                _position += length;
+                ulong raw = length == 8 ? word : word & ((1UL << (length * 8)) - 1);
+                ulong value = CompactSevenBitGroups(raw);
+                return (long)(value >> 1) ^ -(long)(value & 1);
+            }
+        }
+        return ReadLongBytewise();
+    }
+
+    /// <summary>Packs the low 7 bits of each of 8 little-endian bytes into 56 contiguous bits (SWAR).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static ulong CompactSevenBitGroups(ulong x)
+    {
+        x &= 0x7F7F7F7F7F7F7F7FUL;
+        x = (x & 0x007F007F007F007FUL) | ((x & 0x7F007F007F007F00UL) >> 1);
+        x = (x & 0x00003FFF00003FFFUL) | ((x & 0x3FFF00003FFF0000UL) >> 2);
+        return (x & 0x000000000FFFFFFFUL) | ((x & 0x0FFFFFFF00000000UL) >> 4);
+    }
+
+    private long ReadLongBytewise()
+    {
         ulong value = 0;
         int shift = 0;
         while (true)
@@ -90,6 +120,17 @@ internal ref struct AvroSpanReader(ReadOnlySpan<byte> data)
         _position += (int)length;
         return span;
     }
+
+    /// <summary>Reads a <c>string</c> value and checks that it is well-formed UTF-8.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlySpan<byte> ReadUtf8()
+    {
+        var bytes = ReadBytes();
+        if (!System.Text.Unicode.Utf8.IsValid(bytes)) ThrowInvalidUtf8();
+        return bytes;
+    }
+
+    private static void ThrowInvalidUtf8() => throw new AvroFormatException("An Avro string is not valid UTF-8.");
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<byte> ReadFixed(int size)
@@ -179,6 +220,21 @@ internal sealed class AvroBufferWriter(int initialCapacity = 64 * 1024) : IDispo
     {
         ulong n = (ulong)((value << 1) ^ (value >> 63));
         var span = GetSpan(10);
+        if (n < 0x80)
+        {
+            span[0] = (byte)n;
+            _length++;
+            return;
+        }
+        if (n < 1UL << 56)
+        {
+            // Up to 8 bytes in one store: spread the 7-bit groups into bytes, set the continuation bits (SWAR).
+            int length = (64 - System.Numerics.BitOperations.LeadingZeroCount(n) + 6) / 7;
+            ulong continuation = 0x8080808080808080UL & ((1UL << ((length - 1) * 8)) - 1);
+            BinaryPrimitives.WriteUInt64LittleEndian(span, SpreadSevenBitGroups(n) | continuation);
+            _length += length;
+            return;
+        }
         int i = 0;
         while (n >= 0x80)
         {
@@ -187,6 +243,16 @@ internal sealed class AvroBufferWriter(int initialCapacity = 64 * 1024) : IDispo
         }
         span[i++] = (byte)n;
         _length += i;
+    }
+
+    /// <summary>Spreads 56 bits into the low 7 bits of 8 little-endian bytes (inverse of
+    /// <see cref="AvroSpanReader.CompactSevenBitGroups"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static ulong SpreadSevenBitGroups(ulong x)
+    {
+        x = (x & 0x000000000FFFFFFFUL) | ((x & 0x00FFFFFFF0000000UL) << 4);
+        x = (x & 0x00003FFF00003FFFUL) | ((x & 0x0FFFC0000FFFC000UL) << 2);
+        return (x & 0x007F007F007F007FUL) | ((x & 0x3F803F803F803F80UL) << 1);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

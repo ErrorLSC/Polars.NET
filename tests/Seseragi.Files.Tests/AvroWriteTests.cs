@@ -18,7 +18,7 @@ public class AvroWriteTests
     internal static RecordBatch Wide(int k0, int n)
     {
         int[] ks = [.. Enumerable.Range(k0, n)];
-        T? Maybe<T>(int k, T v) where T : struct => k % 5 == 0 ? null : v;
+        static T? Maybe<T>(int k, T v) where T : struct => k % 5 == 0 ? null : v;
 
         var listOffsets = new int[n + 1];
         List<int?> listValues = [];
@@ -358,7 +358,7 @@ public class AvroWriteSafetyTests
     [Fact]
     public void Batch_with_a_different_nested_decimal_scale_is_refused()
     {
-        StructType S(int scale) => new([new Field("d", new Decimal128Type(10, scale), false)]);
+        static StructType S(int scale) => new([new Field("d", new Decimal128Type(10, scale), false)]);
         var schema = new Schema([new Field("s", S(2), false)], null);
         var dec = new Decimal128Array.Builder(new Decimal128Type(10, 3)).Append(1.5m).Build();
         var batch = Batch(("s", Struct(S(3), [dec], [true]), false));
@@ -435,5 +435,42 @@ public class AvroTimezoneTests
         var batch = Batch(("t", Fixed(new TimestampType(TimeUnit.Microsecond, "Europe/Paris"), [(long?)1]), false));
         using var writer = AvroWriter.Create(new MemoryStream(), schema);
         Assert.Throws<ArgumentException>(() => writer.Write(batch));
+    }
+}
+
+public class AvroListFastPathTests
+{
+    [Fact]
+    public async Task Lists_of_plain_numbers_round_trip()
+    {
+        const int n = 50;
+        int[] offsets = [.. Enumerable.Range(0, n + 1).Select(i => i * (i - 1) / 2 % 1000 + i)];
+        System.Array.Sort(offsets);
+        int items = offsets[^1];
+        IArrowArray L(IArrowType itemType, IArrowArray values) =>
+            List(new ListType(new Field("item", itemType, false)), offsets, values, [.. Enumerable.Range(0, n).Select(i => i % 11 != 0)]);
+        var longs = Fixed(Int64Type.Default, [.. Enumerable.Range(0, items).Select(i => (long?)(i * 1_234_567_890_123L - 7))]);
+        var doubles = Fixed(DoubleType.Default, [.. Enumerable.Range(0, items).Select(i => (double?)(i / 3.0))]);
+        var floats = Fixed(FloatType.Default, [.. Enumerable.Range(0, items).Select(i => (float?)(i / 7f))]);
+        var ints = Fixed(Int32Type.Default, [.. Enumerable.Range(0, items).Select(i => (int?)(-i))]);
+        long[] largeOffsets = [.. offsets.Select(o => (long)o)];
+        var largeType = new LargeListType(new Field("item", Int64Type.Default, false));
+        var large = ArrowArrayFactory.BuildArray(new ArrayData(largeType, n, 0, 0,
+            [ArrowBuffer.Empty, new ArrowBuffer(System.Runtime.InteropServices.MemoryMarshal.AsBytes(largeOffsets.AsSpan()).ToArray())], [longs.Data]));
+        var fixedType = new FixedSizeListType(new Field("item", DoubleType.Default, false), 2);
+        var fixedList = ArrowArrayFactory.BuildArray(new ArrayData(fixedType, n, 0, 0, [ArrowBuffer.Empty],
+            [Fixed(DoubleType.Default, [.. Enumerable.Range(0, n * 2).Select(i => (double?)i)]).Data]));
+        var batch = Batch(
+            ("l", L(Int64Type.Default, longs), true), ("d", L(DoubleType.Default, doubles), true),
+            ("f", L(FloatType.Default, floats), true), ("i", L(Int32Type.Default, ints), true),
+            ("large", large, false), ("fixed", fixedList, false));
+        foreach (var input in (RecordBatch[])[batch, batch.Slice(13, 30)])
+        {
+            var ms = new MemoryStream();
+            AvroWriter.Write(ms, batch.Schema, [input], new() { LeaveOpen = true, BlockSize = 256 });
+            ms.Position = 0;
+            await using var reader = await AvroReader.OpenAsync(ms);
+            Assert.Equal(ArrowRender.Rows(input), ArrowRender.Rows(await reader.ReadBatchesAsync().ToListAsync()));
+        }
     }
 }

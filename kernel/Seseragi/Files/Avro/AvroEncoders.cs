@@ -40,6 +40,13 @@ internal abstract unsafe class AvroEncoder
 
     public abstract void Encode(int index, AvroBufferWriter w);
 
+    /// <summary>Encodes the values at [start, end) one after another (list items); plain numeric encoders
+    /// override it with a loop that has no virtual call per value.</summary>
+    public virtual void EncodeRange(int start, int end, AvroBufferWriter w)
+    {
+        for (int i = start; i < end; i++) Encode(i, w);
+    }
+
     /// <summary>The array's value buffer as <typeparamref name="T"/>, already sliced to the array's offset.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     protected static ReadOnlySpan<T> Values<T>(IArrowArray a) where T : unmanaged =>
@@ -109,6 +116,12 @@ internal sealed unsafe class RequiredEncoder(AvroEncoder inner, string what) : A
             throw new NotSupportedException($"Cannot write a null to the non-nullable {what}.");
         inner.Encode(index, w);
     }
+
+    public override void EncodeRange(int start, int end, AvroBufferWriter w)
+    {
+        if (_validity == null) inner.EncodeRange(start, end, w);
+        else base.EncodeRange(start, end, w);
+    }
 }
 
 internal sealed class NullEncoder : AvroEncoder
@@ -116,10 +129,23 @@ internal sealed class NullEncoder : AvroEncoder
     public override void Encode(int index, AvroBufferWriter w) { }
 }
 
-internal sealed class BooleanEncoder : AvroEncoder
+internal sealed unsafe class BooleanEncoder : AvroEncoder
 {
-    public override void Encode(int index, AvroBufferWriter w) =>
-        w.WriteBoolean(((BooleanArray)Array).GetValue(index) ?? false);
+    private byte* _bits;
+    private int _offset;
+
+    public override void Bind(IArrowArray array)
+    {
+        base.Bind(array);
+        _bits = Pin(1);
+        _offset = array.Offset;
+    }
+
+    public override void Encode(int index, AvroBufferWriter w)
+    {
+        int bit = _offset + index;
+        w.WriteBoolean((_bits[bit >> 3] & (1 << (bit & 7))) != 0);
+    }
 }
 
 /// <summary>
@@ -135,6 +161,22 @@ internal sealed unsafe class IntegerEncoder<T>(long multiply, long divide, bool 
     {
         base.Bind(array);
         _values = (T*)Pin(1) + array.Offset;
+    }
+
+    private bool Plain => multiply == 1 && divide == 1 && (typeof(T) == typeof(int) || (typeof(T) == typeof(long) && !toInt));
+
+    public override void EncodeRange(int start, int end, AvroBufferWriter w)
+    {
+        if (!Plain)
+        {
+            base.EncodeRange(start, end, w);
+            return;
+        }
+        for (int i = start; i < end; i++)
+        {
+            T raw = _values[i];
+            w.WriteLong(typeof(T) == typeof(int) ? Unsafe.As<T, int>(ref raw) : Unsafe.As<T, long>(ref raw));
+        }
     }
 
     public override void Encode(int index, AvroBufferWriter w)
@@ -191,6 +233,9 @@ internal sealed unsafe class FloatEncoder : AvroEncoder
     }
 
     public override void Encode(int index, AvroBufferWriter w) => w.WriteFloat(_values[index]);
+
+    public override void EncodeRange(int start, int end, AvroBufferWriter w) =>
+        w.WriteFixed(new ReadOnlySpan<byte>(_values + start, (end - start) * sizeof(float)));
 }
 
 internal sealed unsafe class DoubleEncoder : AvroEncoder
@@ -204,6 +249,9 @@ internal sealed unsafe class DoubleEncoder : AvroEncoder
     }
 
     public override void Encode(int index, AvroBufferWriter w) => w.WriteDouble(_values[index]);
+
+    public override void EncodeRange(int start, int end, AvroBufferWriter w) =>
+        w.WriteFixed(new ReadOnlySpan<byte>(_values + start, (end - start) * sizeof(double)));
 }
 
 /// <summary>String or Binary (32-bit offsets).</summary>
@@ -226,9 +274,23 @@ internal sealed unsafe class BinaryEncoder : AvroEncoder
     }
 }
 
-internal sealed class LargeBinaryEncoder : AvroEncoder
+internal sealed unsafe class LargeBinaryEncoder : AvroEncoder
 {
-    public override void Encode(int index, AvroBufferWriter w) => w.WriteBytes(((LargeBinaryArray)Array).GetBytes(index));
+    private long* _offsets;
+    private byte* _data;
+
+    public override void Bind(IArrowArray array)
+    {
+        base.Bind(array);
+        _offsets = (long*)Pin(1) + array.Offset;
+        _data = Pin(2);
+    }
+
+    public override void Encode(int index, AvroBufferWriter w)
+    {
+        long start = _offsets[index];
+        w.WriteBytes(new ReadOnlySpan<byte>(_data + start, checked((int)(_offsets[index + 1] - start))));
+    }
 }
 
 internal sealed class BinaryViewEncoder : AvroEncoder
@@ -236,19 +298,34 @@ internal sealed class BinaryViewEncoder : AvroEncoder
     public override void Encode(int index, AvroBufferWriter w) => w.WriteBytes(((BinaryViewArray)Array).GetBytes(index));
 }
 
-internal sealed class FixedEncoder(int size) : AvroEncoder
+internal sealed unsafe class FixedEncoder(int size) : AvroEncoder
 {
-    public override void Encode(int index, AvroBufferWriter w) =>
-        w.WriteFixed(Array.Data.Buffers[1].Span.Slice((Array.Offset + index) * size, size));
+    private byte* _data;
+
+    public override void Bind(IArrowArray array)
+    {
+        base.Bind(array);
+        _data = Pin(1) + (long)array.Offset * size;
+    }
+
+    public override void Encode(int index, AvroBufferWriter w) => w.WriteFixed(new ReadOnlySpan<byte>(_data + (long)index * size, size));
 }
 
 /// <summary>A little-endian two's-complement decimal of <paramref name="width"/> bytes written as Avro
 /// <c>bytes</c> decimal: the shortest big-endian two's complement.</summary>
-internal sealed class DecimalEncoder(int width) : AvroEncoder
+internal sealed unsafe class DecimalEncoder(int width) : AvroEncoder
 {
+    private byte* _data;
+
+    public override void Bind(IArrowArray array)
+    {
+        base.Bind(array);
+        _data = Pin(1) + (long)array.Offset * width;
+    }
+
     public override void Encode(int index, AvroBufferWriter w)
     {
-        var le = Array.Data.Buffers[1].Span.Slice((Array.Offset + index) * width, width);
+        var le = new ReadOnlySpan<byte>(_data + (long)index * width, width);
         byte sign = (le[width - 1] & 0x80) != 0 ? (byte)0xFF : (byte)0;
         int length = width;
         // Drop leading sign bytes while the next byte still carries the sign bit.
@@ -322,11 +399,16 @@ internal sealed class StructEncoder(AvroEncoder[] fields) : AvroEncoder
 internal enum ListLayout { Int32Offsets, Int64Offsets, FixedSize }
 
 /// <summary>List, LargeList or FixedSizeList as an Avro array (one block, then the 0 terminator).</summary>
-internal sealed class ListEncoder(ListLayout layout, int fixedSize, AvroEncoder items) : AvroEncoder
+internal sealed unsafe class ListEncoder(ListLayout layout, int fixedSize, AvroEncoder items) : AvroEncoder
 {
+    private byte* _offsets;
+    private int _offset;
+
     public override void Bind(IArrowArray array)
     {
         base.Bind(array);
+        _offset = array.Offset;
+        _offsets = layout == ListLayout.FixedSize ? null : Pin(1);
         items.Bind(array switch
         {
             ListArray l => l.Values,
@@ -344,17 +426,17 @@ internal sealed class ListEncoder(ListLayout layout, int fixedSize, AvroEncoder 
 
     public override void Encode(int index, AvroBufferWriter w)
     {
-        int at = Array.Offset + index;
+        int at = _offset + index;
         var (start, end) = layout switch
         {
-            ListLayout.Int32Offsets => (MemoryMarshal.Cast<byte, int>(Array.Data.Buffers[1].Span)[at], MemoryMarshal.Cast<byte, int>(Array.Data.Buffers[1].Span)[at + 1]),
-            ListLayout.Int64Offsets => (checked((int)MemoryMarshal.Cast<byte, long>(Array.Data.Buffers[1].Span)[at]), checked((int)MemoryMarshal.Cast<byte, long>(Array.Data.Buffers[1].Span)[at + 1])),
+            ListLayout.Int32Offsets => (((int*)_offsets)[at], ((int*)_offsets)[at + 1]),
+            ListLayout.Int64Offsets => (checked((int)((long*)_offsets)[at]), checked((int)((long*)_offsets)[at + 1])),
             _ => (at * fixedSize, at * fixedSize + fixedSize),
         };
         if (end > start)
         {
             w.WriteLong(end - start);
-            for (int i = start; i < end; i++) items.Encode(i, w);
+            items.EncodeRange(start, end, w);
         }
         w.WriteLong(0);
     }

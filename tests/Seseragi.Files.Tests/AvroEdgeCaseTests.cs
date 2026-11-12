@@ -142,6 +142,31 @@ public class AvroEdgeCaseTests
     }
 
     [Fact]
+    public async Task Primitive_arrays_across_blocks()
+    {
+        const string schema = """
+            {"type":"record","name":"r","fields":[
+              {"name":"d","type":{"type":"array","items":"double"}},
+              {"name":"f","type":{"type":"array","items":"float"}},
+              {"name":"l","type":{"type":"array","items":"long"}},
+              {"name":"t","type":{"type":"array","items":{"type":"long","logicalType":"timestamp-micros"}}}]}
+            """;
+        static byte[] D(double v) => BitConverter.GetBytes(v);
+        static byte[] F(float v) => BitConverter.GetBytes(v);
+        var row = new Bytes()
+            .Long(2).Raw(D(1.5)).Raw(D(-2)).Long(-1).Long(8).Raw(D(1e300)).Long(0)   // d: [1.5, -2] + sized block [1e300]
+            .Long(1).Raw(F(0.25f)).Long(1).Raw(F(-8f)).Long(0)                        // f: two blocks
+            .Long(3).Long(1).Long(-1).Long(long.MaxValue).Long(-2).Long(11).Long(0).Long(long.MinValue).Long(0) // l: 3 + sized block of 2
+            .Long(1).Long(1_700_000_000_000_000).Long(0);                             // t: 8-byte varint
+        var empty = new Bytes().Long(0).Long(0).Long(0).Long(0);
+        Assert.Equal(
+        [
+            "[1.5, -2, 1E+300] | [0.25, -8] | [1, -1, 9223372036854775807, 0, -9223372036854775808] | [1700000000000000]",
+            "[] | [] | [] | []",
+        ], await Read(Container(schema, [(2, [.. row.Data, .. empty.Data])])));
+    }
+
+    [Fact]
     public async Task Missing_codec_means_null()
     {
         var file = Container(ArrayMapSchema, [(2, NegativeBlockRows())], includeCodec: false);
@@ -195,6 +220,23 @@ public class AvroEdgeCaseTests
         // a claims long.MaxValue / 4 zero-width items without a byte size; only z is projected, so a is skipped.
         var data = new Bytes().Long(long.MaxValue / 4).Long(0).Long(5).ToArray();
         await Assert.ThrowsAsync<AvroFormatException>(() => Read(Container(schema, [(1, data)]), new() { Columns = ["z"] }));
+    }
+
+    [Theory]
+    [InlineData("""{"type":"record","name":"r","fields":[{"name":"s","type":"string"}]}""")]
+    [InlineData("""{"type":"record","name":"r","fields":[{"name":"m","type":{"type":"map","values":"int"}}]}""")]
+    public async Task Invalid_utf8_in_strings_and_map_keys_is_refused(string schema)
+    {
+        bool isMap = schema.Contains("map");
+        var bad = new Bytes();
+        if (isMap) bad.Long(1);
+        bad.Long(2).Raw([0xC3, 0x28]); // overlong lead byte followed by a non-continuation byte
+        if (isMap) bad.Long(0).Long(0);
+        await Assert.ThrowsAsync<AvroFormatException>(() => Read(Container(schema, [(1, bad.ToArray())])));
+
+        // bytes columns carry arbitrary bytes and are not checked
+        const string bytesSchema = """{"type":"record","name":"r","fields":[{"name":"b","type":"bytes"}]}""";
+        Assert.Equal(["0xC328"], await Read(Container(bytesSchema, [(1, new Bytes().Long(2).Raw([0xC3, 0x28]).ToArray())])));
     }
 
     [Fact]

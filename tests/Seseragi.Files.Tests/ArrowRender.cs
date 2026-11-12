@@ -42,7 +42,7 @@ internal static class ArrowRender
 
     private static object? Boxed(IArrowArray a, int i) => a switch
     {
-        Int8Array x => x.GetValue(i),
+        Int8Array x => (object?)x.GetValue(i), // object, or the arms unify to double? and big integers lose digits
         Int16Array x => x.GetValue(i),
         Int32Array x => x.GetValue(i),
         Int64Array x => x.GetValue(i),

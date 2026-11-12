@@ -230,7 +230,7 @@ let ``Turning the change data feed on lets appends feed it`` () =
     try
         let df = DataFrame.create [ pl.series "Id" [ 1; 2 ] ]
         df.WriteDelta(testPath, mode = DeltaSaveMode.Overwrite, mkdir = true)
-        Delta.SetTableProperties(testPath, [ DeltaTableProperties.EnableChangeDataFeed, "true" ])
+        Delta.SetTableProperties(testPath, [(DeltaTableProperties.EnableChangeDataFeed, "true" )])
 
         // The managed kernel writes tables with the change data feed (the old engine refused them).
         df.WriteDelta(testPath, mode = DeltaSaveMode.Append)
@@ -258,10 +258,10 @@ let ``Reading the change data feed of a table without one raises an exception`` 
 let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_identity_{Guid.NewGuid()}")
     try
-        let schema = PolarsSchema([ "id", DataType.Int64; "v", DataType.String; "p", DataType.String ])
+        let schema = new PolarsSchema([ "id", DataType.Int64; "v", DataType.String; "p", DataType.String ])
         Delta.CreateTable(
             path, schema, partitionBy = [ "p" ],
-            properties = [ DeltaTableProperties.EnableRowTracking, "true" ],
+            properties = [ (DeltaTableProperties.EnableRowTracking, "true") ],
             identityColumns = [ DeltaIdentityColumn("id", generatedAlways = false) ])
         let rows = DataFrame.create [| Series.create("v", [ "a"; "b" ]); Series.create("p", [ "x"; "x" ]) |]
         rows.WriteDelta(path, mode = DeltaSaveMode.Append)
@@ -280,7 +280,7 @@ let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the da
     let path = Path.Combine(Path.GetTempPath(), $"delta_columns_{Guid.NewGuid()}")
     try
         let props = [ "delta.columnMapping.mode", "name"; "delta.enableTypeWidening", "true" ]
-        Delta.CreateTable(path, PolarsSchema([ "id", DataType.Int32; "name", DataType.String; "note", DataType.String ]), properties = props)
+        Delta.CreateTable(path, new PolarsSchema([ "id", DataType.Int32; "name", DataType.String; "note", DataType.String ]), properties = props)
         DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("name", [ "a"; "b" ]); Series.create("note", [ "x"; "y" ]) |]
         |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
 
@@ -307,7 +307,7 @@ let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the da
 let ``Column changes: DropColumnNotNull, SetColumnComment and MoveColumn change the schema only`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_columns2_{Guid.NewGuid()}")
     try
-        Delta.CreateTable(path, PolarsSchema([ "id", DataType.Int32; "name", DataType.String; "note", DataType.String ]))
+        Delta.CreateTable(path, new PolarsSchema([ "id", DataType.Int32; "name", DataType.String; "note", DataType.String ]))
         DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("name", [ "a"; "b" ]); Series.create("note", [ "x"; "y" ]) |]
         |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
 
@@ -329,7 +329,7 @@ let ``Column changes: DropColumnNotNull, SetColumnComment and MoveColumn change 
 let ``Purge rewrites the files that hold a dropped column`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_purge_{Guid.NewGuid()}")
     try
-        Delta.CreateTable(path, PolarsSchema([ "id", DataType.Int32; "note", DataType.String ]), properties = [ "delta.columnMapping.mode", "name" ])
+        Delta.CreateTable(path, new PolarsSchema([ "id", DataType.Int32; "note", DataType.String ]), properties = [ ("delta.columnMapping.mode", "name") ])
         DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("note", [ "x"; "y" ]) |]
         |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
         Delta.DropColumns(path, [ "note" ])
@@ -350,7 +350,7 @@ let ``Purge rewrites the files that hold a dropped column`` () =
 let ``Liquid clustering: CreateTable clusterBy, Optimize clusters, ClusterBy changes the columns`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_clustered_{Guid.NewGuid()}")
     try
-        Delta.CreateTable(path, PolarsSchema([ "k", DataType.Int64; "v", DataType.String ]), clusterBy = [ "k" ])
+        Delta.CreateTable(path, new PolarsSchema([ "k", DataType.Int64; "v", DataType.String ]), clusterBy = [ "k" ])
         for i in 0 .. 2 do
             DataFrame.create [| Series.create("k", [ int64 i; int64 (i + 10) ]); Series.create("v", [ "a"; "b" ]) |]
             |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
@@ -376,7 +376,7 @@ let ``Clustering refuses partitioning`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_clustered_bad_{Guid.NewGuid()}")
     try
         let e = Assert.ThrowsAny<exn>(fun () ->
-            Delta.CreateTable(path, PolarsSchema([ "k", DataType.Int64; "p", DataType.String ]), partitionBy = [ "p" ], clusterBy = [ "k" ]))
+            Delta.CreateTable(path, new PolarsSchema([ "k", DataType.Int64; "p", DataType.String ]), partitionBy = [ "p" ], clusterBy = [ "k" ]))
         Assert.Contains("cannot both be specified", e.Message)
     finally
         if Directory.Exists path then Directory.Delete(path, true)
@@ -385,11 +385,11 @@ let ``Clustering refuses partitioning`` () =
 let ``Suspended row tracking gives appended rows ids only once it is turned on again`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_rt_suspended_{Guid.NewGuid()}")
     try
-        Delta.CreateTable(path, PolarsSchema([ "v", DataType.String ]), properties = [ DeltaTableProperties.EnableRowTracking, "true" ])
+        Delta.CreateTable(path, new PolarsSchema([ ("v", DataType.String) ]), properties = [ (DeltaTableProperties.EnableRowTracking, "true") ])
         DataFrame.create [| Series.create("v", [ "a"; "b" ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append) // v1: ids 0, 1
 
         // Suspending needs row tracking off in the same change (as Spark).
-        Assert.ThrowsAny<exn>(fun () -> Delta.SetTableProperties(path, [ DeltaTableProperties.RowTrackingSuspended, "true" ], raiseIfNotExists = true))
+        Assert.ThrowsAny<exn>(fun () -> Delta.SetTableProperties(path, [ (DeltaTableProperties.RowTrackingSuspended, "true") ], raiseIfNotExists = true))
         |> ignore
         Delta.SetTableProperties(
             path, [ DeltaTableProperties.EnableRowTracking, "false"; DeltaTableProperties.RowTrackingSuspended, "true" ], raiseIfNotExists = true)
@@ -412,7 +412,7 @@ let ``Delta Update changes only the rows matching the predicate and commits an U
         let df = DataFrame.create [| Series.create("Id", [ 1L; 2L; 3L ]); Series.create("Price", [ 10.0; 20.0; 30.0 ]) |]
         df.WriteDelta(path, mode = DeltaSaveMode.Overwrite, mkdir = true)
 
-        Delta.Update(path, [ "Price", pl.col "Price" * pl.lit 2.0 ], predicate = (pl.col "Id" .== pl.lit 2L))
+        Delta.Update(path, [ ("Price", pl.col "Price" * pl.lit 2.0) ], predicate = (pl.col "Id" .== pl.lit 2L))
 
         let read = DataFrame.ReadDelta(path).Sort("Id")
         Assert.Equal<float list>([ 10.0; 40.0; 30.0 ], read.["Price"].ToArray<float>() |> List.ofArray)
@@ -451,7 +451,7 @@ let ``Delta Update of an identity column is refused`` () =
 
         let ex =
             Assert.ThrowsAny<Exception>(fun () ->
-                Delta.Update(path, [ "id", pl.lit 5L ], predicate = (pl.col "v" .== pl.lit "a")) |> ignore)
+                Delta.Update(path, [ ("id", pl.lit 5L) ], predicate = (pl.col "v" .== pl.lit "a")) |> ignore)
         Assert.Contains("UPDATE on IDENTITY column", ex.Message)
     finally
         if Directory.Exists path then Directory.Delete(path, true)

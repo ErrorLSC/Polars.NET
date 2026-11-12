@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\api\Polars.CSharp\Polars.CSharp.csproj" />
+    <ProjectReference Include="..\kernel\Seseragi\Files\Seseragi.Files.csproj" />
     <ProjectReference Include="..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
     <ProjectReference Include="..\tests\Polars.Tpcds.Queries\Polars.Tpcds.Queries.csproj" />
   </ItemGroup>

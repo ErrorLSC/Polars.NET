@@ -14,6 +14,7 @@ internal unsafe struct NativeGrowBuffer
     private byte* _ptr;
     private long _length;
     private long _capacity;
+    private long _hint; // size of the last detached buffer: the next one starts there instead of doubling up again
 
     public readonly long Length => _length;
     public readonly byte* Pointer => _ptr;
@@ -62,7 +63,7 @@ internal unsafe struct NativeGrowBuffer
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void Grow(long needed)
     {
-        long capacity = Math.Max(Math.Max(needed, _capacity * 2), Alignment);
+        long capacity = Math.Max(Math.Max(needed, _capacity * 2), Math.Max(_hint, Alignment));
         capacity = (capacity + Alignment - 1) & ~(long)(Alignment - 1);
         _ptr = (byte*)NativeMemory.AlignedRealloc(_ptr, (nuint)capacity, Alignment);
         _capacity = capacity;
@@ -77,6 +78,8 @@ internal unsafe struct NativeGrowBuffer
     {
         if (_ptr == null) Grow(Alignment);
         byte* p = _ptr;
+        // Batches of one column tend to have similar sizes; leave a little headroom so the next fill rarely reallocates.
+        _hint = _length + (_length >> 3);
         _ptr = null;
         _length = 0;
         _capacity = 0;
