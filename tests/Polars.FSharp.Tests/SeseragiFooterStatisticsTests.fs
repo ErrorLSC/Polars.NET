@@ -116,4 +116,4 @@ let ``Footers of files the engine writes parse, and a damaged footer is refused`
     Assert.Equal(10L, metadata.RowCount)
     Assert.Equal(10L, metadata.RowGroups |> Seq.sumBy (fun g -> g.RowCount))
     Assert.Equal(1L, (FileStatistics.NullCounts metadata).["s"])
-    Assert.Throws<IO.InvalidDataException>(fun () -> ParquetMetadata.FromFile(ReadOnlySpan "PAR1 not really PAR1"B) |> ignore) |> ignore
+    Assert.Throws<ParquetFormatException>(fun () -> ParquetMetadata.FromFile(ReadOnlySpan "PAR1 not really PAR1"B) |> ignore) |> ignore

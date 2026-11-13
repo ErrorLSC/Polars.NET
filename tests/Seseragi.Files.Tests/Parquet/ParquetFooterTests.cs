@@ -149,6 +149,7 @@ public class ParquetFooterTests
                 foreach (ColumnChunk chunk in group.Columns)
                 {
                     ColumnMetaData m = chunk.MetaData!;
+                    if (m.TotalCompressedSize == 0) continue; // an empty row group's chunks hold no pages
                     // column_chunk_key_value_metadata.parquet has data_page_offset 0 after its dictionary page.
                     long first = m.DictionaryPageOffset is > 0 and var d && (d < m.DataPageOffset || m.DataPageOffset < 4) ? d : m.DataPageOffset;
                     Check("page header", first, null, span =>
@@ -204,42 +205,6 @@ public class ParquetFooterTests
             write(writer);
             return writer.ToArray();
         }
-    }
-
-    [Theory]
-    [MemberData(nameof(Files))]
-    public void PublicView_MatchesTheFormerParser(string name)
-    {
-        if (ParquetFixtures.IsEncrypted(name)) return;
-        byte[] footer;
-        try
-        {
-            footer = ParquetFixtures.FooterBytes(name);
-        }
-        catch (ParquetFormatException)
-        {
-            return;
-        }
-        ParquetMetadata legacy;
-        try
-        {
-            legacy = LegacyParquetFooter.Parse(footer);
-        }
-        catch (InvalidDataException)
-        {
-            return; // the former parser refused it; the new one is checked against pyarrow
-        }
-        ParquetMetadata current;
-        try
-        {
-            current = ParquetMetadata.Parse(footer);
-        }
-        catch (ParquetFormatException e)
-        {
-            Assert.Fail($"{name}: the former parser read it, the new one refuses: {e.Message}");
-            return;
-        }
-        Assert.Equal(RenderView(legacy), RenderView(current));
     }
 
     [Theory]

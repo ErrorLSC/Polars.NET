@@ -119,7 +119,45 @@ internal unsafe struct NativeBitmap
 
     public void AppendMany(bool set, long count)
     {
-        for (long i = 0; i < count; i++) Append(set);
+        if (count <= 0) return;
+        // Finish the partial byte bit by bit, then fill whole bytes at once.
+        while ((_bitLength & 7) != 0 && count > 0)
+        {
+            Append(set);
+            count--;
+        }
+        long bytes = count >> 3;
+        if (bytes > 0)
+        {
+            byte* at = _bytes.Reserve(bytes);
+            new Span<byte>(at, checked((int)bytes)).Fill(set ? (byte)0xFF : (byte)0);
+            _bitLength += bytes << 3;
+            if (!set) _unsetCount += bytes << 3;
+        }
+        for (long i = 0; i < (count & 7); i++) Append(set);
+    }
+
+    /// <summary>Appends one bit per byte of <paramref name="mask"/>: set where the byte is not zero.</summary>
+    public void AppendMask(ReadOnlySpan<byte> mask)
+    {
+        int i = 0;
+        while ((_bitLength & 7) != 0 && i < mask.Length) Append(mask[i++] != 0);
+        int whole = (mask.Length - i) >> 3;
+        if (whole > 0)
+        {
+            byte* at = _bytes.Reserve(whole);
+            long unset = 0;
+            for (int b = 0; b < whole; b++, i += 8)
+            {
+                int bits = 0;
+                for (int k = 0; k < 8; k++) bits |= (mask[i + k] != 0 ? 1 : 0) << k;
+                at[b] = (byte)bits;
+                unset += 8 - System.Numerics.BitOperations.PopCount((uint)bits);
+            }
+            _bitLength += (long)whole << 3;
+            _unsetCount += unset;
+        }
+        while (i < mask.Length) Append(mask[i++] != 0);
     }
 
     public byte* Detach()

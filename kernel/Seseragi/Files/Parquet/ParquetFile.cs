@@ -1,6 +1,7 @@
 using System.Buffers;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
+using Kaminari.Seseragi.Files.Parquet.Schema;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -28,6 +29,25 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
 
     /// <summary>The full footer.</summary>
     internal FileMetaData Thrift { get; }
+
+    private ParquetSchemaTree? _tree;
+    private Apache.Arrow.Schema? _schema;
+
+    /// <summary>The schema tree.</summary>
+    /// <exception cref="ParquetFormatException">A leaf has an unknown physical type, or the tree nests too deeply.</exception>
+    internal ParquetSchemaTree Tree => _tree ??= ParquetSchemaTree.Build(Thrift.Schema);
+
+    /// <summary>
+    /// The Arrow schema of the file, read with default options: Parquet types and annotations, refined by the Arrow
+    /// schema the writer stored (if any), and each column's Parquet field id as <c>PARQUET:field_id</c> metadata.
+    /// </summary>
+    /// <exception cref="ParquetFormatException">The schema has a leaf of an unknown physical type.</exception>
+    public Apache.Arrow.Schema Schema => _schema ??= ArrowMapping.Map(Tree, Thrift, new ParquetReadOptions()).Schema;
+
+    /// <summary>Opens a reader of the file's batches.</summary>
+    /// <exception cref="NotSupportedException">A selected column is nested (lists, maps, structs), which this version does not read yet.</exception>
+    /// <exception cref="ArgumentException">The options name a column or row group the file does not have, or are out of range.</exception>
+    public ParquetReader OpenReader(ParquetReadOptions? options = null) => new(this, options ?? new ParquetReadOptions());
 
     /// <summary>The bytes of the file.</summary>
     internal IRandomAccess Source { get; }

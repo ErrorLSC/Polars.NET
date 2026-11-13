@@ -38,17 +38,17 @@ public class ParquetMinimalWriterTests
         ];
         Dictionary<string, object?> full = new()
         {
-            ["b"] = true, ["i32"] = 7, ["i64"] = -5L, ["f"] = 1.5f, ["d"] = 2.25, ["s"] = "héllo", ["bin"] = new byte[] { 1, 2 },
-            ["fixed"] = new byte[] { 9, 8, 7 }, ["i8"] = -3, ["i16"] = 300, ["date"] = 19000, ["dec32"] = 12345,
+            ["b"] = true, ["i32"] = 7, ["i64"] = -5L, ["f"] = 1.5f, ["d"] = 2.25, ["s"] = "héllo", ["bin"] = (byte[])[1, 2],
+            ["fixed"] = (byte[])[9, 8, 7], ["i8"] = -3, ["i16"] = 300, ["date"] = 19000, ["dec32"] = 12345,
             ["dec128"] = new byte[16], ["ts"] = 1_700_000_000_000_000L, ["lts"] = 42L,
             ["st"] = new Dictionary<string, object?>
             {
-                ["x"] = 1L, ["tags"] = new List<object?> { "a", null, "c" },
-                ["conf"] = new List<KeyValuePair<string, string?>> { new("k", "v"), new("n", null) },
+                ["x"] = 1L, ["tags"] = (List<object?>)["a", null, "c"],
+                ["conf"] = (List<KeyValuePair<string, string?>>)[new("k", "v"), new("n", null)],
             },
-            ["nested"] = new List<object?> { new List<object?> { 1, 2 }, null, new List<object?>() },
+            ["nested"] = (List<object?>)[(List<object?>)[1, 2], null, (List<object?>)[]],
         };
-        Dictionary<string, object?> sparse = new() { ["i32"] = 0, ["st"] = new Dictionary<string, object?> { ["tags"] = new List<object?>() } };
+        Dictionary<string, object?> sparse = new() { ["i32"] = 0, ["st"] = new Dictionary<string, object?> { ["tags"] = (List<object?>)[] } };
         return MinimalParquetWriter.Write(schema, [full, sparse, new Dictionary<string, object?> { ["i32"] = 1 }]);
     }
 

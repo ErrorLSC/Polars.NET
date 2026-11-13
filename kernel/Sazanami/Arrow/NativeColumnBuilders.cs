@@ -28,6 +28,34 @@ internal struct LazyValidity
         if (_materialized) _bits.AppendMany(true, count);
     }
 
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="mask"/>, valid where the byte is not zero; the bitmap is
+    /// materialized only once a zero arrives.
+    /// </summary>
+    /// <param name="lengthBefore">Number of slots appended before these.</param>
+    public void AppendMask(ReadOnlySpan<byte> mask, long lengthBefore)
+    {
+        if (!_materialized)
+        {
+            if (!mask.Contains((byte)0)) return;
+            _bits.AppendMany(true, lengthBefore);
+            _materialized = true;
+        }
+        _bits.AppendMask(mask);
+    }
+
+    /// <summary>Appends <paramref name="count"/> null slots.</summary>
+    public void AppendNulls(long count, long lengthBefore)
+    {
+        if (count <= 0) return;
+        if (!_materialized)
+        {
+            _bits.AppendMany(true, lengthBefore);
+            _materialized = true;
+        }
+        _bits.AppendMany(false, count);
+    }
+
     /// <param name="lengthBefore">Number of slots appended before this null.</param>
     public void AppendNull(long lengthBefore)
     {
@@ -107,6 +135,19 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
         Length++;
     }
 
+    /// <summary>Marks one slot per byte of <paramref name="mask"/>: valid where the byte is not zero.</summary>
+    protected void MarkMask(ReadOnlySpan<byte> mask)
+    {
+        Validity.AppendMask(mask, Length);
+        Length += mask.Length;
+    }
+
+    protected void MarkNulls(long count)
+    {
+        Validity.AppendNulls(count, Length);
+        Length += count;
+    }
+
     /// <summary>Creates a builder for an Arrow type (the layouts this package produces).</summary>
     public static NativeColumnBuilder Create(IArrowType type) => type switch
     {
@@ -120,6 +161,7 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
         UInt64Type => new NativeFixedWidthBuilder<ulong>(type),
         Int32Type or Date32Type or Time32Type or IntervalType { Unit: IntervalUnit.YearMonth } => new NativeFixedWidthBuilder<int>(type),
         Int64Type or Date64Type or TimestampType or Time64Type or DurationType => new NativeFixedWidthBuilder<long>(type),
+        HalfFloatType => new NativeFixedWidthBuilder<Half>(type),
         FloatType => new NativeFixedWidthBuilder<float>(type),
         DoubleType => new NativeFixedWidthBuilder<double>(type),
         Decimal128Type => new NativeFixedWidthBuilder<Int128>(type),
@@ -183,6 +225,17 @@ internal sealed unsafe class NativeBooleanBuilder() : NativeColumnBuilder(Boolea
 
     public override void AppendDefault() => Append(false);
 
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="values"/> (true where not zero); with a <paramref name="mask"/>
+    /// of the same length, slots whose mask byte is zero are null.
+    /// </summary>
+    public void AppendValues(ReadOnlySpan<byte> values, ReadOnlySpan<byte> mask = default)
+    {
+        _values.AppendMask(values);
+        if (mask.IsEmpty) MarkValid(values.Length);
+        else MarkMask(mask);
+    }
+
     public override NativeCArray* Export(NativeBatchExport export)
     {
         long nulls = NullCount;
@@ -204,6 +257,34 @@ internal sealed unsafe class NativeFixedWidthBuilder<T>(IArrowType type) : Nativ
     {
         _values.Append(value);
         MarkValid();
+    }
+
+    /// <summary>Appends <paramref name="count"/> valid slots and returns them for the caller to fill.</summary>
+    public Span<T> AppendSlots(int count)
+    {
+        byte* at = _values.Reserve((long)count * sizeof(T));
+        MarkValid(count);
+        return new Span<T>(at, count);
+    }
+
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="mask"/>, null where the byte is zero, and returns all of them
+    /// (zeroed) for the caller to fill the valid ones.
+    /// </summary>
+    public Span<T> AppendSlots(ReadOnlySpan<byte> mask)
+    {
+        byte* at = _values.Reserve((long)mask.Length * sizeof(T));
+        var slots = new Span<T>(at, mask.Length);
+        slots.Clear();
+        MarkMask(mask);
+        return slots;
+    }
+
+    /// <summary>Appends <paramref name="count"/> null slots.</summary>
+    public void AppendNulls(int count)
+    {
+        _values.AppendZeros((long)count * sizeof(T));
+        MarkNulls(count);
     }
 
     /// <summary>Appends values given as raw little-endian bytes (a whole number of <typeparamref name="T"/>).</summary>
@@ -269,6 +350,13 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
         MarkNull();
     }
 
+    /// <summary>Appends <paramref name="count"/> null slots.</summary>
+    public void AppendNulls(int count)
+    {
+        for (int i = 0; i < count; i++) AppendOffset();
+        MarkNulls(count);
+    }
+
     public override void AppendDefault()
     {
         AppendOffset();
@@ -311,6 +399,21 @@ internal sealed unsafe class NativeFixedSizeBinaryBuilder(FixedSizeBinaryType ty
         MarkNull();
     }
 
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="mask"/> (all valid when empty: <paramref name="count"/>
+    /// slots), null where the byte is zero, and returns their bytes (zeroed) for the caller to fill the valid ones.
+    /// </summary>
+    public Span<byte> AppendSlots(int count, ReadOnlySpan<byte> mask = default)
+    {
+        long bytes = (long)count * ByteWidth;
+        byte* at = _data.Reserve(bytes);
+        var slots = new Span<byte>(at, checked((int)bytes));
+        slots.Clear();
+        if (mask.IsEmpty) MarkValid(count);
+        else MarkMask(mask[..count]);
+        return slots;
+    }
+
     public override void AppendDefault()
     {
         _data.AppendZeros(ByteWidth);
@@ -329,8 +432,11 @@ internal sealed unsafe class NativeFixedSizeBinaryBuilder(FixedSizeBinaryType ty
     protected override void FreeBuffers() => _data.Free();
 }
 
-/// <summary>Dictionary-encoded strings with Int32 indices and a dictionary fixed up front (an Avro enum's
-/// symbols). The dictionary is re-emitted with every batch.</summary>
+/// <summary>
+/// Dictionary-encoded strings or binaries with Int32 indices. The dictionary is either fixed up front
+/// (<see cref="Symbols"/>: an Avro enum's symbols, re-emitted with every batch) or built per batch in
+/// <see cref="Entries"/> (exported with the batch and then emptied).
+/// </summary>
 internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
 {
     private NativeGrowBuffer _indices;
@@ -338,8 +444,9 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
 
     public NativeDictionaryBuilder(DictionaryType type) : base(type)
     {
-        if (type.IndexType is not Int32Type || type.ValueType is not StringType)
-            throw new NotSupportedException("Native dictionary builders produce Int32 indices over Utf8 values.");
+        if (type.IndexType is not Int32Type || type.ValueType is not (StringType or BinaryType))
+            throw new NotSupportedException("Native dictionary builders produce Int32 indices over Utf8 or Binary values.");
+        Entries = new NativeBinaryBuilder(type.ValueType);
     }
 
     public IReadOnlyList<string> Symbols
@@ -347,11 +454,27 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
         set => _symbols = [.. value.Select(Encoding.UTF8.GetBytes)];
     }
 
+    /// <summary>The dictionary of the current batch, when no <see cref="Symbols"/> are set.</summary>
+    public NativeBinaryBuilder Entries { get; }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Append(int index)
     {
         _indices.Append(index);
         MarkValid();
+    }
+
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="mask"/>, null where the byte is zero, and returns their
+    /// indices (zeroed) for the caller to fill the valid ones.
+    /// </summary>
+    public Span<int> AppendSlots(ReadOnlySpan<byte> mask)
+    {
+        byte* at = _indices.Reserve((long)mask.Length * sizeof(int));
+        var slots = new Span<int>(at, mask.Length);
+        slots.Clear();
+        MarkMask(mask);
+        return slots;
     }
 
     public override void AppendNull()
@@ -364,9 +487,14 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
 
     public override NativeCArray* Export(NativeBatchExport export)
     {
-        using var dict = new NativeBinaryBuilder(StringType.Default);
-        foreach (var s in _symbols) dict.Append(s);
-        var dictionary = dict.Export(export);
+        NativeCArray* dictionary;
+        if (_symbols.Length > 0)
+        {
+            using var dict = new NativeBinaryBuilder(((DictionaryType)Type).ValueType);
+            foreach (var s in _symbols) dict.Append(s);
+            dictionary = dict.Export(export);
+        }
+        else dictionary = Entries.Export(export);
         long nulls = NullCount;
         nint validity = Validity.Detach(export);
         var a = export.NewArray(Length, nulls, [validity, export.Ptr(ref _indices)], [], dictionary);
@@ -374,7 +502,11 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
         return a;
     }
 
-    protected override void FreeBuffers() => _indices.Free();
+    protected override void FreeBuffers()
+    {
+        _indices.Free();
+        Entries.Dispose();
+    }
 }
 
 /// <summary>List (or Map, which shares the layout) with 32-bit offsets.</summary>
@@ -445,6 +577,9 @@ internal sealed unsafe class NativeStructBuilder(StructType type, NativeColumnBu
     /// <summary>Marks a struct slot valid once its children have each received one value.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EndStruct() => MarkValid();
+
+    /// <summary>Marks <paramref name="count"/> struct slots valid once each child has that many more values.</summary>
+    public void EndStructs(long count) => MarkValid(count);
 
     public override void AppendNull()
     {

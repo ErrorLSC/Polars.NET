@@ -18,11 +18,12 @@ public class ThriftCompactTests
     }
 
     [Theory]
-    [InlineData(new byte[] { 0xF5, 0xFF, 0xFF, 0xFF, 0xFF, 0x07 })]       // 2^31 - 1 i32 elements
-    [InlineData(new byte[] { 0xF5, 0x80, 0x80, 0x80, 0x40 })]             // 2^27 i32 elements
-    [InlineData(new byte[] { 0xF5, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01 })] // beyond int
-    public void HugeListCount_FailsBeforeAllocating(byte[] header)
+    [InlineData("F5FFFFFFFF07")]       // 2^31 - 1 i32 elements
+    [InlineData("F580808040")]             // 2^27 i32 elements
+    [InlineData("F5FFFFFFFFFF01")] // beyond int
+    public void HugeListCount_FailsBeforeAllocating(string hex)
     {
+        byte[] header = Convert.FromHexString(hex);
         ThrowsCheaply(() =>
         {
             var r = new ThriftCompactReader(header);
@@ -49,13 +50,13 @@ public class ThriftCompactTests
     }
 
     [Theory]
-    [InlineData(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x0F })]             // 2^32 - 1 bytes
-    [InlineData(new byte[] { 0x80, 0x80, 0x80, 0x40, 0x61, 0x62 })]       // 2^27 bytes, two present
-    [InlineData(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01 })] // beyond int
-    public void HugeBinaryLength_FailsBeforeAllocating(byte[] bytes) =>
+    [InlineData("FFFFFFFF0F")]             // 2^32 - 1 bytes
+    [InlineData("808080406162")]       // 2^27 bytes, two present
+    [InlineData("FFFFFFFFFFFF01")] // beyond int
+    public void HugeBinaryLength_FailsBeforeAllocating(string hex) =>
         ThrowsCheaply(() =>
         {
-            var r = new ThriftCompactReader(bytes);
+            var r = new ThriftCompactReader(Convert.FromHexString(hex));
             r.ReadBinary();
         });
 

@@ -33,8 +33,39 @@ column and offset indexes, bloom filter headers) is read and written with one Th
 (`Parquet/Thrift`, `Parquet/Metadata`); fields, enum values and logical types the model does not know are kept or
 skipped, never refused at this level.
 
+**Schema** (`ParquetFile.Schema`): the Arrow schema of the file. Leaves map by their logical type, else their
+converted type, else their physical type (an annotation that does not fit the physical type is ignored, as the
+specification asks): integers of every width and sign, decimals (INT32, INT64, fixed or variable big-endian bytes;
+Decimal128, Decimal256 above 38 digits), dates, times, timestamps (UTC-adjusted ones with the zone `UTC`; INT96 and
+12-byte carriers too), FLOAT16, INTERVAL (month-day-nanosecond), UUID and other fixed-length bytes, strings (STRING,
+ENUM, JSON), binaries (BSON, GEOMETRY, GEOGRAPHY), UNKNOWN as null. Groups map to structs, lists and maps, with the
+backward-compatibility rules for old list and map layouts. An Arrow schema stored by the writer (`ARROW:schema`)
+refines the mapping where Parquet cannot say it: time zone names of UTC-adjusted timestamps, durations, timestamp units
+Parquet stores in another (seconds, nanoseconds in format 1.0, INT96; rescaled exactly or refused), integers narrower
+than an unannotated INT64 or INT32 (checked), fixed-size lists, dictionary-encoded columns and field metadata. It never
+makes a local timestamp an instant or an instant local, and never changes an annotated integer or decimal type. Parquet
+field ids become `PARQUET:field_id` field metadata.
+
+**Reading** (`ParquetFile.OpenReader`, `ParquetReader`, `ParquetReadOptions`): flat columns (leaves directly under the
+root) as record batches of `BatchSize` rows in native memory, synchronously or asynchronously, row group by row group.
+Columns are projected (`Columns`) and row groups chosen (`RowGroups`); each row group's chunks are fetched with few
+ranged reads (nearby chunks coalesced). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
+deprecated PLAIN_DICTIONARY), RLE booleans; levels in the RLE / bit-packing hybrid or the deprecated BIT_PACKED;
+codecs uncompressed, Snappy, GZIP (several members), Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop-framed LZ4;
+page CRCs checked on request (`VerifyChecksums`). `BinaryAsString` reads unannotated binaries as strings; INT96
+timestamps read in microseconds exactly as Spark reads them (its wrapping 64-bit arithmetic, which brings back the
+dates beyond 2262 Spark wrote wrapped; nanoseconds below a microsecond are dropped), or in nanoseconds (`Int96Unit`,
+checked). Strings are validated as UTF-8;
+values that do not fit their Arrow type (narrowed integers, decimals over their precision, timestamps beyond 64 bits)
+are an error, never truncated. Nested columns, the DELTA_* and BYTE_STREAM_SPLIT encodings are not read yet; ALP and
+LZO, and column chunks in other files, are refused.
+
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
-and stands in until a full Parquet writer exists.
+and stands in until a full Parquet writer exists. Page codecs compress as well as decompress, for the writer to come.
+
+Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
+leaf types, Arrow mapping), `Codecs/`, `Encodings/` (RLE / bit-packing hybrid, bit unpacking), `Reading/` (pages,
+leaf readers by value kind, value converters); `ParquetFile`, `ParquetReader` and the options at the top.
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source and the native
 copy of streams that cannot seek.

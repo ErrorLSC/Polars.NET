@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- A DuckDB-written file with an INTERVAL column, shared with the Seseragi.Files tests. -->
+    <None Include="..\Seseragi.Files.Tests\TestData\parquet\matrix\duckdb_zstd.parquet" Link="TestData\parquet\duckdb_zstd.parquet" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
     <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>

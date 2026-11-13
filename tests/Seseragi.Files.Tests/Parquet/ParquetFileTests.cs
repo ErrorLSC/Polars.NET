@@ -92,10 +92,11 @@ public class ParquetFileTests
     }
 
     [Theory]
-    [InlineData(new byte[0], "too short")]
-    [InlineData(new byte[] { 0x50, 0x41, 0x52, 0x31, 0x50, 0x41, 0x52, 0x31 }, "too short")]
-    public void TooShort_IsRefused(byte[] bytes, string message)
+    [InlineData("", "too short")]
+    [InlineData("5041523150415231", "too short")]
+    public void TooShort_IsRefused(string hex, string message)
     {
+        byte[] bytes = Convert.FromHexString(hex);
         var e = Assert.Throws<ParquetFormatException>(() => ParquetFile.Open(new MemorySource(bytes)));
         Assert.Contains(message, e.Message);
     }

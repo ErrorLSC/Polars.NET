@@ -1,4 +1,5 @@
-"""Writes the probe table with Spark: default settings, TIMESTAMP_MICROS, and a Delta table."""
+"""Writes the probe table with Spark: default settings, TIMESTAMP_MICROS, each codec (lz4 is the Hadoop-framed LZ4),
+and a Delta table."""
 import datetime as dt, decimal, glob, shutil, sys
 from pyspark.sql import SparkSession, types as T
 from delta import configure_spark_with_delta_pip
@@ -35,6 +36,9 @@ def single(path, name):
     f = glob.glob(f"{path}/*.parquet")[0]
     shutil.copy(f, f"{out}/{name}")
 
+for name, codec in [("spark_lz4.parquet", "lz4"), ("spark_gzip.parquet", "gzip"), ("spark_zstd.parquet", "zstd"), ("spark_uncompressed.parquet", "none")]:
+    df.write.mode("overwrite").option("compression", codec).parquet(f"{out}/tmp_{name}")
+    single(f"{out}/tmp_{name}", name)
 for name, conf in [("spark_default.parquet", None), ("spark_micros.parquet", "TIMESTAMP_MICROS"), ("spark_int96.parquet", "INT96")]:
     if conf: spark.conf.set("spark.sql.parquet.outputTimestampType", conf)
     df.write.mode("overwrite").parquet(f"{out}/tmp_{name}")
