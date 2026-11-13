@@ -1,8 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
-using Kaminari.Seseragi.Lakehouse.Engine;
 
-namespace Kaminari.Seseragi.Lakehouse.Parquet;
+namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>The time unit of a Parquet timestamp.</summary>
 public enum ParquetTimeUnit
@@ -61,40 +60,22 @@ public sealed class ParquetMetadata
     /// <summary>The row groups.</summary>
     public required IReadOnlyList<ParquetRowGroup> RowGroups { get; init; }
 
-    /// <summary>Reads the footer of a file of known size with at most two ranged reads.</summary>
-    /// <exception cref="InvalidDataException">The file is not a Parquet file, or its footer is damaged.</exception>
-    /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public static ParquetMetadata Read(IFileSystem fileSystem, string path, long size)
-    {
-        ArgumentNullException.ThrowIfNull(fileSystem);
-        if (size < 12) throw new InvalidDataException($"{path} is too short to be a Parquet file.");
-        // Most footers are small: one read of the last 64 KiB usually holds the whole footer.
-        int guess = (int)Math.Min(size, TailGuess);
-        byte[] tail = fileSystem.ReadRange(path, size - guess, guess) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        if (tail.Length != guess) throw new InvalidDataException($"{path} is shorter than its listed size.");
-        return FromTail(fileSystem, path, new FileTail(tail, size));
-    }
-
-    /// <summary>How much of a file's end is read first: enough for almost every footer.</summary>
+    /// <summary>How much of a file's end to read first: enough for almost every footer.</summary>
     public const int TailGuess = 64 * 1024;
 
     /// <summary>
-    /// Reads the footer of a file from its end (as <see cref="ITailReadable.ReadTail"/> gives it), with one more
-    /// ranged read when the footer is longer than the tail.
+    /// Where the footer of a file of <paramref name="size"/> bytes lies, from the file's last bytes
+    /// (<paramref name="tail"/>, at least 8). When the range falls inside the tail, parse it from there with
+    /// <see cref="Parse"/>; otherwise read that range from the file first.
     /// </summary>
-    /// <exception cref="InvalidDataException">The file is not a Parquet file, or its footer is damaged.</exception>
-    /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public static ParquetMetadata FromTail(IFileSystem fileSystem, string path, FileTail end)
+    /// <param name="name">The file's name, for error messages.</param>
+    /// <exception cref="InvalidDataException">The file is not a Parquet file, or its footer length is damaged.</exception>
+    public static (long Offset, int Length) FooterRange(ReadOnlySpan<byte> tail, long size, string name)
     {
-        ArgumentNullException.ThrowIfNull(fileSystem);
-        long size = end.Size;
-        byte[] tail = end.Bytes;
-        if (size < 12 || tail.Length < TailLength) throw new InvalidDataException($"{path} is too short to be a Parquet file.");
-        int footer = FooterLength(tail.AsSpan(tail.Length - TailLength), path);
-        if (footer + TailLength > size - 4) throw new InvalidDataException($"{path} has a footer longer than the file.");
-        if (footer + TailLength <= tail.Length) return Parse(tail.AsSpan(tail.Length - TailLength - footer, footer));
-        byte[] whole = fileSystem.ReadRange(path, size - TailLength - footer, footer) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        return Parse(whole);
+        if (size < 12 || tail.Length < TailLength) throw new InvalidDataException($"{name} is too short to be a Parquet file.");
+        int footer = FooterLength(tail[^TailLength..], name);
+        if (footer + TailLength > size - 4) throw new InvalidDataException($"{name} has a footer longer than the file.");
+        return (size - TailLength - footer, footer);
     }
 
     /// <summary>Reads the footer of a whole file in memory.</summary>

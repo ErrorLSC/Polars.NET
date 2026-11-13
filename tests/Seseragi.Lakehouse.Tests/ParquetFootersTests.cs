@@ -1,4 +1,5 @@
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Parquet;
 
 namespace Seseragi.Lakehouse.Tests;
@@ -81,8 +82,8 @@ public class ParquetFootersTests
         long size = new FileInfo(Path.Combine(Table, file)).Length;
         FileTail full = local.ReadTail(file, ParquetMetadata.TailGuess)!.Value;
         var counting = new Counting(local, tails: true);
-        ParquetMetadata footer = ParquetMetadata.FromTail(counting, file, new FileTail(full.Bytes[^16..], size));
-        Assert.Equal(ParquetMetadata.FromTail(local, file, full).RowCount, footer.RowCount);
+        ParquetMetadata footer = ParquetFooters.FooterFromTail(counting, file, new FileTail(full.Bytes[^16..], size));
+        Assert.Equal(ParquetFooters.FooterFromTail(local, file, full).RowCount, footer.RowCount);
         Assert.Equal(1, counting.Ranges);
     }
 

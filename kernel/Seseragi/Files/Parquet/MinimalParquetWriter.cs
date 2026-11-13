@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace Kaminari.Seseragi.Lakehouse.Parquet;
+namespace Kaminari.Seseragi.Files.Parquet;
 
 // A small, dependency-free Parquet writer: just enough to write Delta checkpoints, whose schema is fixed. It is a
 // stopgap until the engine can write Parquet maps (or Seseragi has its own Parquet IO), and is meant to be replaced.
@@ -59,7 +59,7 @@ internal sealed record ParquetStringMap(string Name, Repetition Repetition) : Pa
 /// <summary>Writes rows of nested values to a Parquet file.</summary>
 internal static class MinimalParquetWriter
 {
-    private const string CreatedBy = "Kaminari.Seseragi.Lakehouse minimal writer";
+    private const string CreatedBy = "Kaminari.Seseragi.Files minimal writer";
 
     /// <summary>Writes the rows; each row is keyed by the names of the top-level fields.</summary>
     public static byte[] Write(IReadOnlyList<ParquetNode> schema, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)

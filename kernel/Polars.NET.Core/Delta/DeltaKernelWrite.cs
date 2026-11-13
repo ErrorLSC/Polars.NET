@@ -5,6 +5,7 @@ using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Parquet;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;

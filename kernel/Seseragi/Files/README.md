@@ -1,8 +1,9 @@
 # Kaminari.Seseragi.Files
 
-Managed file-format readers and writers that stream Apache Arrow record batches. It holds one format today,
-**Avro** (object container files, specification 1.12), and is laid out for more: pieces shared by formats, such as
-the compression codecs, live at the package root, each format in its own folder.
+Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
+Apache Arrow record batches) and the **Parquet** pieces the lakehouse kernels need (footer metadata, a minimal
+writer). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*` and `SinkAvro` run on this package.
 
@@ -15,6 +16,12 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*` and `SinkAvro` run on this pac
 * No reflection JSON (AOT): schemas are parsed with `JsonDocument` and written with `Utf8JsonWriter`.
 * Generic native infrastructure (builders, buffers, the row view) belongs in Sazanami, not here.
 * Modern .NET only (see `AGENTS.md`).
+
+## Parquet
+
+`ParquetMetadata` reads what a lakehouse needs from a footer (schema, row counts, per-column statistics) without
+reading data pages. `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log
+(checkpoints); it is internal and stands in until a full Parquet writer exists.
 
 ## Avro features
 
@@ -83,6 +90,8 @@ Sazanami's `ArrowRows` reads the batches row by row, by name or by field id.
 | `Avro/AvroGivenSchema.cs` | Encoders for a given writer schema: fields matched to columns by name or id, defaults for missing fields, the reading rules in reverse, `[T, "null"]` unions, fixed decimals, enums, array-encoded maps. |
 | `Avro/AvroEncoders.cs` | Encoders over pinned Arrow buffers; `EncodeRange` loops for list items. |
 | `Avro/AvroWriter.cs` | Container writer: blocks by size, header with the first block, failure handling. |
+| `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
+| `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
 
 In Sazanami (generic, reusable by other formats):
 
@@ -166,6 +175,8 @@ value against a logical type is allowed. General unions are not written against 
   tests/Seseragi.Files.Tests --filter Category=Interop` checks our files with fastavro, Python Polars and DuckDB
   (`interop_check.py`).
 * Row view: `tests/Sazanami.Tests/ArrowRowsTests.cs`, and over Avro batches `AvroRowViewTests.cs`.
+* Parquet: `tests/Seseragi.Lakehouse.Tests` (`ParquetFootersTests`, `CheckpointStatisticsTests`, `FileTypesTests`) and
+  the F# `SeseragiFooterStatisticsTests`, through the Delta kernel that uses them.
 * Engine level: `tests/Polars.CSharp.Tests/IO/AvroManagedTests.cs`, F# `AvroManagedTests.fs`.
 * Benchmarks: `Polars.Benchmarks/AvroBenchmarks.cs` (`--filter '*AvroBenchmarks*'`) and
   `AvroSmallFileBenchmarks.cs` (`--filter '*AvroSmallFileBenchmarks*'`).

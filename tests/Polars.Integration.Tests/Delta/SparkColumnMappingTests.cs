@@ -3,6 +3,7 @@ using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Parquet;
 using Polars.NET.Core.Delta;
 using Polars.NET.Core.Wrappers;
@@ -75,7 +76,7 @@ public class SparkColumnMappingTests
         Assert.NotEmpty(snapshot.Files);
         foreach (AddAction file in snapshot.Files)
         {
-            ParquetMetadata footer = ParquetMetadata.Read(fs, file.DecodedPath, file.Size);
+            ParquetMetadata footer = ParquetFooters.ReadFooter(fs, file.DecodedPath, file.Size);
             var actual = footer.Schema.Skip(1).Where(e => e.FieldId is not null).ToDictionary(e => e.Name, e => e.FieldId!.Value);
             // Files written before a column was added lack it; every field a file has carries its id.
             foreach (var (name, id) in actual) Assert.True(expected.TryGetValue(name, out int want) && want == id, $"{file.Path}: {name} = {id}");

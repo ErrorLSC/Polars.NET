@@ -11,7 +11,7 @@ open Polars.NET.Core.Enums
 open Polars.NET.Core.Wrappers
 open Kaminari.Seseragi.Lakehouse.Delta
 open Kaminari.Seseragi.Lakehouse.Delta.Schema
-open Kaminari.Seseragi.Lakehouse.Parquet
+open Kaminari.Seseragi.Files.Parquet
 
 /// Two JSON values equal: numbers by value, everything else exactly.
 let rec private same (a: JsonElement) (b: JsonElement) =

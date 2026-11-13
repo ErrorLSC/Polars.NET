@@ -1,6 +1,7 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
+using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Parquet;
 using Apache.Arrow;
 using Kaminari.Sazanami.Curves;

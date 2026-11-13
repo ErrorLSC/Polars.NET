@@ -13,7 +13,7 @@ open Polars.NET.Core.Enums
 open Kaminari.Seseragi.Lakehouse.Delta
 open Kaminari.Seseragi.Lakehouse.Delta.Actions
 open Kaminari.Seseragi.Lakehouse.Engine
-open Kaminari.Seseragi.Lakehouse.Parquet
+open Kaminari.Seseragi.Files.Parquet
 
 let private withTable (name: string) (body: string -> unit) =
     let path = Path.Combine(Path.GetTempPath(), $"seseragi_stream_{name}_{Guid.NewGuid():N}")

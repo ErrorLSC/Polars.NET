@@ -1,6 +1,6 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
-using Kaminari.Seseragi.Lakehouse.Parquet;
+using Kaminari.Seseragi.Files.Parquet;
 
 namespace Seseragi.Lakehouse.Tests;
 

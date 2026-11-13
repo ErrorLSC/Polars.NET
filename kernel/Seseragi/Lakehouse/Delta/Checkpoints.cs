@@ -3,7 +3,7 @@ using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
 using Kaminari.Seseragi.Lakehouse.Engine;
-using Kaminari.Seseragi.Lakehouse.Parquet;
+using Kaminari.Seseragi.Files.Parquet;
 
 namespace Kaminari.Seseragi.Lakehouse.Delta;
 

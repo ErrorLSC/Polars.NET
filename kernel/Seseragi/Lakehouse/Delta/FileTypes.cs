@@ -1,5 +1,5 @@
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
-using Kaminari.Seseragi.Lakehouse.Parquet;
+using Kaminari.Seseragi.Files.Parquet;
 
 namespace Kaminari.Seseragi.Lakehouse.Delta;
 

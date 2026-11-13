@@ -235,7 +235,7 @@ public partial class SparkDropFeatureTests
                 // The footers tell the older types apart: the first file holds a short and a decimal(5,2).
                 var fs = new LocalFileSystem(kernel);
                 AddAction first = Snapshot.Load(fs).Files.MinBy(f => f.ModificationTime)!;
-                IReadOnlyList<Kaminari.Seseragi.Lakehouse.Parquet.ParquetSchemaElement> footer =
+                IReadOnlyList<Kaminari.Seseragi.Files.Parquet.ParquetSchemaElement> footer =
                     Kaminari.Seseragi.Lakehouse.Parquet.ParquetFooters.Read(fs, [first.DecodedPath])[0].Footer.Schema;
                 Assert.Equal(16, footer.Single(e => e.Name == "s").IntBitWidth);
                 Assert.Equal(5, footer.Single(e => e.Name == "d").DecimalPrecision);
