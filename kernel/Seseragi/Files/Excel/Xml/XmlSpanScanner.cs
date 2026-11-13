@@ -35,6 +35,9 @@ internal ref struct XmlSpanScanner(ReadOnlySpan<byte> input)
     /// <summary>The position after the current token.</summary>
     public readonly int Position => _pos;
 
+    /// <summary>The position where the current token starts (its <c>&lt;</c>, or its first text byte).</summary>
+    public int TokenStart { readonly get; private set; }
+
     /// <summary>The local name of the current element (start or end).</summary>
     public readonly ReadOnlySpan<byte> LocalName => _input.Slice(_nameStart, _nameLength);
 
@@ -58,6 +61,7 @@ internal ref struct XmlSpanScanner(ReadOnlySpan<byte> input)
                 Token = XmlToken.EndOfInput;
                 return false;
             }
+            TokenStart = _pos;
             if (s[_pos] != (byte)'<')
             {
                 int end = IndexOfOrEnd(s, _pos, (byte)'<');

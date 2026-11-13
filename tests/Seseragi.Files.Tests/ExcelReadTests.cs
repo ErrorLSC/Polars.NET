@@ -388,7 +388,8 @@ public class ExcelReadTests
             using (var w = new StreamWriter(z.CreateEntry("content.xml").Open())) w.Write("<x/>");
         }
         zip.Position = 0;
-        Assert.Contains(".ods", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(zip)).Message);
+        // An OpenDocument spreadsheet package whose content holds no spreadsheet.
+        Assert.Contains("no spreadsheet", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(zip)).Message);
     }
 
     [Theory]

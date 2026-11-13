@@ -131,8 +131,7 @@ public sealed class ExcelReader : IDisposable, IAsyncDisposable
     {
         try
         {
-            var sheet = await workbook.OpenSheetReaderAsync(options, useAsync, ct).ConfigureAwait(false);
-            var info = workbook.Sheets.First(s => s.Name == SheetName(workbook, options));
+            var (sheet, info) = await workbook.OpenSheetReaderAsync(options, useAsync, ct).ConfigureAwait(false);
             return new(ownsWorkbook ? workbook : null, sheet, info);
         }
         catch
@@ -141,11 +140,6 @@ public sealed class ExcelReader : IDisposable, IAsyncDisposable
             throw;
         }
     }
-
-    private static string SheetName(ExcelWorkbook workbook, ExcelReadOptions options) =>
-        options.TableName is { } t ? workbook.Tables.First(x => string.Equals(x.Name, t, StringComparison.OrdinalIgnoreCase)).SheetName
-        : options.SheetName is { } n ? workbook.Sheets.First(s => string.Equals(s.Name, n, StringComparison.OrdinalIgnoreCase)).Name
-        : workbook.Sheets[options.SheetIndex].Name;
 
     /// <summary>The batches, read as they are enumerated (dispose each batch to free its native memory promptly).</summary>
     public IEnumerable<RecordBatch> ReadBatches() => _sheet.ReadBatches();

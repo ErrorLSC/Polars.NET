@@ -109,3 +109,56 @@ internal sealed class RandomAccessSource : IRandomAccess, IDisposable
         _gate.Dispose();
     }
 }
+
+/// <summary>A read-only stream over a range of an <see cref="IRandomAccess"/> source, with a position of its own.</summary>
+internal sealed class RandomAccessStream(IRandomAccess source, long start) : Stream
+{
+    private long _position;
+
+    public override long Length => source.Length - start;
+
+    public override bool CanRead => true;
+
+    public override bool CanSeek => true;
+
+    public override bool CanWrite => false;
+
+    public override long Position
+    {
+        get => _position;
+        set => _position = value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
+        int n = source.ReadAt(start + _position, buffer);
+        _position += n;
+        return n;
+    }
+
+    public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        int n = await source.ReadAtAsync(start + _position, buffer, cancellationToken).ConfigureAwait(false);
+        _position += n;
+        return n;
+    }
+
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+    public override long Seek(long offset, SeekOrigin origin) => Position = origin switch
+    {
+        SeekOrigin.Begin => offset,
+        SeekOrigin.Current => _position + offset,
+        SeekOrigin.End => Length + offset,
+        _ => throw new ArgumentOutOfRangeException(nameof(origin)),
+    };
+
+    public override void Flush() { }
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+}

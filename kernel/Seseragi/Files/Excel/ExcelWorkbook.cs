@@ -1,4 +1,5 @@
 using Kaminari.Sazanami.Helpers;
+using Kaminari.Seseragi.Files.Excel.Ods;
 using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;
 using Kaminari.Seseragi.Files.Excel.Xls;
@@ -29,7 +30,12 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
     /// <summary>Whether dates count from 1904-01-01 (the Mac date system) instead of 1900-01-01.</summary>
     public bool Date1904 => _source.Date1904;
 
-    /// <summary>The sheets in tab order, hidden ones and chart sheets included (see <see cref="ExcelSheetInfo.Kind"/>).</summary>
+    /// <summary>
+    /// The sheets in tab order, hidden ones and chart sheets included (see <see cref="ExcelSheetInfo.Kind"/>). In an
+    /// OpenDocument spreadsheet, whose sheets follow one another in one document, the first access scans the whole
+    /// document (reading a sheet does not need it) and can raise <see cref="ExcelFormatException"/> for a malformed
+    /// document.
+    /// </summary>
     public IReadOnlyList<ExcelSheetInfo> Sheets => _source.Sheets;
 
     /// <summary>The tables defined on the worksheets (read on first access).</summary>
@@ -122,7 +128,19 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
             }
         }
         if (n < 4 || !magic[..4].SequenceEqual("PK\u0003\u0004"u8))
-            throw new ExcelFormatException("The data is not an Excel workbook (no zip or OLE2 signature).");
+        {
+            // A flat OpenDocument file: XML whose root is office:document.
+            var head = new byte[16 * 1024];
+            int got = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            stream.Position = start;
+            if (OdsWorkbook.IsFlat(head.AsSpan(0, got), out string? flatType))
+            {
+                return flatType is not null && OdsWorkbook.IsSpreadsheet(flatType)
+                    ? await OdsWorkbook.OpenFlatAsync(new RandomAccessSource(stream, leaveOpen, copy), useAsync, ct).ConfigureAwait(false)
+                    : throw new ExcelFormatException($"The flat OpenDocument file is not a spreadsheet (its type is '{flatType}').");
+            }
+            throw new ExcelFormatException("The data is not an Excel workbook (no zip or OLE2 signature, and no flat OpenDocument spreadsheet).");
+        }
         var package = OpcPackage.Open(stream, leaveOpen, copy);
         try
         {
@@ -132,8 +150,12 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
                     ? XlsbWorkbook.Open(package, part)
                     : XlsxWorkbook.Open(package, part);
             }
-            if (package.HasPart("content.xml") && package.HasPart("mimetype"))
-                throw new ExcelFormatException("The workbook is an OpenDocument spreadsheet (.ods), which is not supported yet.");
+            if (OdsWorkbook.MediaType(package) is { } mediaType)
+            {
+                return OdsWorkbook.IsSpreadsheet(mediaType)
+                    ? await OdsWorkbook.OpenAsync(package, useAsync, ct).ConfigureAwait(false)
+                    : throw new ExcelFormatException($"The OpenDocument package is not a spreadsheet (its type is '{mediaType}').");
+            }
             throw new ExcelFormatException("The zip archive holds no Excel workbook.");
         }
         catch
@@ -155,10 +177,14 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
     public async Task<ExcelReader> OpenSheetAsync(ExcelReadOptions? options = null, CancellationToken cancellationToken = default) =>
         await ExcelReader.OpenCoreAsync(this, options ?? new(), ownsWorkbook: false, useAsync: true, cancellationToken).ConfigureAwait(false);
 
-    internal async ValueTask<SheetReader> OpenSheetReaderAsync(ExcelReadOptions options, bool useAsync, CancellationToken ct)
+    /// <summary>A reader over the chosen sheet or table, and the sheet it reads.</summary>
+    internal async ValueTask<(SheetReader Reader, ExcelSheetInfo Sheet)> OpenSheetReaderAsync(ExcelReadOptions options, bool useAsync, CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         options.Validate();
+        if (options.TableName is null
+            && await _source.TryOpenSheetDirectAsync(options.SheetName, options.SheetIndex, useAsync, ct).ConfigureAwait(false) is { } direct)
+            return (await SheetReader.OpenAsync(direct.Source, options, direct.Sheet.Name, Date1904, null, useAsync, ct).ConfigureAwait(false), direct.Sheet);
         int index;
         ReadRange? range = null;
         if (options.TableName is { } tableName)
@@ -186,7 +212,7 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
                 ? $"Sheet '{Sheets[index].Name}' (index {index}) is a chart sheet: it holds a chart, no cells to read."
                 : $"Sheet '{Sheets[index].Name}' (index {index}) is not a worksheet (a dialog or macro sheet): it holds no cells to read.", nameof(options));
         var source = await _source.OpenSheetAsync(index, useAsync, ct).ConfigureAwait(false);
-        return await SheetReader.OpenAsync(source, options, Sheets[index].Name, Date1904, range, useAsync, ct).ConfigureAwait(false);
+        return (await SheetReader.OpenAsync(source, options, Sheets[index].Name, Date1904, range, useAsync, ct).ConfigureAwait(false), Sheets[index]);
     }
 
     /// <inheritdoc />

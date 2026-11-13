@@ -11,6 +11,9 @@ public enum ExcelFormat
 
     /// <summary>Excel 97–2003 workbook (.xls): BIFF8 records in an OLE2 compound file.</summary>
     Xls,
+
+    /// <summary>OpenDocument spreadsheet: a package (.ods, .ots) or a flat XML document (.fods).</summary>
+    Ods,
 }
 
 /// <summary>Whether a sheet shows in Excel's sheet tabs.</summary>

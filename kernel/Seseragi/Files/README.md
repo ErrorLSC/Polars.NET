@@ -1,12 +1,12 @@
 # Kaminari.Seseragi.Files
 
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
-Apache Arrow record batches), **Excel** (xlsx, xlsb and xls workbooks read, xlsx written, streaming Arrow record batches) and the **Parquet**
+Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and the **Parquet**
 pieces the lakehouse kernels need (footer metadata, a minimal writer). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
-`SinkExcel` run on this package (xlsx, xlsb and xls; .ods still goes to the engine's native reader).
+`SinkExcel` run on this package (xlsx, xlsb, xls, ods and flat ods).
 
 ## Design rules
 
@@ -75,11 +75,12 @@ Sazanami's `ArrowRows` reads the batches row by row, by name or by field id.
 
 **Workbooks** (`ExcelWorkbook`): opened from a path or a stream; the format is detected from the content (a zip whose
 workbook part is XML: xlsx, transitional or strict OOXML; or BIFF12 records: xlsb; an OLE2 compound file with a
-BIFF8 workbook stream: xls). `Sheets` (name, tab position, visibility, kind: worksheet, chart sheet or other), `Tables` (name, sheet,
-range, header and totals rows; none in xls), `Date1904`. A stream that cannot seek is copied into native memory
+BIFF8 workbook stream: xls; a zip whose `mimetype` (or manifest) says OpenDocument spreadsheet: ods; XML whose root is
+`office:document` of that type: flat ods). `Sheets` (name, tab position, visibility, kind: worksheet, chart sheet or other), `Tables` (name, sheet,
+range, header and totals rows; none in xls and ods), `Date1904` (in ods, a 1904-01-01 null date). A stream that cannot seek is copied into native memory
 first. Encrypted workbooks (password-protected xlsx and xlsb in an OLE2 file; xls with a FILEPASS record, which Excel
-also writes for workbooks that are only structure- or sheet-protected), BIFF2–BIFF7 xls and .ods are recognised and
-refused by name.
+also writes for workbooks that are only structure- or sheet-protected; ods with manifest encryption data),
+BIFF2–BIFF7 xls and other OpenDocument types are recognised and refused by name.
 
 **Reading** (`ExcelReader`, `ExcelReadOptions`, or `ExcelWorkbook.OpenSheet` for several sheets of one open
 workbook): one sheet or table, synchronously or asynchronously, as record batches of `BatchSize` rows in native
@@ -128,6 +129,24 @@ decompressed and parsed as the batches are read.
   allocated, chains are followed once (a cycle or a link past the allocation table raises `ExcelFormatException`),
   and a file cut short fails only when a missing sector is read. Streams are read at offsets, so several sheets can
   be open at once.
+* OpenDocument cells ([ODF 1.3] part 3): values by `office:value-type` — float, percentage and currency numbers;
+  dates and date-times (a column is a date column when no value has a time of day; a zone suffix is ignored);
+  times, read as times of day, or as durations when the cell's data style does not wrap at 24 hours
+  (`number:truncate-on-overflow="false"`, found through parent styles and column and row default cell styles) or
+  the value lies outside a day; booleans; strings (`office:string-value`, else the paragraphs joined by line feeds,
+  their text as written, as LibreOffice reads it, with `text:s`, `text:tab` and `text:line-break` expanded; notes,
+  annotations, ruby annotations and drawing objects left out). LibreOffice's error results
+  (`calcext:value-type="error"`) are errors; cells without a value type are empty. Rows and cells repeat
+  (`number-rows-repeated`, `number-columns-repeated`): empty repeats only move the position, others are emitted;
+  values past 1,048,576 rows or 16,384 columns raise `ExcelFormatException`. Covered cells read like cells; row and
+  column groups are entered; shapes, forms and tables nested in cells are skipped. Sheets hidden by their table
+  style (`table:display="false"`) are `Hidden`.
+* OpenDocument containers: the sheets follow one another in one document (content.xml, or the flat file), so they
+  are found on demand: opening reads the styles and stops at the first sheet's start tag; reading a sheet goes on
+  from there on the same stream, skipping the sheets before it, so the document is decompressed once; only
+  `Sheets` (or an error that lists them) scans to the end. A sheet already passed is read by starting the document
+  again at its offset (decompressing what comes before it, or seeking in a flat file). Structural errors past the
+  sheets read surface only when the rest is scanned.
 * Dates: the 1900 system with Lotus's fictitious 1900-02-29 (serial 60 reads as 1900-02-28), the 1904 system;
   times rounded to the nearest microsecond.
 
@@ -183,6 +202,7 @@ written synchronously on completion.
 | `Excel/Xlsx/` | `XlsxWorkbook` (workbook, styles, tables; shared strings on first sheet), `XlsxSharedStrings` (`<si>` by `<si>`), `XlsxSheetSource` (rows parsed once buffered whole). |
 | `Excel/Xlsb/` | `Biff12` (record headers, the record types used, bounds-checked field reads, UTF-16 to UTF-8), `XlsbWorkbook` (workbook.bin, styles.bin, table parts), `XlsbSharedStrings`, `XlsbSheetSource` (records parsed once buffered whole; a row handed out at the next row header). |
 | `Excel/Xls/` | `Biff8` (record types, `BiffRecords` pulling records from a buffer, `BiffText` for strings across Continue records), `XlsWorkbook` (globals: sheets, 1904, formats, XFs, where the SST sits; dialog sheets by WsBool), `XlsSharedStrings` (SST and Continue records, a push parser), `XlsSheetSource` (worksheet substream to rows; formula strings, nested substreams). |
+| `Excel/Ods/` | `OdsWorkbook` (detection, encryption check, the on-demand scan of the document, sheets by offset), `OdsStyles` (hidden table styles, elapsed-time cell styles through parents, the null date), `OdsValues` (xsd dates and durations to microseconds), `OdsSheetSource` (a table to rows: repeats, value types, paragraph text). |
 | `Excel/Reading/` | The format-neutral half: `SheetCells` (cell model, row buffer, `SheetSource`), `WorkbookSource`, `ChunkReader` (a part decompressed into a native buffer, refilled between complete chunks), `SharedStringStore` (native UTF-8 plus offsets), `SheetReader` (header, window, inference, projection, batches), `ColumnAppenders` (cells to native builders per Arrow type), `CellText` (cells as text). |
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
@@ -203,7 +223,7 @@ In Polars.NET (the engine integration):
 
 | Where | What |
 | :--- | :--- |
-| `Polars.NET.Core/Wrappers/Wrappers.Excel.cs` | `ReadExcel` (path, stream), `ScanExcel`, `WriteExcel` (path, stream), `ExcelBatchSink` (for `SinkExcel`); schema overrides from the engine's schema; .ods paths still go to the native reader. |
+| `Polars.NET.Core/Wrappers/Wrappers.Excel.cs` | `ReadExcel` (path, stream), `ScanExcel`, `WriteExcel` (path, stream), `ExcelBatchSink` (for `SinkExcel`); schema overrides from the engine's schema. |
 | `api/Polars.CSharp/IO/Excel/*.cs`, `api/Polars.FSharp/IO/Excel.fs` | Public Excel API. |
 | `Polars.NET.Core/Wrappers/Wrappers.Avro.cs` | `ReadAvro` (path, span, stream), `ScanAvro`, `WriteAvro*`, `AvroBatchSink` (for `SinkAvro`), and the option mapping. |
 | `Polars.NET.Core/Arrow/PolarsArrowCompat.cs` | Rewrites Arrow types the engine cannot import: Decimal256 is refused with the column name; a month-day-nano interval becomes `struct{months, days, nanoseconds: Duration(ns)}`. |
@@ -281,13 +301,16 @@ value against a logical type is allowed. General unions are not written against 
   `XlsbReadTests` (calamine's Excel-written .xlsb files in `TestData/excel/calamine`, MIT; and workbooks built record
   by record with `XlsbBuilder` for records Excel's files do not show, and malformed ones), `XlsReadTests` (calamine's
   .xls files, LibreOffice's .xls copies of the fixtures, and workbooks built with `XlsBuilder`, whose
-  `CompoundFileBuilder` also writes version 4, mini-stream, DIFAT and broken compound files).
+  `CompoundFileBuilder` also writes version 4, mini-stream, DIFAT and broken compound files), `OdsReadTests`
+  (calamine's .ods files, LibreOffice's .ods and .fods copies of the fixtures, and spreadsheets written from markup
+  by `OdsBuilder` as packages and flat documents).
   Interop (opt-in): `SESERAGI_EXCEL_PYTHON=<python with openpyxl, polars, fastexcel, pyxlsb, xlrd, olefile> dotnet test
   tests/Seseragi.Files.Tests --filter Category=Interop` reads our workbooks with openpyxl, Python Polars and, when
   `soffice` is installed, LibreOffice (`interop_check.py`); pyxlsb and Python Polars check the .xlsb fixtures, and
   LibreOffice's .xlsx copies of them must read as our xlsb reader reads the originals. `ExcelXlsInteropTests`
   compares every cell of the .xls fixtures and of built workbooks with xlrd (`xls_check.py`; olefile hands xlrd the
-  workbook stream of version 4 files), and LibreOffice's .xlsx copies with our xls reader. Engine level: `tests/Polars.CSharp.Tests/IO/ExcelTests.cs`,
+  workbook stream of version 4 files), and LibreOffice's .xlsx copies with our xls reader; `ExcelOdsInteropTests`
+  compares LibreOffice's .xlsx copies of OpenDocument spreadsheets with our reading of the originals. Engine level: `tests/Polars.CSharp.Tests/IO/ExcelTests.cs`,
   F# `ExcelTests.fs`.
 * Benchmarks: `Polars.Benchmarks/ExcelBenchmarks.cs` (`--filter '*ExcelBenchmarks*'`), `Polars.Benchmarks/AvroBenchmarks.cs` (`--filter '*AvroBenchmarks*'`) and
   `AvroSmallFileBenchmarks.cs` (`--filter '*AvroSmallFileBenchmarks*'`).
@@ -304,7 +327,7 @@ value against a logical type is allowed. General unions are not written against 
   decoder; mirror it in `AvroGivenSchema` for writing.
 * **A new codec:** a record in `CompressionType.cs` implementing the format's marker interface, an `AvroCodec`
   subclass, a name in `AvroCodec.ForName`.
-* **A new Excel container (ods):** a `WorkbookSource` and a `SheetSource` producing `RowBuffer`s (cell
+* **A new Excel container:** a `WorkbookSource` and a `SheetSource` producing `RowBuffer`s (cell
   types, number-format kinds, strings inline or through `ISharedStrings`); detection in `ExcelWorkbook`; everything from
   the header on is shared.
 * **A new format:** a folder beside `Avro/`, its own codec marker interface, the Sazanami native builders and buffers.

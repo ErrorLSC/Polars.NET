@@ -21,8 +21,8 @@ internal enum CellType : byte
     /// <summary>An error value (#N/A, #DIV/0! …): read as null.</summary>
     Error,
 
-    /// <summary>A date, date-time or time stored as such (<see cref="Cell.Micros"/>, Unix microseconds or
-    /// microseconds of the day for times).</summary>
+    /// <summary>A date, date-time, time or duration stored as such (<see cref="Cell.Kind"/>; <see cref="Cell.Micros"/>:
+    /// Unix microseconds, microseconds of the day for times, microseconds for durations).</summary>
     Temporal,
 }
 
@@ -132,6 +132,17 @@ internal sealed class RowBuffer
         CellType.SharedString => (SharedStrings ?? throw new ExcelFormatException("A cell refers to the shared string table, which the workbook lacks.")).Get(cell.Offset),
         _ => default,
     };
+
+    /// <summary>Makes this row a copy of <paramref name="other"/> (for rows repeated in the file).</summary>
+    public void CopyFrom(RowBuffer other)
+    {
+        Row = other.Row;
+        SharedStrings = other.SharedStrings;
+        Clear();
+        foreach (ref readonly var c in other.Cells) Add() = c;
+        other._text.AsSpan(0, other.TextLength).CopyTo(ReserveText(other.TextLength));
+        CommitText(other.TextLength);
+    }
 
     /// <summary>A copy of this row (for the rows held back while the schema is inferred).</summary>
     public RowBuffer Clone()

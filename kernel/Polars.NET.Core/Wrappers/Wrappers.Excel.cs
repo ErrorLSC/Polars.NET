@@ -4,15 +4,12 @@ using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Excel;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Enums;
-using Polars.NET.Core.Exceptions;
-using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core.Wrappers;
 
 /// <summary>
 /// Excel runs on the managed Seseragi.Files reader and writer: sheets stream through Arrow record batches into and
-/// out of the engine. Workbooks the managed reader does not read yet (.ods) still go through the native reader, from a
-/// path only.
+/// out of the engine, for every format it reads (xlsx, xlsb, xls, ods and flat ods).
 /// </summary>
 public readonly partial struct PolarsWrapper
 {
@@ -44,30 +41,6 @@ public readonly partial struct PolarsWrapper
         return types;
     }
 
-    /// <summary>
-    /// Whether the managed reader takes the file: an OLE2 compound file (.xls, or an encrypted workbook it refuses by
-    /// name), or a zip holding an xlsx or xlsb workbook. The others (.ods) go to the native reader.
-    /// </summary>
-    private static bool IsManagedExcel(string path)
-    {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
-        Span<byte> magic = stackalloc byte[8];
-        int n = stream.ReadAtLeast(magic, 8, throwOnEndOfStream: false);
-        if (n == 8 && magic.SequenceEqual((ReadOnlySpan<byte>)[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return true;
-        if (n < 4 || !magic[..4].SequenceEqual("PK\u0003\u0004"u8)) return false;
-        stream.Position = 0;
-        try
-        {
-            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-            return zip.Entries.Any(e => e.FullName.TrimStart('/') is var name
-                && (name.Equals("xl/workbook.xml", StringComparison.OrdinalIgnoreCase) || name.Equals("xl/workbook.bin", StringComparison.OrdinalIgnoreCase)));
-        }
-        catch (InvalidDataException)
-        {
-            return false;
-        }
-    }
-
     // A sheet without columns (empty, read with raiseIfEmpty off) is an empty frame: an Arrow stream needs a field.
     private static DataFrameHandle ImportExcel(ExcelReader reader) => reader.Schema.FieldsList.Count == 0
         ? DataFrameNew([])
@@ -89,18 +62,12 @@ public readonly partial struct PolarsWrapper
         string? tableName = null)
     {
         if (!File.Exists(path)) throw new FileNotFoundException($"Excel file not found: {path}", path);
-        if (!IsManagedExcel(path))
-        {
-            if (columns is not null || tableName is not null)
-                throw new NotSupportedException("Column selection and tables are not supported for .ods workbooks yet.");
-            return ReadExcelNative(path, sheetName, sheetIndex, schema, hasHeader, inferSchemaLen, dropEmptyRows, raiseIfEmpty);
-        }
         var options = ExcelOptions(sheetName, sheetIndex, schema, hasHeader, inferSchemaLen, dropEmptyRows, raiseIfEmpty, columns, dropEmptyColumns, tableName);
         using var reader = ExcelReader.Open(path, options);
         return ImportExcel(reader);
     }
 
-    /// <summary>Reads a sheet of an xlsx, xlsb or xls workbook in a stream (left open).</summary>
+    /// <summary>Reads a sheet of a workbook in a stream (left open).</summary>
     public static DataFrameHandle ReadExcel(
         Stream stream,
         string? sheetName,
@@ -121,7 +88,7 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
-    /// A lazy scan of a sheet of an xlsx, xlsb or xls workbook: the header and the inference window are read now for the schema,
+    /// A lazy scan of a sheet of a workbook: the header and the inference window are read now for the schema,
     /// the sheet each time the plan runs, streamed batch by batch.
     /// </summary>
     public static LazyFrameHandle ScanExcel(
@@ -150,16 +117,6 @@ public readonly partial struct PolarsWrapper
             using var reader = ExcelReader.Open(path, options);
             foreach (var b in reader.ReadBatches()) yield return b;
         }
-    }
-
-    private static DataFrameHandle ReadExcelNative(string path, string? sheetName, ulong sheetIndex, SchemaHandle? schema,
-        bool hasHeader, ulong inferSchemaLen, bool dropEmptyRows, bool raiseIfEmpty)
-    {
-        using var schemaLock = new SafeHandleLock<SchemaHandle>(schema != null ? [schema] : null);
-        IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
-        var h = NativeBindings.pl_read_excel(path, sheetName, (UIntPtr)sheetIndex, schemaPtr, hasHeader, (UIntPtr)inferSchemaLen,
-            dropEmptyRows, raiseIfEmpty);
-        return ErrorHelper.Check(h);
     }
 
     // ---------------------------------------------------------------- write

@@ -22,7 +22,9 @@ internal static class CellText
             case CellType.Boolean:
                 return (cell.Number != 0 ? "true"u8 : "false"u8).TryCopyTo(destination) && Set(cell.Number != 0 ? 4 : 5, out written);
             case CellType.Temporal:
-                return FormatTemporal(cell.Kind, cell.Micros, destination, out written);
+                return cell.Kind == ExcelValueKind.Duration
+                    ? FormatDuration(cell.Micros, destination, out written)
+                    : FormatTemporal(cell.Kind, cell.Micros, destination, out written);
             case CellType.Number:
                 if (cell.Kind is ExcelValueKind.Date or ExcelValueKind.DateTime || (cell.Kind == ExcelValueKind.Time && cell.Number >= 1))
                 {

@@ -10,4 +10,7 @@ These workbooks come from the `tests/` directory of [calamine](https://github.co
   compound files) included. `XlsReadTests` reads them; the opt-in interop tests compare the BIFF8 ones cell by cell
   with xlrd and with LibreOffice's .xlsx copies. `adhocallbabynames1996to2016.xls` (18.8 MB) is left out.
 
+* The .ods files were written by LibreOffice (and by hand, for the malformed ones). `OdsReadTests` reads them; the
+  opt-in interop test compares the reader with LibreOffice's .xlsx copies of them.
+
 To refresh: download `https://raw.githubusercontent.com/tafia/calamine/master/tests/<name>` for each file here.

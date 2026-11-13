@@ -18,8 +18,8 @@ module Excel =
 
     type DataFrame with
         /// <summary>
-        /// Read a sheet of an Excel workbook into a DataFrame. .xlsx, .xlsb and .xls workbooks are streamed by the managed
-        /// reader of Kaminari.Seseragi.Files (detected from the content); .ods is still read natively.
+        /// Read a sheet of an Excel workbook into a DataFrame. .xlsx, .xlsb, .xls, .ods and flat .fods workbooks are
+        /// streamed by the managed reader of Kaminari.Seseragi.Files (the format is detected from the content).
         /// Column types are inferred from the first inferSchemaLen rows (whole numbers Int64, other numbers Float64,
         /// dates Date, dates with times Datetime(μs), times Time, elapsed times Duration(μs), other mixes String); a
         /// later value that does not fit raises an error naming its cell. Error values read as nulls.
@@ -32,9 +32,9 @@ module Excel =
         /// <param name="inferSchemaLen">Rows the column types are inferred from (0 reads every column as String). Default is 100.</param>
         /// <param name="dropEmptyRows">Skip rows without values. Default is true.</param>
         /// <param name="raiseIfEmpty">Raise an error if the sheet has no data rows. Default is true.</param>
-        /// <param name="columns">Columns to read, by name (in sheet order). Not for .ods.</param>
+        /// <param name="columns">Columns to read, by name (in sheet order).</param>
         /// <param name="dropEmptyColumns">Leave out columns without a header name and without values in the first rows. Default is true.</param>
-        /// <param name="tableName">Read a table by name instead of a sheet. .xlsx and .xlsb only (.xls has no tables).</param>
+        /// <param name="tableName">Read a table by name instead of a sheet. .xlsx and .xlsb only (.xls and .ods have none).</param>
         static member ReadExcel(path: string,
                                 ?sheetName: string,
                                 ?sheetIndex: uint64,
@@ -61,7 +61,7 @@ module Excel =
                     Option.toObj tableName))
 
         /// <summary>
-        /// Read a sheet of an .xlsx, .xlsb or .xls workbook in a stream into a DataFrame (the stream is left open). The parameters
+        /// Read a sheet of a workbook in a stream into a DataFrame (the stream is left open). The parameters
         /// are those of the path overload.
         /// </summary>
         static member ReadExcel(stream: Stream,
@@ -142,7 +142,7 @@ module Excel =
 
     type LazyFrame with
         /// <summary>
-        /// Lazily scan a sheet of an .xlsx, .xlsb or .xls workbook: the header and the first inferSchemaLen rows are read now for the
+        /// Lazily scan a sheet of a workbook: the header and the first inferSchemaLen rows are read now for the
         /// schema; the sheet is streamed each time the query runs. The parameters are those of DataFrame.ReadExcel.
         /// </summary>
         static member ScanExcel(path: string,

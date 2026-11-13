@@ -97,7 +97,7 @@ internal abstract class ColumnAppender(NativeColumnBuilder builder)
     {
         CellType.Boolean => "holds a boolean",
         CellType.String or CellType.SharedString => "holds text",
-        CellType.Temporal => "holds a date or time",
+        CellType.Temporal => cell.Kind == ExcelValueKind.Duration ? "holds a duration" : "holds a date or time",
         _ => cell.Kind == ExcelValueKind.Number ? "holds a number" : "holds a date or time",
     };
 }
@@ -237,7 +237,7 @@ internal sealed class DateAppender(IArrowType type, long perDay) : ColumnAppende
                 if (!ExcelDates.TryToUnixMicros(cell.Number, context.Date1904, out micros))
                     throw Fail(context, row, cell, $"holds {cell.Number.ToString(CultureInfo.InvariantCulture)}, outside Excel's dates");
                 break;
-            case CellType.Temporal when cell.Kind != ExcelValueKind.Time:
+            case CellType.Temporal when cell.Kind is ExcelValueKind.Date or ExcelValueKind.DateTime:
                 micros = cell.Micros;
                 break;
             case CellType.String or CellType.SharedString:
@@ -274,7 +274,7 @@ internal sealed class TimestampAppender(TimestampType type) : ColumnAppender(Nat
                 if (!ExcelDates.TryToUnixMicros(cell.Number, context.Date1904, out micros))
                     throw Fail(context, row, cell, $"holds {cell.Number.ToString(CultureInfo.InvariantCulture)}, outside Excel's dates");
                 break;
-            case CellType.Temporal:
+            case CellType.Temporal when cell.Kind != ExcelValueKind.Duration:
                 micros = cell.Kind == ExcelValueKind.Time
                     ? ExcelDates.UnixDays(0, context.Date1904) * ExcelDates.MicrosPerDay + cell.Micros
                     : cell.Micros;
@@ -354,7 +354,7 @@ internal sealed class DurationAppender(DurationType type) : ColumnAppender(Nativ
                 if (!ExcelDates.TryToDurationMicros(cell.Number, out micros))
                     throw Fail(context, row, cell, $"holds {cell.Number.ToString(CultureInfo.InvariantCulture)}, not a duration");
                 break;
-            case CellType.Temporal when cell.Kind == ExcelValueKind.Time:
+            case CellType.Temporal when cell.Kind is ExcelValueKind.Time or ExcelValueKind.Duration:
                 micros = cell.Micros;
                 break;
             case CellType.String or CellType.SharedString:

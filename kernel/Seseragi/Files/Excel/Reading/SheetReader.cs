@@ -395,6 +395,7 @@ internal struct ColumnInference
             {
                 ExcelValueKind.Date => cell.Micros % ExcelDates.MicrosPerDay == 0 ? Seen.Date : Seen.DateTime,
                 ExcelValueKind.Time => Seen.Time,
+                ExcelValueKind.Duration => Seen.Duration,
                 _ => Seen.DateTime,
             },
             CellType.Boolean => Seen.Boolean,
