@@ -99,14 +99,13 @@ public static class ChangeFeed
     /// When true, fail unless the change data feed was enabled for the whole range, as the protocol asks of a reader.
     /// When false, a table without it is still read from its added and removed files.
     /// </param>
-    /// <param name="parquet">Reads checkpoints, see <see cref="Snapshot.Load"/>.</param>
     /// <exception cref="DeltaException">A version is not in the log, or the feed was not enabled.</exception>
     /// <param name="allowSchemaChanges">Read the range even when the table's schema changed in it in a way the read
     /// schema cannot hold (Spark's <c>unsafeBatchReadOnIncompatibleSchemaChanges</c>); see <see cref="ReadRange"/>.</param>
     public static List<ChangeFile> Read(
-        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true,
         bool allowSchemaChanges = false) =>
-        ReadRange(fileSystem, startVersion, endVersion, requireEnabled, parquet, allowSchemaChanges).Files;
+        ReadRange(fileSystem, startVersion, endVersion, requireEnabled, allowSchemaChanges).Files;
 
     /// <summary>
     /// The change files of the commits from <paramref name="startVersion"/> to <paramref name="endVersion"/> (both
@@ -119,17 +118,16 @@ public static class ChangeFeed
     /// <param name="startVersion">The first commit to report.</param>
     /// <param name="endVersion">The last commit to report, or null for the latest.</param>
     /// <param name="requireEnabled">Fail unless the change data feed was enabled for the whole range.</param>
-    /// <param name="parquet">Reads checkpoints, see <see cref="Snapshot.Load"/>.</param>
     /// <param name="allowSchemaChanges">Skip the schema check: older changes are read with the read schema, by
     /// physical name under column mapping (Spark's <c>unsafeBatchReadOnIncompatibleSchemaChanges</c>).</param>
     /// <exception cref="DeltaException">A version is not in the log, the feed was not enabled, or the schema changed incompatibly.</exception>
     public static ChangeRange ReadRange(
-        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        IFileSystem fileSystem, long startVersion, long? endVersion = null, bool requireEnabled = true,
         bool allowSchemaChanges = false)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
 
-        CommitTimeline timeline = CommitTimeline.Load(fileSystem, parquet);
+        CommitTimeline timeline = CommitTimeline.Load(fileSystem);
         long end = endVersion ?? timeline.LatestVersion;
         if (startVersion > end)
             throw new DeltaException($"The start version {startVersion} is after the end version {end}.");
@@ -142,16 +140,14 @@ public static class ChangeFeed
         MetadataAction? metadata = null;
         if (startVersion > 0)
         {
-            Snapshot before = Snapshot.Load(fileSystem, startVersion - 1, parquet);
+            TableHead before = Snapshot.LoadHead(fileSystem, startVersion - 1);
             protocol = before.Protocol;
             metadata = before.Metadata;
         }
 
         // Spark reads a column-mapped table with the end version's schema, any other with the latest one.
-        Snapshot latest = Snapshot.Load(fileSystem, null, parquet);
-        Snapshot readSnapshot = latest.ColumnMappingMode != ColumnMappingMode.None && end != latest.Version
-            ? Snapshot.Load(fileSystem, end, parquet)
-            : latest;
+        TableHead latest = Snapshot.LoadHead(fileSystem);
+        Snapshot readSnapshot = Snapshot.Load(fileSystem, latest.ColumnMappingMode != ColumnMappingMode.None ? end : latest.Version);
         bool byPhysicalName = readSnapshot.ColumnMappingMode != ColumnMappingMode.None;
         StructType readSchema = readSnapshot.Schema;
         long? changedAt = null;
@@ -236,21 +232,21 @@ public static class ChangeFeed
     /// included. Returns an empty list when no commit falls in the range.
     /// </summary>
     public static List<ChangeFile> ReadBetween(
-        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true,
         bool allowSchemaChanges = false) =>
-        ReadRangeBetween(fileSystem, start, end, requireEnabled, parquet, allowSchemaChanges)?.Files ?? [];
+        ReadRangeBetween(fileSystem, start, end, requireEnabled, allowSchemaChanges)?.Files ?? [];
 
     /// <summary>
     /// <see cref="ReadRange"/> for the commits made from <paramref name="start"/> to <paramref name="end"/>, both
     /// included; null when no commit falls in the range.
     /// </summary>
     public static ChangeRange? ReadRangeBetween(
-        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, IParquetReader? parquet = null,
+        IFileSystem fileSystem, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true,
         bool allowSchemaChanges = false)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
 
-        CommitTimeline timeline = CommitTimeline.Load(fileSystem, parquet);
+        CommitTimeline timeline = CommitTimeline.Load(fileSystem);
         long? first = timeline.VersionAtOrAfter(start);
         if (first is null) return null;
         long last = timeline.LatestVersion;
@@ -259,7 +255,7 @@ public static class ChangeFeed
             if (until < timeline.TimestampOf(timeline.EarliestVersion)) return null;
             last = timeline.VersionAsOf(until);
         }
-        return first > last ? null : ReadRange(fileSystem, first.Value, last, requireEnabled, parquet, allowSchemaChanges);
+        return first > last ? null : ReadRange(fileSystem, first.Value, last, requireEnabled, allowSchemaChanges);
     }
 
     private static void AppendCommit(List<ChangeFile> result, List<DeltaAction> actions, long version, DateTimeOffset timestamp)

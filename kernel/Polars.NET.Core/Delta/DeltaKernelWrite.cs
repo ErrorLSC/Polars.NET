@@ -238,7 +238,7 @@ internal static class DeltaKernelWrite
     {
         try
         {
-            Snapshot snapshot = Snapshot.Load(fileSystem, version, new EngineParquetReader(RootOf(fileSystem, tablePath), cloud));
+            Snapshot snapshot = Snapshot.Load(fileSystem, version);
             if (!Checkpoints.IsDue(snapshot)) return;
             Checkpoints.Write(fileSystem, snapshot);
             // With a new checkpoint, older log files may have become unnecessary.
@@ -254,7 +254,7 @@ internal static class DeltaKernelWrite
     {
         try
         {
-            return Snapshot.Load(fileSystem, parquet: new EngineParquetReader(RootOf(fileSystem, tablePath), cloud));
+            return Snapshot.Load(fileSystem);
         }
         catch (DeltaTableNotFoundException)
         {

@@ -86,31 +86,63 @@ public sealed class Snapshot
     /// <summary>Reads the table at its latest version, or at <paramref name="version"/>.</summary>
     /// <param name="fileSystem">The table storage.</param>
     /// <param name="version">The version to read, or null for the latest.</param>
-    /// <param name="parquet">
-    /// Reads checkpoints. Without it the state is rebuilt from the JSON commits alone, which works only while the
-    /// log still starts at version 0.
-    /// </param>
     /// <exception cref="DeltaTableNotFoundException">The location holds no Delta table.</exception>
     /// <exception cref="DeltaProtocolException">The table needs a feature this kernel does not implement.</exception>
     /// <exception cref="DeltaException">The version does not exist or the log is not valid.</exception>
-    public static Snapshot Load(IFileSystem fileSystem, long? version = null, IParquetReader? parquet = null)
+    public static Snapshot Load(IFileSystem fileSystem, long? version = null) => Load(fileSystem, version, useCheckpoints: true);
+
+    /// <summary>
+    /// Reads the table; without <paramref name="useCheckpoints"/> from the commits alone (which works only while the
+    /// log still starts at version 0): tests compare the two.
+    /// </summary>
+    internal static Snapshot Load(IFileSystem fileSystem, long? version, bool useCheckpoints)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
+        (LogSegment segment, LogReplay replay) = Replay(fileSystem, version, useCheckpoints, CheckpointContent.All);
+        return new Snapshot
+        {
+            Version = segment.Version,
+            Protocol = replay.Protocol!,
+            Metadata = replay.Metadata!,
+            Files = replay.ActiveFiles(),
+            AppTransactions = replay.AppTransactions,
+            DomainMetadata = replay.LiveDomainMetadata(),
+            Tombstones = replay.Tombstones,
+            CommitFileTime = segment.LastModified,
+        };
+    }
 
-        LogSegment segment = LogSegment.Find(fileSystem, version, useCheckpoints: parquet is not null);
+    /// <summary>
+    /// The protocol and metadata of the table at its latest version, or at <paramref name="version"/>, without its
+    /// files: a checkpoint is read for its protocol and metadata columns only.
+    /// </summary>
+    /// <exception cref="DeltaTableNotFoundException">The location holds no Delta table.</exception>
+    /// <exception cref="DeltaProtocolException">The table needs a feature this kernel does not implement.</exception>
+    /// <exception cref="DeltaException">The version does not exist or the log is not valid.</exception>
+    internal static TableHead LoadHead(IFileSystem fileSystem, long? version = null)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        (LogSegment segment, LogReplay replay) = Replay(fileSystem, version, useCheckpoints: true, CheckpointContent.ProtocolAndMetadata);
+        return new TableHead(segment.Version, replay.Protocol!, replay.Metadata!);
+    }
+
+    /// <summary>Replays the log up to a version and checks that the result can be read.</summary>
+    private static (LogSegment Segment, LogReplay Replay) Replay(IFileSystem fileSystem, long? version, bool useCheckpoints, CheckpointContent content)
+    {
+        LogSegment segment = LogSegment.Find(fileSystem, version, useCheckpoints);
 
         // Newest first: the commits from the last one back, then the checkpoint they build on.
         var replay = new LogReplay();
         for (int i = segment.Commits.Count - 1; i >= 0; i--)
         {
             LogFile commit = segment.Commits[i];
-            byte[] content = fileSystem.ReadAll(commit.Entry.Path)
+            byte[] bytes = fileSystem.ReadAll(commit.Entry.Path)
                 ?? throw new DeltaException($"The commit of version {commit.Version} disappeared while reading the log.");
-            replay.Apply(ActionParser.ParseCommit(content));
+            replay.Apply(ActionParser.ParseCommit(bytes));
         }
         foreach (LogFile file in segment.Checkpoint)
         {
-            ApplyCheckpointFile(fileSystem, parquet!, replay, file);
+            ApplyCheckpointFile(fileSystem, replay, file, content);
         }
 
         ProtocolAction protocol = replay.Protocol ?? throw new DeltaException("The log holds no protocol action.");
@@ -121,20 +153,8 @@ public sealed class Snapshot
         if (CatalogManaged.IsCatalogManaged(protocol) && CatalogManaged.CatalogOf(fileSystem) is null)
             throw new DeltaProtocolException(
                 "The table is catalog-managed (catalogManaged): it is read and written through the catalog that manages it, not by its path.");
-
-        var snapshot = new Snapshot
-        {
-            Version = segment.Version,
-            Protocol = protocol,
-            Metadata = metadata,
-            Files = replay.ActiveFiles(),
-            AppTransactions = replay.AppTransactions,
-            DomainMetadata = replay.LiveDomainMetadata(),
-            Tombstones = replay.Tombstones,
-            CommitFileTime = segment.LastModified,
-        };
-        if (snapshot.ColumnMappingMode != ColumnMappingMode.None) EnsureMapped(snapshot.Schema);
-        return snapshot;
+        if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None) EnsureMapped(StructType.Parse(metadata.SchemaString));
+        return (segment, replay);
     }
 
     /// <summary>Under column mapping every field, nested ones included, must carry a physical name and an id.</summary>
@@ -165,38 +185,51 @@ public sealed class Snapshot
     /// <paramref name="timestamp"/>. A time after the last commit gives the latest version.
     /// </summary>
     /// <exception cref="DeltaException">The time is before the earliest commit still in the log.</exception>
-    public static Snapshot LoadAsOf(IFileSystem fileSystem, DateTimeOffset timestamp, IParquetReader? parquet = null)
+    public static Snapshot LoadAsOf(IFileSystem fileSystem, DateTimeOffset timestamp)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
-        long version = CommitTimeline.Load(fileSystem, parquet).VersionAsOf(timestamp);
-        return Load(fileSystem, version, parquet);
+        long version = CommitTimeline.Load(fileSystem).VersionAsOf(timestamp);
+        return Load(fileSystem, version);
     }
 
-    private static void ApplyCheckpointFile(IFileSystem fileSystem, IParquetReader parquet, LogReplay replay, LogFile file)
+    private static void ApplyCheckpointFile(IFileSystem fileSystem, LogReplay replay, LogFile file, CheckpointContent content)
     {
         string path = file.Entry.Path;
         List<DeltaAction> actions;
         if (path.EndsWith(".json", StringComparison.Ordinal))
         {
-            byte[] content = fileSystem.ReadAll(path)
+            byte[] bytes = fileSystem.ReadAll(path)
                 ?? throw new DeltaException($"The checkpoint {path} disappeared while reading the log.");
-            actions = ActionParser.ParseCommit(content);
+            actions = ActionParser.ParseCommit(bytes);
         }
         else
         {
-            actions = ActionParser.ParseCheckpointRows(parquet.ReadAsJsonLines(path));
+            actions = CheckpointReader.Read(fileSystem, path, file.Entry.Size, content);
         }
         replay.Apply(actions);
+        if (content != CheckpointContent.All) return;
 
         // A V2 checkpoint keeps its file actions in sidecar files.
         foreach (DeltaAction action in actions)
         {
             if (action is not SidecarAction sidecar) continue;
-            // A sidecar is a file name inside _delta_log/_sidecars, or an absolute URI the engine resolves.
+            // A sidecar is a file name inside _delta_log/_sidecars, or an absolute URI the file system resolves.
             string sidecarPath = sidecar.Path.Contains("://", StringComparison.Ordinal)
                 ? sidecar.Path
                 : $"{LogFile.LogDirectory}/_sidecars/{sidecar.Path}";
-            replay.Apply(ActionParser.ParseCheckpointRows(parquet.ReadAsJsonLines(sidecarPath)));
+            replay.Apply(CheckpointReader.Read(fileSystem, sidecarPath, sidecar.SizeInBytes, CheckpointContent.All));
         }
     }
+}
+
+/// <summary>The protocol and metadata of a table at one version, without its files.</summary>
+internal sealed record TableHead(long Version, ProtocolAction Protocol, MetadataAction Metadata)
+{
+    private StructType? _schema;
+
+    /// <summary>The table schema.</summary>
+    public StructType Schema => _schema ??= StructType.Parse(Metadata.SchemaString);
+
+    /// <summary>How columns are found in the data files.</summary>
+    public ColumnMappingMode ColumnMappingMode => TableFeatures.ColumnMappingModeOf(Metadata);
 }

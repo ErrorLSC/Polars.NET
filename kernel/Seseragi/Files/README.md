@@ -22,7 +22,8 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, 
 
 **Files** (`ParquetFile`): opened from a path, a stream (one that cannot seek is copied into native memory first) or
 any `IRandomAccess` source (data read at offsets, such as an object in a store), synchronously or asynchronously.
-The footer is read with one ranged read for most files (two when it is longer than 64 KiB) and checked: the schema
+The footer is read with one ranged read for most files (two when it is longer than 64 KiB); a file of up to 64 KiB is
+held whole by that read and never read again. The footer is checked: the schema
 tree must account for every element and each row group must hold a chunk per leaf. Encrypted files (modular
 encryption, `PARE` or a plaintext footer) are refused by name; damaged footers fail with `ParquetFormatException`.
 

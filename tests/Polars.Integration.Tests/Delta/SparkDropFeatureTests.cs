@@ -61,15 +61,15 @@ public partial class SparkDropFeatureTests
 
             // Log cleanup a month later: history before the boundary goes only all at once, once a checkpoint at or
             // after the boundary is past the retention.
-            Checkpoints.Write(fs, Snapshot.Load(fs, parquet: new EngineParquetReader(table)));
-            IReadOnlyList<string> deleted = LogCleanup.Run(fs, Snapshot.Load(fs, parquet: new EngineParquetReader(table)), DateTimeOffset.UtcNow.AddDays(31));
+            Checkpoints.Write(fs, Snapshot.Load(fs));
+            IReadOnlyList<string> deleted = LogCleanup.Run(fs, Snapshot.Load(fs), DateTimeOffset.UtcNow.AddDays(31));
             Assert.NotEmpty(deleted);
             Assert.DoesNotContain(LogNames(table), n => n.EndsWith(".json", StringComparison.Ordinal) && long.Parse(n[..20]) < boundary);
             Assert.Equal("""{"id": 1, "v": "a"} {"id": 3, "v": "c2"} {"id": 4, "v": "a"}""", SparkRows(table));
 
             // Spark goes on with the table the kernel wrote: it drops another feature.
             LocalSpark.Run("sql", table, "ALTER TABLE {table} DROP FEATURE vacuumProtocolCheck");
-            Snapshot after = Snapshot.Load(fs, parquet: new EngineParquetReader(table)); // the log now starts at a checkpoint
+            Snapshot after = Snapshot.Load(fs); // the log now starts at a checkpoint
             Assert.Null(after.Protocol.ReaderFeatures);
             Assert.Equal(["appendOnly", "checkpointProtection", "invariants"], after.Protocol.WriterFeatures!.Order(StringComparer.Ordinal));
             using DataFrame read = DataFrame.ReadDelta(table).Sort("id");
@@ -685,7 +685,7 @@ public partial class SparkDropFeatureTests
 
             // Spark leaves the domain naming the old physical column, after which its own OPTIMIZE fails; the kernel
             // names the column as the table now holds it, and both go on clustering the table.
-            Snapshot dropped = Snapshot.Load(new LocalFileSystem(table), parquet: new EngineParquetReader(table));
+            Snapshot dropped = Snapshot.Load(new LocalFileSystem(table));
             Assert.Equal([["w"]], Clustering.PhysicalColumns(dropped.DomainMetadata)!);
             LocalSpark.Run("sql", table, "INSERT INTO {table} VALUES (3, 'z')");
             LocalSpark.Run("sql", table, "OPTIMIZE {table}");

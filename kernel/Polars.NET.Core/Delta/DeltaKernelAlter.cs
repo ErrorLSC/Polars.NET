@@ -145,10 +145,9 @@ internal static class DeltaKernelAlter
             // covers its own commit and never the drop's other commits.
             using DmlTable table = DmlTable.Open(tablePath, cloud);
             EnsureRewritable(table, feature);
-            var parquet = new EngineParquetReader(table.Root, cloud);
             return Kaminari.Seseragi.Lakehouse.Delta.DropFeature.Run(
-                table.FileSystem, () => Snapshot.Load(table.FileSystem, null, parquet), feature, new EngineRewriter(tablePath, cloud),
-                truncateHistory: truncateHistory, snapshotAt: version => Snapshot.Load(table.FileSystem, version, parquet),
+                table.FileSystem, () => Snapshot.Load(table.FileSystem), feature, new EngineRewriter(tablePath, cloud),
+                truncateHistory: truncateHistory, snapshotAt: version => Snapshot.Load(table.FileSystem, version),
                 afterCommit: version => DeltaKernelWrite.TryCheckpoint(table.FileSystem, tablePath, version, cloud));
         }
         catch (DeltaException e)

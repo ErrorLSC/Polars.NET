@@ -45,6 +45,7 @@
     <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
     <Compile Include="..\Seseragi.Lakehouse.Tests\FakeHttpServer.cs" Link="Fixtures\FakeHttpServer.cs" />
     <Compile Include="..\Seseragi.Lakehouse.Tests\TestCertificates.cs" Link="Fixtures\TestCertificates.cs" />
+    <Compile Include="..\Seseragi.Lakehouse.Tests\SnapshotAssert.cs" Link="Fixtures\SnapshotAssert.cs" />
     <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
     <ProjectReference Include="..\..\extension\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>

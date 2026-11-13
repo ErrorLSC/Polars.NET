@@ -90,8 +90,12 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
         }
     }
 
+    /// <summary>The ranges read, in order.</summary>
+    public List<(string Path, long Offset, int Length)> RangeReads { get; } = [];
+
     public byte[]? ReadRange(string path, long offset, int length)
     {
+        lock (_files) RangeReads.Add((path, offset, length));
         if (!_files.TryGetValue(path, out var file)) return null;
         if (offset >= file.Content.Length) return [];
         return file.Content.AsSpan((int)offset, (int)Math.Min(length, file.Content.Length - offset)).ToArray();

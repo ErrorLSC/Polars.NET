@@ -83,12 +83,17 @@ public class ParquetFileTests
     }
 
     [Fact]
-    public void SmallFile_IsOpenedWithOneRead()
+    public void SmallFile_IsOpenedWithOneRead_AndReadWithNoMore()
     {
         var source = new MemorySource(File.ReadAllBytes(ParquetFixtures.FullPath(Sample)));
         using var file = ParquetFile.Open(source);
         Assert.Equal(1, source.Reads);
         Assert.Equal(ParquetFixtures.Expected(Sample).GetProperty("created_by").GetString(), file.Metadata.CreatedBy);
+
+        // The first read held the whole file: its data comes from those bytes.
+        using var reader = file.OpenReader();
+        Assert.Equal(file.Metadata.RowCount, reader.ReadBatches().Sum(b => { using (b) return (long)b.Length; }));
+        Assert.Equal(1, source.Reads);
     }
 
     [Theory]

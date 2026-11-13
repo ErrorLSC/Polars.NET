@@ -12,21 +12,6 @@ using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Delta;
 
-/// <summary>
-/// Reads Parquet files for the Delta kernel with the engine: scan the file, hand its rows over as JSON lines.
-/// </summary>
-public sealed class EngineParquetReader(string tableRoot, CloudArgs? cloud = null) : IParquetReader
-{
-    /// <inheritdoc/>
-    public byte[] ReadAsJsonLines(string path)
-    {
-        LazyFrameHandle lf = DeltaKernelScan.ScanFiles([DeltaKernelScan.Combine(tableRoot, path)], cloud ?? CloudArgs.Local, null, null);
-        using DataFrameHandle df = PolarsWrapper.LazyCollect(lf, PlEngine.Auto);
-        using NativeBuffer buffer = PolarsWrapper.WriteJsonNativeMemory(df, PlJsonFormat.JsonLines);
-        return buffer.Memory.ToArray();
-    }
-}
-
 /// <summary>How a Delta table is read, beyond which version.</summary>
 /// <param name="NRows">The most rows to return; null for all.</param>
 /// <param name="RowIndexName">Adds a row index column of this name; null for none.</param>
@@ -124,10 +109,9 @@ public static class DeltaKernelScan
 
         try
         {
-            var parquet = new EngineParquetReader(root, cloud);
             Snapshot snapshot = asOf is DateTimeOffset time
-                ? Snapshot.LoadAsOf(fileSystem, time, parquet)
-                : Snapshot.Load(fileSystem, version, parquet);
+                ? Snapshot.LoadAsOf(fileSystem, time)
+                : Snapshot.Load(fileSystem, version);
             LazyFrameHandle scanned = ScanSnapshot(fileSystem, root, snapshot, filter, cloud, scannedFiles, options);
             if (options is null) return scanned;
             if (options.VariantAsJson) scanned = VariantColumns.AsJson(scanned, snapshot.Schema);
@@ -160,9 +144,9 @@ public static class DeltaKernelScan
     public static LazyFrameHandle ReadChangeFeed(
         string tablePath, long startVersion, long? endVersion = null, bool requireEnabled = true, CloudArgs? cloud = null,
         bool allowSchemaChanges = false) =>
-        WithTable(tablePath, cloud, (fileSystem, root, parquet) =>
+        WithTable(tablePath, cloud, (fileSystem, root) =>
         {
-            ChangeRange range = ChangeFeed.ReadRange(fileSystem, startVersion, endVersion, requireEnabled, parquet, allowSchemaChanges);
+            ChangeRange range = ChangeFeed.ReadRange(fileSystem, startVersion, endVersion, requireEnabled, allowSchemaChanges);
             return ChangeFrame(fileSystem, root, range.ReadSnapshot, range.Files, cloud ?? CloudArgs.Local);
         });
 
@@ -173,22 +157,22 @@ public static class DeltaKernelScan
     public static LazyFrameHandle ReadChangeFeed(
         string tablePath, DateTimeOffset start, DateTimeOffset? end = null, bool requireEnabled = true, CloudArgs? cloud = null,
         bool allowSchemaChanges = false) =>
-        WithTable(tablePath, cloud, (fileSystem, root, parquet) =>
+        WithTable(tablePath, cloud, (fileSystem, root) =>
         {
-            ChangeRange? range = ChangeFeed.ReadRangeBetween(fileSystem, start, end, requireEnabled, parquet, allowSchemaChanges);
+            ChangeRange? range = ChangeFeed.ReadRangeBetween(fileSystem, start, end, requireEnabled, allowSchemaChanges);
             return range is null
-                ? ChangeFrame(fileSystem, root, Snapshot.Load(fileSystem, null, parquet), [], cloud ?? CloudArgs.Local)
+                ? ChangeFrame(fileSystem, root, Snapshot.Load(fileSystem), [], cloud ?? CloudArgs.Local)
                 : ChangeFrame(fileSystem, root, range.ReadSnapshot, range.Files, cloud ?? CloudArgs.Local);
         });
 
     private static LazyFrameHandle WithTable(
-        string tablePath, CloudArgs? cloud, Func<IFileSystem, string, IParquetReader, LazyFrameHandle> body)
+        string tablePath, CloudArgs? cloud, Func<IFileSystem, string, LazyFrameHandle> body)
     {
         var (fileSystem, root) = TableStorage.Open(tablePath, cloud);
 
         try
         {
-            return body(fileSystem, root, new EngineParquetReader(root, cloud));
+            return body(fileSystem, root);
         }
         catch (DeltaException e)
         {

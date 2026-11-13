@@ -569,7 +569,7 @@ public class SparkInteropTests
         try
         {
             static ExprHandle Id(int value) => PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(value));
-            static Snapshot Load(string path) => Snapshot.Load(new LocalFileSystem(path), parquet: new EngineParquetReader(path));
+            static Snapshot Load(string path) => Snapshot.Load(new LocalFileSystem(path));
             static void AllPrefixed(string path, int length) => Assert.All(Load(path).Files, f =>
                 Assert.Matches($"^[0-9A-Za-z]{{{length}}}/part-", f.Path));
 
@@ -818,7 +818,7 @@ public class SparkInteropTests
             CreateTable(vectors, Checkpointed());
             Assert.Equal(2, DeltaKernelAlter.AddFeature(vectors, "deletionVectors"));
             DeltaKernelDelete.Delete(vectors, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2)));
-            Assert.Contains(Snapshot.Load(new LocalFileSystem(vectors), parquet: new EngineParquetReader(vectors)).Files, f => f.DeletionVector is not null);
+            Assert.Contains(Snapshot.Load(new LocalFileSystem(vectors)).Files, f => f.DeletionVector is not null);
             JsonDocument afterDelete = LocalSpark.Run("delete", vectors, "id IN (1, 6)")[0];
             AssertSameRows(vectors, afterDelete.RootElement.GetProperty("rows"), KernelRows(DeltaKernelScan.Scan(vectors)));
             Assert.Equal(7, afterDelete.RootElement.GetProperty("rows").GetArrayLength());
@@ -860,9 +860,9 @@ public class SparkInteropTests
             DeltaKernelAlter.SetTableProperties(timed, new Dictionary<string, string> { ["delta.enableInCommitTimestamps"] = "true" });
             Write(timed, Typed([11], "east"), KernelWriteMode.Append);
             LocalSpark.Run("sql", timed, "INSERT INTO {table} SELECT * FROM {table} WHERE id = 1");
-            Snapshot afterInsert = Snapshot.Load(new LocalFileSystem(timed), parquet: new EngineParquetReader(timed));
+            Snapshot afterInsert = Snapshot.Load(new LocalFileSystem(timed));
             long enabledAt = long.Parse(afterInsert.Metadata.Configuration[CommitTimeline.EnablementTimestampKey]);
-            Assert.Equal(2, Snapshot.LoadAsOf(new LocalFileSystem(timed), DateTimeOffset.FromUnixTimeMilliseconds(enabledAt), new EngineParquetReader(timed)).Version);
+            Assert.Equal(2, Snapshot.LoadAsOf(new LocalFileSystem(timed), DateTimeOffset.FromUnixTimeMilliseconds(enabledAt)).Version);
             Assert.Contains("\"inCommitTimestamp\"", File.ReadAllText(Path.Combine(timed, "_delta_log", "00000000000000000003.json")));
             Assert.Equal(12, LocalSpark.Run("read", timed)[0].RootElement.GetProperty("rows").GetArrayLength());
             AssertCheckpointed(timed);

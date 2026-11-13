@@ -38,11 +38,11 @@ public class SparkCheckpointStatisticsTests
         return (result.GetProperty("schema").GetString()!, adds);
     }
 
-    private const string Columns =
+    internal const string Columns =
         "i INT, l BIGINT, s STRING, d DATE, ts TIMESTAMP, tn TIMESTAMP_NTZ, dec DECIMAL(10,2), big DECIMAL(25,3), dbl DOUBLE, f FLOAT, " +
         "sh SMALLINT, by TINYINT, b BOOLEAN, bin BINARY, st STRUCT<x: INT, y: STRING>, arr ARRAY<INT>, pi INT, pd DATE, ps STRING";
 
-    private const string Rows =
+    internal const string Rows =
         "(1, 10000000000, 'abc', DATE'2024-01-02', TIMESTAMP'2024-01-02 03:04:05.123456', TIMESTAMP_NTZ'2024-01-02 03:04:05.123456', " +
         "-1.25, 1234567890123456789012.345, 1.5, 2.5, -3, 4, true, X'0102', named_struct('x', 1, 'y', 'q'), array(1, 2), 7, DATE'2020-02-02', 'p1'), " +
         "(2, -5, 'a string longer than thirty-two characters, cut in the statistics', DATE'1969-12-31', TIMESTAMP'1960-06-01 00:00:00', " +

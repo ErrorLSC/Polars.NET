@@ -162,7 +162,10 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             FileMetaData thrift = FileMetaData.Parse(bytes.Span);
             if (thrift.EncryptionAlgorithm is { } algorithm)
                 throw new ParquetFormatException($"The Parquet file is encrypted ({algorithm.Name}, plaintext footer), which is not supported.");
-            return new ParquetFile(source, owned, thrift, ParquetMetadata.FromThrift(thrift));
+            // A file the tail read held whole (up to 64 KiB) is read from those bytes from now on: on an object store
+            // each read is a request.
+            IRandomAccess data = tailLength == length ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray()) : source;
+            return new ParquetFile(data, owned, thrift, ParquetMetadata.FromThrift(thrift));
         }
         finally
         {

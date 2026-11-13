@@ -57,19 +57,18 @@ let private assertKernelAgrees (path: string) (partitionColumns: string list) =
 
     latest
 
-/// A Parquet reader for the kernel built on the engine: scan the file, write its rows as JSON lines.
-type private EngineParquetReader(tablePath: string) =
-    member val Reads = ResizeArray<string>() with get
+/// A table's storage that records the checkpoint files read.
+type private CheckpointCounting(inner: IFileSystem) =
+    member val Reads = System.Collections.Concurrent.ConcurrentBag<string>() with get
 
-    interface IParquetReader with
-        member this.ReadAsJsonLines(path: string) =
-            this.Reads.Add path
-            let temp = Path.Combine(Path.GetTempPath(), $"seseragi_rows_{Guid.NewGuid():N}.ndjson")
-            try
-                LazyFrame.ScanParquet(Path.Combine(tablePath, path)).SinkNdJson temp
-                File.ReadAllBytes temp
-            finally
-                if File.Exists temp then File.Delete temp
+    interface IFileSystem with
+        member _.List(directory, startFrom) = inner.List(directory, startFrom)
+        member this.ReadAll path =
+            if path.Contains ".checkpoint." || path.Contains "_sidecars/" then this.Reads.Add path
+            inner.ReadAll path
+        member this.ReadRange(path, offset, length) =
+            if path.Contains ".checkpoint." || path.Contains "_sidecars/" then this.Reads.Add path
+            inner.ReadRange(path, offset, length)
 
 let private fileKeys (snapshot: Snapshot) =
     snapshot.Files
@@ -184,7 +183,7 @@ let private liveRowsFromFiles (path: string) (fs: IFileSystem) (snapshot: Snapsh
             else Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, f.DeletionVector).Cardinality
         rows - deleted)
 
-/// Tables written by Spark or Databricks, read through their checkpoints with the engine as Parquet reader.
+/// Tables written by Spark or Databricks, read through their checkpoints.
 /// expectedRows: the live row count when known; -1 to compare with the engine's own reader; -2 when the sample
 /// ships without its data files.
 [<Theory>]
@@ -198,14 +197,13 @@ let private liveRowsFromFiles (path: string) (fs: IFileSystem) (snapshot: Snapsh
 [<InlineData("with-short-dv", false, 7L)>]
 let ``Kernel reads tables other engines wrote`` (name: string, hasCheckpoint: bool, expectedRows: int64) =
     let path = sampleTable name
-    let fs = LocalFileSystem path
-    let reader = EngineParquetReader path
-    let snapshot = Snapshot.Load(fs, parquet = reader)
+    let fs = CheckpointCounting(LocalFileSystem path)
+    let snapshot = Snapshot.Load fs
 
-    Assert.Equal(hasCheckpoint, reader.Reads.Count > 0)
+    Assert.Equal(hasCheckpoint, fs.Reads.Count > 0)
 
     // The same state must come out of the JSON commits alone.
-    let fromCommits = Snapshot.Load fs
+    let fromCommits = Snapshot.Load(fs, Nullable(), false)
     let keys (s: Snapshot) =
         s.Files
         |> Seq.map (fun f ->
@@ -265,10 +263,9 @@ let ``Delta Acceptance Tests reader case`` (caseName: string, expectedName: stri
     let expectedVersion = metadata.RootElement.GetProperty("version").GetInt64()
 
     let fs = LocalFileSystem tablePath
-    let reader = EngineParquetReader tablePath
     let snapshot =
-        if expectedName = "latest" then Snapshot.Load(fs, parquet = reader)
-        else Snapshot.Load(fs, Nullable expectedVersion, reader)
+        if expectedName = "latest" then Snapshot.Load fs
+        else Snapshot.Load(fs, Nullable expectedVersion)
 
     Assert.Equal(expectedVersion, snapshot.Version)
     Assert.Equal(metadata.RootElement.GetProperty("min_reader_version").GetInt32(), snapshot.Protocol.MinReaderVersion)
@@ -302,7 +299,7 @@ let ``Delta Acceptance Tests content through the kernel scan`` (caseName: string
     Assert.Equal(expectedRaw.Height, actual.Height)
 
     // Order rows by the plain columns, then compare everything.
-    let snapshot = Snapshot.Load(LocalFileSystem tablePath, version, EngineParquetReader tablePath)
+    let snapshot = Snapshot.Load(LocalFileSystem tablePath, version)
     let sortColumns =
         snapshot.Schema.Fields
         |> Seq.filter (fun f -> f.Type :? Schema.PrimitiveType && f.Type.ToString() <> "binary" || f.Type :? Schema.DecimalType)
@@ -395,9 +392,8 @@ let ``Object store file system agrees with the local one`` (name: string) =
     Assert.Null(fs.ReadRange("missing/missing.bin", 0L, 4))
 
     // The same snapshot comes out, and deletion vectors read through range requests.
-    let reader = EngineParquetReader path
-    let viaLocal = Snapshot.Load(local, parquet = reader)
-    let viaStore = Snapshot.Load(fs, parquet = reader)
+    let viaLocal = Snapshot.Load local
+    let viaStore = Snapshot.Load fs
     Assert.Equal(viaLocal.Version, viaStore.Version)
     Assert.Equal<string list>(
         viaLocal.Files |> Seq.map (fun f -> f.Path) |> Seq.sort |> List.ofSeq,
@@ -834,18 +830,17 @@ let ``Kernel checkpoints give the state of the log, and other readers use them``
         Assert.Equal(8L, hint.RootElement.GetProperty("version").GetInt64())
 
         // Through the checkpoint or from the commits alone, every version has the same state.
-        let fs = LocalFileSystem path
-        let reader = EngineParquetReader path
+        let fs = CheckpointCounting(LocalFileSystem path)
         for v in [ 4L; 5L; 8L; 10L ] do
-            let viaCheckpoint = Snapshot.Load(fs, Nullable v, reader)
-            let fromCommits = Snapshot.Load(fs, Nullable v)
+            let viaCheckpoint = Snapshot.Load(fs, Nullable v)
+            let fromCommits = Snapshot.Load(fs, Nullable v, false)
             let files (s: Snapshot) = s.Files |> Seq.map (fun f -> f.Path, f.Stats, f.Size, f.PartitionValues.["region"]) |> Seq.sort |> List.ofSeq
             Assert.Equal<(string * string * int64 * string) list>(files fromCommits, files viaCheckpoint)
             let tombstones (s: Snapshot) = s.Tombstones |> Seq.map (fun r -> r.Path) |> Seq.sort |> List.ofSeq
             Assert.Equal<string list>(tombstones fromCommits, tombstones viaCheckpoint)
             Assert.Equal(fromCommits.Metadata.SchemaString, viaCheckpoint.Metadata.SchemaString)
             Assert.Equal<string list>(List.ofSeq fromCommits.Metadata.Configuration.Keys, List.ofSeq viaCheckpoint.Metadata.Configuration.Keys)
-        Assert.True(reader.Reads.Count > 0)
+        Assert.True(fs.Reads.Count > 0)
 
         // The current engine reads the checkpoint with its own Parquet reader, and gets the same rows.
         assertKernelAgrees path [ "region" ] |> ignore

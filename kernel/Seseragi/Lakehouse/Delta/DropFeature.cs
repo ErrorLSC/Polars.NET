@@ -73,7 +73,7 @@ public static class DropFeature
     /// <param name="rewriter">The data rewrites; needed for deletion vectors, type widening and column mapping.</param>
     /// <param name="now">The writer's clock; the current time when null.</param>
     /// <param name="truncateHistory">Spark's <c>TRUNCATE HISTORY</c>: delete the history instead of protecting it.</param>
-    /// <param name="snapshotAt">Loads the table at a version (to check the oldest remaining one); <see cref="Snapshot.Load"/> by default.</param>
+    /// <param name="snapshotAt">Loads the table at a version (to check the oldest remaining one); <see cref="Snapshot.Load(IFileSystem, long?)"/> by default.</param>
     /// <param name="afterCommit">Called with each version the drop committed that has no checkpoint (the engine
     /// checkpoints it when the interval is due, as Spark's post-commit hook does); after each step, failed ones too.</param>
     /// <exception cref="DeltaException">The feature is not in the protocol, cannot be dropped, or something depends on

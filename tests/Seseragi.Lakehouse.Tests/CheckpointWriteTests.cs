@@ -89,10 +89,9 @@ public class CheckpointWriteTests
         Assert.Contains("\"v2Checkpoint\":{\"path\":\"" + path["_delta_log/".Length..] + "\"",
             System.Text.Encoding.UTF8.GetString(fs.ReadAll("_delta_log/_last_checkpoint")!));
 
-        // With the commits gone, the checkpoint alone gives the state (a JSON checkpoint needs no Parquet reader
-        // to be parsed, but checkpoints are only used when one is given).
+        // With the commits gone, the checkpoint alone gives the state.
         for (int v = 0; v <= 2; v++) fs.Delete($"_delta_log/{v:D20}.json");
-        Snapshot fromCheckpoint = Snapshot.Load(fs, parquet: new FakeParquetReader(fs));
+        Snapshot fromCheckpoint = Snapshot.Load(fs);
         Assert.Equal(2, fromCheckpoint.Version);
         Assert.Equal(["b.parquet"], fromCheckpoint.Files.Select(f => f.Path));
         Assert.Equal(3, fromCheckpoint.AppTransactions["app"].Version);

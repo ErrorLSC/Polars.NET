@@ -8,17 +8,9 @@ public static class ActionParser
 {
     /// <summary>Reads all actions of a commit file. Lines holding an action this kernel does not know are skipped.</summary>
     /// <exception cref="DeltaException">A line is not valid JSON or an action lacks a required field.</exception>
-    public static List<DeltaAction> ParseCommit(ReadOnlyMemory<byte> content) => ParseLines(content, checkpointRows: false);
-
-    /// <summary>
-    /// Reads the actions of checkpoint rows given as JSON lines (see <see cref="Engine.IParquetReader"/>).
-    /// Each row has one column per action kind; the columns that do not apply are null or hold only nulls.
-    /// </summary>
-    public static List<DeltaAction> ParseCheckpointRows(ReadOnlyMemory<byte> content) => ParseLines(content, checkpointRows: true);
-
-    private static List<DeltaAction> ParseLines(ReadOnlyMemory<byte> content, bool checkpointRows)
+    public static List<DeltaAction> ParseCommit(ReadOnlyMemory<byte> content)
     {
-        var actions = new List<DeltaAction>();
+        List<DeltaAction> actions = [];
         ReadOnlySpan<byte> span = content.Span;
         int start = 0;
         while (start < span.Length)
@@ -29,7 +21,7 @@ public static class ActionParser
             ReadOnlyMemory<byte> line = content[start..end];
             if (!IsBlank(line.Span))
             {
-                DeltaAction? action = ParseLine(line, checkpointRows);
+                DeltaAction? action = ParseLine(line);
                 if (action is not null) actions.Add(action);
             }
             start = end + 1;
@@ -47,9 +39,7 @@ public static class ActionParser
     }
 
     /// <summary>Reads one action. Returns null for an action this kernel does not know.</summary>
-    public static DeltaAction? ParseLine(ReadOnlyMemory<byte> line) => ParseLine(line, checkpointRow: false);
-
-    private static DeltaAction? ParseLine(ReadOnlyMemory<byte> line, bool checkpointRow)
+    public static DeltaAction? ParseLine(ReadOnlyMemory<byte> line)
     {
         try
         {
@@ -61,10 +51,6 @@ public static class ActionParser
             foreach (JsonProperty p in root.EnumerateObject())
             {
                 if (p.Value.ValueKind != JsonValueKind.Object) continue;
-                // In a checkpoint row an action that is absent may arrive as an object whose fields are all null.
-                if (checkpointRow && KeyField(p.Name) is string key
-                    && (!p.Value.TryGetProperty(key, out JsonElement keyValue) || keyValue.ValueKind == JsonValueKind.Null))
-                    continue;
                 switch (p.Name)
                 {
                     case "sidecar": return ReadSidecar(p.Value);
@@ -92,17 +78,6 @@ public static class ActionParser
         }
     }
 
-    private static string? KeyField(string action) => action switch
-    {
-        "add" or "remove" or "cdc" or "sidecar" => "path",
-        "metaData" => "id",
-        "protocol" => "minReaderVersion",
-        "txn" => "appId",
-        "domainMetadata" => "domain",
-        "checkpointMetadata" => "version",
-        _ => null,
-    };
-
     private static SidecarAction ReadSidecar(JsonElement e) => new()
     {
         Path = Required(e, "path", "sidecar"),
@@ -117,9 +92,7 @@ public static class ActionParser
         Size = Long(e, "size") ?? 0,
         ModificationTime = Long(e, "modificationTime") ?? 0,
         DataChange = Bool(e, "dataChange", true),
-        // A checkpoint may carry the statistics as a struct (stats_parsed) instead of, or beside, the JSON text.
-        // The struct has the shape of the text, so its JSON form reads the same way.
-        Stats = Str(e, "stats") ?? ParsedStats(e),
+        Stats = Str(e, "stats"),
         Tags = NullableMap(e, "tags"),
         DeletionVector = ReadDeletionVector(e),
         BaseRowId = Long(e, "baseRowId"),
@@ -226,9 +199,6 @@ public static class ActionParser
     private static DeltaException Missing(string field, string action) =>
         new($"A '{action}' action lacks the required field '{field}'.");
 
-    private static string? ParsedStats(JsonElement e) =>
-        e.TryGetProperty("stats_parsed", out JsonElement v) && v.ValueKind == JsonValueKind.Object ? v.GetRawText() : null;
-
     private static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
@@ -262,29 +232,12 @@ public static class ActionParser
         return result;
     }
 
-    // A map is an object, or (from a Parquet reader) an array of {"key": ..., "value": ...} entries.
     private static Dictionary<string, string?>? NullableMap(JsonElement e, string name)
     {
-        if (!e.TryGetProperty(name, out JsonElement v)) return null;
-
-        if (v.ValueKind == JsonValueKind.Object)
-        {
-            var map = new Dictionary<string, string?>(StringComparer.Ordinal);
-            foreach (JsonProperty p in v.EnumerateObject()) map[p.Name] = Text(p.Value);
-            return map;
-        }
-        if (v.ValueKind == JsonValueKind.Array)
-        {
-            var map = new Dictionary<string, string?>(StringComparer.Ordinal);
-            foreach (JsonElement entry in v.EnumerateArray())
-            {
-                if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("key", out JsonElement key) || key.ValueKind != JsonValueKind.String)
-                    throw new DeltaException($"The map '{name}' has an entry without a string key.");
-                map[key.GetString()!] = entry.TryGetProperty("value", out JsonElement value) ? Text(value) : null;
-            }
-            return map;
-        }
-        return null;
+        if (!e.TryGetProperty(name, out JsonElement v) || v.ValueKind != JsonValueKind.Object) return null;
+        var map = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (JsonProperty p in v.EnumerateObject()) map[p.Name] = Text(p.Value);
+        return map;
     }
 
     private static string? Text(JsonElement value) => value.ValueKind switch

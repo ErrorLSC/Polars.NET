@@ -173,8 +173,8 @@ public class DropFeatureTests
         Assert.Contains("\"truncateHistory\":true", Encoding.UTF8.GetString(fs.ReadAll(LogFile.CommitPath(4))!));
     }
 
-    // The runs that delete history and then read the log from a checkpoint need the engine's Parquet reader: they
-    // are checked against Spark in the integration tests (SparkDropFeatureTests.TruncateHistory_*).
+    // The runs that delete history and then read the log from a checkpoint are checked against Spark in the
+    // integration tests (SparkDropFeatureTests.TruncateHistory_*).
 
     [Fact]
     public void TruncateHistory_FirstRemovesTraces_ThenWaitsForTheRetention()

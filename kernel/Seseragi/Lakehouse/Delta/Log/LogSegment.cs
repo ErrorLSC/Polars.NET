@@ -26,7 +26,7 @@ internal sealed class LogSegment
     /// <summary>Finds the segment for the latest version, or for <paramref name="version"/>.</summary>
     /// <param name="fileSystem">The table storage.</param>
     /// <param name="version">The version wanted, or null for the latest.</param>
-    /// <param name="useCheckpoints">False when no Parquet reader is at hand: the segment then starts from commit 0.</param>
+    /// <param name="useCheckpoints">False to start from commit 0 whatever the checkpoints (tests compare the two).</param>
     public static LogSegment Find(IFileSystem fileSystem, long? version, bool useCheckpoints)
     {
         // A catalog-managed table is what its catalog says: asked once, before listing.
@@ -156,7 +156,7 @@ internal sealed class LogSegment
             {
                 error = checkpointVersion < 0 && v == 0
                     ? (checkpoints.Count > 0
-                        ? "The log does not start at version 0: reading it needs a checkpoint, and no Parquet reader was given."
+                        ? "The log does not start at version 0: reading it needs a checkpoint, and checkpoints were not used."
                         : $"The log starts at version {(commits.Count > 0 ? commits.Keys.Min() : 0)} and has no checkpoint to start from.")
                     : $"The log is not contiguous: the commit of version {v} is missing.";
                 return null;

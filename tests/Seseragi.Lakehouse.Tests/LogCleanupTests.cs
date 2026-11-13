@@ -145,8 +145,15 @@ public class LogCleanupTests
         }
         // A sidecar a remaining checkpoint refers to, and two nobody refers to: one old, one recent.
         string referencing = "_delta_log/00000000000000000004.checkpoint.11111111-1111-1111-1111-111111111111.json";
-        fs.Put(referencing, """{"checkpointMetadata":{"version":4}}""" + "\n" + """{"sidecar":{"path":"kept.parquet","sizeInBytes":1,"modificationTime":1}}""");
-        fs.Put("_delta_log/_sidecars/kept.parquet", "x");
+        // (A whole checkpoint of version 4, which may be chosen over the written one: commit 0's protocol and metadata,
+        // the files in the sidecar.)
+        byte[] kept = CheckpointParquet.Write(CheckpointParquet.Classic(),
+            [.. Enumerable.Range(1, 4).Select(v => $$$"""{"add":{"path":"f{{{v}}}.parquet","size":0,"modificationTime":0,"dataChange":false}}""")]);
+        fs.Put(referencing, string.Join("\n",
+            """{"checkpointMetadata":{"version":4}}""",
+            System.Text.Encoding.UTF8.GetString(fs.ReadAll("_delta_log/00000000000000000000.json")!).Trim(),
+            $$$"""{"sidecar":{"path":"kept.parquet","sizeInBytes":{{{kept.Length}}},"modificationTime":1}}"""));
+        fs.PutBytes("_delta_log/_sidecars/kept.parquet", kept);
         fs.Put("_delta_log/_sidecars/orphan.parquet", "x");
         fs.Put("_delta_log/_sidecars/fresh.parquet", "x", DateTimeOffset.UtcNow.AddDays(40));
 

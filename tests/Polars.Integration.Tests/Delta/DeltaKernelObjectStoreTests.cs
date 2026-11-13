@@ -112,7 +112,7 @@ public static class KernelObjectStoreCheck
                 ["Region"], args, options: new KernelWriteOptions(MaxRowsPerFile: 2, Compression: Polars.NET.Core.Enums.PlParquetCompression.ZSTD));
 
         using var fs = new ObjectStoreFileSystem(url, args);
-        Snapshot table = Snapshot.Load(fs, parquet: new EngineParquetReader(url, args));
+        Snapshot table = Snapshot.Load(fs);
         Assert.Equal(6, table.Files.Count); // 4 rows per partition, 2 per file
         Assert.Contains(table.Files, f => f.PartitionValues["Region"] == "東京 50%");
         Assert.All(table.Files, f => Assert.EndsWith(".zstd.parquet", f.Path));
@@ -152,7 +152,7 @@ public static class KernelObjectStoreCheck
                 ["Part"], args, options: new KernelWriteOptions(MaxRowsPerFile: 3));
 
         using var fs = new ObjectStoreFileSystem(url, args);
-        Snapshot table = Snapshot.Load(fs, parquet: new EngineParquetReader(url, args));
+        Snapshot table = Snapshot.Load(fs);
         Assert.Equal(40, table.Files.Count);
         var listed = fs.ListAll("").ToDictionary(f => f.Path, f => f.Size, StringComparer.Ordinal);
         foreach (var file in table.Files)
@@ -171,8 +171,8 @@ public static class KernelObjectStoreCheck
         string local = Path.Combine(SampleTables.Root, table);
 
         using var store = new ObjectStoreFileSystem(url, args);
-        Snapshot viaStore = Snapshot.Load(store, parquet: new EngineParquetReader(url, args));
-        Snapshot viaLocal = Snapshot.Load(new Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem(local), parquet: new EngineParquetReader(local));
+        Snapshot viaStore = Snapshot.Load(store);
+        Snapshot viaLocal = Snapshot.Load(new Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem(local));
         Assert.Equal(viaLocal.Version, viaStore.Version);
         Assert.Equal(viaLocal.Files.Select(f => f.Path + "|" + f.DeletionVector?.UniqueId).Order(),
             viaStore.Files.Select(f => f.Path + "|" + f.DeletionVector?.UniqueId).Order());

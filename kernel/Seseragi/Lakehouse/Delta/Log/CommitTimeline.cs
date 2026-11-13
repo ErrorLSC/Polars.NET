@@ -44,7 +44,7 @@ public sealed class CommitTimeline
 
     /// <summary>Reads the timeline of a table.</summary>
     /// <exception cref="DeltaTableNotFoundException">The location holds no Delta table.</exception>
-    public static CommitTimeline Load(IFileSystem fileSystem, IParquetReader? parquet = null)
+    public static CommitTimeline Load(IFileSystem fileSystem)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
 
@@ -57,7 +57,7 @@ public sealed class CommitTimeline
         while (first > 0 && commits[first - 1].Version == commits[first].Version - 1) first--;
         if (first > 0) commits.RemoveRange(0, first);
 
-        return Build(fileSystem, commits, Snapshot.Load(fileSystem, null, parquet).Metadata);
+        return Build(fileSystem, commits, Snapshot.LoadHead(fileSystem).Metadata);
     }
 
     /// <summary>The timeline of a table whose latest metadata is already known.</summary>

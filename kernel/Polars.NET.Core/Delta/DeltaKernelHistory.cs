@@ -20,10 +20,9 @@ internal static class DeltaKernelHistory
         try
         {
             using DmlTable table = DmlTable.Open(tablePath, cloud);
-            var parquet = new EngineParquetReader(table.Root, cloud);
             Snapshot target = version is long v
-                ? Snapshot.Load(table.FileSystem, v, parquet)
-                : Snapshot.LoadAsOf(table.FileSystem, timestamp!.Value, parquet);
+                ? Snapshot.Load(table.FileSystem, v)
+                : Snapshot.LoadAsOf(table.FileSystem, timestamp!.Value);
             RestoreResult result = Kaminari.Seseragi.Lakehouse.Delta.Restore.Run(
                 table.FileSystem, table.Snapshot, target, ignoreMissingFiles, protocolDowngradeAllowed);
             if (result.Version is long committed) DeltaKernelWrite.TryCheckpoint(table.FileSystem, tablePath, committed, cloud);
@@ -41,7 +40,7 @@ internal static class DeltaKernelHistory
         var (fileSystem, root) = TableStorage.Open(tablePath, cloud);
         try
         {
-            return History.Read(fileSystem, limit, new EngineParquetReader(root, cloud));
+            return History.Read(fileSystem, limit);
         }
         catch (DeltaException e)
         {

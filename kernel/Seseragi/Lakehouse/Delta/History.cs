@@ -15,12 +15,11 @@ public static class History
 {
     /// <param name="fileSystem">The table storage.</param>
     /// <param name="limit">The number of newest commits; 0 for all.</param>
-    /// <param name="parquet">Reads Parquet checkpoints; needed when the earliest commits were cleaned up.</param>
-    public static List<HistoryEntry> Read(IFileSystem fileSystem, int limit = 0, IParquetReader? parquet = null)
+    public static List<HistoryEntry> Read(IFileSystem fileSystem, int limit = 0)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         if (limit < 0) throw new ArgumentOutOfRangeException(nameof(limit), "The limit cannot be negative.");
-        CommitTimeline timeline = CommitTimeline.Load(fileSystem, parquet);
+        CommitTimeline timeline = CommitTimeline.Load(fileSystem);
         var entries = new List<HistoryEntry>();
         for (long version = timeline.LatestVersion; version >= timeline.EarliestVersion; version--)
         {
