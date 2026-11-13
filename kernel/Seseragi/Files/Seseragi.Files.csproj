@@ -14,7 +14,7 @@
     <AssemblyName>Kaminari.Seseragi.Files</AssemblyName>
     <RootNamespace>Kaminari.Seseragi.Files</RootNamespace>
     <Authors>ErrorLSC</Authors>
-    <Description>Managed file format readers and writers (Avro) streaming Apache Arrow record batches, for the Kaminari projects.</Description>
+    <Description>Managed file format readers and writers (Avro, Excel) streaming Apache Arrow record batches, for the Kaminari projects.</Description>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>

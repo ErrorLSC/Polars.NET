@@ -35,11 +35,12 @@ type FSharpExcelTests() =
 
                 Assert.Equal(3L, df.Height)
 
-                Assert.Equal(1.0, df.["Id"].GetValue<float>(0))
+                // Whole numbers read as Int64; MiniExcel's date cells as Date.
+                Assert.Equal(1L, df.["Id"].GetValue<int64>(0))
 
                 Assert.Equal("Alice", df.["Name"].GetValue<string>(0))
 
-                Assert.Equal(DateTime(2022, 1, 1), df.["JoinDate"].GetValue<DateTime>(0))
+                Assert.Equal(DateOnly(2022, 1, 1), df.["JoinDate"].GetValue<DateOnly>(0))
 
             testDefaultRead()
 
@@ -54,7 +55,6 @@ type FSharpExcelTests() =
                 Assert.Equal(DataType.Int64, df.Schema.["Id"])
                 Assert.Equal(DataType.String, df.Schema.["Score"])
 
-                // Id: Float(1.0) -> Int64(1)
                 Assert.Equal(1L, df.["Id"].GetValue<int64>(0))
 
                 // Score: Float(99.5) -> String("99.5")
@@ -96,3 +96,25 @@ type FSharpExcelTests() =
 
         finally
             if File.Exists tempFile then File.Delete tempFile
+
+    [<Fact>]
+    member _.``IO: Excel through streams, scan and sink`` () =
+        let path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".xlsx")
+        try
+            use df = DataFrame.ofRecords [
+                { Id = 1; Name = "Alice"; Score = 99.5; IsActive = true; JoinDate = DateTime(2022, 1, 1, 8, 30, 0) }
+                { Id = 2; Name = "Bob"; Score = 88.0; IsActive = false; JoinDate = DateTime(2023, 5, 20) }
+            ]
+            use ms = new MemoryStream()
+            df.WriteExcel(ms, freezeHeader = true)
+            ms.Position <- 0L
+            use back = DataFrame.ReadExcel(ms, columns = [ "Name"; "JoinDate" ])
+            Assert.Equal<string list>([ "Name"; "JoinDate" ], back.Columns |> List.ofArray)
+            Assert.Equal(DateTime(2022, 1, 1, 8, 30, 0), back.["JoinDate"].GetValue<DateTime>(0))
+
+            df.Lazy().SinkExcel(path, sheetName = "People")
+            use scanned = LazyFrame.ScanExcel(path, sheetName = "People").Collect()
+            Assert.Equal(2L, scanned.Height)
+            Assert.Equal("Bob", scanned.["Name"].GetValue<string>(1))
+        finally
+            if File.Exists path then File.Delete path

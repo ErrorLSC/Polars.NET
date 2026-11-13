@@ -30,6 +30,7 @@
   <ItemGroup>
     <!-- Avro files written by the reference writers, shared with the Seseragi.Files tests. -->
     <None Include="..\Seseragi.Files.Tests\TestData\avro\*.avro" Link="TestData\avro\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Seseragi.Files.Tests\TestData\excel\sparse.*;..\Seseragi.Files.Tests\TestData\excel\chartsheet.xlsx" Link="TestData\excel\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

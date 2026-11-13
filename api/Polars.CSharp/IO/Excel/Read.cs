@@ -5,27 +5,34 @@ namespace Polars.CSharp;
 public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <summary>
-    /// Read an Excel file (.xlsx) into a DataFrame.
+    /// Read a sheet of an Excel workbook into a DataFrame.
     /// <para>
-    /// This uses the high-performance native Rust 'calamine' engine. 
-    /// It is significantly faster and more memory-efficient than traditional .NET Excel libraries.
+    /// .xlsx workbooks are streamed by the managed reader of Kaminari.Seseragi.Files (the format is detected from the
+    /// content); .xlsb, .xls and .ods workbooks are still read by the native reader for now.
+    /// </para>
+    /// <para>
+    /// Column types are inferred from the first <paramref name="inferSchemaLen"/> rows: whole numbers give Int64, other
+    /// numbers Float64, booleans Boolean, text String; by number format, dates give Date, dates with times
+    /// Datetime(μs), times of day Time, elapsed times Duration(μs); any other mix gives String. A later value that does
+    /// not fit raises an error naming its cell. Error values (#N/A …) read as nulls.
     /// </para>
     /// </summary>
-    /// <param name="path">Path to the .xlsx file.</param>
-    /// <param name="sheetName">Name of the sheet to read. If provided, it takes precedence over <paramref name="sheetIndex"/>.</param>
-    /// <param name="sheetIndex">Index of the sheet to read (0-based). Default is 0 (the first sheet).</param>
+    /// <param name="path">Path to the workbook.</param>
+    /// <param name="sheetName">Name of the sheet to read (case-insensitive). Takes precedence over <paramref name="sheetIndex"/>.</param>
+    /// <param name="sheetIndex">Index of the sheet to read (0-based tab position; hidden sheets and chart sheets count, and a chart sheet cannot be read). Default is 0.</param>
     /// <param name="schema">
-    /// Optional schema overrides. 
-    /// Provide this to strictly enforce specific column types (e.g., forcing a numeric column to be read as String).
+    /// Column types by name instead of inferred ones (numbers convert to integer, floating-point, decimal, string and
+    /// temporal types; text is parsed; a time zone reads the workbook's clock times as that zone's local time).
     /// </param>
-    /// <param name="hasHeader">Indicates if the first row contains header names. Default is true.</param>
-    /// <param name="inferSchemaLen">
-    /// Number of rows to use for schema inference. 
-    /// (Note: The underlying engine scans implicitly, but this is kept for API alignment).
-    /// </param>
-    /// <param name="dropEmptyRows">If true, rows where all cells are empty or null will be skipped. Default is true.</param>
-    /// <param name="raiseIfEmpty">If true, throws an exception if the sheet is empty or contains no data. Default is true.</param>
-    /// <returns>A new DataFrame containing the Excel data.</returns>
+    /// <param name="hasHeader">The first row with a value holds the column names. Default is true. Blank names become
+    /// <c>__UNNAMED__i</c>, repeated ones get <c>_1</c>, <c>_2</c>…</param>
+    /// <param name="inferSchemaLen">Rows the column types are inferred from (0 reads every column as String).</param>
+    /// <param name="dropEmptyRows">Skip rows without values. Default is true.</param>
+    /// <param name="raiseIfEmpty">Throw if the sheet has no data rows. Default is true.</param>
+    /// <param name="columns">Columns to read, by name (in sheet order). .xlsx only.</param>
+    /// <param name="dropEmptyColumns">Leave out columns without a header name and without values in the first rows. Default is true.</param>
+    /// <param name="tableName">Read a table (list object) by name instead of a sheet: its range, its header, no totals row. .xlsx only.</param>
+    /// <returns>A new DataFrame containing the sheet's data.</returns>
     /// <exception cref="FileNotFoundException">Thrown if the file does not exist.</exception>
     public static DataFrame ReadExcel(
         string path,
@@ -35,24 +42,61 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         bool hasHeader = true,
         ulong inferSchemaLen = 100,
         bool dropEmptyRows = true,
-        bool raiseIfEmpty = true)
+        bool raiseIfEmpty = true,
+        string[]? columns = null,
+        bool dropEmptyColumns = true,
+        string? tableName = null)
     {
-        if (!File.Exists(path))
-            throw new FileNotFoundException($"Excel file not found: {path}");
-
         var schemaHandle = schema?.Consume().Handle;
+        return new DataFrame(PolarsWrapper.ReadExcel(path, sheetName, sheetIndex, schemaHandle, hasHeader, inferSchemaLen,
+            dropEmptyRows, raiseIfEmpty, columns, dropEmptyColumns, tableName));
+    }
 
-        var h = PolarsWrapper.ReadExcel(
-            path,
-            sheetName,
-            sheetIndex,
-            schemaHandle,
-            hasHeader,
-            inferSchemaLen,
-            dropEmptyRows,
-            raiseIfEmpty
-        );
+    /// <summary>
+    /// Read a sheet of an .xlsx workbook in a stream into a DataFrame (the stream is left open; one that cannot seek
+    /// is buffered in native memory first). See <see cref="ReadExcel(string, string, ulong, Nullable{IntoSchema}, bool, ulong, bool, bool, string[], bool, string)"/>.
+    /// </summary>
+    public static DataFrame ReadExcel(
+        Stream stream,
+        string? sheetName = null,
+        ulong sheetIndex = 0,
+        IntoSchema? schema = null,
+        bool hasHeader = true,
+        ulong inferSchemaLen = 100,
+        bool dropEmptyRows = true,
+        bool raiseIfEmpty = true,
+        string[]? columns = null,
+        bool dropEmptyColumns = true,
+        string? tableName = null)
+    {
+        var schemaHandle = schema?.Consume().Handle;
+        return new DataFrame(PolarsWrapper.ReadExcel(stream, sheetName, sheetIndex, schemaHandle, hasHeader, inferSchemaLen,
+            dropEmptyRows, raiseIfEmpty, columns, dropEmptyColumns, tableName));
+    }
+}
 
-        return new DataFrame(h);
+public partial class LazyFrame
+{
+    /// <summary>
+    /// Lazily scan a sheet of an .xlsx workbook. The header and the first <paramref name="inferSchemaLen"/> rows are
+    /// read now for the schema; the sheet is streamed batch by batch each time the query runs. The parameters are those
+    /// of <see cref="DataFrame.ReadExcel(string, string, ulong, Nullable{IntoSchema}, bool, ulong, bool, bool, string[], bool, string)"/>.
+    /// </summary>
+    public static LazyFrame ScanExcel(
+        string path,
+        string? sheetName = null,
+        ulong sheetIndex = 0,
+        IntoSchema? schema = null,
+        bool hasHeader = true,
+        ulong inferSchemaLen = 100,
+        bool dropEmptyRows = true,
+        bool raiseIfEmpty = true,
+        string[]? columns = null,
+        bool dropEmptyColumns = true,
+        string? tableName = null)
+    {
+        var schemaHandle = schema?.Consume().Handle;
+        return new(PolarsWrapper.ScanExcel(path, sheetName, sheetIndex, schemaHandle, hasHeader, inferSchemaLen,
+            dropEmptyRows, raiseIfEmpty, columns, dropEmptyColumns, tableName));
     }
 }
