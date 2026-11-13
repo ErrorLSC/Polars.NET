@@ -33,16 +33,12 @@ public class ParquetValueTests
         ["apache/data/delta_encoding_required_column.parquet"] = "DeltaBinaryPacked are not supported yet",
         ["apache/data/delta_length_byte_array.parquet"] = "DeltaLengthByteArray are not supported yet",
         ["apache/data/flba12_timestamp.parquet"] = "does not fit a 64-bit timestamp",   // pyarrow and DuckDB refuse it too
+        ["apache/bad_data/ARROW-GH-45185.parquet"] = "starts with repetition level 1",   // a record starting mid-list
+        ["apache/bad_data/ARROW-RS-GH-6229-LEVELS.parquet"] = "more than the",           // a page claims more values than its chunk
     };
 
-    /// <summary>Files whose every top-level column is nested (read in P3).</summary>
-    private static readonly string[] NestedOnly =
-    [
-        "apache/bad_data/ARROW-GH-45185.parquet", "apache/bad_data/ARROW-RS-GH-6229-LEVELS.parquet",
-        "apache/data/incorrect_map_schema.parquet", "apache/data/list_columns.parquet", "apache/data/map_no_value.parquet",
-        "apache/data/nested_structs.rust.parquet", "apache/data/null_list.parquet", "apache/data/nulls.snappy.parquet",
-        "apache/data/old_list_structure.parquet", "apache/data/repeated_primitive_no_list.parquet",
-    ];
+    /// <summary>Files where pyarrow fails and DuckDB reads (compared with DuckDB).</summary>
+    private static readonly string[] PyarrowFails = ["apache/data/incorrect_map_schema.parquet"]; // optional map keys
 
     /// <summary>Files checked by their own tests (the oracles are wrong there).</summary>
     private static readonly string[] Special = ["apache/data/int96_from_spark.parquet"];
@@ -59,9 +55,9 @@ public class ParquetValueTests
     {
         string[] all = Names;
         string[] skipped = [.. all.Where(n => Oracle.Value.RootElement.GetProperty("files").GetProperty(n).TryGetProperty("skipped", out _))];
-        string[] compared = [.. all.Except(Refused.Keys).Except(NestedOnly).Except(Special).Except(skipped)];
-        Assert.Equal(all.Length, compared.Length + Refused.Count + NestedOnly.Length + Special.Length + skipped.Length);
-        Assert.Equal((142, 114, 16, 10, 1, 1), (all.Length, compared.Length, Refused.Count, NestedOnly.Length, Special.Length, skipped.Length));
+        string[] compared = [.. all.Except(Refused.Keys).Except(Special).Except(skipped)];
+        Assert.Equal(all.Length, compared.Length + Refused.Count + Special.Length + skipped.Length);
+        Assert.Equal((153, 133, 18, 1, 1), (all.Length, compared.Length, Refused.Count, Special.Length, skipped.Length));
         Assert.Equal(["apache/data/large_string_map.brotli.parquet"], skipped);
     }
 
@@ -73,26 +69,17 @@ public class ParquetValueTests
         if (expected.TryGetProperty("skipped", out _) || Special.Contains(name)) return;
         if (Refused.TryGetValue(name, out string? reason))
         {
-            var e = Assert.ThrowsAny<ParquetFormatException>(() => ReadFlat(name, batchSize: 65_536));
+            var e = Assert.ThrowsAny<ParquetFormatException>(() => ReadAll(name, batchSize: 65_536));
             Assert.Contains(reason, e.Message);
             return;
         }
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        string[] flat = FlatColumns(file.Schema);
-        if (NestedOnly.Contains(name))
-        {
-            Assert.Empty(flat);
-            Assert.Throws<NotSupportedException>(() => file.OpenReader());
-            return;
-        }
-        Assert.NotEmpty(flat);
-
-        var (schema, columns) = ReadFlat(name, batchSize: 65_536);
+        var (schema, columns) = ReadAll(name, batchSize: 65_536);
         List<string> diffs = [];
         for (int c = 0; c < schema.FieldsList.Count; c++)
         {
             Field field = schema.FieldsList[c];
-            bool duckDb = DuckDbFiles.Contains(name) || field.DataType is IntervalType;
+            bool duckDb = DuckDbFiles.Contains(name) || PyarrowFails.Contains(name) || field.DataType is IntervalType;
             JsonElement oracle = Column(expected.GetProperty(duckDb ? "duckdb" : "pyarrow"), field.Name);
             List<string> values = columns[c];
             if (CanonicalRender.Hash(values) != oracle.GetProperty("hash").GetString())
@@ -100,7 +87,7 @@ public class ParquetValueTests
             if (values.Count != oracle.GetProperty("rows").GetInt32()) diffs.Add($"{field.Name}: {values.Count} rows, oracle {oracle.GetProperty("rows").GetInt32()}");
             if (values.Count(v => v == "null") != oracle.GetProperty("nulls").GetInt32()) diffs.Add($"{field.Name}: {values.Count(v => v == "null")} nulls, oracle {oracle.GetProperty("nulls").GetInt32()}");
             var physical = file.Thrift.Schema.FirstOrDefault(e => e.Name == field.Name)?.Type;
-            if (!duckDb && TypeName(field.DataType) != Normalize(oracle.GetProperty("type").GetString()!, field.DataType, physical))
+            if (!duckDb && field.DataType is not (ListType or StructType or MapType or FixedSizeListType) && TypeName(field.DataType) != Normalize(oracle.GetProperty("type").GetString()!, field.DataType, physical))
                 diffs.Add($"{field.Name}: type {TypeName(field.DataType)}, pyarrow {oracle.GetProperty("type").GetString()}");
         }
         Assert.True(diffs.Count == 0, $"{name}:\n{string.Join('\n', diffs)}");
@@ -152,12 +139,16 @@ public class ParquetValueTests
     [InlineData("matrix/pa_pages_rowgroups.parquet")]
     [InlineData("matrix/polars_lz4.parquet")]
     [InlineData("apache/data/overflow_i16_page_cnt.parquet")]
+    [InlineData("nested/pa_nested_small_pages.parquet")]
+    [InlineData("nested/polars_nested_small.parquet")]
+    [InlineData("nested/delta_checkpoint_classic.parquet")]
+    [InlineData("apache/data/nested_lists.snappy.parquet")]
     public void BatchSize_DoesNotChangeTheValues(string name)
     {
-        var (_, expected) = ReadFlat(name, batchSize: 65_536);
+        var (_, expected) = ReadAll(name, batchSize: 65_536);
         foreach (int size in (int[])[1, 7, 997, 10_000_000])
         {
-            var (_, actual) = ReadFlat(name, batchSize: size);
+            var (_, actual) = ReadAll(name, batchSize: size);
             Assert.Equal(expected, actual);
         }
     }
@@ -167,11 +158,11 @@ public class ParquetValueTests
     internal static string[] FlatColumns(Apache.Arrow.Schema schema) =>
         [.. schema.FieldsList.Where(f => f.DataType is not (ListType or StructType or MapType or FixedSizeListType)).Select(f => f.Name)];
 
-    /// <summary>The flat columns of a file, each rendered row by row.</summary>
-    internal static (Apache.Arrow.Schema Schema, List<string>[] Columns) ReadFlat(string name, int batchSize)
+    /// <summary>The columns of a file, each rendered row by row.</summary>
+    internal static (Apache.Arrow.Schema Schema, List<string>[] Columns) ReadAll(string name, int batchSize)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using var reader = file.OpenReader(new() { Columns = FlatColumns(file.Schema), BatchSize = batchSize });
+        using var reader = file.OpenReader(new() { BatchSize = batchSize });
         List<string>[] columns = [.. reader.Schema.FieldsList.Select(_ => (List<string>)[])];
         foreach (RecordBatch batch in reader.ReadBatches())
         {

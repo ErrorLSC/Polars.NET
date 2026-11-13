@@ -5,8 +5,16 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// <summary>How <see cref="ParquetFile.OpenReader"/> reads a file.</summary>
 public sealed record ParquetReadOptions
 {
-    /// <summary>The top-level columns to read, by name, returned in file order; null reads all of them.</summary>
+    /// <summary>The top-level columns to read, by name, returned in file order; null reads all of them unless <see cref="ColumnPaths"/> selects some.</summary>
     public IReadOnlyList<string>? Columns { get; init; }
+
+    /// <summary>
+    /// Parts of top-level columns to read, each a path of field names from a top-level column down (<c>["add",
+    /// "path"]</c>): the column is returned with only the struct fields on the paths. Paths go through lists to
+    /// their elements' fields and through maps by <c>key</c> and <c>value</c>. Leaves off every path are not read.
+    /// Combines with <see cref="Columns"/> (a column named there is read whole); null selects nothing by path.
+    /// </summary>
+    public IReadOnlyList<string[]>? ColumnPaths { get; init; }
 
     /// <summary>The row groups to read, by index, in the order given; null reads all of them.</summary>
     public IReadOnlyList<int>? RowGroups { get; init; }

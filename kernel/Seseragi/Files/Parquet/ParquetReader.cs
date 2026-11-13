@@ -26,6 +26,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly ParquetFile _file;
     private readonly ParquetReadOptions _options;
     private readonly ColumnMapping[] _columns;
+    private readonly ReadNode[] _leaves;  // every leaf read, in column order: one column chunk each
     private readonly int[] _rowGroups;
     private readonly bool _oldParquetMr;
 
@@ -35,7 +36,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         _file = file;
         _options = options;
         var (_, all) = ArrowMapping.Map(file.Tree, file.Thrift, options);
-        _columns = Select(all, options.Columns);
+        _columns = Select(all, options.Columns, options.ColumnPaths);
+        _leaves = [.. _columns.SelectMany(c => c.Read.Leaves())];
         _rowGroups = options.RowGroups is { } groups ? [.. groups] : [.. Enumerable.Range(0, file.Thrift.RowGroups.Length)];
         foreach (int g in _rowGroups)
         {
@@ -49,23 +51,40 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// <summary>The Arrow schema of the batches (the selected columns, in file order).</summary>
     public Apache.Arrow.Schema Schema { get; }
 
-    private static ColumnMapping[] Select(ColumnMapping[] all, IReadOnlyList<string>? names)
+    /// <summary>The number of column chunks read per row group (the leaves of the selection).</summary>
+    internal int LeafCount => _leaves.Length;
+
+    /// <summary>
+    /// The columns to read, in file order: whole ones named in <paramref name="names"/>, and ones pruned to the struct
+    /// fields on <paramref name="paths"/> (a column named whole is read whole). All of them when both are null.
+    /// </summary>
+    private static ColumnMapping[] Select(ColumnMapping[] all, IReadOnlyList<string>? names, IReadOnlyList<string[]>? paths)
     {
-        ColumnMapping[] selected = all;
-        if (names is not null)
+        if (names is null && paths is null) return all;
+        HashSet<string> whole = new(names ?? [], StringComparer.Ordinal);
+        foreach (string name in whole)
         {
-            HashSet<string> wanted = new(names, StringComparer.Ordinal);
-            foreach (string name in wanted)
-            {
-                if (!all.Any(c => c.Field.Name == name))
-                    throw new ArgumentException($"The file has no top-level column '{name}'.", nameof(names));
-            }
-            selected = [.. all.Where(c => wanted.Contains(c.Field.Name))];
+            if (!all.Any(c => c.Field.Name == name)) throw new ArgumentException($"The file has no top-level column '{name}'.", nameof(names));
         }
-        ColumnMapping[] nested = [.. selected.Where(c => !c.IsFlat)];
-        if (nested.Length > 0)
-            throw new NotSupportedException($"Reading nested columns is not supported yet ({string.Join(", ", nested.Select(c => $"'{c.Field.Name}'"))}); select flat columns with ParquetReadOptions.Columns.");
-        return selected;
+        Dictionary<string, List<string[]>> partial = new(StringComparer.Ordinal);
+        foreach (string[] path in paths ?? [])
+        {
+            if (path is null || path.Length == 0) throw new ArgumentException("A column path is empty.", nameof(paths));
+            if (!all.Any(c => c.Field.Name == path[0])) throw new ArgumentException($"The file has no top-level column '{path[0]}'.", nameof(paths));
+            (partial.TryGetValue(path[0], out var list) ? list : partial[path[0]] = []).Add(path[1..]);
+        }
+        List<ColumnMapping> selected = [];
+        foreach (ColumnMapping column in all)
+        {
+            string name = column.Field.Name;
+            if (whole.Contains(name)) selected.Add(column);
+            else if (partial.TryGetValue(name, out var below))
+            {
+                ReadNode pruned = ArrowMapping.Prune(column.Read, below, name);
+                selected.Add(column with { Field = pruned.Field, Read = pruned });
+            }
+        }
+        return [.. selected];
     }
 
     /// <summary>Reads the batches.</summary>
@@ -99,18 +118,22 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         RowGroup group = _file.Thrift.RowGroups[g];
         long rows = group.NumRows;
         if (rows < 0) throw new ParquetFormatException($"Row group {g} has {rows} rows.");
-        var readers = new LeafReader[_columns.Length];
+        var readers = new LeafReader[_leaves.Length];
+        Dictionary<ReadNode, LeafReader> byNode = [];
         NativeStructBuilder? root = null;
         try
         {
-            for (int c = 0; c < _columns.Length; c++)
+            for (int l = 0; l < _leaves.Length; l++)
             {
-                ColumnMapping column = _columns[c];
-                ColumnMetaData meta = group.Columns[column.Node.LeafIndex].MetaData!;
-                readers[c] = LeafReaders.Create(new PageReader(chunks.Chunk(c), meta.Codec, _options.VerifyChecksums), column.Node, column.Leaf!, meta.NumValues);
+                ReadNode leaf = _leaves[l];
+                ColumnMetaData meta = group.Columns[leaf.Leaf!.LeafIndex].MetaData!;
+                readers[l] = LeafReaders.Create(new PageReader(chunks.Chunk(l), meta.Codec, _options.VerifyChecksums), leaf.Leaf, leaf.LeafType!, meta.NumValues);
+                byNode[leaf] = readers[l];
             }
+            foreach (ColumnMapping column in _columns) ConfigureLeaves(column.Read, byNode, keepLevels: !column.IsFlat, fixedSizeList: null);
+            NativeColumnBuilder[] builders = [.. _columns.Select(c => NestedAssembler.CreateBuilder(c.Read, byNode))];
             // Arrow has no struct of no fields: a batch without columns is made directly.
-            if (_columns.Length > 0) root = new NativeStructBuilder(new StructType([.. _columns.Select(c => c.Field)]), [.. readers.Select(r => r.Builder)]);
+            if (_columns.Length > 0) root = new NativeStructBuilder(new StructType([.. _columns.Select(c => c.Field)]), builders);
             IReadOnlyList<(long Start, long Count)> selected = ranges ?? [(0, rows)];
             long at = 0;
             foreach (var (start, count) in selected)
@@ -126,6 +149,19 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 {
                     int n = (int)Math.Min(left, _options.BatchSize);
                     foreach (LeafReader r in readers) r.Read(n);
+                    for (int c = 0; c < _columns.Length; c++)
+                    {
+                        try
+                        {
+                            if (!_columns[c].IsFlat) NestedAssembler.Assemble(_columns[c].Read, builders[c], byNode, _columns[c].Field.Name);
+                        }
+                        catch (InvalidOperationException e)
+                        {
+                            throw new ParquetFormatException($"Column '{_columns[c].Field.Name}': {e.Message}", e);
+                        }
+                        if (builders[c].Length != n)
+                            throw new ParquetFormatException($"Column '{_columns[c].Field.Name}' holds {builders[c].Length} rows of the {n} read.");
+                    }
                     RecordBatch batch;
                     if (root is null) batch = new RecordBatch(Schema, [], n);
                     else
@@ -151,20 +187,31 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Tells each leaf reader its slot rules, whether to keep levels, and its fixed-size list parent.</summary>
+    private static void ConfigureLeaves(ReadNode node, Dictionary<ReadNode, LeafReader> readers, bool keepLevels, ReadNode? fixedSizeList)
+    {
+        if (node.Kind == ReadKind.Leaf)
+        {
+            readers[node].Configure(node, keepLevels, fixedSizeList);
+            return;
+        }
+        foreach (ReadNode child in node.Children) ConfigureLeaves(child, readers, keepLevels, node.Kind == ReadKind.FixedSizeList ? node : null);
+    }
+
     /// <summary>Reads the selected column chunks of a row group, coalescing nearby ones into one read.</summary>
     internal async ValueTask<RowGroupChunks> Fetch(int g, bool useAsync, CancellationToken ct)
     {
         RowGroup group = _file.Thrift.RowGroups[g];
-        var ranges = new (long Start, long Length)[_columns.Length];
-        for (int c = 0; c < _columns.Length; c++)
+        var ranges = new (long Start, long Length)[_leaves.Length];
+        for (int l = 0; l < _leaves.Length; l++)
         {
-            ColumnMapping column = _columns[c];
-            ColumnChunk chunk = group.Columns[column.Node.LeafIndex];
-            string name = string.Join('.', column.Node.Path);
+            SchemaNode leaf = _leaves[l].Leaf!;
+            ColumnChunk chunk = group.Columns[leaf.LeafIndex];
+            string name = string.Join('.', leaf.Path);
             if (chunk.FilePath is not null) throw new ParquetFormatException($"Column '{name}' of row group {g} is stored in another file ('{chunk.FilePath}').");
             ColumnMetaData meta = chunk.MetaData!;
             if (!PageCodecs.CanDecompress(meta.Codec)) throw new ParquetFormatException($"Column '{name}' is compressed with {PageCodecs.Name(meta.Codec)}, which is not supported.");
-            ranges[c] = ChunkRange(meta, _file.Source.Length, name, _oldParquetMr);
+            ranges[l] = ChunkRange(meta, _file.Source.Length, name, _oldParquetMr);
         }
         var chunks = new RowGroupChunks(ranges);
         try

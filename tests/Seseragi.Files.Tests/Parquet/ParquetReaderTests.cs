@@ -28,10 +28,13 @@ public class ParquetReaderTests
     [InlineData("matrix/pa_pages_rowgroups.parquet")]
     [InlineData("matrix/pa_dict_v2_zstd.parquet")]
     [InlineData("apache/data/rle_boolean_encoding.parquet")]
+    [InlineData("nested/pa_nested_small_pages.parquet")]
+    [InlineData("nested/pa_nested_v2_dict.parquet")]
+    [InlineData("nested/delta_checkpoint_classic.parquet")]
     public async Task RowRanges_ReadWhatAFullReadSlices(string name)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using var reader = file.OpenReader(new() { Columns = ParquetValueTests.FlatColumns(file.Schema), BatchSize = 13 });
+        using var reader = file.OpenReader(new() { BatchSize = 13 });
         for (int g = 0; g < file.Thrift.RowGroups.Length; g++)
         {
             long rows = file.Thrift.RowGroups[g].NumRows;
@@ -53,7 +56,7 @@ public class ParquetReaderTests
         foreach (string name in (string[])[TinyPages, "matrix/pa_plain_v2_gzip.parquet", "writers/spark_lz4.parquet"])
         {
             await using var file = await ParquetFile.OpenAsync(ParquetFixtures.FullPath(name));
-            var options = new ParquetReadOptions { Columns = ParquetValueTests.FlatColumns(file.Schema), BatchSize = 100 };
+            var options = new ParquetReadOptions { BatchSize = 100 };
             List<string> sync;
             using (var reader = file.OpenReader(options)) sync = Rows(reader.ReadBatches());
             List<RecordBatch> batches = [];
@@ -85,7 +88,7 @@ public class ParquetReaderTests
     public void ValidChecksums_Verify(string name)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using var reader = file.OpenReader(new() { VerifyChecksums = true, Columns = ParquetValueTests.FlatColumns(file.Schema) });
+        using var reader = file.OpenReader(new() { VerifyChecksums = true });
         Assert.NotEmpty(Rows(reader.ReadBatches()));
     }
 
@@ -115,7 +118,6 @@ public class ParquetReaderTests
         Assert.Throws<ArgumentOutOfRangeException>(() => file.OpenReader(new() { Int96Unit = TimeUnit.Millisecond }));
 
         using var nested = ParquetFile.Open(ParquetFixtures.FullPath("writers/pyarrow.parquet"));
-        Assert.Contains("'list_i'", Assert.Throws<NotSupportedException>(() => nested.OpenReader()).Message);
         using var flatOnly = nested.OpenReader(new() { Columns = ["ts_utc", "dict_str"] });
         Assert.Equal(3, flatOnly.ReadBatches().Sum(b => { int n = b.Length; b.Dispose(); return n; }));
     }
@@ -241,8 +243,7 @@ public class ParquetReaderTests
             Exception? e = Record.Exception(() =>
             {
                 using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-                string[] flat = ParquetValueTests.FlatColumns(file.Schema);
-                using var reader = file.OpenReader(new() { Columns = flat, VerifyChecksums = true });
+                using var reader = file.OpenReader(new() { VerifyChecksums = true });
                 Rows(reader.ReadBatches());
             });
             if (e is not null) Assert.True(e is ParquetFormatException, $"{name}: {e}");
@@ -259,6 +260,9 @@ public class ParquetReaderTests
     [InlineData("matrix/pa_plain_v2_lz4raw.parquet", 200)]
     [InlineData("writers/spark_lz4.parquet", 200)]
     [InlineData("apache/data/hadoop_lz4_compressed.parquet", 200)]
+    [InlineData("nested/pa_nested_v1.parquet", 300)]
+    [InlineData("nested/pa_nested_v2_dict.parquet", 300)]
+    [InlineData("nested/delta_checkpoint_classic.parquet", 200)]
     public void DamagedPages_FailCleanly(string name, int rounds)
     {
         byte[] original = File.ReadAllBytes(ParquetFixtures.FullPath(name));
@@ -271,7 +275,7 @@ public class ParquetReaderTests
             Exception? e = Record.Exception(() =>
             {
                 using var file = ParquetFile.Open(new MemoryStream(damaged));
-                using var reader = file.OpenReader(new() { Columns = ParquetValueTests.FlatColumns(file.Schema), BatchSize = 97 });
+                using var reader = file.OpenReader(new() { BatchSize = 97 });
                 Rows(reader.ReadBatches());
             });
             if (e is not null) Assert.True(e is ParquetFormatException, $"{name} round {i}: {e}");

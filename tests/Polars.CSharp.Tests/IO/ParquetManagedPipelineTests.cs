@@ -36,10 +36,22 @@ public class ParquetManagedPipelineTests
         // A file with an INTERVAL column cannot be read at all, whatever the columns selected:
         "matrix/duckdb_brotli.parquet", "matrix/duckdb_gzip.parquet", "matrix/duckdb_lz4.parquet", "matrix/duckdb_snappy.parquet",
         "matrix/duckdb_uncompressed.parquet", "matrix/duckdb_zstd.parquet", "writers/duckdb.parquet",
+        "nested/spark_variant.parquet",                    // the VARIANT logical type
     ];
 
+    /// <summary>Files Polars reads wrongly (the managed reader agrees with pyarrow and DuckDB there).</summary>
+    private static readonly HashSet<string> PolarsMisreads =
+    [
+        "apache/data/old_list_structure.parquet",          // two-level lists named "array": a list of structs instead of a list of lists
+        "apache/data/repeated_primitive_no_list.parquet",  // repeated fields without LIST: empty lists instead of the values
+        "apache/data/nested_structs.rust.parquet",         // drops the UTC zone of timestamps inside structs
+    ];
+
+    /// <summary>Files too large for a test run (a 2 GiB string chunk).</summary>
+    private static readonly HashSet<string> TooLarge = ["apache/data/large_string_map.brotli.parquet"];
+
     public static TheoryData<string> Files => [.. Directory.EnumerateFiles(Root, "*.parquet", SearchOption.AllDirectories)
-        .Select(p => Path.GetRelativePath(Root, p).Replace('\\', '/')).Where(n => !ManagedRefuses.Contains(n)).Order(StringComparer.Ordinal)];
+        .Select(p => Path.GetRelativePath(Root, p).Replace('\\', '/')).Where(n => !ManagedRefuses.Contains(n) && !PolarsMisreads.Contains(n) && !TooLarge.Contains(n)).Order(StringComparer.Ordinal)];
 
     private sealed class BatchStream(Apache.Arrow.Schema schema, IEnumerable<RecordBatch> batches) : IArrowArrayStream
     {
@@ -50,9 +62,18 @@ public class ParquetManagedPipelineTests
         public void Dispose() => _batches.Dispose();
     }
 
-    /// <summary>Columns Polars cannot import (Decimal256) or imports only with a global option (intervals, see the Config tests).</summary>
-    private static bool Importable(ArrowField f) =>
-        f.DataType is not (AT.Decimal256Type or AT.IntervalType or AT.ListType or AT.StructType or AT.MapType or AT.FixedSizeListType);
+    /// <summary>Columns Polars cannot import (Decimal256) or imports only with a global option (intervals, see the Config tests), at any depth.</summary>
+    private static bool Importable(ArrowField f) => Importable(f.DataType);
+
+    private static bool Importable(AT.IArrowType type) => type switch
+    {
+        AT.Decimal256Type or AT.IntervalType => false,
+        AT.ListType l => Importable(l.ValueDataType),
+        AT.FixedSizeListType l => Importable(l.ValueDataType),
+        AT.MapType m => Importable(m.KeyField.DataType) && Importable(m.ValueField.DataType),
+        AT.StructType s => s.Fields.All(Importable),
+        _ => true,
+    };
 
     [Theory]
     [MemberData(nameof(Files))]

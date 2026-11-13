@@ -172,6 +172,7 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
         DictionaryType d => new NativeDictionaryBuilder(d),
         MapType m => new NativeListBuilder(m, Create(m.KeyValueType)),
         ListType l => new NativeListBuilder(l, Create(l.ValueDataType)),
+        FixedSizeListType f => new NativeFixedSizeListBuilder(f, Create(f.ValueDataType)),
         StructType s => new NativeStructBuilder(s, [.. s.Fields.Select(f => Create(f.DataType))]),
         _ => throw new NotSupportedException($"No native builder for Arrow type {type}."),
     };
@@ -522,6 +523,31 @@ internal sealed unsafe class NativeListBuilder : NativeColumnBuilder
 
     public NativeColumnBuilder Values { get; }
 
+    private long _end; // the last offset appended
+
+    /// <summary>The items the lists appended so far span (the last offset).</summary>
+    public long ItemCount => _end;
+
+    /// <summary>
+    /// Appends one list per entry of <paramref name="lengths"/> (their items appended to <see cref="Values"/> by the
+    /// caller); with a <paramref name="mask"/> of the same length, lists whose mask byte is zero are null.
+    /// </summary>
+    public void AppendLists(ReadOnlySpan<int> lengths, ReadOnlySpan<byte> mask = default)
+    {
+        long end = _end;
+        byte* at = _offsets.Reserve((long)lengths.Length * sizeof(int));
+        var offsets = new Span<int>(at, lengths.Length);
+        for (int i = 0; i < lengths.Length; i++)
+        {
+            end += lengths[i];
+            if (end > int.MaxValue) throw new InvalidOperationException("A list column holds more than 2^31 items in one batch; use a smaller batch size.");
+            offsets[i] = (int)end;
+        }
+        _end = end;
+        if (mask.IsEmpty) MarkValid(lengths.Length);
+        else MarkMask(mask);
+    }
+
     /// <summary>Closes a list whose items were appended to <see cref="Values"/> since the previous one.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EndList()
@@ -535,6 +561,7 @@ internal sealed unsafe class NativeListBuilder : NativeColumnBuilder
         long end = Values.Length;
         if (end > int.MaxValue) throw new InvalidOperationException("A list column holds more than 2^31 items in one batch; use a smaller batch size.");
         _offsets.Append((int)end);
+        _end = end;
     }
 
     public override void AppendNull()
@@ -558,6 +585,7 @@ internal sealed unsafe class NativeListBuilder : NativeColumnBuilder
         var a = export.NewArray(Length, nulls, [validity, offsets], [(nint)child]);
         Length = 0;
         _offsets.Append(0);
+        _end = 0;
         return a;
     }
 
@@ -566,6 +594,45 @@ internal sealed unsafe class NativeListBuilder : NativeColumnBuilder
         _offsets.Free();
         Values.Dispose();
     }
+}
+
+/// <summary>Fixed-size lists: every slot, null or not, holds <c>ListSize</c> items of <see cref="Values"/>.</summary>
+internal sealed unsafe class NativeFixedSizeListBuilder(FixedSizeListType type, NativeColumnBuilder values) : NativeColumnBuilder(type)
+{
+    public NativeColumnBuilder Values { get; } = values;
+
+    public int ListSize { get; } = type.ListSize;
+
+    /// <summary>Marks one slot per byte of <paramref name="mask"/> (null where it is zero; all valid when empty: <paramref name="count"/> slots), the items appended by the caller.</summary>
+    public void AppendSlots(int count, ReadOnlySpan<byte> mask = default)
+    {
+        if (mask.IsEmpty) MarkValid(count);
+        else MarkMask(mask[..count]);
+    }
+
+    public override void AppendNull()
+    {
+        for (int i = 0; i < ListSize; i++) Values.AppendNull();
+        MarkNull();
+    }
+
+    public override void AppendDefault()
+    {
+        for (int i = 0; i < ListSize; i++) Values.AppendDefault();
+        MarkValid();
+    }
+
+    public override NativeCArray* Export(NativeBatchExport export)
+    {
+        long nulls = NullCount;
+        nint validity = Validity.Detach(export);
+        var child = Values.Export(export);
+        var a = export.NewArray(Length, nulls, [validity], [(nint)child]);
+        Length = 0;
+        return a;
+    }
+
+    protected override void FreeBuffers() => Values.Dispose();
 }
 
 internal sealed unsafe class NativeStructBuilder(StructType type, NativeColumnBuilder[] children) : NativeColumnBuilder(type)
@@ -580,6 +647,9 @@ internal sealed unsafe class NativeStructBuilder(StructType type, NativeColumnBu
 
     /// <summary>Marks <paramref name="count"/> struct slots valid once each child has that many more values.</summary>
     public void EndStructs(long count) => MarkValid(count);
+
+    /// <summary>Marks one struct slot per byte of <paramref name="mask"/> (null where it is zero), the children filled by the caller.</summary>
+    public void EndStructs(ReadOnlySpan<byte> mask) => MarkMask(mask);
 
     public override void AppendNull()
     {

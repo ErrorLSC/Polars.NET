@@ -305,7 +305,7 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
         _fileToBatch.AsSpan().Fill(-1);
     }
 
-    public override void BatchExported()
+    protected override void OnBatchExported()
     {
         _batchEntries.Clear();
         _fileToBatch.AsSpan().Fill(-1);

@@ -27533,6 +27533,2058 @@
 "rows": 300
 }
 },
+"nested/delta_checkpoint_classic.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "eb16c0574aec4c40",
+"name": "txn",
+"nulls": 11,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"null"
+],
+"type": "struct<appId: string, version: int64, lastUpdated: int64>"
+},
+{
+"hash": "d9ef2b11be861523",
+"name": "add",
+"nulls": 4,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"null"
+],
+"type": "struct<path: string, partitionValues: map<string, string>, size: int64, modificationTime: int64, dataChange: bool, tags: map<string, string>, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64, clusteringProvider: string, stats: string, partitionValues_parsed: struct<part: string>, stats_parsed: struct<numRecords: int64, minValues: struct<id: int64, info: struct<a: int32, b: string>>, maxValues: struct<id: int64, info: struct<a: int32, b: string>>, nullCount: struct<id: int64, tags: int64, attrs: int64, info: struct<a: int64, b: int64>>, tightBounds: bool>>"
+},
+{
+"hash": "0163d34e7abc0620",
+"name": "remove",
+"nulls": 9,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"{path:u:706172743d70312f706172742d30303030302d30323939383131362d363939632d343831"
+],
+"type": "struct<path: string, deletionTimestamp: int64, dataChange: bool, extendedFileMetadata: bool, partitionValues: map<string, string>, size: int64, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64>"
+},
+{
+"hash": "90d1784ce601c891",
+"name": "metaData",
+"nulls": 10,
+"rows": 11,
+"sample": [
+"null",
+"{id:u:31376538663539372d313161642d346464342d626436612d383131663135633163346362,n",
+"null"
+],
+"type": "struct<id: string, name: string, description: string, format: struct<provider: string, options: map<string, string>>, schemaString: string, partitionColumns: list<l: string>, configuration: map<string, string>, createdTime: int64>"
+},
+{
+"hash": "f0e1129a4fffe26c",
+"name": "protocol",
+"nulls": 10,
+"rows": 11,
+"sample": [
+"{minReaderVersion:3,minWriterVersion:7,readerFeatures:[u:64656c6574696f6e5665637",
+"null",
+"null"
+],
+"type": "struct<minReaderVersion: int32, minWriterVersion: int32, readerFeatures: list<l: string>, writerFeatures: list<l: string>>"
+},
+{
+"hash": "eb16c0574aec4c40",
+"name": "domainMetadata",
+"nulls": 11,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"null"
+],
+"type": "struct<domain: string, configuration: string, removed: bool>"
+}
+],
+"rows": 11
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "eb16c0574aec4c40",
+"name": "txn",
+"nulls": 11,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"null"
+],
+"type": "struct<appId: string, version: int64, lastUpdated: int64>"
+},
+{
+"hash": "d9ef2b11be861523",
+"name": "add",
+"nulls": 4,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"null"
+],
+"type": "struct<path: string, partitionValues: map<string, string ('partitionValues')>, size: int64, modificationTime: int64, dataChange: bool, tags: map<string, string ('tags')>, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64, clusteringProvider: string, stats: string, partitionValues_parsed: struct<part: string>, stats_parsed: struct<numRecords: int64, minValues: struct<id: int64, info: struct<a: int32, b: string>>, maxValues: struct<id: int64, info: struct<a: int32, b: string>>, nullCount: struct<id: int64, tags: int64, attrs: int64, info: struct<a: int64, b: int64>>, tightBounds: bool>>"
+},
+{
+"hash": "0163d34e7abc0620",
+"name": "remove",
+"nulls": 9,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"{path:u:706172743d70312f706172742d30303030302d30323939383131362d363939632d343831"
+],
+"type": "struct<path: string, deletionTimestamp: int64, dataChange: bool, extendedFileMetadata: bool, partitionValues: map<string, string ('partitionValues')>, size: int64, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64>"
+},
+{
+"hash": "90d1784ce601c891",
+"name": "metaData",
+"nulls": 10,
+"rows": 11,
+"sample": [
+"null",
+"{id:u:31376538663539372d313161642d346464342d626436612d383131663135633163346362,n",
+"null"
+],
+"type": "struct<id: string, name: string, description: string, format: struct<provider: string, options: map<string, string ('options')>>, schemaString: string, partitionColumns: list<element: string>, configuration: map<string, string ('configuration')>, createdTime: int64>"
+},
+{
+"hash": "f0e1129a4fffe26c",
+"name": "protocol",
+"nulls": 10,
+"rows": 11,
+"sample": [
+"{minReaderVersion:3,minWriterVersion:7,readerFeatures:[u:64656c6574696f6e5665637",
+"null",
+"null"
+],
+"type": "struct<minReaderVersion: int32, minWriterVersion: int32, readerFeatures: list<element: string>, writerFeatures: list<element: string>>"
+},
+{
+"hash": "eb16c0574aec4c40",
+"name": "domainMetadata",
+"nulls": 11,
+"rows": 11,
+"sample": [
+"null",
+"null",
+"null"
+],
+"type": "struct<domain: string, configuration: string, removed: bool>"
+}
+],
+"rows": 11
+}
+},
+"nested/delta_checkpoint_v2_sidecar.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "5700fd5fbf416874",
+"name": "add",
+"nulls": 2,
+"rows": 11,
+"sample": [
+"null",
+"{path:u:706172743d70302f706172742d30303030302d62336236346332612d616563342d343838",
+"{path:u:706172743d70302f706172742d30303030302d66366437663961342d343931312d343334"
+],
+"type": "struct<path: string, partitionValues: map<string, string>, size: int64, modificationTime: int64, dataChange: bool, tags: map<string, string>, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64, clusteringProvider: string, stats: string, partitionValues_parsed: struct<part: string>, stats_parsed: struct<numRecords: int64, minValues: struct<id: int64, info: struct<a: int32, b: string>>, maxValues: struct<id: int64, info: struct<a: int32, b: string>>, nullCount: struct<id: int64, tags: int64, attrs: int64, info: struct<a: int64, b: int64>>, tightBounds: bool>>"
+},
+{
+"hash": "c6f0d0a37023193c",
+"name": "remove",
+"nulls": 9,
+"rows": 11,
+"sample": [
+"{path:u:706172743d70302f706172742d30303030302d33343863313036352d313231322d343264",
+"null",
+"null"
+],
+"type": "struct<path: string, deletionTimestamp: int64, dataChange: bool, extendedFileMetadata: bool, partitionValues: map<string, string>, size: int64, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64>"
+}
+],
+"rows": 11
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "5700fd5fbf416874",
+"name": "add",
+"nulls": 2,
+"rows": 11,
+"sample": [
+"null",
+"{path:u:706172743d70302f706172742d30303030302d62336236346332612d616563342d343838",
+"{path:u:706172743d70302f706172742d30303030302d66366437663961342d343931312d343334"
+],
+"type": "struct<path: string, partitionValues: map<string, string ('partitionValues')>, size: int64, modificationTime: int64, dataChange: bool, tags: map<string, string ('tags')>, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64, clusteringProvider: string, stats: string, partitionValues_parsed: struct<part: string>, stats_parsed: struct<numRecords: int64, minValues: struct<id: int64, info: struct<a: int32, b: string>>, maxValues: struct<id: int64, info: struct<a: int32, b: string>>, nullCount: struct<id: int64, tags: int64, attrs: int64, info: struct<a: int64, b: int64>>, tightBounds: bool>>"
+},
+{
+"hash": "c6f0d0a37023193c",
+"name": "remove",
+"nulls": 9,
+"rows": 11,
+"sample": [
+"{path:u:706172743d70302f706172742d30303030302d33343863313036352d313231322d343264",
+"null",
+"null"
+],
+"type": "struct<path: string, deletionTimestamp: int64, dataChange: bool, extendedFileMetadata: bool, partitionValues: map<string, string ('partitionValues')>, size: int64, deletionVector: struct<storageType: string, pathOrInlineDv: string, offset: int32, sizeInBytes: int32, cardinality: int64, maxRowIndex: int64>, baseRowId: int64, defaultRowCommitVersion: int64>"
+}
+],
+"rows": 11
+}
+},
+"nested/duckdb_nested_snappy.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "5ee40227a3ca6da1",
+"name": "id",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int64"
+},
+{
+"hash": "5a6fe6d312aad066",
+"name": "ints",
+"nulls": 33,
+"rows": 300,
+"sample": [
+"[]",
+"[0]",
+"[0,1]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "2e75a4dafc62485c",
+"name": "nested",
+"nulls": 27,
+"rows": 300,
+"sample": [
+"[[],[]]",
+"[[u:7330],[]]",
+"[[u:7330,u:7331],[]]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "ccd7370675d14e32",
+"name": "point",
+"nulls": 50,
+"rows": 300,
+"sample": [
+"{x:null,label:u:7030}",
+"null",
+"{x:2,label:u:7032}"
+],
+"type": "struct<x: int64, label: string>"
+},
+{
+"hash": "0906d1558ebc67ed",
+"name": "points",
+"nulls": 38,
+"rows": 300,
+"sample": [
+"[{x:0,tags:[u:61,null]},null]",
+"[{x:1,tags:[u:61,null]},null]",
+"null"
+],
+"type": "list<l: struct<x: int64, tags: list<l: string>>>"
+},
+{
+"hash": "ab1f7b03012351ff",
+"name": "m",
+"nulls": 30,
+"rows": 300,
+"sample": [
+"M{u:6b=>0,u:7a=>null}",
+"M{u:6b=>1,u:7a=>null}",
+"M{u:6b=>2,u:7a=>null}"
+],
+"type": "map<string, int64>"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "5ee40227a3ca6da1",
+"name": "id",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int64"
+},
+{
+"hash": "5a6fe6d312aad066",
+"name": "ints",
+"nulls": 33,
+"rows": 300,
+"sample": [
+"[]",
+"[0]",
+"[0,1]"
+],
+"type": "list<element: int32>"
+},
+{
+"hash": "2e75a4dafc62485c",
+"name": "nested",
+"nulls": 27,
+"rows": 300,
+"sample": [
+"[[],[]]",
+"[[u:7330],[]]",
+"[[u:7330,u:7331],[]]"
+],
+"type": "list<element: list<element: string>>"
+},
+{
+"hash": "ccd7370675d14e32",
+"name": "point",
+"nulls": 50,
+"rows": 300,
+"sample": [
+"{x:null,label:u:7030}",
+"null",
+"{x:2,label:u:7032}"
+],
+"type": "struct<x: int64, label: string>"
+},
+{
+"hash": "0906d1558ebc67ed",
+"name": "points",
+"nulls": 38,
+"rows": 300,
+"sample": [
+"[{x:0,tags:[u:61,null]},null]",
+"[{x:1,tags:[u:61,null]},null]",
+"null"
+],
+"type": "list<element: struct<x: int64, tags: list<element: string>>>"
+},
+{
+"hash": "ab1f7b03012351ff",
+"name": "m",
+"nulls": 30,
+"rows": 300,
+"sample": [
+"M{u:6b=>0,u:7a=>null}",
+"M{u:6b=>1,u:7a=>null}",
+"M{u:6b=>2,u:7a=>null}"
+],
+"type": "map<string, int64 ('m')>"
+}
+],
+"rows": 300
+}
+},
+"nested/duckdb_nested_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "5ee40227a3ca6da1",
+"name": "id",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int64"
+},
+{
+"hash": "5a6fe6d312aad066",
+"name": "ints",
+"nulls": 33,
+"rows": 300,
+"sample": [
+"[]",
+"[0]",
+"[0,1]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "2e75a4dafc62485c",
+"name": "nested",
+"nulls": 27,
+"rows": 300,
+"sample": [
+"[[],[]]",
+"[[u:7330],[]]",
+"[[u:7330,u:7331],[]]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "ccd7370675d14e32",
+"name": "point",
+"nulls": 50,
+"rows": 300,
+"sample": [
+"{x:null,label:u:7030}",
+"null",
+"{x:2,label:u:7032}"
+],
+"type": "struct<x: int64, label: string>"
+},
+{
+"hash": "0906d1558ebc67ed",
+"name": "points",
+"nulls": 38,
+"rows": 300,
+"sample": [
+"[{x:0,tags:[u:61,null]},null]",
+"[{x:1,tags:[u:61,null]},null]",
+"null"
+],
+"type": "list<l: struct<x: int64, tags: list<l: string>>>"
+},
+{
+"hash": "ab1f7b03012351ff",
+"name": "m",
+"nulls": 30,
+"rows": 300,
+"sample": [
+"M{u:6b=>0,u:7a=>null}",
+"M{u:6b=>1,u:7a=>null}",
+"M{u:6b=>2,u:7a=>null}"
+],
+"type": "map<string, int64>"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "5ee40227a3ca6da1",
+"name": "id",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int64"
+},
+{
+"hash": "5a6fe6d312aad066",
+"name": "ints",
+"nulls": 33,
+"rows": 300,
+"sample": [
+"[]",
+"[0]",
+"[0,1]"
+],
+"type": "list<element: int32>"
+},
+{
+"hash": "2e75a4dafc62485c",
+"name": "nested",
+"nulls": 27,
+"rows": 300,
+"sample": [
+"[[],[]]",
+"[[u:7330],[]]",
+"[[u:7330,u:7331],[]]"
+],
+"type": "list<element: list<element: string>>"
+},
+{
+"hash": "ccd7370675d14e32",
+"name": "point",
+"nulls": 50,
+"rows": 300,
+"sample": [
+"{x:null,label:u:7030}",
+"null",
+"{x:2,label:u:7032}"
+],
+"type": "struct<x: int64, label: string>"
+},
+{
+"hash": "0906d1558ebc67ed",
+"name": "points",
+"nulls": 38,
+"rows": 300,
+"sample": [
+"[{x:0,tags:[u:61,null]},null]",
+"[{x:1,tags:[u:61,null]},null]",
+"null"
+],
+"type": "list<element: struct<x: int64, tags: list<element: string>>>"
+},
+{
+"hash": "ab1f7b03012351ff",
+"name": "m",
+"nulls": 30,
+"rows": 300,
+"sample": [
+"M{u:6b=>0,u:7a=>null}",
+"M{u:6b=>1,u:7a=>null}",
+"M{u:6b=>2,u:7a=>null}"
+],
+"type": "map<string, int64 ('m')>"
+}
+],
+"rows": 300
+}
+},
+"nested/pa_nested_no_arrow_schema.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<l: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<l: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<l: int64>>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<l: double>"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<l: struct<m: map<string, list<l: struct<v: list<l: int16>>>>>>"
+}
+],
+"rows": 400
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<element: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<element: int32 not null>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<element: list<element: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<element: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<element: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32 ('map')>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<element: int64> ('map_lists')>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<element: double>"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<element: struct<m: map<string, list<element: struct<v: list<element: int16>>> ('m')>>>"
+}
+],
+"rows": 400
+}
+},
+"nested/pa_nested_small_pages.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<l: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<l: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<l: int64>>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<l: double>"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<l: struct<m: map<string, list<l: struct<v: list<l: int16>>>>>>"
+}
+],
+"rows": 400
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<element: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<element: int32 not null>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<element: list<element: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<element: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<element: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32 ('map')>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<element: int64> ('map_lists')>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "fixed_size_list<element: double>[3]"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<element: struct<m: map<string, list<element: struct<v: list<element: int16>>> ('m')>>>"
+}
+],
+"rows": 400
+}
+},
+"nested/pa_nested_v1.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<l: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<l: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<l: int64>>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<l: double>"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<l: struct<m: map<string, list<l: struct<v: list<l: int16>>>>>>"
+}
+],
+"rows": 400
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<element: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<element: int32 not null>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<element: list<element: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<element: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<element: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32 ('map')>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<element: int64> ('map_lists')>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "fixed_size_list<element: double>[3]"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<element: struct<m: map<string, list<element: struct<v: list<element: int16>>> ('m')>>>"
+}
+],
+"rows": 400
+}
+},
+"nested/pa_nested_v2_dict.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<l: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<l: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<l: int64>>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<l: double>"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<l: struct<m: map<string, list<l: struct<v: list<l: int16>>>>>>"
+}
+],
+"rows": 400
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<element: int32>"
+},
+{
+"hash": "b4c91ccae0f1b981",
+"name": "ints_required_items",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,0,3]"
+],
+"type": "list<element: int32 not null>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<element: list<element: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<element: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<element: string>, score: int64>"
+},
+{
+"hash": "10fc74b712aaa895",
+"name": "map",
+"nulls": 40,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:6b=>1}",
+"M{u:61=>null,u:62=>2}"
+],
+"type": "map<string, int32 ('map')>"
+},
+{
+"hash": "a5cc56cd7c3c2e34",
+"name": "map_lists",
+"nulls": 31,
+"rows": 400,
+"sample": [
+"M{}",
+"M{u:61=>[1,2]}",
+"M{u:62=>null,u:63=>[]}"
+],
+"type": "map<string, list<element: int64> ('map_lists')>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "fixed_size_list<element: double>[3]"
+},
+{
+"hash": "df522e300a273758",
+"name": "deep",
+"nulls": 23,
+"rows": 400,
+"sample": [
+"[]",
+"[{m:M{u:71=>[{v:[1,null]}]}}]",
+"[{m:null}]"
+],
+"type": "list<element: struct<m: map<string, list<element: struct<v: list<element: int16>>> ('m')>>>"
+}
+],
+"rows": 400
+}
+},
+"nested/polars_nested.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<l: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<l: string>, score: int64>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<l: double>"
+}
+],
+"rows": 400
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "large_list<element: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "large_list<element: large_list<element: large_string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: large_string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "large_list<element: struct<x: int32, y: double, label: large_string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: large_list<element: large_string>, score: int64>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "fixed_size_list<element: double>[3]"
+}
+],
+"rows": 400
+}
+},
+"nested/polars_nested_small.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "list<l: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "list<l: list<l: string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "list<l: struct<x: int32, y: double, label: string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: list<l: string>, score: int64>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "list<l: double>"
+}
+],
+"rows": 400
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "e8e2bb13995dfcf7",
+"name": "id",
+"nulls": 0,
+"rows": 400,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int32"
+},
+{
+"hash": "4c0295187c2e26bc",
+"name": "ints",
+"nulls": 44,
+"rows": 400,
+"sample": [
+"[]",
+"[1]",
+"[1,null,3]"
+],
+"type": "large_list<element: int32>"
+},
+{
+"hash": "ad5d102bed287595",
+"name": "nested",
+"nulls": 36,
+"rows": 400,
+"sample": [
+"[]",
+"[[]]",
+"[null]"
+],
+"type": "large_list<element: large_list<element: large_string>>"
+},
+{
+"hash": "5743543ec49b3531",
+"name": "point",
+"nulls": 67,
+"rows": 400,
+"sample": [
+"{x:null,y:f:0000000000000000,label:null}",
+"null",
+"{x:2,y:f:3fe5555555555555,label:u:71}"
+],
+"type": "struct<x: int32, y: double, label: large_string>"
+},
+{
+"hash": "6930ddcd288428d2",
+"name": "points",
+"nulls": 50,
+"rows": 400,
+"sample": [
+"[]",
+"[null]",
+"null"
+],
+"type": "large_list<element: struct<x: int32, y: double, label: large_string>>"
+},
+{
+"hash": "3b3e27a0c86e7800",
+"name": "with_list",
+"nulls": 57,
+"rows": 400,
+"sample": [
+"{tags:null,score:0}",
+"{tags:[u:79],score:1}",
+"{tags:[u:78,u:78],score:2}"
+],
+"type": "struct<tags: large_list<element: large_string>, score: int64>"
+},
+{
+"hash": "da92368c5eaac952",
+"name": "fixed",
+"nulls": 45,
+"rows": 400,
+"sample": [
+"[f:0000000000000000,null,f:3fd0000000000000]",
+"[f:3ff0000000000000,f:bff8000000000000,f:3fd0000000000000]",
+"null"
+],
+"type": "fixed_size_list<element: double>[3]"
+}
+],
+"rows": 400
+}
+},
+"nested/spark_variant.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "b55dac075113baa0",
+"name": "id",
+"nulls": 0,
+"rows": 20,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int64"
+},
+{
+"hash": "15c65378bb1d9ff6",
+"name": "v",
+"nulls": 7,
+"rows": 20,
+"sample": [
+"null",
+"{metadata:b:01020001026162,value:b:020200010009141801000000000000000303000204050",
+"{metadata:b:01020001026162,value:b:020200010009141802000000000000000303000204050"
+],
+"type": "struct<metadata: binary not null, value: binary>"
+}
+],
+"rows": 20
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "b55dac075113baa0",
+"name": "id",
+"nulls": 0,
+"rows": 20,
+"sample": [
+"0",
+"1",
+"2"
+],
+"type": "int64"
+},
+{
+"hash": "4b755ba9a956b5c4",
+"name": "v",
+"nulls": 7,
+"rows": 20,
+"sample": [
+"null",
+"{metadata:b:01020001026162,value:null,typed_value:{a:{value:null,typed_value:1},",
+"{metadata:b:01020001026162,value:null,typed_value:{a:{value:null,typed_value:2},"
+],
+"type": "struct<metadata: binary not null, value: binary, typed_value: struct<a: struct<value: binary, typed_value: int64> not null, b: struct<value: binary, typed_value: list<element: struct<value: binary not null> not null>> not null>>"
+}
+],
+"rows": 20
+}
+},
 "writers/duckdb.parquet": {
 "duckdb": {
 "columns": [

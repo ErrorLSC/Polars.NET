@@ -9,26 +9,36 @@ using Kaminari.Seseragi.Files.Parquet.Schema;
 namespace Kaminari.Seseragi.Files.Parquet.Reading;
 
 /// <summary>
-/// Reads one flat column chunk (a leaf directly under the root) into an Arrow builder, a batch at a time. The base
-/// class walks the pages and decodes definition levels into a validity mask; the kinds below decode the values.
-/// A page's levels (and dictionary indices) are decoded whole when the page is entered, so rows can be read or
-/// skipped from anywhere in it.
+/// Reads one column chunk into an Arrow builder, a batch of records at a time. The base class walks the pages,
+/// decodes repetition and definition levels, counts records (a record starts at repetition level 0), keeps the
+/// batch's levels for the assembler of nested columns, and works out which entries are slots of the leaf's array
+/// and which of those are null; the kinds below decode the values. A page's levels (and dictionary indices) are
+/// decoded whole when the page is entered, so records can be read or skipped from anywhere in it.
 /// </summary>
 internal abstract class LeafReader : IDisposable
 {
     private readonly PageReader _pages;
-    private readonly int _maxDefinition;
-    private readonly int _definitionBits;
+    private readonly int _maxDefinition, _maxRepetition;
+    private readonly int _definitionBits, _repetitionBits;
     private long _valuesLeft;           // in the chunk, from its metadata
 
-    private byte[] _mask = [];          // per value of the page: 1 where present
+    // How entries become slots of this leaf's array (see ReadNode); a flat leaf: every entry.
+    private int _slotDef;
+    private bool _rejectNulls;
+    private int _fixedSlotDef = -1, _fixedElementDef, _fixedSize; // a fixed-size list parent: placeholders for null lists
+    private bool _keepLevels;
+
+    private byte[] _def = [], _rep = [];   // the page's levels
     private int _pageValues, _pageAt;
     private ReadOnlyMemory<byte> _values;
     private int _valuePosition;
-    private bool _fromDictionary;
+    private bool _fromDictionary, _other, _hasDictionary;
     private int[] _indices = [];
     private int _indexAt;
-    private bool _hasDictionary;
+
+    private byte[] _batchDef = [], _batchRep = [];
+    private int _batchCount;
+    private byte[] _mask = [];
 
     protected LeafReader(PageReader pages, SchemaNode leaf, LeafType type, long valueCount)
     {
@@ -36,7 +46,9 @@ internal abstract class LeafReader : IDisposable
         Leaf = leaf;
         Type = type;
         _maxDefinition = leaf.MaxDefinition;
+        _maxRepetition = leaf.MaxRepetition;
         _definitionBits = 32 - BitOperations.LeadingZeroCount((uint)_maxDefinition);
+        _repetitionBits = 32 - BitOperations.LeadingZeroCount((uint)_maxRepetition);
         _valuesLeft = valueCount;
     }
 
@@ -44,6 +56,29 @@ internal abstract class LeafReader : IDisposable
     public LeafType Type { get; }
     public abstract NativeColumnBuilder Builder { get; }
     protected string Name => string.Join('.', Leaf.Path);
+
+    /// <summary>
+    /// Sets how entries become slots (from the leaf's read node), whether the batch's levels are kept for the
+    /// assembler, and the fixed-size list the leaf is the item of, if any.
+    /// </summary>
+    public void Configure(ReadNode node, bool keepLevels, ReadNode? fixedSizeList)
+    {
+        _slotDef = node.SlotDef;
+        _rejectNulls = node.RejectNulls;
+        _keepLevels = keepLevels;
+        if (fixedSizeList is not null)
+        {
+            _fixedSlotDef = fixedSizeList.SlotDef;
+            _fixedElementDef = fixedSizeList.ElementDef;
+            _fixedSize = fixedSizeList.ListSize;
+        }
+    }
+
+    /// <summary>The definition levels of the entries read into the current batch.</summary>
+    public ReadOnlySpan<byte> BatchDefinitions => _batchDef.AsSpan(0, _batchCount);
+
+    /// <summary>The repetition levels of the entries read into the current batch.</summary>
+    public ReadOnlySpan<byte> BatchRepetitions => _batchRep.AsSpan(0, _batchCount);
 
     /// <summary>The number of entries of the dictionary page, once read.</summary>
     protected abstract int DictionaryCount { get; }
@@ -69,63 +104,152 @@ internal abstract class LeafReader : IDisposable
     protected virtual void SkipOther(int valid) => throw new InvalidOperationException();
 
     /// <summary>Called after the builder was exported (a batch ended).</summary>
-    public virtual void BatchExported() { }
+    public void BatchExported()
+    {
+        _batchCount = 0;
+        OnBatchExported();
+    }
 
-    private bool _other;
+    protected virtual void OnBatchExported() { }
 
-    /// <summary>Appends <paramref name="rows"/> rows to <see cref="Builder"/>.</summary>
-    public void Read(int rows)
+    /// <summary>Appends <paramref name="records"/> records to <see cref="Builder"/>.</summary>
+    public void Read(int records) => Advance(records, read: true);
+
+    /// <summary>Skips <paramref name="records"/> records (for row ranges).</summary>
+    public void Skip(int records) => Advance(records, read: false);
+
+    private void Advance(int records, bool read)
     {
         try
         {
-            while (rows > 0)
+            int starts = 0;
+            bool first = true;
+            while (records > 0)
             {
-                if (_pageAt == _pageValues) NextDataPage();
-                int n = Math.Min(rows, _pageValues - _pageAt);
-                ReadOnlySpan<byte> mask = _maxDefinition == 0 ? default : _mask.AsSpan(_pageAt, n);
-                int valid = mask.IsEmpty ? n : n - mask.Count((byte)0);
-                if (_other) AppendOther(n, mask, valid);
-                else if (_fromDictionary)
+                if (_pageAt == _pageValues && !TryNextDataPage())
                 {
-                    AppendFromDictionary(n, mask, _indices.AsSpan(_indexAt, valid));
-                    _indexAt += valid;
+                    if (starts == records) break;
+                    throw new ParquetFormatException($"the column chunk ends before its row group does ({records - starts} records missing).");
                 }
-                else AppendPlain(n, mask, valid, _values.Span, ref _valuePosition);
-                _pageAt += n;
-                rows -= n;
+                int a = _pageAt, b = a;
+                if (_maxRepetition == 0)
+                {
+                    b = a + Math.Min(records - starts, _pageValues - a);
+                    starts += b - a;
+                }
+                else
+                {
+                    ReadOnlySpan<byte> rep = _rep.AsSpan(0, _pageValues);
+                    if (first && rep[a] != 0) throw new ParquetFormatException($"a record starts with repetition level {rep[a]}, not 0.");
+                    for (; b < _pageValues; b++)
+                    {
+                        if (rep[b] != 0) continue;
+                        if (starts == records) break;
+                        starts++;
+                    }
+                }
+                first = false;
+                if (read) Consume(a, b);
+                else SkipEntries(a, b);
+                _pageAt = b;
+                if (b < _pageValues || (_maxRepetition == 0 && starts == records)) break;
             }
         }
         catch (ParquetFormatException e)
         {
             throw new ParquetFormatException($"Column '{Name}': {e.Message}", e);
         }
-        catch (InvalidOperationException e)
+        catch (Exception e) when (e is InvalidOperationException or OverflowException)
         {
             throw new ParquetFormatException($"Column '{Name}': {e.Message}", e);
         }
     }
 
-    /// <summary>Skips <paramref name="rows"/> rows (for row ranges).</summary>
-    public void Skip(int rows)
+    /// <summary>Reads the entries [<paramref name="a"/>, <paramref name="b"/>) of the page: levels kept, slots and values appended.</summary>
+    private void Consume(int a, int b)
     {
-        try
+        int n = b - a;
+        if (n == 0) return;
+        ReadOnlySpan<byte> def = _maxDefinition == 0 ? default : _def.AsSpan(a, n);
+        if (_keepLevels)
         {
-            while (rows > 0)
+            Ensure(ref _batchDef, _batchCount + n);
+            Ensure(ref _batchRep, _batchCount + n);
+            if (def.IsEmpty) _batchDef.AsSpan(_batchCount, n).Clear();
+            else def.CopyTo(_batchDef.AsSpan(_batchCount));
+            if (_maxRepetition == 0) _batchRep.AsSpan(_batchCount, n).Clear();
+            else _rep.AsSpan(a, n).CopyTo(_batchRep.AsSpan(_batchCount));
+            _batchCount += n;
+        }
+
+        int slots, valid;
+        ReadOnlySpan<byte> mask;
+        if (def.IsEmpty)
+        {
+            slots = valid = n;
+            mask = default;
+        }
+        else if (_slotDef == 0 && _fixedSlotDef < 0)
+        {
+            // Every entry is a slot (a flat column, or the top of a nested one): count with vector compares, and
+            // at a maximum of 1 the levels are the mask themselves.
+            byte max = (byte)_maxDefinition;
+            slots = n;
+            valid = def.Count(max);
+            if (valid == n) mask = default;
+            else if (max == 1) mask = def;
+            else
             {
-                if (_pageAt == _pageValues) NextDataPage();
-                int n = Math.Min(rows, _pageValues - _pageAt);
-                int valid = _maxDefinition == 0 ? n : n - _mask.AsSpan(_pageAt, n).Count((byte)0);
-                if (_other) SkipOther(valid);
-                else if (_fromDictionary) _indexAt += valid;
-                else SkipPlain(valid, _values.Span, ref _valuePosition);
-                _pageAt += n;
-                rows -= n;
+                Ensure(ref _mask, n);
+                for (int i = 0; i < n; i++) _mask[i] = def[i] == max ? (byte)1 : (byte)0;
+                mask = _mask.AsSpan(0, n);
             }
+            if (_rejectNulls && valid != slots) throw new ParquetFormatException("a map key is null.");
         }
-        catch (ParquetFormatException e)
+        else
         {
-            throw new ParquetFormatException($"Column '{Name}': {e.Message}", e);
+            byte max = (byte)_maxDefinition;
+            Ensure(ref _mask, n);
+            slots = 0;
+            valid = 0;
+            for (int i = 0; i < n; i++)
+            {
+                int d = def[i];
+                if (d >= _slotDef)
+                {
+                    byte present = d == max ? (byte)1 : (byte)0;
+                    _mask[slots++] = present;
+                    valid += present;
+                }
+                else if (_fixedSlotDef >= 0 && d >= _fixedSlotDef && d < _fixedElementDef)
+                {
+                    // A null or empty fixed-size list still holds its items: null placeholders.
+                    Ensure(ref _mask, checked(slots + _fixedSize + (n - i)));
+                    _mask.AsSpan(slots, _fixedSize).Clear();
+                    slots += _fixedSize;
+                }
+            }
+            mask = valid == slots ? default : _mask.AsSpan(0, slots);
+            if (_rejectNulls && valid != slots) throw new ParquetFormatException("a map key is null.");
         }
+        if (slots == 0) return;
+        if (_other) AppendOther(slots, mask, valid);
+        else if (_fromDictionary)
+        {
+            AppendFromDictionary(slots, mask, _indices.AsSpan(_indexAt, valid));
+            _indexAt += valid;
+        }
+        else AppendPlain(slots, mask, valid, _values.Span, ref _valuePosition);
+    }
+
+    private void SkipEntries(int a, int b)
+    {
+        int n = b - a;
+        int valid = _maxDefinition == 0 ? n : _def.AsSpan(a, n).Count((byte)_maxDefinition);
+        if (valid == 0) return;
+        if (_other) SkipOther(valid);
+        else if (_fromDictionary) _indexAt += valid;
+        else SkipPlain(valid, _values.Span, ref _valuePosition);
     }
 
     /// <summary>
@@ -138,12 +262,11 @@ internal abstract class LeafReader : IDisposable
             throw new ParquetFormatException($"Column '{Name}' holds more values than its row group has rows.");
     }
 
-    private void NextDataPage()
+    private bool TryNextDataPage()
     {
         while (true)
         {
-            if (!_pages.TryNext(out Page page))
-                throw new ParquetFormatException($"the column chunk ends before its row group does ({_valuesLeft} values missing).");
+            if (_valuesLeft == 0 || !_pages.TryNext(out Page page)) return false;
             PageHeader header = page.Header;
             switch (header.Type)
             {
@@ -162,15 +285,15 @@ internal abstract class LeafReader : IDisposable
                 {
                     DataPageHeader h = header.DataPageHeader ?? throw new ParquetFormatException("a DATA_PAGE has no data_page_header.");
                     if (h.NumValues == 0) continue;
-                    BeginPage(h.NumValues, page.Body, h.Encoding, h.DefinitionLevelEncoding, v2: null);
-                    return;
+                    BeginPage(h.NumValues, page.Body, h.Encoding, h.RepetitionLevelEncoding, h.DefinitionLevelEncoding, v2: null);
+                    return true;
                 }
                 case PageType.DataPageV2:
                 {
                     DataPageHeaderV2 h = header.DataPageHeaderV2!;
                     if (h.NumValues == 0) continue;
-                    BeginPage(h.NumValues, page.Body, h.Encoding, ParquetEncoding.Rle, h);
-                    return;
+                    BeginPage(h.NumValues, page.Body, h.Encoding, ParquetEncoding.Rle, ParquetEncoding.Rle, h);
+                    return true;
                 }
                 default:
                     continue; // index pages, unknown page types
@@ -178,56 +301,27 @@ internal abstract class LeafReader : IDisposable
         }
     }
 
-    private void BeginPage(int count, ReadOnlyMemory<byte> body, ParquetEncoding encoding, ParquetEncoding levelEncoding, DataPageHeaderV2? v2)
+    private void BeginPage(int count, ReadOnlyMemory<byte> body, ParquetEncoding encoding, ParquetEncoding repetitionEncoding,
+        ParquetEncoding definitionEncoding, DataPageHeaderV2? v2)
     {
         if (count < 0 || count > _valuesLeft)
             throw new ParquetFormatException($"a data page holds {count} values, more than the {_valuesLeft} left in the column chunk.");
         _valuesLeft -= count;
         ReadOnlySpan<byte> span = body.Span;
         int position = 0;
-        int valid = count;
-        if (_maxDefinition > 0)
+        if (v2 is not null)
         {
-            if (_mask.Length < count)
-            {
-                if (_mask.Length > 0) ArrayPool<byte>.Shared.Return(_mask);
-                _mask = ArrayPool<byte>.Shared.Rent(count);
-            }
-            Span<byte> levels = _mask.AsSpan(0, count);
-            ReadOnlySpan<byte> encoded;
-            if (v2 is not null)
-            {
-                encoded = span.Slice(v2.RepetitionLevelsByteLength, v2.DefinitionLevelsByteLength);
-                position = v2.RepetitionLevelsByteLength + v2.DefinitionLevelsByteLength;
-                DecodeRle(encoded, levels);
-            }
-            else if (levelEncoding == ParquetEncoding.Rle)
-            {
-                if (span.Length < 4) throw new ParquetFormatException("a page is too short for its definition levels.");
-                int length = BinaryPrimitives.ReadInt32LittleEndian(span);
-                if (length < 0 || length > span.Length - 4) throw new ParquetFormatException($"definition levels of {length} bytes run past the page.");
-                DecodeRle(span.Slice(4, length), levels);
-                position = 4 + length;
-            }
-            else if (levelEncoding == ParquetEncoding.BitPacked)
-            {
-                long length = BitPacking.Bytes(count, _definitionBits);
-                if (length > span.Length) throw new ParquetFormatException("BIT_PACKED definition levels run past the page.");
-                BitPacking.UnpackMsbFirst(span, 0, _definitionBits, levels);
-                position = (int)length;
-            }
-            else throw new ParquetFormatException($"definition levels are encoded with {levelEncoding}.");
-
-            byte max = (byte)_maxDefinition;
-            for (int i = 0; i < levels.Length; i++)
-            {
-                byte level = levels[i];
-                if (level > max) throw new ParquetFormatException($"a definition level {level} exceeds the maximum {max}.");
-                levels[i] = level == max ? (byte)1 : (byte)0;
-            }
-            valid = count - levels.Count((byte)0);
+            if (_maxRepetition > 0) DecodeLevels(span[..v2.RepetitionLevelsByteLength], ref _rep, count, _repetitionBits, _maxRepetition, "repetition");
+            if (_maxDefinition > 0) DecodeLevels(span.Slice(v2.RepetitionLevelsByteLength, v2.DefinitionLevelsByteLength), ref _def, count, _definitionBits, _maxDefinition, "definition");
+            position = v2.RepetitionLevelsByteLength + v2.DefinitionLevelsByteLength;
         }
-        else if (v2 is not null) position = v2.RepetitionLevelsByteLength + v2.DefinitionLevelsByteLength;
+        else
+        {
+            // Data page v1: repetition levels, then definition levels, each RLE (after a 4-byte length) or BIT_PACKED.
+            if (_maxRepetition > 0) position = LevelsV1(span, position, repetitionEncoding, ref _rep, count, _repetitionBits, _maxRepetition, "repetition");
+            if (_maxDefinition > 0) position = LevelsV1(span, position, definitionEncoding, ref _def, count, _definitionBits, _maxDefinition, "definition");
+        }
+        int valid = _maxDefinition == 0 ? count : _def.AsSpan(0, count).Count((byte)_maxDefinition);
 
         _values = body[position..];
         _valuePosition = 0;
@@ -252,10 +346,52 @@ internal abstract class LeafReader : IDisposable
         }
     }
 
-    private void DecodeRle(ReadOnlySpan<byte> encoded, Span<byte> levels)
+    private static int LevelsV1(ReadOnlySpan<byte> span, int position, ParquetEncoding encoding, ref byte[] levels, int count, int bits, int max, string what)
     {
-        var decoder = new RleBitPackedDecoder(encoded, _definitionBits);
-        if (decoder.Read(levels) != levels.Length) throw new ParquetFormatException($"the page has fewer definition levels than its {levels.Length} values.");
+        ReadOnlySpan<byte> rest = span[position..];
+        if (encoding == ParquetEncoding.Rle)
+        {
+            if (rest.Length < 4) throw new ParquetFormatException($"a page is too short for its {what} levels.");
+            int length = BinaryPrimitives.ReadInt32LittleEndian(rest);
+            if (length < 0 || length > rest.Length - 4) throw new ParquetFormatException($"{what} levels of {length} bytes run past the page.");
+            DecodeLevels(rest.Slice(4, length), ref levels, count, bits, max, what);
+            return position + 4 + length;
+        }
+        if (encoding == ParquetEncoding.BitPacked)
+        {
+            long length = BitPacking.Bytes(count, bits);
+            if (length > rest.Length) throw new ParquetFormatException($"BIT_PACKED {what} levels run past the page.");
+            Ensure(ref levels, count);
+            BitPacking.UnpackMsbFirst(rest, 0, bits, levels.AsSpan(0, count));
+            CheckLevels(levels.AsSpan(0, count), max, what);
+            return position + (int)length;
+        }
+        throw new ParquetFormatException($"{what} levels are encoded with {encoding}.");
+    }
+
+    private static void DecodeLevels(ReadOnlySpan<byte> encoded, ref byte[] levels, int count, int bits, int max, string what)
+    {
+        Ensure(ref levels, count);
+        var decoder = new RleBitPackedDecoder(encoded, bits);
+        if (decoder.Read(levels.AsSpan(0, count)) != count) throw new ParquetFormatException($"the page has fewer {what} levels than its {count} values.");
+        CheckLevels(levels.AsSpan(0, count), max, what);
+    }
+
+    private static void CheckLevels(ReadOnlySpan<byte> levels, int max, string what)
+    {
+        foreach (byte level in levels)
+        {
+            if (level > max) throw new ParquetFormatException($"a {what} level {level} exceeds the maximum {max}.");
+        }
+    }
+
+    private static void Ensure(ref byte[] buffer, int length)
+    {
+        if (buffer.Length >= length) return;
+        byte[] grown = ArrayPool<byte>.Shared.Rent(Math.Max(length, buffer.Length * 2));
+        buffer.CopyTo(grown, 0);
+        if (buffer.Length > 0) ArrayPool<byte>.Shared.Return(buffer);
+        buffer = grown;
     }
 
     private void DecodeIndices(ReadOnlySpan<byte> values, int valid)
@@ -289,9 +425,12 @@ internal abstract class LeafReader : IDisposable
     public virtual void Dispose()
     {
         _pages.Dispose();
-        if (_mask.Length > 0) ArrayPool<byte>.Shared.Return(_mask);
+        foreach (byte[] buffer in (byte[][])[_mask, _def, _rep, _batchDef, _batchRep])
+        {
+            if (buffer.Length > 0) ArrayPool<byte>.Shared.Return(buffer);
+        }
         if (_indices.Length > 0) ArrayPool<int>.Shared.Return(_indices);
-        _mask = [];
+        _mask = _def = _rep = _batchDef = _batchRep = [];
         _indices = [];
         Builder.Dispose();
         GC.SuppressFinalize(this);

@@ -35,6 +35,7 @@
     <None Include="..\Seseragi.Files.Tests\TestData\excel\calamine\*.xlsb" Link="TestData\excel\calamine\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- Parquet files for the managed-reader pipeline, shared with the Seseragi.Files tests. -->
     <None Include="..\Seseragi.Files.Tests\TestData\parquet\matrix\*.parquet" Link="TestData\parquet\matrix\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Seseragi.Files.Tests\TestData\parquet\nested\*.parquet" Link="TestData\parquet\nested\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Seseragi.Files.Tests\TestData\parquet\writers\*.parquet" Link="TestData\parquet\writers\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Seseragi.Files.Tests\TestData\parquet\apache\data\*.parquet" Link="TestData\parquet\apache\data\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

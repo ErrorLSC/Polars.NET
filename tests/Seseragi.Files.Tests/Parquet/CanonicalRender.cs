@@ -52,7 +52,9 @@ internal static class CanonicalRender
             BinaryArray b => "b:" + Convert.ToHexStringLower(b.GetBytes(i)),
             FixedSizeBinaryArray f => "b:" + Convert.ToHexStringLower(f.GetBytes(i)),
             DictionaryArray d => Value(d.Dictionary, Index(d.Indices, i)),
+            MapArray m => "M{" + string.Join(",", Enumerable.Range(m.ValueOffsets[i], m.GetValueLength(i)).Select(k => $"{Value(m.Keys, k)}=>{Value(m.Values, k)}")) + "}",
             ListArray l => "[" + string.Join(",", Enumerable.Range(l.ValueOffsets[i], l.GetValueLength(i)).Select(k => Value(l.Values, k))) + "]",
+            FixedSizeListArray f => "[" + string.Join(",", Enumerable.Range((f.Offset + i) * ((FixedSizeListType)f.Data.DataType).ListSize, ((FixedSizeListType)f.Data.DataType).ListSize).Select(k => Value(f.Values, k))) + "]",
             StructArray s => "{" + string.Join(",", ((StructType)s.Data.DataType).Fields.Select((f, k) => $"{f.Name}:{Value(s.Fields[k], i)}")) + "}",
             _ => throw new NotSupportedException($"No canonical form for {array.Data.DataType}."),
         };
