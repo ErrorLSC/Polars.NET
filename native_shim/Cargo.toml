@@ -24,9 +24,6 @@ polars-ops = {version="0.55.2"}
 polars-async = {version="0.55.2"}
 polars-config = {version="0.55.2"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }
-calamine = { version = "0.37.0", features = ["dates","chrono"] }
-chrono = "*"
-rust_xlsxwriter = { version = "0.101.0", features = ["chrono"] }
 object_store = "0.13"
 futures = "*"
 rand = "*"
