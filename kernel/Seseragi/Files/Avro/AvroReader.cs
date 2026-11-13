@@ -38,6 +38,10 @@ public sealed record AvroReadOptions
     /// Iceberg field id.</summary>
     public AvroFieldMatching FieldMatching { get; init; } = AvroFieldMatching.ByName;
 
+    /// <summary>A cache shared by readers of many files with the same schema (small files such as Iceberg manifests):
+    /// opening skips parsing and resolving a schema seen before. See <see cref="AvroReadCache"/>.</summary>
+    public AvroReadCache? Cache { get; init; }
+
     /// <summary>Stop after this many rows.</summary>
     public long? RowLimit { get; init; }
 
@@ -124,7 +128,10 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     public Schema Schema { get; private set; } = null!;
 
     /// <summary>The writer schema stored in the file, as JSON.</summary>
-    public string WriterSchemaJson { get; private set; } = "";
+    public string WriterSchemaJson => _writerSchemaJson ??= Encoding.UTF8.GetString(_schemaBytes);
+
+    private byte[] _schemaBytes = [];
+    private string? _writerSchemaJson;
 
     /// <summary>The block codec name (<c>null</c>, <c>deflate</c>, <c>snappy</c> or <c>zstandard</c>).</summary>
     public string Codec => _codec.Name;
@@ -242,25 +249,40 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
         Metadata = metadata;
         if (!metadata.TryGetValue("avro.schema", out var schemaBytes))
             throw new AvroFormatException("The Avro file header has no avro.schema.");
-        WriterSchemaJson = Encoding.UTF8.GetString(schemaBytes);
+        _schemaBytes = schemaBytes;
+        _codec = AvroCodec.ForName(metadata.TryGetValue("avro.codec", out var codec) ? Encoding.UTF8.GetString(codec) : null);
+        var options = _options;
+        PreparedRead prepared = options.Cache is { } cache
+            ? cache.GetOrAdd(schemaBytes, options, () => Prepare(ParseWriterSchema(schemaBytes), options))
+            : Prepare(ParseWriterSchema(schemaBytes), options);
+        WriterSchema = prepared.WriterSchema;
+        Schema = prepared.Schema;
+        _fields = prepared.Fields;
+        _selected = prepared.Selected;
+        _plan = prepared.Plan;
+        (_root, _rowDecoder) = CreateDecoders();
+    }
+
+    private static AvroSchema ParseWriterSchema(byte[] schemaBytes)
+    {
         try
         {
-            WriterSchema = AvroSchema.Parse(schemaBytes);
+            return AvroSchema.Parse(schemaBytes);
         }
         catch (System.Text.Json.JsonException e)
         {
             throw new AvroFormatException("The avro.schema in the file header is not valid JSON.", e);
         }
-        _codec = AvroCodec.ForName(metadata.TryGetValue("avro.codec", out var codec) ? Encoding.UTF8.GetString(codec) : null);
-        BuildProjection();
     }
 
-    private void BuildProjection()
+    /// <summary>What a writer schema and the options make of a file (projection, Arrow schema, resolution plan):
+    /// immutable, so an <see cref="AvroReadCache"/> can share it between readers of files with the same schema.</summary>
+    private static PreparedRead Prepare(AvroSchema writerSchema, AvroReadOptions options)
     {
-        var readerSchema = _options.ReaderSchema;
-        var fields = AvroReadSchema.TopLevelFields(readerSchema ?? WriterSchema);
+        var readerSchema = options.ReaderSchema;
+        var fields = AvroReadSchema.TopLevelFields(readerSchema ?? writerSchema);
         var selected = new bool[fields.Count];
-        if (_options.Columns is { } names)
+        if (options.Columns is { } names)
         {
             foreach (var name in names)
             {
@@ -271,7 +293,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
                 selected[index] = true;
             }
         }
-        else if (_options.ColumnIndices is { } indices)
+        else if (options.ColumnIndices is { } indices)
         {
             foreach (int index in indices)
             {
@@ -288,20 +310,15 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
         List<Field> arrowFields = [];
         for (int i = 0; i < fields.Count; i++)
             if (selected[i]) arrowFields.Add(AvroReadSchema.ToField(fields[i].Name, fields[i].Schema, fields[i].FieldId));
-        Schema = new Schema(arrowFields, null);
-        _fields = fields;
-        _selected = selected;
-        if (readerSchema is not null)
+        ResolvedNode? plan = readerSchema switch
         {
-            _plan = readerSchema switch
-            {
-                AvroRecordSchema record => AvroResolver.ResolveTop(WriterSchema,
-                    [.. record.Fields.Where((_, i) => selected[i])], _options.FieldMatching),
-                _ when selected[0] => AvroResolver.ResolveValue(WriterSchema, readerSchema, _options.FieldMatching),
-                _ => new SkipRowNode(WriterSchema),
-            };
-        }
-        (_root, _rowDecoder) = CreateDecoders();
+            null => null,
+            AvroRecordSchema record => AvroResolver.ResolveTop(writerSchema,
+                [.. record.Fields.Where((_, i) => selected[i])], options.FieldMatching),
+            _ when selected[0] => AvroResolver.ResolveValue(writerSchema, readerSchema, options.FieldMatching),
+            _ => new SkipRowNode(writerSchema),
+        };
+        return new PreparedRead(writerSchema, new Schema(arrowFields, null), fields, selected, plan);
     }
 
     /// <summary>A fresh builder tree for the projected schema and the row decoder that fills it.</summary>

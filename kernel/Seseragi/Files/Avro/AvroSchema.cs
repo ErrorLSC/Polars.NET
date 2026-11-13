@@ -146,6 +146,10 @@ public abstract partial class AvroSchema
     /// <summary>The schema as Avro JSON; named types are written in full once, then by full name.</summary>
     public string ToJson() => AvroSchemaJsonWriter.Write(this);
 
+    // The JSON, worked out once: schemas are immutable once built, so it identifies the content (cache keys).
+    private string? _json;
+    internal string CanonicalJson => _json ??= ToJson();
+
     /// <inheritdoc cref="ToJson"/>
     public override string ToString() => ToJson();
 }
