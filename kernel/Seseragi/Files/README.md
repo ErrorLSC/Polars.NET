@@ -37,7 +37,8 @@ adding features.
 | `Avro/AvroResolution.cs` | Schema resolution: `AvroResolver` turns (writer, reader) into an immutable plan (`ResolvedNode` tree; all schema checks at open), compiled per decoder set (sequential reader, each parallel worker); identity subtrees collapse to the reader's own decoders; `AvroResolutionException`; decoders for promotions (lossy ones checked per value), defaults (encoded once, replayed), enum remaps, unions. |
 | `Avro/AvroWriteSchema.cs` | Arrow → Avro mapping and encoder compilation; `SameEncoding` (per-batch type check). |
 | `Avro/AvroEncoders.cs` | Encoders over pinned Arrow buffers; `EncodeRange` loops for list items. |
-| `Avro/AvroWriter.cs` | Container writer (blocks by size, header on first block, failure handling). |
+| `Avro/AvroWriter.cs` | Container writer (blocks by size, header on first block, failure handling); `WriterSchema` writes a given Avro schema. |
+| `Avro/AvroGivenSchema.cs` | Encoders for a given writer schema: Avro fields matched to batch columns by name or id, defaults for missing fields, the reading rules in reverse (widening free, lossy checked per value, different meanings refused at `Create`), `[T, "null"]`, fixed decimals (sign-extended), enums, array-encoded maps. General unions refused. |
 
 In Sazanami (generic, reusable by other formats):
 
@@ -204,7 +205,11 @@ verified against real files first:
    with their default or null, skip extra fields (the skippers exist), promote int → long and float → double (and the
    rest of Avro's promotions), match union branches. Manifest schemas differ across format versions and partition
    specs.
-6. **Write against a given Avro schema** (absorbs per-field encodings; the construction API it needs already exists). Manifests
+6. **Write against a given Avro schema.** *Done (2026-11-13): `AvroWriteOptions.WriterSchema` + `FieldMatching`,
+   `AvroWriter.WriterSchema`, `AvroSchema.ToArrowSchema()`. A field the batch lacks writes its declared default; a
+   column the schema lacks is an error; `RecordName` / `RecordNamespace` must keep their defaults. All 138 clean
+   reference manifests round-trip: header schema and metadata equal, fastavro decodes identical records. The kernel
+   builds batches with Sazanami's native builders (`InternalsVisibleTo Kaminari.Seseragi.Lakehouse`).* Manifests
    need record names (`r2`, `k117_v118`, `manifest_entry`), required vs optional and `"default": null`, which the Arrow
    mapping cannot produce. It also covers per-field encodings: Iceberg needs decimals as `fixed` of the minimal size
    for the precision and uuids as `fixed(16)`; the default mapping keeps a `bytes` decimal. Its encoder must accept a

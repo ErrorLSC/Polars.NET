@@ -134,6 +134,15 @@ public abstract partial class AvroSchema
     /// <inheritdoc cref="Parse(string)"/>
     public static AvroSchema Parse(ReadOnlySpan<byte> utf8Json) => AvroSchemaParser.Parse(utf8Json);
 
+    /// <summary>
+    /// The Arrow schema this Avro schema reads as (a record's fields; any other type as one column <c>value</c>),
+    /// with field ids as <c>PARQUET:field_id</c> metadata. Writing with this schema as
+    /// <see cref="AvroWriteOptions.WriterSchema"/> accepts exactly these Arrow types.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The schema is recursive (Arrow cannot represent it).</exception>
+    public Apache.Arrow.Schema ToArrowSchema() =>
+        new([.. AvroReadSchema.TopLevelFields(this).Select(f => AvroReadSchema.ToField(f.Name, f.Schema, f.FieldId))], null);
+
     /// <summary>The schema as Avro JSON; named types are written in full once, then by full name.</summary>
     public string ToJson() => AvroSchemaJsonWriter.Write(this);
 

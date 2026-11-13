@@ -56,8 +56,9 @@ internal abstract unsafe class AvroEncoder
         new($"Cannot write {what} to Avro without losing data.");
 }
 
-/// <summary><c>["null", T]</c>: branch 0 for null, branch 1 followed by the value.</summary>
-internal sealed unsafe class NullableEncoder(AvroEncoder inner) : AvroEncoder
+/// <summary><c>["null", T]</c>: branch 0 for null, branch 1 followed by the value (other branch numbers for a given
+/// schema such as <c>[T, "null"]</c>).</summary>
+internal sealed unsafe class NullableEncoder(AvroEncoder inner, int nullBranch = 0, int valueBranch = 1) : AvroEncoder
 {
     private byte* _validity;
     private int _offset;
@@ -81,10 +82,10 @@ internal sealed unsafe class NullableEncoder(AvroEncoder inner) : AvroEncoder
         int bit = _offset + index;
         if (_validity != null && (_validity[bit >> 3] & (1 << (bit & 7))) == 0)
         {
-            w.WriteLong(0);
+            w.WriteLong(nullBranch);
             return;
         }
-        w.WriteLong(1);
+        w.WriteLong(valueBranch);
         inner.Encode(index, w);
     }
 }
@@ -507,12 +508,17 @@ internal sealed class DictionaryEncoder<TIndex>(AvroEncoder values) : AvroEncode
         values.Encode(int.CreateChecked(Values<TIndex>(_indices)[index]), w);
 }
 
-/// <summary>Encodes one row of a record batch.</summary>
-internal sealed class RowEncoder(AvroEncoder[] columns)
+/// <summary>Encodes one row of a record batch: the Avro fields in order, each from a batch column
+/// (<paramref name="sources"/>: the column of each field, or -1 for a constant; null: field i is column i).</summary>
+internal sealed class RowEncoder(AvroEncoder[] columns, int[]? sources = null)
 {
     public void Bind(RecordBatch batch)
     {
-        for (int i = 0; i < columns.Length; i++) columns[i].Bind(batch.Column(i));
+        for (int i = 0; i < columns.Length; i++)
+        {
+            int source = sources is null ? i : sources[i];
+            if (source >= 0) columns[i].Bind(batch.Column(source));
+        }
     }
 
     public void Encode(int row, AvroBufferWriter w)

@@ -29,6 +29,20 @@ public sealed record AvroWriteOptions
 
     /// <summary>Leave the stream open when the writer is disposed.</summary>
     public bool LeaveOpen { get; init; }
+
+    /// <summary>
+    /// Write exactly this Avro schema (record names, defaults, field ids, encodings) instead of mapping the Arrow
+    /// schema: each Avro field takes the batch column matched by <see cref="FieldMatching"/>, a field the batches lack
+    /// writes its declared default (an error without one), a column the schema lacks is an error. Types follow the
+    /// reading rules in reverse (lossless widening; lossy conversions checked per value; different meanings refused);
+    /// <see cref="AvroSchema.ToArrowSchema"/> gives the Arrow schema that matches exactly. <see cref="RecordName"/> and
+    /// <see cref="RecordNamespace"/> must keep their defaults.
+    /// </summary>
+    public AvroSchema? WriterSchema { get; init; }
+
+    /// <summary>How the fields of <see cref="WriterSchema"/> find their batch columns: by name (default) or by the
+    /// field id in the Arrow field metadata.</summary>
+    public AvroFieldMatching FieldMatching { get; init; } = AvroFieldMatching.ByName;
 }
 
 /// <summary>
@@ -63,8 +77,19 @@ public sealed class AvroWriter : IAsyncDisposable, IDisposable
         _stream = stream;
         _options = options;
         _codec = (options.Compression ?? throw new ArgumentNullException(nameof(options), "Compression must not be null.")).CreateAvroCodec();
-        var (avroSchema, encoder) = AvroWriteSchema.Build(schema, options.RecordName, options.RecordNamespace);
-        _encoder = encoder;
+        AvroSchema avroSchema;
+        if (options.WriterSchema is { } given)
+        {
+            if (options.RecordName != new AvroWriteOptions().RecordName || options.RecordNamespace is not null)
+                throw new ArgumentException("RecordName and RecordNamespace cannot be set with a WriterSchema; the schema names its records.", nameof(options));
+            avroSchema = given;
+            _encoder = AvroGivenSchema.Build(schema, given, options.FieldMatching);
+        }
+        else
+        {
+            (avroSchema, _encoder) = AvroWriteSchema.Build(schema, options.RecordName, options.RecordNamespace);
+        }
+        WriterSchema = avroSchema;
         _columnCount = schema.FieldsList.Count;
         Schema = schema;
         _schemaJson = AvroSchemaJsonWriter.WriteUtf8(avroSchema);
@@ -76,6 +101,9 @@ public sealed class AvroWriter : IAsyncDisposable, IDisposable
 
     /// <summary>The Avro writer schema written to the file header.</summary>
     public string WriterSchemaJson => Encoding.UTF8.GetString(_schemaJson);
+
+    /// <summary>The Avro writer schema: <see cref="AvroWriteOptions.WriterSchema"/>, or the one mapped from the Arrow schema.</summary>
+    public AvroSchema WriterSchema { get; }
 
     /// <summary>Creates a writer over a stream. The header is written with the first block (or on completion).</summary>
     public static AvroWriter Create(Stream stream, Schema schema, AvroWriteOptions? options = null) =>
