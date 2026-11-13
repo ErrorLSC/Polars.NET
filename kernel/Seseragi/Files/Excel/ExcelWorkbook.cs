@@ -1,5 +1,7 @@
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;
+using Kaminari.Seseragi.Files.Excel.Xls;
 using Kaminari.Seseragi.Files.Excel.Xlsb;
 using Kaminari.Seseragi.Files.Excel.Xlsx;
 
@@ -8,7 +10,8 @@ namespace Kaminari.Seseragi.Files.Excel;
 /// <summary>
 /// An open workbook: its format, sheets, tables and date system, and readers for its sheets. The format is detected
 /// from the content, not the file name. Opening reads the workbook's directory parts (not the sheets); a stream that
-/// cannot seek is first copied into native memory, since a zip archive's directory sits at its end.
+/// cannot seek is first copied into native memory, since a zip archive's directory sits at its end and a compound
+/// file (.xls) is read at offsets throughout.
 /// </summary>
 public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
 {
@@ -16,6 +19,9 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
     private bool _disposed;
 
     private ExcelWorkbook(WorkbookSource source) => _source = source;
+
+    /// <summary>The format-specific workbook (for tests that look at raw cells).</summary>
+    internal WorkbookSource Source => _source;
 
     /// <summary>The container format.</summary>
     public ExcelFormat Format => _source.Format;
@@ -62,23 +68,62 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
         }
     }
 
-    // Zip containers are told apart by their parts; OLE2 compound files (xls, encrypted workbooks) are not read yet.
+    // A stream that cannot seek is first copied into native memory: a zip directory sits at the end of the file,
+    // and a compound file is read at offsets throughout.
     private static async ValueTask<WorkbookSource> DetectAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct)
     {
-        if (stream.CanSeek)
+        if (stream.CanSeek) return await DetectSeekableAsync(stream, leaveOpen, null, useAsync, ct).ConfigureAwait(false);
+        var copy = new NativeByteBuffer(1 << 20);
+        try
         {
-            Span<byte> magic = stackalloc byte[4];
-            long start = stream.Position;
-            int n = stream.ReadAtLeast(magic, 4, throwOnEndOfStream: false);
-            stream.Position = start;
-            if (n == 4 && magic.SequenceEqual((ReadOnlySpan<byte>)[0xD0, 0xCF, 0x11, 0xE0]))
-                throw new ExcelFormatException("The workbook is an OLE2 compound file (an .xls workbook or an encrypted one), which is not supported yet.");
-            if (n < 4 || !magic.SequenceEqual("PK\u0003\u0004"u8))
-                throw new ExcelFormatException("The data is not an Excel workbook (no zip or OLE2 signature).");
+            var sink = new NativeByteBufferStream(copy);
+            if (useAsync) await stream.CopyToAsync(sink, ct).ConfigureAwait(false);
+            else stream.CopyTo(sink);
+            if (!leaveOpen)
+            {
+                if (useAsync) await stream.DisposeAsync().ConfigureAwait(false);
+                else stream.Dispose();
+            }
+            var memory = FromCopy(copy, sink.Length);
+            return await DetectSeekableAsync(memory, false, copy, useAsync, ct).ConfigureAwait(false);
         }
-        var package = useAsync
-            ? await OpcPackage.OpenAsync(stream, leaveOpen, ct).ConfigureAwait(false)
-            : OpcPackage.Open(stream, leaveOpen);
+        catch
+        {
+            copy.Release();
+            throw;
+        }
+
+        static unsafe UnmanagedMemoryStream FromCopy(NativeByteBuffer copy, long length) => new((byte*)copy.Pin().Pointer, length);
+    }
+
+    // Zip containers are told apart by their parts, compound files by their streams. The source takes over the
+    // stream (and the native copy) once opened; before that, a failure leaves them to the caller.
+    private static async ValueTask<WorkbookSource> DetectSeekableAsync(Stream stream, bool leaveOpen, NativeByteBuffer? copy, bool useAsync, CancellationToken ct)
+    {
+        Span<byte> magic = stackalloc byte[8];
+        long start = stream.Position;
+        int n = stream.ReadAtLeast(magic, 8, throwOnEndOfStream: false);
+        stream.Position = start;
+        if (n == 8 && magic.SequenceEqual(CompoundFile.Signature))
+        {
+            var file = await CompoundFile.OpenAsync(new RandomAccessSource(stream, leaveOpen, copy), useAsync, ct).ConfigureAwait(false);
+            try
+            {
+                if (file.Has("EncryptedPackage") || file.Has("EncryptionInfo"))
+                    throw new ExcelFormatException("The workbook is encrypted (a password-protected .xlsx or .xlsb workbook), which is not supported.");
+                return XlsWorkbook.FindStream(file) is { } name
+                    ? await XlsWorkbook.OpenAsync(file, name, useAsync, ct).ConfigureAwait(false)
+                    : throw new ExcelFormatException("The OLE2 compound file holds no Excel workbook (no Workbook stream).");
+            }
+            catch
+            {
+                file.Dispose();
+                throw;
+            }
+        }
+        if (n < 4 || !magic[..4].SequenceEqual("PK\u0003\u0004"u8))
+            throw new ExcelFormatException("The data is not an Excel workbook (no zip or OLE2 signature).");
+        var package = OpcPackage.Open(stream, leaveOpen, copy);
         try
         {
             if (XlsxWorkbook.FindWorkbookPart(package) is { } part && package.HasPart(part))

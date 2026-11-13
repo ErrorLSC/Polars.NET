@@ -225,18 +225,37 @@ public class ExcelTests
         Assert.Equal(1, table.Height);
     }
 
-    [Theory]
-    [InlineData("xls")]
-    [InlineData("ods")]
-    public void Other_formats_still_read_natively(string extension)
+    [Fact]
+    public void Ods_still_reads_natively()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "excel", $"sparse.{extension}");
+        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "excel", "sparse.ods");
         using var df = DataFrame.ReadExcel(path);
         Assert.Equal(["k", "v"], df.Columns);
         Assert.Equal(2, df.Height);
         Assert.Equal("b", df.GetValue<string>(1, "k"));
         Assert.Throws<NotSupportedException>(() => DataFrame.ReadExcel(path, columns: ["k"]));
         Assert.Throws<NotSupportedException>(() => DataFrame.ReadExcel(path, tableName: "T"));
+    }
+
+    [Fact]
+    public void Xls_reads_managed_from_paths_streams_and_scans()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "excel", "sparse.xls");
+        using var df = DataFrame.ReadExcel(path);
+        Assert.Equal(["k", "v"], df.Columns);
+        Assert.Equal(2, df.Height);
+        Assert.Equal("b", df.GetValue<string>(1, "k"));
+        using var column = DataFrame.ReadExcel(path, columns: ["v"]);
+        Assert.Equal(["v"], column.Columns);
+        Assert.Contains("no table", Assert.Throws<ArgumentException>(() => DataFrame.ReadExcel(path, tableName: "T")).Message);
+
+        using var file = File.OpenRead(path);
+        using var fromStream = DataFrame.ReadExcel(file);
+        Assert.Equal(df.Columns, fromStream.Columns);
+        Assert.Equal("b", fromStream.GetValue<string>(1, "k"));
+
+        using var scanned = LazyFrame.ScanExcel(path).Collect();
+        Assert.Equal(2, scanned.Height);
     }
 
     [Fact]

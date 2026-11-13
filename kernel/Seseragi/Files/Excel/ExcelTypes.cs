@@ -8,6 +8,9 @@ public enum ExcelFormat
 
     /// <summary>Excel binary workbook (.xlsb): the same package with BIFF12 record parts.</summary>
     Xlsb,
+
+    /// <summary>Excel 97–2003 workbook (.xls): BIFF8 records in an OLE2 compound file.</summary>
+    Xls,
 }
 
 /// <summary>Whether a sheet shows in Excel's sheet tabs.</summary>

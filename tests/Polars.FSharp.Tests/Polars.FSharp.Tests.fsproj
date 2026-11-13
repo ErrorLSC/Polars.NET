@@ -75,6 +75,7 @@
 
   <ItemGroup>
     <None Include="..\Seseragi.Files.Tests\TestData\excel\calamine\*.xlsb" Link="TestData\excel\calamine\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Seseragi.Files.Tests\TestData\excel\calamine\issues.xls" Link="TestData\excel\calamine\issues.xls" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

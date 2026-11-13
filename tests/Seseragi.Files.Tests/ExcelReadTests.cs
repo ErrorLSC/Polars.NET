@@ -377,7 +377,8 @@ public class ExcelReadTests
     [Fact]
     public void Other_containers_are_named_in_the_error()
     {
-        Assert.Contains("OLE2", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(new MemoryStream([0xD0, 0xCF, 0x11, 0xE0, 0, 0, 0, 0]))).Message);
+        // An OLE2 signature without a valid compound file behind it.
+        Assert.Contains("compound file", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(new MemoryStream([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0]))).Message);
         Assert.Contains("not an Excel workbook", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(new MemoryStream("hello"u8.ToArray()))).Message);
 
         var zip = new MemoryStream();
@@ -427,7 +428,7 @@ public class ExcelReadTests
         Assert.Equal(Read("types_openpyxl").Rows, rows);
     }
 
-    private sealed class ForwardOnlyStream(Stream inner) : Stream
+    internal sealed class ForwardOnlyStream(Stream inner) : Stream
     {
         public override bool CanRead => true;
         public override bool CanSeek => false;

@@ -136,6 +136,8 @@ internal ref struct RecordReader(ReadOnlySpan<byte> data, int type)
 
     public void Skip(int bytes) => Take(bytes);
 
+    public ReadOnlySpan<byte> Bytes(int count) => Take(count);
+
     /// <summary>An XLWideString (2.5.169): a 32-bit character count, then UTF-16LE characters.</summary>
     public ReadOnlySpan<byte> WideStringBytes()
     {

@@ -10,6 +10,7 @@ namespace Seseragi.Files.Tests;
 /// Without it the test only writes the files. SESERAGI_EXCEL_KEEP keeps them (the directory is printed).
 /// </summary>
 [Trait("Category", "Interop")]
+[Collection("soffice")] // one LibreOffice at a time: parallel instances contend for its user profile
 public class ExcelInteropTests
 {
     /// <summary>

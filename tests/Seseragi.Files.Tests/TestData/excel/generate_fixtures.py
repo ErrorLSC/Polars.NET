@@ -179,8 +179,11 @@ if __name__ == "__main__":
     headers()
     sparse()
     edge()
-    # The same sheet as .xls and .ods (read by the engine's native reader until the managed one covers them).
+    # LibreOffice's .xls copies (Excel 97-2003, BIFF8) of the fixtures, and an .ods copy of the sparse sheet (read by
+    # the engine's native reader until the managed one covers .ods).
     if shutil.which("soffice"):
-        for fmt in ("xls", "ods"):
-            subprocess.run(["soffice", "--headless", "--convert-to", fmt, "--outdir", str(HERE), str(HERE / "sparse.xlsx")],
-                           check=True, capture_output=True, timeout=180)
+        names = ["sparse", "types_openpyxl", "workbook_xlsxwriter", "date1904", "headers", "edge", "chartsheet"]
+        subprocess.run(["soffice", "--headless", "--convert-to", "xls", "--outdir", str(HERE), *(str(HERE / f"{n}.xlsx") for n in names)],
+                       check=True, capture_output=True, timeout=180)
+        subprocess.run(["soffice", "--headless", "--convert-to", "ods", "--outdir", str(HERE), str(HERE / "sparse.xlsx")],
+                       check=True, capture_output=True, timeout=180)

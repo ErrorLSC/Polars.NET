@@ -100,7 +100,7 @@ public class XlsbReadTests
 
     [Fact]
     public void Encrypted_workbooks_are_refused_by_name() =>
-        Assert.Contains("OLE2", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(Calamine("password_protected"))).Message);
+        Assert.Contains("encrypted", Assert.Throws<ExcelFormatException>(() => ExcelWorkbook.Open(Calamine("password_protected"))).Message);
 
     // ------------------------------------------------------------ built record by record
 

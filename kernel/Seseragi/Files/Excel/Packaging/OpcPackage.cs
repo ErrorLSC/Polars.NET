@@ -15,19 +15,16 @@ internal readonly record struct OpcRelationship(string Id, string Type, string T
 
 /// <summary>
 /// The zip (Open Packaging Conventions) container of an xlsx or xlsb workbook: part lookup (part names are
-/// case-insensitive), relationships, and the small parts read whole. A stream that cannot seek is first copied into native memory (the zip directory sits at
-/// the end of the file).
+/// case-insensitive), relationships, and the small parts read whole.
 /// </summary>
 internal sealed class OpcPackage : IDisposable
 {
     private readonly ZipArchive _zip;
     private readonly Dictionary<string, ZipArchiveEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Stream? _ownedStream;
     private readonly NativeByteBuffer? _copy;
 
-    private OpcPackage(Stream stream, bool leaveOpen, Stream? ownedStream, NativeByteBuffer? copy)
+    private OpcPackage(Stream stream, bool leaveOpen, NativeByteBuffer? copy)
     {
-        _ownedStream = ownedStream;
         _copy = copy;
         try
         {
@@ -41,49 +38,9 @@ internal sealed class OpcPackage : IDisposable
         foreach (var e in _zip.Entries) _entries.TryAdd(e.FullName.Replace('\\', '/').TrimStart('/'), e);
     }
 
-    /// <summary>Opens a package over a stream; a non-seekable stream is copied into native memory first.</summary>
-    public static OpcPackage Open(Stream stream, bool leaveOpen)
-    {
-        if (stream.CanSeek) return new(stream, leaveOpen, null, null);
-        var copy = new NativeByteBuffer(1 << 20);
-        try
-        {
-            var sink = new NativeByteBufferStream(copy);
-            stream.CopyTo(sink);
-            if (!leaveOpen) stream.Dispose();
-            return FromCopy(copy, (int)sink.Length);
-        }
-        catch
-        {
-            copy.Release();
-            throw;
-        }
-    }
-
-    /// <inheritdoc cref="Open"/>
-    public static async Task<OpcPackage> OpenAsync(Stream stream, bool leaveOpen, CancellationToken cancellationToken)
-    {
-        if (stream.CanSeek) return new(stream, leaveOpen, null, null);
-        var copy = new NativeByteBuffer(1 << 20);
-        try
-        {
-            var sink = new NativeByteBufferStream(copy);
-            await stream.CopyToAsync(sink, cancellationToken).ConfigureAwait(false);
-            if (!leaveOpen) await stream.DisposeAsync().ConfigureAwait(false);
-            return FromCopy(copy, (int)sink.Length);
-        }
-        catch
-        {
-            copy.Release();
-            throw;
-        }
-    }
-
-    private static unsafe OpcPackage FromCopy(NativeByteBuffer copy, int length)
-    {
-        var memory = new UnmanagedMemoryStream((byte*)copy.Pin().Pointer, length);
-        return new(memory, false, memory, copy);
-    }
+    /// <summary>Opens a package over a seekable stream; <paramref name="copy"/> is the native memory behind the
+    /// stream when the workbook was copied there (released on dispose).</summary>
+    public static OpcPackage Open(Stream stream, bool leaveOpen, NativeByteBuffer? copy) => new(stream, leaveOpen, copy);
 
     public bool HasPart(string name) => _entries.ContainsKey(name);
 
@@ -159,7 +116,6 @@ internal sealed class OpcPackage : IDisposable
     public void Dispose()
     {
         _zip?.Dispose();
-        _ownedStream?.Dispose();
         _copy?.Release();
     }
 }

@@ -126,3 +126,11 @@ type FSharpExcelTests() =
         Assert.Equal(3L, df.Height)
         Assert.Equal(3L, df.["column_1"].GetValue<int64>(2))
         Assert.Equal("c", df.["column_2"].GetValue<string>(2))
+
+    [<Fact>]
+    member _.``IO: Read an Excel 97-2003 workbook (xls)`` () =
+        let path = Path.Combine(AppContext.BaseDirectory, "TestData", "excel", "calamine", "issues.xls")
+        use df = DataFrame.ReadExcel(path, sheetName = "issue2", hasHeader = false)
+        Assert.Equal(3L, df.Height)
+        Assert.Equal(3L, df.["column_1"].GetValue<int64>(2))
+        Assert.Equal("c", df.["column_2"].GetValue<string>(2))

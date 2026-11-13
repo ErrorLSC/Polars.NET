@@ -11,8 +11,8 @@ namespace Polars.NET.Core.Wrappers;
 
 /// <summary>
 /// Excel runs on the managed Seseragi.Files reader and writer: sheets stream through Arrow record batches into and
-/// out of the engine. Workbooks the managed reader does not read yet (.xls, .ods) still go through the native reader,
-/// from a path only.
+/// out of the engine. Workbooks the managed reader does not read yet (.ods) still go through the native reader, from a
+/// path only.
 /// </summary>
 public readonly partial struct PolarsWrapper
 {
@@ -44,12 +44,17 @@ public readonly partial struct PolarsWrapper
         return types;
     }
 
-    /// <summary>Whether the file is an xlsx or xlsb workbook (read by the managed reader); the others go to the native one.</summary>
+    /// <summary>
+    /// Whether the managed reader takes the file: an OLE2 compound file (.xls, or an encrypted workbook it refuses by
+    /// name), or a zip holding an xlsx or xlsb workbook. The others (.ods) go to the native reader.
+    /// </summary>
     private static bool IsManagedExcel(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
-        Span<byte> magic = stackalloc byte[4];
-        if (stream.ReadAtLeast(magic, 4, throwOnEndOfStream: false) < 4 || !magic.SequenceEqual("PK\u0003\u0004"u8)) return false;
+        Span<byte> magic = stackalloc byte[8];
+        int n = stream.ReadAtLeast(magic, 8, throwOnEndOfStream: false);
+        if (n == 8 && magic.SequenceEqual((ReadOnlySpan<byte>)[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return true;
+        if (n < 4 || !magic[..4].SequenceEqual("PK\u0003\u0004"u8)) return false;
         stream.Position = 0;
         try
         {
@@ -87,7 +92,7 @@ public readonly partial struct PolarsWrapper
         if (!IsManagedExcel(path))
         {
             if (columns is not null || tableName is not null)
-                throw new NotSupportedException("Column selection and tables are only supported for .xlsx and .xlsb workbooks so far.");
+                throw new NotSupportedException("Column selection and tables are not supported for .ods workbooks yet.");
             return ReadExcelNative(path, sheetName, sheetIndex, schema, hasHeader, inferSchemaLen, dropEmptyRows, raiseIfEmpty);
         }
         var options = ExcelOptions(sheetName, sheetIndex, schema, hasHeader, inferSchemaLen, dropEmptyRows, raiseIfEmpty, columns, dropEmptyColumns, tableName);
@@ -95,7 +100,7 @@ public readonly partial struct PolarsWrapper
         return ImportExcel(reader);
     }
 
-    /// <summary>Reads a sheet of an xlsx workbook in a stream (left open).</summary>
+    /// <summary>Reads a sheet of an xlsx, xlsb or xls workbook in a stream (left open).</summary>
     public static DataFrameHandle ReadExcel(
         Stream stream,
         string? sheetName,
@@ -116,7 +121,7 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
-    /// A lazy scan of a sheet of an xlsx workbook: the header and the inference window are read now for the schema,
+    /// A lazy scan of a sheet of an xlsx, xlsb or xls workbook: the header and the inference window are read now for the schema,
     /// the sheet each time the plan runs, streamed batch by batch.
     /// </summary>
     public static LazyFrameHandle ScanExcel(
