@@ -118,3 +118,11 @@ type FSharpExcelTests() =
             Assert.Equal("Bob", scanned.["Name"].GetValue<string>(1))
         finally
             if File.Exists path then File.Delete path
+
+    [<Fact>]
+    member _.``IO: Read a binary workbook (xlsb)`` () =
+        let path = Path.Combine(AppContext.BaseDirectory, "TestData", "excel", "calamine", "issues.xlsb")
+        use df = DataFrame.ReadExcel(path, sheetName = "issue2", hasHeader = false)
+        Assert.Equal(3L, df.Height)
+        Assert.Equal(3L, df.["column_1"].GetValue<int64>(2))
+        Assert.Equal("c", df.["column_2"].GetValue<string>(2))

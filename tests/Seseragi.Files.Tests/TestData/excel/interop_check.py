@@ -117,6 +117,35 @@ def check_fixtures(directory):
     check("fixture 1904", df["d"].to_list(), [dt.date(2024, 1, 2), dt.date(1904, 1, 1)])
 
 
+def check_xlsb(directory):
+    """pyxlsb (raw cell values) and Python Polars over calamine's .xlsb fixtures: the values XlsbReadTests expects."""
+    try:
+        import pyxlsb
+    except ImportError:
+        return
+    d = pathlib.Path(directory) / "calamine"
+
+    def raw(name, sheet):
+        with pyxlsb.open_workbook(str(d / f"{name}.xlsb")) as wb:
+            with wb.get_sheet(sheet) as s:
+                return [[c.v for c in row] for row in s.rows()]
+
+    # Serial 44197 is 2021-01-01 in the 1900 system, 42735 in the 1904 one; 10.632060185185 days is 255:10:10.
+    check("xlsb date", raw("date", 1), [[44197.0, 15.0], [44198.0, 16.0], [10.6320601851852, 17.0]])
+    check("xlsb date_1904", raw("date_1904", 1), [[42735.0, 15.0], [42736.0, 16.0], [10.6320601851852, 17.0]])
+    check("xlsb date_rk_int", raw("date_rk_int", 1), [[44197.0, 15.0], [44198.0, 16.0], [10.6320601851852, 17.0]])
+    check("xlsb float_values", raw("float_values", 1), [[1.23], [12.34], [123.45], [1234.56], [12345.67]])
+    check("xlsb formula_values", raw("formula_values", 1), [[3.0], ["Ab"], [False]])
+    check("xlsb issue2", raw("issues", "issue2"), [[1.0, "a"], [2.0, "b"], [3.0, "c"]])
+    check("xlsb spc_chrs", [r[0] for r in raw("issues", "spc_chrs")], ["&", "<", ">", "aaa ' aaa", '"', "☺", "֍", "àâéêèçöïî«»"])
+    with pyxlsb.open_workbook(str(d / "any_sheets.xlsb")) as wb:
+        check("xlsb any_sheets", wb.sheets, ["Visible", "Hidden", "VeryHidden", "Chart"])
+    df = pl.read_excel(d / "issues.xlsb", sheet_name="issue2", has_header=False)
+    check("xlsb polars issue2", df.rows(), [(1, "a"), (2, "b"), (3, "c")])
+    df = pl.read_excel(d / "formula_values.xlsb", has_header=False)
+    check("xlsb polars formula_values", df.rows(), [("3",), ("Ab",), ("false",)])
+
+
 def main(shared, inline, fixtures=None):
     ws = check_openpyxl(shared, "shared")
     check("shared title", ws.title, "Sheet1")
@@ -148,6 +177,7 @@ def main(shared, inline, fixtures=None):
 
     if fixtures:
         check_fixtures(fixtures)
+        check_xlsb(fixtures)
 
     if failures:
         print("\n".join(failures))

@@ -176,6 +176,55 @@ public class ExcelTests
         Assert.Contains("Tags", e.Message);
     }
 
+    [Fact]
+    public void Binary_workbooks_read_through_the_managed_reader()
+    {
+        string Calamine(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", "excel", "calamine", $"{name}.xlsb");
+
+        using var pairs = DataFrame.ReadExcel(Calamine("issues"), sheetName: "issue2", hasHeader: false);
+        Assert.Equal(DataType.Int64, pairs.Schema["column_1"]);
+        Assert.Equal("c", pairs.GetValue<string>(2, "column_2"));
+
+        using (var stream = File.OpenRead(Calamine("float_values")))
+        using (var floats = DataFrame.ReadExcel(stream, hasHeader: false))
+            Assert.Equal(12345.67, floats.GetValue<double>(4, "column_1"));
+
+        // Dates stored as RK integers read as dates (1904 system included).
+        using var dates = DataFrame.ReadExcel(Calamine("date_1904"), hasHeader: false, columns: ["column_1"], inferSchemaLen: 2, raiseIfEmpty: false,
+            schema: PolarsSchema.From<DayColumn>());
+        Assert.Equal(new DateTime(2021, 1, 1), dates.GetValue<DateTime>(0, "column_1"));
+
+        using var scanned = LazyFrame.ScanExcel(Calamine("formula_references"), sheetName: "Sheet2", hasHeader: false)
+            .Select(Col("column_1").Sum())
+            .Collect();
+        Assert.Equal(4L, scanned.GetValue<long>(0, "column_1"));
+
+        Assert.Contains("chart sheet", Assert.Throws<ArgumentException>(() => DataFrame.ReadExcel(Calamine("any_sheets"), sheetIndex: 3)).Message);
+
+        // An empty sheet without RaiseIfEmpty: an empty frame without columns.
+        using (var empty = DataFrame.ReadExcel(Calamine("sheet_names_order"), raiseIfEmpty: false))
+        {
+            Assert.Equal(0, empty.Height);
+            Assert.Empty(empty.Columns);
+        }
+        using (var emptyScan = LazyFrame.ScanExcel(Calamine("sheet_names_order"), raiseIfEmpty: false).Collect())
+            Assert.Equal(0, emptyScan.Height);
+        Assert.ThrowsAny<Exception>(() => DataFrame.ReadExcel(Calamine("sheet_names_order")));
+
+        // A table of a binary workbook (built record by record: no open-source writer produces .xlsb).
+        var b = new Seseragi.Files.Tests.XlsbBuilder();
+        b.Sheet("Data")
+            .Row(0).Text(0, "title")
+            .Row(2).Text(1, "region").Text(2, "amount")
+            .Row(3).Text(1, "east").Real(2, 10.5)
+            .Row(4).Text(1, "total").Real(2, 10.5)
+            .Table("Sales", 2, 1, 4, 2, totalsRows: 1)
+            .EndSheet();
+        using var table = DataFrame.ReadExcel(b.Build(), tableName: "Sales");
+        Assert.Equal(["region", "amount"], table.Columns);
+        Assert.Equal(1, table.Height);
+    }
+
     [Theory]
     [InlineData("xls")]
     [InlineData("ods")]
@@ -199,6 +248,8 @@ public class ExcelTests
         using var df = DataFrame.ReadExcel(path, sheetIndex: 1);
         Assert.Equal(20L, df.GetValue<long>(1, "y"));
     }
+
+    private sealed record DayColumn(DateTime column_1);
 
     private sealed record Person(int Id, string Name, DateTime JoinDate, double Score, bool IsActive, long Phone);
 

@@ -5,6 +5,9 @@ public enum ExcelFormat
 {
     /// <summary>Office Open XML workbook (.xlsx, .xlsm, .xltx, .xltm), transitional or strict.</summary>
     Xlsx,
+
+    /// <summary>Excel binary workbook (.xlsb): the same package with BIFF12 record parts.</summary>
+    Xlsb,
 }
 
 /// <summary>Whether a sheet shows in Excel's sheet tabs.</summary>

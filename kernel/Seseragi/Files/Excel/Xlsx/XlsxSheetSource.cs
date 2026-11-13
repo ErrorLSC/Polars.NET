@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text;
+using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;
 using Kaminari.Seseragi.Files.Excel.Xml;
 
@@ -17,23 +18,23 @@ internal sealed class XlsxSheetSource : SheetSource
     private static readonly SearchValues<byte> NotInPrefix = SearchValues.Create(" \t\r\n/>\""u8);
 
     private readonly Stream _stream;
-    private readonly XmlChunkReader _reader;
+    private readonly ChunkReader _reader;
     private readonly ExcelValueKind[] _styles;
-    private readonly XlsxSharedStrings? _sharedStrings;
+    private readonly SharedStringStore? _sharedStrings;
     private byte[] _rowEnd = "</row>"u8.ToArray();
     private int _nextRow;
     private bool _done;
 
-    private XlsxSheetSource(Stream stream, ExcelValueKind[] styles, XlsxSharedStrings? sharedStrings)
+    private XlsxSheetSource(Stream stream, ExcelValueKind[] styles, SharedStringStore? sharedStrings)
     {
         _stream = stream;
-        _reader = new XmlChunkReader(stream);
+        _reader = new ChunkReader(stream);
         _styles = styles;
         _sharedStrings = sharedStrings;
     }
 
     public static async ValueTask<XlsxSheetSource> OpenAsync(Stream stream, ExcelValueKind[] styles,
-        XlsxSharedStrings? sharedStrings, bool useAsync, CancellationToken cancellationToken)
+        SharedStringStore? sharedStrings, bool useAsync, CancellationToken cancellationToken)
     {
         var source = new XlsxSheetSource(stream, styles, sharedStrings);
         try
@@ -232,7 +233,7 @@ internal sealed class XlsxSheetSource : SheetSource
 
     // Text without characters (a formula's "", an empty shared string) is an empty cell, as in Python Polars.
     private static void ParseCell(ref XmlSpanScanner x, RowBuffer row, int column, ExcelValueKind kind, ReadOnlySpan<byte> type,
-        XlsxSharedStrings? sharedStrings)
+        SharedStringStore? sharedStrings)
     {
         ReadOnlySpan<byte> value = default;
         bool hasValue = false, valueCData = false;

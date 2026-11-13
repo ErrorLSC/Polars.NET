@@ -1,4 +1,6 @@
+using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;
+using Kaminari.Seseragi.Files.Excel.Xlsb;
 using Kaminari.Seseragi.Files.Excel.Xlsx;
 
 namespace Kaminari.Seseragi.Files.Excel;
@@ -75,15 +77,15 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
                 throw new ExcelFormatException("The data is not an Excel workbook (no zip or OLE2 signature).");
         }
         var package = useAsync
-            ? await XlsxPackage.OpenAsync(stream, leaveOpen, ct).ConfigureAwait(false)
-            : XlsxPackage.Open(stream, leaveOpen);
+            ? await OpcPackage.OpenAsync(stream, leaveOpen, ct).ConfigureAwait(false)
+            : OpcPackage.Open(stream, leaveOpen);
         try
         {
             if (XlsxWorkbook.FindWorkbookPart(package) is { } part && package.HasPart(part))
             {
-                if (part.EndsWith(".bin", StringComparison.OrdinalIgnoreCase))
-                    throw new ExcelFormatException("The workbook is a binary workbook (.xlsb), which is not supported yet.");
-                return XlsxWorkbook.Open(package, part);
+                return part.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)
+                    ? XlsbWorkbook.Open(package, part)
+                    : XlsxWorkbook.Open(package, part);
             }
             if (package.HasPart("content.xml") && package.HasPart("mimetype"))
                 throw new ExcelFormatException("The workbook is an OpenDocument spreadsheet (.ods), which is not supported yet.");

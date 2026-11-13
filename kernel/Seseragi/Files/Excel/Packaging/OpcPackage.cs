@@ -2,7 +2,7 @@ using System.IO.Compression;
 using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Excel.Xml;
 
-namespace Kaminari.Seseragi.Files.Excel.Xlsx;
+namespace Kaminari.Seseragi.Files.Excel.Packaging;
 
 /// <summary>A relationship of an OPC part: id, type URI and the target part name (resolved, without a leading slash).</summary>
 internal readonly record struct OpcRelationship(string Id, string Type, string Target)
@@ -14,18 +14,18 @@ internal readonly record struct OpcRelationship(string Id, string Type, string T
 }
 
 /// <summary>
-/// The zip container of an xlsx workbook: part lookup (part names are case-insensitive), relationships, and the
-/// small parts read whole. A stream that cannot seek is first copied into native memory (the zip directory sits at
+/// The zip (Open Packaging Conventions) container of an xlsx or xlsb workbook: part lookup (part names are
+/// case-insensitive), relationships, and the small parts read whole. A stream that cannot seek is first copied into native memory (the zip directory sits at
 /// the end of the file).
 /// </summary>
-internal sealed class XlsxPackage : IDisposable
+internal sealed class OpcPackage : IDisposable
 {
     private readonly ZipArchive _zip;
     private readonly Dictionary<string, ZipArchiveEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stream? _ownedStream;
     private readonly NativeByteBuffer? _copy;
 
-    private XlsxPackage(Stream stream, bool leaveOpen, Stream? ownedStream, NativeByteBuffer? copy)
+    private OpcPackage(Stream stream, bool leaveOpen, Stream? ownedStream, NativeByteBuffer? copy)
     {
         _ownedStream = ownedStream;
         _copy = copy;
@@ -42,7 +42,7 @@ internal sealed class XlsxPackage : IDisposable
     }
 
     /// <summary>Opens a package over a stream; a non-seekable stream is copied into native memory first.</summary>
-    public static XlsxPackage Open(Stream stream, bool leaveOpen)
+    public static OpcPackage Open(Stream stream, bool leaveOpen)
     {
         if (stream.CanSeek) return new(stream, leaveOpen, null, null);
         var copy = new NativeByteBuffer(1 << 20);
@@ -61,7 +61,7 @@ internal sealed class XlsxPackage : IDisposable
     }
 
     /// <inheritdoc cref="Open"/>
-    public static async Task<XlsxPackage> OpenAsync(Stream stream, bool leaveOpen, CancellationToken cancellationToken)
+    public static async Task<OpcPackage> OpenAsync(Stream stream, bool leaveOpen, CancellationToken cancellationToken)
     {
         if (stream.CanSeek) return new(stream, leaveOpen, null, null);
         var copy = new NativeByteBuffer(1 << 20);
@@ -79,7 +79,7 @@ internal sealed class XlsxPackage : IDisposable
         }
     }
 
-    private static unsafe XlsxPackage FromCopy(NativeByteBuffer copy, int length)
+    private static unsafe OpcPackage FromCopy(NativeByteBuffer copy, int length)
     {
         var memory = new UnmanagedMemoryStream((byte*)copy.Pin().Pointer, length);
         return new(memory, false, memory, copy);
@@ -92,14 +92,17 @@ internal sealed class XlsxPackage : IDisposable
         ? e.Open()
         : throw new ExcelFormatException($"The workbook lacks the part '{name}'.");
 
-    /// <summary>Reads a small part whole.</summary>
-    public byte[] ReadPart(string name)
+    /// <summary>Reads a small XML part whole (a UTF-8 byte order mark dropped).</summary>
+    public byte[] ReadPart(string name) => SkipBom(ReadBinaryPart(name));
+
+    /// <summary>Reads a small part whole, as stored.</summary>
+    public byte[] ReadBinaryPart(string name)
     {
         if (!_entries.TryGetValue(name, out var e)) throw new ExcelFormatException($"The workbook lacks the part '{name}'.");
         using var s = e.Open();
         var bytes = new byte[e.Length];
         s.ReadExactly(bytes);
-        return SkipBom(bytes);
+        return bytes;
     }
 
     private static byte[] SkipBom(byte[] bytes)

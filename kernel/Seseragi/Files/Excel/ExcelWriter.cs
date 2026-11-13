@@ -70,7 +70,6 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
     private readonly ZipArchive _zip;
     private readonly ExcelStyles _styles;
     private readonly CellEncoder[] _encoders;
-    private readonly byte[][] _columnLetters;
     private readonly SharedStringTable? _sharedStrings;
     private readonly XmlOut _xml = new();
     private readonly CellSink _sink;
@@ -98,18 +97,11 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
         _styles = new ExcelStyles(options);
         _encoders = [.. schema.FieldsList.Select(f => CellEncoder.Create(f.DataType, _styles)
             ?? throw new NotSupportedException($"Column '{f.Name}' of type {f.DataType.Name} has no Excel cell form."))];
-        _columnLetters = [.. Enumerable.Range(0, _encoders.Length).Select(Letters)];
         _sharedStrings = options.SharedStrings ? new SharedStringTable() : null;
-        _sink = new CellSink(_xml, _sharedStrings);
+        _sink = new XlsxCellSink(_xml, _sharedStrings, _encoders.Length);
         _widths = new double[_encoders.Length];
         _zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
         if (options.IncludeHeader) WriteHeader();
-
-        static byte[] Letters(int column)
-        {
-            Span<byte> b = stackalloc byte[3];
-            return b[..ExcelCellReference.WriteColumn(column, b)].ToArray();
-        }
 
         static void ValidateSheetName(string name)
         {
@@ -133,7 +125,7 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
                 _sink.String(name);
                 Measure(c, name.Length);
             }
-            _xml.Raw("</row>"u8);
+            _sink.EndRow();
         }
     }
 
@@ -280,24 +272,13 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
             int width = _encoders[c].Encode(index, _sink);
             if (measure) Measure(c, width);
         }
-        _xml.Raw("</row>"u8);
+        _sink.EndRow();
         _dataRows++;
     }
 
-    private void BeginRow()
-    {
-        _rowsWritten++;
-        _sink.SetRow(_rowsWritten);
-        _xml.Raw("<row r=\""u8);
-        _xml.Raw(_sink.Row);
-        _xml.Raw("\">"u8);
-    }
+    private void BeginRow() => _sink.BeginRow(++_rowsWritten);
 
-    private void SetColumn(int c)
-    {
-        _sink.Column = _columnLetters[c];
-        _sink.ColumnName = Schema.FieldsList[c].Name;
-    }
+    private void SetColumn(int c) => _sink.SetColumn(c, Schema.FieldsList[c].Name);
 
     private void Measure(int column, int chars)
     {

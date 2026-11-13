@@ -1,4 +1,5 @@
 using System.Text;
+using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;
 using Kaminari.Seseragi.Files.Excel.Xml;
 
@@ -10,14 +11,14 @@ namespace Kaminari.Seseragi.Files.Excel.Xlsx;
 /// </summary>
 internal sealed class XlsxWorkbook : WorkbookSource
 {
-    private readonly XlsxPackage _package;
+    private readonly OpcPackage _package;
     private readonly string?[] _sheetParts; // null for sheets without a part we can open
     private readonly string? _sharedStringsPart;
     private readonly ExcelValueKind[] _styleKinds;
-    private XlsxSharedStrings? _sharedStrings;
+    private SharedStringStore? _sharedStrings;
     private IReadOnlyList<ExcelTableInfo>? _tables;
 
-    private XlsxWorkbook(XlsxPackage package, string workbookPart)
+    private XlsxWorkbook(OpcPackage package, string workbookPart)
     {
         _package = package;
         var rels = package.Relationships(workbookPart);
@@ -102,10 +103,10 @@ internal sealed class XlsxWorkbook : WorkbookSource
     public override IReadOnlyList<ExcelTableInfo> Tables => _tables ??= ReadTables();
 
     /// <summary>Opens the workbook in a package whose root relationships name an xlsx workbook part.</summary>
-    public static XlsxWorkbook Open(XlsxPackage package, string workbookPart) => new(package, workbookPart);
+    public static XlsxWorkbook Open(OpcPackage package, string workbookPart) => new(package, workbookPart);
 
     /// <summary>The workbook part named by the package's office-document relationship, if any.</summary>
-    public static string? FindWorkbookPart(XlsxPackage package) =>
+    public static string? FindWorkbookPart(OpcPackage package) =>
         package.Relationships("").FirstOrDefault(r => r.IsType("officeDocument")).Target;
 
     public override async ValueTask<SheetSource> OpenSheetAsync(int index, bool useAsync, CancellationToken cancellationToken)

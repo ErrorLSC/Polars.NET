@@ -1,18 +1,18 @@
 using Kaminari.Sazanami.Helpers;
 
-namespace Kaminari.Seseragi.Files.Excel.Xml;
+namespace Kaminari.Seseragi.Files.Excel.Reading;
 
 /// <summary>
-/// Buffers a (decompressing) stream of XML in native memory so that the parser can work on complete chunks (one
-/// row, one shared string) with <see cref="XmlSpanScanner"/>. Only refilling touches the stream, synchronously or
-/// asynchronously; parsing never does. The buffer grows when one chunk does not fit.
+/// Buffers a (decompressing) part stream in native memory so that a parser can work on complete chunks (an XML row
+/// or shared string, a binary record). Only refilling touches the stream, synchronously or asynchronously; parsing
+/// never does. The buffer grows when one chunk does not fit. XML parts are checked for a byte order mark.
 /// </summary>
-internal sealed class XmlChunkReader(Stream stream, int initialSize = 64 * 1024) : IDisposable
+internal sealed class ChunkReader(Stream stream, bool xml = true, int initialSize = 64 * 1024) : IDisposable
 {
     private readonly NativeByteBuffer _buffer = new(initialSize);
     private int _start;
     private int _end;
-    private bool _bomChecked;
+    private bool _bomChecked = !xml;
 
     /// <summary>The stream is exhausted (what is buffered is all there is).</summary>
     public bool EndOfStream { get; private set; }

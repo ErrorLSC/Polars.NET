@@ -1,51 +1,37 @@
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;
 using Kaminari.Seseragi.Files.Excel.Xml;
 
 namespace Kaminari.Seseragi.Files.Excel.Xlsx;
 
 /// <summary>
-/// The shared string table, decoded once into one native UTF-8 buffer with an offset per string (no managed string
-/// per entry). Rich-text runs are concatenated; phonetic runs (<c>rPh</c>) are left out.
+/// Loads <c>sharedStrings.xml</c> into a <see cref="SharedStringStore"/>, one <c>&lt;si&gt;</c> at a time as the
+/// part decompresses. Rich-text runs are concatenated; phonetic runs (<c>rPh</c>) are left out.
 /// </summary>
-internal sealed class XlsxSharedStrings : ISharedStrings, IDisposable
+internal sealed class XlsxSharedStrings
 {
-    private NativeGrowBuffer _bytes;
-    private NativeGrowBuffer _offsets; // long per string boundary: string i spans [i] .. [i + 1]
-    private int _count;
+    private readonly SharedStringStore _store = new();
 
     private XlsxSharedStrings() { }
 
-    public int Count => _count;
-
-    public unsafe ReadOnlySpan<byte> Get(int index)
+    public static async ValueTask<SharedStringStore> LoadAsync(Stream part, bool useAsync, CancellationToken cancellationToken)
     {
-        if ((uint)index >= (uint)_count)
-            throw new ExcelFormatException($"A cell refers to shared string {index}, but the table holds {_count}.");
-        long* offsets = (long*)_offsets.Pointer;
-        long start = offsets[index];
-        return new(_bytes.Pointer + start, (int)(offsets[index + 1] - start));
-    }
-
-    public static async ValueTask<XlsxSharedStrings> LoadAsync(Stream part, bool useAsync, CancellationToken cancellationToken)
-    {
-        var table = new XlsxSharedStrings();
+        var loader = new XlsxSharedStrings();
         try
         {
-            using var reader = new XmlChunkReader(part);
-            await table.LoadCoreAsync(reader, useAsync, cancellationToken).ConfigureAwait(false);
-            return table;
+            using var reader = new ChunkReader(part);
+            await loader.LoadCoreAsync(reader, useAsync, cancellationToken).ConfigureAwait(false);
+            return loader._store;
         }
         catch
         {
-            table.Dispose();
+            loader._store.Dispose();
             throw;
         }
     }
 
-    private async ValueTask LoadCoreAsync(XmlChunkReader reader, bool useAsync, CancellationToken ct)
+    private async ValueTask LoadCoreAsync(ChunkReader reader, bool useAsync, CancellationToken ct)
     {
-        _offsets.Append(0L);
         while (true)
         {
             int consumed = ParseAvailable(reader.Buffered, reader.EndOfStream);
@@ -90,9 +76,9 @@ internal sealed class XlsxSharedStrings : ISharedStrings, IDisposable
     }
 
     // Appends the text of one <si> element (its <t> elements outside <rPh>).
-    private unsafe void AddString(ReadOnlySpan<byte> si)
+    private void AddString(ReadOnlySpan<byte> si)
     {
-        long start = _bytes.Length;
+        long start = _store.Length;
         var x = new XmlSpanScanner(si);
         int phonetic = 0;
         bool inText = false;
@@ -118,32 +104,26 @@ internal sealed class XlsxSharedStrings : ISharedStrings, IDisposable
             }
         }
         // Escapes may span text tokens split by CDATA; decode over the whole string.
-        int length = (int)(_bytes.Length - start);
-        if (length > 0)
-        {
-            int decoded = XmlText.DecodeEscapes(new Span<byte>(_bytes.Pointer + start, length));
-            _bytes.SetLength(start + decoded);
-        }
-        _offsets.Append(_bytes.Length);
-        _count++;
+        if (_store.Length > start) _store.Truncate(start + XmlText.DecodeEscapes(_store.Since(start)));
+        _store.EndString();
     }
 
-    private unsafe void AppendDecoded(ReadOnlySpan<byte> raw, bool cdata)
+    private void AppendDecoded(ReadOnlySpan<byte> raw, bool cdata)
     {
         if (raw.IsEmpty) return;
-        long at = _bytes.Length;
-        byte* p = _bytes.Reserve(raw.Length);
+        long at = _store.Length;
+        var into = _store.Reserve(raw.Length);
         int n;
         if (cdata)
         {
-            raw.CopyTo(new Span<byte>(p, raw.Length));
+            raw.CopyTo(into);
             n = raw.Length;
         }
         else
         {
-            n = XmlText.DecodeEntities(raw, new Span<byte>(p, raw.Length));
+            n = XmlText.DecodeEntities(raw, into);
         }
-        _bytes.SetLength(at + n);
+        _store.Truncate(at + n);
     }
 
     // "<si" or "<x:si" followed by whitespace, '>' or '/'. nameEnd = index after the (prefixed) name.
@@ -175,10 +155,4 @@ internal sealed class XlsxSharedStrings : ISharedStrings, IDisposable
     }
 
     private static ExcelFormatException Truncated() => new("The shared string table is truncated.");
-
-    public void Dispose()
-    {
-        _bytes.Free();
-        _offsets.Free();
-    }
 }

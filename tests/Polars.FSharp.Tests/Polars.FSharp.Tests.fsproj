@@ -74,6 +74,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\Seseragi.Files.Tests\TestData\excel\calamine\*.xlsb" Link="TestData\excel\calamine\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.FSharp\Polars.FSharp.fsproj" />
     <ProjectReference Include="..\..\kernel\Seseragi\Lakehouse\Seseragi.Lakehouse.csproj" />
   </ItemGroup>

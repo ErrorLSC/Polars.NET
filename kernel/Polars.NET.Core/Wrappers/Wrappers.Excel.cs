@@ -11,8 +11,8 @@ namespace Polars.NET.Core.Wrappers;
 
 /// <summary>
 /// Excel runs on the managed Seseragi.Files reader and writer: sheets stream through Arrow record batches into and
-/// out of the engine. Workbooks the managed reader does not read yet (.xlsb, .xls, .ods) still go through the native
-/// reader, from a path only.
+/// out of the engine. Workbooks the managed reader does not read yet (.xls, .ods) still go through the native reader,
+/// from a path only.
 /// </summary>
 public readonly partial struct PolarsWrapper
 {
@@ -44,8 +44,8 @@ public readonly partial struct PolarsWrapper
         return types;
     }
 
-    /// <summary>Whether the file is an xlsx workbook (read by the managed reader); the others go to the native one.</summary>
-    private static bool IsXlsx(string path)
+    /// <summary>Whether the file is an xlsx or xlsb workbook (read by the managed reader); the others go to the native one.</summary>
+    private static bool IsManagedExcel(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
         Span<byte> magic = stackalloc byte[4];
@@ -54,7 +54,8 @@ public readonly partial struct PolarsWrapper
         try
         {
             using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-            return zip.Entries.Any(e => string.Equals(e.FullName.TrimStart('/'), "xl/workbook.xml", StringComparison.OrdinalIgnoreCase));
+            return zip.Entries.Any(e => e.FullName.TrimStart('/') is var name
+                && (name.Equals("xl/workbook.xml", StringComparison.OrdinalIgnoreCase) || name.Equals("xl/workbook.bin", StringComparison.OrdinalIgnoreCase)));
         }
         catch (InvalidDataException)
         {
@@ -62,8 +63,10 @@ public readonly partial struct PolarsWrapper
         }
     }
 
-    private static DataFrameHandle ImportExcel(ExcelReader reader) =>
-        ArrowStreamInterop.ImportEagerStrict(reader.ReadBatches(), reader.Schema);
+    // A sheet without columns (empty, read with raiseIfEmpty off) is an empty frame: an Arrow stream needs a field.
+    private static DataFrameHandle ImportExcel(ExcelReader reader) => reader.Schema.FieldsList.Count == 0
+        ? DataFrameNew([])
+        : ArrowStreamInterop.ImportEagerStrict(reader.ReadBatches(), reader.Schema);
 
     // ---------------------------------------------------------------- read
 
@@ -81,10 +84,10 @@ public readonly partial struct PolarsWrapper
         string? tableName = null)
     {
         if (!File.Exists(path)) throw new FileNotFoundException($"Excel file not found: {path}", path);
-        if (!IsXlsx(path))
+        if (!IsManagedExcel(path))
         {
             if (columns is not null || tableName is not null)
-                throw new NotSupportedException("Column selection and tables are only supported for .xlsx workbooks so far.");
+                throw new NotSupportedException("Column selection and tables are only supported for .xlsx and .xlsb workbooks so far.");
             return ReadExcelNative(path, sheetName, sheetIndex, schema, hasHeader, inferSchemaLen, dropEmptyRows, raiseIfEmpty);
         }
         var options = ExcelOptions(sheetName, sheetIndex, schema, hasHeader, inferSchemaLen, dropEmptyRows, raiseIfEmpty, columns, dropEmptyColumns, tableName);
@@ -134,6 +137,7 @@ public readonly partial struct PolarsWrapper
             with { LeaveOpen = false };
         Schema arrowSchema;
         using (var probe = ExcelReader.Open(path, options)) arrowSchema = probe.Schema;
+        if (arrowSchema.FieldsList.Count == 0) { using var empty = DataFrameNew([]); return DataFrameToLazy(empty); }
         return ArrowStreamInterop.ScanStream(Batches, arrowSchema, strict: true);
 
         IEnumerable<RecordBatch> Batches()

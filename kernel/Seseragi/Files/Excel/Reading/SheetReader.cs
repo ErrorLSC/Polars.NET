@@ -259,7 +259,8 @@ internal sealed class SheetReader : IDisposable
         _appenders = [.. appenders];
         _cellOfSlot = new int[_appenders.Length];
         Schema = new Schema(fields, null);
-        _root = new NativeStructBuilder(new StructType(fields), [.. _appenders.Select(a => a.Builder)]);
+        // A sheet without columns has no batches (an Arrow struct needs at least one field).
+        _root = fields.Count == 0 ? null : new NativeStructBuilder(new StructType(fields), [.. _appenders.Select(a => a.Builder)]);
 
         IEnumerable<RowBuffer> Rows(RowBuffer? h) => h is null ? _held : _held.Prepend(h);
 
@@ -286,7 +287,7 @@ internal sealed class SheetReader : IDisposable
 
     private async ValueTask<RecordBatch?> FillBatchAsync(bool useAsync, CancellationToken ct)
     {
-        var root = _root!;
+        if (_root is not { } root) return null;
         int target = _options.BatchSize;
         while (root.Length < target)
         {

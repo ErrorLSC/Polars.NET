@@ -7,8 +7,8 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <summary>
     /// Read a sheet of an Excel workbook into a DataFrame.
     /// <para>
-    /// .xlsx workbooks are streamed by the managed reader of Kaminari.Seseragi.Files (the format is detected from the
-    /// content); .xlsb, .xls and .ods workbooks are still read by the native reader for now.
+    /// .xlsx and .xlsb workbooks are streamed by the managed reader of Kaminari.Seseragi.Files (the format is detected from the
+    /// content); .xls and .ods workbooks are still read by the native reader for now.
     /// </para>
     /// <para>
     /// Column types are inferred from the first <paramref name="inferSchemaLen"/> rows: whole numbers give Int64, other
@@ -29,9 +29,9 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <param name="inferSchemaLen">Rows the column types are inferred from (0 reads every column as String).</param>
     /// <param name="dropEmptyRows">Skip rows without values. Default is true.</param>
     /// <param name="raiseIfEmpty">Throw if the sheet has no data rows. Default is true.</param>
-    /// <param name="columns">Columns to read, by name (in sheet order). .xlsx only.</param>
+    /// <param name="columns">Columns to read, by name (in sheet order). .xlsx and .xlsb only.</param>
     /// <param name="dropEmptyColumns">Leave out columns without a header name and without values in the first rows. Default is true.</param>
-    /// <param name="tableName">Read a table (list object) by name instead of a sheet: its range, its header, no totals row. .xlsx only.</param>
+    /// <param name="tableName">Read a table (list object) by name instead of a sheet: its range, its header, no totals row. .xlsx and .xlsb only.</param>
     /// <returns>A new DataFrame containing the sheet's data.</returns>
     /// <exception cref="FileNotFoundException">Thrown if the file does not exist.</exception>
     public static DataFrame ReadExcel(
@@ -53,7 +53,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     }
 
     /// <summary>
-    /// Read a sheet of an .xlsx workbook in a stream into a DataFrame (the stream is left open; one that cannot seek
+    /// Read a sheet of an .xlsx or .xlsb workbook in a stream into a DataFrame (the stream is left open; one that cannot seek
     /// is buffered in native memory first). See <see cref="ReadExcel(string, string, ulong, Nullable{IntoSchema}, bool, ulong, bool, bool, string[], bool, string)"/>.
     /// </summary>
     public static DataFrame ReadExcel(
@@ -78,7 +78,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
 public partial class LazyFrame
 {
     /// <summary>
-    /// Lazily scan a sheet of an .xlsx workbook. The header and the first <paramref name="inferSchemaLen"/> rows are
+    /// Lazily scan a sheet of an .xlsx or .xlsb workbook. The header and the first <paramref name="inferSchemaLen"/> rows are
     /// read now for the schema; the sheet is streamed batch by batch each time the query runs. The parameters are those
     /// of <see cref="DataFrame.ReadExcel(string, string, ulong, Nullable{IntoSchema}, bool, ulong, bool, bool, string[], bool, string)"/>.
     /// </summary>
