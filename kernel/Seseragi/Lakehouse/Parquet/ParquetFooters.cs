@@ -16,7 +16,7 @@ public static class ParquetFooters
     /// read.
     /// </summary>
     /// <exception cref="FileNotFoundException">A file does not exist.</exception>
-    /// <exception cref="InvalidDataException">A file is not a Parquet file.</exception>
+    /// <exception cref="ParquetFormatException">A file is not a Parquet file.</exception>
     public static (long Size, ParquetMetadata Footer)[] Read(IFileSystem fileSystem, IReadOnlyList<string> paths)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
@@ -55,16 +55,16 @@ public static class ParquetFooters
     }
 
     /// <summary>Reads the footer of a file of known size with at most two ranged reads.</summary>
-    /// <exception cref="InvalidDataException">The file is not a Parquet file, or its footer is damaged.</exception>
+    /// <exception cref="ParquetFormatException">The file is not a Parquet file, or its footer is damaged.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public static ParquetMetadata ReadFooter(IFileSystem fileSystem, string path, long size)
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
-        if (size < 12) throw new InvalidDataException($"{path} is too short to be a Parquet file.");
+        if (size < 12) throw new ParquetFormatException($"{path} is too short to be a Parquet file.");
         // Most footers are small: one read of the last 64 KiB usually holds the whole footer.
         int guess = (int)Math.Min(size, ParquetMetadata.TailGuess);
         byte[] tail = fileSystem.ReadRange(path, size - guess, guess) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        if (tail.Length != guess) throw new InvalidDataException($"{path} is shorter than its listed size.");
+        if (tail.Length != guess) throw new ParquetFormatException($"{path} is shorter than its listed size.");
         return FooterFromTail(fileSystem, path, new FileTail(tail, size));
     }
 
@@ -72,7 +72,7 @@ public static class ParquetFooters
     /// Reads the footer of a file from its end (as <see cref="ITailReadable.ReadTail"/> gives it), with one more
     /// ranged read when the footer is longer than the tail.
     /// </summary>
-    /// <exception cref="InvalidDataException">The file is not a Parquet file, or its footer is damaged.</exception>
+    /// <exception cref="ParquetFormatException">The file is not a Parquet file, or its footer is damaged.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public static ParquetMetadata FooterFromTail(IFileSystem fileSystem, string path, FileTail end)
     {

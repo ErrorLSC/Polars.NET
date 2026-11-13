@@ -1,3 +1,4 @@
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Excel.Ods;
 using Kaminari.Seseragi.Files.Excel.Packaging;
@@ -79,18 +80,9 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
     private static async ValueTask<WorkbookSource> DetectAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct)
     {
         if (stream.CanSeek) return await DetectSeekableAsync(stream, leaveOpen, null, useAsync, ct).ConfigureAwait(false);
-        var copy = new NativeByteBuffer(1 << 20);
+        var (memory, copy) = await NativeCopy.CopyAsync(stream, leaveOpen, useAsync, ct).ConfigureAwait(false);
         try
         {
-            var sink = new NativeByteBufferStream(copy);
-            if (useAsync) await stream.CopyToAsync(sink, ct).ConfigureAwait(false);
-            else stream.CopyTo(sink);
-            if (!leaveOpen)
-            {
-                if (useAsync) await stream.DisposeAsync().ConfigureAwait(false);
-                else stream.Dispose();
-            }
-            var memory = FromCopy(copy, sink.Length);
             return await DetectSeekableAsync(memory, false, copy, useAsync, ct).ConfigureAwait(false);
         }
         catch
@@ -98,8 +90,6 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
             copy.Release();
             throw;
         }
-
-        static unsafe UnmanagedMemoryStream FromCopy(NativeByteBuffer copy, long length) => new((byte*)copy.Pin().Pointer, length);
     }
 
     // Zip containers are told apart by their parts, compound files by their streams. The source takes over the

@@ -1,8 +1,8 @@
 # Kaminari.Seseragi.Files
 
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
-Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and the **Parquet**
-pieces the lakehouse kernels need (footer metadata, a minimal writer). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
+**Parquet** (files and their full footer metadata; a minimal checkpoint writer). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -20,9 +20,24 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, 
 
 ## Parquet
 
-`ParquetMetadata` reads what a lakehouse needs from a footer (schema, row counts, per-column statistics) without
-reading data pages. `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log
-(checkpoints); it is internal and stands in until a full Parquet writer exists.
+**Files** (`ParquetFile`): opened from a path, a stream (one that cannot seek is copied into native memory first) or
+any `IRandomAccess` source (data read at offsets, such as an object in a store), synchronously or asynchronously.
+The footer is read with one ranged read for most files (two when it is longer than 64 KiB) and checked: the schema
+tree must account for every element and each row group must hold a chunk per leaf. Encrypted files (modular
+encryption, `PARE` or a plaintext footer) are refused by name; damaged footers fail with `ParquetFormatException`.
+
+**Metadata** (`ParquetMetadata`): the footer as a read-only view (schema elements with their annotations, row count,
+row groups, per-chunk statistics, `CreatedBy`, `KeyValueMetadata`), also parsed from footer bytes alone
+(`FooterRange`, `Parse`) for the lakehouse kernels. Inside, the full `parquet.thrift` model (footer, page headers,
+column and offset indexes, bloom filter headers) is read and written with one Thrift compact protocol layer
+(`Parquet/Thrift`, `Parquet/Metadata`); fields, enum values and logical types the model does not know are kept or
+skipped, never refused at this level.
+
+`MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
+and stands in until a full Parquet writer exists.
+
+`IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source and the native
+copy of streams that cannot seek.
 
 ## Avro features
 
@@ -74,13 +89,14 @@ Sazanami's `ArrowRows` reads the batches row by row, by name or by field id.
 ## Excel features
 
 **Workbooks** (`ExcelWorkbook`): opened from a path or a stream; the format is detected from the content (a zip whose
-workbook part is XML: xlsx, transitional or strict OOXML; or BIFF12 records: xlsb; an OLE2 compound file with a
-BIFF8 workbook stream: xls; a zip whose `mimetype` (or manifest) says OpenDocument spreadsheet: ods; XML whose root is
-`office:document` of that type: flat ods). `Sheets` (name, tab position, visibility, kind: worksheet, chart sheet or other), `Tables` (name, sheet,
-range, header and totals rows; none in xls and ods), `Date1904` (in ods, a 1904-01-01 null date). A stream that cannot seek is copied into native memory
-first. Encrypted workbooks (password-protected xlsx and xlsb in an OLE2 file; xls with a FILEPASS record, which Excel
-also writes for workbooks that are only structure- or sheet-protected; ods with manifest encryption data),
-BIFF2–BIFF7 xls and other OpenDocument types are recognised and refused by name.
+workbook part is XML: xlsx, transitional or strict OOXML; or BIFF12 records: xlsb; an OLE2 compound file with a BIFF8
+workbook stream: xls; a zip whose `mimetype` (or manifest) says OpenDocument spreadsheet: ods; XML whose root is
+`office:document` of that type: flat ods). `Sheets` (name, tab position, visibility, kind: worksheet, chart sheet or
+other), `Tables` (name, sheet, range, header and totals rows; none in xls and ods), `Date1904` (in ods, a 1904-01-01
+null date). A stream that cannot seek is copied into native memory first. Encrypted workbooks (password-protected xlsx
+and xlsb in an OLE2 file; xls with a FILEPASS record, which Excel also writes for workbooks that are only structure-
+or sheet-protected; ods with manifest encryption data), BIFF2–BIFF7 xls and other OpenDocument types are recognised
+and refused by name.
 
 **Reading** (`ExcelReader`, `ExcelReadOptions`, or `ExcelWorkbook.OpenSheet` for several sheets of one open
 workbook): one sheet or table, synchronously or asynchronously, as record batches of `BatchSize` rows in native

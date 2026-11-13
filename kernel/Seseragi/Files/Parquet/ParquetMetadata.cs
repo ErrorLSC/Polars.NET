@@ -1,5 +1,5 @@
 using System.Buffers.Binary;
-using System.Text;
+using Kaminari.Seseragi.Files.Parquet.Metadata;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -45,7 +45,7 @@ public sealed record ParquetRowGroup(long RowCount, IReadOnlyList<ParquetColumnC
 
 /// <summary>
 /// The footer of a Parquet file (its <c>FileMetaData</c>): the schema, the row count and the statistics of every
-/// column chunk. Read with the Thrift compact protocol, no dependencies; fields not needed are skipped.
+/// column chunk, as a read-only view of the full metadata.
 /// </summary>
 public sealed class ParquetMetadata
 {
@@ -60,6 +60,15 @@ public sealed class ParquetMetadata
     /// <summary>The row groups.</summary>
     public required IReadOnlyList<ParquetRowGroup> RowGroups { get; init; }
 
+    /// <summary>The application that wrote the file, when it says.</summary>
+    public string? CreatedBy { get; init; }
+
+    /// <summary>The file's key-value metadata, in footer order (keys may repeat).</summary>
+    public IReadOnlyList<KeyValuePair<string, string?>> KeyValueMetadata { get; init; } = [];
+
+    /// <summary>The full footer this view was made from; null for a view built by hand.</summary>
+    internal FileMetaData? Thrift { get; init; }
+
     /// <summary>How much of a file's end to read first: enough for almost every footer.</summary>
     public const int TailGuess = 64 * 1024;
 
@@ -68,224 +77,118 @@ public sealed class ParquetMetadata
     /// (<paramref name="tail"/>, at least 8). When the range falls inside the tail, parse it from there with
     /// <see cref="Parse"/>; otherwise read that range from the file first.
     /// </summary>
+    /// <param name="tail">The file's last bytes.</param>
+    /// <param name="size">The file's size.</param>
     /// <param name="name">The file's name, for error messages.</param>
-    /// <exception cref="InvalidDataException">The file is not a Parquet file, or its footer length is damaged.</exception>
+    /// <exception cref="ParquetFormatException">The file is not a Parquet file, is encrypted, or its footer length is damaged.</exception>
     public static (long Offset, int Length) FooterRange(ReadOnlySpan<byte> tail, long size, string name)
     {
-        if (size < 12 || tail.Length < TailLength) throw new InvalidDataException($"{name} is too short to be a Parquet file.");
+        if (size < 12 || tail.Length < TailLength) throw new ParquetFormatException($"{name} is too short to be a Parquet file.");
         int footer = FooterLength(tail[^TailLength..], name);
-        if (footer + TailLength > size - 4) throw new InvalidDataException($"{name} has a footer longer than the file.");
+        if (footer + TailLength > size - 4) throw new ParquetFormatException($"{name} has a footer longer than the file.");
         return (size - TailLength - footer, footer);
     }
 
     /// <summary>Reads the footer of a whole file in memory.</summary>
-    /// <exception cref="InvalidDataException">The bytes are not a Parquet file, or its footer is damaged.</exception>
+    /// <exception cref="ParquetFormatException">The bytes are not a Parquet file, the file is encrypted, or its footer is damaged.</exception>
     public static ParquetMetadata FromFile(ReadOnlySpan<byte> file)
     {
-        if (file.Length < 12 || !file[..4].SequenceEqual("PAR1"u8)) throw new InvalidDataException("Not a Parquet file.");
-        int footer = FooterLength(file[^TailLength..], "the file");
-        if (footer + TailLength > file.Length - 4) throw new InvalidDataException("The Parquet footer is longer than the file.");
-        return Parse(file.Slice(file.Length - TailLength - footer, footer));
+        if (file.Length < 12 || !file[..4].SequenceEqual("PAR1"u8) && !file[..4].SequenceEqual("PARE"u8))
+            throw new ParquetFormatException("Not a Parquet file.");
+        var (offset, length) = FooterRange(file, file.Length, "the file");
+        return Parse(file.Slice((int)offset, length));
     }
 
-    private static int FooterLength(ReadOnlySpan<byte> tail, string path)
+    /// <summary>The footer length from a file's last 8 bytes.</summary>
+    internal static int FooterLength(ReadOnlySpan<byte> tail, string name)
     {
-        if (!tail[4..].SequenceEqual("PAR1"u8)) throw new InvalidDataException($"{path} is not a Parquet file (no PAR1 at the end).");
+        if (tail[4..].SequenceEqual("PARE"u8)) throw Encrypted(name);
+        if (!tail[4..].SequenceEqual("PAR1"u8)) throw new ParquetFormatException($"{name} is not a Parquet file (no PAR1 at the end).");
         int length = BinaryPrimitives.ReadInt32LittleEndian(tail);
-        if (length <= 0) throw new InvalidDataException($"{path} has an invalid footer length {length}.");
+        if (length <= 0) throw new ParquetFormatException($"{name} has an invalid footer length {length}.");
         return length;
     }
 
+    internal static ParquetFormatException Encrypted(string name) =>
+        new($"{name} is encrypted (Parquet modular encryption), which is not supported.");
+
     /// <summary>Parses the Thrift-encoded <c>FileMetaData</c>.</summary>
-    /// <exception cref="InvalidDataException">The bytes are not a valid footer.</exception>
+    /// <exception cref="ParquetFormatException">The bytes are not a valid footer, or the file is encrypted.</exception>
     public static ParquetMetadata Parse(ReadOnlySpan<byte> footer)
     {
-        try
-        {
-            var reader = new CompactReader(footer);
-            ThriftStruct meta = reader.ReadStruct();
-            return new ParquetMetadata
-            {
-                Schema = [.. meta.List(2).Select(e => SchemaElement((ThriftStruct)e))],
-                RowCount = meta.Long(3) ?? 0,
-                RowGroups = [.. meta.List(4).Select(g => RowGroup((ThriftStruct)g))],
-            };
-        }
-        catch (Exception e) when (e is IndexOutOfRangeException or ArgumentOutOfRangeException or InvalidCastException or OverflowException)
-        {
-            throw new InvalidDataException("The Parquet footer is damaged.", e);
-        }
+        FileMetaData meta = FileMetaData.Parse(footer);
+        if (meta.EncryptionAlgorithm is not null) throw Encrypted("The Parquet file");
+        return FromThrift(meta);
     }
 
-    private static ParquetSchemaElement SchemaElement(ThriftStruct e)
+    /// <summary>The public view of a footer, after checking that its schema tree and row groups agree.</summary>
+    /// <exception cref="ParquetFormatException">The schema tree or the column chunks are inconsistent.</exception>
+    internal static ParquetMetadata FromThrift(FileMetaData meta)
+    {
+        int leaves = SchemaTree.CountLeaves(meta.Schema);
+        var rowGroups = new ParquetRowGroup[meta.RowGroups.Length];
+        for (int g = 0; g < rowGroups.Length; g++)
+        {
+            RowGroup group = meta.RowGroups[g];
+            if (group.Columns.Length != leaves)
+                throw new ParquetFormatException($"Row group {g} has {group.Columns.Length} column chunks for {leaves} schema leaves.");
+            var chunks = new ParquetColumnChunk[group.Columns.Length];
+            for (int c = 0; c < chunks.Length; c++)
+            {
+                ColumnMetaData column = group.Columns[c].MetaData ?? throw new ParquetFormatException($"Column chunk {c} of row group {g} has no metadata.");
+                // Only min_value / max_value: the legacy min / max used a signed byte order for binary.
+                Statistics? s = column.Statistics;
+                chunks[c] = new ParquetColumnChunk(column.PathInSchema, column.NumValues, s is null ? null : new(s.MinValue, s.MaxValue, s.NullCount));
+            }
+            rowGroups[g] = new ParquetRowGroup(group.NumRows, chunks);
+        }
+        return new ParquetMetadata
+        {
+            Schema = [.. meta.Schema.Select(SchemaElement)],
+            RowCount = meta.NumRows,
+            RowGroups = rowGroups,
+            CreatedBy = meta.CreatedBy,
+            KeyValueMetadata = meta.KeyValueMetadata is { } kv ? [.. kv.Select(p => KeyValuePair.Create(p.Key, p.Value))] : [],
+            Thrift = meta,
+        };
+    }
+
+    private static ParquetSchemaElement SchemaElement(SchemaElement e)
     {
         int? scale = null, precision = null, bitWidth = null;
         ParquetTimeUnit? unit = null;
         bool date = false, variant = false;
-        if (e.Struct(10) is ThriftStruct logical)
+        if (e.LogicalType is { } logical)
         {
-            variant = logical.Has(16);
-            if (logical.Struct(5) is ThriftStruct dec)
+            variant = logical.Kind == LogicalTypeKind.Variant;
+            if (logical.Kind == LogicalTypeKind.Decimal)
             {
-                scale = (int?)dec.Long(1);
-                precision = (int?)dec.Long(2);
+                scale = logical.Scale;
+                precision = logical.Precision;
             }
-            date = logical.Has(6);
-            if (logical.Struct(8) is ThriftStruct ts && ts.Struct(2) is ThriftStruct u)
-                unit = u.Has(1) ? ParquetTimeUnit.Millis : u.Has(2) ? ParquetTimeUnit.Micros : u.Has(3) ? ParquetTimeUnit.Nanos : null;
-            if (logical.Struct(10) is ThriftStruct integer) bitWidth = (int?)integer.Long(1);
+            date = logical.Kind == LogicalTypeKind.Date;
+            if (logical.Kind == LogicalTypeKind.Timestamp) unit = logical.Unit;
+            if (logical.Kind == LogicalTypeKind.Integer) bitWidth = logical.BitWidth;
         }
-        long? converted = e.Long(6);
-        if (scale is null && converted == 5)                                  // DECIMAL
+        ConvertedType? converted = e.ConvertedType;
+        if (scale is null && converted == ConvertedType.Decimal)
         {
-            scale = (int?)e.Long(7) ?? 0;
-            precision = (int?)e.Long(8);
+            scale = e.Scale ?? 0;
+            precision = e.Precision;
         }
-        if (unit is null && converted == 9) unit = ParquetTimeUnit.Millis;    // TIMESTAMP_MILLIS
-        if (unit is null && converted == 10) unit = ParquetTimeUnit.Micros;   // TIMESTAMP_MICROS
-        date |= converted == 6;                                               // DATE
-        bitWidth ??= converted switch                                         // INT_8 … INT_64, UINT_8 … UINT_64
+        if (unit is null && converted == ConvertedType.TimestampMillis) unit = ParquetTimeUnit.Millis;
+        if (unit is null && converted == ConvertedType.TimestampMicros) unit = ParquetTimeUnit.Micros;
+        date |= converted == ConvertedType.Date;
+        bitWidth ??= converted switch
         {
-            11 or 15 => 8,
-            12 or 16 => 16,
-            13 or 17 => 32,
-            14 or 18 => 64,
+            ConvertedType.Int8 or ConvertedType.UInt8 => 8,
+            ConvertedType.Int16 or ConvertedType.UInt16 => 16,
+            ConvertedType.Int32 or ConvertedType.UInt32 => 32,
+            ConvertedType.Int64 or ConvertedType.UInt64 => 64,
             _ => null,
         };
         return new ParquetSchemaElement(
-            e.String(4) ?? "", (int?)e.Long(1), (int?)e.Long(3), (int)(e.Long(5) ?? 0), (int?)e.Long(2), scale, unit, (int?)e.Long(9),
+            e.Name, (int?)e.Type, (int?)e.Repetition, e.NumChildren ?? 0, e.TypeLength, scale, unit, e.FieldId,
             bitWidth, precision, date, variant);
-    }
-
-    private static ParquetRowGroup RowGroup(ThriftStruct g) => new(
-        g.Long(3) ?? 0,
-        [.. g.List(1).Select(c =>
-        {
-            ThriftStruct meta = ((ThriftStruct)c).Struct(3) ?? throw new InvalidDataException("A column chunk has no metadata.");
-            ThriftStruct? s = meta.Struct(12);
-            // Only min_value / max_value (fields 5, 6): the legacy min / max used a signed byte order for binary.
-            ParquetColumnStatistics? statistics = s is null ? null : new(s.Bytes(6), s.Bytes(5), s.Long(3));
-            return new ParquetColumnChunk([.. meta.List(3).Select(p => Encoding.UTF8.GetString((byte[])p))], meta.Long(5) ?? 0, statistics);
-        })]);
-
-    // ------------------------------------------------------------------
-    // Thrift compact protocol
-    // ------------------------------------------------------------------
-
-    /// <summary>A decoded struct: field id to value (long, double, bool, byte[], list or struct).</summary>
-    private sealed class ThriftStruct
-    {
-        private readonly Dictionary<short, object> _fields = [];
-
-        public void Set(short id, object value) => _fields[id] = value;
-        public bool Has(short id) => _fields.ContainsKey(id);
-        public long? Long(short id) => _fields.TryGetValue(id, out object? v) ? Convert.ToInt64(v, System.Globalization.CultureInfo.InvariantCulture) : null;
-        public byte[]? Bytes(short id) => _fields.TryGetValue(id, out object? v) ? (byte[])v : null;
-        public string? String(short id) => Bytes(id) is byte[] b ? Encoding.UTF8.GetString(b) : null;
-        public ThriftStruct? Struct(short id) => _fields.TryGetValue(id, out object? v) ? (ThriftStruct)v : null;
-        public List<object> List(short id) => _fields.TryGetValue(id, out object? v) ? (List<object>)v : [];
-    }
-
-    private ref struct CompactReader(ReadOnlySpan<byte> data)
-    {
-        private const int MaxDepth = 64;
-        private readonly ReadOnlySpan<byte> _data = data;
-        private int _at;
-        private int _depth;
-
-        public ThriftStruct ReadStruct()
-        {
-            if (++_depth > MaxDepth) throw new InvalidDataException("The Parquet footer nests too deeply.");
-            var result = new ThriftStruct();
-            short last = 0;
-            while (true)
-            {
-                byte header = _data[_at++];
-                if (header == 0) break; // stop
-                int type = header & 0x0F;
-                int delta = header >> 4;
-                short id = delta != 0 ? (short)(last + delta) : (short)ZigZag(Varint());
-                last = id;
-                object? value = type switch
-                {
-                    1 => true,
-                    2 => false,
-                    _ => ReadValue(type),
-                };
-                if (value is not null) result.Set(id, value);
-            }
-            _depth--;
-            return result;
-        }
-
-        private object? ReadValue(int type)
-        {
-            switch (type)
-            {
-                case 1:
-                case 2:
-                    return _data[_at++] == 1; // a bool inside a list or map
-                case 3:
-                    return (long)(sbyte)_data[_at++];
-                case 4:
-                case 5:
-                case 6:
-                    return ZigZag(Varint());
-                case 7:
-                {
-                    double d = BinaryPrimitives.ReadDoubleLittleEndian(_data.Slice(_at, 8));
-                    _at += 8;
-                    return d;
-                }
-                case 8:
-                {
-                    int length = checked((int)Varint());
-                    byte[] bytes = _data.Slice(_at, length).ToArray();
-                    _at += length;
-                    return bytes;
-                }
-                case 9:
-                case 10:
-                {
-                    byte header = _data[_at++];
-                    int count = header >> 4;
-                    if (count == 15) count = checked((int)Varint());
-                    int elementType = header & 0x0F;
-                    var list = new List<object>(Math.Min(count, 1024));
-                    for (int i = 0; i < count; i++) list.Add(ReadValue(elementType)!);
-                    return list;
-                }
-                case 11:
-                {
-                    int count = checked((int)Varint());
-                    if (count == 0) return null;
-                    byte types = _data[_at++];
-                    for (int i = 0; i < count; i++)
-                    {
-                        ReadValue(types >> 4);
-                        ReadValue(types & 0x0F);
-                    }
-                    return null; // maps are not needed
-                }
-                case 12:
-                    return ReadStruct();
-                default:
-                    throw new InvalidDataException($"Unknown Thrift compact type {type} in the Parquet footer.");
-            }
-        }
-
-        private ulong Varint()
-        {
-            ulong result = 0;
-            for (int shift = 0; shift < 64; shift += 7)
-            {
-                byte b = _data[_at++];
-                result |= (ulong)(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) return result;
-            }
-            throw new InvalidDataException("A varint in the Parquet footer is too long.");
-        }
-
-        private static long ZigZag(ulong n) => (long)(n >> 1) ^ -(long)(n & 1);
     }
 }

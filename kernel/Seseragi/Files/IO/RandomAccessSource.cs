@@ -1,19 +1,7 @@
 using Kaminari.Sazanami.Helpers;
 using Microsoft.Win32.SafeHandles;
 
-namespace Kaminari.Seseragi.Files.Excel.Packaging;
-
-/// <summary>Reads at offsets, whatever the position of other readers of the same data.</summary>
-internal interface IRandomAccess
-{
-    long Length { get; }
-
-    /// <summary>Reads <paramref name="destination"/>.Length bytes at <paramref name="offset"/>; fewer only at the end.</summary>
-    int ReadAt(long offset, Span<byte> destination);
-
-    /// <inheritdoc cref="ReadAt"/>
-    ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken);
-}
+namespace Kaminari.Seseragi.Files.IO;
 
 /// <summary>
 /// A seekable stream (from its position at open on) read at offsets, so that several readers can share it: a file

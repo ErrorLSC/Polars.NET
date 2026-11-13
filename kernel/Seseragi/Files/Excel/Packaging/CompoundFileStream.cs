@@ -1,3 +1,5 @@
+using Kaminari.Seseragi.Files.IO;
+
 namespace Kaminari.Seseragi.Files.Excel.Packaging;
 
 /// <summary>

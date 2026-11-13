@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
+using Kaminari.Seseragi.Files.Parquet.Metadata;
+using Kaminari.Seseragi.Files.Parquet.Thrift;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -258,17 +260,20 @@ internal static class MinimalParquetWriter
         WritePlain(body, column);
         byte[] page = body.ToArray();
 
-        var header = new CompactWriter();
-        header.I32(1, 0);                // type: DATA_PAGE
-        header.I32(2, page.Length);      // uncompressed_page_size
-        header.I32(3, page.Length);      // compressed_page_size
-        header.BeginStruct(5);           // data_page_header
-        header.I32(1, column.Def.Count); // num_values (levels, nulls included)
-        header.I32(2, 0);                // encoding: PLAIN
-        header.I32(3, 3);                // definition_level_encoding: RLE
-        header.I32(4, 3);                // repetition_level_encoding: RLE
-        header.EndStruct();
-        header.Stop();
+        var header = new ThriftCompactWriter();
+        new PageHeader
+        {
+            Type = PageType.DataPage,
+            UncompressedPageSize = page.Length,
+            CompressedPageSize = page.Length,
+            DataPageHeader = new DataPageHeader
+            {
+                NumValues = column.Def.Count, // levels, nulls included
+                Encoding = ParquetEncoding.Plain,
+                DefinitionLevelEncoding = ParquetEncoding.Rle,
+                RepetitionLevelEncoding = ParquetEncoding.Rle,
+            },
+        }.Write(header);
         file.Write(header.ToArray());
         file.Write(page);
     }
@@ -362,83 +367,71 @@ internal static class MinimalParquetWriter
 
     private static byte[] FileMetadata(IReadOnlyList<ParquetNode> schema, long rows, List<(Column Column, long Offset, long Size)> chunks)
     {
-        List<Action<CompactWriter>> elements =
-        [
-            // The root, then the tree depth first.
-            w =>
-            {
-                w.Binary(4, "schema");
-                w.I32(5, schema.Count);
-            }
-        ];
+        // The root, then the tree depth first.
+        List<SchemaElement> elements = [new SchemaElement { Name = "schema", NumChildren = schema.Count }];
         foreach (ParquetNode node in schema) Elements(Normalize(node), elements);
 
-        var meta = new CompactWriter();
-        meta.I32(1, 1);                                  // version
-        meta.BeginList(2, CompactWriter.Struct, elements.Count);
-        foreach (var element in elements) { element(meta); meta.Stop(); }
-        meta.I64(3, rows);                               // num_rows
-        meta.BeginList(4, CompactWriter.Struct, 1);      // row_groups
+        var meta = new FileMetaData
         {
-            meta.BeginList(1, CompactWriter.Struct, chunks.Count); // columns
-            foreach (var (column, offset, size) in chunks)
-            {
-                meta.I64(2, offset);                     // file_offset
-                meta.BeginStruct(3);                     // meta_data
-                meta.I32(1, (int)column.Leaf.Type);
-                meta.BeginList(2, CompactWriter.I32Type, 2);
-                meta.ListI32(0);                         // PLAIN
-                meta.ListI32(3);                         // RLE
-                meta.BeginList(3, CompactWriter.BinaryType, column.Path.Length);
-                foreach (string part in column.Path) meta.ListBinary(part);
-                meta.I32(4, 0);                          // codec: UNCOMPRESSED
-                meta.I64(5, column.Def.Count);           // num_values
-                meta.I64(6, size);                       // total_uncompressed_size
-                meta.I64(7, size);                       // total_compressed_size
-                meta.I64(9, offset);                     // data_page_offset
-                meta.EndStruct();
-                meta.Stop();
-            }
-            meta.I64(2, chunks.Sum(c => c.Size));       // total_byte_size
-            meta.I64(3, rows);                           // num_rows
-            meta.Stop();
-        }
-        meta.Binary(6, CreatedBy);
-        meta.Stop();
-        return meta.ToArray();
+            Version = 1,
+            Schema = [.. elements],
+            NumRows = rows,
+            RowGroups =
+            [
+                new RowGroup
+                {
+                    Columns = [.. chunks.Select(c => new ColumnChunk
+                    {
+                        FileOffset = c.Offset,
+                        MetaData = new ColumnMetaData
+                        {
+                            Type = (ParquetType)c.Column.Leaf.Type,
+                            Encodings = [ParquetEncoding.Plain, ParquetEncoding.Rle],
+                            PathInSchema = c.Column.Path,
+                            Codec = CompressionCodec.Uncompressed,
+                            NumValues = c.Column.Def.Count,
+                            TotalUncompressedSize = c.Size,
+                            TotalCompressedSize = c.Size,
+                            DataPageOffset = c.Offset,
+                        },
+                    })],
+                    TotalByteSize = chunks.Sum(c => c.Size),
+                    NumRows = rows,
+                },
+            ],
+            CreatedBy = CreatedBy,
+        };
+        var writer = new ThriftCompactWriter();
+        meta.Write(writer);
+        return writer.ToArray();
     }
 
-    private static void Elements(ParquetNode node, List<Action<CompactWriter>> elements)
+    private static void Elements(ParquetNode node, List<SchemaElement> elements)
     {
         switch (node)
         {
             case ParquetLeaf leaf:
-                elements.Add(w => LeafElement(w, leaf));
+                elements.Add(LeafElement(leaf));
                 break;
             case ParquetStruct s:
-                elements.Add(w =>
-                {
-                    w.I32(3, (int)s.Repetition);
-                    w.Binary(4, s.Name);
-                    w.I32(5, s.Children.Count);
-                });
+                elements.Add(new SchemaElement { Repetition = (FieldRepetition)s.Repetition, Name = s.Name, NumChildren = s.Children.Count });
                 foreach (ParquetNode child in s.Children) Elements(child, elements);
                 break;
             case ListGroup g:
-                elements.Add(w =>
+                elements.Add(new SchemaElement
                 {
-                    w.I32(3, (int)g.Repetition);
-                    w.Binary(4, g.Name);
-                    w.I32(5, 1);
-                    w.I32(6, g.IsMap ? 1 : 3); // converted_type: MAP or LIST
+                    Repetition = (FieldRepetition)g.Repetition,
+                    Name = g.Name,
+                    NumChildren = 1,
+                    ConvertedType = g.IsMap ? ConvertedType.Map : ConvertedType.List,
                 });
                 var repeated = (ParquetStruct)g.Repeated;
-                elements.Add(w =>
+                elements.Add(new SchemaElement
                 {
-                    w.I32(3, (int)Repetition.Repeated);
-                    w.Binary(4, repeated.Name);
-                    w.I32(5, repeated.Children.Count);
-                    if (g.IsMap) w.I32(6, 2); // converted_type: MAP_KEY_VALUE
+                    Repetition = FieldRepetition.Repeated,
+                    Name = repeated.Name,
+                    NumChildren = repeated.Children.Count,
+                    ConvertedType = g.IsMap ? ConvertedType.MapKeyValue : null,
                 });
                 foreach (ParquetNode child in repeated.Children) Elements(child, elements);
                 break;
@@ -446,68 +439,45 @@ internal static class MinimalParquetWriter
     }
 
     /// <summary>A leaf's schema element: converted type and logical type as parquet-mr writes them.</summary>
-    private static void LeafElement(CompactWriter w, ParquetLeaf leaf)
+    private static SchemaElement LeafElement(ParquetLeaf leaf)
     {
-        w.I32(1, (int)leaf.Type);
-        if (leaf.Type == PhysicalType.FixedLenByteArray) w.I32(2, leaf.TypeLength);
-        w.I32(3, (int)leaf.Repetition);
-        w.Binary(4, leaf.Name);
-        // converted_type: UTF8 0, DECIMAL 5, DATE 6, TIMESTAMP_MICROS 10, INT_8 15, INT_16 16 (a local timestamp has none)
-        int? converted = leaf.Utf8 ? 0 : leaf.Annotation switch
+        bool isDecimal = leaf.Annotation == Annotation.Decimal;
+        return new SchemaElement
         {
-            Annotation.Decimal => 5,
-            Annotation.Date => 6,
-            Annotation.TimestampMicros => 10,
-            Annotation.Int8 => 15,
-            Annotation.Int16 => 16,
-            _ => null,
-        };
-        if (converted is int c) w.I32(6, c);
-        if (leaf.Annotation == Annotation.Decimal)
-        {
-            w.I32(7, leaf.Scale);
-            w.I32(8, leaf.Precision);
-        }
-        if (!leaf.Utf8 && leaf.Annotation == Annotation.None) return;
-
-        w.BeginStruct(10); // logicalType (a union)
-        if (leaf.Utf8)
-        {
-            w.BeginStruct(1); // STRING
-            w.EndStruct();
-        }
-        else
-        {
-            switch (leaf.Annotation)
+            Type = (ParquetType)leaf.Type,
+            TypeLength = leaf.Type == PhysicalType.FixedLenByteArray ? leaf.TypeLength : null,
+            Repetition = (FieldRepetition)leaf.Repetition,
+            Name = leaf.Name,
+            // A local timestamp has no converted type.
+            ConvertedType = leaf.Utf8 ? ConvertedType.Utf8 : leaf.Annotation switch
             {
-                case Annotation.Decimal:
-                    w.BeginStruct(5);
-                    w.I32(1, leaf.Scale);
-                    w.I32(2, leaf.Precision);
-                    w.EndStruct();
-                    break;
-                case Annotation.Date:
-                    w.BeginStruct(6);
-                    w.EndStruct();
-                    break;
-                case Annotation.TimestampMicros or Annotation.LocalTimestampMicros:
-                    w.BeginStruct(8);
-                    w.Bool(1, leaf.Annotation == Annotation.TimestampMicros); // isAdjustedToUTC
-                    w.BeginStruct(2); // unit
-                    w.BeginStruct(2); // MICROS
-                    w.EndStruct();
-                    w.EndStruct();
-                    w.EndStruct();
-                    break;
-                case Annotation.Int8 or Annotation.Int16:
-                    w.BeginStruct(10);
-                    w.I8(1, (sbyte)(leaf.Annotation == Annotation.Int8 ? 8 : 16)); // bitWidth
-                    w.Bool(2, true); // isSigned
-                    w.EndStruct();
-                    break;
-            }
-        }
-        w.EndStruct();
+                Annotation.Decimal => ConvertedType.Decimal,
+                Annotation.Date => ConvertedType.Date,
+                Annotation.TimestampMicros => ConvertedType.TimestampMicros,
+                Annotation.Int8 => ConvertedType.Int8,
+                Annotation.Int16 => ConvertedType.Int16,
+                _ => null,
+            },
+            Scale = isDecimal ? leaf.Scale : null,
+            Precision = isDecimal ? leaf.Precision : null,
+            LogicalType = leaf.Utf8 ? new LogicalType(LogicalTypeKind.String) : leaf.Annotation switch
+            {
+                Annotation.Decimal => new LogicalType(LogicalTypeKind.Decimal) { Scale = leaf.Scale, Precision = leaf.Precision },
+                Annotation.Date => new LogicalType(LogicalTypeKind.Date),
+                Annotation.TimestampMicros or Annotation.LocalTimestampMicros => new LogicalType(LogicalTypeKind.Timestamp)
+                {
+                    IsAdjustedToUtc = leaf.Annotation == Annotation.TimestampMicros,
+                    Unit = ParquetTimeUnit.Micros,
+                    UnitMember = 2,
+                },
+                Annotation.Int8 or Annotation.Int16 => new LogicalType(LogicalTypeKind.Integer)
+                {
+                    BitWidth = (sbyte)(leaf.Annotation == Annotation.Int8 ? 8 : 16),
+                    IsSigned = true,
+                },
+                _ => null,
+            },
+        };
     }
 
     private static void WriteVarint(Stream stream, ulong value)
@@ -518,112 +488,5 @@ internal static class MinimalParquetWriter
             value >>= 7;
         }
         stream.WriteByte((byte)value);
-    }
-
-    /// <summary>The Thrift compact protocol, for the structs this writer needs.</summary>
-    private sealed class CompactWriter
-    {
-        public const byte I32Type = 5, I64Type = 6, BinaryType = 8, ListType = 9, Struct = 12;
-
-        private readonly MemoryStream _out = new();
-        private readonly Stack<short> _lastField = new();
-        private short _last;
-
-        public byte[] ToArray() => _out.ToArray();
-
-        private void FieldHeader(short id, byte type)
-        {
-            int delta = id - _last;
-            if (delta is > 0 and <= 15) _out.WriteByte((byte)((delta << 4) | type));
-            else
-            {
-                _out.WriteByte(type);
-                WriteVarint(_out, ZigZag(id));
-            }
-            _last = id;
-        }
-
-        private static ulong ZigZag(long n) => (ulong)((n << 1) ^ (n >> 63));
-
-        public void I32(short id, int value)
-        {
-            FieldHeader(id, I32Type);
-            WriteVarint(_out, ZigZag(value));
-        }
-
-        public void Bool(short id, bool value) => FieldHeader(id, value ? (byte)1 : (byte)2);
-
-        public void I8(short id, sbyte value)
-        {
-            FieldHeader(id, 3);
-            _out.WriteByte((byte)value);
-        }
-
-        public void I64(short id, long value)
-        {
-            FieldHeader(id, I64Type);
-            WriteVarint(_out, ZigZag(value));
-        }
-
-        public void Binary(short id, string value)
-        {
-            FieldHeader(id, BinaryType);
-            ListBinary(value);
-        }
-
-        public void BeginStruct(short id)
-        {
-            FieldHeader(id, Struct);
-            _lastField.Push(_last);
-            _last = 0;
-        }
-
-        public void EndStruct()
-        {
-            _out.WriteByte(0);
-            _last = _lastField.Pop();
-        }
-
-        /// <summary>Starts a list field; struct elements are then written field by field, each ended with <see cref="Stop"/>.</summary>
-        public void BeginList(short id, byte elementType, int count)
-        {
-            FieldHeader(id, ListType);
-            if (count < 15) _out.WriteByte((byte)((count << 4) | elementType));
-            else
-            {
-                _out.WriteByte((byte)(0xF0 | elementType));
-                WriteVarint(_out, (ulong)count);
-            }
-            if (elementType == Struct)
-            {
-                _lastField.Push(_last);
-                _pendingStructs.Push(count);
-                _last = 0;
-            }
-        }
-
-        private readonly Stack<int> _pendingStructs = new();
-
-        /// <summary>Ends a struct element of a list (or the top-level struct); the list ends after its last element.</summary>
-        public void Stop()
-        {
-            _out.WriteByte(0);
-            _last = 0;
-            if (_pendingStructs.Count > 0)
-            {
-                int left = _pendingStructs.Pop() - 1;
-                if (left > 0) _pendingStructs.Push(left);
-                else _last = _lastField.Pop();
-            }
-        }
-
-        public void ListI32(int value) => WriteVarint(_out, ZigZag(value));
-
-        public void ListBinary(string value)
-        {
-            byte[] bytes = Encoding.UTF8.GetBytes(value);
-            WriteVarint(_out, (ulong)bytes.Length);
-            _out.Write(bytes);
-        }
     }
 }
