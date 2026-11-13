@@ -2,6 +2,8 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
@@ -21,6 +23,7 @@ internal abstract class LeafReader : IDisposable
     private readonly int _maxDefinition, _maxRepetition;
     private readonly int _definitionBits, _repetitionBits;
     private long _valuesLeft;           // in the chunk, from its metadata
+    private readonly long _chunkValues;
 
     // How entries become slots of this leaf's array (see ReadNode); a flat leaf: every entry.
     private int _slotDef;
@@ -50,7 +53,31 @@ internal abstract class LeafReader : IDisposable
         _definitionBits = 32 - BitOperations.LeadingZeroCount((uint)_maxDefinition);
         _repetitionBits = 32 - BitOperations.LeadingZeroCount((uint)_maxRepetition);
         _valuesLeft = valueCount;
+        _chunkValues = valueCount;
     }
+
+    /// <summary>The column chunk's uncompressed size (its metadata), for estimating value bytes per slot.</summary>
+    public long UncompressedBytes { get; set; }
+
+    /// <summary>
+    /// Lets the builder grow once for the batch about to be read: <paramref name="records"/> records out of the row
+    /// group's <paramref name="rowGroupRows"/> (for a repeated leaf, its share of the chunk's values).
+    /// </summary>
+    public void Reserve(int records, long rowGroupRows)
+    {
+        // Hints from the footer, which nothing bounds: capped, since a hint too small only means growing later.
+        long slots = _maxRepetition == 0
+            ? records
+            : (long)Math.Min(Math.Ceiling((double)_chunkValues * records / Math.Max(1, rowGroupRows)), records * 16.0);
+        Builder.Reserve(slots, DataBytes(slots));
+    }
+
+    /// <summary>About how many value bytes <paramref name="slots"/> slots take (variable-length values only; at most 1 GiB).</summary>
+    protected virtual long DataBytes(long slots) => 0;
+
+    /// <summary>The chunk's uncompressed bytes per value: an estimate of the bytes of PLAIN variable-length values.</summary>
+    protected long ChunkBytesPerValue(long slots) =>
+        _chunkValues <= 0 || UncompressedBytes <= 0 ? 0 : (long)Math.Min(Math.Ceiling((double)UncompressedBytes * slots / _chunkValues), 1L << 30);
 
     public SchemaNode Leaf { get; }
     public LeafType Type { get; }
@@ -359,7 +386,7 @@ internal abstract class LeafReader : IDisposable
         }
         if (encoding == ParquetEncoding.BitPacked)
         {
-            long length = BitPacking.Bytes(count, bits);
+            long length = BitUnpacking.Bytes(count, bits);
             if (length > rest.Length) throw new ParquetFormatException($"BIT_PACKED {what} levels run past the page.");
             Ensure(ref levels, count);
             BitPacking.UnpackMsbFirst(rest, 0, bits, levels.AsSpan(0, count));
@@ -379,10 +406,9 @@ internal abstract class LeafReader : IDisposable
 
     private static void CheckLevels(ReadOnlySpan<byte> levels, int max, string what)
     {
-        foreach (byte level in levels)
-        {
-            if (level > max) throw new ParquetFormatException($"a {what} level {level} exceeds the maximum {max}.");
-        }
+        if (max >= byte.MaxValue) return;
+        int at = levels.IndexOfAnyInRange((byte)(max + 1), byte.MaxValue);
+        if (at >= 0) throw new ParquetFormatException($"a {what} level {levels[at]} exceeds the maximum {max}.");
     }
 
     private static void Ensure(ref byte[] buffer, int length)
@@ -408,9 +434,12 @@ internal abstract class LeafReader : IDisposable
         Span<int> indices = _indices.AsSpan(0, valid);
         if (decoder.Read(indices) != valid) throw new ParquetFormatException($"the page has fewer dictionary indices than its {valid} values.");
         uint count = (uint)DictionaryCount;
-        foreach (int index in indices)
+        if (VectorKernels.MaxUnsigned(indices) >= count)
         {
-            if ((uint)index >= count) throw new ParquetFormatException($"a dictionary index {index} is beyond the {count} entries.");
+            foreach (int index in indices)
+            {
+                if ((uint)index >= count) throw new ParquetFormatException($"a dictionary index {index} is beyond the {count} entries.");
+            }
         }
     }
 

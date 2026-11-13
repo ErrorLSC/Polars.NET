@@ -13,6 +13,21 @@ internal struct LazyValidity
 {
     private NativeBitmap _bits;
     private bool _materialized;
+    private long _reserved; // slots the batch is expected to reach: the bitmap's size once it materializes
+
+    /// <summary>Expects the column to reach <paramref name="slots"/> slots in this batch.</summary>
+    public void Reserve(long slots, long lengthNow)
+    {
+        if (_materialized) _bits.EnsureAdditional(slots - lengthNow);
+        else _reserved = slots;
+    }
+
+    private void Materialize(long lengthBefore)
+    {
+        _bits.EnsureAdditional(Math.Max(_reserved, lengthBefore + 1));
+        _bits.AppendMany(true, lengthBefore);
+        _materialized = true;
+    }
 
     public readonly long NullCount => _materialized ? _bits.UnsetCount : 0;
 
@@ -38,8 +53,7 @@ internal struct LazyValidity
         if (!_materialized)
         {
             if (!mask.Contains((byte)0)) return;
-            _bits.AppendMany(true, lengthBefore);
-            _materialized = true;
+            Materialize(lengthBefore);
         }
         _bits.AppendMask(mask);
     }
@@ -48,30 +62,23 @@ internal struct LazyValidity
     public void AppendNulls(long count, long lengthBefore)
     {
         if (count <= 0) return;
-        if (!_materialized)
-        {
-            _bits.AppendMany(true, lengthBefore);
-            _materialized = true;
-        }
+        if (!_materialized) Materialize(lengthBefore);
         _bits.AppendMany(false, count);
     }
 
     /// <param name="lengthBefore">Number of slots appended before this null.</param>
     public void AppendNull(long lengthBefore)
     {
-        if (!_materialized)
-        {
-            _bits.AppendMany(true, lengthBefore);
-            _materialized = true;
-        }
+        if (!_materialized) Materialize(lengthBefore);
         _bits.Append(false);
     }
 
     public unsafe nint Detach(NativeBatchExport export)
     {
+        _reserved = 0;
         if (!_materialized) return 0;
         _materialized = false;
-        return (nint)export.Own(_bits.Detach());
+        return (nint)export.Own(_bits.Detach(out long bytes), bytes);
     }
 
     public void Free()
@@ -100,6 +107,19 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
     public abstract void AppendDefault();
 
     public abstract NativeCArray* Export(NativeBatchExport export);
+
+    /// <summary>
+    /// Expects <paramref name="slots"/> more slots in this batch (and, for variable-length values, about
+    /// <paramref name="dataBytes"/> more value bytes): the buffers grow once instead of doubling up while filled.
+    /// </summary>
+    public void Reserve(long slots, long dataBytes = 0)
+    {
+        if (slots <= 0) return;
+        Validity.Reserve(Length + slots, Length);
+        ReserveValues(slots, dataBytes);
+    }
+
+    protected virtual void ReserveValues(long slots, long dataBytes) { }
 
     protected abstract void FreeBuffers();
 
@@ -168,6 +188,7 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
         Decimal256Type => new NativeFixedWidthBuilder<Int256Bits>(type),
         IntervalType { Unit: IntervalUnit.MonthDayNanosecond } => new NativeFixedWidthBuilder<MonthDayNanos>(type),
         StringType or BinaryType => new NativeBinaryBuilder(type),
+        StringViewType or BinaryViewType => new NativeBinaryViewBuilder(type),
         FixedSizeBinaryType f => new NativeFixedSizeBinaryBuilder(f),
         DictionaryType d => new NativeDictionaryBuilder(d),
         MapType m => new NativeListBuilder(m, Create(m.KeyValueType)),
@@ -226,6 +247,8 @@ internal sealed unsafe class NativeBooleanBuilder() : NativeColumnBuilder(Boolea
 
     public override void AppendDefault() => Append(false);
 
+    protected override void ReserveValues(long slots, long dataBytes) => _values.EnsureAdditional(slots);
+
     /// <summary>
     /// Appends one slot per byte of <paramref name="values"/> (true where not zero); with a <paramref name="mask"/>
     /// of the same length, slots whose mask byte is zero are null.
@@ -237,11 +260,18 @@ internal sealed unsafe class NativeBooleanBuilder() : NativeColumnBuilder(Boolea
         else MarkMask(mask);
     }
 
+    /// <summary>Appends <paramref name="count"/> valid slots from an LSB-first bitmap, starting at bit <paramref name="firstBit"/>.</summary>
+    public void AppendBits(ReadOnlySpan<byte> bits, long firstBit, int count)
+    {
+        _values.AppendBits(bits, firstBit, count);
+        MarkValid(count);
+    }
+
     public override NativeCArray* Export(NativeBatchExport export)
     {
         long nulls = NullCount;
         nint validity = Validity.Detach(export);
-        var a = export.NewArray(Length, nulls, [validity, (nint)export.Own(_values.Detach())], []);
+        var a = export.NewArray(Length, nulls, [validity, (nint)export.Own(_values.Detach(out long bytes), bytes)], []);
         Length = 0;
         return a;
     }
@@ -259,6 +289,8 @@ internal sealed unsafe class NativeFixedWidthBuilder<T>(IArrowType type) : Nativ
         _values.Append(value);
         MarkValid();
     }
+
+    protected override void ReserveValues(long slots, long dataBytes) => _values.EnsureAdditional(slots * sizeof(T));
 
     /// <summary>Appends <paramref name="count"/> valid slots and returns them for the caller to fill.</summary>
     public Span<T> AppendSlots(int count)
@@ -326,6 +358,12 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
     /// <summary>Bytes of value data appended to the current batch.</summary>
     public long DataLength => _data.Length;
 
+    protected override void ReserveValues(long slots, long dataBytes)
+    {
+        _offsets.EnsureAdditional(slots * sizeof(int));
+        _data.EnsureAdditional(dataBytes);
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Append(ReadOnlySpan<byte> value)
     {
@@ -358,6 +396,34 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
         MarkNulls(count);
     }
 
+    /// <summary>
+    /// Appends one slot per row: the values are <paramref name="source"/>[<paramref name="starts"/>[j] ..
+    /// +<paramref name="lengths"/>[j]] in order, one per byte of <paramref name="mask"/> that is not zero (nulls where it
+    /// is zero; every row a value when <paramref name="mask"/> is empty); <paramref name="totalBytes"/> is their sum.
+    /// </summary>
+    public void AppendValues(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, ReadOnlySpan<byte> mask, long totalBytes)
+    {
+        int rows = mask.IsEmpty ? starts.Length : mask.Length;
+        if (_data.Length + totalBytes > int.MaxValue) ThrowTooLarge();
+        _data.EnsureAdditional(totalBytes);
+        var offsets = (int*)_offsets.Reserve((long)rows * sizeof(int));
+        fixed (byte* from = source)
+        {
+            for (int i = 0, j = 0; i < rows; i++)
+            {
+                if (mask.IsEmpty || mask[i] != 0)
+                {
+                    int length = lengths[j];
+                    Buffer.MemoryCopy(from + starts[j], _data.Reserve(length), length, length);
+                    j++;
+                }
+                offsets[i] = (int)_data.Length;
+            }
+        }
+        if (mask.IsEmpty) MarkValid(rows);
+        else MarkMask(mask);
+    }
+
     public override void AppendDefault()
     {
         AppendOffset();
@@ -381,11 +447,199 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
     }
 }
 
+/// <summary>
+/// Utf8View / BinaryView: a 16-byte view per slot (the length; up to 12 bytes inline, else a 4-byte prefix, the
+/// data buffer's index and the offset in it) over data buffers. Long values appended go to a data buffer of the
+/// batch (a new one before an offset would pass 2 GB); callers may also add buffers of their own
+/// (<see cref="AddBuffer"/>, a dictionary's bytes) and write views into them directly.
+/// </summary>
+internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeColumnBuilder(type)
+{
+    public const int MaxInline = 12;
+
+    private NativeGrowBuffer _views;
+    private NativeGrowBuffer _data;
+    private int _dataIndex = -1;                       // the buffer index of _data in this batch; -1 until used
+    private readonly List<(nint Pointer, long Length)> _buffers = []; // data buffers by index (_data's slot filled on export)
+
+    /// <summary>Copies <paramref name="bytes"/> into a data buffer of this batch; returns its index for views to point into.</summary>
+    public int AddBuffer(ReadOnlySpan<byte> bytes)
+    {
+        var p = (byte*)NativeMemory.AlignedAlloc((nuint)Math.Max(bytes.Length, 8), NativeGrowBuffer.Alignment);
+        bytes.CopyTo(new Span<byte>(p, bytes.Length));
+        _buffers.Add(((nint)p, bytes.Length));
+        return _buffers.Count - 1;
+    }
+
+    /// <summary>The view of <paramref name="value"/> if it is stored in buffer <paramref name="buffer"/> at <paramref name="offset"/> (inline when short).</summary>
+    public static Int128 View(ReadOnlySpan<byte> value, int buffer, int offset)
+    {
+        Int128 view = default;
+        byte* v = (byte*)&view;
+        *(int*)v = value.Length;
+        if (value.Length <= MaxInline) value.CopyTo(new Span<byte>(v + 4, MaxInline));
+        else
+        {
+            value[..4].CopyTo(new Span<byte>(v + 4, 4));
+            *(int*)(v + 8) = buffer;
+            *(int*)(v + 12) = offset;
+        }
+        return view;
+    }
+
+    public void Append(ReadOnlySpan<byte> value)
+    {
+        Int128* view = (Int128*)_views.Reserve(sizeof(Int128));
+        if (value.Length <= MaxInline) *view = View(value, 0, 0);
+        else
+        {
+            if (_dataIndex < 0 || _data.Length + value.Length > int.MaxValue) NewDataBuffer();
+            *view = View(value, _dataIndex, (int)_data.Length);
+            _data.Append(value);
+        }
+        MarkValid();
+    }
+
+    private void NewDataBuffer()
+    {
+        if (_dataIndex >= 0) _buffers[_dataIndex] = ((nint)_data.Detach(out long length), length);
+        _buffers.Add((0, 0));
+        _dataIndex = _buffers.Count - 1;
+    }
+
+    /// <summary>
+    /// Appends one slot per row: the values are <paramref name="source"/>[<paramref name="starts"/>[j] ..
+    /// +<paramref name="lengths"/>[j]] in order, one per byte of <paramref name="mask"/> that is not zero (nulls where it
+    /// is zero; every row a value when <paramref name="mask"/> is empty). <paramref name="longBytes"/> is the total
+    /// length of the values longer than <see cref="MaxInline"/>.
+    /// </summary>
+    public void AppendValues(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, ReadOnlySpan<byte> mask, long longBytes)
+    {
+        int rows = mask.IsEmpty ? starts.Length : mask.Length;
+        if (longBytes > 0 && (_dataIndex < 0 || _data.Length + longBytes > int.MaxValue))
+        {
+            if (_dataIndex >= 0 || longBytes > int.MaxValue)
+            {
+                // The values would pass 2 GB in this buffer: one by one, each starting a new buffer when needed.
+                for (int i = 0, j = 0; i < rows; i++)
+                {
+                    if (!mask.IsEmpty && mask[i] == 0) AppendNull();
+                    else
+                    {
+                        Append(source.Slice(starts[j], lengths[j]));
+                        j++;
+                    }
+                }
+                return;
+            }
+            NewDataBuffer();
+        }
+        _data.EnsureAdditional(longBytes);
+        var views = (Int128*)_views.Reserve((long)rows * sizeof(Int128));
+        fixed (byte* from = source)
+        {
+            for (int i = 0, j = 0; i < rows; i++)
+            {
+                if (!mask.IsEmpty && mask[i] == 0)
+                {
+                    views[i] = default;
+                    continue;
+                }
+                int start = starts[j], length = lengths[j];
+                j++;
+                byte* v = (byte*)(views + i);
+                if (length <= MaxInline)
+                {
+                    views[i] = default;
+                    *(int*)v = length;
+                    Buffer.MemoryCopy(from + start, v + 4, MaxInline, length);
+                }
+                else
+                {
+                    int offset = (int)_data.Length;
+                    Buffer.MemoryCopy(from + start, _data.Reserve(length), length, length);
+                    *(int*)v = length;
+                    *(int*)(v + 4) = *(int*)(from + start);
+                    *(int*)(v + 8) = _dataIndex;
+                    *(int*)(v + 12) = offset;
+                }
+            }
+        }
+        if (mask.IsEmpty) MarkValid(rows);
+        else MarkMask(mask);
+    }
+
+    /// <summary>Appends <paramref name="count"/> valid slots and returns their views for the caller to fill.</summary>
+    public Span<Int128> AppendViewSlots(int count)
+    {
+        var slots = new Span<Int128>(_views.Reserve((long)count * sizeof(Int128)), count);
+        MarkValid(count);
+        return slots;
+    }
+
+    /// <summary>Appends one slot per byte of <paramref name="mask"/>, null where it is zero; returns their views (zeroed).</summary>
+    public Span<Int128> AppendViewSlots(ReadOnlySpan<byte> mask)
+    {
+        var slots = new Span<Int128>(_views.Reserve((long)mask.Length * sizeof(Int128)), mask.Length);
+        slots.Clear();
+        MarkMask(mask);
+        return slots;
+    }
+
+    public override void AppendNull()
+    {
+        _views.Append(default(Int128));
+        MarkNull();
+    }
+
+    public override void AppendDefault()
+    {
+        _views.Append(default(Int128));
+        MarkValid();
+    }
+
+    protected override void ReserveValues(long slots, long dataBytes)
+    {
+        _views.EnsureAdditional(slots * sizeof(Int128));
+        if (dataBytes > 0) _data.EnsureAdditional(Math.Min(dataBytes, int.MaxValue));
+    }
+
+    public override NativeCArray* Export(NativeBatchExport export)
+    {
+        long nulls = NullCount;
+        nint validity = Validity.Detach(export);
+        if (_dataIndex >= 0) _buffers[_dataIndex] = ((nint)_data.Detach(out long length), length);
+        var buffers = new nint[2 + _buffers.Count];
+        buffers[0] = validity;
+        buffers[1] = export.Ptr(ref _views);
+        for (int i = 0; i < _buffers.Count; i++) buffers[2 + i] = (nint)export.Own((byte*)_buffers[i].Pointer, _buffers[i].Length);
+        _buffers.Clear();
+        _dataIndex = -1;
+        var a = export.NewArray(Length, nulls, buffers, []);
+        Length = 0;
+        return a;
+    }
+
+    protected override void FreeBuffers()
+    {
+        _views.Free();
+        _data.Free();
+        foreach (var (pointer, _) in _buffers)
+        {
+            if (pointer != 0) NativeMemory.AlignedFree((void*)pointer);
+        }
+        _buffers.Clear();
+        _dataIndex = -1;
+    }
+}
+
 internal sealed unsafe class NativeFixedSizeBinaryBuilder(FixedSizeBinaryType type) : NativeColumnBuilder(type)
 {
     private NativeGrowBuffer _data;
 
     public int ByteWidth { get; } = type.ByteWidth;
+
+    protected override void ReserveValues(long slots, long dataBytes) => _data.EnsureAdditional(slots * ByteWidth);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Append(ReadOnlySpan<byte> value)
@@ -485,6 +739,8 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
     }
 
     public override void AppendDefault() => Append(0);
+
+    protected override void ReserveValues(long slots, long dataBytes) => _indices.EnsureAdditional(slots * sizeof(int));
 
     public override NativeCArray* Export(NativeBatchExport export)
     {

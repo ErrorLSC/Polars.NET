@@ -41,7 +41,11 @@ internal static class CheckpointReader
             if (columns.Count == 0) return actions;
 
             ParsedStatsText? stats = columns.Any(static c => c is ["add", "stats_parsed"]) ? new ParsedStatsText(Int96StatsLeaves(file)) : null;
-            using ParquetReader reader = file.OpenReader(new ParquetReadOptions { ColumnPaths = columns, BatchSize = BatchSize, BinaryAsString = true });
+            // One thread: IFileSystem promises nothing about concurrent ranged reads. Utf8, which the actions read.
+            using ParquetReader reader = file.OpenReader(new ParquetReadOptions
+            {
+                ColumnPaths = columns, BatchSize = BatchSize, BinaryAsString = true, ViewTypes = false, MaxDegreeOfParallelism = 1,
+            });
             foreach (RecordBatch batch in reader.ReadBatches())
             {
                 using (batch) CheckpointActions.Read(batch, stats, actions);

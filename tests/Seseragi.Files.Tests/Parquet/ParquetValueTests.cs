@@ -93,6 +93,100 @@ public class ParquetValueTests
         Assert.True(diffs.Count == 0, $"{name}:\n{string.Join('\n', diffs)}");
     }
 
+    /// <summary>One thread reads what many do: the same batches in the same order, and the same errors.</summary>
+    [Theory]
+    [MemberData(nameof(Files))]
+    public void Sequential_ReadsLikeParallel(string name)
+    {
+        JsonElement expected = Oracle.Value.RootElement.GetProperty("files").GetProperty(name);
+        if (expected.TryGetProperty("skipped", out _)) return;
+        if (Refused.ContainsKey(name))
+        {
+            string one = Assert.ThrowsAny<ParquetFormatException>(() => ReadAll(name, 1_000, parallelism: 1)).Message;
+            string many = Assert.ThrowsAny<ParquetFormatException>(() => ReadAll(name, 1_000, parallelism: 8)).Message;
+            Assert.Equal(one, many);
+            return;
+        }
+        // Small batches: several per row group, so the order of batches is checked too.
+        var (_, sequential) = ReadAll(name, 1_000, parallelism: 1);
+        var (_, parallel) = ReadAll(name, 1_000, parallelism: 8);
+        for (int c = 0; c < sequential.Length; c++) Assert.Equal(sequential[c], parallel[c]);
+    }
+
+    /// <summary>Strings and binaries read the same in the classic layout (Utf8, Binary) as in the view layout the oracles were compared with.</summary>
+    [Theory]
+    [MemberData(nameof(Files))]
+    public void ClassicLayout_ReadsLikeTheViewLayout(string name)
+    {
+        JsonElement expected = Oracle.Value.RootElement.GetProperty("files").GetProperty(name);
+        if (expected.TryGetProperty("skipped", out _) || Refused.ContainsKey(name)) return;
+        var (views, viewColumns) = ReadAll(name, batchSize: 65_536);
+        CheckViews(name);
+        var (classic, classicColumns) = ReadAll(name, batchSize: 65_536, viewTypes: false);
+        Assert.Equal(views.FieldsList.Select(f => TypeName(f.DataType)), classic.FieldsList.Select(f => TypeName(f.DataType)));
+        Assert.DoesNotContain(classic.FieldsList, f => f.DataType is StringViewType or BinaryViewType);
+        for (int c = 0; c < viewColumns.Length; c++) Assert.Equal(viewColumns[c], classicColumns[c]);
+    }
+
+    /// <summary>
+    /// The view layout's rules hold for every value (consumers compare by them): up to 12 bytes inline, zero-padded;
+    /// longer ones with their first 4 bytes as the prefix and a buffer index and offset inside the buffers.
+    /// </summary>
+    private static void CheckViews(string name)
+    {
+        using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
+        using var reader = file.OpenReader(new() { BatchSize = 1_000 });
+        foreach (RecordBatch batch in reader.ReadBatches())
+        {
+            using (batch)
+            {
+                foreach (IArrowArray column in batch.Arrays) Check(column);
+            }
+        }
+
+        static void Check(IArrowArray array)
+        {
+            switch (array)
+            {
+                case BinaryViewArray views:
+                {
+                    ReadOnlySpan<byte> raw = views.Data.Buffers[1].Span;
+                    for (int i = 0; i < views.Length; i++)
+                    {
+                        if (views.IsNull(i)) continue;
+                        ReadOnlySpan<byte> view = raw.Slice((views.Offset + i) * 16, 16);
+                        int length = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(view);
+                        ReadOnlySpan<byte> value = views.GetBytes(i);
+                        Assert.Equal(value.Length, length);
+                        if (length <= 12)
+                        {
+                            Assert.True(view.Slice(4, length).SequenceEqual(value));
+                            Assert.True(view[(4 + length)..].IndexOfAnyExcept((byte)0) < 0, "inline padding");
+                        }
+                        else
+                        {
+                            Assert.True(view.Slice(4, 4).SequenceEqual(value[..4]), "prefix");
+                            int buffer = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(view[8..]);
+                            int offset = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(view[12..]);
+                            Assert.InRange(buffer, 0, views.Data.Buffers.Length - 3);
+                            Assert.InRange(offset + length, length, views.Data.Buffers[2 + buffer].Length);
+                        }
+                    }
+                    break;
+                }
+                case StructArray s:
+                    foreach (IArrowArray child in s.Fields) Check(child);
+                    break;
+                case ListArray l:
+                    Check(l.Values);
+                    break;
+                case FixedSizeListArray f:
+                    Check(f.Values);
+                    break;
+            }
+        }
+    }
+
     /// <summary>Every column's Arrow type, nested ones included, is pyarrow's (by the normalization rules below).</summary>
     [Theory]
     [MemberData(nameof(Files))]
@@ -159,10 +253,10 @@ public class ParquetValueTests
         [.. schema.FieldsList.Where(f => f.DataType is not (ListType or StructType or MapType or FixedSizeListType)).Select(f => f.Name)];
 
     /// <summary>The columns of a file, each rendered row by row.</summary>
-    internal static (Apache.Arrow.Schema Schema, List<string>[] Columns) ReadAll(string name, int batchSize)
+    internal static (Apache.Arrow.Schema Schema, List<string>[] Columns) ReadAll(string name, int batchSize, bool viewTypes = true, int? parallelism = null)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using var reader = file.OpenReader(new() { BatchSize = batchSize });
+        using var reader = file.OpenReader(new() { BatchSize = batchSize, ViewTypes = viewTypes, MaxDegreeOfParallelism = parallelism ?? Environment.ProcessorCount });
         List<string>[] columns = [.. reader.Schema.FieldsList.Select(_ => (List<string>)[])];
         foreach (RecordBatch batch in reader.ReadBatches())
         {
@@ -201,8 +295,9 @@ public class ParquetValueTests
         Time64Type t => $"time64[{Unit(t.Unit)}]",
         TimestampType t => t.Timezone is { } zone ? $"timestamp[{Unit(t.Unit)}, tz={zone}]" : $"timestamp[{Unit(t.Unit)}]",
         DurationType d => $"duration[{Unit(d.Unit)}]",
-        StringType => "string",
-        BinaryType => "binary",
+        // The view layouts hold the same logical types (pyarrow reads them as string and binary).
+        StringType or StringViewType => "string",
+        BinaryType or BinaryViewType => "binary",
         FixedSizeBinaryType f => $"fixed_size_binary[{f.ByteWidth}]",
         DictionaryType d => $"dictionary<values={TypeName(d.ValueType)}, indices={TypeName(d.IndexType)}, ordered=0>",
         NullType => "null",

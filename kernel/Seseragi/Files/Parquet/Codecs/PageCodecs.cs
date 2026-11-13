@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using Kaminari.Sazanami.Compression;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Snappier;
 using ZstdSharp;
@@ -41,7 +42,7 @@ internal static class PageCodecs
             written = codec switch
             {
                 CompressionCodec.Uncompressed => Copy(source, destination),
-                CompressionCodec.Snappy => Snappy.Decompress(source, destination),
+                CompressionCodec.Snappy => SnappyBlock.Decompress(source, destination),
                 CompressionCodec.Gzip => Gzip(source, destination),
                 CompressionCodec.Brotli => BrotliDecoder.TryDecompress(source, destination, out int n) ? n : throw Damaged(codec),
                 CompressionCodec.Zstd => (t_zstdDecompressor ??= new Decompressor()).Unwrap(source, destination),

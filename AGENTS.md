@@ -21,7 +21,12 @@ This is the project's highest rule. It applies to new code, to code you touch, a
 - Search for characters or patterns with `SearchValues<T>` (SIMD-accelerated).
 - P/Invoke always uses `[LibraryImport]` on a `partial` method; never `[DllImport]`.
 - Regular expressions always use the `[GeneratedRegex]` source generator; never `new Regex(...)` at run time.
+- Hand-written SIMD uses .NET's portable, cross-platform vector APIs (`Vector128<T>`, `Vector256<T>`, `Vector<T>`, `Vector128.Shuffle`, `ExtractMostSignificantBits`, span helpers such as `IndexOfAnyInRange`), never platform-specific intrinsics (`Avx2`, `Bmi2`, `AdvSimd`, …): one code path for x64 and arm64, with a scalar fallback where no portable operation exists.
 - Lock with `System.Threading.Lock` (.NET 9+); never `lock (new object())`-style lock objects. Exception: the libraries target net8.0, where `Lock` does not exist, so they lock on a `private readonly object _lock = new();` field; projects targeting .NET 9+ (tests, benchmarks) use `Lock`.
+
+### Where code lives
+
+- Reusable infrastructure (buffers, builders, codecs, encodings, kernels that more than one module can use) goes in Sazanami, not in the module that first needs it.
 
 ### Code samples in the docs
 

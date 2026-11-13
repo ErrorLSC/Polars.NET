@@ -101,11 +101,20 @@ public class ParquetArrowSchemaTests
     public void BinaryAsString_ReadsUnannotatedBinariesAsValidatedStrings()
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath("apache/data/alltypes_plain.parquet"));
-        using (var plain = file.OpenReader(new() { Columns = ["string_col"] })) Assert.IsType<BinaryType>(plain.Schema.FieldsList[0].DataType);
-        using var strings = file.OpenReader(new() { Columns = ["string_col"], BinaryAsString = true });
-        Assert.IsType<StringType>(strings.Schema.FieldsList[0].DataType);
-        var batch = Assert.Single(strings.ReadBatches());
-        Assert.Equal(["0", "1", "0", "1"], Enumerable.Range(0, 4).Select(i => ((StringArray)batch.Column(0)).GetString(i)));
+        using (var plain = file.OpenReader(new() { Columns = ["string_col"] })) Assert.IsType<BinaryViewType>(plain.Schema.FieldsList[0].DataType);
+        using (var classic = file.OpenReader(new() { Columns = ["string_col"], ViewTypes = false })) Assert.IsType<BinaryType>(classic.Schema.FieldsList[0].DataType);
+        using (var strings = file.OpenReader(new() { Columns = ["string_col"], BinaryAsString = true }))
+        {
+            Assert.IsType<StringViewType>(strings.Schema.FieldsList[0].DataType);
+            var batch = Assert.Single(strings.ReadBatches());
+            Assert.Equal(["0", "1", "0", "1"], Enumerable.Range(0, 4).Select(i => ((StringViewArray)batch.Column(0)).GetString(i)));
+        }
+        using (var strings = file.OpenReader(new() { Columns = ["string_col"], BinaryAsString = true, ViewTypes = false }))
+        {
+            Assert.IsType<StringType>(strings.Schema.FieldsList[0].DataType);
+            var batch = Assert.Single(strings.ReadBatches());
+            Assert.Equal(["0", "1", "0", "1"], Enumerable.Range(0, 4).Select(i => ((StringArray)batch.Column(0)).GetString(i)));
+        }
 
         byte[] invalid = MinimalParquetWriter.Write([new ParquetLeaf("b", Repetition.Optional, PhysicalType.ByteArray)],
             [new Dictionary<string, object?> { ["b"] = (byte[])[0xFF] }]);

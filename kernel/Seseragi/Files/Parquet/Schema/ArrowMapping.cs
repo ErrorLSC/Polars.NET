@@ -106,6 +106,17 @@ internal static class ArrowMapping
 
     private static LeafType Leaf(SchemaNode node, Field? hint, ParquetReadOptions options)
     {
+        LeafType leaf = Hinted(node, hint, options);
+        return !options.ViewTypes || leaf.Dictionary ? leaf : leaf.ArrowType switch
+        {
+            StringType => leaf with { ArrowType = StringViewType.Default },
+            BinaryType => leaf with { ArrowType = BinaryViewType.Default },
+            _ => leaf,
+        };
+    }
+
+    private static LeafType Hinted(SchemaNode node, Field? hint, ParquetReadOptions options)
+    {
         LeafType leaf = LeafTypes.Resolve(node.Element, options);
         if (hint is null) return leaf;
         IArrowType want = hint.DataType;

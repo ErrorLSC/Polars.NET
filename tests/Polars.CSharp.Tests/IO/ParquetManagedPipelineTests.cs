@@ -83,8 +83,10 @@ public class ParquetManagedPipelineTests
         using var file = ParquetFile.Open(path);
         string[] columns = [.. file.Schema.FieldsList.Where(Importable).Select(f => f.Name)];
         if (columns.Length == 0) return;
-        using var reader = file.OpenReader(new() { Columns = columns });
-        using var managed = DataFrame.FromArrowStream(new BatchStream(reader.Schema, reader.ReadBatches()));
+        // Small batches through the owning stream: each batch is disposed as soon as Polars has imported it, so the
+        // frame lives on the pins of the export (freed memory would be reused by the later batches and show here).
+        using var reader = file.OpenReader(new() { Columns = columns, BatchSize = 1_000 });
+        using var managed = DataFrame.FromArrowStream(reader.ReadArrowStream());
         if (PolarsRefuses.Contains(name))
         {
             Assert.ThrowsAny<Exception>(() => DataFrame.ReadParquet(path, columns: columns).Dispose());

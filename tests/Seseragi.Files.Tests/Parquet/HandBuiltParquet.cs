@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Kaminari.Sazanami.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
@@ -13,7 +14,7 @@ internal static class HandBuiltParquet
 {
     /// <summary>A leaf's page: levels (empty when its maximum is 0), PLAIN values, and how levels are encoded.</summary>
     public sealed record Column(string[] Path, ParquetType Type, int MaxDefinition, int MaxRepetition, byte[] Definitions, byte[] Repetitions, byte[] Values,
-        ParquetEncoding LevelEncoding = ParquetEncoding.Rle);
+        ParquetEncoding LevelEncoding = ParquetEncoding.Rle, long? FooterValues = null, long? FooterUncompressedSize = null);
 
     public static byte[] Build(SchemaElement[] schema, long rows, params Column[] leaves)
     {
@@ -55,8 +56,8 @@ internal static class HandBuiltParquet
                     Encodings = [ParquetEncoding.Plain, leaf.LevelEncoding],
                     PathInSchema = leaf.Path,
                     Codec = CompressionCodec.Uncompressed,
-                    NumValues = count,
-                    TotalUncompressedSize = file.Position - offset,
+                    NumValues = leaf.FooterValues ?? count,
+                    TotalUncompressedSize = leaf.FooterUncompressedSize ?? file.Position - offset,
                     TotalCompressedSize = file.Position - offset,
                     DataPageOffset = offset,
                 },
@@ -85,7 +86,7 @@ internal static class HandBuiltParquet
         int bits = 32 - System.Numerics.BitOperations.LeadingZeroCount((uint)max);
         if (encoding == ParquetEncoding.BitPacked)
         {
-            var packed = new byte[BitPacking.Bytes(levels.Length, bits)];
+            var packed = new byte[BitUnpacking.Bytes(levels.Length, bits)];
             long bit = 0;
             foreach (byte level in levels)
             {

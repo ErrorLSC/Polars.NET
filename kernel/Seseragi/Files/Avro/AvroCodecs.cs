@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.IO.Hashing;
+using Kaminari.Sazanami.Compression;
 using Kaminari.Sazanami.Helpers;
 using Snappier;
 using ZstdSharp;
@@ -110,9 +111,9 @@ internal sealed class SnappyCodec : AvroCodec
         int length;
         try
         {
-            length = Snappy.GetUncompressedLength(compressed);
+            length = SnappyBlock.UncompressedLength(compressed);
             EnsureCapacity(output, length);
-            length = Snappy.Decompress(compressed, output.Span);
+            length = SnappyBlock.Decompress(compressed, output.Span[..length]);
         }
         catch (InvalidDataException e)
         {

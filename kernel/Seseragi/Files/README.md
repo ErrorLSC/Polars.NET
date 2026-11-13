@@ -48,7 +48,13 @@ makes a local timestamp an instant or an instant local, and never changes an ann
 field ids become `PARQUET:field_id` field metadata.
 
 **Reading** (`ParquetFile.OpenReader`, `ParquetReader`, `ParquetReadOptions`): every column, flat or nested, as record
-batches of `BatchSize` rows in native memory, synchronously or asynchronously, row group by row group. Nested columns
+batches of `BatchSize` rows in native memory, synchronously or asynchronously, in row group order. Row groups are
+decoded side by side, and the columns of a batch too, on `MaxDegreeOfParallelism` threads (all cores by default; 1
+streams on the calling thread); up to that many decoded row groups are held ahead of the consumer. `ReadArrowStream`
+hands the batches out as an Arrow stream that owns them (each disposed at the next read; an export keeps its memory),
+for Polars' or another library's import. Strings and binaries come in Arrow's view layout by default (`ViewTypes`:
+`Utf8View`, `BinaryView`; dictionary pages shared, not copied per value; any size per batch), or as `Utf8` / `Binary`
+(at most 2 GiB of values per batch). Nested columns
 are assembled from their repetition and definition levels into structs, lists (the old two-level and unannotated
 layouts included), maps (a map without values as the list of its keys) and fixed-size lists (from the stored Arrow
 schema or FINITE_VECTOR, when their items are leaves; others read as lists; a null entry holds placeholders); leaves under one repeated field must agree, a null map key
@@ -70,8 +76,9 @@ encodings are not read yet; ALP and LZO, and column chunks in other files, are r
 and stands in until a full Parquet writer exists. Page codecs compress as well as decompress, for the writer to come.
 
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
-leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/`, `Encodings/` (RLE / bit-packing
-hybrid, bit unpacking), `Reading/` (pages, leaf readers by value kind, value converters, the nested assembler); `ParquetFile`, `ParquetReader` and the options at the top.
+leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
+decoded by Sazanami's own decoder), `Encodings/` (RLE / bit-packing hybrid, BIT_PACKED levels; LSB bit unpacking is
+Sazanami's), `Reading/` (pages, leaf readers by value kind, value converters, the nested assembler); `ParquetFile`, `ParquetReader` and the options at the top.
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source and the native
 copy of streams that cannot seek.

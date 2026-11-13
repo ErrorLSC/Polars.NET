@@ -49,6 +49,8 @@ internal static class CanonicalRender
             DurationArray d => "P:" + ((BigInteger)Raw<long>(d, i) * Nanos(((DurationType)d.Data.DataType).Unit)).ToString(CultureInfo.InvariantCulture),
             MonthDayNanosecondIntervalArray m => m.GetValue(i)!.Value is var v ? $"I:{v.Months},{v.Days},{v.Nanoseconds}" : "",
             StringArray s => "u:" + Convert.ToHexStringLower(s.GetBytes(i)),
+            StringViewArray s => "u:" + Convert.ToHexStringLower(s.GetBytes(i)),
+            BinaryViewArray b => "b:" + Convert.ToHexStringLower(b.GetBytes(i)),
             BinaryArray b => "b:" + Convert.ToHexStringLower(b.GetBytes(i)),
             FixedSizeBinaryArray f => "b:" + Convert.ToHexStringLower(f.GetBytes(i)),
             DictionaryArray d => Value(d.Dictionary, Index(d.Indices, i)),

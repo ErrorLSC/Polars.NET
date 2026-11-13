@@ -129,7 +129,7 @@ public class ParquetReaderTests
         Field Of(string name) => file.Schema.FieldsList.Single(f => f.Name == name);
         Assert.Equal("Asia/Tokyo", ((TimestampType)Of("ts_tokyo").DataType).Timezone);
         Assert.IsType<DurationType>(Of("dur_us").DataType);
-        Assert.IsType<StringType>(Of("large_str").DataType);
+        Assert.IsType<StringViewType>(Of("large_str").DataType); // views by default (large types are not kept)
         Assert.IsType<DictionaryType>(Of("dict_str").DataType);
         Assert.Equal(2, Assert.IsType<FixedSizeListType>(Of("fsl").DataType).ListSize);
         Assert.IsType<MapType>(Of("map").DataType);
@@ -279,6 +279,101 @@ public class ParquetReaderTests
                 Rows(reader.ReadBatches());
             });
             if (e is not null) Assert.True(e is ParquetFormatException, $"{name} round {i}: {e}");
+        }
+    }
+
+    [Fact]
+    public async Task Parallel_StoppingEarly_FreesTheRest_AndReportsErrorsInOrder()
+    {
+        // A file of many row groups, read with many threads.
+        string path = ParquetFixtures.FullPath("matrix/pa_pages_rowgroups.parquet");
+        using var file = ParquetFile.Open(path);
+        Assert.True(file.Metadata.RowGroups.Count > 2);
+        var options = new ParquetReadOptions { MaxDegreeOfParallelism = 4, BatchSize = 100 };
+
+        using (var reader = file.OpenReader(options))
+        {
+            using RecordBatch first = reader.ReadBatches().First(); // the rest are cancelled and freed
+            Assert.True(first.Length > 0);
+        }
+        using (var reader = file.OpenReader(options))
+        {
+            using var cancel = new CancellationTokenSource();
+            int seen = 0;
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            {
+                await foreach (RecordBatch batch in reader.ReadBatchesAsync(cancel.Token))
+                {
+                    batch.Dispose();
+                    if (++seen == 2) cancel.Cancel();
+                }
+            });
+        }
+
+        // A damaged later row group: the batches before it come first, then its error, as one thread reports it.
+        byte[] bytes = File.ReadAllBytes(path);
+        var meta = ParquetFile.Open(path).Thrift;
+        var lastChunk = meta.RowGroups[^1].Columns[0].MetaData!;
+        long at = lastChunk.DictionaryPageOffset is long d and >= 4 ? d : lastChunk.DataPageOffset;
+        for (long k = at; k < at + 40 && k < bytes.Length; k++) bytes[k] ^= 0x5A;
+        string Error(int parallelism, out int rowsBefore)
+        {
+            int rows = 0;
+            using var damaged = ParquetFile.Open(new MemoryStream(bytes));
+            using var reader = damaged.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = parallelism, BatchSize = 100 });
+            try
+            {
+                foreach (RecordBatch batch in reader.ReadBatches())
+                {
+                    rows += batch.Length;
+                    batch.Dispose();
+                }
+            }
+            catch (ParquetFormatException e)
+            {
+                rowsBefore = rows;
+                return e.Message;
+            }
+            rowsBefore = rows;
+            return "";
+        }
+        string sequential = Error(1, out int sequentialRows);
+        string parallel = Error(4, out int parallelRows);
+        Assert.NotEqual("", sequential);
+        Assert.Equal(sequential, parallel);
+        Assert.Equal(sequentialRows, parallelRows);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AbsurdFooterSizes_AreRefusedCleanly_WithoutHugeAllocations(bool viewTypes)
+    {
+        // The footer's value count and uncompressed size size the buffers in advance; absurd ones must not allocate
+        // gigabytes, and the mismatch with the pages is a format error.
+        SchemaElement[] schema =
+        [
+            HandBuiltParquet.Group("schema", 2, repetition: null),
+            HandBuiltParquet.Group("l", 1, converted: ConvertedType.List),
+            HandBuiltParquet.Group("list", 1, FieldRepetition.Repeated),
+            HandBuiltParquet.Leaf("element", ParquetType.Int32, FieldRepetition.Optional),
+            HandBuiltParquet.Leaf("s", ParquetType.ByteArray, FieldRepetition.Optional, ConvertedType.Utf8),
+        ];
+        byte[] file = HandBuiltParquet.Build(schema, 2,
+            // Large enough to ask for terabytes (not so large that the arithmetic wraps).
+            new HandBuiltParquet.Column(["l", "list", "element"], ParquetType.Int32, 3, 1, [3, 3], [0, 0], HandBuiltParquet.Int32s(1, 2),
+                FooterValues: 1L << 40, FooterUncompressedSize: 1L << 50),
+            new HandBuiltParquet.Column(["s"], ParquetType.ByteArray, 1, 0, [1, 1], [], HandBuiltParquet.Strings("a", "b"),
+                FooterUncompressedSize: 1L << 50));
+        using var parquet = ParquetFile.Open(new MemoryStream(file));
+        foreach (int parallelism in (int[])[1, 4])
+        {
+            using var reader = parquet.OpenReader(new ParquetReadOptions { ViewTypes = viewTypes, MaxDegreeOfParallelism = parallelism });
+            var e = Assert.ThrowsAny<ParquetFormatException>(() =>
+            {
+                foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+            });
+            Assert.Contains("more values than its row group has rows", e.Message);
         }
     }
 }

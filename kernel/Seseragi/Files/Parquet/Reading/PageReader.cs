@@ -1,5 +1,6 @@
 using System.IO.Hashing;
 using Kaminari.Sazanami.Helpers;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
@@ -12,10 +13,18 @@ internal readonly record struct Page(PageHeader Header, ReadOnlyMemory<byte> Bod
 /// Walks the pages of one column chunk (its bytes in memory): parses each header, checks sizes and, when asked,
 /// the CRC, and decompresses the page into a scratch buffer that the next page reuses.
 /// </summary>
-internal sealed class PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec codec, bool verifyChecksums) : IDisposable
+internal sealed class PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec codec, bool verifyChecksums, NativeBufferPool? pool = null) : IDisposable
 {
-    private readonly NativeByteBuffer _scratch = new(0);
+    private NativeByteBuffer? _scratch;
     private int _position;
+
+    /// <summary>The scratch buffer, at least <paramref name="bytes"/> long (taken from the pool on first use).</summary>
+    private NativeByteBuffer Scratch(int bytes)
+    {
+        if (_scratch is null) _scratch = pool?.Rent(bytes) ?? new NativeByteBuffer(0);
+        _scratch.EnsureCapacity(bytes);
+        return _scratch;
+    }
 
     /// <summary>Whether bytes remain after the pages read so far.</summary>
     public bool HasMore => _position < chunk.Length;
@@ -56,9 +65,9 @@ internal sealed class PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec co
                 throw new ParquetFormatException($"An uncompressed page holds {stored.Length} bytes; its header says {uncompressed}.");
             return stored;
         }
-        _scratch.EnsureCapacity(uncompressed);
-        PageCodecs.Decompress(codec, stored.Span, _scratch.Span[..uncompressed]);
-        return _scratch.Memory[..uncompressed];
+        NativeByteBuffer scratch = Scratch(uncompressed);
+        PageCodecs.Decompress(codec, stored.Span, scratch.Span[..uncompressed]);
+        return scratch.Memory[..uncompressed];
     }
 
     /// <summary>A data page v2: levels are never compressed; values are unless <c>is_compressed</c> is false or there are none.</summary>
@@ -77,12 +86,18 @@ internal sealed class PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec co
                 throw new ParquetFormatException($"A DATA_PAGE_V2 holds {storedValues.Length} value bytes; its header says {values}.");
             return stored;
         }
-        _scratch.EnsureCapacity(header.UncompressedPageSize);
-        Span<byte> body = _scratch.Span[..header.UncompressedPageSize];
+        NativeByteBuffer scratch = Scratch(header.UncompressedPageSize);
+        Span<byte> body = scratch.Span[..header.UncompressedPageSize];
         stored.Span[..levels].CopyTo(body);
         PageCodecs.Decompress(codec, storedValues.Span, body[levels..]);
-        return _scratch.Memory[..header.UncompressedPageSize];
+        return scratch.Memory[..header.UncompressedPageSize];
     }
 
-    public void Dispose() => _scratch.Release();
+    public void Dispose()
+    {
+        if (_scratch is null) return;
+        if (pool is null) _scratch.Release();
+        else pool.Return(_scratch);
+        _scratch = null;
+    }
 }
