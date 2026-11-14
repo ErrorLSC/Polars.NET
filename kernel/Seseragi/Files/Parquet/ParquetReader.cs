@@ -33,6 +33,9 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly int[] _rowGroups;
     private readonly bool _oldParquetMr;
     private readonly NativeBufferPool _buffers;
+
+    /// <summary>The pool of the chunk, window and scratch buffers (tests).</summary>
+    internal NativeBufferPool Buffers => _buffers;
     private readonly (int First, int Count)[] _columnLeaves; // each column's leaves in _leaves
     private readonly ReadOnlyMemory<byte>? _memory;           // the source's bytes, when it lives in memory
     private readonly bool _fetch;                             // whether chunks are fetched before decoding (not a local source)
@@ -499,6 +502,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             {
                 foreach (LeafReader r in leaves) r.Finish();
             }
+            foreach (LeafReader r in leaves) r.ReleasePages();
             return [.. arrays];
         }
         catch

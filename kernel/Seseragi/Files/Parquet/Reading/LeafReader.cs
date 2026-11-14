@@ -513,6 +513,13 @@ internal abstract class LeafReader : IDisposable
         }
     }
 
+    /// <summary>
+    /// Gives the page reader's buffers back once the chunk is read, rather than when the row group is done: buffers
+    /// held by finished columns of every row group in flight outgrow the last-level cache, and the units still
+    /// decoding then get cold ones (measured: flat 16 threads −9 %).
+    /// </summary>
+    public void ReleasePages() => _pages.Dispose();
+
     public virtual void Dispose()
     {
         _pages.Dispose();

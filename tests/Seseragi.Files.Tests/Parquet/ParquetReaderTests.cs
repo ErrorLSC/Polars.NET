@@ -440,6 +440,47 @@ public class ParquetReaderTests
     }
 
     /// <summary>
+    /// A column's page buffers go back to the pool once the column is read, not when its row group is done: columns
+    /// read one after another hold one window at a time (not one per column), and none is out after a read, in
+    /// sequence or in parallel, uncompressed or compressed (window and scratch).
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public void PageBuffers_GoBackWhenTheirColumnIsRead(int parallelism)
+    {
+        string[] names = ["a", "b", "c", "d"];
+        // More than 64 KiB, so that the file is streamed (smaller ones are read into memory at once).
+        byte[] file = MinimalParquetWriter.Write([.. names.Select(n => new ParquetLeaf(n, Repetition.Required, PhysicalType.Int32))],
+            [.. Enumerable.Range(0, 20_000).Select(i => names.ToDictionary(n => n, object? (_) => i))]);
+        using (var parquet = ParquetFile.Open(new MemoryStream(file)))
+        {
+            using var reader = parquet.OpenReader(new() { MaxDegreeOfParallelism = parallelism, Reading = ChunkReading.Stream });
+            Assert.Equal(20_000, RowCount(reader.ReadBatches()));
+            if (parallelism == 1) Assert.Equal(1, reader.Buffers.PeakRented);
+            Assert.Equal(0, reader.Buffers.Rented);
+        }
+
+        // Snappy pages of 38 columns: a window and a scratch buffer per column being read.
+        using var snappy = ParquetFile.OpenOnSource(Path.Combine(AppContext.BaseDirectory, "TestData", "parquet", "matrix", "pa_dict_v1_snappy.parquet"));
+        using var compressed = snappy.OpenReader(new() { MaxDegreeOfParallelism = parallelism, Reading = ChunkReading.Stream });
+        Assert.True(RowCount(compressed.ReadBatches()) > 0);
+        if (parallelism == 1) Assert.Equal(2, compressed.Buffers.PeakRented);
+        Assert.Equal(0, compressed.Buffers.Rented);
+
+        static long RowCount(IEnumerable<RecordBatch> batches)
+        {
+            long rows = 0;
+            foreach (RecordBatch batch in batches)
+            {
+                rows += batch.Length;
+                batch.Dispose();
+            }
+            return rows;
+        }
+    }
+
+    /// <summary>
     /// A flat optional leaf with BIT_PACKED definition levels (the deprecated encoding): each page's own count of
     /// present values places its values, also when the pages' null counts differ (the second page dictionary-encoded:
     /// its indices are decoded by that count).

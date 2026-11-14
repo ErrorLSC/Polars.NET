@@ -10,6 +10,19 @@ internal sealed class NativeBufferPool(int capacity) : IDisposable
     private readonly object _lock = new();
     private readonly List<NativeByteBuffer> _free = [];
     private bool _disposed;
+    private int _rented, _peakRented;
+
+    /// <summary>The buffers rented and not returned yet (released ones are not counted back).</summary>
+    internal int Rented
+    {
+        get { lock (_lock) return _rented; }
+    }
+
+    /// <summary>The most buffers out at once (tests: how long users hold them).</summary>
+    internal int PeakRented
+    {
+        get { lock (_lock) return _peakRented; }
+    }
 
     /// <summary>A buffer of at least <paramref name="bytes"/> bytes (contents undefined).</summary>
     public NativeByteBuffer Rent(long bytes)
@@ -17,6 +30,7 @@ internal sealed class NativeBufferPool(int capacity) : IDisposable
         NativeByteBuffer? buffer = null;
         lock (_lock)
         {
+            _peakRented = Math.Max(_peakRented, ++_rented);
             // The smallest buffer that fits; else the largest, grown (least memory moved and wasted).
             int best = -1;
             for (int i = 0; i < _free.Count; i++)
@@ -47,6 +61,7 @@ internal sealed class NativeBufferPool(int capacity) : IDisposable
     {
         lock (_lock)
         {
+            _rented--;
             if (!_disposed && _free.Count < capacity)
             {
                 _free.Add(buffer);
