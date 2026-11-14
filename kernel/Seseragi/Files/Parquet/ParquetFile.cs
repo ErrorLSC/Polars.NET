@@ -35,6 +35,11 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <summary>The page indexes of the column chunks, read as readers ask for them and kept for every reader.</summary>
     internal PageIndexes PageIndexes => LazyInitializer.EnsureInitialized(ref _pageIndexes, () => new PageIndexes(this));
 
+    private BloomFilters? _bloomFilters;
+
+    /// <summary>The Bloom filters of the column chunks, read as readers ask for them and kept for every reader.</summary>
+    internal BloomFilters BloomFilters => LazyInitializer.EnsureInitialized(ref _bloomFilters, () => new BloomFilters(this));
+
     private ParquetSchemaTree? _tree;
     private Apache.Arrow.Schema? _schema;
 

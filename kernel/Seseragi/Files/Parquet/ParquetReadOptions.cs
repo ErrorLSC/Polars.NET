@@ -32,6 +32,13 @@ public sealed record ParquetReadOptions
     public ScalarExpr? Filter { get; init; }
 
     /// <summary>
+    /// Whether <see cref="Filter"/>'s equality tests (<c>=</c>, null-safe <c>=</c>, <c>IN</c>) also consult the column
+    /// chunks' Bloom filters (on by default): a row group whose filter rules the value out is not read. Each filter is
+    /// read once per file.
+    /// </summary>
+    public bool BloomFilters { get; init; } = true;
+
+    /// <summary>
     /// The rows to read, by their numbers in the file (from 0, row groups in file order); null reads every row. A row
     /// group without a selected row is not read; pages wholly between selected rows are passed over unread where their
     /// headers tell their rows. Combines with <see cref="RowGroups"/> and <see cref="Filter"/> (rows of the row groups

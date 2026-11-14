@@ -180,6 +180,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
                     // Page indexes: read when rows are skipped or a filter prunes pages.
                     if (chunk.ColumnIndexOffset is long columnIndex) hot.Add(columnIndex);
                     if (chunk.OffsetIndexOffset is long offsetIndex) hot.Add(offsetIndex);
+                    if (meta.BloomFilterOffset is long bloom) hot.Add(bloom);
                 }
             }
         }

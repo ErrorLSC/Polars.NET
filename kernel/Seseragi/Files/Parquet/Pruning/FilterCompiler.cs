@@ -17,6 +17,10 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
 {
     private static readonly HashSet<int> s_noGuards = [];
     private readonly Dictionary<int, LeafDomain?> _domains = [];
+    private readonly HashSet<int> _equalities = [];
+
+    /// <summary>The leaves the filter tests for equality with a value (a Bloom filter can answer those).</summary>
+    public IReadOnlyCollection<int> EqualityLeaves => _equalities;
 
     /// <summary>The leaves the filter reads that statistics can test (after <see cref="Compile(ScalarExpr)"/>).</summary>
     public IEnumerable<LeafDomain> Leaves => _domains.Values.OfType<LeafDomain>();
@@ -92,7 +96,7 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
         }
     }
 
-    private PruneNode And(List<ScalarExpr> conjuncts, HashSet<int> outer)
+    private AndNode And(List<ScalarExpr> conjuncts, HashSet<int> outer)
     {
         // A NaN guard (x <= +inf, NOT isnan(x)) makes every row the conjunction keeps a number or null at x, so
         // the other conjuncts need not consider NaN there (the C# front end guards >, >= and != this way).
@@ -129,7 +133,7 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
         {
             PruneNode eq = literal is LiteralValue.Null
                 ? new LeafNode(domain, LeafTest.EqMissingNull, default, excludeNaN)
-                : domain.TryConvert(literal!, out Bound b) ? new LeafNode(domain, LeafTest.EqMissing, b, excludeNaN) : UnknownNode.Instance;
+                : domain.TryConvert(literal!, out Bound b) ? EqualityNode(domain, LeafTest.EqMissing, b, excludeNaN) : UnknownNode.Instance;
             return op.IsNotEqMissing && eq is not UnknownNode ? new NotNode(eq) : eq;
         }
         // A comparison with null is null on every row.
@@ -146,7 +150,14 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
                 _ => t,
             };
         }
+        if (t == LeafTest.Eq) _equalities.Add(domain.Leaf);
         return new LeafNode(domain, t, bound, excludeNaN);
+    }
+
+    private LeafNode EqualityNode(LeafDomain domain, LeafTest test, Bound bound, bool excludeNaN)
+    {
+        _equalities.Add(domain.Leaf);
+        return new LeafNode(domain, test, bound, excludeNaN);
     }
 
     /// <summary>
@@ -162,7 +173,7 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
         {
             if (value is LiteralValue.Null) { hasNull = true; continue; }
             if (!domain.TryConvert(value, out Bound bound)) return UnknownNode.Instance;
-            equals.Add(new LeafNode(domain, LeafTest.Eq, bound, excludeNaN));
+            equals.Add(EqualityNode(domain, LeafTest.Eq, bound, excludeNaN));
         }
         PruneNode any = new OrNode([.. equals]);
         PruneNode inList = (nullsEqual, hasNull) switch
@@ -245,9 +256,21 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
     }
 }
 
-/// <summary>The statistics of a row group's column chunks, by the rules of each leaf.</summary>
-internal sealed class RowGroupStatistics(RowGroup group) : IUnitStatistics
+/// <summary>The statistics of a row group's column chunks, by the rules of each leaf, and its Bloom filters when loaded.</summary>
+internal sealed class RowGroupStatistics(RowGroup group, Func<int, Kaminari.Sazanami.Filters.SplitBlockBloomFilter?>? blooms = null) : IUnitStatistics
 {
+    public bool MightContain(int leaf, LeafDomain domain, in Bound literal)
+    {
+        if (blooms?.Invoke(leaf) is not { } bloom) return true;
+        byte[][] keys = domain.BloomKeys(literal);
+        if (keys.Length == 0) return true;
+        foreach (byte[] key in keys)
+        {
+            if (bloom.MightContain(BloomFilters.Hash(key))) return true;
+        }
+        return false;
+    }
+
     public bool TryGet(int leaf, LeafDomain domain, out LeafStatistics statistics)
     {
         statistics = default;

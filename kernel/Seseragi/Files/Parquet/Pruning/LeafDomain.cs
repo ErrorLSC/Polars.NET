@@ -75,6 +75,9 @@ internal sealed class LeafDomain
     /// <summary>A FLOAT16 (FIXED_LEN_BYTE_ARRAY(2)).</summary>
     public bool Half16 { get; private init; }
 
+    /// <summary>The bytes of a FIXED_LEN_BYTE_ARRAY value.</summary>
+    public int TypeLength { get; private init; }
+
     /// <summary>A decimal in big-endian two's complement bytes.</summary>
     public bool BigEndianDecimal { get; private init; }
 
@@ -121,6 +124,11 @@ internal sealed class LeafDomain
             _ => null,
         };
         if (domain is null) return null;
+        domain = new LeafDomain(domain.Leaf, domain.Kind, domain.Shape, physical)
+        {
+            Unsigned = domain.Unsigned, Scale = domain.Scale, Unit = domain.Unit, Half16 = domain.Half16,
+            BigEndianDecimal = domain.BigEndianDecimal, TypeLength = leaf.Element.TypeLength ?? 0,
+        };
 
         // Statistics rules (probed against pyarrow 26 / Arrow C++, see the pushdown notes): with column orders, only
         // min_value / max_value and only under an order that fits the type; without, only the deprecated min / max,
@@ -190,6 +198,68 @@ internal sealed class LeafDomain
             next[end - 1]++;
             return next;
         }
+    }
+
+    /// <summary>
+    /// The PLAIN bytes a value equal to <paramref name="literal"/> is stored as, the keys of a Bloom filter (both zeros
+    /// for a floating zero: the IR's equality does not tell them apart, their bytes differ). Empty when this leaf's
+    /// values are not looked up that way (booleans, half floats, decimals in variable-length bytes, NaN, a literal no
+    /// stored value can equal exactly).
+    /// </summary>
+    public byte[][] BloomKeys(in Bound literal)
+    {
+        switch (Kind)
+        {
+            case DomainKind.Bytes:
+                return [literal.Bytes!];
+            case DomainKind.Floating when !Half16 && !double.IsNaN(literal.Float):
+            {
+                double v = literal.Float;
+                if (Physical == ParquetType.Double) return v == 0 ? [Bytes(0.0), Bytes(-0.0)] : [Bytes(v)];
+                float f = (float)v;
+                if ((double)f != v) return [];
+                return f == 0 ? [Bytes(0f), Bytes(-0f)] : [Bytes(f)];
+            }
+            case DomainKind.Integer when !literal.Half:
+            {
+                Int128 v = literal.Integer;
+                if (BigEndianDecimal)
+                {
+                    if (Physical != ParquetType.FixedLenByteArray || TypeLength is <= 0 or > 16) return [];
+                    Span<byte> full = stackalloc byte[16];
+                    BinaryPrimitives.WriteInt128BigEndian(full, v);
+                    // The value must fit the width: the bytes dropped are sign extension.
+                    byte sign = (byte)(v < 0 ? 0xFF : 0);
+                    foreach (byte b in full[..(16 - TypeLength)]) if (b != sign) return [];
+                    if (TypeLength < 16 && ((full[16 - TypeLength] & 0x80) != 0) != (v < 0)) return [];
+                    return [full[(16 - TypeLength)..].ToArray()];
+                }
+                bool fits = (Physical, Unsigned) switch
+                {
+                    (ParquetType.Int32, false) => v >= int.MinValue && v <= int.MaxValue,
+                    (ParquetType.Int32, true) => v >= 0 && v <= uint.MaxValue,
+                    (ParquetType.Int64, false) => v >= long.MinValue && v <= long.MaxValue,
+                    (ParquetType.Int64, true) => v >= 0 && v <= ulong.MaxValue,
+                    _ => false,
+                };
+                if (!fits) return [];
+                // Unsigned values are stored as the same bits.
+                return Physical == ParquetType.Int32
+                    ? [Little(Unsigned ? unchecked((int)(uint)v) : (int)v)]
+                    : [Little(Unsigned ? unchecked((long)(ulong)v) : (long)v)];
+            }
+            default:
+                return [];
+        }
+
+        static byte[] Bytes<T>(T value) where T : unmanaged
+        {
+            byte[] b = new byte[System.Runtime.CompilerServices.Unsafe.SizeOf<T>()];
+            System.Runtime.InteropServices.MemoryMarshal.Write(b, in value);
+            return b;
+        }
+
+        static byte[] Little<T>(T value) where T : unmanaged => BitConverter.IsLittleEndian ? Bytes(value) : throw new PlatformNotSupportedException();
     }
 
     /// <summary>The sign of <c>stored - literal</c>; false when the stored bound does not decode (then it is not used).</summary>

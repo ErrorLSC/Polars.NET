@@ -35,6 +35,9 @@ internal interface IUnitStatistics
 {
     /// <summary>The statistics of <paramref name="leaf"/>; false when the unit has none for it.</summary>
     bool TryGet(int leaf, LeafDomain domain, out LeafStatistics statistics);
+
+    /// <summary>False only when the unit holds no value equal to <paramref name="literal"/> at <paramref name="leaf"/> (a Bloom filter says so).</summary>
+    bool MightContain(int leaf, LeafDomain domain, in Bound literal) => true;
 }
 
 /// <summary>A node of a compiled filter: the outcomes it may give on the rows of a unit.</summary>
@@ -193,7 +196,8 @@ internal sealed class LeafNode(LeafDomain domain, LeafTest test, Bound literal, 
             _ => Signs.Greater | Signs.Equal,
         };
         Outcomes r = Outcomes.None;
-        if ((signs & satisfying) != 0) r |= Outcomes.True;
+        if ((signs & satisfying) != 0 && (test is not (LeafTest.Eq or LeafTest.EqMissing) || unit.MightContain(domain.Leaf, domain, literal)))
+            r |= Outcomes.True;
         if ((signs & ~satisfying) != 0) r |= Outcomes.False;
         if (nulls) r |= test == LeafTest.EqMissing ? Outcomes.False : Outcomes.Null;
         return r;

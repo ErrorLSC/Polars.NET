@@ -14,6 +14,8 @@ indexed_v1/v2.parquet  3 row groups x 1000 rows, pages of 50 rows, page index: k
                pages (rows 1000..1299), f a NaN page (rows 2000..2049), li a list, st a struct.
 idx_*.parquet  indexed_v1 with row group 0's index of key damaged: ColumnIndex lying (page 0 says 100000..200000) or
                garbage, OffsetIndex not increasing, or increasing but page 1 starting a row late.
+bloom.parquet  3 row groups x 200 random values (overlapping ranges) of 11 types, each with a Bloom filter;
+               bloom_zero.parquet the same with every bitset cleared (a lie: every lookup says absent).
 nulls_unknown.parquet  n int64 with nulls, its null counts removed (absent is not zero).
 """
 import json
@@ -211,6 +213,43 @@ def indexed():
         rewrite(name, edit)
 
 
+def blooms():
+    """bloom.parquet: 3 row groups x 200 random values per column (ranges overlap: only Bloom filters tell them
+    apart), a Bloom filter on every column; bloom_zero.parquet: the same with every bitset cleared (a lie)."""
+    import random as rnd
+    from datetime import date, datetime, timedelta
+    from decimal import Decimal
+    r = rnd.Random(7)
+    n = 600
+    cols = {
+        "i32": pa.array([r.randint(-2**31, 2**31 - 1) for _ in range(n)], pa.int32()),
+        "i64": pa.array([r.randint(-2**63, 2**63 - 1) for _ in range(n)], pa.int64()),
+        "u32": pa.array([r.randint(0, 2**32 - 1) for _ in range(n)], pa.uint32()),
+        "f32": pa.array([0.0 if i == 5 else -0.0 if i == 405 else r.uniform(-1e6, 1e6) for i in range(n)], pa.float32()),
+        "f64": pa.array([-0.0 if i == 7 else 0.0 if i == 407 else r.uniform(-1e9, 1e9) for i in range(n)], pa.float64()),
+        "s": pa.array([f"v{r.getrandbits(40):x}" for _ in range(n)], pa.string()),
+        "d9": pa.array([Decimal(r.randint(-10**8, 10**8)) / 100 for _ in range(n)], pa.decimal128(9, 2)),
+        "d18": pa.array([Decimal(r.randint(-10**17, 10**17)) / 10000 for _ in range(n)], pa.decimal128(18, 4)),
+        "d30": pa.array([Decimal(r.randint(-10**29, 10**29)) / 1000 for _ in range(n)], pa.decimal128(30, 3)),
+        "dt": pa.array([date(2000, 1, 1) + timedelta(days=r.randint(0, 20000)) for _ in range(n)], pa.date32()),
+        "ts": pa.array([datetime(2000, 1, 1) + timedelta(microseconds=r.randint(0, 10**15)) for _ in range(n)], pa.timestamp("us")),
+    }
+    t = pa.table(cols)
+    path = os.path.join(here, "bloom.parquet")
+    pq.write_table(t, path, row_group_size=200, compression="none", store_decimal_as_integer=True,
+                   bloom_filter_options={name: {"ndv": 200, "fpp": 0.01} for name in cols})
+    f = te.ParquetFile(path)
+    for g in range(3):
+        for c in range(len(cols)):
+            meta = f.column_meta(g, c)
+            at = te.get(meta, 14)
+            reader = te.Reader(f.body, at)
+            header = reader.struct()
+            size = te.get(header, 1)
+            f.body[reader.p:reader.p + size] = b"\x00" * size
+    f.save(os.path.join(here, "bloom_zero.parquet"))
+
+
 def nested_v2_pages():
     """nested_v2_pages.parquet: lists, structs and a flat column in many small v2 pages (headers give their rows)."""
     n = 600
@@ -241,6 +280,7 @@ def main():
     nested_v2_pages()
     flat_pages()
     indexed()
+    blooms()
     expected = {}
     for name in lies():
         for fname, flt in FILTERS.items():

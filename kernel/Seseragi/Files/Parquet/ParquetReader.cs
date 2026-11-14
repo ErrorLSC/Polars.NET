@@ -34,6 +34,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly int[] _candidates;              // the row groups to read, in order, after pruning by their statistics
     private readonly Pruning.PruneNode? _pruning;    // the compiled filter, when it can rule something out
     private readonly Pruning.LeafDomain[] _predicates; // the leaves the filter tests
+    private readonly int[] _equalities;              // the leaves it tests for equality (Bloom filters answer those)
     private ReadUnit[]? _planned;                    // the units, once planned (on the first read)
     private readonly bool _oldParquetMr;
     private readonly NativeBufferPool _buffers;
@@ -76,11 +77,13 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 throw new ArgumentOutOfRangeException(nameof(options), g, $"The file has {file.Thrift.RowGroups.Length} row groups.");
         }
         _predicates = [];
+        _equalities = [];
         if (options.Filter is { } filter)
         {
             var compiler = new Pruning.FilterCompiler(file.Tree, file.Thrift, options);
             _pruning = compiler.Compile(filter);
             _predicates = [.. compiler.Leaves];
+            _equalities = [.. compiler.EqualityLeaves];
         }
         if (_pruning is { } pruning)
             rowGroups = [.. rowGroups.Where(g => (pruning.Evaluate(new Pruning.RowGroupStatistics(file.Thrift.RowGroups[g])) & Pruning.Outcomes.True) != 0)];
@@ -163,6 +166,18 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         {
             RowRanges? rows = _options.Rows?.Slice(first[g], Math.Max(0, groups[g].NumRows));
             if (rows is not { IsEmpty: true }) selected.Add((g, rows));
+        }
+
+        // Bloom filters of the leaves tested for equality, in the row groups statistics kept.
+        if (_pruning is { } bloomed && _options.BloomFilters && _equalities.Length > 0)
+        {
+            BloomFilters blooms = _file.BloomFilters;
+            (int, int)[] withBlooms = [.. selected.SelectMany(u => _equalities.Where(l => blooms.Has(u.Group, l)).Select(l => (u.Group, l)))];
+            if (withBlooms.Length > 0)
+            {
+                await blooms.LoadAsync(withBlooms, useAsync, cancellationToken).ConfigureAwait(false);
+                selected.RemoveAll(u => (bloomed.Evaluate(new Pruning.RowGroupStatistics(groups[u.Group], l => blooms.Get(u.Group, l))) & Pruning.Outcomes.True) == 0);
+            }
         }
 
         // Pages: the column indexes of the leaves the filter tests.

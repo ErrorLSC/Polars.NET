@@ -443,6 +443,78 @@ public class ParquetPruningTests
         Assert.Equal([1, 2], reader.RowGroupsRead);
     }
 
+    // ------------------------------------------------------------------
+    // Bloom filters
+    // ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("pushdown:bloom.parquet")]
+    [InlineData("apache/data/data_index_bloom_encoding_stats.parquet")]
+    [InlineData("apache/data/data_index_bloom_encoding_with_length.parquet")]
+    [InlineData("matrix/enc_duckdb_v2_uncompressed.parquet")]
+    [InlineData("matrix/enc_duckdb_v2_zstd.parquet")]
+    [InlineData("nested/duckdb_nested_snappy.parquet")]
+    [InlineData("nested/duckdb_nested_zstd.parquet")]
+    public void BloomFilters_NeverRuleOutAStoredValue(string name)
+    {
+        string path = name.StartsWith("pushdown:", StringComparison.Ordinal) ? Fixture(name["pushdown:".Length..]) : ParquetFixtures.FullPath(name);
+        FileRows rows = FileRows.Read(path)!;
+        int groups, lookups = 0, pruned = 0;
+        using (var file = ParquetFile.Open(path)) groups = file.Metadata.RowGroups.Count;
+        foreach (string column in rows.TopLevel)
+        {
+            int columnLookups = 0, columnPruned = 0;
+            foreach (LiteralValue literal in rows.Literals(Col(column), most: 300))
+            {
+                ScalarExpr filter = Bin(BinaryOp.Eq, Col(column), Lit(literal));
+                long[] lost = rows.RowsLost(filter);
+                Assert.True(lost.Length == 0, $"{name} {Show(filter)}: rows {string.Join(",", lost.Take(5))} hold the value but were not read");
+                columnLookups++;
+                if (rows.Kept(filter).Length < groups) columnPruned++;
+            }
+            // In bloom.parquet every column's ranges overlap across row groups: only the Bloom filters can prune, and
+            // they keep about the one group holding the value (false positives at 1 %) for every type.
+            if (name == "pushdown:bloom.parquet")
+                Assert.True(columnPruned > columnLookups * 9 / 10, $"{column}: {columnPruned} of {columnLookups} lookups pruned");
+            lookups += columnLookups;
+            pruned += columnPruned;
+        }
+        Assert.True(lookups > 0);
+    }
+
+    [Fact]
+    public void BloomFilters_AreBelieved_WhenAsked()
+    {
+        FileRows rows = FileRows.Read(Fixture("bloom_zero.parquet"))!;
+        LiteralValue present = rows.Literals(Col("i64"))[0];
+        ScalarExpr filter = Bin(BinaryOp.Eq, Col("i64"), Lit(present));
+        Assert.Empty(rows.Kept(filter)); // every bitset is empty: every lookup says absent
+        using var file = ParquetFile.Open(Fixture("bloom_zero.parquet"));
+        using var off = file.OpenReader(new ParquetReadOptions { Filter = filter, BloomFilters = false });
+        Assert.Equal([0, 1, 2], off.RowGroupsRead);
+        // Null-safe equality and IN look values up too; a range test does not.
+        Assert.Empty(rows.Kept(Bin(BinaryOp.EqMissing, Col("i64"), Lit(present))));
+        Assert.Empty(rows.Kept(ScalarExpr.NewInList(Col("s"), InListSource.NewLiterals(ListModule.OfSeq<LiteralValue>(rows.Literals(Col("s"))[..3])), false, false)));
+        Assert.Equal([0, 1, 2], rows.Kept(Bin(BinaryOp.GtEq, Col("i64"), Lit(LiteralValue.NewInt64(long.MinValue)))));
+        // A value absent everywhere makes != true on every row (an equality on the leaf has its filters loaded).
+        ScalarExpr either = Bin(BinaryOp.Or, Bin(BinaryOp.NotEq, Col("i64"), Lit(present)), Bin(BinaryOp.Eq, Col("i64"), Lit(present)));
+        Assert.Equal([0, 1, 2], rows.Kept(either));
+    }
+
+    [Fact]
+    public void FloatingZeros_AreLookedUpInBothSigns()
+    {
+        // f32: +0 in group 0, -0 in group 2; f64: -0 in group 0, +0 in group 2. The IR's = holds between them.
+        FileRows rows = FileRows.Read(Fixture("bloom.parquet"))!;
+        foreach (var (column, zero) in (ValueTuple<string, LiteralValue>[])[("f32", LiteralValue.NewFloat32(-0f)), ("f32", LiteralValue.NewFloat32(0f)),
+                                                                             ("f64", LiteralValue.NewFloat64(0.0)), ("f64", LiteralValue.NewFloat64(-0.0))])
+        {
+            ScalarExpr filter = Bin(BinaryOp.Eq, Col(column), Lit(zero));
+            Assert.Equal([0, 2], rows.Matching(filter));
+            Assert.Empty(rows.RowsLost(filter));
+        }
+    }
+
     /// <summary>Bytes read at offsets, every read recorded.</summary>
     private sealed class RecordingSource(byte[] bytes) : IRandomAccess
     {
