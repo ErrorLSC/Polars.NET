@@ -71,6 +71,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             if ((uint)g >= (uint)file.Thrift.RowGroups.Length)
                 throw new ArgumentOutOfRangeException(nameof(options), g, $"The file has {file.Thrift.RowGroups.Length} row groups.");
         }
+        if (options.Filter is { } filter && new Pruning.FilterCompiler(file.Tree, file.Thrift, options).Compile(filter) is { } pruning)
+            _rowGroups = [.. _rowGroups.Where(g => (pruning.Evaluate(new Pruning.RowGroupStatistics(file.Thrift.RowGroups[g])) & Pruning.Outcomes.True) != 0)];
         Schema = new Apache.Arrow.Schema([.. _columns.Select(c => c.Field)], null);
         _oldParquetMr = IsOldParquetMr(file.Thrift.CreatedBy);
         // Per row group in flight: its fetched chunks (a few), and per leaf a decompression scratch and a read window.
@@ -88,6 +90,9 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
 
     /// <summary>How many column chunks were decoded from the file's mapping (for tests).</summary>
     internal int MappedChunks => Volatile.Read(ref _mappedChunks);
+
+    /// <summary>The row groups read, in order (after <see cref="ParquetReadOptions.Filter"/> pruned some; for tests).</summary>
+    internal IReadOnlyList<int> RowGroupsRead => _rowGroups;
 
     /// <summary>The number of column chunks read per row group (the leaves of the selection).</summary>
     internal int LeafCount => _leaves.Length;

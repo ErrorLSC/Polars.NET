@@ -70,6 +70,35 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(IRandomAccess source) => Sync(OpenCoreAsync(source, null, useAsync: false, default));
 
+    /// <summary>
+    /// Opens a file whose footer was read before: <paramref name="metadata"/> is the <see cref="Metadata"/> of an
+    /// earlier <see cref="ParquetFile"/> of the same bytes (an engine or catalog keeps it across queries). Nothing is
+    /// read on open. The caller vouches that the file has not changed; reads still check every range against it.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="metadata"/> was not read from a file.</exception>
+    public static ParquetFile Open(string path, ParquetMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        FileMetaData thrift = ReadFooter(metadata);
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.RandomAccess);
+        var source = new RandomAccessSource(stream, false, null);
+        return new ParquetFile(source, source, thrift, metadata);
+    }
+
+    /// <inheritdoc cref="Open(string, ParquetMetadata)"/>
+    /// <remarks>The caller keeps ownership of <paramref name="source"/>.</remarks>
+    public static ParquetFile Open(IRandomAccess source, ParquetMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new ParquetFile(source, null, ReadFooter(metadata), metadata);
+    }
+
+    private static FileMetaData ReadFooter(ParquetMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        return metadata.Thrift ?? throw new ArgumentException("The metadata was built by hand, not read from a Parquet file.", nameof(metadata));
+    }
+
     /// <inheritdoc cref="Open(string)"/>
     public static ValueTask<ParquetFile> OpenAsync(string path, CancellationToken cancellationToken = default) =>
         OpenCoreAsync(path, useAsync: true, cancellationToken);

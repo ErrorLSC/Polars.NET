@@ -1,4 +1,5 @@
 using Apache.Arrow.Types;
+using Kaminari.Samidare.IR;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -18,6 +19,15 @@ public sealed record ParquetReadOptions
 
     /// <summary>The row groups to read, by index, in the order given; null reads all of them.</summary>
     public IReadOnlyList<int>? RowGroups { get; init; }
+
+    /// <summary>
+    /// A row filter in the query compiler's IR, used as a hint: row groups whose statistics show that no row can
+    /// pass it are not read. Rows are not filtered, so the batches may still hold rows the filter drops; the caller
+    /// applies it (as a plan keeps its filter above the scan). Columns are the file's top-level names, struct fields
+    /// are reached with <c>StructFieldByName</c>; the semantics are the IR's (Kleene logic, NaN greater than every
+    /// number). What cannot be decided from statistics keeps the row group. Null reads every row group.
+    /// </summary>
+    public ScalarExpr? Filter { get; init; }
 
     /// <summary>The largest number of rows per record batch. Batches never span row groups.</summary>
     public int BatchSize { get; init; } = 65_536;

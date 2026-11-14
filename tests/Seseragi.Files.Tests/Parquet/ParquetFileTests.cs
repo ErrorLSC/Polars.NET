@@ -190,6 +190,50 @@ public class ParquetFileTests
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
+    [Fact]
+    public void OpenWithAnEarlierFooter_ReadsNothingOnOpen_AndTheSameBatches()
+    {
+        // Larger than the 64 KiB a first open keeps in memory, so the reopened file reads from the source.
+        byte[] bytes = File.ReadAllBytes(ParquetFixtures.FullPath("matrix/pa_pages_rowgroups.parquet"));
+        ParquetMetadata metadata;
+        string[] expected;
+        using (var first = ParquetFile.Open(new MemorySource(bytes)))
+        {
+            metadata = first.Metadata;
+            expected = Render(first);
+        }
+        var source = new MemorySource(bytes);
+        using var again = ParquetFile.Open(source, metadata);
+        Assert.Equal(0, source.Reads);
+        Assert.Same(metadata, again.Metadata);
+        Assert.Equal(expected, Render(again));
+
+        string path = ParquetFixtures.FullPath("matrix/pa_pages_rowgroups.parquet");
+        using var fromPath = ParquetFile.Open(path, metadata);
+        Assert.Equal(expected, Render(fromPath));
+
+        static string[] Render(ParquetFile file)
+        {
+            using var reader = file.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = 1 });
+            Apache.Arrow.RecordBatch[] batches = [.. reader.ReadBatches()];
+            try
+            {
+                return [.. Enumerable.Range(0, reader.Schema.FieldsList.Count).Select(c => CanonicalRender.Hash(CanonicalRender.Column(batches, c)))];
+            }
+            finally
+            {
+                foreach (Apache.Arrow.RecordBatch b in batches) b.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public void OpenWithAHandBuiltFooter_IsRefused()
+    {
+        var metadata = new ParquetMetadata { Schema = [], RowCount = 0, RowGroups = [] };
+        Assert.Throws<ArgumentException>(() => ParquetFile.Open(new MemorySource([]), metadata));
+    }
+
     /// <summary>Bytes read at offsets, counting the reads; one that <paramref name="lies"/> claims to be longer than it is.</summary>
     private sealed class MemorySource(byte[] bytes, bool lies = false) : IRandomAccess
     {

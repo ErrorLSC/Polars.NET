@@ -1,0 +1,33 @@
+{
+ "pyarrow": "26.0.1",
+ "rows": {
+  "base i<5": 5,
+  "base i=3": 1,
+  "base s<s05": 5,
+  "base s=s03": 1,
+  "lie_legacy i<5": 5,
+  "lie_legacy i=3": 1,
+  "lie_legacy s<s05": 5,
+  "lie_legacy s=s03": 1,
+  "lie_legacy_mr17 i<5": 0,
+  "lie_legacy_mr17 i=3": 0,
+  "lie_legacy_mr17 s<s05": 5,
+  "lie_legacy_mr17 s=s03": 1,
+  "lie_legacy_nocreatedby i<5": 0,
+  "lie_legacy_nocreatedby i=3": 0,
+  "lie_legacy_nocreatedby s<s05": 5,
+  "lie_legacy_nocreatedby s=s03": 1,
+  "lie_legacy_noorders i<5": 0,
+  "lie_legacy_noorders i=3": 0,
+  "lie_legacy_noorders s<s05": 5,
+  "lie_legacy_noorders s=s03": 1,
+  "lie_typed i<5": 0,
+  "lie_typed i=3": 0,
+  "lie_typed s<s05": 0,
+  "lie_typed s=s03": 0,
+  "lie_typed_noorders i<5": 5,
+  "lie_typed_noorders i=3": 1,
+  "lie_typed_noorders s<s05": 5,
+  "lie_typed_noorders s=s03": 1
+ }
+}

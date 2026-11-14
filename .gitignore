@@ -23,6 +23,7 @@ Thumbs.db
 *.parquet
 # Fuzzer findings kept as regression inputs (small mutated files; the rest of the Parquet corpus is not tracked).
 !tests/Seseragi.Files.Tests/TestData/parquet-fuzz/*.parquet
+!tests/Seseragi.Files.Tests/TestData/parquet-pushdown/*.parquet
 Polars.Benchmarks/Data/
 !test.csv
 !users.csv
