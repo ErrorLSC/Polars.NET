@@ -179,7 +179,7 @@ public class ParquetEncodingTests
         var scratch = new ulong[DeltaBinaryPacked.Chunk];
         foreach (int count in (int[])[0, 1, 2, 5, 129, 700])
         {
-            foreach (string shape in (string[])["shared", "random", "empty", "long", "fixed"])
+            foreach (string shape in (string[])["shared", "random", "empty", "long", "fixed", "medium"])
             {
                 byte[][] values = [.. Enumerable.Range(0, count).Select(i => shape switch
                 {
@@ -187,6 +187,7 @@ public class ParquetEncodingTests
                     "empty" => i % 3 == 0 ? [] : [(byte)i],
                     "long" => Bytes(random, random.Next(200, 3000)),
                     "fixed" => Bytes(random, 4),
+                    "medium" => i % 2 == 0 && i > 0 ? [.. Bytes(random, 0), .. System.Text.Encoding.UTF8.GetBytes(new string('m', random.Next(17, 60)))] : Bytes(random, random.Next(14, 50)), // around the 16- and 32-byte copies
                     _ => Bytes(random, random.Next(0, 20)),
                 })];
                 if (shape == "shared") Array.Sort(values, (a, b) => a.AsSpan().SequenceCompareTo(b));
@@ -203,6 +204,24 @@ public class ParquetEncodingTests
                     DeltaByteArrays.WritePlain(encoded.AsSpan(sections.DataStart, (int)sections.DataBytes), prefixes, lengths, plain, fixedLength);
                     Assert.True(plain.AsSpan().SequenceEqual(expected), $"{shape}, {count} values, {(prefixed ? "DELTA_BYTE_ARRAY" : "DELTA_LENGTH_BYTE_ARRAY")}");
                     Assert.Equal(encoded.Length, sections.DataStart + sections.DataBytes);
+                    if (fixedLength > 0) continue;
+
+                    // The same values as data, starts and lengths (the readers that take them so).
+                    var starts = new int[count];
+                    ReadOnlySpan<byte> data = encoded.AsSpan(sections.DataStart, (int)sections.DataBytes);
+                    byte[] direct;
+                    if (prefixed)
+                    {
+                        direct = new byte[DeltaByteArrays.ValuesLength(prefixes, lengths) + DeltaByteArrays.Slack];
+                        DeltaByteArrays.WriteValues(data, prefixes, lengths, direct, starts);
+                    }
+                    else
+                    {
+                        direct = data.ToArray();
+                        DeltaByteArrays.Starts(lengths, starts);
+                    }
+                    for (int i = 0; i < count; i++)
+                        Assert.True(direct.AsSpan(starts[i], lengths[i]).SequenceEqual(values[i]), $"direct: {shape}, value {i} of {count}");
                 }
             }
         }

@@ -1,3 +1,7 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+
 namespace Kaminari.Seseragi.Files.Parquet.Encodings;
 
 /// <summary>
@@ -75,13 +79,71 @@ internal static class DeltaByteArrays
                 at += 4;
             }
             // The prefix comes from the previous value, already written before this one.
-            plain.Slice(previous, prefix).CopyTo(plain[at..]);
-            data.Slice(read, suffix).CopyTo(plain[(at + prefix)..]);
+            Copy(plain, previous, prefix, plain, at);
+            Copy(data, read, suffix, plain, at + prefix);
             read += suffix;
             previous = at;
             previousLength = length;
             at += length;
         }
+    }
+
+    /// <summary>The bytes the values of a DELTA_BYTE_ARRAY page take back to back (prefixes and suffixes).</summary>
+    public static long ValuesLength(ReadOnlySpan<int> prefixes, ReadOnlySpan<int> lengths) => PlainLength(prefixes, lengths, 0) - 4L * lengths.Length;
+
+    /// <summary>The bytes a value may be written past its end (short copies move up to 32 bytes): output buffers have this much room more.</summary>
+    public const int Slack = 32;
+
+    /// <summary>
+    /// DELTA_BYTE_ARRAY values back to back into <paramref name="values"/> (<see cref="ValuesLength"/> bytes and
+    /// <see cref="Slack"/> more), their starts into <paramref name="starts"/>; <paramref name="lengths"/> (the suffix
+    /// lengths) become the values' lengths. For readers that take values with starts and lengths, not PLAIN.
+    /// </summary>
+    /// <exception cref="ParquetFormatException">A prefix is longer than the previous value.</exception>
+    public static void WriteValues(ReadOnlySpan<byte> data, ReadOnlySpan<int> prefixes, Span<int> lengths, Span<byte> values, Span<int> starts)
+    {
+        int at = 0, read = 0, previous = 0, previousLength = 0;
+        for (int i = 0; i < lengths.Length; i++)
+        {
+            int prefix = prefixes[i], suffix = lengths[i];
+            if (prefix > previousLength) throw LongPrefix(prefix, previousLength);
+            Copy(values, previous, prefix, values, at);
+            Copy(data, read, suffix, values, at + prefix);
+            read += suffix;
+            starts[i] = previous = at;
+            lengths[i] = previousLength = prefix + suffix;
+            at += previousLength;
+        }
+    }
+
+    /// <summary>The starts of DELTA_LENGTH_BYTE_ARRAY values in their data: where each one's predecessors end.</summary>
+    public static void Starts(ReadOnlySpan<int> lengths, Span<int> starts)
+    {
+        int at = 0;
+        for (int i = 0; i < lengths.Length; i++)
+        {
+            starts[i] = at;
+            at += lengths[i];
+        }
+    }
+
+    /// <summary>
+    /// Copies <paramref name="count"/> bytes; a run of up to 32 moves one or two 16-byte vectors when both sides have
+    /// room (the bytes past it are written over by what follows), instead of a call per value. Both vectors are loaded
+    /// before either is stored: a prefix's source may run into its destination.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void Copy(ReadOnlySpan<byte> from, int at, int count, Span<byte> to, int offset)
+    {
+        if (count <= 32 && from.Length - at >= 32 && to.Length - offset >= 32)
+        {
+            ref byte source = ref MemoryMarshal.GetReference(from);
+            ref byte target = ref MemoryMarshal.GetReference(to);
+            Vector128<byte> low = Vector128.LoadUnsafe(ref source, (nuint)at), high = Vector128.LoadUnsafe(ref source, (nuint)at + 16);
+            low.StoreUnsafe(ref target, (nuint)offset);
+            if (count > 16) high.StoreUnsafe(ref target, (nuint)offset + 16);
+        }
+        else from.Slice(at, count).CopyTo(to[offset..]);
     }
 
     private static ParquetFormatException LongPrefix(long prefix, long previous) =>

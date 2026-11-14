@@ -118,6 +118,25 @@ internal static class LeafReaders
         return (total, longBytes);
     }
 
+    /// <summary>The total length of byte arrays, and that of the ones longer than <paramref name="inline"/>.</summary>
+    public static (long Total, long Long) Totals(ReadOnlySpan<int> lengths, int inline)
+    {
+        long total = 0, longBytes = 0;
+        foreach (int length in lengths)
+        {
+            total += length;
+            if (length > inline) longBytes += length;
+        }
+        return (total, longBytes);
+    }
+
+    /// <summary>Checks that byte arrays lying back to back in <paramref name="data"/> are UTF-8 (at once when their region is ASCII).</summary>
+    public static void ValidateUtf8(ReadOnlySpan<byte> data, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths)
+    {
+        if (starts.IsEmpty) return;
+        ValidateUtf8(data, starts[0], starts[^1] + lengths[^1], starts, lengths);
+    }
+
     /// <summary>
     /// Checks that each value is UTF-8: at once when the whole region they lie in (length prefixes included) is ASCII,
     /// as it is for text with values shorter than 128 bytes; value by value otherwise.
@@ -365,6 +384,15 @@ internal sealed class BinaryLeafReader(PageReader pages, SchemaNode leaf, LeafTy
         _builder.AppendValues(values, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), MaskBytes(mask), total);
     }
 
+    protected override bool TakesByteArrays => true;
+
+    protected override void AppendByteArrays(int rows, SlotMask mask, ReadOnlySpan<byte> data, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths)
+    {
+        var (total, _) = LeafReaders.Totals(lengths, int.MaxValue);
+        if (_utf8) LeafReaders.ValidateUtf8(data, starts, lengths);
+        _builder.AppendValues(data, starts, lengths, MaskBytes(mask), total);
+    }
+
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)
     {
         for (int i = 0; i < valid; i++) LeafReaders.NextByteArray(values, ref position);
@@ -461,6 +489,15 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
         var (_, longBytes) = LeafReaders.ParsePlain(values, ref position, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), NativeBinaryViewBuilder.MaxInline);
         if (_utf8) LeafReaders.ValidateUtf8(values, from, position, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid));
         _builder.AppendValues(values, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), mask, longBytes);
+    }
+
+    protected override bool TakesByteArrays => true;
+
+    protected override void AppendByteArrays(int rows, SlotMask mask, ReadOnlySpan<byte> data, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths)
+    {
+        var (_, longBytes) = LeafReaders.Totals(lengths, NativeBinaryViewBuilder.MaxInline);
+        if (_utf8) LeafReaders.ValidateUtf8(data, starts, lengths);
+        _builder.AppendValues(data, starts, lengths, mask, longBytes);
     }
 
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)

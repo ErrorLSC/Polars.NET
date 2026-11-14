@@ -1,4 +1,6 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Encodings;
 
 namespace Kaminari.Seseragi.Files.Parquet.Encodings;
@@ -62,17 +64,33 @@ internal static class DeltaBinaryPacked
                 long full = (long)perMiniblock * width / 8, needed = BitUnpacking.Bytes(n, width);
                 if (needed > data.Length - position) throw CutShort();
                 int take = Math.Min(n, destination.Length - written);
-                ReadOnlySpan<byte> packed = data[position..];
-                for (int at = 0; at < take; at += Chunk)
+                // Within bounds: take values fit the destination from written on (no check per value).
+                ref T target = ref Unsafe.Add(ref MemoryMarshal.GetReference(destination), written);
+                if (width == 0)
                 {
-                    Span<ulong> deltas = scratch[..Math.Min(Chunk, take - at)];
-                    BitUnpacking.Unpack(packed, at, width, deltas);
-                    foreach (ulong delta in deltas)
+                    // All deltas are the minimum: no bits to unpack.
+                    for (int k = 0; k < take; k++)
                     {
-                        last += minDelta + delta;
-                        destination[written++] = T.CreateTruncating(last);
+                        last += minDelta;
+                        Unsafe.Add(ref target, k) = T.CreateTruncating(last);
                     }
                 }
+                else
+                {
+                    ReadOnlySpan<byte> packed = data[position..];
+                    for (int at = 0; at < take; at += Chunk)
+                    {
+                        Span<ulong> deltas = scratch[..Math.Min(Chunk, take - at)];
+                        BitUnpacking.Unpack(packed, at, width, deltas);
+                        ref ulong delta = ref MemoryMarshal.GetReference(deltas);
+                        for (int k = 0; k < deltas.Length; k++)
+                        {
+                            last += minDelta + Unsafe.Add(ref delta, k);
+                            Unsafe.Add(ref target, at + k) = T.CreateTruncating(last);
+                        }
+                    }
+                }
+                written += take;
                 position += (int)Math.Min(full, data.Length - position);
                 remaining -= n;
             }

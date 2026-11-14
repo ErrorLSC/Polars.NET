@@ -47,6 +47,10 @@ internal abstract class LeafReader : IDisposable
     private NativeByteBuffer? _transcoded;    // the current page's values decoded into PLAIN layout (other encodings)
     private ulong[]? _deltaScratch;
     private int[] _lengths = [], _prefixes = [];  // a page's byte array lengths and prefix lengths (delta encodings)
+    private int[] _starts = [];                   // where its byte arrays start in _arrayData (kinds that take them so)
+    private ReadOnlyMemory<byte> _arrayData;
+    private bool _fromArrays;
+    private int _arrayAt;
 
     private byte[] _batchDef = [], _batchRep = [];
     private int _batchCount;
@@ -135,6 +139,16 @@ internal abstract class LeafReader : IDisposable
 
     /// <summary>Appends slots from dictionary entries (the indices of the valid ones, checked against the dictionary).</summary>
     protected abstract void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices);
+
+    /// <summary>
+    /// Whether the kind takes byte arrays as data with starts and lengths (<see cref="AppendByteArrays"/>): then
+    /// DELTA_LENGTH_BYTE_ARRAY and DELTA_BYTE_ARRAY pages are not turned into PLAIN first.
+    /// </summary>
+    protected virtual bool TakesByteArrays => false;
+
+    /// <summary>Appends <paramref name="rows"/> slots whose valid ones are the byte arrays <paramref name="starts"/> and <paramref name="lengths"/> give in <paramref name="data"/>.</summary>
+    protected virtual void AppendByteArrays(int rows, SlotMask mask, ReadOnlySpan<byte> data, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths) =>
+        throw new InvalidOperationException();
 
     /// <summary>Lets a kind take a page whose encoding the base does not decode (RLE booleans); false refuses it.</summary>
     protected virtual bool BeginOtherEncoding(ParquetEncoding encoding, ReadOnlySpan<byte> values, int valid) => false;
@@ -295,6 +309,11 @@ internal abstract class LeafReader : IDisposable
     {
         if (slots == 0) return;
         if (_other) AppendOther(slots, mask, valid);
+        else if (_fromArrays)
+        {
+            AppendByteArrays(slots, mask, _arrayData.Span, _starts.AsSpan(_arrayAt, valid), _lengths.AsSpan(_arrayAt, valid));
+            _arrayAt += valid;
+        }
         else if (_fromDictionary)
         {
             AppendFromDictionary(slots, mask, _indices.AsSpan(_indexAt, valid));
@@ -309,6 +328,7 @@ internal abstract class LeafReader : IDisposable
         int valid = _maxDefinition == 0 ? n : _bitLevels ? (int)Bits.Count(_defBits, a, n) : _def.AsSpan(a, n).Count((byte)_maxDefinition);
         if (valid == 0) return;
         if (_other) SkipOther(valid);
+        else if (_fromArrays) _arrayAt += valid;
         else if (_fromDictionary) _indexAt += valid;
         else SkipPlain(valid, _values.Span, ref _valuePosition);
     }
@@ -392,6 +412,7 @@ internal abstract class LeafReader : IDisposable
         _pageAt = 0;
         _other = false;
         _fromDictionary = false;
+        _fromArrays = false;
         switch (encoding)
         {
             case ParquetEncoding.Plain:
@@ -400,6 +421,10 @@ internal abstract class LeafReader : IDisposable
                 if (!_hasDictionary) throw new ParquetFormatException("a dictionary-encoded page comes without a dictionary page.");
                 DecodeIndices(_values.Span, valid);
                 _fromDictionary = true;
+                break;
+            case ParquetEncoding.DeltaLengthByteArray or ParquetEncoding.DeltaByteArray when TakesByteArrays && Leaf.Element.Type == ParquetType.ByteArray:
+                BeginByteArrays(_values, encoding == ParquetEncoding.DeltaByteArray, valid);
+                _fromArrays = true;
                 break;
             case ParquetEncoding.DeltaBinaryPacked or ParquetEncoding.DeltaLengthByteArray or ParquetEncoding.DeltaByteArray or ParquetEncoding.ByteStreamSplit:
                 _values = Transcode(encoding, _values.Span, valid);
@@ -551,6 +576,33 @@ internal abstract class LeafReader : IDisposable
         return _transcoded!.Memory[..plain.Length];
     }
 
+    /// <summary>
+    /// DELTA_LENGTH_BYTE_ARRAY or DELTA_BYTE_ARRAY values as data, starts and lengths, for kinds that take them: the
+    /// page's own bytes for DELTA_LENGTH_BYTE_ARRAY (no copy), the values put together for DELTA_BYTE_ARRAY.
+    /// </summary>
+    private void BeginByteArrays(ReadOnlyMemory<byte> encoded, bool prefixed, int valid)
+    {
+        EnsureInts(ref _lengths, valid);
+        EnsureInts(ref _starts, valid);
+        if (prefixed) EnsureInts(ref _prefixes, valid);
+        Span<int> lengths = _lengths.AsSpan(0, valid), starts = _starts.AsSpan(0, valid), prefixes = prefixed ? _prefixes.AsSpan(0, valid) : default;
+        DeltaByteArrays.Sections sections = DeltaByteArrays.Read(encoded.Span, prefixed, prefixes, lengths, DeltaScratch);
+        ReadOnlyMemory<byte> data = encoded.Slice(sections.DataStart, (int)sections.DataBytes);
+        if (!prefixed)
+        {
+            DeltaByteArrays.Starts(lengths, starts);
+            _arrayData = data;
+        }
+        else
+        {
+            long bytes = DeltaByteArrays.ValuesLength(prefixes, lengths);
+            Span<byte> values = TranscodeBuffer(bytes + DeltaByteArrays.Slack, 1);
+            DeltaByteArrays.WriteValues(data.Span, prefixes, lengths, values, starts);
+            _arrayData = _transcoded!.Memory[..(int)bytes];
+        }
+        _arrayAt = 0;
+    }
+
     /// <summary>DELTA_LENGTH_BYTE_ARRAY or DELTA_BYTE_ARRAY values as PLAIN BYTE_ARRAY (or FIXED_LEN_BYTE_ARRAY when <paramref name="fixedLength"/> is set).</summary>
     private ReadOnlyMemory<byte> ByteArrays(ReadOnlySpan<byte> encoded, int valid, bool prefixed, int fixedLength)
     {
@@ -617,7 +669,9 @@ internal abstract class LeafReader : IDisposable
         _transcoded = null;
         if (_lengths.Length > 0) ArrayPool<int>.Shared.Return(_lengths);
         if (_prefixes.Length > 0) ArrayPool<int>.Shared.Return(_prefixes);
-        _lengths = _prefixes = [];
+        if (_starts.Length > 0) ArrayPool<int>.Shared.Return(_starts);
+        _lengths = _prefixes = _starts = [];
+        _arrayData = default;
     }
 
     public virtual void Dispose()

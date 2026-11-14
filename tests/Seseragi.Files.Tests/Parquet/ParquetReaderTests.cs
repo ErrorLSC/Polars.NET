@@ -33,6 +33,11 @@ public class ParquetReaderTests
     [InlineData("nested/pa_nested_small_pages.parquet")]
     [InlineData("nested/pa_nested_v2_dict.parquet")]
     [InlineData("nested/delta_checkpoint_classic.parquet")]
+    [InlineData("matrix/enc_dba_small_pages.parquet")]
+    [InlineData("matrix/enc_dlba_small_pages.parquet")]
+    [InlineData("matrix/enc_dbp_small_pages.parquet")]
+    [InlineData("matrix/enc_bss_small_pages.parquet")]
+    [InlineData("matrix/enc_spark_v2.parquet")]
     public async Task RowRanges_ReadWhatAFullReadSlices(string name)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));

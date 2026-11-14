@@ -292,7 +292,14 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
             long size = DeltaByteArrays.PlainLength(prefixes, lengths, fixedLength);
             if (size > 64 << 20) return Outcome.Read; // a legitimately huge expansion: not this target's business
             using var plain = new GuardedMemory.Block((int)size);
-            DeltaByteArrays.WritePlain(input.GetSpan().Slice(sections.DataStart, (int)sections.DataBytes), prefixes, lengths, plain.GetSpan(), fixedLength);
+            ReadOnlySpan<byte> data = input.GetSpan().Slice(sections.DataStart, (int)sections.DataBytes);
+            DeltaByteArrays.WritePlain(data, prefixes, lengths, plain.GetSpan(), fixedLength);
+            if (prefixed && fixedLength == 0)
+            {
+                // The direct form, into a buffer of exactly its size plus the slack it may write.
+                using var values = new GuardedMemory.Block((int)(DeltaByteArrays.ValuesLength(prefixes, lengths) + DeltaByteArrays.Slack));
+                DeltaByteArrays.WriteValues(data, prefixes, lengths, values.GetSpan(), new int[count]);
+            }
             return Outcome.Read;
         }
         catch (ParquetFormatException e)
