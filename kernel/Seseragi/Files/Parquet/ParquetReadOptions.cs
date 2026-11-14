@@ -23,7 +23,8 @@ public sealed record ParquetReadOptions
 
     /// <summary>
     /// A row filter in the query compiler's IR, used as a hint: row groups whose statistics show that no row can
-    /// pass it are not read. Rows are not filtered, so the batches may still hold rows the filter drops; the caller
+    /// pass it are not read, nor pages whose column index shows it (the pages of every column read for those rows are
+    /// then skipped by the offset index, never read). Rows are not filtered, so the batches may still hold rows the filter drops; the caller
     /// applies it (as a plan keeps its filter above the scan). Columns are the file's top-level names, struct fields
     /// are reached with <c>StructFieldByName</c>; the semantics are the IR's (Kleene logic, NaN greater than every
     /// number). What cannot be decided from statistics keeps the row group. Null reads every row group.
@@ -44,7 +45,10 @@ public sealed record ParquetReadOptions
     /// </summary>
     public string? RowIndexColumn { get; init; }
 
-    /// <summary>The most rows to read, in the order they are delivered; null reads them all.</summary>
+    /// <summary>
+    /// The most rows to read, in the order they are delivered, counted after <see cref="Filter"/> and <see cref="Rows"/>
+    /// left out what they could (the rows delivered are not filtered); null reads them all.
+    /// </summary>
     public long? MaxRows { get; init; }
 
     /// <summary>The largest number of rows per record batch. Batches never span row groups.</summary>
@@ -89,6 +93,12 @@ public sealed record ParquetReadOptions
 
     /// <summary>Whether the definition levels of flat optional columns are decoded as validity bits (tests turn it off to compare).</summary>
     internal bool LevelsAsBits { get; init; } = true;
+
+    /// <summary>
+    /// Fetched pieces of column chunks closer than this come in one read (the bytes between are read and unused): on
+    /// an object store each read is a request. Tests set 0 to see that skipped pages are never requested.
+    /// </summary>
+    internal long FetchGap { get; init; } = 1 << 20;
 
     /// <summary>Row groups are started ahead of the consumer while their uncompressed sizes stay within this (at least one is).</summary>
     internal long InFlightBytes { get; init; } = 512L << 20;

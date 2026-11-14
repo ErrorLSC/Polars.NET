@@ -154,8 +154,11 @@ internal static class Parent
     // read, it only exhausts the worker's memory cap.
     private static readonly HashSet<string> Excluded = ["large_string_map.brotli.parquet"];
 
+    /// <summary>The corpus files, and those of the pushdown fixtures beside it (paged files with page indexes).</summary>
     public static string[] CorpusFilesOf(string dir) =>
-        [.. Directory.EnumerateFiles(dir, "*.parquet", SearchOption.AllDirectories).Where(f => !Excluded.Contains(Path.GetFileName(f))).Order(StringComparer.Ordinal)];
+        [.. ((string[])[dir, dir.TrimEnd(Path.DirectorySeparatorChar) + "-pushdown"]).Where(Directory.Exists)
+            .SelectMany(d => Directory.EnumerateFiles(d, "*.parquet", SearchOption.AllDirectories))
+            .Where(f => !Excluded.Contains(Path.GetFileName(f))).Order(StringComparer.Ordinal)];
 
     /// <summary>Runs cases [first, first + count) in a child; a crash or hang ends the batch there (the next starts after it).</summary>
     private static (long Next, List<(long Case, string Kind, string Signature, string Detail)> Results) RunWorker(long seed, long first, int count, string corpus)

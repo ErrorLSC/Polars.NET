@@ -33,12 +33,89 @@ internal sealed class PageReader : IDisposable
     private long _windowStart, _windowEnd;
     private long _position;
     private GuardedMemory.Block? _guardedStored, _guardedBody; // fuzzing: the page's bytes, each ending at a guard page
+    private readonly (long Start, ReadOnlyMemory<byte> Bytes)[]? _segments; // a chunk fetched in pieces
+    private ChunkPageIndex? _index;     // reading by the offset index: pages at its offsets
+    private long _chunkStart;           // the chunk's offset in the file (the index's offsets are the file's)
+    private bool[]? _needed;            // the pages to be read (others are skipped): bounds reads ahead
+    private int _nextPage;              // the next data page by the index
+    private bool _dictionaryPending;    // a dictionary page lies before the first indexed page and was not read
+
+    /// <summary>
+    /// Reads by the chunk's offset index from now on: data pages are found at their offsets (skipped ones passed over
+    /// by <see cref="TrySkipByIndex"/> without a read), a dictionary page before the first one is read before the first
+    /// data page read. Each page read must agree with the index. <paramref name="needed"/> marks the pages that will be
+    /// read: reads ahead stop where they end.
+    /// </summary>
+    public void UseIndex(ChunkPageIndex index, long chunkStart, bool[]? needed)
+    {
+        _index = index;
+        _chunkStart = chunkStart;
+        _needed = needed;
+        _nextPage = 0;
+        _dictionaryPending = index.Offsets[0] > chunkStart;
+    }
+
+    /// <summary>Whether pages are read by the offset index.</summary>
+    public bool Indexed => _index is not null;
+
+    /// <summary>The rows of the data page <see cref="TryNext"/> returned last, by the offset index (null when not reading by it).</summary>
+    public long? IndexedRows { get; private set; }
+
+    /// <summary>
+    /// Passes over the next data page by the offset index, without reading anything, when it holds at most
+    /// <paramref name="most"/> rows (<paramref name="rows"/>).
+    /// </summary>
+    public bool TrySkipByIndex(long most, out long rows)
+    {
+        rows = 0;
+        if (_index is null || _nextPage >= _index.PageCount) return false;
+        rows = _index.RowsOf(_nextPage);
+        if (rows > most) return false;
+        _nextPage++;
+        SkippedPages++;
+        return true;
+    }
+
+    /// <summary>Where the bytes that may be read from <paramref name="from"/> on end: the run of pages to read there (the chunk's end when not known).</summary>
+    private long ReadLimit(long from)
+    {
+        if (_index is not { } index || _needed is not { } needed) return _length;
+        long first = index.Offsets[0] - _chunkStart, end;
+        int k;
+        if (from < first)
+        {
+            k = 0;
+            end = first;
+        }
+        else
+        {
+            k = Math.Max(0, Array.BinarySearch(index.Offsets, from + _chunkStart) is var i && i >= 0 ? i : ~i - 1);
+            end = index.Offsets[k] - _chunkStart + index.Sizes[k];
+            k++;
+        }
+        for (; k < index.PageCount && needed[k] && index.Offsets[k] - _chunkStart == end; k++) end += index.Sizes[k];
+        return Math.Min(end, _length);
+    }
 
     /// <summary>A chunk whose bytes are in memory.</summary>
     public PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec codec, bool verifyChecksums, NativeBufferPool? pool = null)
     {
         _chunk = chunk;
         _length = chunk.Length;
+        _codec = codec;
+        _verifyChecksums = verifyChecksums;
+        _pool = pool;
+    }
+
+    /// <summary>
+    /// A chunk of <paramref name="length"/> bytes of which only some were fetched: <paramref name="segments"/>, each at
+    /// its offset in the chunk (the dictionary page, the pages to read). Reading elsewhere is an error.
+    /// </summary>
+    public PageReader((long Start, ReadOnlyMemory<byte> Bytes)[] segments, long length, CompressionCodec codec, bool verifyChecksums,
+        NativeBufferPool? pool = null)
+    {
+        _segments = segments;
+        _length = length;
         _codec = codec;
         _verifyChecksums = verifyChecksums;
         _pool = pool;
@@ -74,10 +151,11 @@ internal sealed class PageReader : IDisposable
     private ReadOnlyMemory<byte> Bytes(long from, long count)
     {
         count = Math.Min(count, _length - from);
+        if (_segments is not null) return Segment(from, count);
         if (_source is null) return _chunk.Slice((int)from, (int)count);
         if (from < _windowStart || from + count > _windowEnd)
         {
-            long length = Math.Min(Math.Max(count, ReadAhead), _length - from);
+            long length = Math.Min(Math.Max(count, ReadAhead), Math.Max(ReadLimit(from), from + count) - from);
             _window ??= _pool?.Rent(length) ?? new NativeByteBuffer(0, pooled: true);
             _window.EnsureCapacity(length);
             if (_source.ReadAt(_sourceStart + from, _window.Span[..(int)length]) != length)
@@ -90,6 +168,9 @@ internal sealed class PageReader : IDisposable
 
     private PageHeader? _peeked;       // the next page's header, parsed ahead by TryPeek
     private int _peekedLength;
+
+    /// <summary>The data pages returned by <see cref="TryNext"/> (read and decompressed).</summary>
+    public int DataPagesRead { get; private set; }
 
     /// <summary>The pages passed over by <see cref="SkipPeeked"/> (their bodies never read nor decompressed).</summary>
     public int SkippedPages { get; private set; }
@@ -122,12 +203,47 @@ internal sealed class PageReader : IDisposable
         SkippedPages++;
     }
 
-    /// <summary>Parses the header at the current position (from a file: the first 64 KiB, then more for large statistics).</summary>
-    private PageHeader ParseHeader(out int headerLength)
+    /// <summary>
+    /// Positions on the next page by the offset index (the dictionary page first, when one lies before the indexed
+    /// pages) and parses its header, checking its size against the index.
+    /// </summary>
+    private bool TryNextIndexed(out PageHeader header, out int headerLength)
+    {
+        ChunkPageIndex index = _index!;
+        if (_dictionaryPending)
+        {
+            _dictionaryPending = false;
+            _position = 0;
+            header = ParseHeader(out headerLength, index.Offsets[0] - _chunkStart);
+            if (header.Type == PageType.DictionaryPage)
+            {
+                IndexedRows = null;
+                return true;
+            }
+        }
+        if (_nextPage >= index.PageCount)
+        {
+            (header, headerLength) = (null!, 0);
+            return false;
+        }
+        _position = index.Offsets[_nextPage] - _chunkStart;
+        header = ParseHeader(out headerLength, index.Sizes[_nextPage]);
+        if ((long)headerLength + header.CompressedPageSize != index.Sizes[_nextPage])
+            throw new ParquetFormatException($"Data page {_nextPage} takes {(long)headerLength + header.CompressedPageSize} bytes; the offset index says {index.Sizes[_nextPage]}.");
+        IndexedRows = index.RowsOf(_nextPage);
+        _nextPage++;
+        return true;
+    }
+
+    /// <summary>
+    /// Parses the header at the current position (from a file: the first 64 KiB, then more for large statistics), within
+    /// the next <paramref name="within"/> bytes (the page's size, when the offset index gives it).
+    /// </summary>
+    private PageHeader ParseHeader(out int headerLength, long within = long.MaxValue)
     {
         // From a file, the header is parsed from the first 64 KiB, then (headers with large statistics) from more,
         // up to the rest of the chunk, which is what a chunk in memory offers at once.
-        long rest = _length - _position, offered = _source is null ? rest : Math.Min(rest, 64 * 1024);
+        long rest = Math.Min(_length - _position, within), offered = _source is null ? rest : Math.Min(rest, 64 * 1024);
         while (true)
         {
             try
@@ -152,14 +268,30 @@ internal sealed class PageReader : IDisposable
         return compressed;
     }
 
+    /// <summary>Chunk bytes from the fetched piece holding <paramref name="from"/>, up to <paramref name="count"/> (clipped to the piece).</summary>
+    private ReadOnlyMemory<byte> Segment(long from, long count)
+    {
+        foreach (var (start, bytes) in _segments!)
+        {
+            if (from >= start && from < start + bytes.Length) return bytes.Slice((int)(from - start), (int)Math.Min(count, start + bytes.Length - from));
+        }
+        throw new ParquetFormatException($"A page lies outside the bytes fetched for its column chunk (at {from}).");
+    }
+
     /// <summary>The next page, or false at the end of the chunk.</summary>
     /// <exception cref="ParquetFormatException">A header or size is damaged, a CRC does not match, or decompression fails.</exception>
     public bool TryNext(out Page page)
     {
         page = default;
-        if (!TryPeek(out PageHeader header)) return false;
-        int headerLength = _peekedLength;
-        _peeked = null;
+        PageHeader header;
+        int headerLength;
+        if (_index is null)
+        {
+            if (!TryPeek(out header)) return false;
+            headerLength = _peekedLength;
+            _peeked = null;
+        }
+        else if (!TryNextIndexed(out header, out headerLength)) return false;
         int compressed = CompressedSize(header, headerLength), uncompressed = header.UncompressedPageSize;
         ReadOnlyMemory<byte> stored = Bytes(_position, headerLength + compressed)[headerLength..];
         _position += headerLength + compressed;
@@ -169,6 +301,7 @@ internal sealed class PageReader : IDisposable
         if (_verifyChecksums && header.Crc is int crc && Crc32.HashToUInt32(stored.Span) != unchecked((uint)crc))
             throw new ParquetFormatException($"A {header.Type} page fails its CRC check.");
 
+        if (header.Type is PageType.DataPage or PageType.DataPageV2) DataPagesRead++;
         page = new Page(header, header.Type switch
         {
             PageType.DataPageV2 => BodyV2(header, stored),

@@ -30,6 +30,11 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <summary>The full footer.</summary>
     internal FileMetaData Thrift { get; }
 
+    private PageIndexes? _pageIndexes;
+
+    /// <summary>The page indexes of the column chunks, read as readers ask for them and kept for every reader.</summary>
+    internal PageIndexes PageIndexes => LazyInitializer.EnsureInitialized(ref _pageIndexes, () => new PageIndexes(this));
+
     private ParquetSchemaTree? _tree;
     private Apache.Arrow.Schema? _schema;
 

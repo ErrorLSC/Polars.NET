@@ -18,6 +18,9 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
     private static readonly HashSet<int> s_noGuards = [];
     private readonly Dictionary<int, LeafDomain?> _domains = [];
 
+    /// <summary>The leaves the filter reads that statistics can test (after <see cref="Compile(ScalarExpr)"/>).</summary>
+    public IEnumerable<LeafDomain> Leaves => _domains.Values.OfType<LeafDomain>();
+
     /// <summary>The compiled filter; null when it can rule nothing out.</summary>
     public PruneNode? Compile(ScalarExpr filter)
     {

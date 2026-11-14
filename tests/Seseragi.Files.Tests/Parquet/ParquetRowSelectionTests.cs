@@ -21,6 +21,7 @@ public class ParquetRowSelectionTests
     [
         .. Values.Value.RootElement.GetProperty("files").EnumerateObject().Select(p => p.Name),
         "pushdown:flat_v1_pages.parquet", "pushdown:flat_v2_pages.parquet", "pushdown:nested_v2_pages.parquet",
+        "pushdown:indexed_v1.parquet", "pushdown:indexed_v2.parquet", "pushdown:idx_oi_bad.parquet",
     ];
 
     private static string PathOf(string name) =>
@@ -174,6 +175,36 @@ public class ParquetRowSelectionTests
         {
             Assert.Equal([null, null, null], reader.RowsRead); // whole row groups read as such
         }
+    }
+
+    [Theory]
+    [InlineData("flat_v1_pages.parquet")]
+    [InlineData("nested_v2_pages.parquet")]
+    public void AScatteredSelection_GivesFullBatches(string name)
+    {
+        using var file = ParquetFile.Open(Pushdown(name));
+        long rows = file.Metadata.RowCount;
+        List<string[]> all = Rows(file, new ParquetReadOptions { MaxDegreeOfParallelism = 1 });
+        RowRanges everyOther = RowRanges.FromIndices([.. Enumerable.Range(0, (int)rows).Where(i => i % 2 == 1).Select(i => (long)i)]);
+        using var reader = file.OpenReader(new ParquetReadOptions { Rows = everyOther, BatchSize = 40, RowIndexColumn = "__row" });
+        List<int> sizes = [];
+        foreach (RecordBatch batch in reader.ReadBatches())
+        {
+            using (batch)
+            {
+                sizes.Add(batch.Length);
+                for (int i = 0; i < batch.Length; i++)
+                {
+                    string[] row = [.. Enumerable.Range(0, batch.ColumnCount).Select(c => CanonicalRender.Value(batch.Column(c), i))];
+                    Assert.Equal(all[int.Parse(row[^1], System.Globalization.CultureInfo.InvariantCulture)], row[..^1]);
+                }
+            }
+        }
+        // Batches never span row groups: within each, all but the last batch are full.
+        int perGroup = (int)file.Metadata.RowGroups[0].RowCount / 2;
+        Assert.Equal(everyOther.RowCount, sizes.Sum());
+        Assert.True(sizes.Count(n => n == 40) >= sizes.Count - file.Metadata.RowGroups.Count, $"batch sizes {string.Join(",", sizes)}");
+        Assert.True(perGroup > 40);
     }
 
     [Fact]

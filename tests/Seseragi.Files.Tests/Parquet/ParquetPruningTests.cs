@@ -3,6 +3,8 @@ using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Rows;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
 using Microsoft.FSharp.Collections;
 
@@ -293,6 +295,174 @@ public class ParquetPruningTests
     }
 
     // ------------------------------------------------------------------
+    // Pages: column indexes prune rows, offset indexes skip pages unread
+    // ------------------------------------------------------------------
+
+    private static ScalarExpr Range(string column, long from, long to) =>
+        Bin(BinaryOp.And, Bin(BinaryOp.GtEq, Col(column), Lit(LiteralValue.NewInt64(from))), Bin(BinaryOp.Lt, Col(column), Lit(LiteralValue.NewInt64(to))));
+
+    [Theory]
+    [InlineData("indexed_v1.parquet")]
+    [InlineData("indexed_v2.parquet")]
+    public void ColumnIndexes_KeepThePagesWithMatches_AndOnlyThoseAreRead(string name)
+    {
+        // 3 row groups x 1000 rows, pages of 50 rows in every column (7 leaves): key 1234..1299 lies in pages 4..5 of group 1.
+        using var file = ParquetFile.OpenOnSource(Fixture(name));
+        using var reader = file.OpenReader(new ParquetReadOptions { Filter = Range("key", 1234, 1300), MaxDegreeOfParallelism = 1 });
+        Assert.Equal([1], reader.RowGroupsRead);
+        Assert.Equal([RowRanges.Of([(200, 100)])], reader.RowsRead);
+        int rows = 0;
+        foreach (RecordBatch batch in reader.ReadBatches())
+        {
+            using (batch) rows += batch.Length;
+        }
+        Assert.Equal(100, rows);
+        Assert.Equal(2 * 7, reader.PagesRead);
+        Assert.Equal(4 * 7, reader.PagesSkipped); // pages 0..3 skipped by the offset index; pages 6..19 never reached
+
+        // nn is null in rows 1000..1299 (whole pages, null counts given): nn > 0 cannot hold there.
+        ScalarExpr nullRows = Bin(BinaryOp.And, Range("key", 1000, 1300), Bin(BinaryOp.Gt, Col("nn"), Lit(LiteralValue.NewInt64(0))));
+        using var none = file.OpenReader(new ParquetReadOptions { Filter = nullRows });
+        Assert.Empty(none.RowGroupsRead);
+        // Rows are read whole where nothing is skipped: a full scan reads no page index.
+        using var all = file.OpenReader(new ParquetReadOptions { Filter = Range("key", -5, 5000) });
+        Assert.Equal([null, null, null], all.RowsRead);
+    }
+
+    [Theory]
+    [InlineData("indexed_v1.parquet")]
+    [InlineData("indexed_v2.parquet")]
+    public void RandomFilters_OnPagedFiles_NeverLoseAMatchingRow(string name)
+    {
+        FileRows rows = FileRows.Read(Fixture(name))!;
+        var random = new Random(name.Length * 7919);
+        ScalarExpr[] columns = [Col("key"), Col("cat"), Col("nn"), Col("f"), Field(Col("st"), "a"), Field(Col("st"), "s")];
+        int pruned = 0;
+        for (int n = 0; n < 120; n++)
+        {
+            ScalarExpr filter = RandomFilter(random, rows, columns, depth: 2);
+            long[] lost = rows.RowsLost(filter);
+            Assert.True(lost.Length == 0, $"{Show(filter)}: rows {string.Join(",", lost.Take(10))} match but were not read");
+            if (rows.RowsRead(filter).Count < 3000) pruned++;
+        }
+        Assert.True(pruned > 25, $"only {pruned} filters pruned rows");
+    }
+
+    [Fact]
+    public void DamagedIndexes_AreUsedWhenTheyParse_AndIgnoredOtherwise_NeverShiftingRows()
+    {
+        ScalarExpr below10 = Bin(BinaryOp.Lt, Col("key"), Lit(LiteralValue.NewInt64(10)));
+        // The column index of page 0 says 100000..200000: believed (nothing else tells), so rows 0..49 are not read.
+        Assert.DoesNotContain(5L, FileRows.Read(Fixture("idx_ci_lie.parquet"))!.RowsRead(below10));
+        // A column index that does not parse, an offset index that goes backwards: ignored.
+        foreach (string damaged in (string[])["idx_ci_garbage.parquet", "idx_oi_bad.parquet"])
+        {
+            FileRows rows = FileRows.Read(Fixture(damaged))!;
+            Assert.Empty(rows.RowsLost(below10));
+            Assert.Empty(rows.RowsLost(Range("key", 60, 70)));
+        }
+        // An offset index that parses and is consistent, but page 1 starts a row late: an error or the right rows.
+        using var file = ParquetFile.Open(Fixture("idx_oi_shift.parquet"));
+        foreach (RowRanges selection in (RowRanges[])[RowRanges.Of([(60, 10)]), RowRanges.Of([(49, 3)]), RowRanges.Of([(120, 5)])])
+        {
+            try
+            {
+                using var reader = file.OpenReader(new ParquetReadOptions { Rows = selection, Columns = ["key"], RowIndexColumn = "row" });
+                foreach (RecordBatch batch in reader.ReadBatches())
+                {
+                    using (batch)
+                    {
+                        var key = (Int64Array)batch.Column(0);
+                        var row = (Int64Array)batch.Column(1);
+                        for (int i = 0; i < batch.Length; i++) Assert.Equal(row.GetValue(i), key.GetValue(i));
+                    }
+                }
+            }
+            catch (ParquetFormatException e)
+            {
+                Assert.Contains("offset index", e.Message);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PagesNotNeeded_AreNeverRequested(bool fetch)
+    {
+        ChunkReading reading = fetch ? ChunkReading.Fetch : ChunkReading.Stream;
+        byte[] bytes = File.ReadAllBytes(Fixture("indexed_v1.parquet"));
+        var source = new RecordingSource(bytes);
+        using var file = ParquetFile.Open(source);
+        using var reader = file.OpenReader(new ParquetReadOptions { Filter = Range("key", 1234, 1300), Reading = reading, FetchGap = 0, MaxDegreeOfParallelism = 1 });
+        source.Reads.Clear();
+        foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+        // Every page of every column outside group 1's pages 4..5 (and its dictionary pages) is off limits.
+        List<(long Start, long End)> forbidden = [];
+        for (int g = 0; g < 3; g++)
+        {
+            for (int leaf = 0; leaf < 7; leaf++)
+            {
+                if (g != 1)
+                {
+                    // Groups 0 and 2 are pruned whole: none of their bytes may be read.
+                    var (start, length) = ParquetReader.ChunkRange(file.Thrift.RowGroups[g].Columns[leaf].MetaData!, bytes.Length, "", false);
+                    forbidden.Add((start, start + length));
+                    continue;
+                }
+                ChunkPageIndex index = file.PageIndexes.Get(g, leaf, withColumns: false)!;
+                for (int page = 0; page < index.PageCount; page++)
+                {
+                    if (g != 1 || page is not (4 or 5)) forbidden.Add((index.Offsets[page], index.Offsets[page] + index.Sizes[page]));
+                }
+            }
+        }
+        Assert.Equal(18 * 7 + 2 * 7, forbidden.Count);
+        foreach (var (at, length) in source.Reads)
+        {
+            foreach (var (start, end) in forbidden)
+                Assert.False(at < end && start < at + length, $"read [{at}, +{length}) touches a page skipped [{start}, {end})");
+        }
+        Assert.Equal(2 * 7, reader.PagesRead);
+    }
+
+    [Fact]
+    public void MaxRows_CountsWhatPruningLeaves_AndPlanningRunsOnce()
+    {
+        using var file = ParquetFile.Open(Fixture("indexed_v2.parquet"));
+        // Keys 1234..1299 and 2900..2999 pass: group 1 keeps 100 rows (two pages), group 2 the last two pages.
+        ScalarExpr filter = Bin(BinaryOp.Or, Range("key", 1234, 1300), Range("key", 2900, 3000));
+        using var reader = file.OpenReader(new ParquetReadOptions { Filter = filter, MaxRows = 150, RowIndexColumn = "row" });
+        long[] read = [.. reader.ReadBatches().SelectMany(b =>
+        {
+            using (b) return Enumerable.Range(0, b.Length).Select(i => ((Int64Array)b.Column(b.ColumnCount - 1)).GetValue(i)!.Value).ToArray();
+        })];
+        Assert.Equal([.. Enumerable.Range(1200, 100).Concat(Enumerable.Range(2900, 50)).Select(i => (long)i)], read);
+        // Enumerating again gives the same plan.
+        Assert.Equal(150, reader.ReadBatches().Sum(b => { using (b) return b.Length; }));
+        Assert.Equal([1, 2], reader.RowGroupsRead);
+    }
+
+    /// <summary>Bytes read at offsets, every read recorded.</summary>
+    private sealed class RecordingSource(byte[] bytes) : IRandomAccess
+    {
+        public List<(long Offset, int Length)> Reads { get; } = [];
+
+        public long Length => bytes.Length;
+
+        public int ReadAt(long offset, Span<byte> destination)
+        {
+            lock (Reads) Reads.Add((offset, destination.Length));
+            int count = (int)Math.Clamp(bytes.Length - offset, 0, destination.Length);
+            bytes.AsSpan((int)offset, count).CopyTo(destination);
+            return count;
+        }
+
+        public ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(ReadAt(offset, destination.Span));
+    }
+
+    // ------------------------------------------------------------------
     // The corpus: no row group with matches dropped, whatever wrote the file
     // ------------------------------------------------------------------
 
@@ -322,8 +492,8 @@ public class ParquetPruningTests
                 foreach (BinaryOp op in Comparisons)
                 {
                     ScalarExpr filter = Bin(op, c, Lit(literal));
-                    int[] matching = rows.Matching(filter), kept = rows.Kept(filter);
-                    Assert.True(matching.All(kept.Contains), $"{name} {Show(filter)}: kept [{string.Join(",", kept)}], matches in [{string.Join(",", matching)}]");
+                    long[] lost = rows.RowsLost(filter);
+                    Assert.True(lost.Length == 0, $"{name} {Show(filter)}: rows {string.Join(",", lost.Take(10))} match but were not read");
                 }
             }
         }
@@ -641,6 +811,44 @@ public class ParquetPruningTests
                 }
             }
             return new FileRows(path, groups, types);
+        }
+
+        /// <summary>Rows the filter keeps (true) that a reader with the filter does not deliver (none, when pruning is sound).</summary>
+        public long[] RowsLost(ScalarExpr filter, ParquetReadOptions? options = null)
+        {
+            HashSet<long> read = RowsRead(filter, options);
+            List<long> lost = [];
+            long first = 0;
+            foreach (List<Dictionary<string, object?>> group in _groups)
+            {
+                for (int i = 0; i < group.Count; i++)
+                {
+                    if (Eval(filter, name => group[i].TryGetValue(name, out object? v) ? v : null) is true && !read.Contains(first + i)) lost.Add(first + i);
+                }
+                first += group.Count;
+            }
+            return [.. lost];
+        }
+
+        /// <summary>
+        /// The numbers of the rows a reader with the filter delivers, from its plan (that a plan's rows are what is
+        /// delivered, ParquetRowSelectionTests checks).
+        /// </summary>
+        public HashSet<long> RowsRead(ScalarExpr filter, ParquetReadOptions? options = null)
+        {
+            using var file = ParquetFile.Open(_path);
+            using var reader = file.OpenReader((options ?? new ParquetReadOptions()) with { Filter = filter, MaxDegreeOfParallelism = 1 });
+            long[] first = new long[file.Metadata.RowGroups.Count];
+            for (int g = 1; g < first.Length; g++) first[g] = first[g - 1] + file.Metadata.RowGroups[g - 1].RowCount;
+            HashSet<long> rows = [];
+            foreach (var (g, read) in reader.RowGroupsRead.Zip(reader.RowsRead))
+            {
+                foreach (var (start, count) in read ?? RowRanges.All(file.Metadata.RowGroups[g].RowCount))
+                {
+                    for (long i = 0; i < count; i++) rows.Add(first[g] + start + i);
+                }
+            }
+            return rows;
         }
 
         /// <summary>The row groups holding a row the filter keeps (true).</summary>

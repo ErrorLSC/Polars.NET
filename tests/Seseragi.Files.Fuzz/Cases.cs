@@ -1,7 +1,10 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
+using Apache.Arrow.Types;
+using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Compression;
+using Kaminari.Sazanami.Rows;
 using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
@@ -174,6 +177,9 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
                     if (chunk.MetaData is not { } meta) continue;
                     hot.Add(meta.DataPageOffset);
                     if (meta.DictionaryPageOffset is long dictionary) hot.Add(dictionary);
+                    // Page indexes: read when rows are skipped or a filter prunes pages.
+                    if (chunk.ColumnIndexOffset is long columnIndex) hot.Add(columnIndex);
+                    if (chunk.OffsetIndexOffset is long offsetIndex) hot.Add(offsetIndex);
                 }
             }
         }
@@ -199,6 +205,12 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
                 Reading = (ChunkReading)random.Next(4),
                 LevelsAsBits = random.Next(4) != 0,
                 Columns = random.Next(3) == 0 && names.Length > 1 ? [.. names.Where(_ => random.Next(2) == 0)] : null,
+                // Row selections and filters read page indexes and skip pages by them.
+                // Inside the row groups (a damaged footer's num_rows may say otherwise; rows past them are an argument error).
+                Rows = random.Next(4) == 0 ? RandomRows(random, file.Metadata.RowGroups.Sum(g => Math.Max(0, g.RowCount))) : null,
+                Filter = random.Next(4) == 0 ? RandomFilter(random, file.Schema) : null,
+                MaxRows = random.Next(8) == 0 ? random.Next(0, 5000) : null,
+                FetchGap = random.Next(2) == 0 ? 0 : 1 << 20,
             };
             using var reader = file.OpenReader(options);
             foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
@@ -208,6 +220,44 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         {
             return Outcome.Refused(e);
         }
+    }
+
+    /// <summary>A few ranges of rows inside the file (none when its footer gives no rows).</summary>
+    private static RowRanges? RandomRows(Random random, long rows)
+    {
+        if (rows <= 0) return null;
+        int n = 1 + random.Next(4);
+        var ranges = new (long, long)[n];
+        for (int i = 0; i < n; i++)
+        {
+            long start = random.NextInt64(rows);
+            ranges[i] = (start, random.NextInt64(1, Math.Max(2, rows - start + 1)));
+        }
+        return RowRanges.Of(ranges).Intersect(RowRanges.All(rows));
+    }
+
+    /// <summary>A comparison of a random top-level column with a literal of its kind, or a conjunction of two.</summary>
+    private static ScalarExpr? RandomFilter(Random random, Schema schema)
+    {
+        if (schema.FieldsList.Count == 0) return null;
+        ScalarExpr Comparison()
+        {
+            Field field = schema.FieldsList[random.Next(schema.FieldsList.Count)];
+            LiteralValue literal = field.DataType switch
+            {
+                StringType or StringViewType => LiteralValue.NewString(((char)('a' + random.Next(26))).ToString()),
+                FloatType or DoubleType or HalfFloatType => LiteralValue.NewFloat64(random.NextDouble() * 2000 - 1000),
+                BooleanType => LiteralValue.NewBool(random.Next(2) == 0),
+                Date32Type => LiteralValue.NewDate(DateOnly.FromDayNumber(random.Next(700_000, 760_000))),
+                _ => LiteralValue.NewInt64(random.NextInt64(-5000, 5000)),
+            };
+            BinaryOp op = random.Next(6) switch
+            {
+                0 => BinaryOp.Eq, 1 => BinaryOp.NotEq, 2 => BinaryOp.Lt, 3 => BinaryOp.LtEq, 4 => BinaryOp.Gt, _ => BinaryOp.GtEq,
+            };
+            return ScalarExpr.NewBinary(op, ScalarExpr.NewColumn(field.Name), ScalarExpr.NewLiteral(literal));
+        }
+        return random.Next(3) == 0 ? ScalarExpr.NewBinary(BinaryOp.And, Comparison(), Comparison()) : Comparison();
     }
 
     // ------------------------------------------------------------------

@@ -24,6 +24,7 @@ internal abstract class LeafReader : IDisposable
     private readonly int _maxDefinition, _maxRepetition;
     private readonly int _definitionBits, _repetitionBits;
     private long _valuesLeft;           // in the chunk, from its metadata
+    private bool _valuesUnknown;        // nested pages were skipped by the offset index: their values were never counted
     private readonly long _chunkValues;
 
     // How entries become slots of this leaf's array (see ReadNode); a flat leaf: every entry.
@@ -220,7 +221,9 @@ internal abstract class LeafReader : IDisposable
                 if (read) Consume(a, b);
                 else SkipEntries(a, b);
                 _pageAt = b;
-                if (b < _pageValues || (_maxRepetition == 0 && starts == records)) break;
+                // A nested record may go on in the next page, unless pages start records (as an offset index promises;
+                // the next page read is checked to start with one): then the next page, perhaps skipped, is not read.
+                if (b < _pageValues || starts == records && (_maxRepetition == 0 || _pages.Indexed)) break;
             }
         }
         catch (ParquetFormatException e)
@@ -236,6 +239,9 @@ internal abstract class LeafReader : IDisposable
     /// <summary>The pages passed over by their headers alone (for tests and measurements).</summary>
     public int SkippedPages => _pages.SkippedPages;
 
+    /// <summary>The data pages read and decompressed (for tests and measurements).</summary>
+    public int DataPagesRead => _pages.DataPagesRead;
+
     /// <summary>
     /// Passes over data pages that lie wholly within a skip of <paramref name="records"/> records by their headers alone,
     /// their bodies neither read nor decompressed: pages whose rows the header gives (a flat column holds one value per
@@ -245,6 +251,19 @@ internal abstract class LeafReader : IDisposable
     private int SkipWholePages(int records)
     {
         int skipped = 0;
+        if (_pages.Indexed)
+        {
+            // By the offset index: nothing of the page is read. A flat page holds a value per row; a nested page's
+            // values are unknown from then on.
+            while (skipped < records && _pages.TrySkipByIndex(records - skipped, out long rows))
+            {
+                skipped += (int)rows;
+                if (_maxRepetition > 0) _valuesUnknown = true;
+                else if ((_valuesLeft -= rows) < 0)
+                    throw new ParquetFormatException("the offset index gives the column chunk more rows than it holds values.");
+            }
+            return skipped;
+        }
         while (skipped < records && _valuesLeft > 0 && _pages.TryPeek(out PageHeader header))
         {
             var (values, rows) = header.Type switch
@@ -382,7 +401,7 @@ internal abstract class LeafReader : IDisposable
     {
         while (true)
         {
-            if (_valuesLeft == 0 || !_pages.TryNext(out Page page)) return false;
+            if (_valuesLeft == 0 && !_valuesUnknown || !_pages.TryNext(out Page page)) return false;
             PageHeader header = page.Header;
             switch (header.Type)
             {
@@ -420,7 +439,7 @@ internal abstract class LeafReader : IDisposable
     private void BeginPage(int count, ReadOnlyMemory<byte> body, ParquetEncoding encoding, ParquetEncoding repetitionEncoding,
         ParquetEncoding definitionEncoding, DataPageHeaderV2? v2)
     {
-        if (count < 0 || count > _valuesLeft)
+        if (count < 0 || !_valuesUnknown && count > _valuesLeft)
             throw new ParquetFormatException($"a data page holds {count} values, more than the {_valuesLeft} left in the column chunk.");
         _valuesLeft -= count;
         ReadOnlySpan<byte> span = body.Span;
@@ -440,6 +459,12 @@ internal abstract class LeafReader : IDisposable
             else if (_maxDefinition > 0) position = LevelsV1(span, position, definitionEncoding, ref _def, count, _definitionBits, _maxDefinition, "definition");
         }
         int valid = _maxDefinition == 0 ? count : _bitLevels ? _defBitsSet : _def.AsSpan(0, count).Count((byte)_maxDefinition);
+        // A page read by the offset index must hold the rows it says: skipped pages were counted by it.
+        if (_pages.IndexedRows is long expected)
+        {
+            long rows = _maxRepetition == 0 ? count : _rep.AsSpan(0, count).Count((byte)0);
+            if (rows != expected) throw new ParquetFormatException($"a data page holds {rows} rows; the offset index says {expected}.");
+        }
 
         _values = body[position..];
         _valuePosition = 0;

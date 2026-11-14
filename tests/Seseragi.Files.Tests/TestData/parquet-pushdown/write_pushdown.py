@@ -10,6 +10,10 @@ lie_*.parquet  3 row groups x 10 rows (i int64 0..29, s string s00..s29) whose s
                pyarrow follows (Arrow C++), which ours follow too.
 flat_v1_pages.parquet / flat_v2_pages.parquet  flat columns in many small v1 / v2 pages.
 nested_v2_pages.parquet  lists and structs in many small v2 pages, for skipping pages by their headers.
+indexed_v1/v2.parquet  3 row groups x 1000 rows, pages of 50 rows, page index: key sorted, cat dictionary, nn all-null
+               pages (rows 1000..1299), f a NaN page (rows 2000..2049), li a list, st a struct.
+idx_*.parquet  indexed_v1 with row group 0's index of key damaged: ColumnIndex lying (page 0 says 100000..200000) or
+               garbage, OffsetIndex not increasing, or increasing but page 1 starting a row late.
 nulls_unknown.parquet  n int64 with nulls, its null counts removed (absent is not zero).
 """
 import json
@@ -157,6 +161,56 @@ def flat_pages():
                        data_page_size=128, write_batch_size=16, compression="snappy", use_dictionary=["cat"])
 
 
+def indexed():
+    """indexed_v1/v2.parquet: 3 row groups x 1000 rows in pages of 50 rows with a page index; idx_* lie in it."""
+    n = 3000
+    t = pa.table({
+        "key": pa.array(range(n), pa.int64()),
+        "cat": pa.array([f"c{i % 7}" for i in range(n)], pa.string()),
+        "nn": pa.array([None if 1000 <= i < 1300 else i for i in range(n)], pa.int64()),    # 6 all-null pages
+        "f": pa.array([float("nan") if 2000 <= i < 2050 else i * 0.5 for i in range(n)], pa.float64()),  # a NaN page
+        "li": pa.array([list(range(i % 4)) for i in range(n)], pa.list_(pa.int32())),
+        "st": pa.array([{"a": i, "s": f"s{i:04d}"} for i in range(n)], pa.struct([("a", pa.int64()), ("s", pa.string())])),
+    })
+    for version in ("1.0", "2.0"):
+        pq.write_table(t, os.path.join(here, f"indexed_v{version[0]}.parquet"), row_group_size=1000, data_page_version=version,
+                       write_page_index=True, max_rows_per_page=50, compression="snappy", use_dictionary=["cat"])
+    source = os.path.join(here, "indexed_v1.parquet")
+    KEY = 0
+
+    def rewrite(name, edit):
+        f = te.ParquetFile(source)
+        edit(f)
+        f.save(os.path.join(here, name + ".parquet"))
+
+    def replace_struct(f, chunk, offset_field, length_field, edit):
+        st = f.struct_at(te.get(chunk, offset_field))
+        edit(st)
+        blob = te.encode(st)
+        te.put(chunk, offset_field, te.I64, f.append(blob))
+        te.put(chunk, length_field, te.I32, len(blob))
+
+    def ci_lie(f):  # row group 0, page 0 of key claims 100000..200000
+        def edit(ci):
+            te.get(ci, 2)[1][0] = (100000).to_bytes(8, "little", signed=True)
+            te.get(ci, 3)[1][0] = (200000).to_bytes(8, "little", signed=True)
+        replace_struct(f, f.chunk(0, KEY), 6, 7, edit)
+
+    def ci_garbage(f):
+        chunk = f.chunk(0, KEY)
+        at, length = te.get(chunk, 6), te.get(chunk, 7)
+        f.body[at:at + length] = b"\xff" * length
+
+    def oi_bad(f):  # page 1 claims to start at row 0 again
+        replace_struct(f, f.chunk(0, KEY), 4, 5, lambda oi: te.put(te.get(oi, 1)[1][1], 3, te.I64, 0))
+
+    def oi_shift(f):  # increasing and inside the row group, but page 1 starts a row late
+        replace_struct(f, f.chunk(0, KEY), 4, 5, lambda oi: te.put(te.get(oi, 1)[1][1], 3, te.I64, te.get(te.get(oi, 1)[1][1], 3) + 1))
+
+    for name, edit in [("idx_ci_lie", ci_lie), ("idx_ci_garbage", ci_garbage), ("idx_oi_bad", oi_bad), ("idx_oi_shift", oi_shift)]:
+        rewrite(name, edit)
+
+
 def nested_v2_pages():
     """nested_v2_pages.parquet: lists, structs and a flat column in many small v2 pages (headers give their rows)."""
     n = 600
@@ -186,6 +240,7 @@ def main():
     unknown_null_counts()
     nested_v2_pages()
     flat_pages()
+    indexed()
     expected = {}
     for name in lies():
         for fname, flt in FILTERS.items():
