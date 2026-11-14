@@ -26,14 +26,20 @@ internal static class HandBuiltParquet
     /// <summary>A further data page of a leaf.</summary>
     public sealed record DataPage(byte[] Definitions, byte[] Repetitions, byte[] Values, ParquetEncoding Encoding = ParquetEncoding.Plain, Statistics? Statistics = null);
 
-    public static byte[] Build(SchemaElement[] schema, long rows, params Column[] leaves)
+    public static byte[] Build(SchemaElement[] schema, long rows, params Column[] leaves) => Build(schema, rows, 0, leaves);
+
+    /// <summary>
+    /// As <see cref="Build(SchemaElement[], long, Column[])"/>, the offsets in the footer as if <paramref name="gap"/>
+    /// bytes followed the leading magic (the caller writes the file with that hole: a sparse file).
+    /// </summary>
+    public static byte[] Build(SchemaElement[] schema, long rows, long gap, params Column[] leaves)
     {
         var file = new MemoryStream();
         file.Write("PAR1"u8);
         List<ColumnChunk> chunks = [];
         foreach (Column leaf in leaves)
         {
-            long offset = file.Position;
+            long offset = file.Position + gap;
             if (leaf.Dictionary is { } dictionary)
             {
                 var header = new ThriftCompactWriter();
@@ -47,7 +53,7 @@ internal static class HandBuiltParquet
                 file.Write(header.WrittenSpan);
                 file.Write(dictionary.Values);
             }
-            long dataOffset = file.Position;
+            long dataOffset = file.Position + gap;
             long count = 0;
             foreach (DataPage data in (DataPage[])[new(leaf.Definitions, leaf.Repetitions, leaf.Values, leaf.Encoding, leaf.PageStatistics), .. leaf.MorePages ?? []])
             {
@@ -87,8 +93,8 @@ internal static class HandBuiltParquet
                     PathInSchema = leaf.Path,
                     Codec = CompressionCodec.Uncompressed,
                     NumValues = leaf.FooterValues ?? count,
-                    TotalUncompressedSize = leaf.FooterUncompressedSize ?? file.Position - offset,
-                    TotalCompressedSize = file.Position - offset,
+                    TotalUncompressedSize = leaf.FooterUncompressedSize ?? file.Position + gap - offset,
+                    TotalCompressedSize = file.Position + gap - offset,
                     DataPageOffset = dataOffset,
                     DictionaryPageOffset = leaf.Dictionary is null ? null : offset,
                 },
@@ -99,7 +105,7 @@ internal static class HandBuiltParquet
             Version = 1,
             Schema = schema,
             NumRows = rows,
-            RowGroups = [new RowGroup { Columns = [.. chunks], TotalByteSize = file.Position, NumRows = rows }],
+            RowGroups = [new RowGroup { Columns = [.. chunks], TotalByteSize = file.Position + gap, NumRows = rows }],
         };
         var footer = new ThriftCompactWriter();
         meta.Write(footer);

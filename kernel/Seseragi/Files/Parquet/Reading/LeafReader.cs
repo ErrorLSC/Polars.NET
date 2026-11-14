@@ -30,8 +30,11 @@ internal abstract class LeafReader : IDisposable
     private bool _rejectNulls;
     private int _fixedSlotDef = -1, _fixedElementDef, _fixedSize; // a fixed-size list parent: placeholders for null lists
     private bool _keepLevels;
+    private bool _bitLevels; // a flat optional leaf: the page's definition levels are kept as validity bits (_defBits)
 
     private byte[] _def = [], _rep = [];   // the page's levels
+    private byte[] _defBits = [];          // the page's definition levels as an LSB-first bitmap (with slack for word reads)
+    private byte[] _maskBytes = [];        // a bit mask unpacked for the kinds that take bytes
     private int _pageValues, _pageAt;
     private ReadOnlyMemory<byte> _values;
     private int _valuePosition;
@@ -55,6 +58,9 @@ internal abstract class LeafReader : IDisposable
         _valuesLeft = valueCount;
         _chunkValues = valueCount;
     }
+
+    /// <summary>Whether a flat optional leaf may keep its definition levels as validity bits (else as bytes).</summary>
+    public bool LevelsAsBits { get; set; } = true;
 
     /// <summary>The column chunk's uncompressed size (its metadata), for estimating value bytes per slot.</summary>
     public long UncompressedBytes { get; set; }
@@ -93,6 +99,8 @@ internal abstract class LeafReader : IDisposable
         _slotDef = node.SlotDef;
         _rejectNulls = node.RejectNulls;
         _keepLevels = keepLevels;
+        // Levels 0 and 1 of a flat optional leaf are its validity: kept as bits, a bit-packed run of them is used as is.
+        _bitLevels = LevelsAsBits && _maxDefinition == 1 && _maxRepetition == 0 && !keepLevels && node.SlotDef == 0 && fixedSizeList is null && !node.RejectNulls;
         if (fixedSizeList is not null)
         {
             _fixedSlotDef = fixedSizeList.SlotDef;
@@ -113,20 +121,28 @@ internal abstract class LeafReader : IDisposable
     /// <summary>Reads a dictionary page (PLAIN values).</summary>
     protected abstract void LoadDictionary(ReadOnlySpan<byte> plain, int count);
 
-    /// <summary>Appends <paramref name="rows"/> slots (null where <paramref name="mask"/> is 0; all valid when it is empty) from PLAIN values.</summary>
-    protected abstract void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position);
+    /// <summary>Appends <paramref name="rows"/> slots (null where <paramref name="mask"/> says so; all valid when it is empty) from PLAIN values.</summary>
+    protected abstract void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position);
 
     /// <summary>Skips <paramref name="valid"/> PLAIN values.</summary>
     protected abstract void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position);
 
     /// <summary>Appends slots from dictionary entries (the indices of the valid ones, checked against the dictionary).</summary>
-    protected abstract void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices);
+    protected abstract void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices);
 
     /// <summary>Lets a kind take a page whose encoding the base does not decode (RLE booleans); false refuses it.</summary>
     protected virtual bool BeginOtherEncoding(ParquetEncoding encoding, ReadOnlySpan<byte> values, int valid) => false;
 
     /// <summary>Appends values of a page taken by <see cref="BeginOtherEncoding"/>.</summary>
-    protected virtual void AppendOther(int rows, ReadOnlySpan<byte> mask, int valid) => throw new InvalidOperationException();
+    protected virtual void AppendOther(int rows, SlotMask mask, int valid) => throw new InvalidOperationException();
+
+    /// <summary>The mask as one byte per slot, for the kinds that take bytes (a bit mask is unpacked into scratch).</summary>
+    protected ReadOnlySpan<byte> MaskBytes(SlotMask mask)
+    {
+        if (!mask.IsBits) return mask.Bytes;
+        Ensure(ref _maskBytes, mask.Length);
+        return mask.ToBytes(_maskBytes);
+    }
 
     protected virtual void SkipOther(int valid) => throw new InvalidOperationException();
 
@@ -186,7 +202,7 @@ internal abstract class LeafReader : IDisposable
         {
             throw new ParquetFormatException($"Column '{Name}': {e.Message}", e);
         }
-        catch (Exception e) when (e is InvalidOperationException or OverflowException)
+        catch (Exception e) when (e is InvalidOperationException and not ObjectDisposedException or OverflowException)
         {
             throw new ParquetFormatException($"Column '{Name}': {e.Message}", e);
         }
@@ -197,6 +213,12 @@ internal abstract class LeafReader : IDisposable
     {
         int n = b - a;
         if (n == 0) return;
+        if (_bitLevels)
+        {
+            int present = (int)Bits.Count(_defBits, a, n);
+            Append(n, present == n ? default : SlotMask.FromBits(_defBits, a, n), present);
+            return;
+        }
         ReadOnlySpan<byte> def = _maxDefinition == 0 ? default : _def.AsSpan(a, n);
         if (_keepLevels)
         {
@@ -259,6 +281,12 @@ internal abstract class LeafReader : IDisposable
             mask = valid == slots ? default : _mask.AsSpan(0, slots);
             if (_rejectNulls && valid != slots) throw new ParquetFormatException("a map key is null.");
         }
+        Append(slots, mask, valid);
+    }
+
+    /// <summary>Appends <paramref name="slots"/> slots, <paramref name="valid"/> of them with values, from the page's encoding.</summary>
+    private void Append(int slots, SlotMask mask, int valid)
+    {
         if (slots == 0) return;
         if (_other) AppendOther(slots, mask, valid);
         else if (_fromDictionary)
@@ -272,7 +300,7 @@ internal abstract class LeafReader : IDisposable
     private void SkipEntries(int a, int b)
     {
         int n = b - a;
-        int valid = _maxDefinition == 0 ? n : _def.AsSpan(a, n).Count((byte)_maxDefinition);
+        int valid = _maxDefinition == 0 ? n : _bitLevels ? (int)Bits.Count(_defBits, a, n) : _def.AsSpan(a, n).Count((byte)_maxDefinition);
         if (valid == 0) return;
         if (_other) SkipOther(valid);
         else if (_fromDictionary) _indexAt += valid;
@@ -339,16 +367,18 @@ internal abstract class LeafReader : IDisposable
         if (v2 is not null)
         {
             if (_maxRepetition > 0) DecodeLevels(span[..v2.RepetitionLevelsByteLength], ref _rep, count, _repetitionBits, _maxRepetition, "repetition");
-            if (_maxDefinition > 0) DecodeLevels(span.Slice(v2.RepetitionLevelsByteLength, v2.DefinitionLevelsByteLength), ref _def, count, _definitionBits, _maxDefinition, "definition");
+            if (_bitLevels) DecodeLevelBits(span.Slice(v2.RepetitionLevelsByteLength, v2.DefinitionLevelsByteLength), count);
+            else if (_maxDefinition > 0) DecodeLevels(span.Slice(v2.RepetitionLevelsByteLength, v2.DefinitionLevelsByteLength), ref _def, count, _definitionBits, _maxDefinition, "definition");
             position = v2.RepetitionLevelsByteLength + v2.DefinitionLevelsByteLength;
         }
         else
         {
             // Data page v1: repetition levels, then definition levels, each RLE (after a 4-byte length) or BIT_PACKED.
             if (_maxRepetition > 0) position = LevelsV1(span, position, repetitionEncoding, ref _rep, count, _repetitionBits, _maxRepetition, "repetition");
-            if (_maxDefinition > 0) position = LevelsV1(span, position, definitionEncoding, ref _def, count, _definitionBits, _maxDefinition, "definition");
+            if (_bitLevels) position = LevelBitsV1(span, position, definitionEncoding, count);
+            else if (_maxDefinition > 0) position = LevelsV1(span, position, definitionEncoding, ref _def, count, _definitionBits, _maxDefinition, "definition");
         }
-        int valid = _maxDefinition == 0 ? count : _def.AsSpan(0, count).Count((byte)_maxDefinition);
+        int valid = _maxDefinition == 0 ? count : _bitLevels ? (int)Bits.Count(_defBits, 0, count) : _def.AsSpan(0, count).Count((byte)_maxDefinition);
 
         _values = body[position..];
         _valuePosition = 0;
@@ -394,6 +424,43 @@ internal abstract class LeafReader : IDisposable
             return position + (int)length;
         }
         throw new ParquetFormatException($"{what} levels are encoded with {encoding}.");
+    }
+
+    /// <summary>Definition levels (0 or 1, at bit width 1) into <see cref="_defBits"/>.</summary>
+    private void DecodeLevelBits(ReadOnlySpan<byte> encoded, int count)
+    {
+        // Slack after the bits: words are read 8 bytes at a time.
+        EnsureBits(count);
+        var decoder = new RleBitPackedDecoder(encoded, 1);
+        if (decoder.ReadBits(_defBits, 0, count) != count) throw new ParquetFormatException($"the page has fewer definition levels than its {count} values.");
+    }
+
+    private void EnsureBits(int count)
+    {
+        int bytes = (count + 7) / 8 + 16;
+        if (_defBits.Length >= bytes) return;
+        if (_defBits.Length > 0) ArrayPool<byte>.Shared.Return(_defBits);
+        _defBits = ArrayPool<byte>.Shared.Rent(bytes);
+    }
+
+    /// <summary>Data page v1 definition levels of a flat optional leaf, as bits: RLE (after a 4-byte length) or the deprecated BIT_PACKED.</summary>
+    private int LevelBitsV1(ReadOnlySpan<byte> span, int position, ParquetEncoding encoding, int count)
+    {
+        if (encoding == ParquetEncoding.Rle)
+        {
+            ReadOnlySpan<byte> rest = span[position..];
+            if (rest.Length < 4) throw new ParquetFormatException("a page is too short for its definition levels.");
+            int length = BinaryPrimitives.ReadInt32LittleEndian(rest);
+            if (length < 0 || length > rest.Length - 4) throw new ParquetFormatException($"definition levels of {length} bytes run past the page.");
+            DecodeLevelBits(rest.Slice(4, length), count);
+            return position + 4 + length;
+        }
+        // BIT_PACKED (most significant bit first, rare): as bytes, then into bits.
+        int end = LevelsV1(span, position, encoding, ref _def, count, 1, 1, "definition");
+        EnsureBits(count);
+        _defBits.AsSpan(0, (count + 7) / 8).Clear();
+        for (int i = 0; i < count; i++) _defBits[i >> 3] |= (byte)(_def[i] << (i & 7));
+        return end;
     }
 
     private static void DecodeLevels(ReadOnlySpan<byte> encoded, ref byte[] levels, int count, int bits, int max, string what)
@@ -446,12 +513,12 @@ internal abstract class LeafReader : IDisposable
     public virtual void Dispose()
     {
         _pages.Dispose();
-        foreach (byte[] buffer in (byte[][])[_mask, _def, _rep, _batchDef, _batchRep])
+        foreach (byte[] buffer in (byte[][])[_mask, _def, _rep, _batchDef, _batchRep, _defBits, _maskBytes])
         {
             if (buffer.Length > 0) ArrayPool<byte>.Shared.Return(buffer);
         }
         if (_indices.Length > 0) ArrayPool<int>.Shared.Return(_indices);
-        _mask = _def = _rep = _batchDef = _batchRep = [];
+        _mask = _def = _rep = _batchDef = _batchRep = _defBits = _maskBytes = [];
         _indices = [];
         Builder.Dispose();
         GC.SuppressFinalize(this);

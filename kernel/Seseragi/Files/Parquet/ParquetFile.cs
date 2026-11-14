@@ -56,6 +56,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <exception cref="ParquetFormatException">The file is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(string path) => Sync(OpenCoreAsync(path, useAsync: false, default));
 
+    /// <summary>Opens a file, keeping even a small one on the file instead of in memory (tests read small files as large ones).</summary>
+    internal static ParquetFile OpenOnSource(string path) => Sync(OpenCoreAsync(path, useAsync: false, default, smallInMemory: false));
+
     /// <summary>
     /// Opens a stream from its current position. A stream that cannot seek is first copied into native memory (up
     /// to 2 GB). Unless <paramref name="leaveOpen"/>, the stream is disposed with the file, or when opening fails.
@@ -95,15 +98,15 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
 
     private static T Sync<T>(ValueTask<T> task) => task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
 
-    private static ValueTask<ParquetFile> OpenCoreAsync(string path, bool useAsync, CancellationToken ct)
+    private static ValueTask<ParquetFile> OpenCoreAsync(string path, bool useAsync, CancellationToken ct, bool smallInMemory = true)
     {
         ArgumentNullException.ThrowIfNull(path);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1,
             useAsync ? FileOptions.RandomAccess | FileOptions.Asynchronous : FileOptions.RandomAccess);
-        return OpenCoreAsync(stream, leaveOpen: false, useAsync, ct);
+        return OpenCoreAsync(stream, leaveOpen: false, useAsync, ct, smallInMemory);
     }
 
-    private static async ValueTask<ParquetFile> OpenCoreAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct)
+    private static async ValueTask<ParquetFile> OpenCoreAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct, bool smallInMemory = true)
     {
         ArgumentNullException.ThrowIfNull(stream);
         RandomAccessSource source;
@@ -123,7 +126,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         }
         try
         {
-            return await OpenCoreAsync(source, source, useAsync, ct).ConfigureAwait(false);
+            return await OpenCoreAsync(source, source, useAsync, ct, smallInMemory).ConfigureAwait(false);
         }
         catch
         {
@@ -132,7 +135,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         }
     }
 
-    private static async ValueTask<ParquetFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct)
+    private static async ValueTask<ParquetFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct, bool smallInMemory = true)
     {
         ArgumentNullException.ThrowIfNull(source);
         long length = source.Length;
@@ -164,7 +167,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
                 throw new ParquetFormatException($"The Parquet file is encrypted ({algorithm.Name}, plaintext footer), which is not supported.");
             // A file the tail read held whole (up to 64 KiB) is read from those bytes from now on: on an object store
             // each read is a request.
-            IRandomAccess data = tailLength == length ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray()) : source;
+            IRandomAccess data = smallInMemory && tailLength == length ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray()) : source;
             return new ParquetFile(data, owned, thrift, ParquetMetadata.FromThrift(thrift));
         }
         finally

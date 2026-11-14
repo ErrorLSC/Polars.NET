@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Helpers;
 
 namespace Kaminari.Seseragi.Files.Parquet.Encodings;
 
@@ -66,6 +67,37 @@ internal ref struct RleBitPackedDecoder
             {
                 int n = Math.Min(_packedLeft, destination.Length - done);
                 BitUnpacking.Unpack(_packed, _packedIndex, _bitWidth, destination.Slice(done, n));
+                _packedIndex += n;
+                _packedLeft -= n;
+                done += n;
+            }
+            else if (!NextRun()) break;
+        }
+        return done;
+    }
+
+    /// <summary>
+    /// For a bit width of 1: writes up to <paramref name="count"/> values as bits of an LSB-first bitmap from bit
+    /// <paramref name="firstBit"/> of <paramref name="bitmap"/> (an RLE run fills its range; a bit-packed run is
+    /// already such bits and is copied); returns how many there were.
+    /// </summary>
+    public int ReadBits(Span<byte> bitmap, long firstBit, int count)
+    {
+        if (_bitWidth != 1) throw new InvalidOperationException("Values are read as bits only at bit width 1.");
+        int done = 0;
+        while (done < count)
+        {
+            if (_repeatLeft > 0)
+            {
+                int n = Math.Min(_repeatLeft, count - done);
+                Bits.Fill(bitmap, firstBit + done, n, _repeatValue != 0);
+                _repeatLeft -= n;
+                done += n;
+            }
+            else if (_packedLeft > 0)
+            {
+                int n = Math.Min(_packedLeft, count - done);
+                Bits.Copy(_packed, _packedIndex, bitmap, firstBit + done, n);
                 _packedIndex += n;
                 _packedLeft -= n;
                 done += n;

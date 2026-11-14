@@ -29,6 +29,12 @@ public sealed record ParquetReadOptions
     /// </summary>
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
+    /// <summary>
+    /// Whether a local file is read through a memory mapping (<see cref="ParquetMemoryMap"/>; off by default). Other
+    /// sources (streams, memory, stores) ignore it.
+    /// </summary>
+    public ParquetMemoryMap MemoryMap { get; init; } = ParquetMemoryMap.Off;
+
     /// <summary>Whether to check the CRC32 of every page that carries one (a mismatch is an error).</summary>
     public bool VerifyChecksums { get; init; }
 
@@ -53,6 +59,9 @@ public sealed record ParquetReadOptions
     /// <summary>How column chunks are read (tests and measurements force one; the default follows the source).</summary>
     internal ChunkReading Reading { get; init; }
 
+    /// <summary>Whether the definition levels of flat optional columns are decoded as validity bits (tests turn it off to compare).</summary>
+    internal bool LevelsAsBits { get; init; } = true;
+
     /// <summary>Row groups are started ahead of the consumer while their uncompressed sizes stay within this (at least one is).</summary>
     internal long InFlightBytes { get; init; } = 512L << 20;
 
@@ -61,6 +70,7 @@ public sealed record ParquetReadOptions
         if (BatchSize <= 0) throw new ArgumentOutOfRangeException(nameof(BatchSize), BatchSize, "The batch size must be positive.");
         if (MaxDegreeOfParallelism <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
+        if (!Enum.IsDefined(MemoryMap)) throw new ArgumentOutOfRangeException(nameof(MemoryMap), MemoryMap, "Unknown memory map mode.");
         if (Int96Unit is not (TimeUnit.Microsecond or TimeUnit.Nanosecond))
             throw new ArgumentOutOfRangeException(nameof(Int96Unit), Int96Unit, "INT96 timestamps are read in microseconds or nanoseconds.");
     }
@@ -80,4 +90,27 @@ internal enum ChunkReading
 
     /// <summary>Read page by page from the source.</summary>
     Stream,
+}
+
+/// <summary>
+/// How the bytes of a local Parquet file are read. Reads through a mapping skip the copy of each page out of the
+/// operating system's page cache: in our measurements that pays for uncompressed fixed-width columns and costs on
+/// compressed and string columns read on many threads, which <see cref="Auto"/> therefore keeps reading the ordinary
+/// way.
+/// </summary>
+/// <remarks>
+/// While a file is mapped, it must not be truncated by another process: reading pages that no longer exist ends the
+/// process (SIGBUS on Unix, an access violation on Windows), which no exception handler can catch. Batches never point
+/// into the mapping: their values are copied, so they outlive the file.
+/// </remarks>
+public enum ParquetMemoryMap
+{
+    /// <summary>Ordinary reads, page by page (the default).</summary>
+    Off,
+
+    /// <summary>Every column chunk decoded straight from the mapping.</summary>
+    On,
+
+    /// <summary>Uncompressed fixed-width column chunks decoded from the mapping; the others read page by page.</summary>
+    Auto,
 }

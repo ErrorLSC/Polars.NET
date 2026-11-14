@@ -538,4 +538,153 @@ public class ParquetReaderTests
         using (var reader = file.OpenReader())
             Assert.Equal(ChunkReading.Fetch, reader.EffectiveReading);
     }
+
+    /// <summary>
+    /// Off reads no chunk from a mapping, On every one, Auto the uncompressed fixed-width ones; sources that are not
+    /// local files ignore the setting; an unknown mode is refused.
+    /// </summary>
+    [Fact]
+    public void MemoryMap_ReadsTheChunksItSays()
+    {
+        // pa_plain_v1: uncompressed, fixed-width and string columns; pa_dict_v1_snappy: compressed.
+        foreach (string name in (string[])["matrix/pa_plain_v1.parquet", "matrix/pa_dict_v1_snappy.parquet"])
+        {
+            using var file = ParquetFile.OpenOnSource(ParquetFixtures.FullPath(name));
+            int chunks = file.Thrift.RowGroups.Sum(g => g.Columns.Length);
+            int fixedUncompressed = file.Thrift.RowGroups.Sum(g => g.Columns.Count(c => c.MetaData!.Codec == CompressionCodec.Uncompressed
+                && c.MetaData.Type is not (ParquetType.ByteArray)));
+            List<string>? reference = null;
+            foreach (ParquetMemoryMap map in (ParquetMemoryMap[])[ParquetMemoryMap.Off, ParquetMemoryMap.On, ParquetMemoryMap.Auto])
+            {
+                using var reader = file.OpenReader(new() { MemoryMap = map });
+                List<string> rows = Rows(reader.ReadBatches());
+                reference ??= rows;
+                Assert.Equal(reference, rows);
+                Assert.Equal(map switch { ParquetMemoryMap.Off => 0, ParquetMemoryMap.On => chunks, _ => fixedUncompressed }, reader.MappedChunks);
+            }
+            Assert.True(((Kaminari.Seseragi.Files.IO.RandomAccessSource)file.Source).IsMapped);
+        }
+
+        // A file none of whose chunks is read from a mapping (compressed, automatic) is not mapped at all.
+        using (var compressed = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_dict_v1_snappy.parquet")))
+        using (var reader = compressed.OpenReader(new() { MemoryMap = ParquetMemoryMap.Auto }))
+        {
+            Assert.NotEmpty(Rows(reader.ReadBatches()));
+            Assert.False(((Kaminari.Seseragi.Files.IO.RandomAccessSource)compressed.Source).IsMapped);
+        }
+
+        // A file stream opened at an offset (the Parquet data after 100 other bytes) maps from there.
+        string path = Path.Combine(Path.GetTempPath(), $"seseragi-offset-{Guid.NewGuid():N}.parquet");
+        try
+        {
+            File.WriteAllBytes(path, [.. new byte[100], .. File.ReadAllBytes(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"))]);
+            using var plain = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"));
+            using var expected = plain.OpenReader();
+            var stream = new FileStream(path, FileMode.Open, FileAccess.Read) { Position = 100 };
+            using var shifted = ParquetFile.Open(stream);
+            using var mapped = shifted.OpenReader(new() { MemoryMap = ParquetMemoryMap.On });
+            Assert.Equal(Rows(expected.ReadBatches()), Rows(mapped.ReadBatches()));
+            Assert.True(mapped.MappedChunks > 0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+        using (var plain = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet")))
+            Assert.Contains(plain.Thrift.RowGroups, g => g.Columns.Any(c => c.MetaData!.Type == ParquetType.ByteArray)); // Auto leaves some out
+
+        byte[] bytes = File.ReadAllBytes(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"));
+        using (var memory = ParquetFile.Open(new MemoryStream(bytes)))
+        using (var reader = memory.OpenReader(new() { MemoryMap = ParquetMemoryMap.On }))
+        {
+            Assert.NotEmpty(Rows(reader.ReadBatches()));
+            Assert.Equal(0, reader.MappedChunks);
+        }
+        using var any = ParquetFile.Open(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => any.OpenReader(new() { MemoryMap = (ParquetMemoryMap)7 }));
+    }
+
+    /// <summary>A file larger than 2 GiB (sparse: its data starts 2.5 GiB in) is mapped and read.</summary>
+    [Fact]
+    public void MemoryMap_FilesBeyondTwoGigabytes()
+    {
+        const long gap = 5L << 29; // 2.5 GiB
+        SchemaElement[] schema =
+        [
+            HandBuiltParquet.Group("schema", 1, repetition: null),
+            HandBuiltParquet.Leaf("v", ParquetType.Int32, FieldRepetition.Required),
+        ];
+        byte[] bytes = HandBuiltParquet.Build(schema, 4, gap, new HandBuiltParquet.Column(["v"], ParquetType.Int32, 0, 0, [], [], HandBuiltParquet.Int32s(1, 2, 3, 4)));
+        string path = Path.Combine(Path.GetTempPath(), $"seseragi-sparse-{Guid.NewGuid():N}.parquet");
+        try
+        {
+            using (var stream = new FileStream(path, FileMode.CreateNew))
+            {
+                stream.Write(bytes.AsSpan(0, 4));
+                stream.Position = 4 + gap;
+                stream.Write(bytes.AsSpan(4));
+            }
+            using var file = ParquetFile.Open(path);
+            foreach (ParquetMemoryMap map in (ParquetMemoryMap[])[ParquetMemoryMap.On, ParquetMemoryMap.Off])
+            {
+                using var reader = file.OpenReader(new() { MemoryMap = map });
+                using RecordBatch batch = Assert.Single(reader.ReadBatches());
+                Assert.Equal([1, 2, 3, 4], ((Int32Array)batch.Column(0)).Values.ToArray());
+                Assert.Equal(map == ParquetMemoryMap.On ? 1 : 0, reader.MappedChunks);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// A file disposed while its mapping is being read: the row groups being decoded keep it, the later ones fail
+    /// cleanly (no access to unmapped memory).
+    /// </summary>
+    [Fact]
+    public void MemoryMap_FileDisposedWhileReading_FailsCleanly()
+    {
+        var file = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_pages_rowgroups.parquet"));
+        Assert.True(file.Thrift.RowGroups.Length > 1);
+        using var reader = file.OpenReader(new() { MemoryMap = ParquetMemoryMap.On, MaxDegreeOfParallelism = 1 });
+        using IEnumerator<RecordBatch> batches = reader.ReadBatches().GetEnumerator();
+        Assert.True(batches.MoveNext());
+        batches.Current.Dispose();
+        file.Dispose();
+        Exception? error = Record.Exception(() =>
+        {
+            while (batches.MoveNext()) batches.Current.Dispose();
+        });
+        Assert.True(error is null or ObjectDisposedException, $"{error}");
+    }
+
+    /// <summary>A disposed source makes no mapping (it would never be released), and a mapping's ranges stay inside the file.</summary>
+    [Fact]
+    public void MemoryMap_NoMappingAfterDispose_AndRangesInsideTheFile()
+    {
+        using var stream = new FileStream(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"), FileMode.Open, FileAccess.Read);
+        var file = ParquetFile.Open(stream, leaveOpen: true);
+        var source = (Kaminari.Seseragi.Files.IO.RandomAccessSource)file.Source;
+        file.Dispose();
+        Assert.Null(source.Map(out _));
+        Assert.False(source.IsMapped);
+
+        var mapped = Kaminari.Sazanami.Helpers.MappedFile.Open(stream)!;
+        try
+        {
+            Assert.Equal(stream.Length, mapped.Length);
+            Assert.True(mapped.Range(0, 4).Span.SequenceEqual("PAR1"u8));
+            Assert.Throws<ArgumentOutOfRangeException>(() => mapped.Range(stream.Length - 1, 2));
+            Assert.Throws<ArgumentOutOfRangeException>(() => mapped.Range(-1, 1));
+            Assert.True(mapped.TryAcquire());
+            mapped.Release();
+        }
+        finally
+        {
+            mapped.Release();
+        }
+        Assert.False(mapped.TryAcquire());
+    }
 }

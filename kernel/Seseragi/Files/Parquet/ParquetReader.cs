@@ -81,6 +81,11 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// <summary>How column chunks are read: fetched, sliced from memory, or page by page.</summary>
     internal ChunkReading EffectiveReading => _fetch ? ChunkReading.Fetch : _memory is not null ? ChunkReading.Slice : ChunkReading.Stream;
 
+    private int _mappedChunks;
+
+    /// <summary>How many column chunks were decoded from the file's mapping (for tests).</summary>
+    internal int MappedChunks => Volatile.Read(ref _mappedChunks);
+
     /// <summary>The number of column chunks read per row group (the leaves of the selection).</summary>
     internal int LeafCount => _leaves.Length;
 
@@ -323,6 +328,17 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         if (rows < 0) throw new ParquetFormatException($"Row group {g} has {rows} rows.");
         List<(bool Read, int Count)> plan = Plan(rows, ranges);
         (long Start, long Length)[]? chunkRanges = chunks is null ? ChunkRanges(g) : null;
+        // A hold on the file's mapping for the decode of this row group (the reader may outlive a disposed file), taken
+        // only when a chunk of it is read from the mapping: making and dropping a mapping is not free (measured on
+        // compressed files read on many threads) and buys nothing for chunks read the ordinary way.
+        long mapStart = 0;
+        MappedFile? map = null;
+        if (chunkRanges is not null && _memory is null && _options.MemoryMap != ParquetMemoryMap.Off && _file.Source is ILocalSource local
+            && _leaves.Any(leaf => FromMapping(group.Columns[leaf.Leaf!.LeafIndex].MetaData!, leaf.Leaf)))
+        {
+            map = local.Map(out mapStart);
+            if (map is not null && !map.TryAcquire()) map = null;
+        }
         var readers = new LeafReader[_leaves.Length];
         var builders = new NativeColumnBuilder[_columns.Length];
         var arrays = new IArrowArray[]?[_columns.Length];
@@ -337,9 +353,12 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                     ? new PageReader(chunks!.Chunk(l), meta.Codec, _options.VerifyChecksums, _buffers)
                     : _memory is { } memory
                         ? new PageReader(memory.Slice((int)at[l].Start, (int)at[l].Length), meta.Codec, _options.VerifyChecksums, _buffers)
-                        : new PageReader(_file.Source, at[l].Start, at[l].Length, meta.Codec, _options.VerifyChecksums, _buffers);
+                        : map is not null && FromMapping(meta, leaf.Leaf)
+                            ? Mapped(map.Range(mapStart + at[l].Start, (int)at[l].Length), meta)
+                            : new PageReader(_file.Source, at[l].Start, at[l].Length, meta.Codec, _options.VerifyChecksums, _buffers);
                 readers[l] = LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
                 readers[l].UncompressedBytes = meta.TotalUncompressedSize;
+                readers[l].LevelsAsBits = _options.LevelsAsBits;
                 // Measured: staged non-temporal writes of strings win when threads compete for memory bandwidth and
                 // lose a few percent on one thread.
                 if (readers[l].Builder is NativeBinaryViewBuilder views) views.WritesPastCaches = InParallel;
@@ -398,6 +417,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             foreach (LeafReader? r in readers) r?.Dispose();
             // A flat column's builder is its reader's: disposing twice is harmless.
             foreach (NativeColumnBuilder? builder in builders) builder?.Dispose();
+            map?.Release();
         }
 
         static void Dispose(IArrowArray[]? arrays)
@@ -405,6 +425,21 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             foreach (IArrowArray array in arrays ?? []) array.Dispose();
         }
     }
+
+    /// <summary>
+    /// Whether a column chunk is decoded from the file's mapping: all of them when it is on; when automatic, those
+    /// uncompressed and of a fixed-width physical type (measured: the mapping pays there, and costs on compressed and
+    /// string chunks read on many threads).
+    /// </summary>
+    private PageReader Mapped(ReadOnlyMemory<byte> chunk, ColumnMetaData meta)
+    {
+        Interlocked.Increment(ref _mappedChunks);
+        return new PageReader(chunk, meta.Codec, _options.VerifyChecksums, _buffers);
+    }
+
+    private bool FromMapping(ColumnMetaData meta, SchemaNode leaf) => _options.MemoryMap == ParquetMemoryMap.On
+        || meta.Codec == CompressionCodec.Uncompressed && leaf.Element.Type is ParquetType.Boolean or ParquetType.Int32 or ParquetType.Int64
+            or ParquetType.Int96 or ParquetType.Float or ParquetType.Double or ParquetType.FixedLenByteArray;
 
     /// <summary>The batches to read and the rows to skip, in order: <paramref name="ranges"/> (all rows when null) cut by the batch size.</summary>
     private List<(bool Read, int Count)> Plan(long rows, IReadOnlyList<(long Start, long Count)>? ranges)

@@ -6,11 +6,12 @@ using System.Runtime.Intrinsics;
 namespace Kaminari.Sazanami.Helpers;
 
 /// <summary>
-/// Null expansion: values stored densely (one per valid slot) laid out over slots by a byte mask (a slot is valid
-/// where its byte is not zero), with the null slots zeroed. The mask is read 64 bytes at a time as a word of bits
-/// (vector compares); a word all valid is one block copy, a word all null one clear, and a mixed word visits its set
-/// bits and then its clear ones, so no branch depends on a single slot. Every slot is written, so the slots may start
-/// uninitialized. The number of values must equal the mask's valid slots (checked first, with a vector count).
+/// Null expansion: values stored densely (one per valid slot) laid out over slots by a mask (<see cref="SlotMask"/>:
+/// bytes, zero = null, or the bits of a validity bitmap), with the null slots zeroed. The mask is read 64 slots at a
+/// time as a word of bits (vector compares of bytes, or the bitmap's bits as they are); a word all valid is one block
+/// copy, a word all null one clear, and a mixed word visits its set bits and then its clear ones, so no branch depends
+/// on a single slot. Every slot is written, so the slots may start uninitialized. The number of values must equal the
+/// mask's valid slots (checked first).
 /// </summary>
 internal static class MaskExpand
 {
@@ -18,26 +19,25 @@ internal static class MaskExpand
     /// Moves the first <paramref name="valid"/> slots of <paramref name="slots"/> to the valid positions of
     /// <paramref name="mask"/> (in place, from the end) and zeroes the others.
     /// </summary>
-    public static void InPlace<T>(Span<T> slots, int valid, ReadOnlySpan<byte> mask)
+    public static void InPlace<T>(Span<T> slots, int valid, SlotMask mask)
     {
         int n = mask.Length;
         if (slots.Length < n) throw new ArgumentOutOfRangeException(nameof(slots));
         Check(mask, valid);
         if (valid == n) return;
         ref T s = ref MemoryMarshal.GetReference(slots);
-        ref byte m = ref MemoryMarshal.GetReference(mask);
         int j = valid - 1; // the next value to place, moving down
         int b = n & ~63;
         if (b < n)
         {
             int length = n - b;
-            Backward(ref s, b, PartialWord(ref Unsafe.Add(ref m, b), length), Range(length), ref j);
+            Backward(ref s, b, mask.PartialWord(b, length), Range(length), ref j);
         }
         for (b -= 64; b >= 0; b -= 64)
         {
             // Everything from here down is valid: the values already sit where they belong.
             if (j == b + 63) return;
-            ulong word = Word(ref Unsafe.Add(ref m, b));
+            ulong word = mask.Word(b);
             if (word == ulong.MaxValue)
             {
                 MemoryMarshal.CreateReadOnlySpan(ref Unsafe.Add(ref s, j - 63), 64).CopyTo(MemoryMarshal.CreateSpan(ref Unsafe.Add(ref s, b), 64));
@@ -52,19 +52,18 @@ internal static class MaskExpand
     /// Lays <paramref name="values"/> (one per valid slot) over the first <paramref name="mask"/>.Length slots of
     /// <paramref name="slots"/>, zeroing the null ones.
     /// </summary>
-    public static void Scatter<T>(ReadOnlySpan<T> values, Span<T> slots, ReadOnlySpan<byte> mask)
+    public static void Scatter<T>(ReadOnlySpan<T> values, Span<T> slots, SlotMask mask)
     {
         int n = mask.Length;
         if (slots.Length < n) throw new ArgumentOutOfRangeException(nameof(slots));
         Check(mask, values.Length);
         ref T s = ref MemoryMarshal.GetReference(slots);
         ref T v = ref MemoryMarshal.GetReference(values);
-        ref byte m = ref MemoryMarshal.GetReference(mask);
         int j = 0;
         int b = 0;
         for (; b + 64 <= n; b += 64)
         {
-            ulong word = Word(ref Unsafe.Add(ref m, b));
+            ulong word = mask.Word(b);
             if (word == ulong.MaxValue) MemoryMarshal.CreateReadOnlySpan(ref Unsafe.Add(ref v, j), 64).CopyTo(MemoryMarshal.CreateSpan(ref Unsafe.Add(ref s, b), 64));
             else if (word == 0) MemoryMarshal.CreateSpan(ref Unsafe.Add(ref s, b), 64).Clear();
             else Forward(ref Unsafe.Add(ref s, b), word, ulong.MaxValue, ref Unsafe.Add(ref v, j));
@@ -73,7 +72,7 @@ internal static class MaskExpand
         if (b < n)
         {
             int length = n - b;
-            Forward(ref Unsafe.Add(ref s, b), PartialWord(ref Unsafe.Add(ref m, b), length), Range(length), ref Unsafe.Add(ref v, j));
+            Forward(ref Unsafe.Add(ref s, b), mask.PartialWord(b, length), Range(length), ref Unsafe.Add(ref v, j));
         }
     }
 
@@ -81,7 +80,7 @@ internal static class MaskExpand
     /// Lays the dictionary entries <paramref name="indices"/> name (one per valid slot, each already checked to be
     /// within <paramref name="dictionary"/>) over the first <paramref name="mask"/>.Length slots, zeroing the null ones.
     /// </summary>
-    public static void Gather<T>(ReadOnlySpan<T> dictionary, ReadOnlySpan<int> indices, Span<T> slots, ReadOnlySpan<byte> mask)
+    public static void Gather<T>(ReadOnlySpan<T> dictionary, ReadOnlySpan<int> indices, Span<T> slots, SlotMask mask)
     {
         int n = mask.Length;
         if (slots.Length < n) throw new ArgumentOutOfRangeException(nameof(slots));
@@ -89,16 +88,15 @@ internal static class MaskExpand
         ref T s = ref MemoryMarshal.GetReference(slots);
         ref T d = ref MemoryMarshal.GetReference(dictionary);
         ref int x = ref MemoryMarshal.GetReference(indices);
-        ref byte m = ref MemoryMarshal.GetReference(mask);
         int j = 0;
         int b = 0;
         for (; b + 64 <= n; b += 64)
         {
-            ulong word = Word(ref Unsafe.Add(ref m, b));
+            ulong word = mask.Word(b);
             GatherWord(ref Unsafe.Add(ref s, b), word, ulong.MaxValue, ref d, ref Unsafe.Add(ref x, j));
             j += BitOperations.PopCount(word);
         }
-        if (b < n) GatherWord(ref Unsafe.Add(ref s, b), PartialWord(ref Unsafe.Add(ref m, b), n - b), Range(n - b), ref d, ref Unsafe.Add(ref x, j));
+        if (b < n) GatherWord(ref Unsafe.Add(ref s, b), mask.PartialWord(b, n - b), Range(n - b), ref d, ref Unsafe.Add(ref x, j));
     }
 
     // The valid slots of one word take the values from j down (set bits high to low), then its null slots are
@@ -170,8 +168,9 @@ internal static class MaskExpand
     }
 
     /// <summary>Checks that <paramref name="mask"/> has exactly <paramref name="values"/> valid slots.</summary>
-    private static void Check(ReadOnlySpan<byte> mask, int values)
+    private static void Check(SlotMask mask, int values)
     {
-        if (mask.Length - mask.Count((byte)0) != values) throw new ArgumentException($"The mask has {mask.Length - mask.Count((byte)0)} valid slots for {values} values.");
+        int valid = mask.CountValid();
+        if (valid != values) throw new ArgumentException($"The mask has {valid} valid slots for {values} values.");
     }
 }

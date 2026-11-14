@@ -136,6 +136,35 @@ public class ParquetKernelTests
             }
             string what = $"{typeof(T).Name}, {mask.Length} slots, {valid} valid";
 
+            // The same mask as bits of a bitmap, from an odd offset, with garbage around it.
+            int offset = random.Next(0, 13);
+            byte[] bitmap = new byte[(offset + mask.Length + 7) / 8];
+            random.NextBytes(bitmap);
+            for (int i = 0; i < mask.Length; i++)
+            {
+                int bit = offset + i;
+                bitmap[bit >> 3] = (byte)(mask[i] != 0 ? bitmap[bit >> 3] | 1 << (bit & 7) : bitmap[bit >> 3] & ~(1 << (bit & 7)));
+            }
+            SlotMask bits = SlotMask.FromBits(bitmap, offset, mask.Length);
+            Assert.Equal(valid, bits.CountValid());
+            Assert.True(bits.ToBytes(new byte[mask.Length]).SequenceEqual(mask.Select(m => m != 0 ? (byte)1 : (byte)0).ToArray()));
+            for (int at = 0; at < mask.Length; at += 64)
+            {
+                int count = Math.Min(64, mask.Length - at);
+                SlotMask bytes = mask;
+                Assert.Equal(count == 64 ? bytes.Word(at) : bytes.PartialWord(at, count), count == 64 ? bits.Word(at) : bits.PartialWord(at, count));
+            }
+            T[] fromBits = Random<T>(mask.Length, random);
+            values.CopyTo(fromBits, 0);
+            MaskExpand.InPlace(fromBits.AsSpan(), valid, SlotMask.FromBits(bitmap, offset, mask.Length));
+            Assert.True(fromBits.AsSpan().SequenceEqual(expected), $"in place from bits: {what}");
+            fromBits = Random<T>(mask.Length, random);
+            MaskExpand.Scatter<T>(values, fromBits, SlotMask.FromBits(bitmap, offset, mask.Length));
+            Assert.True(fromBits.AsSpan().SequenceEqual(expected), $"scatter from bits: {what}");
+            fromBits = Random<T>(mask.Length, random);
+            MaskExpand.Gather<T>(dictionary, indices, fromBits, SlotMask.FromBits(bitmap, offset, mask.Length));
+            Assert.True(fromBits.AsSpan().SequenceEqual(gathered), $"gather from bits: {what}");
+
             // The slots start as garbage and the one past the mask must stay untouched.
             T[] slots = Random<T>(mask.Length + 1, random);
             T past = slots[^1];
@@ -231,6 +260,27 @@ public class ParquetKernelTests
                 }
                 Assert.Equal(expected.Count, done);
                 Assert.True(read.AsSpan(0, done).SequenceEqual(expected.ToArray()), $"width {width}, round {round}");
+
+                if (width == 1)
+                {
+                    // As bits, from an odd offset, in chunks: the same values, the bits before the offset kept.
+                    int offset = random.Next(0, 13);
+                    byte[] bitmap = new byte[(offset + expected.Count + 5 + 7) / 8 + 1];
+                    random.NextBytes(bitmap);
+                    byte[] before = (byte[])bitmap.Clone();
+                    var bits = new RleBitPackedDecoder(encoded, 1);
+                    int got = 0;
+                    while (true)
+                    {
+                        int chunk = random.Next(1, 50);
+                        int n = bits.ReadBits(bitmap, offset + got, Math.Min(chunk, expected.Count + 5 - got));
+                        got += n;
+                        if (n < chunk || got >= expected.Count + 5) break;
+                    }
+                    Assert.Equal(expected.Count, got);
+                    for (int i = 0; i < offset; i++) Assert.Equal(Bits.Get(before, i), Bits.Get(bitmap, i));
+                    for (int i = 0; i < got; i++) Assert.True(Bits.Get(bitmap, offset + i) == (expected[i] != 0), $"round {round}, bit {i}");
+                }
             }
         }
 
@@ -369,6 +419,53 @@ public class ParquetKernelTests
                 Assert.Equal(Build(false), Build(true));
             }
         }
+    }
+
+    [Fact]
+    public void Bits_CopyFillCountAndWord_EqualBitByBit()
+    {
+        var random = new Random(31);
+        foreach (int length in (int[])[1, 2, 8, 9, 17, 40])
+        {
+            byte[] source = new byte[length];
+            random.NextBytes(source);
+            int bitsIn = length * 8;
+            for (int from = 0; from < Math.Min(bitsIn, 20); from += 3)
+            {
+                // Word: the bits from `from`, those past the bitmap reading as 0.
+                ulong expectedWord = 0;
+                for (int k = 0; k < 64 && from + k < bitsIn; k++) expectedWord |= (Bit(source, from + k) ? 1UL : 0) << k;
+                Assert.Equal(expectedWord, Bits.Word(source, from));
+                for (int count = 0; from + count <= bitsIn; count += count < 20 ? 1 : 13)
+                {
+                    Assert.Equal(Enumerable.Range(from, count).Count(i => Bit(source, i)), Bits.Count(source, from, count));
+                    foreach (int to in (int[])[0, 1, 7, 8, 13])
+                    {
+                        // Destinations exactly as long as needed (the slow ends) and with room to spare.
+                        foreach (int spare in (int[])[0, 9])
+                        {
+                            byte[] destination = new byte[(to + count + 7) / 8 + spare];
+                            random.NextBytes(destination);
+                            byte[] expected = (byte[])destination.Clone();
+                            for (int i = 0; i < count; i++) SetBit(expected, to + i, Bit(source, from + i));
+                            Bits.Copy(source, from, destination, to, count);
+                            Assert.True(expected.AsSpan().SequenceEqual(destination), $"copy {count} bits {from} → {to} ({length} bytes, spare {spare})");
+
+                            bool value = random.Next(2) == 0;
+                            for (int i = 0; i < count; i++) SetBit(expected, to + i, value);
+                            Bits.Fill(destination, to, count, value);
+                            Assert.True(expected.AsSpan().SequenceEqual(destination), $"fill {count} bits at {to} with {value}");
+                        }
+                    }
+                }
+            }
+        }
+        Assert.Throws<ArgumentOutOfRangeException>(() => Bits.Copy(new byte[1], 4, new byte[2], 0, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Bits.Fill(new byte[1], 4, 5, true));
+
+        static bool Bit(byte[] bitmap, int i) => (bitmap[i >> 3] >> (i & 7) & 1) != 0;
+        static void SetBit(byte[] bitmap, int i, bool value) =>
+            bitmap[i >> 3] = (byte)(value ? bitmap[i >> 3] | 1 << (i & 7) : bitmap[i >> 3] & ~(1 << (i & 7)));
     }
 
     [Fact]

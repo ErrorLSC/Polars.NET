@@ -48,9 +48,10 @@ makes a local timestamp an instant or an instant local, and never changes an ann
 field ids become `PARQUET:field_id` field metadata.
 
 **Reading** (`ParquetFile.OpenReader`, `ParquetReader`, `ParquetReadOptions`): every column, flat or nested, as record
-batches of `BatchSize` rows in native memory, synchronously or asynchronously, in row group order. Row groups are
-decoded side by side, and the columns of a batch too, on `MaxDegreeOfParallelism` threads (all cores by default; 1
-streams on the calling thread); up to that many decoded row groups are held ahead of the consumer. `ReadArrowStream`
+batches of `BatchSize` rows in native memory, synchronously or asynchronously, in row group order. The unit of work is
+a column of a row group (a nested column's leaves together), decoded from its first page to its last; units run side
+by side on `MaxDegreeOfParallelism` threads (all cores by default; 1 reads on the calling thread), and up to that many
+decoded row groups (fewer when large) are held ahead of the consumer. `ReadArrowStream`
 hands the batches out as an Arrow stream that owns them (each disposed at the next read; an export keeps its memory),
 for Polars' or another library's import. Strings and binaries come in Arrow's view layout by default (`ViewTypes`:
 `Utf8View`, `BinaryView`; dictionary pages shared, not copied per value; any size per batch), or as `Utf8` / `Binary`
@@ -61,8 +62,11 @@ schema or FINITE_VECTOR, when their items are leaves; others read as lists; a nu
 or a fixed-size list of another length is an error. Variants read as the struct they are stored as (unshredded:
 `metadata` and `value`; shredded: with `typed_value`), marked `arrow.parquet.variant`. Columns are projected whole
 (`Columns`) or by field path (`ColumnPaths`: only the struct fields on the paths, through lists and map keys and
-values, a map keeping its key and value whatever the path; other leaves are not read), and row groups chosen (`RowGroups`); each row group's chunks are fetched with few
-ranged reads (nearby chunks coalesced). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
+values, a map keeping its key and value whatever the path; other leaves are not read), and row groups chosen (`RowGroups`).
+Column chunks are read as the source suits: sliced when it lives in memory, page by page from a local file, and fetched
+with few ranged reads (nearby chunks coalesced) from other sources; a local file can also be read through a memory
+mapping (`MemoryMap`: off by default, on, or automatic: only uncompressed fixed-width chunks; a mapped file must not be
+truncated while read). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
 deprecated PLAIN_DICTIONARY), RLE booleans; levels in the RLE / bit-packing hybrid or the deprecated BIT_PACKED;
 codecs uncompressed, Snappy, GZIP (several members), Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop-framed LZ4;
 page CRCs checked on request (`VerifyChecksums`). `BinaryAsString` reads unannotated binaries as strings; INT96

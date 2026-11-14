@@ -165,7 +165,7 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
         TConvert.Convert(plain, _dictionary.AsSpan(0, count), Type);
     }
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
         int bytes = valid * TConvert.Width(Type);
         if (bytes > values.Length - position) throw new ParquetFormatException($"the page holds fewer values than its {valid} present ones.");
@@ -194,7 +194,7 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
         position += bytes;
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
         // The indices were checked against the dictionary when the page was entered.
         if (!mask.IsEmpty)
@@ -246,7 +246,7 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
         return true;
     }
 
-    protected override void AppendOther(int rows, ReadOnlySpan<byte> mask, int valid)
+    protected override void AppendOther(int rows, SlotMask mask, int valid)
     {
         Append(rows, mask, _page.AsSpan(_at, valid));
         _at += valid;
@@ -254,7 +254,7 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
 
     protected override void SkipOther(int valid) => _at += valid;
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
         // position counts bits here: PLAIN booleans are bit-packed.
         if (BitUnpacking.Bytes((long)position + valid, 1) > values.Length) throw new ParquetFormatException($"the page holds fewer booleans than its {valid} present ones.");
@@ -277,7 +277,7 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
         position += valid;
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
         if (!mask.IsEmpty)
         {
@@ -292,7 +292,7 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
         _builder.AppendValues(_page.AsSpan(0, indices.Length));
     }
 
-    private void Append(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<byte> present)
+    private void Append(int rows, SlotMask mask, ReadOnlySpan<byte> present)
     {
         if (mask.IsEmpty)
         {
@@ -343,13 +343,13 @@ internal sealed class BinaryLeafReader(PageReader pages, SchemaNode leaf, LeafTy
 
     private int[] _starts = [], _lengths = [];
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
         PlainScratch.Ensure(ref _starts, ref _lengths, valid);
         int from = position;
         var (total, _) = LeafReaders.ParsePlain(values, ref position, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), int.MaxValue);
         if (_utf8) LeafReaders.ValidateUtf8(values, from, position, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid));
-        _builder.AppendValues(values, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), mask, total);
+        _builder.AppendValues(values, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), MaskBytes(mask), total);
     }
 
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)
@@ -363,11 +363,11 @@ internal sealed class BinaryLeafReader(PageReader pages, SchemaNode leaf, LeafTy
         base.Dispose();
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
         for (int i = 0, j = 0; i < rows; i++)
         {
-            if (!mask.IsEmpty && mask[i] == 0)
+            if (!mask.IsEmpty && !mask.IsValid(i))
             {
                 _builder.AppendNull();
                 continue;
@@ -416,7 +416,7 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
 
     private int[] _starts = [], _lengths = [];
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
         PlainScratch.Ensure(ref _starts, ref _lengths, valid);
         int from = position;
@@ -436,7 +436,7 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
         base.Dispose();
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
         if (_anyLong && _batchBuffer < 0) _batchBuffer = _builder.AddBuffer(_data);
         // The indices were checked against the dictionary when the page was entered.
@@ -503,12 +503,13 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
         return index;
     }
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
-        Span<int> slots = _builder.AppendSlots(mask.IsEmpty ? Ones(rows) : mask);
+        ReadOnlySpan<byte> present = mask.IsEmpty ? Ones(rows) : MaskBytes(mask);
+        Span<int> slots = _builder.AppendSlots(present);
         for (int i = 0; i < rows; i++)
         {
-            if (!mask.IsEmpty && mask[i] == 0) continue;
+            if (present[i] == 0) continue;
             ReadOnlySpan<byte> value = LeafReaders.NextByteArray(values, ref position);
             if (_utf8 && !Utf8.IsValid(value)) throw LeafReaders.InvalidUtf8();
             slots[i] = Entry(value);
@@ -520,12 +521,13 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
         for (int i = 0; i < valid; i++) LeafReaders.NextByteArray(values, ref position);
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
-        Span<int> slots = _builder.AppendSlots(mask.IsEmpty ? Ones(rows) : mask);
+        ReadOnlySpan<byte> present = mask.IsEmpty ? Ones(rows) : MaskBytes(mask);
+        Span<int> slots = _builder.AppendSlots(present);
         for (int i = 0, j = 0; i < rows; i++)
         {
-            if (!mask.IsEmpty && mask[i] == 0) continue;
+            if (present[i] == 0) continue;
             int file = indices[j++];
             int batch = _fileToBatch[file];
             if (batch < 0) _fileToBatch[file] = batch = Entry(_data.AsSpan(_offsets[file], _offsets[file + 1] - _offsets[file]));
@@ -570,14 +572,15 @@ internal sealed class FixedBinaryLeafReader(PageReader pages, SchemaNode leaf, L
         _dictionary = plain[..(count * _width)].ToArray();
     }
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
         int bytes = valid * _width;
         if (bytes > values.Length - position) throw new ParquetFormatException($"the page holds fewer values than its {valid} present ones.");
-        Span<byte> slots = _builder.AppendSlots(rows, mask);
+        ReadOnlySpan<byte> present = MaskBytes(mask);
+        Span<byte> slots = _builder.AppendSlots(rows, present);
         values.Slice(position, bytes).CopyTo(slots);
         position += bytes;
-        SpreadBytes(slots, valid, mask);
+        SpreadBytes(slots, valid, present);
     }
 
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)
@@ -587,11 +590,12 @@ internal sealed class FixedBinaryLeafReader(PageReader pages, SchemaNode leaf, L
         position += bytes;
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
-        Span<byte> slots = _builder.AppendSlots(rows, mask);
+        ReadOnlySpan<byte> present = MaskBytes(mask);
+        Span<byte> slots = _builder.AppendSlots(rows, present);
         for (int i = 0; i < indices.Length; i++) _dictionary.AsSpan(indices[i] * _width, _width).CopyTo(slots[(i * _width)..]);
-        SpreadBytes(slots, indices.Length, mask);
+        SpreadBytes(slots, indices.Length, present);
     }
 
     private void SpreadBytes(Span<byte> slots, int valid, ReadOnlySpan<byte> mask)
@@ -627,12 +631,13 @@ internal sealed class ByteArrayDecimalLeafReader<T>(PageReader pages, SchemaNode
         for (int i = 0; i < count; i++) _dictionary[i] = convert(LeafReaders.NextByteArray(plain, ref position), Type);
     }
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position)
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
-        Span<T> slots = mask.IsEmpty ? _builder.AppendSlots(rows) : _builder.AppendSlots(mask);
+        ReadOnlySpan<byte> present = MaskBytes(mask);
+        Span<T> slots = mask.IsEmpty ? _builder.AppendSlots(rows) : _builder.AppendSlots(present);
         for (int i = 0; i < rows; i++)
         {
-            if (!mask.IsEmpty && mask[i] == 0) continue;
+            if (!mask.IsEmpty && present[i] == 0) continue;
             slots[i] = convert(LeafReaders.NextByteArray(values, ref position), Type);
         }
     }
@@ -642,7 +647,7 @@ internal sealed class ByteArrayDecimalLeafReader<T>(PageReader pages, SchemaNode
         for (int i = 0; i < valid; i++) LeafReaders.NextByteArray(values, ref position);
     }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
         if (!mask.IsEmpty)
         {
@@ -665,13 +670,13 @@ internal sealed class NullLeafReader(PageReader pages, SchemaNode leaf, LeafType
     protected override void LoadDictionary(ReadOnlySpan<byte> plain, int count) { }
     protected override bool BeginOtherEncoding(ParquetEncoding encoding, ReadOnlySpan<byte> values, int valid) => true;
 
-    protected override void AppendPlain(int rows, ReadOnlySpan<byte> mask, int valid, ReadOnlySpan<byte> values, ref int position) => AppendOther(rows, mask, valid);
+    protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position) => AppendOther(rows, mask, valid);
 
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position) { }
 
-    protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices) => AppendOther(rows, mask, indices.Length);
+    protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices) => AppendOther(rows, mask, indices.Length);
 
-    protected override void AppendOther(int rows, ReadOnlySpan<byte> mask, int valid)
+    protected override void AppendOther(int rows, SlotMask mask, int valid)
     {
         for (int i = 0; i < rows; i++) _builder.AppendNull();
     }

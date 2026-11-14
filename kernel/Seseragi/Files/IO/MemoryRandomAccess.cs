@@ -13,6 +13,12 @@ internal sealed class MemoryRandomAccess(ReadOnlyMemory<byte> bytes) : IRandomAc
 
     public bool SmallReadsAreCheap => true;
 
+    public Sazanami.Helpers.MappedFile? Map(out long start)
+    {
+        start = 0;
+        return null;
+    }
+
     public int ReadAt(long offset, Span<byte> destination)
     {
         int count = (int)Math.Clamp(bytes.Length - offset, 0, destination.Length);

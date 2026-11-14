@@ -15,6 +15,9 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     private readonly SafeFileHandle? _file;
     private readonly long _start;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _mapLock = new();
+    private MappedFile? _map;
+    private bool _disposed;
 
     /// <summary>Wraps a seekable stream; <paramref name="copy"/> is the native memory the stream reads, when it was
     /// copied there (released on dispose).</summary>
@@ -49,6 +52,20 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
 
     /// <summary>A file read through its handle (other streams are read under a gate: better in few large reads).</summary>
     public bool SmallReadsAreCheap => _file is not null;
+
+    public MappedFile? Map(out long start)
+    {
+        start = _start;
+        if (_file is null) return null;
+        lock (_mapLock)
+        {
+            if (_disposed) return null;
+            return _map ??= MappedFile.Open((FileStream)_stream);
+        }
+    }
+
+    /// <summary>Whether the file was mapped (for tests).</summary>
+    internal bool IsMapped => Volatile.Read(ref _map) is not null;
 
     public int ReadAt(long offset, Span<byte> destination)
     {
@@ -112,6 +129,11 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
 
     public void Dispose()
     {
+        lock (_mapLock)
+        {
+            _disposed = true;
+            _map?.Release();
+        }
         if (!_leaveOpen) _stream.Dispose();
         _copy?.Release();
         _gate.Dispose();
