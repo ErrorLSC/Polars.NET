@@ -20,25 +20,22 @@ public class ParquetValueTests
         ["apache/bad_data/ARROW-GH-41317.parquet"] = "ends before its row group",           // columns of different lengths
         ["apache/bad_data/ARROW-GH-41321.parquet"] = "cut short",                           // levels shorter than num_values
         ["apache/bad_data/ARROW-GH-47662.parquet"] = "fewer values",                        // a required column with nulls
-        ["apache/bad_data/ARROW-RS-GH-11261-FLBA-DICT.parquet"] = "DeltaLengthByteArray",   // P5 (then: wrong type)
+        ["apache/bad_data/ARROW-RS-GH-11261-FLBA-DICT.parquet"] = "FixedLenByteArray values cannot be encoded with DeltaLengthByteArray",
         ["apache/bad_data/ARROW-RS-GH-6229-DICTHEADER.parquet"] = "outside the file",
         ["apache/bad_data/PARQUET-1481.parquet"] = "unknown physical type",
         ["apache/data/alp_extended.zstd.parquet"] = "Alp are not supported",
-        ["apache/data/byte_stream_split.zstd.parquet"] = "ByteStreamSplit are not supported yet",
-        ["apache/data/byte_stream_split_extended.gzip.parquet"] = "ByteStreamSplit are not supported yet",
-        ["apache/data/datapage_v2.snappy.parquet"] = "DeltaBinaryPacked are not supported yet",
-        ["apache/data/delta_binary_packed.parquet"] = "DeltaBinaryPacked are not supported yet",
-        ["apache/data/delta_byte_array.parquet"] = "DeltaByteArray are not supported yet",
-        ["apache/data/delta_encoding_optional_column.parquet"] = "DeltaBinaryPacked are not supported yet",
-        ["apache/data/delta_encoding_required_column.parquet"] = "DeltaBinaryPacked are not supported yet",
-        ["apache/data/delta_length_byte_array.parquet"] = "DeltaLengthByteArray are not supported yet",
         ["apache/data/flba12_timestamp.parquet"] = "does not fit a 64-bit timestamp",   // pyarrow and DuckDB refuse it too
         ["apache/bad_data/ARROW-GH-45185.parquet"] = "starts with repetition level 1",   // a record starting mid-list
         ["apache/bad_data/ARROW-RS-GH-6229-LEVELS.parquet"] = "more than the",           // a page claims more values than its chunk
     };
 
     /// <summary>Files where pyarrow fails and DuckDB reads (compared with DuckDB).</summary>
-    private static readonly string[] PyarrowFails = ["apache/data/incorrect_map_schema.parquet"]; // optional map keys
+    private static readonly string[] PyarrowFails =
+    [
+        "apache/data/incorrect_map_schema.parquet", // optional map keys
+        // pyarrow 26 cannot read DuckDB's v2 DELTA_BINARY_PACKED pages ("InitBlock EOF"); DuckDB reads its own.
+        "matrix/enc_duckdb_v2_uncompressed.parquet", "matrix/enc_duckdb_v2_zstd.parquet",
+    ];
 
     /// <summary>Files checked by their own tests (the oracles are wrong there).</summary>
     private static readonly string[] Special = ["apache/data/int96_from_spark.parquet"];
@@ -57,7 +54,7 @@ public class ParquetValueTests
         string[] skipped = [.. all.Where(n => Oracle.Value.RootElement.GetProperty("files").GetProperty(n).TryGetProperty("skipped", out _))];
         string[] compared = [.. all.Except(Refused.Keys).Except(Special).Except(skipped)];
         Assert.Equal(all.Length, compared.Length + Refused.Count + Special.Length + skipped.Length);
-        Assert.Equal((153, 133, 18, 1, 1), (all.Length, compared.Length, Refused.Count, Special.Length, skipped.Length));
+        Assert.Equal((178, 166, 10, 1, 1), (all.Length, compared.Length, Refused.Count, Special.Length, skipped.Length));
         Assert.Equal(["apache/data/large_string_map.brotli.parquet"], skipped);
     }
 

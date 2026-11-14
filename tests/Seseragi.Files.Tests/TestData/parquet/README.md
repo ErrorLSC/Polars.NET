@@ -6,6 +6,10 @@ Parquet test files.
   the output directory as its argument.
 - `matrix/`: the flat type matrix (`writers/write_matrix.py`): pyarrow encodings, page versions, codecs and options,
   DuckDB in each codec, Polars.
+  The `enc_*` files there are the encoding matrix (`writers/write_encodings.py`): DELTA_BINARY_PACKED,
+  DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY and BYTE_STREAM_SPLIT over every type pyarrow allows them for, page
+  versions, codecs and small pages, DuckDB's v2 writer; and Spark's parquet-mr v2 writer
+  (`writers/write_encodings_spark.py`, run with the Spark environment).
 - `nested/`: the nested type matrix (`writers/write_nested.py`: pyarrow, DuckDB, Polars) and Spark files
   (`writers/write_checkpoint.py`: Delta checkpoints, classic and a V2 sidecar, and a shredded VARIANT column).
 - `values.json`: every file's columns as pyarrow and DuckDB read them (types, counts, a hash of the values in a

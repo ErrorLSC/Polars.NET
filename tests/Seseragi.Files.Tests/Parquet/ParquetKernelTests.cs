@@ -13,10 +13,13 @@ public class ParquetKernelTests
     [Fact]
     public void BitUnpack_EqualsTheCheckedPath_ForEveryWidthOffsetAndLength()
     {
+        // Values wider than the destination are refused (above 32 bits: 64-bit integers only).
+        Assert.Throws<ArgumentOutOfRangeException>(() => BitUnpacking.Unpack(new byte[64], 0, 33, new int[8].AsSpan()));
+        Assert.Throws<ArgumentOutOfRangeException>(() => BitUnpacking.Unpack(new byte[64], 0, 65, new long[8].AsSpan()));
         var random = new Random(7);
-        for (int width = 0; width <= 32; width++)
+        for (int width = 0; width <= 64; width++)
         {
-            foreach (int bytes in (int[])[0, 1, 7, 9, 64, 300])
+            foreach (int bytes in (int[])[0, 1, 7, 9, 64, 300, 700])
             {
                 byte[] packed = new byte[bytes];
                 random.NextBytes(packed);
@@ -25,9 +28,14 @@ public class ParquetKernelTests
                 {
                     for (int length = 0; length <= 70 && first + length <= Math.Max(capacity, width == 0 ? 100 : 0); length += length < 20 ? 1 : 7)
                     {
-                        Check<int>(packed, first, width, length);
-                        Check<uint>(packed, first, width, length);
+                        if (width <= 32)
+                        {
+                            Check<int>(packed, first, width, length);
+                            Check<uint>(packed, first, width, length);
+                        }
                         if (width <= 8) Check<byte>(packed, first, width, length);
+                        Check<long>(packed, first, width, length);
+                        Check<ulong>(packed, first, width, length);
                     }
                 }
             }
@@ -40,6 +48,17 @@ public class ParquetKernelTests
             BitUnpacking.Unpack(packed, first, width, fast.AsSpan());
             BitUnpacking.UnpackChecked(packed, first, width, reference.AsSpan());
             Assert.True(fast.AsSpan().SequenceEqual(reference), $"width {width}, first {first}, length {length}, {packed.Length} bytes, {typeof(T).Name}");
+            // Both against values assembled bit by bit (bits past the end read as zeros).
+            for (int i = 0; i < length; i++)
+            {
+                ulong value = 0;
+                for (int b = 0; b < width; b++)
+                {
+                    long bit = (long)(first + i) * width + b;
+                    if (bit >> 3 < packed.Length && (packed[bit >> 3] >> (int)(bit & 7) & 1) != 0) value |= 1UL << b;
+                }
+                Assert.True(reference[i] == T.CreateTruncating(value), $"bit by bit: width {width}, value {first + i}, {typeof(T).Name}");
+            }
         }
     }
 

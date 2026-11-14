@@ -44,6 +44,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
 {
     private readonly Dictionary<string, (byte[] Bytes, long[] Hot, int Footer)> _files = [];
     private static readonly int[] BatchSizes = [1, 3, 64, 1000, 65_536];
+    private static readonly int[] SplitWidths = [2, 4, 8];
 
     public static Random RandomFor(long seed, long n)
     {
@@ -213,12 +214,113 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
     // Kernels
     // ------------------------------------------------------------------
 
-    private static Outcome Kernel(Random random) => random.Next(3) switch
+    private static Outcome Kernel(Random random) => random.Next(6) switch
     {
         0 => Codec(random, snappy: true),
         1 => Codec(random, snappy: false),
-        _ => Rle(random),
+        2 => Rle(random),
+        3 => Delta(random),
+        4 => DeltaArrays(random),
+        _ => Split(random),
     };
+
+    /// <summary>A DELTA_BINARY_PACKED stream: a plausible header (or not), then random blocks; decoded as INT32 and INT64, to the end and not.</summary>
+    private static byte[] DeltaStream(Random random)
+    {
+        List<byte> data = [];
+        if (random.Next(4) != 0)
+        {
+            int[] blocks = [128, 256, 1024];
+            int block = blocks[random.Next(blocks.Length)], miniblocks = random.Next(2) == 0 ? 4 : block / 32;
+            Uleb(data, (ulong)block);
+            Uleb(data, (ulong)miniblocks);
+            Uleb(data, (ulong)random.Next(random.Next(2) == 0 ? 40 : 3000));
+            Uleb(data, (ulong)random.NextInt64());
+        }
+        var rest = new byte[random.Next(random.Next(2) == 0 ? 64 : 4000)];
+        random.NextBytes(rest);
+        // Mostly narrow miniblocks, as writers make them.
+        for (int at = 0; at < rest.Length && random.Next(4) != 0; at += random.Next(1, 300)) rest[at] = (byte)random.Next(random.Next(3) == 0 ? 256 : 33);
+        data.AddRange(rest);
+        return [.. data];
+
+        static void Uleb(List<byte> data, ulong value)
+        {
+            for (; value >= 0x80; value >>= 7) data.Add((byte)(value | 0x80));
+            data.Add((byte)value);
+        }
+    }
+
+    private static Outcome Delta(Random random)
+    {
+        using var input = GuardedMemory.Block.Copy(DeltaStream(random));
+        int count = random.Next(random.Next(2) == 0 ? 50 : 3500);
+        var scratch = new ulong[DeltaBinaryPacked.Chunk];
+        try
+        {
+            using var longs = new GuardedMemory.Block(count * 8);
+            DeltaBinaryPacked.Decode(input.GetSpan(), MemoryMarshal.Cast<byte, long>(longs.GetSpan()), scratch, toEnd: random.Next(2) == 0);
+            using var ints = new GuardedMemory.Block(count * 4);
+            DeltaBinaryPacked.Decode(input.GetSpan(), MemoryMarshal.Cast<byte, int>(ints.GetSpan()), scratch, toEnd: random.Next(2) == 0);
+            for (int i = 0; i < count; i++)
+            {
+                if ((int)MemoryMarshal.Cast<byte, long>(longs.GetSpan())[i] != MemoryMarshal.Cast<byte, int>(ints.GetSpan())[i])
+                    return new Outcome(true, "DELTA_BINARY_PACKED INT32 differs from truncated INT64", $"value {i}");
+            }
+            return Outcome.Read;
+        }
+        catch (ParquetFormatException e)
+        {
+            return Outcome.Refused(e);
+        }
+    }
+
+    /// <summary>DELTA_LENGTH_BYTE_ARRAY / DELTA_BYTE_ARRAY sections from random streams, written as PLAIN into a guarded buffer of exactly their size.</summary>
+    private static Outcome DeltaArrays(Random random)
+    {
+        bool prefixed = random.Next(2) == 0;
+        byte[] encoded = prefixed ? [.. DeltaStream(random), .. DeltaStream(random)] : DeltaStream(random);
+        int count = random.Next(random.Next(2) == 0 ? 30 : 2000);
+        int fixedLength = prefixed && random.Next(3) == 0 ? random.Next(1, 20) : 0;
+        using var input = GuardedMemory.Block.Copy(encoded);
+        var scratch = new ulong[DeltaBinaryPacked.Chunk];
+        try
+        {
+            var lengths = new int[count];
+            var prefixes = new int[prefixed ? count : 0];
+            var sections = DeltaByteArrays.Read(input.GetSpan(), prefixed, prefixes, lengths, scratch);
+            long size = DeltaByteArrays.PlainLength(prefixes, lengths, fixedLength);
+            if (size > 64 << 20) return Outcome.Read; // a legitimately huge expansion: not this target's business
+            using var plain = new GuardedMemory.Block((int)size);
+            DeltaByteArrays.WritePlain(input.GetSpan().Slice(sections.DataStart, (int)sections.DataBytes), prefixes, lengths, plain.GetSpan(), fixedLength);
+            return Outcome.Read;
+        }
+        catch (ParquetFormatException e)
+        {
+            return Outcome.Refused(e);
+        }
+    }
+
+    /// <summary>Byte stream split of random widths and lengths, joined into a guarded buffer of exactly the values' size.</summary>
+    private static Outcome Split(Random random)
+    {
+        int width = random.Next(4) == 0 ? random.Next(1, 40) : SplitWidths[random.Next(SplitWidths.Length)];
+        int stride = random.Next(random.Next(2) == 0 ? 40 : 3000);
+        int count = random.Next(stride + 1);
+        var streams = new byte[stride * width];
+        random.NextBytes(streams);
+        using var input = GuardedMemory.Block.Copy(streams);
+        using var output = new GuardedMemory.Block(count * width);
+        Kaminari.Sazanami.Encodings.ByteStreamSplit.Decode(input.GetSpan(), width, count, output.GetSpan());
+        for (int i = 0; i < count; i += Math.Max(1, count / 7))
+        {
+            for (int j = 0; j < width; j++)
+            {
+                if (output.GetSpan()[i * width + j] != streams[j * stride + i]) return new Outcome(true, "BYTE_STREAM_SPLIT joined wrong", $"width {width}, value {i}");
+            }
+        }
+        return Outcome.Read;
+    }
 
     /// <summary>A compressed block of data with repeats (copies), mutated a little, into a guarded destination.</summary>
     private static Outcome Codec(Random random, bool snappy)

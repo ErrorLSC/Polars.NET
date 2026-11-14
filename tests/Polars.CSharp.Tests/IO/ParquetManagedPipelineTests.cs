@@ -14,15 +14,8 @@ public class ParquetManagedPipelineTests
 {
     private static readonly string Root = Path.Combine(AppContext.BaseDirectory, "TestData", "parquet");
 
-    /// <summary>Files the managed reader refuses (encodings that come later, values that do not fit): checked in Seseragi.Files.Tests.</summary>
-    private static readonly HashSet<string> ManagedRefuses =
-    [
-        "apache/data/alp_extended.zstd.parquet", "apache/data/byte_stream_split.zstd.parquet",
-        "apache/data/byte_stream_split_extended.gzip.parquet", "apache/data/datapage_v2.snappy.parquet",
-        "apache/data/delta_binary_packed.parquet", "apache/data/delta_byte_array.parquet",
-        "apache/data/delta_encoding_optional_column.parquet", "apache/data/delta_encoding_required_column.parquet",
-        "apache/data/delta_length_byte_array.parquet", "apache/data/flba12_timestamp.parquet",
-    ];
+    /// <summary>Files the managed reader refuses (ALP, values that do not fit): checked in Seseragi.Files.Tests.</summary>
+    private static readonly HashSet<string> ManagedRefuses = ["apache/data/alp_extended.zstd.parquet", "apache/data/flba12_timestamp.parquet"];
 
     /// <summary>Files Polars' reader refuses while the managed reader reads them (pyarrow and DuckDB agree with it).</summary>
     private static readonly HashSet<string> PolarsRefuses =
@@ -37,6 +30,11 @@ public class ParquetManagedPipelineTests
         "matrix/duckdb_brotli.parquet", "matrix/duckdb_gzip.parquet", "matrix/duckdb_lz4.parquet", "matrix/duckdb_snappy.parquet",
         "matrix/duckdb_uncompressed.parquet", "matrix/duckdb_zstd.parquet", "writers/duckdb.parquet",
         "nested/spark_variant.parquet",                    // the VARIANT logical type
+        // DELTA_BYTE_ARRAY and BYTE_STREAM_SPLIT on FIXED_LEN_BYTE_ARRAY columns: "not yet supported".
+        "matrix/enc_dba_small_pages.parquet", "matrix/enc_dba_v1_none.parquet", "matrix/enc_dba_v1_zstd.parquet",
+        "matrix/enc_dba_v2_snappy.parquet", "matrix/enc_dba_v2_zstd.parquet", "matrix/enc_spark_v2.parquet",
+        "matrix/enc_bss_small_pages.parquet", "matrix/enc_bss_v1_none.parquet", "matrix/enc_bss_v1_zstd.parquet",
+        "matrix/enc_bss_v2_snappy.parquet", "matrix/enc_bss_v2_zstd.parquet", "apache/data/byte_stream_split_extended.gzip.parquet",
     ];
 
     /// <summary>Files Polars reads wrongly (the managed reader agrees with pyarrow and DuckDB there).</summary>

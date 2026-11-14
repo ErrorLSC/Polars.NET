@@ -5,13 +5,14 @@ using System.Runtime.CompilerServices;
 namespace Kaminari.Sazanami.Encodings;
 
 /// <summary>
-/// Unpacking of values of 0–32 bits packed least significant bit first (Parquet's hybrid encoding, Arrow bitmaps
+/// Unpacking of values of 0–64 bits (above 32 into 64-bit integers only) packed least significant bit first (Parquet's hybrid encoding, Arrow bitmaps
 /// and others): whole groups of 8 by the per-width kernels of <see cref="BitUnpack"/>, the rest bounds-checked.
 /// </summary>
 internal static class BitUnpacking
 {
     /// <summary>
-    /// Unpacks <paramref name="destination"/>.Length values of <paramref name="bitWidth"/> bits (at most 32), the
+    /// Unpacks <paramref name="destination"/>.Length values of <paramref name="bitWidth"/> bits (at most 32, or 64 into
+    /// 64-bit integers), the
     /// first at value index <paramref name="first"/> of <paramref name="packed"/>, packed least significant bit first.
     /// </summary>
     public static unsafe void Unpack<T>(ReadOnlySpan<byte> packed, long first, int bitWidth, Span<T> destination) where T : unmanaged, IBinaryInteger<T>
@@ -21,6 +22,7 @@ internal static class BitUnpacking
             destination.Clear();
             return;
         }
+        if ((uint)bitWidth > 8u * (uint)Unsafe.SizeOf<T>()) throw new ArgumentOutOfRangeException(nameof(bitWidth), $"{bitWidth}-bit values do not fit {typeof(T).Name}.");
         int done = 0;
         // Up to a group boundary value by value, then whole groups by the per-width kernel, then the rest.
         while (done < destination.Length && ((first + done) & 7) != 0) done++;
@@ -48,13 +50,16 @@ internal static class BitUnpacking
             destination.Clear();
             return;
         }
-        ulong mask = (1UL << bitWidth) - 1;
+        ulong mask = bitWidth == 64 ? ulong.MaxValue : (1UL << bitWidth) - 1;
         long bit = first * bitWidth;
         for (int i = 0; i < destination.Length; i++, bit += bitWidth)
         {
-            int at = (int)(bit >> 3);
+            int at = (int)(bit >> 3), shift = (int)(bit & 7);
             ulong word = at + 8 <= packed.Length ? BinaryPrimitives.ReadUInt64LittleEndian(packed[at..]) : Tail(packed, at);
-            destination[i] = T.CreateTruncating((word >> (int)(bit & 7)) & mask);
+            ulong value = word >> shift;
+            // Wider than 56 bits from mid-byte: the ninth byte holds the top (missing past the end: zeros).
+            if (shift + bitWidth > 64 && at + 8 < packed.Length) value |= (ulong)packed[at + 8] << (64 - shift);
+            destination[i] = T.CreateTruncating(value & mask);
         }
     }
 

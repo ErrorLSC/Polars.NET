@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Encodings;
 using Kaminari.Sazanami.Helpers;
@@ -42,6 +43,10 @@ internal abstract class LeafReader : IDisposable
     private bool _fromDictionary, _other, _hasDictionary;
     private int[] _indices = [];
     private int _indexAt;
+
+    private NativeByteBuffer? _transcoded;    // the current page's values decoded into PLAIN layout (other encodings)
+    private ulong[]? _deltaScratch;
+    private int[] _lengths = [], _prefixes = [];  // a page's byte array lengths and prefix lengths (delta encodings)
 
     private byte[] _batchDef = [], _batchRep = [];
     private int _batchCount;
@@ -396,9 +401,12 @@ internal abstract class LeafReader : IDisposable
                 DecodeIndices(_values.Span, valid);
                 _fromDictionary = true;
                 break;
+            case ParquetEncoding.DeltaBinaryPacked or ParquetEncoding.DeltaLengthByteArray or ParquetEncoding.DeltaByteArray or ParquetEncoding.ByteStreamSplit:
+                _values = Transcode(encoding, _values.Span, valid);
+                break;
             default:
                 if (!BeginOtherEncoding(encoding, _values.Span, valid))
-                    throw new ParquetFormatException($"pages encoded with {encoding} are not supported{(encoding is >= ParquetEncoding.DeltaBinaryPacked and <= ParquetEncoding.ByteStreamSplit ? " yet" : "")}.");
+                    throw new ParquetFormatException($"pages encoded with {encoding} are not supported.");
                 _other = true;
                 break;
         }
@@ -490,6 +498,90 @@ internal abstract class LeafReader : IDisposable
         buffer = grown;
     }
 
+    /// <summary>
+    /// The values of a page in one of the encodings decoded here, whole and into PLAIN layout (a buffer the next
+    /// page reuses), so that every kind reads them as PLAIN: nulls, conversions, views, skips alike.
+    /// </summary>
+    private ReadOnlyMemory<byte> Transcode(ParquetEncoding encoding, ReadOnlySpan<byte> encoded, int valid)
+    {
+        ParquetType? physical = Leaf.Element.Type;
+        switch (encoding, physical)
+        {
+            case (ParquetEncoding.DeltaBinaryPacked, ParquetType.Int32):
+            {
+                Span<byte> plain = TranscodeBuffer(valid, 4);
+                DeltaBinaryPacked.Decode(encoded, MemoryMarshal.Cast<byte, int>(plain), DeltaScratch, toEnd: false);
+                return _transcoded!.Memory[..plain.Length];
+            }
+            case (ParquetEncoding.DeltaBinaryPacked, ParquetType.Int64):
+            {
+                Span<byte> plain = TranscodeBuffer(valid, 8);
+                DeltaBinaryPacked.Decode(encoded, MemoryMarshal.Cast<byte, long>(plain), DeltaScratch, toEnd: false);
+                return _transcoded!.Memory[..plain.Length];
+            }
+            case (ParquetEncoding.DeltaLengthByteArray, ParquetType.ByteArray):
+                return ByteArrays(encoded, valid, prefixed: false, fixedLength: 0);
+            case (ParquetEncoding.DeltaByteArray, ParquetType.ByteArray):
+                return ByteArrays(encoded, valid, prefixed: true, fixedLength: 0);
+            case (ParquetEncoding.DeltaByteArray, ParquetType.FixedLenByteArray):
+                return ByteArrays(encoded, valid, prefixed: true, fixedLength: Leaf.Element.TypeLength ?? 0);
+            case (ParquetEncoding.ByteStreamSplit, ParquetType.Float or ParquetType.Int32):
+                return Split(encoded, valid, 4);
+            case (ParquetEncoding.ByteStreamSplit, ParquetType.Double or ParquetType.Int64):
+                return Split(encoded, valid, 8);
+            case (ParquetEncoding.ByteStreamSplit, ParquetType.FixedLenByteArray):
+                return Split(encoded, valid, Leaf.Element.TypeLength ?? 0);
+            default:
+                throw new ParquetFormatException($"{physical} values cannot be encoded with {encoding}.");
+        }
+    }
+
+    /// <summary>
+    /// BYTE_STREAM_SPLIT values of <paramref name="width"/> bytes as PLAIN: the page's bytes are <paramref name="width"/>
+    /// streams of equal length (no padding), as many values as that length, at least the present ones.
+    /// </summary>
+    private ReadOnlyMemory<byte> Split(ReadOnlySpan<byte> encoded, int valid, int width)
+    {
+        if (width <= 0 || encoded.Length % width != 0)
+            throw new ParquetFormatException($"a BYTE_STREAM_SPLIT page of {encoded.Length} bytes does not split into streams of {width}-byte values.");
+        if (encoded.Length / width < valid)
+            throw new ParquetFormatException($"a BYTE_STREAM_SPLIT page holds {encoded.Length / width} values, fewer than the {valid} present.");
+        Span<byte> plain = TranscodeBuffer(valid, width);
+        ByteStreamSplit.Decode(encoded, width, valid, plain);
+        return _transcoded!.Memory[..plain.Length];
+    }
+
+    /// <summary>DELTA_LENGTH_BYTE_ARRAY or DELTA_BYTE_ARRAY values as PLAIN BYTE_ARRAY (or FIXED_LEN_BYTE_ARRAY when <paramref name="fixedLength"/> is set).</summary>
+    private ReadOnlyMemory<byte> ByteArrays(ReadOnlySpan<byte> encoded, int valid, bool prefixed, int fixedLength)
+    {
+        EnsureInts(ref _lengths, valid);
+        if (prefixed) EnsureInts(ref _prefixes, valid);
+        Span<int> lengths = _lengths.AsSpan(0, valid), prefixes = prefixed ? _prefixes.AsSpan(0, valid) : default;
+        DeltaByteArrays.Sections sections = DeltaByteArrays.Read(encoded, prefixed, prefixes, lengths, DeltaScratch);
+        Span<byte> plain = TranscodeBuffer(DeltaByteArrays.PlainLength(prefixes, lengths, fixedLength), 1);
+        DeltaByteArrays.WritePlain(encoded.Slice(sections.DataStart, (int)sections.DataBytes), prefixes, lengths, plain, fixedLength);
+        return _transcoded!.Memory[..plain.Length];
+    }
+
+    private static void EnsureInts(ref int[] buffer, int length)
+    {
+        if (buffer.Length >= length) return;
+        if (buffer.Length > 0) ArrayPool<int>.Shared.Return(buffer);
+        buffer = ArrayPool<int>.Shared.Rent(length);
+    }
+
+    /// <summary>The transcoding buffer, room for <paramref name="count"/> values of <paramref name="width"/> bytes.</summary>
+    private Span<byte> TranscodeBuffer(long count, int width)
+    {
+        long bytes = count * width;
+        if (bytes > Array.MaxLength) throw new ParquetFormatException($"a page of {count} values is too large to decode.");
+        _transcoded ??= new NativeByteBuffer(0, pooled: true);
+        _transcoded.EnsureCapacity(bytes);
+        return _transcoded.Span[..(int)bytes];
+    }
+
+    private Span<ulong> DeltaScratch => _deltaScratch ??= new ulong[DeltaBinaryPacked.Chunk];
+
     private void DecodeIndices(ReadOnlySpan<byte> values, int valid)
     {
         if (_indices.Length < valid)
@@ -518,11 +610,19 @@ internal abstract class LeafReader : IDisposable
     /// held by finished columns of every row group in flight outgrow the last-level cache, and the units still
     /// decoding then get cold ones (measured: flat 16 threads −9 %).
     /// </summary>
-    public void ReleasePages() => _pages.Dispose();
+    public void ReleasePages()
+    {
+        _pages.Dispose();
+        _transcoded?.Release();
+        _transcoded = null;
+        if (_lengths.Length > 0) ArrayPool<int>.Shared.Return(_lengths);
+        if (_prefixes.Length > 0) ArrayPool<int>.Shared.Return(_prefixes);
+        _lengths = _prefixes = [];
+    }
 
     public virtual void Dispose()
     {
-        _pages.Dispose();
+        ReleasePages();
         foreach (byte[] buffer in (byte[][])[_mask, _def, _rep, _batchDef, _batchRep, _defBits, _maskBytes])
         {
             if (buffer.Length > 0) ArrayPool<byte>.Shared.Return(buffer);

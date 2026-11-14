@@ -13553,6 +13553,6088 @@
 "rows": 300
 }
 },
+"matrix/enc_bss_decimal_ints.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "89b5776d7ade13b3",
+"name": "dec_9_2",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999e-2",
+"d:-142055599e-2",
+"d:284111198e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "1648fd763adb80ee",
+"name": "dec_18_4",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999999999999e-4",
+"d:-142373916142055599e-4",
+"d:284747832284111198e-4"
+],
+"type": "decimal128(18, 4)"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "89b5776d7ade13b3",
+"name": "dec_9_2",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999e-2",
+"d:-142055599e-2",
+"d:284111198e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "1648fd763adb80ee",
+"name": "dec_18_4",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999999999999e-4",
+"d:-142373916142055599e-4",
+"d:284747832284111198e-4"
+],
+"type": "decimal128(18, 4)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_bss_small_pages.parquet": {
+"duckdb": {
+"error": "Error: BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32 or INT64 data"
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_bss_v1_none.parquet": {
+"duckdb": {
+"error": "Error: BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32 or INT64 data"
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_bss_v1_zstd.parquet": {
+"duckdb": {
+"error": "Error: BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32 or INT64 data"
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_bss_v2_snappy.parquet": {
+"duckdb": {
+"error": "Error: BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32 or INT64 data"
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_bss_v2_zstd.parquet": {
+"duckdb": {
+"error": "Error: BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32 or INT64 data"
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dba_small_pages.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "d460d4cac73f7639",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:30303030303030302d303030302d303030302d303030302d303030303030303030303030",
+"u:30303030303030302d303132332d343536372d383930612d626364656631323334353637",
+"u:30303030303030302d303234362d386163662d313231352d373962646532343638616365"
+],
+"type": "string"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "d5980f864a2c2142",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999999999999999e-5",
+"d:-31142373916142055599e-5",
+"d:62284747832284111198e-5"
+],
+"type": "decimal256(50, 5)"
+},
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dba_v1_none.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "d460d4cac73f7639",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:30303030303030302d303030302d303030302d303030302d303030303030303030303030",
+"u:30303030303030302d303132332d343536372d383930612d626364656631323334353637",
+"u:30303030303030302d303234362d386163662d313231352d373962646532343638616365"
+],
+"type": "string"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "d5980f864a2c2142",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999999999999999e-5",
+"d:-31142373916142055599e-5",
+"d:62284747832284111198e-5"
+],
+"type": "decimal256(50, 5)"
+},
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dba_v1_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "d460d4cac73f7639",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:30303030303030302d303030302d303030302d303030302d303030303030303030303030",
+"u:30303030303030302d303132332d343536372d383930612d626364656631323334353637",
+"u:30303030303030302d303234362d386163662d313231352d373962646532343638616365"
+],
+"type": "string"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "d5980f864a2c2142",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999999999999999e-5",
+"d:-31142373916142055599e-5",
+"d:62284747832284111198e-5"
+],
+"type": "decimal256(50, 5)"
+},
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dba_v2_snappy.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "d460d4cac73f7639",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:30303030303030302d303030302d303030302d303030302d303030303030303030303030",
+"u:30303030303030302d303132332d343536372d383930612d626364656631323334353637",
+"u:30303030303030302d303234362d386163662d313231352d373962646532343638616365"
+],
+"type": "string"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "d5980f864a2c2142",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999999999999999e-5",
+"d:-31142373916142055599e-5",
+"d:62284747832284111198e-5"
+],
+"type": "decimal256(50, 5)"
+},
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dba_v2_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "d460d4cac73f7639",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:30303030303030302d303030302d303030302d303030302d303030303030303030303030",
+"u:30303030303030302d303132332d343536372d383930612d626364656631323334353637",
+"u:30303030303030302d303234362d386163662d313231352d373962646532343638616365"
+],
+"type": "string"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "fixed_size_binary[5]"
+},
+{
+"hash": "b737aabfefff73ad",
+"name": "uuid",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:00000000000000000000000000000000",
+"b:0000000001234567890abcdef1234567",
+"b:0000000002468acf121579bde2468ace"
+],
+"type": "extension<arrow.uuid>"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "d5980f864a2c2142",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999999999999999e-5",
+"d:-31142373916142055599e-5",
+"d:62284747832284111198e-5"
+],
+"type": "decimal256(50, 5)"
+},
+{
+"hash": "b600c82790a7368b",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000",
+"f:cd52",
+"f:cd49"
+],
+"type": "halffloat"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dbp_decimal_ints.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "89b5776d7ade13b3",
+"name": "dec_9_2",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999e-2",
+"d:-142055599e-2",
+"d:284111198e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "1648fd763adb80ee",
+"name": "dec_18_4",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999999999999e-4",
+"d:-142373916142055599e-4",
+"d:284747832284111198e-4"
+],
+"type": "decimal128(18, 4)"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "89b5776d7ade13b3",
+"name": "dec_9_2",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999e-2",
+"d:-142055599e-2",
+"d:284111198e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "1648fd763adb80ee",
+"name": "dec_18_4",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999999999999e-4",
+"d:-142373916142055599e-4",
+"d:284747832284111198e-4"
+],
+"type": "decimal128(18, 4)"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dbp_small_pages.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time32[ms]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[ms]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=UTC]"
+},
+{
+"hash": "7a70cd00c7cba361",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"P:-18518518350000",
+"P:-18395061561000",
+"P:-18271604772000"
+],
+"type": "duration[us]"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dbp_v1_none.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time32[ms]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[ms]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=UTC]"
+},
+{
+"hash": "7a70cd00c7cba361",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"P:-18518518350000",
+"P:-18395061561000",
+"P:-18271604772000"
+],
+"type": "duration[us]"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dbp_v1_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time32[ms]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[ms]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=UTC]"
+},
+{
+"hash": "7a70cd00c7cba361",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"P:-18518518350000",
+"P:-18395061561000",
+"P:-18271604772000"
+],
+"type": "duration[us]"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dbp_v2_snappy.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time32[ms]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[ms]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=UTC]"
+},
+{
+"hash": "7a70cd00c7cba361",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"P:-18518518350000",
+"P:-18395061561000",
+"P:-18271604772000"
+],
+"type": "duration[us]"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dbp_v2_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time32[ms]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[ms]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=UTC]"
+},
+{
+"hash": "7a70cd00c7cba361",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"P:-18518518350000",
+"P:-18395061561000",
+"P:-18271604772000"
+],
+"type": "duration[us]"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dlba_small_pages.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dlba_v1_none.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dlba_v1_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dlba_v2_snappy.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_dlba_v2_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "large_string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "extension<arrow.json>"
+}
+],
+"rows": 300
+}
+},
+"matrix/enc_duckdb_v2_uncompressed.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "81b19d33dfa7c743",
+"name": "bool",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"true",
+"false",
+"false"
+],
+"type": "bool"
+},
+{
+"hash": "103c3fdf33a0632a",
+"name": "bool_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"true",
+"false",
+"true"
+],
+"type": "bool"
+},
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "89b5776d7ade13b3",
+"name": "dec_9_2",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999e-2",
+"d:-142055599e-2",
+"d:284111198e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "1648fd763adb80ee",
+"name": "dec_18_4",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999999999999e-4",
+"d:-142373916142055599e-4",
+"d:284747832284111198e-4"
+],
+"type": "decimal128(18, 4)"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms_tokyo",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "67b98014353dc627",
+"name": "dict_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:726564",
+"u:677265656e",
+"u:626c7565"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"error": "OSError: Unexpected end of stream: InitBlock EOF"
+}
+},
+"matrix/enc_duckdb_v2_zstd.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "81b19d33dfa7c743",
+"name": "bool",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"true",
+"false",
+"false"
+],
+"type": "bool"
+},
+{
+"hash": "103c3fdf33a0632a",
+"name": "bool_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"true",
+"false",
+"true"
+],
+"type": "bool"
+},
+{
+"hash": "dd0bb080d4aaa6fb",
+"name": "i8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"127",
+"49",
+"-30"
+],
+"type": "int8"
+},
+{
+"hash": "4be11719712be1af",
+"name": "i16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"32767",
+"-1615",
+"29538"
+],
+"type": "int16"
+},
+{
+"hash": "c8be853dd49ca265",
+"name": "i32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "101ab7efd0c4b2fe",
+"name": "i32_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"2147483647",
+"506952113",
+"-1133579422"
+],
+"type": "int32"
+},
+{
+"hash": "04b591ce7ff9c540",
+"name": "i64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"9223372036854775807",
+"-9223372034200340047",
+"-9223372031545904286"
+],
+"type": "int64"
+},
+{
+"hash": "343d085cfd426586",
+"name": "u8",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"255",
+"177",
+"98"
+],
+"type": "uint8"
+},
+{
+"hash": "4ee3c3837513c0c9",
+"name": "u16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"65535",
+"31153",
+"62306"
+],
+"type": "uint16"
+},
+{
+"hash": "09cfa16e9f03a9c7",
+"name": "u32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"4294967295",
+"2654435761",
+"1013904226"
+],
+"type": "uint32"
+},
+{
+"hash": "091b47689e0f3d63",
+"name": "u64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"18446744073709551615",
+"2654435761",
+"5308871522"
+],
+"type": "uint64"
+},
+{
+"hash": "6142aee8c52e5c6e",
+"name": "f16",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4000",
+"f:c1a92000"
+],
+"type": "float"
+},
+{
+"hash": "d7e050bed91b5506",
+"name": "f32",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:00000000",
+"f:c1aa4925",
+"f:c1a92492"
+],
+"type": "float"
+},
+{
+"hash": "14eeecbd2f4e4160",
+"name": "f64",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:0000000000000000",
+"f:c035492492492492",
+"f:c035249249249249"
+],
+"type": "double"
+},
+{
+"hash": "89b5776d7ade13b3",
+"name": "dec_9_2",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999e-2",
+"d:-142055599e-2",
+"d:284111198e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "1648fd763adb80ee",
+"name": "dec_18_4",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:999999999999999999e-4",
+"d:-142373916142055599e-4",
+"d:284747832284111198e-4"
+],
+"type": "decimal128(18, 4)"
+},
+{
+"hash": "bb5b32b181734e2c",
+"name": "dec_38_10",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"d:99999999999999999999999999999999999999e-10",
+"d:-31142373916142055599e-10",
+"d:62284747832284111198e-10"
+],
+"type": "decimal128(38, 10)"
+},
+{
+"hash": "53bdf598dbe7efd2",
+"name": "dec_50_5",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"f:49466bb7f0435c9f",
+"f:c2f1b3cfd58eb4c9",
+"f:4301b3cfd58eb4c9"
+],
+"type": "double"
+},
+{
+"hash": "6e73d322f7e6990c",
+"name": "date",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"D:-719162",
+"D:-59749",
+"D:-59348"
+],
+"type": "date32[day]"
+},
+{
+"hash": "9751d801eae67d6d",
+"name": "time_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123000000",
+"t:574246000000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "516539e58f70edba",
+"name": "time_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457000",
+"t:574246914000"
+],
+"type": "time64[us]"
+},
+{
+"hash": "1be1a6a931ebc670",
+"name": "time_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"t:0",
+"t:287123457311",
+"t:574246914622"
+],
+"type": "time64[ns]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us]"
+},
+{
+"hash": "0a8bc4a60bbb5c2e",
+"name": "ts_ns",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-3367308303208986000",
+"T:-3333007503207985000",
+"T:-3298706703206984000"
+],
+"type": "timestamp[ns]"
+},
+{
+"hash": "f7daded3431d8d53",
+"name": "ts_us_utc",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999999000",
+"T:-3367308303208986000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "2605536a5c6db896",
+"name": "ts_ms_tokyo",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"T:-62135596800000000000",
+"T:253402300799999000000",
+"T:-3367308303209000000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "b9c30eefaa6d7393",
+"name": "dur_us",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"-18518518350",
+"-18395061561",
+"-18271604772"
+],
+"type": "int64"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "c5032fdb167b9292",
+"name": "str_required",
+"nulls": 0,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "942b21d2f0af6f07",
+"name": "large_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:",
+"u:6131",
+"u:68c3a96c6c6f32"
+],
+"type": "string"
+},
+{
+"hash": "8ec440200ef018fa",
+"name": "bin",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:",
+"b:01",
+"b:0202"
+],
+"type": "binary"
+},
+{
+"hash": "70281186fef7c47b",
+"name": "fixed",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"b:0001020304",
+"b:0102030405",
+"b:0203040506"
+],
+"type": "binary"
+},
+{
+"hash": "1dfb176d3b62408f",
+"name": "json",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:7b2261223a307d",
+"u:7b2261223a317d",
+"u:7b2261223a327d"
+],
+"type": "string"
+},
+{
+"hash": "67b98014353dc627",
+"name": "dict_str",
+"nulls": 43,
+"rows": 300,
+"sample": [
+"u:726564",
+"u:677265656e",
+"u:626c7565"
+],
+"type": "string"
+}
+],
+"rows": 300
+},
+"pyarrow": {
+"error": "OSError: Unexpected end of stream: InitBlock EOF"
+}
+},
+"matrix/enc_spark_v2.parquet": {
+"duckdb": {
+"columns": [
+{
+"hash": "8a66b38792a810b1",
+"name": "i",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"-2147483648",
+"-566789711",
+"-59837598"
+],
+"type": "int32"
+},
+{
+"hash": "5fa2ac622573e7de",
+"name": "l",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"-9223372036854775808",
+"-2859235813007982803",
+"3504900410838810202"
+],
+"type": "int64"
+},
+{
+"hash": "8f00434f0032b2d8",
+"name": "s",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"u:",
+"u:637573746f6d65725f3030303030305f31",
+"u:637573746f6d65725f3030303030305f32"
+],
+"type": "string"
+},
+{
+"hash": "1be008ae01b74825",
+"name": "b",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"b:",
+"b:01",
+"b:0203"
+],
+"type": "binary"
+},
+{
+"hash": "620292d20965a835",
+"name": "d32",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"d:-500000000e-2",
+"d:-499987655e-2",
+"d:-499975310e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "b76a4fc6a8aae6f8",
+"name": "d64",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"d:-500000000000000000e-3",
+"d:-499999998765432109e-3",
+"d:-499999997530864218e-3"
+],
+"type": "decimal128(18, 3)"
+},
+{
+"hash": "c8390c695293367a",
+"name": "dbig",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"d:-500000000000000000000000000000e-4",
+"d:-499999999999901234567876543200e-4",
+"d:-499999999999802469135753086400e-4"
+],
+"type": "decimal128(30, 4)"
+},
+{
+"hash": "734b144de49e4ebe",
+"name": "date",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"D:9223",
+"D:9230",
+"D:9237"
+],
+"type": "date32[day]"
+},
+{
+"hash": "1e248a79e0218139",
+"name": "ts",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"T:1704164645123456000",
+"T:1704170465123456000",
+"T:1704176285123456000"
+],
+"type": "timestamp[us, tz=Asia/Tokyo]"
+},
+{
+"hash": "f72f2a71dc841a91",
+"name": "f",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"f:0000000000000000",
+"f:3fc2492492492492",
+"f:3fd2492492492492"
+],
+"type": "double"
+}
+],
+"rows": 3000
+},
+"pyarrow": {
+"columns": [
+{
+"hash": "8a66b38792a810b1",
+"name": "i",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"-2147483648",
+"-566789711",
+"-59837598"
+],
+"type": "int32"
+},
+{
+"hash": "5fa2ac622573e7de",
+"name": "l",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"-9223372036854775808",
+"-2859235813007982803",
+"3504900410838810202"
+],
+"type": "int64"
+},
+{
+"hash": "8f00434f0032b2d8",
+"name": "s",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"u:",
+"u:637573746f6d65725f3030303030305f31",
+"u:637573746f6d65725f3030303030305f32"
+],
+"type": "string"
+},
+{
+"hash": "1be008ae01b74825",
+"name": "b",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"b:",
+"b:01",
+"b:0203"
+],
+"type": "binary"
+},
+{
+"hash": "620292d20965a835",
+"name": "d32",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"d:-500000000e-2",
+"d:-499987655e-2",
+"d:-499975310e-2"
+],
+"type": "decimal128(9, 2)"
+},
+{
+"hash": "b76a4fc6a8aae6f8",
+"name": "d64",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"d:-500000000000000000e-3",
+"d:-499999998765432109e-3",
+"d:-499999997530864218e-3"
+],
+"type": "decimal128(18, 3)"
+},
+{
+"hash": "c8390c695293367a",
+"name": "dbig",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"d:-500000000000000000000000000000e-4",
+"d:-499999999999901234567876543200e-4",
+"d:-499999999999802469135753086400e-4"
+],
+"type": "decimal128(30, 4)"
+},
+{
+"hash": "734b144de49e4ebe",
+"name": "date",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"D:9223",
+"D:9230",
+"D:9237"
+],
+"type": "date32[day]"
+},
+{
+"hash": "1e248a79e0218139",
+"name": "ts",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"T:1704164645123456000",
+"T:1704170465123456000",
+"T:1704176285123456000"
+],
+"type": "timestamp[us, tz=UTC]"
+},
+{
+"hash": "f72f2a71dc841a91",
+"name": "f",
+"nulls": 177,
+"rows": 3000,
+"sample": [
+"f:0000000000000000",
+"f:3fc2492492492492",
+"f:3fd2492492492492"
+],
+"type": "double"
+}
+],
+"rows": 3000
+}
+},
 "matrix/pa_decimal_as_int.parquet": {
 "duckdb": {
 "columns": [

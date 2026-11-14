@@ -64,6 +64,26 @@ public class ParquetFuzzRegressionTests
         Assert.Contains("fewer than its 4", e.Message);
     }
 
+    /// <summary>
+    /// A row group claiming far more rows than its column chunks hold values is refused before anything is sized by
+    /// that count (batches of one row planned up front once took all memory), with the columns read or none.
+    /// </summary>
+    [Fact]
+    public void RowCounts_BeyondTheColumnChunks_AreRefused()
+    {
+        SchemaElement[] schema = [HandBuiltParquet.Group("schema", 1, repetition: null), HandBuiltParquet.Leaf("x", ParquetType.Int32, FieldRepetition.Required)];
+        byte[] file = HandBuiltParquet.Build(schema, 1L << 40, new HandBuiltParquet.Column(["x"], ParquetType.Int32, 0, 0, [], [0, 0, 0], HandBuiltParquet.Int32s(1, 2, 3)));
+        foreach (string[]? columns in (string[]?[])[null, []])
+        {
+            using var parquet = ParquetFile.Open(new MemoryStream(file));
+            using var reader = parquet.OpenReader(new() { BatchSize = 1, Columns = columns });
+            Assert.Contains("more than any of its column chunks holds values (3)", Assert.Throws<ParquetFormatException>(() =>
+            {
+                foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+            }).Message);
+        }
+    }
+
     /// <summary>The stored Arrow schemas of the corpus (pyarrow, Polars, DuckDB, Spark writers) all pass the check.</summary>
     [Fact]
     public void StoredArrowSchemas_OfTheCorpus_AreSound()

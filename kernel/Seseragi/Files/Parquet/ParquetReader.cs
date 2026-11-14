@@ -329,7 +329,14 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         RowGroup group = _file.Thrift.RowGroups[g];
         long rows = group.NumRows;
         if (rows < 0) throw new ParquetFormatException($"Row group {g} has {rows} rows.");
-        List<(bool Read, int Count)> plan = Plan(rows, ranges);
+        // Every column chunk holds a value (or a null) per row at least: a row count beyond them all is damage, refused
+        // before anything is planned by it.
+        if (group.Columns.Length > 0)
+        {
+            long most = group.Columns.Max(c => c.MetaData?.NumValues ?? 0);
+            if (rows > most) throw new ParquetFormatException($"Row group {g} has {rows} rows, more than any of its column chunks holds values ({most}).");
+        }
+        IEnumerable<(bool Read, int Count)> plan = Plan(rows, ranges);
         (long Start, long Length)[]? chunkRanges = chunks is null ? ChunkRanges(g) : null;
         // A hold on the file's mapping for the decode of this row group (the reader may outlive a disposed file), taken
         // only when a chunk of it is read from the mapping: making and dropping a mapping is not free (measured on
@@ -445,18 +452,30 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             or ParquetType.Int96 or ParquetType.Float or ParquetType.Double or ParquetType.FixedLenByteArray;
 
     /// <summary>The batches to read and the rows to skip, in order: <paramref name="ranges"/> (all rows when null) cut by the batch size.</summary>
-    private List<(bool Read, int Count)> Plan(long rows, IReadOnlyList<(long Start, long Count)>? ranges)
+    /// <remarks>
+    /// The ranges are checked at once; the steps are made as they are taken (enumerated once per column), so that a
+    /// row count the data does not hold costs no memory before decoding finds that out.
+    /// </remarks>
+    private IEnumerable<(bool Read, int Count)> Plan(long rows, IReadOnlyList<(long Start, long Count)>? ranges)
     {
-        List<(bool, int)> plan = [];
         long at = 0;
         foreach (var (start, count) in ranges ?? [(0, rows)])
         {
             if (start < at || count < 0 || start + count > rows) throw new ArgumentOutOfRangeException(nameof(ranges), "Row ranges must be ordered and inside the row group.");
-            for (long skip = start - at; skip > 0; skip -= int.MaxValue) plan.Add((false, (int)Math.Min(skip, int.MaxValue)));
-            for (long left = count; left > 0; left -= _options.BatchSize) plan.Add((true, (int)Math.Min(left, _options.BatchSize)));
             at = start + count;
         }
-        return plan;
+        return Steps(rows, ranges, _options.BatchSize);
+
+        static IEnumerable<(bool Read, int Count)> Steps(long rows, IReadOnlyList<(long Start, long Count)>? ranges, int batchSize)
+        {
+            long at = 0;
+            foreach (var (start, count) in ranges ?? [(0, rows)])
+            {
+                for (long skip = start - at; skip > 0; skip -= int.MaxValue) yield return (false, (int)Math.Min(skip, int.MaxValue));
+                for (long left = count; left > 0; left -= batchSize) yield return (true, (int)Math.Min(left, batchSize));
+                at = start + count;
+            }
+        }
     }
 
     /// <summary>
@@ -464,7 +483,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// <paramref name="plan"/>: an array per batch, each over memory of its own.
     /// </summary>
     private IArrowArray[] DecodeColumn(int c, LeafReader[] readers, NativeColumnBuilder builder, Dictionary<ReadNode, LeafReader> byNode,
-        List<(bool Read, int Count)> plan, long rows, bool finish, CancellationToken cancellationToken)
+        IEnumerable<(bool Read, int Count)> plan, long rows, bool finish, CancellationToken cancellationToken)
     {
         ColumnMapping column = _columns[c];
         var (first, count) = _columnLeaves[c];
