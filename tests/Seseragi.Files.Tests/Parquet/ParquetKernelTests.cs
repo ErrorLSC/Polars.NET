@@ -609,6 +609,201 @@ public class ParquetKernelTests
         }
     }
 
+    // Bytes after an operation: around the fast loop's margin (80) on both buffers, the operation lands in the fast loop
+    // or in the checked tail. Filled by a literal, the input and output ends are close; by copies, the input ends
+    // first (3 bytes in for 64 out).
+    private static readonly int[] SnappyAfter = [0, 1, 7, 8, 15, 16, 40, 63, 64, 65, 71, 72, 73, 79, 80, 81, 100, 200, 600];
+
+    [Fact]
+    public void SnappyBlock_DecodesEveryCopyAndLiteral_InTheFastLoopAndTheCheckedTail()
+    {
+        var random = new Random(11);
+        int[] lengths = [.. Enumerable.Range(1, 20), 24, 31, 32, 33, 47, 48, 49, 63, 64];
+        foreach (int kind in (int[])[1, 2, 4])
+        {
+            foreach (int offset in (int[])[1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 16, 17, 31, 64, 100])
+            {
+                foreach (int n in kind == 1 ? Enumerable.Range(4, 8) : lengths)
+                {
+                    foreach (int after in SnappyAfter)
+                    {
+                        foreach (bool copies in (bool[])[false, true])
+                        {
+                            var block = new SnappyStream(random);
+                            block.Literal(Math.Max(offset, 20));
+                            block.Copy(kind, offset, n);
+                            block.Fill(after, copies);
+                            AssertSnappyDecodes(block);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Literals: short ones up to 60, long ones with their length in 1-4 bytes (a short length written long too).
+        foreach (int length in (int[])[1, 15, 16, 17, 33, 48, 49, 60, 61, 62, 100, 256, 257, 1000, 70_000])
+        {
+            foreach (int lengthBytes in (int[])[0, 1, 2, 3, 4])
+            {
+                if (lengthBytes == 0 ? length > 60 : length - 1 >= 1L << (8 * lengthBytes)) continue;
+                foreach (int after in SnappyAfter)
+                {
+                    foreach (bool copies in (bool[])[false, true])
+                    {
+                        var block = new SnappyStream(random);
+                        block.Literal(30);
+                        block.Literal(length, lengthBytes);
+                        block.Fill(after, copies);
+                        AssertSnappyDecodes(block);
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void SnappyBlock_RejectsBadOffsetsAndLengths_InTheFastLoopAndTheCheckedTail()
+    {
+        var random = new Random(13);
+        foreach (int before in (int[])[20, 300])
+        {
+            foreach (int after in SnappyAfter)
+            {
+                foreach (bool copies in (bool[])[false, true])
+                {
+                    Rejects(block => block.Copy(2, 0, 8, apply: false)); // offset 0
+                    Rejects(block => block.Copy(1, before + 1, 8, apply: false)); // one byte before the start
+                    Rejects(block => block.Copy(2, before + 1, 64, apply: false));
+                    Rejects(block => block.Copy(4, 1L << 31, 8, apply: false));
+                    Rejects(block => block.Copy(4, uint.MaxValue, 8, apply: false));
+                    // One byte more than declared, wherever the overrun falls.
+                    Rejects(block => block.Copy(2, 1, 64), shortBy: 1);
+                    Rejects(block => block.Literal(60), shortBy: 1);
+                    Rejects(block => block.Literal(200, 2), shortBy: 1);
+                    // A long literal longer than the input left.
+                    Rejects(block => block.LiteralHeader(1000 + after, 2));
+                    Rejects(block => block.LiteralHeader(int.MaxValue, 4));
+
+                    void Rejects(Action<SnappyStream> write, int shortBy = 0)
+                    {
+                        var block = new SnappyStream(random);
+                        block.Literal(before);
+                        write(block);
+                        block.Fill(after, copies);
+                        byte[] encoded = block.Encode(block.Plain.Count - shortBy);
+                        Assert.Throws<InvalidDataException>(() => SnappyBlock.Decompress(encoded, new byte[block.Plain.Count - shortBy]));
+                        if (!OperatingSystem.IsLinux()) return;
+                        using var source = GuardedMemory.Block.Copy(encoded);
+                        using var destination = new GuardedMemory.Block(block.Plain.Count - shortBy);
+                        Assert.Throws<InvalidDataException>(() => SnappyBlock.Decompress(source.GetSpan(), destination.GetSpan()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>Decodes into a poisoned array, and on Linux from and into memory ending at a guard page (an over-read or over-write faults).</summary>
+    private static void AssertSnappyDecodes(SnappyStream block)
+    {
+        byte[] encoded = block.Encode(block.Plain.Count);
+        byte[] expected = [.. block.Plain];
+        byte[] output = new byte[expected.Length];
+        output.AsSpan().Fill(0xCD);
+        Assert.Equal(expected.Length, SnappyBlock.Decompress(encoded, output));
+        Assert.True(output.AsSpan().SequenceEqual(expected));
+        if (!OperatingSystem.IsLinux()) return;
+        using var source = GuardedMemory.Block.Copy(encoded);
+        using var destination = new GuardedMemory.Block(expected.Length);
+        destination.GetSpan().Fill(0xCD);
+        Assert.Equal(expected.Length, SnappyBlock.Decompress(source.GetSpan(), destination.GetSpan()));
+        Assert.True(destination.GetSpan().SequenceEqual(expected));
+    }
+
+    /// <summary>A hand-written raw Snappy stream, and its bytes decoded the naive way (byte by byte).</summary>
+    private sealed class SnappyStream(Random random)
+    {
+        private readonly List<byte> _ops = [];
+
+        public List<byte> Plain { get; } = [];
+
+        /// <summary>
+        /// A literal of random bytes, its length - 1 in the tag (<paramref name="lengthBytes"/> 0) or in 1-4 bytes after
+        /// it; by default the shortest way.
+        /// </summary>
+        public void Literal(int length, int lengthBytes = -1)
+        {
+            LiteralHeader(length, lengthBytes);
+            for (int i = 0; i < length; i++)
+            {
+                byte b = (byte)random.Next(256);
+                _ops.Add(b);
+                Plain.Add(b);
+            }
+        }
+
+        /// <summary>A literal's tag and length alone.</summary>
+        public void LiteralHeader(long length, int lengthBytes)
+        {
+            if (lengthBytes < 0) lengthBytes = length <= 60 ? 0 : length <= 256 ? 1 : length <= 65536 ? 2 : 3;
+            if (lengthBytes == 0)
+            {
+                _ops.Add((byte)((length - 1) << 2));
+                return;
+            }
+            _ops.Add((byte)((59 + lengthBytes) << 2));
+            for (int i = 0; i < lengthBytes; i++) _ops.Add((byte)((length - 1) >> (8 * i)));
+        }
+
+        /// <summary>A copy with a 1-, 2- or 4-byte offset (<paramref name="kind"/>); unless <paramref name="apply"/>, the plain bytes get zeros.</summary>
+        public void Copy(int kind, long offset, int n, bool apply = true)
+        {
+            switch (kind)
+            {
+                case 1:
+                    _ops.Add((byte)(1 | (n - 4) << 2 | (int)(offset >> 8) << 5));
+                    _ops.Add((byte)offset);
+                    break;
+                case 2:
+                    _ops.Add((byte)(2 | (n - 1) << 2));
+                    _ops.Add((byte)offset);
+                    _ops.Add((byte)(offset >> 8));
+                    break;
+                default:
+                    _ops.Add((byte)(3 | (n - 1) << 2));
+                    for (int i = 0; i < 4; i++) _ops.Add((byte)(offset >> (8 * i)));
+                    break;
+            }
+            for (int i = 0; i < n; i++) Plain.Add(apply ? Plain[^(int)offset] : (byte)0);
+        }
+
+        /// <summary><paramref name="bytes"/> more bytes: one literal, or copies of 20 bytes back.</summary>
+        public void Fill(int bytes, bool copies)
+        {
+            if (!copies)
+            {
+                if (bytes > 0) Literal(bytes);
+                return;
+            }
+            for (; bytes > 0; bytes -= 64) Copy(2, 20, Math.Min(bytes, 64));
+        }
+
+        /// <summary>The stream: <paramref name="declared"/> as the uncompressed length, then the operations.</summary>
+        public byte[] Encode(int declared)
+        {
+            List<byte> bytes = [];
+            for (uint v = (uint)declared; ; v >>= 7)
+            {
+                if (v < 0x80)
+                {
+                    bytes.Add((byte)v);
+                    break;
+                }
+                bytes.Add((byte)(v | 0x80));
+            }
+            return [.. bytes, .. _ops];
+        }
+    }
+
     [Fact]
     public unsafe void ExportedBatch_KeepsItsMemory_UntilTheExportIsReleased_ThoughDisposed()
     {
