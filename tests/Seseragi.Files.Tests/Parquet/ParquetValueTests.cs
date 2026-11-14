@@ -113,6 +113,39 @@ public class ParquetValueTests
         for (int c = 0; c < sequential.Length; c++) Assert.Equal(sequential[c], parallel[c]);
     }
 
+    /// <summary>
+    /// Column chunks read the same however their bytes are got: fetched before decoding, sliced from memory, or read
+    /// page by page (forced here; most fixtures are small enough to be served from memory otherwise), on one thread
+    /// and on many; refused files fail with the same message.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Files))]
+    public void ChunkReadings_ReadAlike(string name)
+    {
+        JsonElement expected = Oracle.Value.RootElement.GetProperty("files").GetProperty(name);
+        if (expected.TryGetProperty("skipped", out _)) return;
+        (ChunkReading Reading, bool FromMemory)[] ways = [(ChunkReading.Fetch, false), (ChunkReading.Stream, false), (ChunkReading.Slice, true), (ChunkReading.Stream, true)];
+        if (Refused.ContainsKey(name))
+        {
+            string reference = Assert.ThrowsAny<ParquetFormatException>(() => ReadAll(name, 1_000, parallelism: 1)).Message;
+            foreach (var (reading, fromMemory) in ways)
+            {
+                foreach (int parallelism in (int[])[1, 8])
+                    Assert.Equal(reference, Assert.ThrowsAny<ParquetFormatException>(() => ReadAll(name, 1_000, parallelism: parallelism, reading: reading, fromMemory: fromMemory)).Message);
+            }
+            return;
+        }
+        var (_, columns) = ReadAll(name, 1_000, parallelism: 1);
+        foreach (var (reading, fromMemory) in ways)
+        {
+            foreach (int parallelism in (int[])[1, 8])
+            {
+                var (_, other) = ReadAll(name, 1_000, parallelism: parallelism, reading: reading, fromMemory: fromMemory);
+                for (int c = 0; c < columns.Length; c++) Assert.True(columns[c].SequenceEqual(other[c]), $"{reading}{(fromMemory ? " from memory" : "")}, {parallelism} threads, column {c}");
+            }
+        }
+    }
+
     /// <summary>Strings and binaries read the same in the classic layout (Utf8, Binary) as in the view layout the oracles were compared with.</summary>
     [Theory]
     [MemberData(nameof(Files))]
@@ -253,10 +286,15 @@ public class ParquetValueTests
         [.. schema.FieldsList.Where(f => f.DataType is not (ListType or StructType or MapType or FixedSizeListType)).Select(f => f.Name)];
 
     /// <summary>The columns of a file, each rendered row by row.</summary>
-    internal static (Apache.Arrow.Schema Schema, List<string>[] Columns) ReadAll(string name, int batchSize, bool viewTypes = true, int? parallelism = null)
+    internal static (Apache.Arrow.Schema Schema, List<string>[] Columns) ReadAll(string name, int batchSize, bool viewTypes = true, int? parallelism = null,
+        ChunkReading reading = ChunkReading.Auto, bool fromMemory = false)
     {
-        using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using var reader = file.OpenReader(new() { BatchSize = batchSize, ViewTypes = viewTypes, MaxDegreeOfParallelism = parallelism ?? Environment.ProcessorCount });
+        using var file = fromMemory ? ParquetFile.Open(new MemoryStream(File.ReadAllBytes(ParquetFixtures.FullPath(name)), 0, (int)new FileInfo(ParquetFixtures.FullPath(name)).Length, false, publiclyVisible: true))
+            : ParquetFile.Open(ParquetFixtures.FullPath(name));
+        using var reader = file.OpenReader(new()
+        {
+            BatchSize = batchSize, ViewTypes = viewTypes, MaxDegreeOfParallelism = parallelism ?? Environment.ProcessorCount, Reading = reading,
+        });
         List<string>[] columns = [.. reader.Schema.FieldsList.Select(_ => (List<string>)[])];
         foreach (RecordBatch batch in reader.ReadBatches())
         {

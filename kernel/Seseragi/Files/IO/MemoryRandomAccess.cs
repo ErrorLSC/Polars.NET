@@ -1,9 +1,17 @@
 namespace Kaminari.Seseragi.Files.IO;
 
 /// <summary>Bytes in memory read at offsets: a whole small file kept from its first read.</summary>
-internal sealed class MemoryRandomAccess(ReadOnlyMemory<byte> bytes) : IRandomAccess
+internal sealed class MemoryRandomAccess(ReadOnlyMemory<byte> bytes) : IRandomAccess, ILocalSource
 {
     public long Length => bytes.Length;
+
+    public bool TryGetMemory(out ReadOnlyMemory<byte> memory)
+    {
+        memory = bytes;
+        return true;
+    }
+
+    public bool SmallReadsAreCheap => true;
 
     public int ReadAt(long offset, Span<byte> destination)
     {

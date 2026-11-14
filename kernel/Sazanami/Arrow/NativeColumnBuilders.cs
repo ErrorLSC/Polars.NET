@@ -109,6 +109,24 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
     public abstract NativeCArray* Export(NativeBatchExport export);
 
     /// <summary>
+    /// Exports what was appended as an array of its own (over its own native memory, freed when the array and every
+    /// array sliced from it are disposed) and leaves this builder empty for the next batch.
+    /// </summary>
+    public IArrowArray ExportArray()
+    {
+        var export = new NativeBatchExport();
+        try
+        {
+            return export.ImportArray(Export(export), Type);
+        }
+        catch
+        {
+            export.FreeAll();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Expects <paramref name="slots"/> more slots in this batch (and, for variable-length values, about
     /// <paramref name="dataBytes"/> more value bytes): the buffers grow once instead of doubling up while filled.
     /// </summary>

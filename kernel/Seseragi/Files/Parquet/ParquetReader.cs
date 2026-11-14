@@ -13,8 +13,10 @@ namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>
 /// Reads the row groups of a <see cref="ParquetFile"/> as Arrow record batches in native memory, row group by row
-/// group (a batch never spans two). Each row group's selected column chunks are fetched with few ranged reads,
-/// then decoded page by page.
+/// group (a batch never spans two). The unit of work is a column of a row group (a nested column's leaves
+/// together), decoded page by page from start to end and cut into batches; the row group's batches are put together
+/// once all its columns are done. Column chunks are read as the source suits: sliced when it lives in memory, page by
+/// page when it is a local file, and otherwise (a store) fetched with few ranged reads before decoding.
 /// </summary>
 public sealed class ParquetReader : IDisposable, IAsyncDisposable
 {
@@ -31,6 +33,10 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly int[] _rowGroups;
     private readonly bool _oldParquetMr;
     private readonly NativeBufferPool _buffers;
+    private readonly (int First, int Count)[] _columnLeaves; // each column's leaves in _leaves
+    private readonly ReadOnlyMemory<byte>? _memory;           // the source's bytes, when it lives in memory
+    private readonly bool _fetch;                             // whether chunks are fetched before decoding (not a local source)
+    private readonly ConcurrentExclusiveSchedulerPair _schedulers;
 
     internal ParquetReader(ParquetFile file, ParquetReadOptions options)
     {
@@ -40,6 +46,22 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         var (_, all) = ArrowMapping.Map(file.Tree, file.Thrift, options);
         _columns = Select(all, options.Columns, options.ColumnPaths);
         _leaves = [.. _columns.SelectMany(c => c.Read.Leaves())];
+        _columnLeaves = new (int, int)[_columns.Length];
+        for (int c = 0, first = 0; c < _columns.Length; c++)
+        {
+            int count = _columns[c].Read.Leaves().Count();
+            _columnLeaves[c] = (first, count);
+            first += count;
+        }
+        if (options.Reading is ChunkReading.Auto or ChunkReading.Slice && file.Source is ILocalSource local && local.TryGetMemory(out ReadOnlyMemory<byte> memory))
+            _memory = memory;
+        _fetch = options.Reading switch
+        {
+            ChunkReading.Fetch => true,
+            ChunkReading.Stream => false,
+            _ => _memory is null && file.Source is not ILocalSource { SmallReadsAreCheap: true },
+        };
+        _schedulers = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, Math.Max(1, options.MaxDegreeOfParallelism));
         _rowGroups = options.RowGroups is { } groups ? [.. groups] : [.. Enumerable.Range(0, file.Thrift.RowGroups.Length)];
         foreach (int g in _rowGroups)
         {
@@ -48,13 +70,16 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         }
         Schema = new Apache.Arrow.Schema([.. _columns.Select(c => c.Field)], null);
         _oldParquetMr = IsOldParquetMr(file.Thrift.CreatedBy);
-        // Per row group in flight: its fetched chunks (a few) and one decompression scratch per leaf.
+        // Per row group in flight: its fetched chunks (a few), and per leaf a decompression scratch and a read window.
         int inFlight = options.MaxDegreeOfParallelism > 1 ? Math.Min(options.MaxDegreeOfParallelism, _rowGroups.Length) + 1 : 1;
-        _buffers = new NativeBufferPool((_leaves.Length + 4) * inFlight);
+        _buffers = new NativeBufferPool((2 * _leaves.Length + 4) * inFlight);
     }
 
     /// <summary>The Arrow schema of the batches (the selected columns, in file order).</summary>
     public Apache.Arrow.Schema Schema { get; }
+
+    /// <summary>How column chunks are read: fetched, sliced from memory, or page by page.</summary>
+    internal ChunkReading EffectiveReading => _fetch ? ChunkReading.Fetch : _memory is not null ? ChunkReading.Slice : ChunkReading.Stream;
 
     /// <summary>The number of column chunks read per row group (the leaves of the selection).</summary>
     internal int LeafCount => _leaves.Length;
@@ -94,18 +119,35 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
 
     /// <summary>Reads the batches.</summary>
     /// <exception cref="ParquetFormatException">A page is damaged, or uses an encoding or codec this library does not read.</exception>
-    public IEnumerable<RecordBatch> ReadBatches()
-    {
-        if (_options.MaxDegreeOfParallelism > 1 && _rowGroups.Length > 1) return ReadParallel();
-        return ReadSequential();
-    }
+    public IEnumerable<RecordBatch> ReadBatches() => InParallel ? ReadParallel() : ReadSequential();
+
+    /// <summary>Whether there is more than one unit to run side by side.</summary>
+    private bool InParallel => _options.MaxDegreeOfParallelism > 1 && (_rowGroups.Length > 1 || _columns.Length > 1);
 
     private IEnumerable<RecordBatch> ReadSequential()
     {
         foreach (int g in _rowGroups)
         {
-            using RowGroupChunks chunks = Fetch(g, useAsync: false, default).AsTask().GetAwaiter().GetResult();
-            foreach (RecordBatch batch in Decode(g, chunks)) yield return batch;
+            foreach (RecordBatch batch in Hand(DecodeRowGroup(g, default))) yield return batch;
+        }
+    }
+
+    /// <summary>Hands the batches out one by one; those not taken when the consumer stops are disposed.</summary>
+    private static IEnumerable<RecordBatch> Hand(RecordBatch[] batches)
+    {
+        int i = 0;
+        try
+        {
+            for (; i < batches.Length; i++)
+            {
+                RecordBatch batch = batches[i];
+                batches[i] = null!;
+                yield return batch;
+            }
+        }
+        finally
+        {
+            for (; i < batches.Length; i++) batches[i]?.Dispose();
         }
     }
 
@@ -142,15 +184,15 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// <inheritdoc cref="ReadBatches"/>
     public async IAsyncEnumerable<RecordBatch> ReadBatchesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        if (_options.MaxDegreeOfParallelism > 1 && _rowGroups.Length > 1)
+        if (InParallel)
         {
             await foreach (RecordBatch batch in ReadParallelAsync(cancellationToken).ConfigureAwait(false)) yield return batch;
             yield break;
         }
         foreach (int g in _rowGroups)
         {
-            using RowGroupChunks chunks = await Fetch(g, useAsync: true, cancellationToken).ConfigureAwait(false);
-            foreach (RecordBatch batch in Decode(g, chunks))
+            RecordBatch[] batches = await DecodeRowGroupAsync(g, useAsync: true, parallel: false, cancellationToken).ConfigureAwait(false);
+            foreach (RecordBatch batch in Hand(batches))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 yield return batch;
@@ -159,9 +201,10 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Row groups decoded side by side, a window of <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> of them
-    /// ahead of the consumer, delivered in order. A consumer that stops early cancels the rest and frees what they
-    /// decoded.
+    /// Row groups decoded side by side, their columns as units on a scheduler running at most
+    /// <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> of them; up to that many row groups ahead of the
+    /// consumer (fewer when their sizes pass <see cref="ParquetReadOptions.InFlightBytes"/>), delivered in order. A consumer that stops
+    /// early cancels the rest and frees what they decoded.
     /// </summary>
     private IEnumerable<RecordBatch> ReadParallel()
     {
@@ -193,18 +236,24 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         private RecordBatch[]? _taking;
         private int _taken; // batches of _taking already handed out
         private int _started;
+        private long _inFlight; // uncompressed bytes of the row groups started and not yet taken
+
+        private long Size(int index) => Math.Max(0, reader._file.Thrift.RowGroups[reader._rowGroups[index]].TotalByteSize);
 
         /// <summary>Starts the row groups up to the window's end and waits for the <paramref name="index"/>th.</summary>
         public async Task<IEnumerable<RecordBatch>> Take(int index)
         {
-            for (; _started < _tasks.Length && _started < index + reader._options.MaxDegreeOfParallelism; _started++)
+            for (; _started < _tasks.Length && _started < index + reader._options.MaxDegreeOfParallelism
+                   && (_started == index || _inFlight + Size(_started) <= reader._options.InFlightBytes); _started++)
             {
                 int g = reader._rowGroups[_started];
                 CancellationToken token = _cancel.Token;
-                _tasks[_started] = Task.Run(() => reader.DecodeRowGroup(g, token), token);
+                _inFlight += Size(_started);
+                _tasks[_started] = Task.Run(() => reader.DecodeRowGroupAsync(g, useAsync: true, parallel: true, token), token);
             }
             RecordBatch[] batches = await _tasks[index]!.ConfigureAwait(false);
             _tasks[index] = null;
+            _inFlight -= Size(index);
             _taking = batches;
             _taken = 0;
             return Hand(batches);
@@ -243,127 +292,181 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         }
     }
 
-    /// <summary>Fetches and decodes a whole row group (the unit parallel reading schedules).</summary>
-    internal RecordBatch[] DecodeRowGroup(int g, CancellationToken cancellationToken)
+    /// <summary>Reads and decodes a whole row group, its columns one after the other.</summary>
+    internal RecordBatch[] DecodeRowGroup(int g, CancellationToken cancellationToken) =>
+        DecodeRowGroupAsync(g, useAsync: false, parallel: false, cancellationToken).GetAwaiter().GetResult();
+
+    /// <summary>Reads and decodes a whole row group (the unit parallel reading schedules), its columns side by side when asked.</summary>
+    internal async Task<RecordBatch[]> DecodeRowGroupAsync(int g, bool useAsync, bool parallel, CancellationToken cancellationToken)
     {
-        using RowGroupChunks chunks = Fetch(g, useAsync: false, cancellationToken).AsTask().GetAwaiter().GetResult();
-        List<RecordBatch> batches = [];
-        try
-        {
-            foreach (RecordBatch batch in Decode(g, chunks))
-            {
-                batches.Add(batch);
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-            return [.. batches];
-        }
-        catch
-        {
-            foreach (RecordBatch batch in batches) batch.Dispose();
-            throw;
-        }
+        using RowGroupChunks? chunks = _fetch ? await Fetch(g, useAsync, cancellationToken).ConfigureAwait(false) : null;
+        return await DecodeColumnsAsync(g, chunks, null, parallel, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Decodes a fetched row group into batches; <paramref name="ranges"/> (internal) selects row ranges.</summary>
-    internal IEnumerable<RecordBatch> Decode(int g, RowGroupChunks chunks, IReadOnlyList<(long Start, long Count)>? ranges = null)
+    /// <summary>
+    /// Decodes a row group into batches, from fetched <paramref name="chunks"/> or (null) straight from the source;
+    /// <paramref name="ranges"/> (internal) selects row ranges.
+    /// </summary>
+    internal IEnumerable<RecordBatch> Decode(int g, RowGroupChunks? chunks, IReadOnlyList<(long Start, long Count)>? ranges = null) =>
+        Hand(DecodeColumnsAsync(g, chunks, ranges, parallel: false, default).GetAwaiter().GetResult());
+
+    /// <summary>
+    /// Decodes the selected columns of a row group, each from its first page to its last (side by side when
+    /// <paramref name="parallel"/>), and puts the batches together. Of several failing columns the first one's error
+    /// is reported, whatever the order they ran in.
+    /// </summary>
+    private async Task<RecordBatch[]> DecodeColumnsAsync(int g, RowGroupChunks? chunks, IReadOnlyList<(long Start, long Count)>? ranges, bool parallel,
+        CancellationToken cancellationToken)
     {
         RowGroup group = _file.Thrift.RowGroups[g];
         long rows = group.NumRows;
         if (rows < 0) throw new ParquetFormatException($"Row group {g} has {rows} rows.");
+        List<(bool Read, int Count)> plan = Plan(rows, ranges);
+        (long Start, long Length)[]? chunkRanges = chunks is null ? ChunkRanges(g) : null;
         var readers = new LeafReader[_leaves.Length];
+        var builders = new NativeColumnBuilder[_columns.Length];
+        var arrays = new IArrowArray[]?[_columns.Length];
         Dictionary<ReadNode, LeafReader> byNode = [];
-        NativeStructBuilder? root = null;
         try
         {
             for (int l = 0; l < _leaves.Length; l++)
             {
                 ReadNode leaf = _leaves[l];
                 ColumnMetaData meta = group.Columns[leaf.Leaf!.LeafIndex].MetaData!;
-                readers[l] = LeafReaders.Create(new PageReader(chunks.Chunk(l), meta.Codec, _options.VerifyChecksums, _buffers), leaf.Leaf, leaf.LeafType!, meta.NumValues);
+                PageReader pages = chunkRanges is not { } at
+                    ? new PageReader(chunks!.Chunk(l), meta.Codec, _options.VerifyChecksums, _buffers)
+                    : _memory is { } memory
+                        ? new PageReader(memory.Slice((int)at[l].Start, (int)at[l].Length), meta.Codec, _options.VerifyChecksums, _buffers)
+                        : new PageReader(_file.Source, at[l].Start, at[l].Length, meta.Codec, _options.VerifyChecksums, _buffers);
+                readers[l] = LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
                 readers[l].UncompressedBytes = meta.TotalUncompressedSize;
                 byNode[leaf] = readers[l];
             }
             foreach (ColumnMapping column in _columns) ConfigureLeaves(column.Read, byNode, keepLevels: !column.IsFlat, fixedSizeList: null);
-            NativeColumnBuilder[] builders = [.. _columns.Select(c => NestedAssembler.CreateBuilder(c.Read, byNode))];
-            // Arrow has no struct of no fields: a batch without columns is made directly.
-            if (_columns.Length > 0) root = new NativeStructBuilder(new StructType([.. _columns.Select(c => c.Field)]), builders);
-            IReadOnlyList<(long Start, long Count)> selected = ranges ?? [(0, rows)];
-            long at = 0;
-            foreach (var (start, count) in selected)
+            for (int c = 0; c < _columns.Length; c++) builders[c] = NestedAssembler.CreateBuilder(_columns[c].Read, byNode);
+
+            if (parallel && _columns.Length > 1)
             {
-                if (start < at || count < 0 || start + count > rows) throw new ArgumentOutOfRangeException(nameof(ranges), "Row ranges must be ordered and inside the row group.");
-                for (long skip = start - at; skip > 0;)
+                var tasks = new Task<IArrowArray[]>[_columns.Length];
+                for (int c = 0; c < tasks.Length; c++)
                 {
-                    int n = (int)Math.Min(skip, int.MaxValue);
-                    foreach (LeafReader r in readers) r.Skip(n);
-                    skip -= n;
+                    int column = c;
+                    tasks[c] = Task.Factory.StartNew(() => DecodeColumn(column, readers, builders[column], byNode, plan, rows, ranges is null, cancellationToken),
+                        cancellationToken, TaskCreationOptions.DenyChildAttach, _schedulers.ConcurrentScheduler);
                 }
-                for (long left = count; left > 0;)
+                try
                 {
-                    int n = (int)Math.Min(left, _options.BatchSize);
-                    if (_options.MaxDegreeOfParallelism > 1 && readers.Length > 1)
-                    {
-                        // The columns' readers share nothing: read them side by side. Of several failures the first
-                        // column's is reported, as reading them in order would.
-                        var errors = new Exception?[readers.Length];
-                        Parallel.For(0, readers.Length, new ParallelOptions { MaxDegreeOfParallelism = _options.MaxDegreeOfParallelism }, l =>
-                        {
-                            try
-                            {
-                                readers[l].Reserve(n, rows);
-                                readers[l].Read(n);
-                            }
-                            catch (Exception e)
-                            {
-                                errors[l] = e;
-                            }
-                        });
-                        if (System.Array.Find(errors, e => e is not null) is { } error)
-                            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(error);
-                    }
-                    else
-                    {
-                        foreach (LeafReader r in readers)
-                        {
-                            r.Reserve(n, rows);
-                            r.Read(n);
-                        }
-                    }
-                    for (int c = 0; c < _columns.Length; c++)
-                    {
-                        try
-                        {
-                            if (!_columns[c].IsFlat) NestedAssembler.Assemble(_columns[c].Read, builders[c], byNode, _columns[c].Field.Name);
-                        }
-                        catch (InvalidOperationException e)
-                        {
-                            throw new ParquetFormatException($"Column '{_columns[c].Field.Name}': {e.Message}", e);
-                        }
-                        if (builders[c].Length != n)
-                            throw new ParquetFormatException($"Column '{_columns[c].Field.Name}' holds {builders[c].Length} rows of the {n} read.");
-                    }
-                    RecordBatch batch;
-                    if (root is null) batch = new RecordBatch(Schema, [], n);
-                    else
-                    {
-                        root.EndStructs(n);
-                        batch = root.ExportBatch(Schema);
-                    }
-                    foreach (LeafReader r in readers) r.BatchExported();
-                    left -= n;
-                    yield return batch;
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
                 }
-                at = start + count;
+                catch
+                {
+                    foreach (Task<IArrowArray[]> task in tasks)
+                    {
+                        if (task.IsCompletedSuccessfully) Dispose(task.Result);
+                    }
+                    Task first = System.Array.Find(tasks, t => !t.IsCompletedSuccessfully)!;
+                    if (first.Exception?.InnerException is { } error) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(error);
+                    throw new OperationCanceledException(cancellationToken);
+                }
+                for (int c = 0; c < tasks.Length; c++) arrays[c] = tasks[c].Result;
             }
-            if (ranges is null)
+            else
             {
-                foreach (LeafReader r in readers) r.Finish();
+                for (int c = 0; c < _columns.Length; c++) arrays[c] = DecodeColumn(c, readers, builders[c], byNode, plan, rows, ranges is null, cancellationToken);
             }
+
+            List<RecordBatch> batches = [];
+            int b = 0;
+            foreach (var (read, n) in plan)
+            {
+                if (!read) continue;
+                int at = b++;
+                batches.Add(new RecordBatch(Schema, [.. arrays.Select(column => column![at])], n));
+            }
+            return [.. batches];
+        }
+        catch
+        {
+            foreach (IArrowArray[]? column in arrays) Dispose(column);
+            throw;
         }
         finally
         {
             foreach (LeafReader? r in readers) r?.Dispose();
-            root?.Dispose(); // its children are the readers' builders: disposing twice is harmless
+            // A flat column's builder is its reader's: disposing twice is harmless.
+            foreach (NativeColumnBuilder? builder in builders) builder?.Dispose();
+        }
+
+        static void Dispose(IArrowArray[]? arrays)
+        {
+            foreach (IArrowArray array in arrays ?? []) array.Dispose();
+        }
+    }
+
+    /// <summary>The batches to read and the rows to skip, in order: <paramref name="ranges"/> (all rows when null) cut by the batch size.</summary>
+    private List<(bool Read, int Count)> Plan(long rows, IReadOnlyList<(long Start, long Count)>? ranges)
+    {
+        List<(bool, int)> plan = [];
+        long at = 0;
+        foreach (var (start, count) in ranges ?? [(0, rows)])
+        {
+            if (start < at || count < 0 || start + count > rows) throw new ArgumentOutOfRangeException(nameof(ranges), "Row ranges must be ordered and inside the row group.");
+            for (long skip = start - at; skip > 0; skip -= int.MaxValue) plan.Add((false, (int)Math.Min(skip, int.MaxValue)));
+            for (long left = count; left > 0; left -= _options.BatchSize) plan.Add((true, (int)Math.Min(left, _options.BatchSize)));
+            at = start + count;
+        }
+        return plan;
+    }
+
+    /// <summary>
+    /// Decodes one column of a row group (its leaves side by side, record by record) through the whole
+    /// <paramref name="plan"/>: an array per batch, each over memory of its own.
+    /// </summary>
+    private IArrowArray[] DecodeColumn(int c, LeafReader[] readers, NativeColumnBuilder builder, Dictionary<ReadNode, LeafReader> byNode,
+        List<(bool Read, int Count)> plan, long rows, bool finish, CancellationToken cancellationToken)
+    {
+        ColumnMapping column = _columns[c];
+        var (first, count) = _columnLeaves[c];
+        ReadOnlySpan<LeafReader> leaves = readers.AsSpan(first, count);
+        List<IArrowArray> arrays = [];
+        try
+        {
+            foreach (var (read, n) in plan)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!read)
+                {
+                    foreach (LeafReader r in leaves) r.Skip(n);
+                    continue;
+                }
+                foreach (LeafReader r in leaves)
+                {
+                    r.Reserve(n, rows);
+                    r.Read(n);
+                }
+                try
+                {
+                    if (!column.IsFlat) NestedAssembler.Assemble(column.Read, builder, byNode, column.Field.Name);
+                }
+                catch (InvalidOperationException e)
+                {
+                    throw new ParquetFormatException($"Column '{column.Field.Name}': {e.Message}", e);
+                }
+                if (builder.Length != n)
+                    throw new ParquetFormatException($"Column '{column.Field.Name}' holds {builder.Length} rows of the {n} read.");
+                arrays.Add(builder.ExportArray());
+                foreach (LeafReader r in leaves) r.BatchExported();
+            }
+            if (finish)
+            {
+                foreach (LeafReader r in leaves) r.Finish();
+            }
+            return [.. arrays];
+        }
+        catch
+        {
+            foreach (IArrowArray array in arrays) array.Dispose();
+            throw;
         }
     }
 
@@ -378,8 +481,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         foreach (ReadNode child in node.Children) ConfigureLeaves(child, readers, keepLevels, node.Kind == ReadKind.FixedSizeList ? node : null);
     }
 
-    /// <summary>Reads the selected column chunks of a row group, coalescing nearby ones into one read.</summary>
-    internal async ValueTask<RowGroupChunks> Fetch(int g, bool useAsync, CancellationToken ct)
+    /// <summary>Where the selected column chunks of a row group lie (checked: in this file, a codec this library reads).</summary>
+    private (long Start, long Length)[] ChunkRanges(int g)
     {
         RowGroup group = _file.Thrift.RowGroups[g];
         var ranges = new (long Start, long Length)[_leaves.Length];
@@ -393,7 +496,13 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             if (!PageCodecs.CanDecompress(meta.Codec)) throw new ParquetFormatException($"Column '{name}' is compressed with {PageCodecs.Name(meta.Codec)}, which is not supported.");
             ranges[l] = ChunkRange(meta, _file.Source.Length, name, _oldParquetMr);
         }
-        var chunks = new RowGroupChunks(ranges, _buffers);
+        return ranges;
+    }
+
+    /// <summary>Reads the selected column chunks of a row group, coalescing nearby ones into one read.</summary>
+    internal async ValueTask<RowGroupChunks> Fetch(int g, bool useAsync, CancellationToken ct)
+    {
+        var chunks = new RowGroupChunks(ChunkRanges(g), _buffers);
         try
         {
             foreach (var (start, length, buffer) in chunks.Reads)
@@ -504,7 +613,11 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     }
 
     /// <inheritdoc/>
-    public void Dispose() => _buffers.Dispose();
+    public void Dispose()
+    {
+        _schedulers.Complete();
+        _buffers.Dispose();
+    }
 
     /// <inheritdoc/>
     public ValueTask DisposeAsync()

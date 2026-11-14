@@ -1,9 +1,11 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
+using Kaminari.Seseragi.Files.Parquet.Reading;
 
 namespace Seseragi.Files.Tests.Parquet;
 
@@ -74,9 +76,12 @@ public class ParquetReaderTests
     public void CorruptChecksums_FailOnlyWhenVerified(string name)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using (var reader = file.OpenReader()) Assert.NotEmpty(Rows(reader.ReadBatches()));
-        using var verifying = file.OpenReader(new() { VerifyChecksums = true });
-        Assert.Contains("CRC", Assert.Throws<ParquetFormatException>(() => Rows(verifying.ReadBatches())).Message);
+        foreach (ChunkReading reading in (ChunkReading[])[ChunkReading.Auto, ChunkReading.Fetch, ChunkReading.Stream])
+        {
+            using (var reader = file.OpenReader(new() { Reading = reading })) Assert.NotEmpty(Rows(reader.ReadBatches()));
+            using var verifying = file.OpenReader(new() { VerifyChecksums = true, Reading = reading });
+            Assert.Contains("CRC", Assert.Throws<ParquetFormatException>(() => Rows(verifying.ReadBatches())).Message);
+        }
     }
 
     [Theory]
@@ -88,8 +93,11 @@ public class ParquetReaderTests
     public void ValidChecksums_Verify(string name)
     {
         using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
-        using var reader = file.OpenReader(new() { VerifyChecksums = true });
-        Assert.NotEmpty(Rows(reader.ReadBatches()));
+        foreach (ChunkReading reading in (ChunkReading[])[ChunkReading.Auto, ChunkReading.Fetch, ChunkReading.Stream])
+        {
+            using var reader = file.OpenReader(new() { VerifyChecksums = true, Reading = reading });
+            Assert.NotEmpty(Rows(reader.ReadBatches()));
+        }
     }
 
     [Fact]
@@ -429,5 +437,105 @@ public class ParquetReaderTests
             Assert.Equal(amounts[amountPicks[a++]], amount.GetValue(i));
             Assert.Equal(i < 3 ? plain[i - 1] : texts[textPicks[t++]], text.GetString(i));
         }
+    }
+
+    /// <summary>
+    /// Read page by page from a file, a page header larger than the first bytes looked at (statistics of 200 KB) is
+    /// parsed from more; a source that ends inside a column chunk is a format error in every way of reading.
+    /// </summary>
+    [Fact]
+    public void Streaming_LargePageHeaders_AndSourcesCutShort()
+    {
+        // The value page is larger than what is read ahead at once.
+        string big = new('x', PageReader.ReadAhead + 200_000);
+        string stats = new('x', 200_000);
+        SchemaElement[] schema =
+        [
+            HandBuiltParquet.Group("schema", 1, repetition: null),
+            HandBuiltParquet.Leaf("s", ParquetType.ByteArray, FieldRepetition.Required, ConvertedType.Utf8),
+        ];
+        string[] values = ["first", big, "last"];
+        byte[] file = HandBuiltParquet.Build(schema, values.Length,
+            new HandBuiltParquet.Column(["s"], ParquetType.ByteArray, 0, 0, [], [], HandBuiltParquet.Strings(values),
+                PageStatistics: new Statistics { MinValue = System.Text.Encoding.UTF8.GetBytes(stats), MaxValue = System.Text.Encoding.UTF8.GetBytes(stats) }));
+
+        // Also from a stream that starts 100 bytes into its buffer (memory is sliced from there).
+        byte[] prefixed = [.. new byte[100], .. file];
+        foreach (ChunkReading reading in (ChunkReading[])[ChunkReading.Stream, ChunkReading.Fetch, ChunkReading.Slice])
+        {
+            foreach (bool prefix in (bool[])[false, true])
+            {
+                var stream = prefix ? new MemoryStream(prefixed, 0, prefixed.Length, false, publiclyVisible: true) { Position = 100 }
+                    : new MemoryStream(file, 0, file.Length, false, publiclyVisible: true);
+                using var parquet = ParquetFile.Open(stream);
+                using var reader = parquet.OpenReader(new() { Reading = reading });
+                Assert.Equal(reading, reader.EffectiveReading);
+                using RecordBatch batch = Assert.Single(reader.ReadBatches());
+                Assert.Equal(values, Enumerable.Range(0, 3).Select(i => ((StringViewArray)batch.Column(0)).GetString(i)));
+            }
+        }
+
+        // The footer is intact; the data stops 1000 bytes into the column chunk.
+        foreach (ChunkReading reading in (ChunkReading[])[ChunkReading.Stream, ChunkReading.Fetch])
+        {
+            using var parquet = ParquetFile.Open(new CutShort(file, 1004));
+            using var reader = parquet.OpenReader(new() { Reading = reading });
+            Assert.ThrowsAny<ParquetFormatException>(() => Rows(reader.ReadBatches()));
+        }
+    }
+
+    /// <summary>A source that reads nothing between <paramref name="cut"/> and its last 64 KiB (where opening reads the footer).</summary>
+    private sealed class CutShort(byte[] bytes, int cut) : IRandomAccess
+    {
+        public long Length => bytes.Length;
+
+        public int ReadAt(long offset, Span<byte> destination)
+        {
+            if (offset >= bytes.Length - 65_536) return Copy(offset, destination);
+            if (offset >= cut) return 0;
+            return Copy(offset, destination[..(int)Math.Min(destination.Length, cut - offset)]);
+        }
+
+        private int Copy(long offset, Span<byte> destination)
+        {
+            int count = (int)Math.Clamp(bytes.Length - offset, 0, destination.Length);
+            bytes.AsSpan((int)offset, count).CopyTo(destination);
+            return count;
+        }
+
+        public ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(ReadAt(offset, destination.Span));
+    }
+
+    /// <summary>Row groups larger than the in-flight budget are still read, one at a time, in order.</summary>
+    [Fact]
+    public void RowGroupsOverTheInFlightBudget_ReadOneAtATime()
+    {
+        using var file = ParquetFile.Open(ParquetFixtures.FullPath("matrix/pa_pages_rowgroups.parquet"));
+        Assert.True(file.Metadata.RowGroups.Count > 1);
+        List<string> Read(long budget)
+        {
+            using var reader = file.OpenReader(new() { MaxDegreeOfParallelism = 8, InFlightBytes = budget, BatchSize = 100 });
+            return Rows(reader.ReadBatches());
+        }
+        Assert.Equal(Read(512L << 20), Read(1));
+    }
+
+    /// <summary>Without a forced way, chunks are sliced from memory, read page by page from a file, and fetched from other sources.</summary>
+    [Fact]
+    public void ChunkReading_FollowsTheSource()
+    {
+        string path = ParquetFixtures.FullPath("matrix/pa_pages_rowgroups.parquet");
+        byte[] bytes = File.ReadAllBytes(path);
+        Assert.True(bytes.Length > 65_536, "the file must be larger than what opening reads at once");
+        using (var file = ParquetFile.Open(path))
+        using (var reader = file.OpenReader())
+            Assert.Equal(ChunkReading.Stream, reader.EffectiveReading);
+        using (var file = ParquetFile.Open(new MemoryStream(bytes, 0, bytes.Length, false, publiclyVisible: true)))
+        using (var reader = file.OpenReader())
+            Assert.Equal(ChunkReading.Slice, reader.EffectiveReading);
+        using (var file = ParquetFile.Open(new CutShort(bytes, bytes.Length)))
+        using (var reader = file.OpenReader())
+            Assert.Equal(ChunkReading.Fetch, reader.EffectiveReading);
     }
 }

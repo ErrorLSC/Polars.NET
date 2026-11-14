@@ -18,13 +18,13 @@ internal static class HandBuiltParquet
     /// </summary>
     public sealed record Column(string[] Path, ParquetType Type, int MaxDefinition, int MaxRepetition, byte[] Definitions, byte[] Repetitions, byte[] Values,
         ParquetEncoding LevelEncoding = ParquetEncoding.Rle, long? FooterValues = null, long? FooterUncompressedSize = null,
-        ParquetEncoding Encoding = ParquetEncoding.Plain, Dictionary? Dictionary = null, DataPage[]? MorePages = null);
+        ParquetEncoding Encoding = ParquetEncoding.Plain, Dictionary? Dictionary = null, DataPage[]? MorePages = null, Statistics? PageStatistics = null);
 
     /// <summary>A dictionary page: <paramref name="Count"/> PLAIN values.</summary>
     public sealed record Dictionary(int Count, byte[] Values);
 
     /// <summary>A further data page of a leaf.</summary>
-    public sealed record DataPage(byte[] Definitions, byte[] Repetitions, byte[] Values, ParquetEncoding Encoding = ParquetEncoding.Plain);
+    public sealed record DataPage(byte[] Definitions, byte[] Repetitions, byte[] Values, ParquetEncoding Encoding = ParquetEncoding.Plain, Statistics? Statistics = null);
 
     public static byte[] Build(SchemaElement[] schema, long rows, params Column[] leaves)
     {
@@ -49,7 +49,7 @@ internal static class HandBuiltParquet
             }
             long dataOffset = file.Position;
             long count = 0;
-            foreach (DataPage data in (DataPage[])[new(leaf.Definitions, leaf.Repetitions, leaf.Values, leaf.Encoding), .. leaf.MorePages ?? []])
+            foreach (DataPage data in (DataPage[])[new(leaf.Definitions, leaf.Repetitions, leaf.Values, leaf.Encoding, leaf.PageStatistics), .. leaf.MorePages ?? []])
             {
                 int values = Math.Max(data.Definitions.Length, data.Repetitions.Length);
                 if (values == 0) values = (int)rows;
@@ -71,6 +71,7 @@ internal static class HandBuiltParquet
                         Encoding = data.Encoding,
                         DefinitionLevelEncoding = leaf.LevelEncoding,
                         RepetitionLevelEncoding = leaf.LevelEncoding,
+                        Statistics = data.Statistics,
                     },
                 }.Write(header);
                 file.Write(header.WrittenSpan);

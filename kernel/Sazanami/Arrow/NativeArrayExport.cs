@@ -102,6 +102,25 @@ internal sealed unsafe class NativeBatchExport
         }
     }
 
+    /// <summary>
+    /// Turns one array into an Apache.Arrow array over the collected memory. From here on the allocations belong to
+    /// the returned array.
+    /// </summary>
+    public IArrowArray ImportArray(NativeCArray* array, IArrowType type)
+    {
+        long count = _allocations.Length / sizeof(nint);
+        var owner = new NativeBatchMemory(new ReadOnlySpan<nint>(_allocations.Pointer, (int)count));
+        _allocations.Free();
+        try
+        {
+            return ArrowArrayFactory.BuildArray(Data(array, type, owner));
+        }
+        finally
+        {
+            owner.Sealed();
+        }
+    }
+
     private ArrayData Data(NativeCArray* array, IArrowType type, NativeBatchMemory owner)
     {
         var buffers = new ArrowBuffer[array->BufferCount];
@@ -149,7 +168,16 @@ internal sealed unsafe class NativeBatchMemory
     private nint[]? _allocations;
     private int _buffers = 1; // the import itself holds a reference until it is sealed
 
-    public NativeBatchMemory(ReadOnlySpan<nint> allocations) => _allocations = allocations.ToArray();
+    private static long _live;
+
+    public NativeBatchMemory(ReadOnlySpan<nint> allocations)
+    {
+        _allocations = allocations.ToArray();
+        Interlocked.Increment(ref _live);
+    }
+
+    /// <summary>How many batch memories are allocated and not yet freed, in the whole process (for tests).</summary>
+    internal static long Live => Volatile.Read(ref _live);
 
     /// <summary>Whether the allocations were freed (for tests).</summary>
     internal bool IsFreed => Volatile.Read(ref _allocations) is null;
@@ -168,6 +196,7 @@ internal sealed unsafe class NativeBatchMemory
     {
         nint[]? allocations = Interlocked.Exchange(ref _allocations, null);
         if (allocations is null) return;
+        Interlocked.Decrement(ref _live);
         foreach (nint p in allocations) NativeMemoryPool.Free((void*)p);
         GC.SuppressFinalize(this);
     }

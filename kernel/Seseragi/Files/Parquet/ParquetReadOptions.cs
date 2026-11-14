@@ -23,9 +23,9 @@ public sealed record ParquetReadOptions
     public int BatchSize { get; init; } = 65_536;
 
     /// <summary>
-    /// How many threads decode at once (all cores by default; 1 reads on the calling thread, streaming). Row groups are
-    /// decoded side by side, each fetching its own column chunks, and the columns of a batch too; batches still come
-    /// in order. Up to this many decoded row groups are held in memory ahead of the consumer.
+    /// How many threads decode at once (all cores by default; 1 reads on the calling thread). The columns of a row
+    /// group are decoded side by side, and several row groups at once; batches still come in order. Up to this many
+    /// decoded row groups (fewer when they are large) are held in memory ahead of the consumer.
     /// </summary>
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
@@ -50,6 +50,12 @@ public sealed record ParquetReadOptions
     /// </summary>
     public TimeUnit Int96Unit { get; init; } = TimeUnit.Microsecond;
 
+    /// <summary>How column chunks are read (tests and measurements force one; the default follows the source).</summary>
+    internal ChunkReading Reading { get; init; }
+
+    /// <summary>Row groups are started ahead of the consumer while their uncompressed sizes stay within this (at least one is).</summary>
+    internal long InFlightBytes { get; init; } = 512L << 20;
+
     internal void Validate()
     {
         if (BatchSize <= 0) throw new ArgumentOutOfRangeException(nameof(BatchSize), BatchSize, "The batch size must be positive.");
@@ -58,4 +64,20 @@ public sealed record ParquetReadOptions
         if (Int96Unit is not (TimeUnit.Microsecond or TimeUnit.Nanosecond))
             throw new ArgumentOutOfRangeException(nameof(Int96Unit), Int96Unit, "INT96 timestamps are read in microseconds or nanoseconds.");
     }
+}
+
+/// <summary>How a reader gets the bytes of column chunks.</summary>
+internal enum ChunkReading
+{
+    /// <summary>As the source suits: sliced from memory, page by page from a local file, else fetched.</summary>
+    Auto,
+
+    /// <summary>A row group's chunks fetched with few ranged reads before decoding.</summary>
+    Fetch,
+
+    /// <summary>Sliced from the source's memory (when it has none: as <see cref="Auto"/>).</summary>
+    Slice,
+
+    /// <summary>Read page by page from the source.</summary>
+    Stream,
 }

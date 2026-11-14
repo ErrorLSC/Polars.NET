@@ -7,7 +7,7 @@ namespace Kaminari.Seseragi.Files.IO;
 /// A seekable stream (from its position at open on) read at offsets, so that several readers can share it: a file
 /// through its handle without seeking, native memory by copying, any other stream by seeking under a gate.
 /// </summary>
-internal sealed class RandomAccessSource : IRandomAccess, IDisposable
+internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposable
 {
     private readonly Stream _stream;
     private readonly bool _leaveOpen;
@@ -29,6 +29,26 @@ internal sealed class RandomAccessSource : IRandomAccess, IDisposable
     }
 
     public long Length { get; }
+
+    /// <summary>The bytes of a stream copied to native memory, or of a memory stream whose buffer is visible.</summary>
+    public bool TryGetMemory(out ReadOnlyMemory<byte> memory)
+    {
+        if (_copy is not null && Length <= int.MaxValue)
+        {
+            memory = _copy.Memory.Slice((int)_start, (int)Length);
+            return true;
+        }
+        if (_stream is MemoryStream ms && ms.TryGetBuffer(out ArraySegment<byte> buffer) && Length <= int.MaxValue)
+        {
+            memory = buffer.AsMemory().Slice((int)_start, (int)Length);
+            return true;
+        }
+        memory = default;
+        return false;
+    }
+
+    /// <summary>A file read through its handle (other streams are read under a gate: better in few large reads).</summary>
+    public bool SmallReadsAreCheap => _file is not null;
 
     public int ReadAt(long offset, Span<byte> destination)
     {
