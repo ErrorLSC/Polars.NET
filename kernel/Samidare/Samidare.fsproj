@@ -25,6 +25,8 @@
     <Compile Include="IR/LogicalIR.fs" />
     <Compile Include="IR/ScalarExpr.fs" />
     <Compile Include="IR/FilterShapes.fs" />
+    <Compile Include="IR/LiteralConversion.fs" />
+    <Compile Include="IR/FilterLowering.fs" />
     <Compile Include="IR/BackendContracts.fs" />
     <Compile Include="IR/LogicalPlan.fs" />
     <Compile Include="IR/CardinalityFeedback.fs" />
@@ -94,6 +96,8 @@
     <InternalsVisibleTo Include="Polars.Config.Tests" />
     <InternalsVisibleTo Include="Polars.NET.Linq.Conformance.Tests" />
     <InternalsVisibleTo Include="Polars.Benchmarks" />
+    <InternalsVisibleTo Include="Kaminari.Seseragi.Files" />
+    <InternalsVisibleTo Include="Seseragi.Files.Tests" />
   </ItemGroup>
 
   <ItemGroup>

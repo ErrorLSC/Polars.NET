@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Text;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
@@ -47,9 +46,6 @@ internal readonly record struct Bound(Int128 Integer = default, bool Half = fals
 /// </summary>
 internal sealed class LeafDomain
 {
-    private static readonly long UnixEpochTicks = DateTime.UnixEpoch.Ticks;
-    private static readonly int UnixEpochDay = new DateOnly(1970, 1, 1).DayNumber;
-
     private LeafDomain(int leaf, DomainKind kind, LiteralShape shape, ParquetType physical)
     {
         Leaf = leaf;
@@ -352,152 +348,34 @@ internal sealed class LeafDomain
     // Literals into the stored representation
     // ------------------------------------------------------------------
 
-    /// <summary>The literal in this leaf's stored representation; false when it does not convert (the unit is then kept).</summary>
+    /// <summary>
+    /// The literal in this leaf's stored representation (Samidare's <see cref="LiteralConversion"/>, the rules every
+    /// reader shares); false when it does not convert (the unit is then kept).
+    /// </summary>
     public bool TryConvert(LiteralValue literal, out Bound bound)
     {
         bound = default;
-        try
+        ValueDomain domain = Shape switch
         {
-            return Shape switch
-            {
-                LiteralShape.Integer => TryInteger(literal, scale: 0, allowFloat: true, out bound),
-                LiteralShape.Decimal => TryInteger(literal, Scale, allowFloat: false, out bound),
-                LiteralShape.Boolean when literal is LiteralValue.Bool b => Set(b.Item ? 1 : 0, out bound),
-                LiteralShape.Date when literal is LiteralValue.Date d => Set(d.Item.DayNumber - UnixEpochDay, out bound),
-                LiteralShape.Time when literal is LiteralValue.TimeOnly t => FromTicks(t.Item.Ticks, out bound),
-                LiteralShape.Timestamp when literal is LiteralValue.DateTime t => FromTicks(t.Item.Ticks - UnixEpochTicks, out bound),
-                LiteralShape.TimestampUtc when literal is LiteralValue.DateTimeOffset t => FromTicks(t.Item.UtcTicks - UnixEpochTicks, out bound),
-                LiteralShape.Floating => TryFloating(literal, out bound),
-                LiteralShape.String when literal is LiteralValue.String s => SetBytes(Encoding.UTF8.GetBytes(s.Item), out bound),
-                _ => false,
-            };
-        }
-        catch (OverflowException)
-        {
-            bound = default;
-            return false;
-        }
-
-        static bool Set(Int128 value, out Bound bound)
-        {
-            bound = new Bound(Integer: value);
-            return true;
-        }
-
-        static bool SetBytes(byte[] bytes, out Bound bound)
-        {
-            bound = new Bound(Bytes: bytes);
-            return true;
-        }
-    }
-
-    /// <summary>A count of 100 ns ticks in the stored unit (floored, with the remainder as <see cref="Bound.Half"/>).</summary>
-    private bool FromTicks(long ticks, out Bound bound)
-    {
-        (Int128 value, bool half) = Unit switch
-        {
-            TimeUnit.Second => FloorDivide(ticks, TimeSpan.TicksPerSecond),
-            TimeUnit.Millisecond => FloorDivide(ticks, TimeSpan.TicksPerMillisecond),
-            TimeUnit.Microsecond => FloorDivide(ticks, 10),
-            _ => (checked((Int128)ticks * 100), false),
+            // A double holds every 32-bit value; 64-bit ones compare with floating literals as doubles (rounded).
+            LiteralShape.Integer => Physical == ParquetType.Int64 ? ValueDomain.WideInteger : ValueDomain.Integer,
+            LiteralShape.Decimal => ValueDomain.NewDecimal(Scale),
+            LiteralShape.Boolean => ValueDomain.Boolean,
+            LiteralShape.Date => ValueDomain.Date,
+            LiteralShape.Time => ValueDomain.NewTime(Unit),
+            LiteralShape.Timestamp => ValueDomain.NewTimestamp(Unit),
+            LiteralShape.TimestampUtc => ValueDomain.NewTimestampUtc(Unit),
+            LiteralShape.Floating => ValueDomain.Floating,
+            _ => ValueDomain.String,
         };
-        bound = new Bound(Integer: value, Half: half);
-        return true;
-    }
-
-    private static (Int128 Quotient, bool Half) FloorDivide(Int128 value, Int128 divisor)
-    {
-        Int128 q = Int128.DivRem(value, divisor).Quotient, r = value - q * divisor;
-        if (r != 0 && value < 0) q -= 1;
-        return (q, r != 0);
-    }
-
-    /// <summary>An exact number scaled by 10^<paramref name="scale"/>, floored, with any fraction as <see cref="Bound.Half"/>.</summary>
-    private static bool TryInteger(LiteralValue literal, int scale, bool allowFloat, out Bound bound)
-    {
-        bound = default;
-        Int128 pow = Pow10(scale);
-        switch (literal)
+        if (LiteralConversion.tryConvert(domain, literal) is not { } stored) return false;
+        bound = stored.Value switch
         {
-            case LiteralValue.Decimal d:
-            {
-                // d = mantissa / 10^e; d * 10^scale = mantissa * 10^(scale - e).
-                Span<int> bits = stackalloc int[4];
-                decimal.GetBits(d.Item, bits);
-                Int128 mantissa = ((Int128)(uint)bits[2] << 64) | ((Int128)(uint)bits[1] << 32) | (uint)bits[0];
-                if (bits[3] < 0) mantissa = -mantissa;
-                int e = (bits[3] >> 16) & 0xFF;
-                if (scale >= e)
-                {
-                    bound = new Bound(Integer: checked(mantissa * Pow10(scale - e)));
-                    return true;
-                }
-                var (q, half) = FloorDivide(mantissa, Pow10(e - scale));
-                bound = new Bound(Integer: q, Half: half);
-                return true;
-            }
-            case LiteralValue.Float16 or LiteralValue.Float32 or LiteralValue.Float64 when allowFloat:
-            {
-                double v = literal switch
-                {
-                    LiteralValue.Float16 h => (double)h.Item,
-                    LiteralValue.Float32 f => f.Item,
-                    LiteralValue.Float64 x => x.Item,
-                    _ => double.NaN,
-                };
-                // Within ±2^100 a double's floor is exact in Int128; beyond, and NaN or infinities, keep the unit.
-                if (!double.IsFinite(v) || Math.Abs(v) > 1e30) return false;
-                double floor = Math.Floor(v);
-                bound = new Bound(Integer: (Int128)floor, Half: floor != v);
-                return true;
-            }
-            default:
-                if (!TryExactInteger(literal, out Int128 n)) return false;
-                bound = new Bound(Integer: checked(n * pow));
-                return true;
-        }
-    }
-
-    private static bool TryExactInteger(LiteralValue literal, out Int128 value)
-    {
-        (bool ok, value) = literal switch
-        {
-            LiteralValue.Int8 v => (true, v.Item),
-            LiteralValue.Int16 v => (true, v.Item),
-            LiteralValue.Int32 v => (true, v.Item),
-            LiteralValue.Int64 v => (true, v.Item),
-            LiteralValue.UInt8 v => (true, v.Item),
-            LiteralValue.UInt16 v => (true, v.Item),
-            LiteralValue.UInt32 v => (true, v.Item),
-            LiteralValue.UInt64 v => (true, (Int128)v.Item),
-            _ => (false, Int128.Zero),
+            StoredLiteral.Integer i => new Bound(Integer: i.value, Half: i.half),
+            StoredLiteral.Floating f => new Bound(Float: f.value),
+            StoredLiteral.Bytes b => new Bound(Bytes: b.value),
+            _ => throw new InvalidOperationException("Unknown stored literal."),
         };
-        return ok;
-    }
-
-    private static Int128 Pow10(int exponent)
-    {
-        if (exponent is < 0 or > 38) throw new OverflowException();
-        Int128 p = 1;
-        for (int i = 0; i < exponent; i++) p = checked(p * 10);
-        return p;
-    }
-
-    private static bool TryFloating(LiteralValue literal, out Bound bound)
-    {
-        bound = default;
-        double? v = literal switch
-        {
-            LiteralValue.Float16 h => (double)h.Item,
-            LiteralValue.Float32 f => f.Item,
-            LiteralValue.Float64 x => x.Item,
-            // Integers and decimals only where the double is the same number.
-            _ when TryExactInteger(literal, out Int128 n) && Int128.Abs(n) <= (Int128)1 << 53 => (double)n,
-            LiteralValue.Decimal d when (double)d.Item is var x && (decimal)x == d.Item => x,
-            _ => null,
-        };
-        if (v is not double value) return false;
-        bound = new Bound(Float: value);
         return true;
     }
 }

@@ -83,7 +83,8 @@ pages after every buffer (`tests/Seseragi.Files.Fuzz`).
 logic, NaN above every number, strings in code point order) as a hint. Row groups whose statistics show that no row can
 pass are not read; the statistics are used as their column order allows (with column orders only `min_value` /
 `max_value`, without only the signed legacy bounds of fixed-width types), literals are compared in the stored
-representation, and whatever cannot be decided keeps the row group. Equality tests also ask the chunks' split block
+representation (converted by Samidare's `LiteralConversion`, shared with its filter lowering), and whatever cannot be
+decided keeps the row group. Equality tests also ask the chunks' split block
 Bloom filters (`BloomFilters`, on by default); column indexes prune pages, and the offset indexes of the chunks read
 then skip the pages without a selected row unread on every way of reading chunks (fetches take only the dictionary
 page and the pages needed). Indexes and filters that do not parse or do not describe the chunk are ignored; a page

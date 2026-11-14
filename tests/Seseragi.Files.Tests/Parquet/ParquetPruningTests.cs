@@ -50,7 +50,7 @@ public class ParquetPruningTests
             {
                 for (int i = 0; i < batch.Length; i++)
                 {
-                    if (Eval(filter, Row(batch, i)) is true) rows++;
+                    if (IrEvaluator.Eval(filter, Row(batch, i)) is true) rows++;
                 }
             }
         }
@@ -617,140 +617,10 @@ public class ParquetPruningTests
         _ => e.GetType().Name,
     };
 
-    // ------------------------------------------------------------------
-    // The IR's semantics on one row (SEMANTICS.md): Kleene logic, null comparisons, NaN greater than every number
-    // and equal to NaN, strings in code point order.
-    // ------------------------------------------------------------------
+    // The IR's semantics on one row: IrEvaluator.
 
     private static Func<string, object?> Row(RecordBatch batch, int row) =>
-        name => batch.Schema.GetFieldIndex(name) is >= 0 and var c ? Value(batch.Column(c), row) : Missing.Instance;
-
-    private sealed class Missing
-    {
-        public static readonly Missing Instance = new();
-    }
-
-    private static object? Eval(ScalarExpr e, Func<string, object?> column)
-    {
-        switch (e)
-        {
-            case ScalarExpr.Column c:
-                return column(c.name) is Missing ? null : column(c.name);
-            case ScalarExpr.Literal l:
-                return l.value.BoxedValue;
-            case ScalarExpr.Cast c:
-                return Eval(c.expr, column);
-            case ScalarExpr.Function f when f.func.IsStructFieldByName:
-                return Eval(f.args.Head, column) is IReadOnlyDictionary<string, object?> fields
-                       && fields.TryGetValue((string)Eval(f.args.Tail.Head, column)!, out object? field) ? field : null;
-            case ScalarExpr.Unary u when u.op.IsNot:
-                return Eval(u.expr, column) is bool inner ? !inner : null;
-            case ScalarExpr.Unary u when u.op.IsIsNull:
-                return Eval(u.expr, column) is null;
-            case ScalarExpr.Unary u when u.op.IsIsNotNull:
-                return Eval(u.expr, column) is not null;
-            case ScalarExpr.Unary u when u.op.IsIsNan:
-                return Eval(u.expr, column) is { } operand ? IsNaN(operand) : null;
-            case ScalarExpr.Binary b when b.op.IsAnd:
-            {
-                object? l = Eval(b.left, column), r = Eval(b.right, column);
-                return l is false || r is false ? false : l is true && r is true ? true : null;
-            }
-            case ScalarExpr.Binary b when b.op.IsOr:
-            {
-                object? l = Eval(b.left, column), r = Eval(b.right, column);
-                return l is true || r is true ? true : l is false && r is false ? false : null;
-            }
-            case ScalarExpr.Binary b when b.op.IsStartsWith:
-            {
-                object? l = Eval(b.left, column), r = Eval(b.right, column);
-                return l is null || r is null ? null : ((string)l).StartsWith((string)r, StringComparison.Ordinal);
-            }
-            case ScalarExpr.Binary b when b.op.IsEqMissing || b.op.IsNotEqMissing:
-            {
-                object? l = Eval(b.left, column), r = Eval(b.right, column);
-                bool equal = l is null || r is null ? l is null && r is null : Compare(l, r) == 0;
-                return b.op.IsEqMissing ? equal : !equal;
-            }
-            case ScalarExpr.Binary b:
-            {
-                object? l = Eval(b.left, column), r = Eval(b.right, column);
-                if (l is null || r is null) return null;
-                int c = Compare(l, r);
-                return b.op switch
-                {
-                    _ when b.op.IsEq => c == 0,
-                    _ when b.op.IsNotEq => c != 0,
-                    _ when b.op.IsLt => c < 0,
-                    _ when b.op.IsLtEq => c <= 0,
-                    _ when b.op.IsGt => c > 0,
-                    _ when b.op.IsGtEq => c >= 0,
-                    _ => throw new NotSupportedException(b.op.ToString()),
-                };
-            }
-            case ScalarExpr.InList i:
-            {
-                object? value = Eval(i.expr, column);
-                LiteralValue[] items = [.. ((InListSource.Literals)i.source).Item];
-                bool hasNull = items.Any(x => x is LiteralValue.Null);
-                bool? result;
-                if (value is null) result = i.nullsEqual ? hasNull : null;
-                else if (items.Any(x => x is not LiteralValue.Null && Compare(value, x.BoxedValue!) == 0)) result = true;
-                else result = hasNull && !i.nullsEqual ? null : false;
-                return i.negated ? !result : result;
-            }
-            case ScalarExpr.Coalesce c:
-                return c.exprs.Select(x => Eval(x, column)).FirstOrDefault(x => x is not null);
-            default:
-                throw new NotSupportedException(e.GetType().Name);
-        }
-    }
-
-    private static bool IsNaN(object v) => v switch
-    {
-        double d => double.IsNaN(d),
-        float f => float.IsNaN(f),
-        Half h => Half.IsNaN(h),
-        _ => false,
-    };
-
-    private static int Compare(object a, object b)
-    {
-        if (a is string x && b is string y) return Math.Sign(Encoding.UTF8.GetBytes(x).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(y)));
-        if (a is bool p && b is bool q) return p.CompareTo(q);
-        if (IsFloating(a) || IsFloating(b))
-        {
-            double l = ToDouble(a), r = ToDouble(b);
-            return double.IsNaN(l) ? (double.IsNaN(r) ? 0 : 1) : double.IsNaN(r) ? -1 : l < r ? -1 : l > r ? 1 : 0;
-        }
-        if (ToExact(a) is decimal m && ToExact(b) is decimal n) return m.CompareTo(n);
-        return Ticks(a).CompareTo(Ticks(b));
-
-        static bool IsFloating(object v) => v is double or float or Half;
-        static double ToDouble(object v) => v switch
-        {
-            double d => d,
-            float f => f,
-            Half h => (double)h,
-            decimal m => (double)m,
-            _ => Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture),
-        };
-        static decimal? ToExact(object v) => v switch
-        {
-            sbyte or byte or short or ushort or int or uint or long or ulong => Convert.ToDecimal(v, System.Globalization.CultureInfo.InvariantCulture),
-            decimal m => m,
-            _ => null,
-        };
-        static long Ticks(object v) => v switch
-        {
-            DateOnly d => d.DayNumber * TimeSpan.TicksPerDay,
-            DateTime t => t.Ticks,
-            DateTimeOffset o => o.UtcTicks,
-            TimeOnly t => t.Ticks,
-            TimeSpan s => s.Ticks,
-            _ => throw new NotSupportedException($"compare {v.GetType().Name}"),
-        };
-    }
+        name => batch.Schema.GetFieldIndex(name) is >= 0 and var c ? Value(batch.Column(c), row) : IrEvaluator.Missing.Instance;
 
     /// <summary>A value read, as the IR's literal of its type would hold it; <see cref="Missing"/> for types not compared here.</summary>
     private static object? Value(IArrowArray array, int i)
@@ -776,13 +646,13 @@ public class ParquetPruningTests
             Date32Array a => a.GetDateOnly(i),
             // Only values a 100 ns tick holds exactly (the CLR types round finer ones).
             TimestampArray a => ((TimestampType)a.Data.DataType).Unit == Apache.Arrow.Types.TimeUnit.Nanosecond && a.GetValue(i) % 100 != 0
-                ? Missing.Instance : a.GetTimestamp(i),
+                ? IrEvaluator.Missing.Instance : a.GetTimestamp(i),
             Time32Array a => a.GetTime(i),
             Time64Array a => ((Time64Type)a.Data.DataType).Unit == Apache.Arrow.Types.TimeUnit.Nanosecond && a.GetValue(i) % 100 != 0
-                ? Missing.Instance : a.GetTime(i),
+                ? IrEvaluator.Missing.Instance : a.GetTime(i),
             DictionaryArray d => Value(d.Dictionary, DictionaryIndex(d.Indices, i)),
             StructArray s => Fields(s, i),
-            _ => Missing.Instance,
+            _ => IrEvaluator.Missing.Instance,
         };
 
         // Only values System.Decimal holds exactly (GetValue rounds a 38-digit value to 28 or 29 digits).
@@ -791,7 +661,7 @@ public class ParquetPruningTests
             string exact = a.GetString(i);
             var culture = System.Globalization.CultureInfo.InvariantCulture;
             return decimal.TryParse(exact, System.Globalization.NumberStyles.Float, culture, out decimal d)
-                   && d.ToString("F" + ((Decimal128Type)a.Data.DataType).Scale, culture) == exact ? d : Missing.Instance;
+                   && d.ToString("F" + ((Decimal128Type)a.Data.DataType).Scale, culture) == exact ? d : IrEvaluator.Missing.Instance;
         }
 
         static int DictionaryIndex(IArrowArray indices, int i) => indices switch
@@ -895,7 +765,7 @@ public class ParquetPruningTests
             {
                 for (int i = 0; i < group.Count; i++)
                 {
-                    if (Eval(filter, name => group[i].TryGetValue(name, out object? v) ? v : null) is true && !read.Contains(first + i)) lost.Add(first + i);
+                    if (IrEvaluator.Eval(filter, name => group[i].TryGetValue(name, out object? v) ? v : null) is true && !read.Contains(first + i)) lost.Add(first + i);
                 }
                 first += group.Count;
             }
@@ -925,7 +795,7 @@ public class ParquetPruningTests
 
         /// <summary>The row groups holding a row the filter keeps (true).</summary>
         public int[] Matching(ScalarExpr filter) =>
-            [.. Enumerable.Range(0, _groups.Length).Where(g => _groups[g].Any(row => Eval(filter, name => row.TryGetValue(name, out object? v) ? v : null) is true))];
+            [.. Enumerable.Range(0, _groups.Length).Where(g => _groups[g].Any(row => IrEvaluator.Eval(filter, name => row.TryGetValue(name, out object? v) ? v : null) is true))];
 
         /// <summary>The row groups a reader with the filter reads.</summary>
         public int[] Kept(ScalarExpr filter)
@@ -945,13 +815,13 @@ public class ParquetPruningTests
             IArrowType? type = null;
             foreach (List<Dictionary<string, object?>> group in _groups)
             {
-                object[] present = [.. group.Select(row => Eval(column, name => row.TryGetValue(name, out object? v) ? v : null))
-                                            .Where(v => v is not null and not Missing and not IReadOnlyDictionary<string, object?>)
+                object[] present = [.. group.Select(row => IrEvaluator.Eval(column, name => row.TryGetValue(name, out object? v) ? v : null))
+                                            .Where(v => v is not null and not IrEvaluator.Missing and not IReadOnlyDictionary<string, object?>)
                                             .Select(v => v!)];
                 if (perRowGroup == int.MaxValue) values.AddRange(present);
                 else
                 {
-                    object[] sorted = [.. present.Order(Comparer<object>.Create(Compare))];
+                    object[] sorted = [.. present.Order(Comparer<object>.Create(IrEvaluator.Compare))];
                     values.AddRange([.. sorted.Take(perRowGroup), .. sorted.TakeLast(perRowGroup)]);
                 }
             }
