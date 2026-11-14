@@ -275,6 +275,103 @@ public class ParquetKernelTests
     }
 
     [Fact]
+    public void NonTemporal_CopyAndGather_EqualPlainWrites_AtEveryAlignment()
+    {
+        var random = new Random(23);
+        foreach (int length in (int[])[0, 1, 31, 255, 256, 257, 300, 1000, 4096 + 17])
+        {
+            byte[] source = new byte[length + 8];
+            random.NextBytes(source);
+            for (int sourceOffset = 0; sourceOffset < 8; sourceOffset += 3)
+            {
+                for (int offset = 0; offset < 64; offset++)
+                {
+                    byte[] destination = new byte[length + 128];
+                    random.NextBytes(destination);
+                    byte[] before = (byte[])destination.Clone();
+                    NonTemporal.Copy(source.AsSpan(sourceOffset, length), destination.AsSpan(offset, length));
+                    Assert.True(destination.AsSpan(offset, length).SequenceEqual(source.AsSpan(sourceOffset, length)), $"copy of {length} at {offset}");
+                    Assert.True(destination.AsSpan(0, offset).SequenceEqual(before.AsSpan(0, offset)));
+                    Assert.True(destination.AsSpan(offset + length).SequenceEqual(before.AsSpan(offset + length)));
+                }
+            }
+        }
+        Assert.Throws<ArgumentException>(() => NonTemporal.Copy(new byte[10], new byte[9]));
+
+        foreach (int n in (int[])[0, 1, 3, 15, 16, 17, 63, 64, 65, 1000])
+        {
+            Check<int>(n, random);
+            Check<long>(n, random);
+            Check<Int128>(n, random);
+            Check<Triple>(n, random); // 12 bytes: plain writes
+        }
+
+        static void Check<T>(int n, Random random) where T : unmanaged, IEquatable<T>
+        {
+            T[] dictionary = Random<T>(37, random);
+            int[] indices = [.. Enumerable.Range(0, n).Select(_ => random.Next(dictionary.Length))];
+            for (int offset = 0; offset < 4; offset++)
+            {
+                T[] destination = Random<T>(n + 8, random);
+                T[] before = (T[])destination.Clone();
+                NonTemporal.Gather<T>(dictionary, indices, destination.AsSpan(offset, n));
+                for (int i = 0; i < destination.Length; i++)
+                {
+                    T expected = i >= offset && i < offset + n ? dictionary[indices[i - offset]] : before[i];
+                    Assert.True(expected.Equals(destination[i]), $"{typeof(T).Name}: {n} values at {offset}, slot {i}");
+                }
+            }
+            if (n > 0) Assert.Throws<ArgumentException>(() => NonTemporal.Gather<T>(dictionary, indices, new T[n - 1]));
+        }
+
+        static T[] Random<T>(int count, Random random) where T : unmanaged
+        {
+            var values = new T[count];
+            random.NextBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
+            return values;
+        }
+    }
+
+    [Fact]
+    public void BinaryViewBuilder_WritesPastCaches_BuildsTheSameViews()
+    {
+        var random = new Random(29);
+        foreach (int rows in (int[])[0, 1, 255, 256, 257, 1000, 3000])
+        {
+            foreach (bool nulls in (bool[])[false, true])
+            {
+                // Lengths: inline (≤ 12), long, and now and then larger than a staging block (16 KiB).
+                byte[] mask = nulls ? [.. Enumerable.Range(0, rows).Select(_ => (byte)(random.Next(4) == 0 ? 0 : 1))] : [];
+                int valid = nulls ? mask.Count(m => m != 0) : rows;
+                int[] lengths = [.. Enumerable.Range(0, valid).Select(_ => random.Next(10) switch { 0 => random.Next(20_000, 40_000), < 5 => random.Next(0, 13), _ => random.Next(13, 200) })];
+                var source = new List<byte>();
+                int[] starts = new int[valid];
+                for (int j = 0; j < valid; j++)
+                {
+                    source.AddRange(new byte[3]); // gaps, as length prefixes leave in a page
+                    starts[j] = source.Count;
+                    byte[] value = new byte[lengths[j]];
+                    random.NextBytes(value);
+                    source.AddRange(value);
+                }
+                byte[] bytes = [.. source];
+                long longBytes = lengths.Where(l => l > NativeBinaryViewBuilder.MaxInline).Sum(l => (long)l);
+
+                string[] Build(bool pastCaches)
+                {
+                    using var builder = new NativeBinaryViewBuilder(Apache.Arrow.Types.BinaryViewType.Default) { WritesPastCaches = pastCaches };
+                    builder.AppendValues(bytes, starts, lengths, mask, longBytes);
+                    using var array = (Apache.Arrow.BinaryViewArray)builder.ExportArray();
+                    Assert.Equal(rows, array.Length);
+                    return [.. Enumerable.Range(0, rows).Select(i => array.IsNull(i) ? "null" : Convert.ToHexString(array.GetBytes(i)))];
+                }
+
+                Assert.Equal(Build(false), Build(true));
+            }
+        }
+    }
+
+    [Fact]
     public void SnappyBlock_DecodesWhatSnappierEncodes_AndRejectsDamage()
     {
         var random = new Random(5);

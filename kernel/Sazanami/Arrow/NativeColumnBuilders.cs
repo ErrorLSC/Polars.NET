@@ -563,6 +563,13 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         }
         _data.EnsureAdditional(longBytes);
         var views = (Int128*)_views.Reserve((long)rows * sizeof(Int128));
+        if (WritesPastCaches && Helpers.NonTemporal.IsSupported)
+        {
+            AppendValuesStaged(source, starts, lengths, mask, views, rows);
+            if (mask.IsEmpty) MarkValid(rows);
+            else MarkMask(mask);
+            return;
+        }
         fixed (byte* from = source)
         {
             for (int i = 0, j = 0; i < rows; i++)
@@ -594,6 +601,74 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         }
         if (mask.IsEmpty) MarkValid(rows);
         else MarkMask(mask);
+    }
+
+    /// <summary>
+    /// Whether <see cref="AppendValues"/> writes views and long values past the caches: built in small blocks that
+    /// stay in the cache, each block then stored non-temporally, so the output costs no read before its write. It pays
+    /// when memory bandwidth is the limit (many threads decoding at once) and costs a little on a single thread,
+    /// whose output often still sits in the cache when it is read.
+    /// </summary>
+    public bool WritesPastCaches { get; set; }
+
+    private void AppendValuesStaged(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, ReadOnlySpan<byte> mask, Int128* views, int rows)
+    {
+        const int ViewBlock = 256, DataBlock = 16 * 1024;
+        Int128* stagedViews = stackalloc Int128[ViewBlock];
+        byte* stagedData = stackalloc byte[DataBlock];
+        long dataBase = _data.Length; // where the staged bytes go once flushed
+        int staged = 0;
+        fixed (byte* from = source)
+        {
+            int k = 0, first = 0;
+            for (int i = 0, j = 0; i < rows; i++)
+            {
+                Int128 view = default;
+                if (mask.IsEmpty || mask[i] != 0)
+                {
+                    int start = starts[j], length = lengths[j];
+                    j++;
+                    byte* v = (byte*)&view;
+                    *(int*)v = length;
+                    if (length <= MaxInline) Buffer.MemoryCopy(from + start, v + 4, MaxInline, length);
+                    else
+                    {
+                        if (staged + length > DataBlock) FlushData(stagedData, ref staged, ref dataBase);
+                        long offset = dataBase + staged;
+                        if (length > DataBlock)
+                        {
+                            Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(from + start, length), new Span<byte>(_data.Reserve(length), length));
+                            dataBase += length;
+                        }
+                        else
+                        {
+                            Buffer.MemoryCopy(from + start, stagedData + staged, length, length);
+                            staged += length;
+                        }
+                        *(int*)(v + 4) = *(int*)(from + start);
+                        *(int*)(v + 8) = _dataIndex;
+                        *(int*)(v + 12) = (int)offset;
+                    }
+                }
+                stagedViews[k++] = view;
+                if (k == ViewBlock)
+                {
+                    Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedViews, k * sizeof(Int128)), new Span<byte>(views + first, k * sizeof(Int128)));
+                    first += k;
+                    k = 0;
+                }
+            }
+            if (k > 0) Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedViews, k * sizeof(Int128)), new Span<byte>(views + first, k * sizeof(Int128)));
+            FlushData(stagedData, ref staged, ref dataBase);
+        }
+    }
+
+    private void FlushData(byte* stagedData, ref int staged, ref long dataBase)
+    {
+        if (staged == 0) return;
+        Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedData, staged), new Span<byte>(_data.Reserve(staged), staged));
+        dataBase += staged;
+        staged = 0;
     }
 
     /// <summary>Appends <paramref name="count"/> valid slots and returns their views for the caller to fill.</summary>

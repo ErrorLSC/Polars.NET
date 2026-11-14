@@ -170,7 +170,12 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
         int bytes = valid * TConvert.Width(Type);
         if (bytes > values.Length - position) throw new ParquetFormatException($"the page holds fewer values than its {valid} present ones.");
         ReadOnlySpan<byte> plain = values.Slice(position, bytes);
-        if (mask.IsEmpty) TConvert.Convert(plain, _builder.AppendSlots(rows), Type);
+        if (mask.IsEmpty)
+        {
+            // Output buffers outgrow the caches: written past them (non-temporal), they cost no read before the write.
+            if (typeof(TConvert) == typeof(SameBits<T>)) NonTemporal.Copy(plain, MemoryMarshal.AsBytes(_builder.AppendSlots(rows)));
+            else TConvert.Convert(plain, _builder.AppendSlots(rows), Type);
+        }
         else if (typeof(TConvert) == typeof(SameBits<T>))
             MaskExpand.Scatter(MemoryMarshal.Cast<byte, T>(plain), _builder.AppendUninitializedSlots(mask), mask);
         else
@@ -197,11 +202,7 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
             MaskExpand.Gather(_dictionary.AsSpan(0, _dictionaryCount), indices, _builder.AppendUninitializedSlots(mask), mask);
             return;
         }
-        Span<T> slots = _builder.AppendSlots(rows);
-        ref T dictionary = ref MemoryMarshal.GetArrayDataReference(_dictionary);
-        ref T slot = ref MemoryMarshal.GetReference(slots);
-        ref int index = ref MemoryMarshal.GetReference(indices);
-        for (int i = 0; i < indices.Length; i++) Unsafe.Add(ref slot, i) = Unsafe.Add(ref dictionary, Unsafe.Add(ref index, i));
+        NonTemporal.Gather<T>(_dictionary.AsSpan(0, _dictionaryCount), indices, _builder.AppendSlots(rows));
     }
 
     public override void Dispose()
@@ -443,10 +444,7 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
         if (mask.IsEmpty)
         {
             slots = _builder.AppendViewSlots(rows);
-            ref Int128 views = ref MemoryMarshal.GetArrayDataReference(_views);
-            ref Int128 slot = ref MemoryMarshal.GetReference(slots);
-            ref int index = ref MemoryMarshal.GetReference(indices);
-            for (int i = 0; i < indices.Length; i++) Unsafe.Add(ref slot, i) = Unsafe.Add(ref views, Unsafe.Add(ref index, i));
+            NonTemporal.Gather<Int128>(_views, indices, slots);
         }
         else
         {

@@ -340,6 +340,9 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                         : new PageReader(_file.Source, at[l].Start, at[l].Length, meta.Codec, _options.VerifyChecksums, _buffers);
                 readers[l] = LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
                 readers[l].UncompressedBytes = meta.TotalUncompressedSize;
+                // Measured: staged non-temporal writes of strings win when threads compete for memory bandwidth and
+                // lose a few percent on one thread.
+                if (readers[l].Builder is NativeBinaryViewBuilder views) views.WritesPastCaches = InParallel;
                 byNode[leaf] = readers[l];
             }
             foreach (ColumnMapping column in _columns) ConfigureLeaves(column.Read, byNode, keepLevels: !column.IsFlat, fixedSizeList: null);
