@@ -376,4 +376,58 @@ public class ParquetReaderTests
             Assert.Contains("more values than its row group has rows", e.Message);
         }
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public void DictionaryPages_WithNulls_PlaceEveryValue(int parallelism)
+    {
+        // 70 rows (a whole word of the null mask and part of the next): every third row null, and rows 40–49.
+        bool[] present = [.. Enumerable.Range(0, 70).Select(i => i % 3 != 0 && i is not (>= 40 and < 50))];
+        byte[] Defs(Range rows) => [.. present[rows].Select(p => p ? (byte)1 : (byte)0)];
+        int[] Picks(Range rows, int salt) => [.. Enumerable.Range(0, present[rows].Count(p => p)).Select(i => (i * 7 + salt) % 3)];
+
+        bool[] flags = [true, false, true];
+        decimal[] amounts = [123.45m, -0.01m, 1000.00m];
+        string[] texts = ["the first long dictionary entry", "the second long dictionary entry", "the third long dictionary entry"];
+        string[] plain = ["a long plain value number one", "a long plain value number two"];
+        int[] flagPicks = Picks(.., 1), amountPicks = Picks(.., 2), textPicks = Picks(3.., 0);
+
+        SchemaElement[] schema =
+        [
+            HandBuiltParquet.Group("schema", 3, repetition: null),
+            HandBuiltParquet.Leaf("flag", ParquetType.Boolean, FieldRepetition.Optional),
+            new SchemaElement { Name = "amount", Type = ParquetType.ByteArray, Repetition = FieldRepetition.Optional, ConvertedType = ConvertedType.Decimal, Precision = 10, Scale = 2 },
+            HandBuiltParquet.Leaf("text", ParquetType.ByteArray, FieldRepetition.Optional, ConvertedType.Utf8),
+        ];
+        byte[] file = HandBuiltParquet.Build(schema, present.Length,
+            new HandBuiltParquet.Column(["flag"], ParquetType.Boolean, 1, 0, Defs(..), [], HandBuiltParquet.Indices(2, flagPicks),
+                Encoding: ParquetEncoding.RleDictionary, Dictionary: new(3, [0b101])),
+            // Big-endian two's complement: 12345, -1, 100000 (hundredths).
+            new HandBuiltParquet.Column(["amount"], ParquetType.ByteArray, 1, 0, Defs(..), [], HandBuiltParquet.Indices(2, amountPicks),
+                Encoding: ParquetEncoding.RleDictionary, Dictionary: new(3, [2, 0, 0, 0, 0x30, 0x39, 1, 0, 0, 0, 0xFF, 3, 0, 0, 0, 0x01, 0x86, 0xA0])),
+            // A PLAIN page of long values first (the batch's own data buffer), then a dictionary-encoded page whose
+            // views must point at the dictionary's buffer, the batch's second.
+            new HandBuiltParquet.Column(["text"], ParquetType.ByteArray, 1, 0, Defs(..3), [], HandBuiltParquet.Strings(plain),
+                Dictionary: new(3, HandBuiltParquet.Strings(texts)),
+                MorePages: [new(Defs(3..), [], HandBuiltParquet.Indices(2, textPicks), ParquetEncoding.RleDictionary)]));
+
+        using var parquet = ParquetFile.Open(new MemoryStream(file));
+        using var reader = parquet.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = parallelism });
+        using RecordBatch batch = Assert.Single(reader.ReadBatches());
+        var flag = (BooleanArray)batch.Column(0);
+        var amount = (Decimal128Array)batch.Column(1);
+        var text = (StringViewArray)batch.Column(2);
+        for (int i = 0, f = 0, a = 0, t = 0; i < present.Length; i++)
+        {
+            if (!present[i])
+            {
+                Assert.True(flag.IsNull(i) && amount.IsNull(i) && text.IsNull(i), $"row {i}");
+                continue;
+            }
+            Assert.Equal(flags[flagPicks[f++]], flag.GetValue(i));
+            Assert.Equal(amounts[amountPicks[a++]], amount.GetValue(i));
+            Assert.Equal(i < 3 ? plain[i - 1] : texts[textPicks[t++]], text.GetString(i));
+        }
+    }
 }

@@ -306,11 +306,20 @@ internal sealed unsafe class NativeFixedWidthBuilder<T>(IArrowType type) : Nativ
     /// </summary>
     public Span<T> AppendSlots(ReadOnlySpan<byte> mask)
     {
-        byte* at = _values.Reserve((long)mask.Length * sizeof(T));
-        var slots = new Span<T>(at, mask.Length);
+        Span<T> slots = AppendUninitializedSlots(mask);
         slots.Clear();
-        MarkMask(mask);
         return slots;
+    }
+
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="mask"/>, null where the byte is zero, and returns them
+    /// uninitialized: the caller writes every slot, zero under the nulls.
+    /// </summary>
+    public Span<T> AppendUninitializedSlots(ReadOnlySpan<byte> mask)
+    {
+        byte* at = _values.Reserve((long)mask.Length * sizeof(T));
+        MarkMask(mask);
+        return new Span<T>(at, mask.Length);
     }
 
     /// <summary>Appends <paramref name="count"/> null slots.</summary>
@@ -465,7 +474,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
     /// <summary>Copies <paramref name="bytes"/> into a data buffer of this batch; returns its index for views to point into.</summary>
     public int AddBuffer(ReadOnlySpan<byte> bytes)
     {
-        var p = (byte*)NativeMemory.AlignedAlloc((nuint)Math.Max(bytes.Length, 8), NativeGrowBuffer.Alignment);
+        byte* p = Helpers.NativeMemoryPool.Alloc(Math.Max(bytes.Length, 8));
         bytes.CopyTo(new Span<byte>(p, bytes.Length));
         _buffers.Add(((nint)p, bytes.Length));
         return _buffers.Count - 1;
@@ -577,11 +586,13 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         return slots;
     }
 
-    /// <summary>Appends one slot per byte of <paramref name="mask"/>, null where it is zero; returns their views (zeroed).</summary>
-    public Span<Int128> AppendViewSlots(ReadOnlySpan<byte> mask)
+    /// <summary>
+    /// Appends one slot per byte of <paramref name="mask"/>, null where it is zero; returns their views
+    /// uninitialized: the caller writes every view, zero under the nulls.
+    /// </summary>
+    public Span<Int128> AppendUninitializedViewSlots(ReadOnlySpan<byte> mask)
     {
         var slots = new Span<Int128>(_views.Reserve((long)mask.Length * sizeof(Int128)), mask.Length);
-        slots.Clear();
         MarkMask(mask);
         return slots;
     }
@@ -626,7 +637,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         _data.Free();
         foreach (var (pointer, _) in _buffers)
         {
-            if (pointer != 0) NativeMemory.AlignedFree((void*)pointer);
+            Helpers.NativeMemoryPool.Free((void*)pointer);
         }
         _buffers.Clear();
         _dataIndex = -1;

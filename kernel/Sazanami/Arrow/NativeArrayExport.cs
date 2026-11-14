@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using System.Buffers;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Helpers;
 
 namespace Kaminari.Sazanami.Arrow;
 
@@ -49,7 +50,7 @@ internal sealed unsafe class NativeBatchExport
 
     public void* Allocate(long bytes)
     {
-        var p = (byte*)NativeMemory.AlignedAlloc((nuint)Math.Max(bytes, 8), NativeGrowBuffer.Alignment);
+        byte* p = NativeMemoryPool.Alloc(Math.Max(bytes, 8));
         NativeMemory.Clear(p, (nuint)Math.Max(bytes, 8));
         return Own(p, bytes);
     }
@@ -133,7 +134,7 @@ internal sealed unsafe class NativeBatchExport
     {
         long count = _allocations.Length / sizeof(nint);
         var items = (nint*)_allocations.Pointer;
-        for (long i = 0; i < count; i++) NativeMemory.AlignedFree((void*)items[i]);
+        for (long i = 0; i < count; i++) NativeMemoryPool.Free((void*)items[i]);
         _allocations.Free();
         _sizes.Clear();
     }
@@ -167,7 +168,7 @@ internal sealed unsafe class NativeBatchMemory
     {
         nint[]? allocations = Interlocked.Exchange(ref _allocations, null);
         if (allocations is null) return;
-        foreach (nint p in allocations) NativeMemory.AlignedFree((void*)p);
+        foreach (nint p in allocations) NativeMemoryPool.Free((void*)p);
         GC.SuppressFinalize(this);
     }
 

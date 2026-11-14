@@ -475,7 +475,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 if (pool is not null) buffer = pool.Rent(length);
                 else
                 {
-                    buffer = new NativeByteBuffer(0);
+                    buffer = new NativeByteBuffer(0, pooled: true);
                     buffer.EnsureCapacity(length);
                 }
                 _reads.Add((readStart, length, buffer));

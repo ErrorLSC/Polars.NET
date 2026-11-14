@@ -3,7 +3,7 @@ namespace Kaminari.Sazanami.Helpers;
 /// <summary>
 /// Native scratch buffers kept between uses (fetched file ranges, decompressed blocks), so that each unit of work does
 /// not allocate and first-touch fresh memory. Safe to use from several threads. Holds at most a few buffers; the
-/// rest are freed when returned.
+/// rest, and all of them once disposed, go back to <see cref="NativeMemoryPool"/> for the next user.
 /// </summary>
 internal sealed class NativeBufferPool(int capacity) : IDisposable
 {
@@ -32,12 +32,12 @@ internal sealed class NativeBufferPool(int capacity) : IDisposable
                 _free.RemoveAt(best);
             }
         }
-        buffer ??= new NativeByteBuffer(0);
+        buffer ??= new NativeByteBuffer(0, pooled: true);
         if (buffer.Capacity < bytes)
         {
             // Grow without keeping the old contents: free first, then allocate.
             buffer.Release();
-            buffer = new NativeByteBuffer(0);
+            buffer = new NativeByteBuffer(0, pooled: true);
             buffer.EnsureCapacity(bytes);
         }
         return buffer;

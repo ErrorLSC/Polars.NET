@@ -1,6 +1,7 @@
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 
 namespace Seseragi.Files.Tests.Parquet;
@@ -75,8 +76,8 @@ public class ParquetKernelTests
                         byte* f = fast.Detach(out long fb);
                         byte* s = slow.Detach(out long sb);
                         Assert.True(new ReadOnlySpan<byte>(f, (int)bytes).SequenceEqual(new ReadOnlySpan<byte>(s, (int)bytes)), $"before {before}, length {length}, first {firstBit}");
-                        System.Runtime.InteropServices.NativeMemory.AlignedFree(f);
-                        System.Runtime.InteropServices.NativeMemory.AlignedFree(s);
+                        NativeMemoryPool.Free(f);
+                        NativeMemoryPool.Free(s);
                     }
                     finally
                     {
@@ -86,6 +87,191 @@ public class ParquetKernelTests
                 }
             }
         }
+    }
+
+    [Fact]
+    public void MaskExpand_EqualsTheSlotBySlotSpread_ForEveryLengthPatternAndWidth()
+    {
+        var random = new Random(13);
+        foreach (int length in (int[])[0, 1, 7, 63, 64, 65, 127, 128, 129, 191, 200, 1000])
+        {
+            foreach (string pattern in (string[])["valid", "null", "random", "sparse", "dense", "leading", "trailing", "blocks"])
+            {
+                byte[] mask = new byte[length];
+                for (int i = 0; i < length; i++)
+                {
+                    bool valid = pattern switch
+                    {
+                        "valid" => true,
+                        "null" => false,
+                        "sparse" => random.Next(10) == 0,
+                        "dense" => random.Next(10) != 0,
+                        "leading" => i >= length / 3,          // nulls first, then valid
+                        "trailing" => i < length - length / 3, // valid, then nulls
+                        "blocks" => i / 64 % 3 != 1,           // whole words valid and whole words null
+                        _ => random.Next(2) == 0,
+                    };
+                    mask[i] = valid ? (byte)random.Next(1, 256) : (byte)0;
+                }
+                Check<byte>(mask, random);
+                Check<int>(mask, random);
+                Check<long>(mask, random);
+                Check<Int128>(mask, random);
+                Check<Triple>(mask, random);
+            }
+        }
+
+        static void Check<T>(byte[] mask, Random random) where T : unmanaged, IEquatable<T>
+        {
+            int valid = mask.Count(m => m != 0);
+            T[] values = Random<T>(valid, random);
+            T[] dictionary = Random<T>(17, random);
+            int[] indices = [.. Enumerable.Range(0, valid).Select(_ => random.Next(dictionary.Length))];
+            T[] expected = new T[mask.Length], gathered = new T[mask.Length];
+            for (int i = 0, j = 0; i < mask.Length; i++)
+            {
+                if (mask[i] == 0) continue;
+                gathered[i] = dictionary[indices[j]];
+                expected[i] = values[j++];
+            }
+            string what = $"{typeof(T).Name}, {mask.Length} slots, {valid} valid";
+
+            // The slots start as garbage and the one past the mask must stay untouched.
+            T[] slots = Random<T>(mask.Length + 1, random);
+            T past = slots[^1];
+            values.CopyTo(slots, 0);
+            MaskExpand.InPlace(slots.AsSpan(), valid, mask);
+            Assert.True(slots.AsSpan(0, mask.Length).SequenceEqual(expected), $"in place: {what}");
+            Assert.Equal(past, slots[^1]);
+
+            slots = Random<T>(mask.Length + 1, random);
+            past = slots[^1];
+            MaskExpand.Scatter<T>(values, slots, mask);
+            Assert.True(slots.AsSpan(0, mask.Length).SequenceEqual(expected), $"scatter: {what}");
+            Assert.Equal(past, slots[^1]);
+
+            slots = Random<T>(mask.Length + 1, random);
+            past = slots[^1];
+            MaskExpand.Gather<T>(dictionary, indices, slots, mask);
+            Assert.True(slots.AsSpan(0, mask.Length).SequenceEqual(gathered), $"gather: {what}");
+            Assert.Equal(past, slots[^1]);
+
+            // A count of values other than the mask's valid slots is refused.
+            T[] more = Random<T>(valid + 1, random);
+            int[] moreIndices = [.. indices, 0];
+            if (valid < mask.Length) Assert.Throws<ArgumentException>(() => MaskExpand.InPlace(Random<T>(mask.Length, random).AsSpan(), valid + 1, mask));
+            Assert.Throws<ArgumentException>(() => MaskExpand.Scatter<T>(more, new T[mask.Length], mask));
+            Assert.Throws<ArgumentException>(() => MaskExpand.Gather<T>(dictionary, moreIndices, new T[mask.Length], mask));
+            if (valid == 0) return;
+            Assert.Throws<ArgumentException>(() => MaskExpand.InPlace(Random<T>(mask.Length, random).AsSpan(), valid - 1, mask));
+            Assert.Throws<ArgumentException>(() => MaskExpand.Scatter<T>(values.AsSpan(0, valid - 1), new T[mask.Length], mask));
+            Assert.Throws<ArgumentException>(() => MaskExpand.Gather<T>(dictionary, indices.AsSpan(0, valid - 1), new T[mask.Length], mask));
+        }
+
+        static T[] Random<T>(int count, Random random) where T : unmanaged
+        {
+            var values = new T[count];
+            random.NextBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
+            return values;
+        }
+    }
+
+    private readonly record struct Triple(int A, int B, int C);
+
+    [Fact]
+    public void RleBitPacked_ManyShortRunsOfBothKinds_ReadInAnyChunks()
+    {
+        var random = new Random(17);
+        foreach (int width in (int[])[1, 2, 3, 7, 8, 9, 15, 20, 32])
+        {
+            for (int round = 0; round < 20; round++)
+            {
+                // Short runs, as writers emit for random levels: bit-packed groups and RLE runs of a few values.
+                List<byte> data = [];
+                List<int> expected = [];
+                long limit = width == 32 ? uint.MaxValue : (1L << width) - 1;
+                for (int run = 0; run < 60; run++)
+                {
+                    if (random.Next(2) == 0)
+                    {
+                        int count = random.Next(1, 20);
+                        int value = (int)random.NextInt64(limit + 1);
+                        Varint(data, (ulong)count << 1);
+                        for (int k = 0; k < (width + 7) / 8; k++) data.Add((byte)((uint)value >> (8 * k)));
+                        expected.AddRange(Enumerable.Repeat(value, count));
+                    }
+                    else
+                    {
+                        int groups = random.Next(1, 4);
+                        int[] values = [.. Enumerable.Range(0, groups * 8).Select(_ => (int)random.NextInt64(limit + 1))];
+                        Varint(data, ((ulong)groups << 1) | 1);
+                        data.AddRange(Pack(values, width));
+                        expected.AddRange(values);
+                    }
+                }
+                if (round % 2 == 1)
+                {
+                    // A last bit-packed run cut short: two groups declared, the bytes of 5 values there.
+                    int[] values = [.. Enumerable.Range(0, 16).Select(_ => (int)random.NextInt64(limit + 1))];
+                    Varint(data, (2UL << 1) | 1);
+                    data.AddRange(Pack(values, width).Take(5 * width / 8));
+                    expected.AddRange(values.Take(5 * width / 8 * 8 / width));
+                }
+
+                byte[] encoded = [.. data];
+                var decoder = new RleBitPackedDecoder(encoded, width);
+                var read = new int[expected.Count + 5];
+                int done = 0;
+                while (true)
+                {
+                    int chunk = Math.Min(random.Next(1, 50), read.Length - done);
+                    int got = decoder.Read(read.AsSpan(done, chunk));
+                    done += got;
+                    if (got < chunk || done == read.Length) break;
+                }
+                Assert.Equal(expected.Count, done);
+                Assert.True(read.AsSpan(0, done).SequenceEqual(expected.ToArray()), $"width {width}, round {round}");
+            }
+        }
+
+        static void Varint(List<byte> data, ulong value)
+        {
+            for (; value >= 0x80; value >>= 7) data.Add((byte)(value | 0x80));
+            data.Add((byte)value);
+        }
+
+        static byte[] Pack(int[] values, int width)
+        {
+            var packed = new byte[values.Length * width / 8];
+            for (int i = 0; i < values.Length; i++)
+            {
+                for (int k = 0; k < width; k++)
+                {
+                    long bit = (long)i * width + k;
+                    if (((uint)values[i] >> k & 1) != 0) packed[bit >> 3] |= (byte)(1 << (int)(bit & 7));
+                }
+            }
+            return packed;
+        }
+    }
+
+    [Fact]
+    public void NativeMemoryPool_SizeClasses_AreTheSmallestThatFit()
+    {
+        Assert.Equal(-1, NativeMemoryPool.ClassOf(0));
+        Assert.Equal(-1, NativeMemoryPool.ClassOf(64 * 1024 - 1));
+        Assert.Equal(-1, NativeMemoryPool.ClassOf((1L << 30) + 1));
+        long previous = 0;
+        for (int c = 0; c < 57; c++)
+        {
+            long size = NativeMemoryPool.ClassSize(c);
+            Assert.True(size > previous && size <= previous + previous / 4 + 1 || c == 0, $"class {c}: {size} after {previous}");
+            Assert.Equal(c, NativeMemoryPool.ClassOf(size));
+            if (c > 0) Assert.Equal(c, NativeMemoryPool.ClassOf(previous + 1));
+            previous = size;
+        }
+        Assert.Equal(1L << 30, previous);
+        Assert.Equal(64 * 1024, NativeMemoryPool.ClassSize(0));
     }
 
     [Fact]

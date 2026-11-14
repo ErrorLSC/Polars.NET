@@ -443,14 +443,6 @@ internal abstract class LeafReader : IDisposable
         }
     }
 
-    /// <summary>Moves the first <paramref name="valid"/> slots to the positions where <paramref name="mask"/> is 1, clearing the others.</summary>
-    protected static void Spread<T>(Span<T> slots, int valid, ReadOnlySpan<byte> mask)
-    {
-        if (mask.IsEmpty || valid == slots.Length) return;
-        int j = valid - 1;
-        for (int i = slots.Length - 1; i >= 0; i--) slots[i] = mask[i] != 0 ? slots[j--] : default!;
-    }
-
     public virtual void Dispose()
     {
         _pages.Dispose();

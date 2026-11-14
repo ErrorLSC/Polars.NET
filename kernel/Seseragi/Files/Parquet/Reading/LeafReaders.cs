@@ -1,9 +1,12 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text.Unicode;
 using Kaminari.Sazanami.Encodings;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
@@ -166,10 +169,17 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
     {
         int bytes = valid * TConvert.Width(Type);
         if (bytes > values.Length - position) throw new ParquetFormatException($"the page holds fewer values than its {valid} present ones.");
-        Span<T> slots = mask.IsEmpty ? _builder.AppendSlots(rows) : _builder.AppendSlots(mask);
-        TConvert.Convert(values.Slice(position, bytes), slots[..valid], Type);
+        ReadOnlySpan<byte> plain = values.Slice(position, bytes);
+        if (mask.IsEmpty) TConvert.Convert(plain, _builder.AppendSlots(rows), Type);
+        else if (typeof(TConvert) == typeof(SameBits<T>))
+            MaskExpand.Scatter(MemoryMarshal.Cast<byte, T>(plain), _builder.AppendUninitializedSlots(mask), mask);
+        else
+        {
+            Span<T> slots = _builder.AppendUninitializedSlots(mask);
+            TConvert.Convert(plain, slots[..valid], Type);
+            MaskExpand.InPlace(slots, valid, mask);
+        }
         position += bytes;
-        Spread(slots, valid, mask);
     }
 
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)
@@ -181,13 +191,17 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
 
     protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
     {
-        Span<T> slots = mask.IsEmpty ? _builder.AppendSlots(rows) : _builder.AppendSlots(mask);
         // The indices were checked against the dictionary when the page was entered.
-        ref T dictionary = ref System.Runtime.InteropServices.MemoryMarshal.GetArrayDataReference(_dictionary);
-        ref T slot = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(slots);
-        ref int index = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(indices);
-        for (int i = 0; i < indices.Length; i++) System.Runtime.CompilerServices.Unsafe.Add(ref slot, i) = System.Runtime.CompilerServices.Unsafe.Add(ref dictionary, System.Runtime.CompilerServices.Unsafe.Add(ref index, i));
-        Spread(slots, indices.Length, mask);
+        if (!mask.IsEmpty)
+        {
+            MaskExpand.Gather(_dictionary.AsSpan(0, _dictionaryCount), indices, _builder.AppendUninitializedSlots(mask), mask);
+            return;
+        }
+        Span<T> slots = _builder.AppendSlots(rows);
+        ref T dictionary = ref MemoryMarshal.GetArrayDataReference(_dictionary);
+        ref T slot = ref MemoryMarshal.GetReference(slots);
+        ref int index = ref MemoryMarshal.GetReference(indices);
+        for (int i = 0; i < indices.Length; i++) Unsafe.Add(ref slot, i) = Unsafe.Add(ref dictionary, Unsafe.Add(ref index, i));
     }
 
     public override void Dispose()
@@ -264,9 +278,17 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
 
     protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
     {
+        if (!mask.IsEmpty)
+        {
+            Ensure(ref _expanded, rows);
+            Span<byte> values = _expanded.AsSpan(0, rows);
+            MaskExpand.Gather(_dictionary, indices, values, mask);
+            _builder.AppendValues(values, mask);
+            return;
+        }
         Ensure(ref _page, indices.Length);
         for (int i = 0; i < indices.Length; i++) _page[i] = _dictionary[indices[i]];
-        Append(rows, mask, _page.AsSpan(0, indices.Length));
+        _builder.AppendValues(_page.AsSpan(0, indices.Length));
     }
 
     private void Append(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<byte> present)
@@ -278,7 +300,7 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
         }
         Ensure(ref _expanded, rows);
         Span<byte> values = _expanded.AsSpan(0, rows);
-        for (int i = 0, j = 0; i < rows; i++) values[i] = mask[i] != 0 ? present[j++] : (byte)0;
+        MaskExpand.Scatter(present, values, mask);
         _builder.AppendValues(values, mask);
     }
 
@@ -416,23 +438,30 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
     protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
     {
         if (_anyLong && _batchBuffer < 0) _batchBuffer = _builder.AddBuffer(_data);
-        Span<Int128> slots = mask.IsEmpty ? _builder.AppendViewSlots(rows) : _builder.AppendViewSlots(mask);
         // The indices were checked against the dictionary when the page was entered.
-        ref Int128 views = ref System.Runtime.InteropServices.MemoryMarshal.GetArrayDataReference(_views);
-        ref Int128 slot = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(slots);
-        ref int index = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(indices);
-        for (int i = 0; i < indices.Length; i++)
-            System.Runtime.CompilerServices.Unsafe.Add(ref slot, i) = System.Runtime.CompilerServices.Unsafe.Add(ref views, System.Runtime.CompilerServices.Unsafe.Add(ref index, i));
+        Span<Int128> slots;
+        if (mask.IsEmpty)
+        {
+            slots = _builder.AppendViewSlots(rows);
+            ref Int128 views = ref MemoryMarshal.GetArrayDataReference(_views);
+            ref Int128 slot = ref MemoryMarshal.GetReference(slots);
+            ref int index = ref MemoryMarshal.GetReference(indices);
+            for (int i = 0; i < indices.Length; i++) Unsafe.Add(ref slot, i) = Unsafe.Add(ref views, Unsafe.Add(ref index, i));
+        }
+        else
+        {
+            slots = _builder.AppendUninitializedViewSlots(mask);
+            MaskExpand.Gather(_views, indices, slots, mask);
+        }
         if (_batchBuffer > 0)
         {
-            // The views point into buffer 0; this batch holds the dictionary elsewhere.
-            Span<int> words = System.Runtime.InteropServices.MemoryMarshal.Cast<Int128, int>(slots[..indices.Length]);
+            // The views point into buffer 0; this batch holds the dictionary elsewhere (null views are empty).
+            Span<int> words = MemoryMarshal.Cast<Int128, int>(slots);
             for (int i = 0; i < words.Length; i += 4)
             {
                 if (words[i] > NativeBinaryViewBuilder.MaxInline) words[i + 2] = _batchBuffer;
             }
         }
-        Spread(slots, indices.Length, mask);
     }
 }
 
@@ -617,9 +646,13 @@ internal sealed class ByteArrayDecimalLeafReader<T>(PageReader pages, SchemaNode
 
     protected override void AppendFromDictionary(int rows, ReadOnlySpan<byte> mask, ReadOnlySpan<int> indices)
     {
-        Span<T> slots = mask.IsEmpty ? _builder.AppendSlots(rows) : _builder.AppendSlots(mask);
+        if (!mask.IsEmpty)
+        {
+            MaskExpand.Gather(_dictionary, indices, _builder.AppendUninitializedSlots(mask), mask);
+            return;
+        }
+        Span<T> slots = _builder.AppendSlots(rows);
         for (int i = 0; i < indices.Length; i++) slots[i] = _dictionary[indices[i]];
-        Spread(slots, indices.Length, mask);
     }
 }
 

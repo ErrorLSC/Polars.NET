@@ -1,16 +1,17 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using Kaminari.Sazanami.Helpers;
 
 namespace Kaminari.Sazanami.Arrow;
 
 /// <summary>
-/// A growable, 64-byte aligned buffer in native memory. Column builders append into it and hand the finished
-/// allocation to an exported Arrow array without copying (<see cref="Detach"/>).
+/// A growable, 64-byte aligned buffer in native memory (from <see cref="NativeMemoryPool"/>). Column builders append
+/// into it and hand the finished allocation to an exported Arrow array without copying (<see cref="Detach"/>).
 /// </summary>
 internal unsafe struct NativeGrowBuffer
 {
-    internal const int Alignment = 64;
+    internal const int Alignment = NativeMemoryPool.Alignment;
 
     private byte* _ptr;
     private long _length;
@@ -72,15 +73,20 @@ internal unsafe struct NativeGrowBuffer
     private void Grow(long needed)
     {
         long capacity = Math.Max(Math.Max(needed, _capacity * 2), Math.Max(_hint, Alignment));
-        capacity = (capacity + Alignment - 1) & ~(long)(Alignment - 1);
-        _ptr = (byte*)NativeMemory.AlignedRealloc(_ptr, (nuint)capacity, Alignment);
-        _capacity = capacity;
+        byte* next = NativeMemoryPool.Alloc(capacity);
+        if (_ptr != null)
+        {
+            Buffer.MemoryCopy(_ptr, next, capacity, _length);
+            NativeMemoryPool.Free(_ptr);
+        }
+        _ptr = next;
+        _capacity = NativeMemoryPool.UsableSize(next);
     }
 
     /// <summary>
     /// Hands over the allocation (never null: an empty buffer still owns a small block, since consumers may
     /// dereference it) and resets this builder to empty. The caller frees the pointer with
-    /// <see cref="NativeMemory.AlignedFree"/>.
+    /// <see cref="NativeMemoryPool.Free"/>.
     /// </summary>
     public byte* Detach() => Detach(out _);
 
@@ -103,7 +109,7 @@ internal unsafe struct NativeGrowBuffer
 
     public void Free()
     {
-        if (_ptr != null) NativeMemory.AlignedFree(_ptr);
+        NativeMemoryPool.Free(_ptr);
         _ptr = null;
         _length = 0;
         _capacity = 0;

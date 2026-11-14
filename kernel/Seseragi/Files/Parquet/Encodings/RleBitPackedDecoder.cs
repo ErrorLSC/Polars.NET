@@ -36,7 +36,7 @@ internal ref struct RleBitPackedDecoder
 
     private int _repeatLeft;
     private uint _repeatValue;
-    private ReadOnlySpan<byte> _packed; // the current bit-packed run
+    private ReadOnlySpan<byte> _packed; // the data from the current bit-packed run on
     private int _packedIndex;
     private int _packedLeft;
 
@@ -121,7 +121,9 @@ internal ref struct RleBitPackedDecoder
             if (groups > int.MaxValue / 8) throw new ParquetFormatException("A bit-packed run is longer than 2^31 - 1 values.");
             long bytes = BitUnpacking.Bytes((long)groups * 8, _bitWidth);
             int available = (int)Math.Min(bytes, _data.Length - _position);
-            _packed = _data.Slice(_position, available);
+            // The run reaches to the end of the data (_packedLeft bounds what is read): the unpacker's fast path
+            // needs 8 readable bytes past a group, which a short run alone never has.
+            _packed = _data[_position..];
             _position += available;
             _packedIndex = 0;
             // A cut-short last run holds what its bytes hold.

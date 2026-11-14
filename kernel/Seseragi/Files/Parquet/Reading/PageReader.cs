@@ -21,7 +21,7 @@ internal sealed class PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec co
     /// <summary>The scratch buffer, at least <paramref name="bytes"/> long (taken from the pool on first use).</summary>
     private NativeByteBuffer Scratch(int bytes)
     {
-        if (_scratch is null) _scratch = pool?.Rent(bytes) ?? new NativeByteBuffer(0);
+        if (_scratch is null) _scratch = pool?.Rent(bytes) ?? new NativeByteBuffer(0, pooled: true);
         _scratch.EnsureCapacity(bytes);
         return _scratch;
     }

@@ -9,9 +9,14 @@ namespace Kaminari.Sazanami.Helpers;
 /// Being a <see cref="MemoryManager{T}"/>, it hands out <see cref="Memory{T}"/> for stream I/O; spans and memory
 /// taken from it are invalid after <see cref="EnsureCapacity"/> grows it or after disposal.
 /// </summary>
-internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0) : MemoryManager<byte>
+/// <param name="initialCapacity">The bytes allocated up front.</param>
+/// <param name="pooled">
+/// Whether the memory comes from <see cref="NativeMemoryPool"/> (scratch reused across readers; cannot be
+/// <see cref="Detach"/>ed) rather than <see cref="NativeMemory.Alloc(nuint)"/>.
+/// </param>
+internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0, bool pooled = false) : MemoryManager<byte>
 {
-    private byte* _ptr = initialCapacity > 0 ? (byte*)NativeMemory.Alloc((nuint)initialCapacity) : null;
+    private byte* _ptr = initialCapacity <= 0 ? null : pooled ? NativeMemoryPool.Alloc(initialCapacity) : (byte*)NativeMemory.Alloc((nuint)initialCapacity);
     private int _capacity = initialCapacity;
 
     public int Capacity => _capacity;
@@ -25,7 +30,17 @@ internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0) : MemoryM
         if (size <= _capacity) return;
         if (size > Array.MaxLength) throw new InvalidOperationException("A native buffer cannot exceed 2 GB.");
         long next = Math.Min(Math.Max(size, (long)_capacity * 2), Array.MaxLength);
-        _ptr = (byte*)NativeMemory.Realloc(_ptr, (nuint)next);
+        if (pooled)
+        {
+            byte* grown = NativeMemoryPool.Alloc(next);
+            if (_ptr != null)
+            {
+                Buffer.MemoryCopy(_ptr, grown, next, _capacity);
+                NativeMemoryPool.Free(_ptr);
+            }
+            _ptr = grown;
+        }
+        else _ptr = (byte*)NativeMemory.Realloc(_ptr, (nuint)next);
         _capacity = (int)next;
     }
 
@@ -37,7 +52,8 @@ internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0) : MemoryM
 
     protected override void Dispose(bool disposing)
     {
-        if (_ptr != null) NativeMemory.Free(_ptr);
+        if (pooled) NativeMemoryPool.Free(_ptr);
+        else if (_ptr != null) NativeMemory.Free(_ptr);
         _ptr = null;
         _capacity = 0;
     }
@@ -54,6 +70,7 @@ internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0) : MemoryM
     /// </summary>
     public byte* Detach()
     {
+        if (pooled) throw new InvalidOperationException("A pooled buffer cannot be detached.");
         byte* p = _ptr;
         _ptr = null;
         _capacity = 0;
