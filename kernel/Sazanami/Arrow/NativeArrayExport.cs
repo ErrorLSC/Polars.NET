@@ -39,6 +39,21 @@ internal sealed unsafe class NativeBatchExport
 {
     private NativeGrowBuffer _allocations; // void* entries
     private readonly Dictionary<nint, long> _sizes = [];
+    private readonly Dictionary<nint, (NativeBatchMemory Owner, int Length)> _shared = []; // buffers of other batches
+
+    /// <summary>
+    /// Puts a buffer of another imported batch into this one without copying (when it is one: a buffer over native
+    /// memory of a <see cref="NativeBatchMemory"/>): the arrays made here then hold that batch's memory too, until they
+    /// are disposed. Returns false for other buffers (managed memory, other importers), which must be copied.
+    /// </summary>
+    public bool TryShare(ArrowBuffer buffer, out nint pointer)
+    {
+        pointer = 0;
+        if (!MemoryMarshal.TryGetMemoryManager(buffer.Memory, out NativeBufferMemory? manager, out int start, out int length)) return false;
+        pointer = (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(manager.GetSpan())) + start;
+        if (!_shared.TryGetValue(pointer, out var known) || known.Length < length) _shared[pointer] = (manager.Owner, length);
+        return true;
+    }
 
     /// <summary>Takes ownership of a pointer from <see cref="NativeGrowBuffer.Detach(out long)"/> or <see cref="Allocate"/>, with its size in bytes.</summary>
     public byte* Own(byte* pointer, long bytes)
@@ -127,12 +142,14 @@ internal sealed unsafe class NativeBatchExport
         for (int b = 0; b < buffers.Length; b++)
         {
             nint pointer = (nint)array->Buffers[b];
-            buffers[b] = pointer == 0 ? ArrowBuffer.Empty : NewBuffer(new NativeBufferMemory(owner, (byte*)pointer, checked((int)_sizes[pointer])));
+            buffers[b] = pointer == 0 ? ArrowBuffer.Empty
+                : _shared.TryGetValue(pointer, out var shared) ? NewBuffer(new NativeBufferMemory(shared.Owner, (byte*)pointer, shared.Length))
+                : NewBuffer(new NativeBufferMemory(owner, (byte*)pointer, checked((int)_sizes[pointer])));
         }
         var children = new ArrayData[array->ChildCount];
         for (int c = 0; c < children.Length; c++) children[c] = Data(array->Children[c], ChildType(type, c), owner);
         ArrayData? dictionary = array->Dictionary == null ? null : Data(array->Dictionary, ((DictionaryType)type).ValueType, owner);
-        return new ArrayData(type, checked((int)array->Length), checked((int)array->NullCount), 0, buffers, children, dictionary);
+        return new ArrayData(type, checked((int)array->Length), checked((int)array->NullCount), checked((int)array->Offset), buffers, children, dictionary);
     }
 
     private static IArrowType ChildType(IArrowType type, int index) => type switch
@@ -156,6 +173,7 @@ internal sealed unsafe class NativeBatchExport
         for (long i = 0; i < count; i++) NativeMemoryPool.Free((void*)items[i]);
         _allocations.Free();
         _sizes.Clear();
+        _shared.Clear();
     }
 }
 

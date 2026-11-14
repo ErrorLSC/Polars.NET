@@ -29,6 +29,7 @@
     <InternalsVisibleTo Include="Kaminari.Seseragi.Lakehouse" />
     <InternalsVisibleTo Include="Seseragi.Files.Tests" />
     <InternalsVisibleTo Include="Seseragi.Files.Fuzz" />
+    <InternalsVisibleTo Include="Sazanami.Tests" />
   </ItemGroup>
 
   <ItemGroup>
