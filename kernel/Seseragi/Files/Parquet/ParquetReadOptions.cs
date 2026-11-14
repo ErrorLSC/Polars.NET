@@ -1,5 +1,6 @@
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Rows;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -28,6 +29,23 @@ public sealed record ParquetReadOptions
     /// number). What cannot be decided from statistics keeps the row group. Null reads every row group.
     /// </summary>
     public ScalarExpr? Filter { get; init; }
+
+    /// <summary>
+    /// The rows to read, by their numbers in the file (from 0, row groups in file order); null reads every row. A row
+    /// group without a selected row is not read; pages wholly between selected rows are passed over unread where their
+    /// headers tell their rows. Combines with <see cref="RowGroups"/> and <see cref="Filter"/> (rows of the row groups
+    /// they keep). A deletion vector is <c>RowRanges.FromIndices(deleted).Complement(rowCount)</c>.
+    /// </summary>
+    public RowRanges? Rows { get; init; }
+
+    /// <summary>
+    /// The name of an Int64 column appended to the batches, holding each row's number in the file (as
+    /// <see cref="Rows"/> numbers them); null adds none. It must differ from the names of the columns read.
+    /// </summary>
+    public string? RowIndexColumn { get; init; }
+
+    /// <summary>The most rows to read, in the order they are delivered; null reads them all.</summary>
+    public long? MaxRows { get; init; }
 
     /// <summary>The largest number of rows per record batch. Batches never span row groups.</summary>
     public int BatchSize { get; init; } = 65_536;
@@ -78,6 +96,8 @@ public sealed record ParquetReadOptions
     internal void Validate()
     {
         if (BatchSize <= 0) throw new ArgumentOutOfRangeException(nameof(BatchSize), BatchSize, "The batch size must be positive.");
+        if (MaxRows < 0) throw new ArgumentOutOfRangeException(nameof(MaxRows), MaxRows, "The most rows to read cannot be negative.");
+        if (RowIndexColumn is "") throw new ArgumentException("The row index column needs a name.", nameof(RowIndexColumn));
         if (MaxDegreeOfParallelism <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
         if (!Enum.IsDefined(MemoryMap)) throw new ArgumentOutOfRangeException(nameof(MemoryMap), MemoryMap, "Unknown memory map mode.");

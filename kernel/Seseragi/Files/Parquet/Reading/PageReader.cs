@@ -88,34 +88,79 @@ internal sealed class PageReader : IDisposable
         return _window!.Memory.Slice((int)(from - _windowStart), (int)count);
     }
 
-    /// <summary>The next page, or false at the end of the chunk.</summary>
-    /// <exception cref="ParquetFormatException">A header or size is damaged, a CRC does not match, or decompression fails.</exception>
-    public bool TryNext(out Page page)
+    private PageHeader? _peeked;       // the next page's header, parsed ahead by TryPeek
+    private int _peekedLength;
+
+    /// <summary>The pages passed over by <see cref="SkipPeeked"/> (their bodies never read nor decompressed).</summary>
+    public int SkippedPages { get; private set; }
+
+    /// <summary>The header of the next page, its body not yet read; false at the end of the chunk.</summary>
+    /// <exception cref="ParquetFormatException">The header is damaged.</exception>
+    public bool TryPeek(out PageHeader header)
     {
-        page = default;
-        if (_position >= _length) return false;
+        if (_peeked is null)
+        {
+            if (_position >= _length)
+            {
+                header = null!;
+                return false;
+            }
+            _peeked = ParseHeader(out _peekedLength);
+        }
+        header = _peeked;
+        return true;
+    }
+
+    /// <summary>Passes over the page <see cref="TryPeek"/> returned, without reading its body.</summary>
+    /// <exception cref="ParquetFormatException">The page's size runs past the column chunk.</exception>
+    public void SkipPeeked()
+    {
+        PageHeader header = _peeked ?? throw new InvalidOperationException("No page was peeked.");
+        int compressed = CompressedSize(header, _peekedLength);
+        _position += _peekedLength + compressed;
+        _peeked = null;
+        SkippedPages++;
+    }
+
+    /// <summary>Parses the header at the current position (from a file: the first 64 KiB, then more for large statistics).</summary>
+    private PageHeader ParseHeader(out int headerLength)
+    {
         // From a file, the header is parsed from the first 64 KiB, then (headers with large statistics) from more,
         // up to the rest of the chunk, which is what a chunk in memory offers at once.
         long rest = _length - _position, offered = _source is null ? rest : Math.Min(rest, 64 * 1024);
-        PageHeader header;
-        int headerLength;
         while (true)
         {
             try
             {
-                header = PageHeader.Parse(Bytes(_position, offered).Span, out headerLength);
-                break;
+                return PageHeader.Parse(Bytes(_position, offered).Span, out headerLength);
             }
             catch (ParquetFormatException) when (offered < rest)
             {
                 offered = Math.Min(rest, offered * 16);
             }
         }
+    }
+
+    /// <summary>The stored size of a page's body, checked against its header and the rest of the chunk.</summary>
+    private int CompressedSize(PageHeader header, int headerLength)
+    {
         int compressed = header.CompressedPageSize, uncompressed = header.UncompressedPageSize;
         if (compressed < 0 || uncompressed < 0) throw new ParquetFormatException($"A page header gives negative sizes ({compressed}, {uncompressed}).");
         long left = _length - _position - headerLength;
         if (compressed > left)
             throw new ParquetFormatException($"A page of {compressed} bytes runs past the end of its column chunk ({left} bytes left).");
+        return compressed;
+    }
+
+    /// <summary>The next page, or false at the end of the chunk.</summary>
+    /// <exception cref="ParquetFormatException">A header or size is damaged, a CRC does not match, or decompression fails.</exception>
+    public bool TryNext(out Page page)
+    {
+        page = default;
+        if (!TryPeek(out PageHeader header)) return false;
+        int headerLength = _peekedLength;
+        _peeked = null;
+        int compressed = CompressedSize(header, headerLength), uncompressed = header.UncompressedPageSize;
         ReadOnlyMemory<byte> stored = Bytes(_position, headerLength + compressed)[headerLength..];
         _position += headerLength + compressed;
         // Fuzzing: the page's bytes end at a guard page, so that a decoder reading past them faults.

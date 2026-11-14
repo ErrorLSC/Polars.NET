@@ -8,6 +8,8 @@ lie_*.parquet  3 row groups x 10 rows (i int64 0..29, s string s00..s29) whose s
                with old writers. A reader that prunes by the lying piece returns fewer rows than the truth.
                expected.json records how many rows pyarrow returns for each file and filter: the statistics rules
                pyarrow follows (Arrow C++), which ours follow too.
+flat_v1_pages.parquet / flat_v2_pages.parquet  flat columns in many small v1 / v2 pages.
+nested_v2_pages.parquet  lists and structs in many small v2 pages, for skipping pages by their headers.
 nulls_unknown.parquet  n int64 with nulls, its null counts removed (absent is not zero).
 """
 import json
@@ -141,6 +143,35 @@ def unknown_null_counts():
     f.save(path)
 
 
+def flat_pages():
+    """flat_v1_pages.parquet, flat_v2_pages.parquet: flat columns (one dictionary-encoded, nulls) in many small pages."""
+    n = 600
+    t = pa.table({
+        "id": pa.array(range(n), pa.int64()),
+        "x": pa.array([None if i % 7 == 0 else i * 0.5 for i in range(n)], pa.float64()),
+        "cat": pa.array([None if i % 9 == 0 else f"c{i % 10}" for i in range(n)], pa.string()),
+        "b": pa.array([i % 3 == 0 for i in range(n)], pa.bool_()),
+    })
+    for version in ("1.0", "2.0"):
+        pq.write_table(t, os.path.join(here, f"flat_v{version[0]}_pages.parquet"), row_group_size=250, data_page_version=version,
+                       data_page_size=128, write_batch_size=16, compression="snappy", use_dictionary=["cat"])
+
+
+def nested_v2_pages():
+    """nested_v2_pages.parquet: lists, structs and a flat column in many small v2 pages (headers give their rows)."""
+    n = 600
+    t = pa.table({
+        "id": pa.array(range(n), pa.int64()),
+        "li": pa.array([None if i % 13 == 0 else list(range(i % 5)) for i in range(n)], pa.list_(pa.int32())),
+        "st": pa.array([None if i % 11 == 0 else {"a": i, "s": f"v{i}"} for i in range(n)],
+                       pa.struct([("a", pa.int64()), ("s", pa.string())])),
+        "ls": pa.array([[{"x": i, "y": [i, i + 1]}] * (i % 3) for i in range(n)],
+                       pa.list_(pa.struct([("x", pa.int32()), ("y", pa.list_(pa.int64()))]))),
+    })
+    pq.write_table(t, os.path.join(here, "nested_v2_pages.parquet"), row_group_size=250, data_page_version="2.0",
+                   data_page_size=128, write_batch_size=16, compression="snappy")
+
+
 FILTERS = {"i<5": [("i", "<", 5)], "s<s05": [("s", "<", "s05")], "i=3": [("i", "=", 3)], "s=s03": [("s", "=", "s03")]}
 
 CHILD = r'''
@@ -153,6 +184,8 @@ print(pq.read_table(sys.argv[1], filters=json.loads(sys.argv[2])).num_rows)
 def main():
     types()
     unknown_null_counts()
+    nested_v2_pages()
+    flat_pages()
     expected = {}
     for name in lies():
         for fname, flt in FILTERS.items():

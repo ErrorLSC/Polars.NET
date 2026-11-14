@@ -189,6 +189,11 @@ internal abstract class LeafReader : IDisposable
             bool first = true;
             while (records > 0)
             {
+                if (!read && _pageAt == _pageValues)
+                {
+                    starts += SkipWholePages(records - starts);
+                    if (starts == records) break;
+                }
                 if (_pageAt == _pageValues && !TryNextDataPage())
                 {
                     if (starts == records) break;
@@ -226,6 +231,36 @@ internal abstract class LeafReader : IDisposable
         {
             throw new ParquetFormatException($"Column '{Name}': {e.Message}", e);
         }
+    }
+
+    /// <summary>The pages passed over by their headers alone (for tests and measurements).</summary>
+    public int SkippedPages => _pages.SkippedPages;
+
+    /// <summary>
+    /// Passes over data pages that lie wholly within a skip of <paramref name="records"/> records by their headers alone,
+    /// their bodies neither read nor decompressed: pages whose rows the header gives (a flat column holds one value per
+    /// row; a nested column's v2 page counts its rows). Dictionary pages and pages a skip ends inside are left to the
+    /// ordinary path. Returns the records passed over.
+    /// </summary>
+    private int SkipWholePages(int records)
+    {
+        int skipped = 0;
+        while (skipped < records && _valuesLeft > 0 && _pages.TryPeek(out PageHeader header))
+        {
+            var (values, rows) = header.Type switch
+            {
+                PageType.DataPage when header.DataPageHeader is { } v1 && _maxRepetition == 0 => (v1.NumValues, v1.NumValues),
+                PageType.DataPageV2 when header.DataPageHeaderV2 is { } v2 => (v2.NumValues, _maxRepetition == 0 ? v2.NumValues : v2.NumRows),
+                _ => (-1, -1),
+            };
+            if (values < 0 || rows < 0 || rows > records - skipped || rows == 0 && values > 0) break;
+            if (values > _valuesLeft)
+                throw new ParquetFormatException($"a data page holds {values} values, more than the {_valuesLeft} left in the column chunk.");
+            _valuesLeft -= values;
+            skipped += rows;
+            _pages.SkipPeeked();
+        }
+        return skipped;
     }
 
     /// <summary>Reads the entries [<paramref name="a"/>, <paramref name="b"/>) of the page: levels kept, slots and values appended.</summary>
