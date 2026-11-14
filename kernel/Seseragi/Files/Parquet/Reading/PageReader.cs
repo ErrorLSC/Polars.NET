@@ -32,6 +32,7 @@ internal sealed class PageReader : IDisposable
     private NativeByteBuffer? _window;                // file reads: chunk bytes [_windowStart, _windowEnd)
     private long _windowStart, _windowEnd;
     private long _position;
+    private GuardedMemory.Block? _guardedStored, _guardedBody; // fuzzing: the page's bytes, each ending at a guard page
 
     /// <summary>A chunk whose bytes are in memory.</summary>
     public PageReader(ReadOnlyMemory<byte> chunk, CompressionCodec codec, bool verifyChecksums, NativeBufferPool? pool = null)
@@ -117,6 +118,8 @@ internal sealed class PageReader : IDisposable
             throw new ParquetFormatException($"A page of {compressed} bytes runs past the end of its column chunk ({left} bytes left).");
         ReadOnlyMemory<byte> stored = Bytes(_position, headerLength + compressed)[headerLength..];
         _position += headerLength + compressed;
+        // Fuzzing: the page's bytes end at a guard page, so that a decoder reading past them faults.
+        if (GuardedMemory.Enabled) stored = Guard(ref _guardedStored, GuardedMemory.Block.Copy(stored.Span)).Memory;
 
         if (_verifyChecksums && header.Crc is int crc && Crc32.HashToUInt32(stored.Span) != unchecked((uint)crc))
             throw new ParquetFormatException($"A {header.Type} page fails its CRC check.");
@@ -139,9 +142,23 @@ internal sealed class PageReader : IDisposable
                 throw new ParquetFormatException($"An uncompressed page holds {stored.Length} bytes; its header says {uncompressed}.");
             return stored;
         }
+        if (GuardedMemory.Enabled)
+        {
+            GuardedMemory.Block body = Guard(ref _guardedBody, new GuardedMemory.Block(uncompressed));
+            PageCodecs.Decompress(_codec, stored.Span, body.GetSpan());
+            return body.Memory;
+        }
         NativeByteBuffer scratch = Scratch(uncompressed);
         PageCodecs.Decompress(_codec, stored.Span, scratch.Span[..uncompressed]);
         return scratch.Memory[..uncompressed];
+    }
+
+    /// <summary>Puts <paramref name="block"/> in <paramref name="slot"/>, unmapping the block it held.</summary>
+    private static GuardedMemory.Block Guard(ref GuardedMemory.Block? slot, GuardedMemory.Block block)
+    {
+        ((IDisposable?)slot)?.Dispose();
+        slot = block;
+        return block;
     }
 
     /// <summary>A data page v2: levels are never compressed; values are unless <c>is_compressed</c> is false or there are none.</summary>
@@ -160,6 +177,13 @@ internal sealed class PageReader : IDisposable
                 throw new ParquetFormatException($"A DATA_PAGE_V2 holds {storedValues.Length} value bytes; its header says {values}.");
             return stored;
         }
+        if (GuardedMemory.Enabled)
+        {
+            GuardedMemory.Block guarded = Guard(ref _guardedBody, new GuardedMemory.Block(header.UncompressedPageSize));
+            stored.Span[..levels].CopyTo(guarded.GetSpan());
+            PageCodecs.Decompress(_codec, storedValues.Span, guarded.GetSpan()[levels..]);
+            return guarded.Memory;
+        }
         NativeByteBuffer scratch = Scratch(header.UncompressedPageSize);
         Span<byte> body = scratch.Span[..header.UncompressedPageSize];
         stored.Span[..levels].CopyTo(body);
@@ -171,6 +195,9 @@ internal sealed class PageReader : IDisposable
     {
         Return(ref _scratch);
         Return(ref _window);
+        ((IDisposable?)_guardedStored)?.Dispose();
+        ((IDisposable?)_guardedBody)?.Dispose();
+        _guardedStored = _guardedBody = null;
     }
 
     private void Return(ref NativeByteBuffer? buffer)

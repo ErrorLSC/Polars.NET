@@ -3,6 +3,7 @@
   <Project Path="tests/Polars.Config.Tests/Polars.Config.Tests.csproj" />
   <Project Path="tests/Seseragi.Lakehouse.Tests/Seseragi.Lakehouse.Tests.csproj" />
   <Project Path="tests/Seseragi.Files.Tests/Seseragi.Files.Tests.csproj" />
+  <Project Path="tests/Seseragi.Files.Fuzz/Seseragi.Files.Fuzz.csproj" />
   <Project Path="tests/Polars.CSharp.Tests/Polars.CSharp.Tests.csproj" />
   <Folder Name="/kernel/" />
   <Folder Name="/tests/">

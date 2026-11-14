@@ -82,6 +82,8 @@ internal static class LeafReaders
         {
             ReadOnlySpan<byte> value = NextByteArray(plain, ref position);
             if (check && !Utf8.IsValid(value)) throw InvalidUtf8();
+            // The room was sized by the declared count: values longer than that leaves mean fewer values than declared.
+            if (value.Length > data.Length - at) throw FewerEntries(plain.Length, count);
             value.CopyTo(data.AsSpan(at));
             at += value.Length;
             offsets[i + 1] = at;
@@ -90,6 +92,8 @@ internal static class LeafReaders
     }
 
     public static ParquetFormatException InvalidUtf8() => new("a STRING value is not valid UTF-8.");
+
+    public static ParquetFormatException FewerEntries(int bytes, int count) => new($"a dictionary page of {bytes} bytes holds fewer than its {count} BYTE_ARRAY values.");
 
     /// <summary>
     /// Reads <paramref name="starts"/>.Length PLAIN BYTE_ARRAY values from <paramref name="position"/>: their starts and
@@ -425,6 +429,7 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
             if (check && !Utf8.IsValid(value)) throw LeafReaders.InvalidUtf8();
             _views[i] = NativeBinaryViewBuilder.View(value, 0, at);
             if (value.Length <= NativeBinaryViewBuilder.MaxInline) continue;
+            if (value.Length > bytes - at) throw LeafReaders.FewerEntries(plain.Length, count);
             value.CopyTo(_data.AsSpan(at));
             at += value.Length;
         }

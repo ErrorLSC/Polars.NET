@@ -82,7 +82,11 @@ internal static class ArrowMapping
         return (new Apache.Arrow.Schema([.. columns.Select(c => c.Field)], null), columns);
     }
 
-    /// <summary>The Arrow schema stored by the writer, or null (absent or unreadable: it only refines the mapping).</summary>
+    /// <summary>
+    /// The Arrow schema stored by the writer, or null (absent or unreadable: it only refines the mapping). The message
+    /// is checked as a FlatBuffer first: the Apache.Arrow reader trusts its lengths (a damaged one makes it allocate
+    /// gigabytes), and whatever it throws on a sound but nonsensical schema means unreadable too.
+    /// </summary>
     public static Apache.Arrow.Schema? StoredArrowSchema(FileMetaData meta)
     {
         string? encoded = meta.KeyValueMetadata?.LastOrDefault(kv => kv.Key == ArrowSchemaKey)?.Value;
@@ -90,11 +94,11 @@ internal static class ArrowMapping
         try
         {
             byte[] bytes = Convert.FromBase64String(encoded);
+            if (!ArrowSchemaCheck.IsSound(bytes)) return null;
             using var reader = new ArrowStreamReader(new MemoryStream(bytes));
             return reader.Schema;
         }
-        catch (Exception e) when (e is FormatException or InvalidDataException or IOException or ArgumentException
-                                      or InvalidOperationException or IndexOutOfRangeException or NotSupportedException or OverflowException)
+        catch (Exception e) when (e is not OutOfMemoryException)
         {
             return null;
         }

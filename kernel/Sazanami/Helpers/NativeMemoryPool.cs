@@ -25,6 +25,7 @@ internal static unsafe class NativeMemoryPool
     private const long MinPooled = 4 * Unit;           // 64 KiB
     private const int Classes = 57;                    // the last is 1 GiB
     private const int Unpooled = -1;
+    private const int Guarded = -2;                    // a block of its own mapping, ending at a guard page (fuzzing)
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(1);
 
     private static readonly object _lock = new();
@@ -53,6 +54,7 @@ internal static unsafe class NativeMemoryPool
     public static byte* Alloc(long bytes)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(bytes);
+        if (GuardedMemory.Enabled) return AllocGuarded(bytes);
         int c = ClassOf(bytes);
         if (c != Unpooled)
         {
@@ -76,6 +78,16 @@ internal static unsafe class NativeMemoryPool
         return p + Header;
     }
 
+    /// <summary>A block that ends (within the alignment) at a guard page: writing or reading past its end faults.</summary>
+    private static byte* AllocGuarded(long bytes)
+    {
+        long usable = (Math.Max(bytes, 8) + Alignment - 1) & ~(long)(Alignment - 1);
+        byte* p = GuardedMemory.Alloc(usable + Header, Alignment);
+        *(int*)p = Guarded;
+        *(long*)(p + 8) = usable;
+        return p + Header;
+    }
+
     /// <summary>The bytes the block at <paramref name="pointer"/> can hold (at least what was asked for).</summary>
     public static long UsableSize(void* pointer) => *(long*)((byte*)pointer - Header + 8);
 
@@ -85,6 +97,11 @@ internal static unsafe class NativeMemoryPool
         if (pointer == null) return;
         byte* block = (byte*)pointer - Header;
         int c = *(int*)block;
+        if (c == Guarded)
+        {
+            GuardedMemory.Free(block, *(long*)(block + 8) + Header, Alignment);
+            return;
+        }
         if (c != Unpooled)
         {
             long size = ClassSize(c);
