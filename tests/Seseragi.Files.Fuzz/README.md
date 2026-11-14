@@ -24,11 +24,12 @@ A decoder reading or writing past those ends faults at once instead of touching 
 ## Cases
 
 Case `n` of seed `s` is the same on every run. Three in four take a file of
-`tests/Seseragi.Files.Tests/TestData/parquet` (minus files that are legitimately too big for the memory cap), apply a
-few mutations (bit flips, interesting bytes and 32-bit values, nudges, deletions, duplications, splices from other
-files, truncation with the footer kept), aimed in part at page headers and level / run headers (offsets taken from
-the original footer) and at the footer, and read the result with random options (views, parallelism, chunk reading
-mode, batch size, level bits, checksums, column subsets). The fourth feeds Snappy or LZ4 blocks (valid ones, then
+`tests/Seseragi.Files.Tests/TestData/parquet` or `TestData/parquet-pushdown` (paged files with page indexes and Bloom
+filters; minus files that are legitimately too big for the memory cap), apply a few mutations (bit flips, interesting
+bytes and 32-bit values, nudges, deletions, duplications, splices from other files, truncation with the footer kept),
+aimed in part at page headers and level / run headers, at column and offset indexes and Bloom filters (offsets taken
+from the original footer) and at the footer, and read the result with random options (views, parallelism, chunk
+reading mode, batch size, level bits, checksums, column subsets, row selections, filters, row limits, fetch gaps). The fourth feeds Snappy or LZ4 blocks (valid ones, then
 mutated) or random RLE data straight to the kernels, input and output guarded, and compares the decoders with each
 other.
 
