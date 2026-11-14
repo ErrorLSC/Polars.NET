@@ -67,22 +67,28 @@ Column chunks are read as the source suits: sliced when it lives in memory, page
 with few ranged reads (nearby chunks coalesced) from other sources; a local file can also be read through a memory
 mapping (`MemoryMap`: off by default, on, or automatic: only uncompressed fixed-width chunks; a mapped file must not be
 truncated while read). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
-deprecated PLAIN_DICTIONARY), RLE booleans; levels in the RLE / bit-packing hybrid or the deprecated BIT_PACKED;
+deprecated PLAIN_DICTIONARY), RLE booleans, DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY and
+BYTE_STREAM_SPLIT (on every physical type the spec allows them for); levels in the RLE / bit-packing hybrid or the deprecated BIT_PACKED;
 codecs uncompressed, Snappy, GZIP (several members), Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop-framed LZ4;
 page CRCs checked on request (`VerifyChecksums`). `BinaryAsString` reads unannotated binaries as strings; INT96
 timestamps read in microseconds exactly as Spark reads them (its wrapping 64-bit arithmetic, which brings back the
 dates beyond 2262 Spark wrote wrapped; nanoseconds below a microsecond are dropped), or in nanoseconds (`Int96Unit`,
 checked). Strings are validated as UTF-8; values that do not fit their Arrow type (narrowed integers, decimals over
-their precision, timestamps beyond 64 bits) are an error, never truncated. The DELTA_* and BYTE_STREAM_SPLIT
-encodings are not read yet; ALP and LZO, and column chunks in other files, are refused.
+their precision, timestamps beyond 64 bits) are an error, never truncated. ALP and LZO, and column chunks in other
+files, are refused. Damaged files are refused with `ParquetFormatException`, never another exception; a damaged
+stored Arrow schema is ignored (it only refines the mapping). The reader and its unsafe kernels are fuzzed with guard
+pages after every buffer (`tests/Seseragi.Files.Fuzz`).
 
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
 and stands in until a full Parquet writer exists. Page codecs compress as well as decompress, for the writer to come.
 
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
 leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
-decoded by Sazanami's own decoder), `Encodings/` (RLE / bit-packing hybrid, BIT_PACKED levels; LSB bit unpacking is
-Sazanami's), `Reading/` (pages, leaf readers by value kind, value converters, the nested assembler); `ParquetFile`, `ParquetReader` and the options at the top.
+decoded by Sazanami's own decoder), `Encodings/` (RLE / bit-packing hybrid, BIT_PACKED levels, DELTA_BINARY_PACKED,
+the delta byte arrays; LSB bit unpacking and byte stream split are Sazanami's), `Reading/` (pages, leaf readers by
+value kind, value converters, the nested assembler); `ParquetFile`, `ParquetReader` and the options at the top.
+Pages in the non-PLAIN value encodings are decoded whole when entered, into PLAIN layout, so every value kind reads
+them as PLAIN; string readers take delta byte arrays as data, starts and lengths instead.
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source and the native
 copy of streams that cannot seek.
@@ -281,6 +287,10 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
 | `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
+| `Arrow/ArrowSchemaCheck.cs` | Checks an Arrow IPC schema message as a FlatBuffer (offsets, vectors, strings, nesting) before the Apache.Arrow reader trusts its lengths. |
+| `Encodings/BitUnpacking.cs`, `BitUnpack.cs` | LSB-first bit unpacking of 0–64-bit values (above 32 into 64-bit integers): per-width group kernels and a bounds-checked path. |
+| `Encodings/ByteStreamSplit.cs` | Joins byte streams back into values (portable widening for 2-, 4- and 8-byte values). |
+| `Helpers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 
 In Polars.NET (the engine integration):
@@ -356,8 +366,16 @@ value against a logical type is allowed. General unions are not written against 
   tests/Seseragi.Files.Tests --filter Category=Interop` checks our files with fastavro, Python Polars and DuckDB
   (`interop_check.py`).
 * Row view: `tests/Sazanami.Tests/ArrowRowsTests.cs`, and over Avro batches `AvroRowViewTests.cs`.
-* Parquet: `tests/Seseragi.Lakehouse.Tests` (`ParquetFootersTests`, `CheckpointStatisticsTests`, `FileTypesTests`) and
-  the F# `SeseragiFooterStatisticsTests`, through the Delta kernel that uses them.
+* Parquet (`tests/Seseragi.Files.Tests/Parquet`): every corpus file against pyarrow and DuckDB oracles
+  (`ParquetValueTests`, `TestData/parquet/values.json`, `footers.json`; the corpus and how it is written:
+  `TestData/parquet/README.md`), readers and options (`ParquetReaderTests`), nested data, kernels against their
+  reference paths (`ParquetKernelTests`), the value encodings against reference encoders (`ParquetEncodingTests`),
+  what the fuzzer found (`ParquetFuzzRegressionTests`, `TestData/parquet-fuzz/`). Process-wide state (memory pool,
+  guard pages, early stops) is tested in the serial `tests/Polars.Config.Tests`. Through the engine:
+  `tests/Polars.CSharp.Tests/IO/ParquetManagedPipelineTests.cs` (managed read imported into Polars against Polars'
+  own read). Through the Delta kernel: `tests/Seseragi.Lakehouse.Tests` (`ParquetFootersTests`,
+  `CheckpointStatisticsTests`, `FileTypesTests`) and the F# `SeseragiFooterStatisticsTests`.
+* Fuzzing (by hand): `tests/Seseragi.Files.Fuzz` (`README.md` there: contract, guard pages, how to run it capped).
 * Engine level: `tests/Polars.CSharp.Tests/IO/AvroManagedTests.cs`, F# `AvroManagedTests.fs`.
 * Excel (`tests/Seseragi.Files.Tests`): `ExcelReadTests` (fixtures from openpyxl, xlsxwriter and a hand-written
   strict package, `TestData/excel/generate_fixtures.py`; error paths), `ExcelWriteTests` (round trips of every type,
