@@ -24,6 +24,7 @@
     <Compile Include="IR/RowShape.fs" />
     <Compile Include="IR/LogicalIR.fs" />
     <Compile Include="IR/ScalarExpr.fs" />
+    <Compile Include="IR/FilterShapes.fs" />
     <Compile Include="IR/BackendContracts.fs" />
     <Compile Include="IR/LogicalPlan.fs" />
     <Compile Include="IR/CardinalityFeedback.fs" />

@@ -165,8 +165,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// The batches as an Arrow stream that owns them, for handing to another library (Polars' <c>FromArrowStream</c>,
-    /// a C stream export): each batch is disposed when the next one is read or the stream is disposed. A consumer
+    /// The batches as an Arrow stream that owns them, for handing to another library (a dataframe's Arrow
+    /// stream import, a C stream export): each batch is disposed when the next one is read or the stream is disposed. A consumer
     /// that exports a batch keeps its memory alive through the export; one that keeps a batch beyond the next read
     /// must use <see cref="ReadBatches"/> instead.
     /// </summary>

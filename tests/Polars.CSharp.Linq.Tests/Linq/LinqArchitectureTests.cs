@@ -66,10 +66,12 @@ public class LinqArchitectureTests
     {
         Assert.Empty(ProjectReferences("kernel", "Sazanami", "Sazanami.csproj"));
         Assert.Equal(["Sazanami"], ProjectReferences("kernel", "Samidare", "Samidare.fsproj"));
-        Assert.Equal(["Sazanami", "Seseragi.Lakehouse"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
+        Assert.Equal(["Sazanami", "Seseragi.Lakehouse", "Seseragi.Files"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
+        // File formats take row filters in the compiler's IR (pushdown), so they see Samidare too.
+        Assert.Equal(["Sazanami", "Samidare"], ProjectReferences("kernel", "Seseragi", "Files", "Seseragi.Files.csproj"));
         // IO kernels (table formats and their catalogs): they implement Samidare's contracts, so they may see the
         // compiler, never the other way round.
-        Assert.Equal(["Sazanami", "Samidare"], ProjectReferences("kernel", "Seseragi", "Lakehouse", "Seseragi.Lakehouse.csproj"));
+        Assert.Equal(["Sazanami", "Seseragi.Files", "Samidare"], ProjectReferences("kernel", "Seseragi", "Lakehouse", "Seseragi.Lakehouse.csproj"));
     }
 
     // The object store clients stand on the BCL and the file system contracts only, so they can leave the lakehouse

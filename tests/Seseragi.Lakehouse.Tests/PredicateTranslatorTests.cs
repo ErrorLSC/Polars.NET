@@ -19,6 +19,8 @@ public class PredicateTranslatorTests
         Field("price", DoubleType.Default),
         Field("ratio", FloatType.Default),
         Field("flag", BooleanType.Default),
+        Field("ts", new TimestampType(TimeUnit.Nanosecond, (string?)null)),
+        Field("amount", new Decimal128Type(10, 2)),
     ]));
 
     private static ScalarExpr Col(string name) => ScalarExpr.NewColumn(name);
@@ -115,6 +117,20 @@ public class PredicateTranslatorTests
         Assert.Equal("(id = 1 OR id IS NULL)", T(In(false, true, LiteralValue.NewInt64(1), nul)));
         Assert.Null(T(In(true, true, LiteralValue.NewInt64(1), nul)));
         Assert.Null(T(In(true, false, LiteralValue.NewInt64(1), nul)));
+    }
+
+    [Fact]
+    public void Casts_ThatRound_AreNotSeenThrough()
+    {
+        // cast(ts as ms) <= c also holds on values up to 1 ms above c: the predicate ts <= c would drop them.
+        static ScalarExpr Cast(string column, IArrowType to) => ScalarExpr.NewCast(Col(column), LogicalType.NewArrow(to), false);
+        var at = ScalarExpr.NewLiteral(LiteralValue.NewDateTime(new DateTime(2024, 1, 1)));
+        Assert.Null(T(Bin(BinaryOp.LtEq, Cast("ts", new TimestampType(TimeUnit.Millisecond, (string?)null)), at)));
+        Assert.NotNull(T(Bin(BinaryOp.LtEq, Cast("ts", new TimestampType(TimeUnit.Nanosecond, (string?)null)), at)));
+        // A decimal widened at the same scale keeps every value; a rescale does not count.
+        var price = ScalarExpr.NewLiteral(LiteralValue.NewDecimal(9.99m));
+        Assert.Equal("amount > 9.99", T(Bin(BinaryOp.Gt, Cast("amount", new Decimal128Type(20, 2)), price)));
+        Assert.Null(T(Bin(BinaryOp.Gt, Cast("amount", new Decimal128Type(20, 4)), price)));
     }
 
     [Fact]

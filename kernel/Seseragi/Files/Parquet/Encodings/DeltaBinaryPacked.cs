@@ -56,7 +56,7 @@ internal static class DeltaBinaryPacked
             {
                 int width = widths[m];
                 // Writers must not go past the type's width (Encodings.md), but DuckDB writes INT32 deltas up to 33
-                // bits wide (not wrapped to 32 bits); DuckDB and Polars read them, pyarrow refuses. Unpacked and summed
+                // bits wide (not wrapped to 32 bits); DuckDB reads them, pyarrow refuses. Unpacked and summed
                 // in 64 bits and truncated, they give the values written.
                 if (width > 64) throw new ParquetFormatException($"a DELTA_BINARY_PACKED miniblock is {width} bits wide.");
                 int n = (int)Math.Min(perMiniblock, remaining);

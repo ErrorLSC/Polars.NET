@@ -35,10 +35,10 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
                 return Compile(a.expr, nonNaN);
 
             case ScalarExpr.Binary b when b.op.IsAnd:
-                return And(Flatten(expr, isAnd: true, []), nonNaN);
+                return And([.. FilterShapes.conjuncts(expr)], nonNaN);
 
             case ScalarExpr.Binary b when b.op.IsOr:
-                return new OrNode([.. Flatten(expr, isAnd: false, []).Select(e => Compile(e, nonNaN))]);
+                return new OrNode([.. FilterShapes.disjuncts(expr).Select(e => Compile(e, nonNaN))]);
 
             case ScalarExpr.Binary b when b.op.IsStartsWith:
             {
@@ -172,32 +172,9 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
         return negated ? new NotNode(inList) : inList;
     }
 
-    /// <summary>The leaf a conjunct keeps away from NaN: <c>x &lt;= +inf</c>, <c>+inf &gt;= x</c>, <c>NOT isnan(x)</c>, <c>NOT coalesce(isnan(x), false)</c>.</summary>
-    private int? NaNGuardLeaf(ScalarExpr conjunct)
-    {
-        switch (conjunct)
-        {
-            case ScalarExpr.Binary { op.IsLtEq: true } b when b.right is ScalarExpr.Literal l && IsPositiveInfinity(l.value):
-                return Resolve(b.left) is { Kind: DomainKind.Floating } x ? x.Leaf : null;
-            case ScalarExpr.Binary { op.IsGtEq: true } b when b.left is ScalarExpr.Literal l && IsPositiveInfinity(l.value):
-                return Resolve(b.right) is { Kind: DomainKind.Floating } y ? y.Leaf : null;
-            case ScalarExpr.Unary { op.IsNot: true } u:
-            {
-                ScalarExpr inner = u.expr is ScalarExpr.Coalesce c && c.exprs.Length == 2 ? c.exprs.Head : u.expr;
-                return inner is ScalarExpr.Unary { op.IsIsNan: true } isNan && Resolve(isNan.expr) is { Kind: DomainKind.Floating } z ? z.Leaf : null;
-            }
-            default:
-                return null;
-        }
-    }
-
-    private static bool IsPositiveInfinity(LiteralValue value) => value switch
-    {
-        LiteralValue.Float64 d => double.IsPositiveInfinity(d.Item),
-        LiteralValue.Float32 f => float.IsPositiveInfinity(f.Item),
-        LiteralValue.Float16 h => Half.IsPositiveInfinity(h.Item),
-        _ => false,
-    };
+    /// <summary>The floating leaf a conjunct keeps away from NaN (one of the front end's NaN guards).</summary>
+    private int? NaNGuardLeaf(ScalarExpr conjunct) =>
+        FilterShapes.tryNaNGuardOperand(conjunct) is { } operand && Resolve(operand.Value) is { Kind: DomainKind.Floating } leaf ? leaf.Leaf : null;
 
     /// <summary>Splits a comparison into its leaf and literal; <paramref name="flipped"/> when the literal is on the left.</summary>
     private bool TrySplit(ScalarExpr left, ScalarExpr right, out LeafDomain? domain, out LiteralValue? literal, out bool flipped)
@@ -210,7 +187,7 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
 
     /// <summary>
     /// The leaf an expression reads, seeing through casts that keep the order of every value (to the same type, to
-    /// a wider integer that holds every value, Float32 to Float64); null when it is no testable leaf.
+    /// <see cref="FilterShapes.castKeepsValues"/>); null when it is no testable leaf.
     /// </summary>
     private LeafDomain? Resolve(ScalarExpr expr)
     {
@@ -219,7 +196,7 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
             case ScalarExpr.Cast cast:
             {
                 if (Node(cast.expr) is not { IsLeaf: true } leaf || Domain(leaf) is not LeafDomain domain) return null;
-                return cast.targetType is Samidare.IR.LogicalType.Arrow target && KeepsOrder(LeafTypeOf(leaf).ArrowType, target.arrowType) ? domain : null;
+                return cast.targetType is Samidare.IR.LogicalType.Arrow target && FilterShapes.castKeepsValues(LeafTypeOf(leaf).ArrowType, target.arrowType) ? domain : null;
             }
             default:
                 return Node(expr) is { IsLeaf: true } node ? Domain(node) : null;
@@ -262,38 +239,6 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
             _domains[leaf.LeafIndex] = domain;
         }
         return domain;
-    }
-
-    private static bool KeepsOrder(IArrowType from, IArrowType to)
-    {
-        if (from.TypeId == to.TypeId && from is not (TimestampType or Time32Type or Time64Type or Decimal128Type or Decimal256Type)) return true;
-        if (from.TypeId == ArrowTypeId.Float && to.TypeId == ArrowTypeId.Double) return true;
-        if (IntegerWidth(from.TypeId) is not (int fromBits, bool fromSigned) || IntegerWidth(to.TypeId) is not (int toBits, bool toSigned)) return false;
-        return fromSigned == toSigned ? toBits >= fromBits : !fromSigned && toSigned && toBits > fromBits;
-
-        static (int Bits, bool Signed)? IntegerWidth(ArrowTypeId id) => id switch
-        {
-            ArrowTypeId.Int8 => (8, true),
-            ArrowTypeId.Int16 => (16, true),
-            ArrowTypeId.Int32 => (32, true),
-            ArrowTypeId.Int64 => (64, true),
-            ArrowTypeId.UInt8 => (8, false),
-            ArrowTypeId.UInt16 => (16, false),
-            ArrowTypeId.UInt32 => (32, false),
-            ArrowTypeId.UInt64 => (64, false),
-            _ => null,
-        };
-    }
-
-    private static List<ScalarExpr> Flatten(ScalarExpr expr, bool isAnd, List<ScalarExpr> into)
-    {
-        if (expr is ScalarExpr.Binary b && (isAnd ? b.op.IsAnd : b.op.IsOr))
-        {
-            Flatten(b.left, isAnd, into);
-            Flatten(b.right, isAnd, into);
-        }
-        else into.Add(expr);
-        return into;
     }
 }
 

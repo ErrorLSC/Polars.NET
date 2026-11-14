@@ -231,7 +231,7 @@ internal sealed class XlsxSheetSource : SheetSource
         }
     }
 
-    // Text without characters (a formula's "", an empty shared string) is an empty cell, as in Python Polars.
+    // Text without characters (a formula's "", an empty shared string) is an empty cell, as calamine reads it.
     private static void ParseCell(ref XmlSpanScanner x, RowBuffer row, int column, ExcelValueKind kind, ReadOnlySpan<byte> type,
         SharedStringStore? sharedStrings)
     {

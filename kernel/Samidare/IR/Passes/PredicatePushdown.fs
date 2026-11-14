@@ -7,11 +7,7 @@ open Kaminari.Samidare.IR
 module internal PredicatePushdown =
 
     /// Decomposes a ScalarExpr conjunction into a list of independent conjuncts.
-    let rec splitConjuncts (expr: ScalarExpr) : ScalarExpr list =
-        match expr with
-        | ScalarExpr.Binary(BinaryOp.And, left, right) ->
-            splitConjuncts left @ splitConjuncts right
-        | other -> [ other ]
+    let splitConjuncts (expr: ScalarExpr) : ScalarExpr list = FilterShapes.conjuncts expr
 
     /// Recombines a list of conjuncts into a single conjunction expression.
     let combineConjuncts (conjuncts: ScalarExpr list) : ScalarExpr option =

@@ -152,11 +152,7 @@ module internal JoinReordering =
 
     /// The fraction of rows kept by a conjunction of predicates, reading a column's statistics where it has them.
     let rec private conjunctionShare (column: string -> ColumnStatistics option) (predicates: ScalarExpr list) : float =
-        let rec split (predicate: ScalarExpr) =
-            match predicate with
-            | ScalarExpr.Binary(BinaryOp.And, left, right) -> split left @ split right
-            | other -> [ other ]
-        let conjuncts = predicates |> List.collect split
+        let conjuncts = predicates |> List.collect FilterShapes.conjuncts
         let spans (name: string) =
             column name
             |> Option.bind (fun statistics ->

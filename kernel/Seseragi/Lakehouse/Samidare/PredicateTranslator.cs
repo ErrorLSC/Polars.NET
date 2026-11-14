@@ -49,12 +49,12 @@ public static class PredicateTranslator
             switch (expr)
             {
                 case ScalarExpr.Binary b when b.op.IsAnd:
-                    return And(Conjuncts(expr), nonNaN);
+                    return And([.. FilterShapes.conjuncts(expr)], nonNaN);
 
                 case ScalarExpr.Binary b when b.op.IsOr:
                 {
                     var children = new List<Piece>();
-                    foreach (ScalarExpr child in Disjuncts(expr))
+                    foreach (ScalarExpr child in FilterShapes.disjuncts(expr))
                     {
                         // A disjunct that says nothing makes the whole disjunction say nothing.
                         Piece? piece = Translate(child, nonNaN);
@@ -213,34 +213,9 @@ public static class PredicateTranslator
             return piece.Exact ? new Piece(Predicate.Not(piece.Predicate), true) : null;
         }
 
-        /// <summary>The column a conjunct keeps away from NaN: <c>x &lt;= +inf</c> or <c>NOT coalesce(isnan(x), false)</c>.</summary>
-        private string? NaNGuardColumn(ScalarExpr conjunct)
-        {
-            switch (conjunct)
-            {
-                case ScalarExpr.Binary { op.IsLtEq: true } b when ColumnOf(b.left) is string column
-                                                                && b.right is ScalarExpr.Literal l && IsPositiveInfinity(l.value):
-                    return column;
-                case ScalarExpr.Binary { op.IsGtEq: true } b when ColumnOf(b.right) is string column
-                                                                && b.left is ScalarExpr.Literal l && IsPositiveInfinity(l.value):
-                    return column;
-                case ScalarExpr.Unary { op.IsNot: true } u:
-                {
-                    ScalarExpr inner = u.expr is ScalarExpr.Coalesce c && c.exprs.Length == 2 ? c.exprs.Head : u.expr;
-                    return inner is ScalarExpr.Unary { op.IsIsNan: true } isNan ? ColumnOf(isNan.expr) : null;
-                }
-                default:
-                    return null;
-            }
-        }
-
-        private static bool IsPositiveInfinity(LiteralValue value) => value switch
-        {
-            LiteralValue.Float64 d => double.IsPositiveInfinity(d.Item),
-            LiteralValue.Float32 f => float.IsPositiveInfinity(f.Item),
-            LiteralValue.Float16 h => Half.IsPositiveInfinity(h.Item),
-            _ => false,
-        };
+        /// <summary>The column a conjunct keeps away from NaN (one of the front end's NaN guards).</summary>
+        private string? NaNGuardColumn(ScalarExpr conjunct) =>
+            FilterShapes.tryNaNGuardOperand(conjunct) is { } operand ? ColumnOf(operand.Value) : null;
 
         /// <summary>Splits a comparison into its column and literal; <paramref name="flipped"/> when the literal is on the left.</summary>
         private bool TrySplit(ScalarExpr left, ScalarExpr right, out string? column, out LiteralValue? literal, out bool flipped)
@@ -279,32 +254,10 @@ public static class PredicateTranslator
                 ScalarExpr.Column c when types.ContainsKey(c.name) => c.name,
                 ScalarExpr.Cast cast when ColumnOf(cast.expr) is string column
                                                             && types.TryGetValue(column, out LogicalType? source)
-                                                            && KeepsOrder(source, cast.targetType) => column,
+                                                            && FilterShapes.castKeepsValuesOf(source, cast.targetType) => column,
                 _ => null,
             };
         }
-
-        private static bool KeepsOrder(LogicalType source, LogicalType target)
-        {
-            if (Arrow(source) is not ArrowTypeId from || Arrow(target) is not ArrowTypeId to) return false;
-            if (from == to) return true;
-            if (from == ArrowTypeId.Float && to == ArrowTypeId.Double) return true;
-            if (IntegerWidth(from) is not (int fromBits, bool fromSigned) || IntegerWidth(to) is not (int toBits, bool toSigned)) return false;
-            return fromSigned == toSigned ? toBits >= fromBits : !fromSigned && toSigned && toBits > fromBits;
-        }
-
-        private static (int Bits, bool Signed)? IntegerWidth(ArrowTypeId id) => id switch
-        {
-            ArrowTypeId.Int8 => (8, true),
-            ArrowTypeId.Int16 => (16, true),
-            ArrowTypeId.Int32 => (32, true),
-            ArrowTypeId.Int64 => (64, true),
-            ArrowTypeId.UInt8 => (8, false),
-            ArrowTypeId.UInt16 => (16, false),
-            ArrowTypeId.UInt32 => (32, false),
-            ArrowTypeId.UInt64 => (64, false),
-            _ => null,
-        };
 
         private static ArrowTypeId? Arrow(LogicalType type) => type is LogicalType.Arrow a ? a.arrowType.TypeId : null;
 
@@ -333,23 +286,5 @@ public static class PredicateTranslator
             LiteralValue.DateTimeOffset v => v.Item,
             _ => null,
         };
-
-        private static List<ScalarExpr> Conjuncts(ScalarExpr expr) => Flatten(expr, isAnd: true, []);
-
-        private static List<ScalarExpr> Disjuncts(ScalarExpr expr) => Flatten(expr, isAnd: false, []);
-
-        private static List<ScalarExpr> Flatten(ScalarExpr expr, bool isAnd, List<ScalarExpr> into)
-        {
-            if (expr is ScalarExpr.Binary b && (isAnd ? b.op.IsAnd : b.op.IsOr))
-            {
-                Flatten(b.left, isAnd, into);
-                Flatten(b.right, isAnd, into);
-            }
-            else
-            {
-                into.Add(expr);
-            }
-            return into;
-        }
     }
 }

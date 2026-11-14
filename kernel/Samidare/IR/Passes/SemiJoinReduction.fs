@@ -78,13 +78,9 @@ module internal SemiJoinReduction =
             | ScalarExpr.Literal _
             | ScalarExpr.Cast(ScalarExpr.Literal _, _, _) -> true
             | _ -> false
-        let rec conjuncts (predicate: ScalarExpr) =
-            match predicate with
-            | ScalarExpr.Binary(BinaryOp.And, left, right) -> conjuncts left @ conjuncts right
-            | other -> [ other ]
         let rec predicates (node: LogicalPlan) =
             match node with
-            | LogicalPlan.Filter(input, predicate) -> conjuncts predicate @ predicates input
+            | LogicalPlan.Filter(input, predicate) -> FilterShapes.conjuncts predicate @ predicates input
             | _ -> []
         let bounds =
             predicates plan
