@@ -32,6 +32,16 @@ public sealed record ParquetReadOptions
     public ScalarExpr? Filter { get; init; }
 
     /// <summary>
+    /// Whether only the rows where <see cref="Filter"/> is true are delivered (off by default: the filter only prunes).
+    /// The columns the filter reads are decoded first, row group by row group, and the other columns only for the rows
+    /// it keeps (late materialization). Conjuncts of the filter the reader cannot evaluate (comparisons between
+    /// columns, functions, …) are left out, so the rows delivered may still include some the filter drops:
+    /// <see cref="ParquetReader.FiltersExactly"/> tells. Columns the filter reads are read even when not selected, so
+    /// damage in them fails the read. Batches may then hold fewer rows than <see cref="BatchSize"/>.
+    /// </summary>
+    public bool FilterRows { get; init; }
+
+    /// <summary>
     /// Whether <see cref="Filter"/>'s equality tests (<c>=</c>, null-safe <c>=</c>, <c>IN</c>) also consult the column
     /// chunks' Bloom filters (on by default): a row group whose filter rules the value out is not read. Each filter is
     /// read once per file.
@@ -54,7 +64,8 @@ public sealed record ParquetReadOptions
 
     /// <summary>
     /// The most rows to read, in the order they are delivered, counted after <see cref="Filter"/> and <see cref="Rows"/>
-    /// left out what they could (the rows delivered are not filtered); null reads them all.
+    /// left out what they could (with <see cref="FilterRows"/>, the rows delivered after filtering: row groups ahead
+    /// of the consumer may then be decoded beyond the last row delivered); null reads them all.
     /// </summary>
     public long? MaxRows { get; init; }
 
@@ -107,6 +118,9 @@ public sealed record ParquetReadOptions
     /// </summary>
     internal long FetchGap { get; init; } = 1 << 20;
 
+    /// <summary>How the rows a filter keeps are read (<see cref="FilterRows"/>; tests force each way).</summary>
+    internal LateMaterialization LateMaterialization { get; init; }
+
     /// <summary>Row groups are started ahead of the consumer while their uncompressed sizes stay within this (at least one is).</summary>
     internal long InFlightBytes { get; init; } = 512L << 20;
 
@@ -118,9 +132,23 @@ public sealed record ParquetReadOptions
         if (MaxDegreeOfParallelism <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
         if (!Enum.IsDefined(MemoryMap)) throw new ArgumentOutOfRangeException(nameof(MemoryMap), MemoryMap, "Unknown memory map mode.");
+        if (!Enum.IsDefined(LateMaterialization)) throw new ArgumentOutOfRangeException(nameof(LateMaterialization), LateMaterialization, "Unknown mode.");
         if (Int96Unit is not (TimeUnit.Microsecond or TimeUnit.Nanosecond))
             throw new ArgumentOutOfRangeException(nameof(Int96Unit), Int96Unit, "INT96 timestamps are read in microseconds or nanoseconds.");
     }
+}
+
+/// <summary>How the columns a filter does not read are read for the rows it keeps (<see cref="ParquetReadOptions.FilterRows"/>).</summary>
+internal enum LateMaterialization
+{
+    /// <summary>By how scattered the rows kept are: <see cref="Dense"/> from <see cref="ParquetReader.DenseFrom"/> runs of them per row read on, else <see cref="Sparse"/>.</summary>
+    Auto,
+
+    /// <summary>Decoded for the rows the filter read and filtered batch by batch (batches keep the filter's boundaries).</summary>
+    Dense,
+
+    /// <summary>Decoded for the rows kept only, skipping the others (full batches); also whenever a selected column is nested.</summary>
+    Sparse,
 }
 
 /// <summary>How a reader gets the bytes of column chunks.</summary>

@@ -29,7 +29,8 @@ filters; minus files that are legitimately too big for the memory cap), apply a 
 bytes and 32-bit values, nudges, deletions, duplications, splices from other files, truncation with the footer kept),
 aimed in part at page headers and level / run headers, at column and offset indexes and Bloom filters (offsets taken
 from the original footer) and at the footer, and read the result with random options (views, parallelism, chunk
-reading mode, batch size, level bits, checksums, column subsets, row selections, filters, row limits, fetch gaps). The fourth feeds Snappy or LZ4 blocks (valid ones, then
+reading mode, batch size, level bits, checksums, column subsets, row selections, filters (pruning only, or filtering rows
+densely or sparsely), row limits, fetch gaps). The fourth feeds Snappy or LZ4 blocks (valid ones, then
 mutated) or random RLE data straight to the kernels, input and output guarded, and compares the decoders with each
 other.
 

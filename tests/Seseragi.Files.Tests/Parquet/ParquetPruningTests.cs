@@ -17,9 +17,10 @@ namespace Seseragi.Files.Tests.Parquet;
 /// (written by write_pushdown.py) single comparisons keep exactly the row groups with matches, and statistics that
 /// lie are used or ignored as pyarrow uses or ignores them.
 /// </summary>
+[Collection(RowLevelCorpus.Name)]
 public class ParquetPruningTests
 {
-    private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", "parquet-pushdown", name);
+    internal static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", "parquet-pushdown", name);
 
     // ------------------------------------------------------------------
     // Statistics rules: lying statistics, against pyarrow
@@ -139,7 +140,7 @@ public class ParquetPruningTests
         Assert.True(pruning > 150, $"only {pruning} of the random filters pruned anything");
     }
 
-    private static ScalarExpr RandomFilter(Random random, FileRows rows, ScalarExpr[] columns, int depth)
+    internal static ScalarExpr RandomFilter(Random random, FileRows rows, ScalarExpr[] columns, int depth)
     {
         int pick = random.Next(depth > 0 ? 10 : 6);
         ScalarExpr column = columns[random.Next(columns.Length)];
@@ -516,7 +517,7 @@ public class ParquetPruningTests
     }
 
     /// <summary>Bytes read at offsets, every read recorded.</summary>
-    private sealed class RecordingSource(byte[] bytes) : IRandomAccess
+    internal sealed class RecordingSource(byte[] bytes) : IRandomAccess
     {
         public List<(long Offset, int Length)> Reads { get; } = [];
 
@@ -590,7 +591,7 @@ public class ParquetPruningTests
             Kaminari.Samidare.IR.LogicalType.Unknown);
 
     /// <summary>A column, or a struct field by a dotted path.</summary>
-    private static ScalarExpr Leaf(string dotted)
+    internal static ScalarExpr Leaf(string dotted)
     {
         string[] parts = dotted.Split('.');
         ScalarExpr expr = Col(parts[0]);
@@ -598,7 +599,7 @@ public class ParquetPruningTests
         return expr;
     }
 
-    private static string Show(ScalarExpr e) => e switch
+    internal static string Show(ScalarExpr e) => e switch
     {
         ScalarExpr.Column c => c.name,
         ScalarExpr.Literal l => l.value.BoxedValue switch
@@ -619,7 +620,7 @@ public class ParquetPruningTests
 
     // The IR's semantics on one row: IrEvaluator.
 
-    private static Func<string, object?> Row(RecordBatch batch, int row) =>
+    internal static Func<string, object?> Row(RecordBatch batch, int row) =>
         name => batch.Schema.GetFieldIndex(name) is >= 0 and var c ? Value(batch.Column(c), row) : IrEvaluator.Missing.Instance;
 
     /// <summary>A value read, as the IR's literal of its type would hold it; <see cref="Missing"/> for types not compared here.</summary>
@@ -712,7 +713,7 @@ public class ParquetPruningTests
     };
 
     /// <summary>The rows of a file per row group, top-level columns by name, for evaluating filters and asking what a filter keeps.</summary>
-    private sealed class FileRows
+    internal sealed class FileRows
     {
         private readonly string _path;
         private readonly List<Dictionary<string, object?>>[] _groups;
@@ -726,6 +727,31 @@ public class ParquetPruningTests
         }
 
         public IEnumerable<string> TopLevel => _types.Keys;
+
+        public string Path => _path;
+
+        /// <summary>The rows, numbered in the file.</summary>
+        public IEnumerable<Dictionary<string, object?>> AllRows => _groups.SelectMany(g => g);
+
+        /// <summary>
+        /// The rows the filter keeps (true), and the rows where a column it reads holds a value the evaluator cannot
+        /// represent (read as <see cref="IrEvaluator.Missing"/>): their outcome is not known here.
+        /// </summary>
+        public (HashSet<long> True, HashSet<long> Unknown) Truth(ScalarExpr filter)
+        {
+            string[] read = [.. ScalarExprOps.collectColumns(filter)];
+            HashSet<long> kept = [], unknown = [];
+            long n = 0;
+            foreach (Dictionary<string, object?> row in AllRows)
+            {
+                if (read.Any(c => row.TryGetValue(c, out object? v) && HoldsMissing(v))) unknown.Add(n);
+                else if (IrEvaluator.Eval(filter, name => row.TryGetValue(name, out object? v) ? v : null) is true) kept.Add(n);
+                n++;
+            }
+            return (kept, unknown);
+
+            static bool HoldsMissing(object? v) => v is IrEvaluator.Missing || v is IReadOnlyDictionary<string, object?> fields && fields.Values.Any(HoldsMissing);
+        }
 
         /// <summary>Reads every row group; null when the file holds more than <paramref name="maxRows"/> rows.</summary>
         public static FileRows? Read(string path, long maxRows = long.MaxValue)

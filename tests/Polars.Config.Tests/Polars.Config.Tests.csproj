@@ -25,6 +25,7 @@
   <ItemGroup>
     <!-- A DuckDB-written file with an INTERVAL column, shared with the Seseragi.Files tests. -->
     <None Include="..\Seseragi.Files.Tests\TestData\parquet\matrix\duckdb_zstd.parquet" Link="TestData\parquet\duckdb_zstd.parquet" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Seseragi.Files.Tests\TestData\parquet-pushdown\indexed_v1.parquet" Link="TestData\parquet\indexed_v1.parquet" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

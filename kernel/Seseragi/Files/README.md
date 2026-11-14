@@ -91,8 +91,14 @@ page and the pages needed). Indexes and filters that do not parse or do not desc
 read must agree with its offset index. `Rows` selects rows by their number in the file (Sazanami `RowRanges`, as a
 deletion vector's complement); pages wholly between selected rows are passed over by their headers when there is no
 offset index. `RowIndexColumn` appends each row's number, `MaxRows` stops after that many rows, and
-`ParquetFile.Open(source, metadata)` reopens a file with a footer read before. Rows are not filtered: the batches hold
-the rows of what is kept, for the caller's filter.
+`ParquetFile.Open(source, metadata)` reopens a file with a footer read before. By default rows are not filtered: the
+batches hold the rows of what is kept, for the caller's filter. With `FilterRows` the reader filters them itself (late
+materialization): the filter is lowered by Samidare's `FilterLowering` into a Sazanami `FilterProgram` over the
+columns as read, the columns it tests are decoded first (struct fields by path), the program is evaluated batch by
+batch, and the selected columns are then read for the rows kept only, densely (the same batches, filtered with
+`ArrowFilter`, the filter's own columns reused) or sparsely (by row ranges, skipping pages by the offset index).
+Conjuncts that cannot be evaluated here are left to the caller (`FiltersExactly` is then false); `MaxRows` then
+counts the rows delivered.
 
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
 and stands in until a full Parquet writer exists. Page codecs compress as well as decompress, for the writer to come.

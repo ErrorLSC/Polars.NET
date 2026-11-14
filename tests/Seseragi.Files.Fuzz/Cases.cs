@@ -209,7 +209,10 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
                 // Row selections and filters read page indexes and skip pages by them.
                 // Inside the row groups (a damaged footer's num_rows may say otherwise; rows past them are an argument error).
                 Rows = random.Next(4) == 0 ? RandomRows(random, file.Metadata.RowGroups.Sum(g => Math.Max(0, g.RowCount))) : null,
-                Filter = random.Next(4) == 0 ? RandomFilter(random, file.Schema) : null,
+                Filter = random.Next(3) == 0 ? RandomFilter(random, file.Schema) : null,
+                // Late materialization: the filter's columns first, the others for the rows kept (densely or by ranges).
+                FilterRows = random.Next(2) == 0,
+                LateMaterialization = (LateMaterialization)random.Next(3),
                 MaxRows = random.Next(8) == 0 ? random.Next(0, 5000) : null,
                 FetchGap = random.Next(2) == 0 ? 0 : 1 << 20,
             };
@@ -237,7 +240,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         return RowRanges.Of(ranges).Intersect(RowRanges.All(rows));
     }
 
-    /// <summary>A comparison of a random top-level column with a literal of its kind, or a conjunction of two.</summary>
+    /// <summary>Comparisons of random top-level columns with literals of their kind, null tests, and AND / OR / NOT of them.</summary>
     private static ScalarExpr? RandomFilter(Random random, Schema schema)
     {
         if (schema.FieldsList.Count == 0) return null;
@@ -258,7 +261,16 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
             };
             return ScalarExpr.NewBinary(op, ScalarExpr.NewColumn(field.Name), ScalarExpr.NewLiteral(literal));
         }
-        return random.Next(3) == 0 ? ScalarExpr.NewBinary(BinaryOp.And, Comparison(), Comparison()) : Comparison();
+        ScalarExpr Predicate(int depth) => random.Next(depth > 0 ? 7 : 4) switch
+        {
+            0 => ScalarExpr.NewUnary(random.Next(2) == 0 ? UnaryOp.IsNull : UnaryOp.IsNotNull,
+                ScalarExpr.NewColumn(schema.FieldsList[random.Next(schema.FieldsList.Count)].Name)),
+            4 => ScalarExpr.NewBinary(BinaryOp.And, Predicate(depth - 1), Predicate(depth - 1)),
+            5 => ScalarExpr.NewBinary(BinaryOp.Or, Predicate(depth - 1), Predicate(depth - 1)),
+            6 => ScalarExpr.NewUnary(UnaryOp.Not, Predicate(depth - 1)),
+            _ => Comparison(),
+        };
+        return Predicate(2);
     }
 
     // ------------------------------------------------------------------
