@@ -99,6 +99,54 @@ internal static class MaskExpand
         if (b < n) GatherWord(ref Unsafe.Add(ref s, b), mask.PartialWord(b, n - b), Range(n - b), ref d, ref Unsafe.Add(ref x, j));
     }
 
+    /// <summary>
+    /// Lays bits out over slots: the bits from <paramref name="sourceBit"/> of <paramref name="source"/> (one per valid
+    /// slot, LSB first) go to the valid slots of <paramref name="mask"/>, the null slots get 0. Slot i is bit i of
+    /// <paramref name="destination"/> (at least <paramref name="mask"/>.Length / 64 words, rounded up; bits past the
+    /// mask's slots are 0). A mixed word is deposited four slots at a time through a table.
+    /// </summary>
+    public static void Bits(ReadOnlySpan<byte> source, long sourceBit, Span<ulong> destination, SlotMask mask)
+    {
+        int n = mask.Length;
+        if (destination.Length < (n + 63) / 64) throw new ArgumentOutOfRangeException(nameof(destination));
+        int valid = mask.CountValid();
+        if (sourceBit < 0 || (sourceBit + valid + 7) >> 3 > source.Length) throw new ArgumentOutOfRangeException(nameof(sourceBit));
+        ref byte table = ref MemoryMarshal.GetReference(DepositTable);
+        long bit = sourceBit;
+        for (int b = 0, w = 0; b < n; b += 64, w++)
+        {
+            ulong word = b + 64 <= n ? mask.Word(b) : mask.PartialWord(b, n - b);
+            // Bits past the source read as 0 (Word stops at its end); past the word's valid ones they are not used.
+            ulong bits = word == 0 ? 0 : Helpers.Bits.Word(source, bit);
+            if (word != ulong.MaxValue)
+            {
+                ulong deposited = 0;
+                for (int k = 0; k < 64; k += 4)
+                {
+                    int m = (int)(word >> k) & 15;
+                    deposited |= (ulong)Unsafe.Add(ref table, m << 4 | (int)(bits & 15)) << k;
+                    bits >>= BitOperations.PopCount((uint)m);
+                }
+                bits = deposited;
+            }
+            destination[w] = bits;
+            bit += BitOperations.PopCount(word);
+        }
+    }
+
+    /// <summary>For a nibble m of mask bits and a nibble v of values: v's low bits placed at m's set bits (index m * 16 + v).</summary>
+    private static ReadOnlySpan<byte> DepositTable =>
+    [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+        0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+        0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 1, 4, 5, 0, 1, 4, 5, 0, 1, 4, 5, 0, 1, 4, 5,
+        0, 2, 4, 6, 0, 2, 4, 6, 0, 2, 4, 6, 0, 2, 4, 6, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7,
+        0, 8, 0, 8, 0, 8, 0, 8, 0, 8, 0, 8, 0, 8, 0, 8, 0, 1, 8, 9, 0, 1, 8, 9, 0, 1, 8, 9, 0, 1, 8, 9,
+        0, 2, 8, 10, 0, 2, 8, 10, 0, 2, 8, 10, 0, 2, 8, 10, 0, 1, 2, 3, 8, 9, 10, 11, 0, 1, 2, 3, 8, 9, 10, 11,
+        0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12, 0, 1, 4, 5, 8, 9, 12, 13, 0, 1, 4, 5, 8, 9, 12, 13,
+        0, 2, 4, 6, 8, 10, 12, 14, 0, 2, 4, 6, 8, 10, 12, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    ];
+
     // The valid slots of one word take the values from j down (set bits high to low), then its null slots are
     // zeroed: what is still to be placed lies below the word, so zeroing it clobbers nothing.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

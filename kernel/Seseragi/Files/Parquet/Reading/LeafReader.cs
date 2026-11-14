@@ -34,6 +34,7 @@ internal abstract class LeafReader : IDisposable
 
     private byte[] _def = [], _rep = [];   // the page's levels
     private byte[] _defBits = [];          // the page's definition levels as an LSB-first bitmap (with slack for word reads)
+    private int _defBitsSet;               // how many of them are 1
     private byte[] _maskBytes = [];        // a bit mask unpacked for the kinds that take bytes
     private int _pageValues, _pageAt;
     private ReadOnlyMemory<byte> _values;
@@ -378,7 +379,7 @@ internal abstract class LeafReader : IDisposable
             if (_bitLevels) position = LevelBitsV1(span, position, definitionEncoding, count);
             else if (_maxDefinition > 0) position = LevelsV1(span, position, definitionEncoding, ref _def, count, _definitionBits, _maxDefinition, "definition");
         }
-        int valid = _maxDefinition == 0 ? count : _bitLevels ? (int)Bits.Count(_defBits, 0, count) : _def.AsSpan(0, count).Count((byte)_maxDefinition);
+        int valid = _maxDefinition == 0 ? count : _bitLevels ? _defBitsSet : _def.AsSpan(0, count).Count((byte)_maxDefinition);
 
         _values = body[position..];
         _valuePosition = 0;
@@ -431,8 +432,9 @@ internal abstract class LeafReader : IDisposable
     {
         // Slack after the bits: words are read 8 bytes at a time.
         EnsureBits(count);
-        var decoder = new RleBitPackedDecoder(encoded, 1);
-        if (decoder.ReadBits(_defBits, 0, count) != count) throw new ParquetFormatException($"the page has fewer definition levels than its {count} values.");
+        if (RleBitPackedDecoder.ReadAllBits(encoded, _defBits, count, out long set) != count)
+            throw new ParquetFormatException($"the page has fewer definition levels than its {count} values.");
+        _defBitsSet = (int)set;
     }
 
     private void EnsureBits(int count)
@@ -460,6 +462,7 @@ internal abstract class LeafReader : IDisposable
         EnsureBits(count);
         _defBits.AsSpan(0, (count + 7) / 8).Clear();
         for (int i = 0; i < count; i++) _defBits[i >> 3] |= (byte)(_def[i] << (i & 7));
+        _defBitsSet = (int)Bits.Count(_defBits, 0, count);
         return end;
     }
 

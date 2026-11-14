@@ -2,6 +2,7 @@ using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Sazanami.Encodings;
 using Kaminari.Sazanami.Helpers;
+using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 
 namespace Seseragi.Files.Tests.Parquet;
@@ -95,7 +96,7 @@ public class ParquetKernelTests
         var random = new Random(13);
         foreach (int length in (int[])[0, 1, 7, 63, 64, 65, 127, 128, 129, 191, 200, 1000])
         {
-            foreach (string pattern in (string[])["valid", "null", "random", "sparse", "dense", "leading", "trailing", "blocks"])
+            foreach (string pattern in (string[])["valid", "null", "random", "sparse", "dense", "leading", "trailing", "blocks", "lastnull", "firstnull"])
             {
                 byte[] mask = new byte[length];
                 for (int i = 0; i < length; i++)
@@ -109,16 +110,67 @@ public class ParquetKernelTests
                         "leading" => i >= length / 3,          // nulls first, then valid
                         "trailing" => i < length - length / 3, // valid, then nulls
                         "blocks" => i / 64 % 3 != 1,           // whole words valid and whole words null
+                        "lastnull" => i != length - 1,         // a null slot reads the value after the last: there is none
+                        "firstnull" => i != 0,
                         _ => random.Next(2) == 0,
                     };
                     mask[i] = valid ? (byte)random.Next(1, 256) : (byte)0;
                 }
                 Check<byte>(mask, random);
+                Check<short>(mask, random);
                 Check<int>(mask, random);
                 Check<long>(mask, random);
                 Check<Int128>(mask, random);
                 Check<Triple>(mask, random);
+                CheckBits(mask, random);
             }
+        }
+
+        // Bits laid over the slots: against the slot-by-slot reference, from any source bit, the mask as bytes and as
+        // bits, and through the boolean builder after a few slots already in it (any bit position).
+        static void CheckBits(byte[] mask, Random random)
+        {
+            int valid = mask.Count(m => m != 0);
+            int first = random.Next(0, 70);
+            byte[] source = new byte[(first + valid + 7) / 8];
+            random.NextBytes(source);
+            bool Source(int k) => (source[(first + k) >> 3] >> ((first + k) & 7) & 1) != 0;
+            var expected = new bool[mask.Length];
+            for (int i = 0, j = 0; i < mask.Length; i++) expected[i] = mask[i] != 0 && Source(j++);
+            string what = $"bits: {mask.Length} slots, {valid} valid, from bit {first}";
+
+            int words = (mask.Length + 63) / 64;
+            ulong[] slots = new ulong[words + 1];
+            random.NextBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(slots.AsSpan()));
+            ulong past = slots[^1];
+            MaskExpand.Bits(source, first, slots, mask);
+            for (int i = 0; i < words * 64; i++)
+                Assert.True((slots[i >> 6] >> (i & 63) & 1) == (i < mask.Length && expected[i] ? 1UL : 0), $"{what}, slot {i}");
+            Assert.Equal(past, slots[^1]);
+
+            int offset = random.Next(0, 13);
+            byte[] bitmap = new byte[(offset + mask.Length + 7) / 8 + 1];
+            for (int i = 0; i < mask.Length; i++)
+            {
+                if (mask[i] != 0) bitmap[(offset + i) >> 3] |= (byte)(1 << ((offset + i) & 7));
+            }
+            ulong[] fromBits = new ulong[words];
+            MaskExpand.Bits(source, first, fromBits, SlotMask.FromBits(bitmap, offset, mask.Length));
+            Assert.True(fromBits.AsSpan().SequenceEqual(slots.AsSpan(0, words)), $"{what}, mask as bits");
+
+            if (valid > 0) Assert.Throws<ArgumentOutOfRangeException>(() => MaskExpand.Bits(source.AsSpan(0, (first + valid - 1) / 8), first, new ulong[words], mask));
+            if (mask.Length > 64) Assert.Throws<ArgumentOutOfRangeException>(() => MaskExpand.Bits(source, first, new ulong[words - 1], mask));
+            if (mask.Length == 0) return;
+
+            int before = random.Next(0, 9);
+            using var builder = new NativeBooleanBuilder();
+            for (int i = 0; i < before; i++) builder.Append(i % 2 == 0);
+            builder.AppendBits(System.Runtime.InteropServices.MemoryMarshal.AsBytes(slots.AsSpan(0, words)), 0, (SlotMask)mask);
+            using var array = (Apache.Arrow.BooleanArray)builder.ExportArray();
+            Assert.Equal(before + mask.Length, array.Length);
+            Assert.Equal(mask.Length - valid, array.NullCount);
+            for (int i = 0; i < mask.Length; i++)
+                Assert.Equal(mask[i] != 0 ? expected[i] : null, array.GetValue(before + i));
         }
 
         static void Check<T>(byte[] mask, Random random) where T : unmanaged, IEquatable<T>
@@ -223,7 +275,8 @@ public class ParquetKernelTests
                 {
                     if (random.Next(2) == 0)
                     {
-                        int count = random.Next(1, 20);
+                        // Now and then long runs too (more than a 64-bit word of bits).
+                        int count = random.Next(8) == 0 ? random.Next(60, 300) : random.Next(1, 20);
                         int value = (int)random.NextInt64(limit + 1);
                         Varint(data, (ulong)count << 1);
                         for (int k = 0; k < (width + 7) / 8; k++) data.Add((byte)((uint)value >> (8 * k)));
@@ -231,7 +284,7 @@ public class ParquetKernelTests
                     }
                     else
                     {
-                        int groups = random.Next(1, 4);
+                        int groups = random.Next(8) == 0 ? random.Next(7, 40) : random.Next(1, 4);
                         int[] values = [.. Enumerable.Range(0, groups * 8).Select(_ => (int)random.NextInt64(limit + 1))];
                         Varint(data, ((ulong)groups << 1) | 1);
                         data.AddRange(Pack(values, width));
@@ -280,9 +333,35 @@ public class ParquetKernelTests
                     Assert.Equal(expected.Count, got);
                     for (int i = 0; i < offset; i++) Assert.Equal(Bits.Get(before, i), Bits.Get(bitmap, i));
                     for (int i = 0; i < got; i++) Assert.True(Bits.Get(bitmap, offset + i) == (expected[i] != 0), $"round {round}, bit {i}");
+
+                    // All at once into a fresh bitmap: everything, or a prefix; the bits after it kept, the ones counted.
+                    foreach (int want in (int[])[expected.Count + 5, expected.Count, random.Next(0, expected.Count + 1)])
+                    {
+                        byte[] all = new byte[(want + 7) / 8 + random.Next(0, 3)];
+                        random.NextBytes(all);
+                        byte[] old = (byte[])all.Clone();
+                        int gotAll = RleBitPackedDecoder.ReadAllBits(encoded, all, want, out long ones);
+                        int n = Math.Min(want, expected.Count);
+                        Assert.Equal(n, gotAll);
+                        Assert.Equal(expected.Take(n).Count(v => v != 0), ones);
+                        for (int i = 0; i < n; i++) Assert.True(Bits.Get(all, i) == (expected[i] != 0), $"all at once: round {round}, bit {i} of {want}");
+                        for (int i = n; i < all.Length * 8; i++) Assert.Equal(Bits.Get(old, i), Bits.Get(all, i));
+                    }
                 }
             }
         }
+
+        // Damaged data is refused as a fresh decoder refuses it.
+        Assert.Throws<ParquetFormatException>(() => RleBitPackedDecoder.ReadAllBits([4 << 1, 2], new byte[1], 4, out _));        // an RLE value wider than 1 bit
+        Assert.Throws<ParquetFormatException>(() => RleBitPackedDecoder.ReadAllBits([4 << 1], new byte[1], 4, out _));           // an RLE run without its value
+        Assert.Throws<ParquetFormatException>(() => RleBitPackedDecoder.ReadAllBits([0x81, 0x80], new byte[1], 4, out _));       // a header cut short
+        Assert.Throws<ParquetFormatException>(() => RleBitPackedDecoder.ReadAllBits([.. Enumerable.Repeat((byte)0xFF, 11)], new byte[1], 4, out _)); // a header too long
+        Assert.Throws<ArgumentOutOfRangeException>(() => RleBitPackedDecoder.ReadAllBits([2, 1], new byte[1], 9, out _));        // no room for the bits
+        // A long varint header (a run of 200 ones) is read like a short one.
+        byte[] ones200 = new byte[25];
+        Assert.Equal(200, RleBitPackedDecoder.ReadAllBits([0x90, 0x03, 1], ones200, 200, out long set200));
+        Assert.Equal(200, set200);
+        Assert.All(ones200, b => Assert.Equal(0xFF, b));
 
         static void Varint(List<byte> data, ulong value)
         {

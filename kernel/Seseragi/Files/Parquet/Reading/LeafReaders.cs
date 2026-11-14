@@ -75,11 +75,13 @@ internal static class LeafReaders
         if (count > plain.Length / 4) throw new ParquetFormatException($"a dictionary page of {plain.Length} bytes cannot hold {count} BYTE_ARRAY values.");
         var offsets = new int[count + 1];
         var data = new byte[Math.Max(0, plain.Length - 4 * count)];
+        // One check for the page when all of it is ASCII (length prefixes of values under 128 bytes included).
+        bool check = utf8 && !System.Text.Ascii.IsValid(plain);
         int position = 0, at = 0;
         for (int i = 0; i < count; i++)
         {
             ReadOnlySpan<byte> value = NextByteArray(plain, ref position);
-            if (utf8 && !Utf8.IsValid(value)) throw InvalidUtf8();
+            if (check && !Utf8.IsValid(value)) throw InvalidUtf8();
             value.CopyTo(data.AsSpan(at));
             at += value.Length;
             offsets[i + 1] = at;
@@ -213,14 +215,19 @@ internal sealed class FixedLeafReader<T, TConvert>(PageReader pages, SchemaNode 
     }
 }
 
-/// <summary>Booleans: PLAIN (bit-packed, LSB first), RLE (a 4-byte length, then the hybrid at bit width 1), or a dictionary.</summary>
+/// <summary>
+/// Booleans: PLAIN (bit-packed, LSB first), RLE (a 4-byte length, then the hybrid at bit width 1), or a dictionary.
+/// PLAIN and RLE values stay bits: appended as they are, or laid over the valid slots when there are nulls.
+/// </summary>
 internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafType type, long valueCount)
     : LeafReader(pages, leaf, type, valueCount)
 {
     private readonly NativeBooleanBuilder _builder = new();
-    private byte[] _page = [];   // the page's present values, one byte each
-    private int _at;
+    private byte[] _pageBits = [];   // an RLE page's present values, as bits
+    private int _at;                 // the next of them
+    private ulong[] _slotBits = [];  // values laid over a run of slots
     private byte[] _dictionary = [];
+    private byte[] _page = [];       // dictionary values of a run, one byte each
     private byte[] _expanded = [];
 
     public override NativeColumnBuilder Builder => _builder;
@@ -239,16 +246,17 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
         if (values.Length < 4) throw new ParquetFormatException("an RLE boolean page is too short for its length.");
         int length = BinaryPrimitives.ReadInt32LittleEndian(values);
         if (length < 0 || length > values.Length - 4) throw new ParquetFormatException($"RLE booleans of {length} bytes run past the page.");
-        Ensure(ref _page, valid);
-        var decoder = new RleBitPackedDecoder(values.Slice(4, length), 1);
-        if (decoder.Read(_page.AsSpan(0, valid)) != valid) throw new ParquetFormatException($"the page has fewer booleans than its {valid} present values.");
+        // Slack after the bits: they are read 8 bytes at a time (Bits.Word's fast path).
+        Ensure(ref _pageBits, (valid + 7) / 8 + 8);
+        if (RleBitPackedDecoder.ReadAllBits(values.Slice(4, length), _pageBits, valid, out _) != valid)
+            throw new ParquetFormatException($"the page has fewer booleans than its {valid} present values.");
         _at = 0;
         return true;
     }
 
     protected override void AppendOther(int rows, SlotMask mask, int valid)
     {
-        Append(rows, mask, _page.AsSpan(_at, valid));
+        AppendBits(rows, mask, _pageBits, _at);
         _at += valid;
     }
 
@@ -258,23 +266,33 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
     {
         // position counts bits here: PLAIN booleans are bit-packed.
         if (BitUnpacking.Bytes((long)position + valid, 1) > values.Length) throw new ParquetFormatException($"the page holds fewer booleans than its {valid} present ones.");
-        if (mask.IsEmpty)
-        {
-            // PLAIN booleans are already an LSB-first bitmap.
-            _builder.AppendBits(values, position, valid);
-            position += valid;
-            return;
-        }
-        Ensure(ref _page, valid);
-        BitUnpacking.Unpack(values, position, 1, _page.AsSpan(0, valid));
+        AppendBits(rows, mask, values, position);
         position += valid;
-        Append(rows, mask, _page.AsSpan(0, valid));
     }
 
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)
     {
         if (BitUnpacking.Bytes((long)position + valid, 1) > values.Length) throw new ParquetFormatException($"the page holds fewer booleans than its {valid} present ones.");
         position += valid;
+    }
+
+    /// <summary>Appends <paramref name="rows"/> slots whose valid ones take the bits from <paramref name="first"/> on (already an LSB-first bitmap).</summary>
+    private void AppendBits(int rows, SlotMask mask, ReadOnlySpan<byte> bits, long first)
+    {
+        if (mask.IsEmpty)
+        {
+            _builder.AppendBits(bits, first, rows);
+            return;
+        }
+        int words = (rows + 63) / 64;
+        if (_slotBits.Length < words)
+        {
+            if (_slotBits.Length > 0) ArrayPool<ulong>.Shared.Return(_slotBits);
+            _slotBits = ArrayPool<ulong>.Shared.Rent(words);
+        }
+        Span<ulong> slots = _slotBits.AsSpan(0, words);
+        MaskExpand.Bits(bits, first, slots, mask);
+        _builder.AppendBits(MemoryMarshal.AsBytes(slots), 0, mask);
     }
 
     protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
@@ -292,19 +310,6 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
         _builder.AppendValues(_page.AsSpan(0, indices.Length));
     }
 
-    private void Append(int rows, SlotMask mask, ReadOnlySpan<byte> present)
-    {
-        if (mask.IsEmpty)
-        {
-            _builder.AppendValues(present);
-            return;
-        }
-        Ensure(ref _expanded, rows);
-        Span<byte> values = _expanded.AsSpan(0, rows);
-        MaskExpand.Scatter(present, values, mask);
-        _builder.AppendValues(values, mask);
-    }
-
     private static void Ensure(ref byte[] buffer, int length)
     {
         if (buffer.Length >= length) return;
@@ -314,9 +319,13 @@ internal sealed class BooleanLeafReader(PageReader pages, SchemaNode leaf, LeafT
 
     public override void Dispose()
     {
-        if (_page.Length > 0) ArrayPool<byte>.Shared.Return(_page);
-        if (_expanded.Length > 0) ArrayPool<byte>.Shared.Return(_expanded);
-        _page = _expanded = [];
+        foreach (byte[] buffer in (byte[][])[_page, _expanded, _pageBits])
+        {
+            if (buffer.Length > 0) ArrayPool<byte>.Shared.Return(buffer);
+        }
+        if (_slotBits.Length > 0) ArrayPool<ulong>.Shared.Return(_slotBits);
+        _page = _expanded = _pageBits = [];
+        _slotBits = [];
         base.Dispose();
     }
 }
@@ -387,26 +396,50 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
 {
     private readonly NativeBinaryViewBuilder _builder = new(type.ArrowType);
     private readonly bool _utf8 = type.Kind == ValueKind.Utf8;
-    private byte[] _data = [];
-    private Int128[] _views = [];       // the dictionary's entries, pointing into buffer 0
-    private bool _anyLong;              // whether some entry is not inline (then the batch needs the dictionary's bytes)
+    private byte[] _data = [];          // the bytes of the dictionary's entries that are not inline (pooled)
+    private int _dataLength;
+    private Int128[] _views = [];       // the dictionary's entries, the long ones pointing into buffer 0 (pooled)
+    private int _viewCount;
     private int _batchBuffer = -1;      // the index of the dictionary's bytes in the current batch
 
     public override NativeColumnBuilder Builder => _builder;
-    protected override int DictionaryCount => _views.Length;
+    protected override int DictionaryCount => _viewCount;
 
+    /// <summary>
+    /// The entries' views, made in one pass over the page: short values inline, long ones pointing into the copied
+    /// bytes of the long values only (a batch that uses the dictionary gets those bytes as a buffer).
+    /// </summary>
     protected override void LoadDictionary(ReadOnlySpan<byte> plain, int count)
     {
-        (int[] offsets, _data) = LeafReaders.ByteArrayDictionary(plain, count, _utf8);
-        _views = new Int128[count];
-        _anyLong = false;
+        if (count > plain.Length / 4) throw new ParquetFormatException($"a dictionary page of {plain.Length} bytes cannot hold {count} BYTE_ARRAY values.");
+        ReturnDictionary();
+        _views = count == 0 ? [] : ArrayPool<Int128>.Shared.Rent(count);
+        int bytes = plain.Length - 4 * count;
+        _data = bytes == 0 ? [] : ArrayPool<byte>.Shared.Rent(bytes);
+        // One check for the page when all of it is ASCII (length prefixes of values under 128 bytes included).
+        bool check = _utf8 && !System.Text.Ascii.IsValid(plain);
+        int position = 0, at = 0;
         for (int i = 0; i < count; i++)
         {
-            ReadOnlySpan<byte> value = _data.AsSpan(offsets[i], offsets[i + 1] - offsets[i]);
-            _views[i] = NativeBinaryViewBuilder.View(value, 0, offsets[i]);
-            _anyLong |= value.Length > NativeBinaryViewBuilder.MaxInline;
+            ReadOnlySpan<byte> value = LeafReaders.NextByteArray(plain, ref position);
+            if (check && !Utf8.IsValid(value)) throw LeafReaders.InvalidUtf8();
+            _views[i] = NativeBinaryViewBuilder.View(value, 0, at);
+            if (value.Length <= NativeBinaryViewBuilder.MaxInline) continue;
+            value.CopyTo(_data.AsSpan(at));
+            at += value.Length;
         }
+        _viewCount = count;
+        _dataLength = at;
         _batchBuffer = -1;
+    }
+
+    private void ReturnDictionary()
+    {
+        if (_views.Length > 0) ArrayPool<Int128>.Shared.Return(_views);
+        if (_data.Length > 0) ArrayPool<byte>.Shared.Return(_data);
+        _views = [];
+        _data = [];
+        _viewCount = _dataLength = 0;
     }
 
     protected override void OnBatchExported() => _batchBuffer = -1;
@@ -433,12 +466,13 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
     public override void Dispose()
     {
         PlainScratch.Return(ref _starts, ref _lengths);
+        ReturnDictionary();
         base.Dispose();
     }
 
     protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
-        if (_anyLong && _batchBuffer < 0) _batchBuffer = _builder.AddBuffer(_data);
+        if (_dataLength > 0 && _batchBuffer < 0) _batchBuffer = _builder.AddBuffer(_data.AsSpan(0, _dataLength));
         // The indices were checked against the dictionary when the page was entered.
         Span<Int128> slots;
         if (mask.IsEmpty)

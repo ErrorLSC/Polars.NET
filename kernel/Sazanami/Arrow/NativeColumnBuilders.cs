@@ -295,6 +295,17 @@ internal sealed unsafe class NativeBooleanBuilder() : NativeColumnBuilder(Boolea
         MarkValid(count);
     }
 
+    /// <summary>
+    /// Appends <paramref name="mask"/>.Length slots whose values are bits of an LSB-first bitmap from bit
+    /// <paramref name="firstBit"/>, one per slot (see <see cref="Helpers.MaskExpand.Bits"/>); slots the mask marks are null.
+    /// </summary>
+    public void AppendBits(ReadOnlySpan<byte> bits, long firstBit, Helpers.SlotMask mask)
+    {
+        if (mask.IsEmpty) throw new ArgumentException("An empty mask gives no slot count; use the overload with a count.", nameof(mask));
+        _values.AppendBits(bits, firstBit, mask.Length);
+        MarkMask(mask);
+    }
+
     public override NativeCArray* Export(NativeBatchExport export)
     {
         long nulls = NullCount;

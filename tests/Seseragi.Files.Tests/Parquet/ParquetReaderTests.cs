@@ -440,6 +440,69 @@ public class ParquetReaderTests
     }
 
     /// <summary>
+    /// A flat optional leaf with BIT_PACKED definition levels (the deprecated encoding): each page's own count of
+    /// present values places its values, also when the pages' null counts differ (the second page dictionary-encoded:
+    /// its indices are decoded by that count).
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BitPackedDefinitionLevels_OfAFlatLeaf_PlaceEachPagesValues(bool levelsAsBits)
+    {
+        byte[] first = [1, 0, 1, 1, 0], second = [0, 0, 1, 1, 1, 1, 1, 0];
+        SchemaElement[] schema =
+        [
+            HandBuiltParquet.Group("schema", 1, repetition: null),
+            HandBuiltParquet.Leaf("n", ParquetType.Int32, FieldRepetition.Optional),
+        ];
+        byte[] file = HandBuiltParquet.Build(schema, first.Length + second.Length,
+            new HandBuiltParquet.Column(["n"], ParquetType.Int32, 1, 0, first, [], HandBuiltParquet.Int32s(10, 11, 12), ParquetEncoding.BitPacked,
+                Dictionary: new(3, HandBuiltParquet.Int32s(20, 21, 22)),
+                MorePages: [new(second, [], HandBuiltParquet.Indices(2, 0, 1, 2, 2, 0), ParquetEncoding.RleDictionary)]));
+        using var parquet = ParquetFile.Open(new MemoryStream(file));
+        using var reader = parquet.OpenReader(new ParquetReadOptions { LevelsAsBits = levelsAsBits });
+        using RecordBatch batch = Assert.Single(reader.ReadBatches());
+        var n = (Int32Array)batch.Column(0);
+        Assert.Equal((int?[])[10, null, 11, 12, null, null, null, 20, 21, 22, 22, 20, null], [.. Enumerable.Range(0, n.Length).Select(n.GetValue)]);
+    }
+
+    /// <summary>
+    /// STRING dictionary entries are UTF-8: a page that is all ASCII is checked at once, one that is not entry by entry
+    /// (valid text reads as written), and an entry that is not UTF-8 is refused, in both string layouts.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DictionaryPages_ThatAreNotUtf8_AreRefused(bool viewTypes)
+    {
+        SchemaElement[] schema =
+        [
+            HandBuiltParquet.Group("schema", 1, repetition: null),
+            HandBuiltParquet.Leaf("s", ParquetType.ByteArray, FieldRepetition.Optional, ConvertedType.Utf8),
+        ];
+        byte[] File(byte[] second) => HandBuiltParquet.Build(schema, 3,
+            new HandBuiltParquet.Column(["s"], ParquetType.ByteArray, 1, 0, [1, 1, 1], [], HandBuiltParquet.Indices(1, 0, 1, 0),
+                Encoding: ParquetEncoding.RleDictionary, Dictionary: new(2, [.. HandBuiltParquet.Strings("plain"), .. BitConverter.GetBytes(second.Length), .. second])));
+        string?[] Read(byte[] file)
+        {
+            using var parquet = ParquetFile.Open(new MemoryStream(file));
+            using var reader = parquet.OpenReader(new ParquetReadOptions { ViewTypes = viewTypes });
+            using RecordBatch batch = Assert.Single(reader.ReadBatches());
+            return batch.Column(0) switch
+            {
+                StringViewArray views => [.. Enumerable.Range(0, views.Length).Select(i => views.GetString(i))],
+                StringArray strings => [.. Enumerable.Range(0, strings.Length).Select(i => strings.GetString(i))],
+                var other => throw new InvalidOperationException(other.GetType().Name),
+            };
+        }
+
+        Assert.Equal((string?[])["plain", "héllo", "plain"], Read(File("héllo"u8.ToArray())));
+        Assert.Equal((string?[])["plain", "a long entry, not inline", "plain"], Read(File("a long entry, not inline"u8.ToArray())));
+        Assert.Contains("UTF-8", Assert.Throws<ParquetFormatException>(() => Read(File([0x68, 0xC3]))).Message);
+        Assert.Contains("UTF-8", Assert.Throws<ParquetFormatException>(() => Read(File([0x68, 0xFF, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68]))).Message);
+    }
+
+    /// <summary>
     /// Read page by page from a file, a page header larger than the first bytes looked at (statistics of 200 KB) is
     /// parsed from more; a source that ends inside a column chunk is a format error in every way of reading.
     /// </summary>
