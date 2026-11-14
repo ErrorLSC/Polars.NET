@@ -80,10 +80,11 @@ public sealed record ParquetReadOptions
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
     /// <summary>
-    /// Whether a local file is read through a memory mapping (<see cref="ParquetMemoryMap"/>; off by default). Other
-    /// sources (streams, memory, stores) ignore it.
+    /// Whether a local file is read through a memory mapping (<see cref="ParquetMemoryMap"/>; <see
+    /// cref="ParquetMemoryMap.Auto"/> by default). Only files opened by path are mapped: other sources (streams, even
+    /// file streams, memory, stores) ignore it.
     /// </summary>
-    public ParquetMemoryMap MemoryMap { get; init; } = ParquetMemoryMap.Off;
+    public ParquetMemoryMap MemoryMap { get; init; } = ParquetMemoryMap.Auto;
 
     /// <summary>Whether to check the CRC32 of every page that carries one (a mismatch is an error).</summary>
     public bool VerifyChecksums { get; init; }
@@ -168,10 +169,10 @@ internal enum ChunkReading
 }
 
 /// <summary>
-/// How the bytes of a local Parquet file are read. Reads through a mapping skip the copy of each page out of the
-/// operating system's page cache: in our measurements that pays for uncompressed fixed-width columns and costs on
-/// compressed and string columns read on many threads, which <see cref="Auto"/> therefore keeps reading the ordinary
-/// way.
+/// How the bytes of a Parquet file opened by path are read. Reads through a mapping skip the copy of each page out of
+/// the operating system's page cache: in our measurements that pays for uncompressed fixed-width columns and for
+/// Snappy-compressed ones, and costs on uncompressed strings and Zstandard-compressed columns read on many threads,
+/// which <see cref="Auto"/> therefore keeps reading the ordinary way.
 /// </summary>
 /// <remarks>
 /// While a file is mapped, it must not be truncated by another process: reading pages that no longer exist ends the
@@ -180,12 +181,15 @@ internal enum ChunkReading
 /// </remarks>
 public enum ParquetMemoryMap
 {
-    /// <summary>Ordinary reads, page by page (the default).</summary>
+    /// <summary>Ordinary reads, page by page.</summary>
     Off,
 
     /// <summary>Every column chunk decoded straight from the mapping.</summary>
     On,
 
-    /// <summary>Uncompressed fixed-width column chunks decoded from the mapping; the others read page by page.</summary>
+    /// <summary>
+    /// Uncompressed fixed-width column chunks and Snappy-compressed ones decoded from the mapping; the others read page
+    /// by page (the default).
+    /// </summary>
     Auto,
 }

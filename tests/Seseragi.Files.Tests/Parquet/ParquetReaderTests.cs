@@ -466,12 +466,17 @@ public class ParquetReaderTests
             Assert.Equal(0, reader.Buffers.Rented);
         }
 
-        // Snappy pages of 38 columns: a window and a scratch buffer per column being read.
+        // Snappy pages of 38 columns read the ordinary way: a window and a scratch buffer per column being read; read
+        // from the mapping (the default for Snappy chunks), the scratch buffer only.
         using var snappy = ParquetFile.OpenOnSource(Path.Combine(AppContext.BaseDirectory, "TestData", "parquet", "matrix", "pa_dict_v1_snappy.parquet"));
-        using var compressed = snappy.OpenReader(new() { MaxDegreeOfParallelism = parallelism, Reading = ChunkReading.Stream });
-        Assert.True(RowCount(compressed.ReadBatches()) > 0);
-        if (parallelism == 1) Assert.Equal(2, compressed.Buffers.PeakRented);
-        Assert.Equal(0, compressed.Buffers.Rented);
+        foreach (ParquetMemoryMap map in (ParquetMemoryMap[])[ParquetMemoryMap.Off, ParquetMemoryMap.Auto])
+        {
+            using var compressed = snappy.OpenReader(new() { MaxDegreeOfParallelism = parallelism, Reading = ChunkReading.Stream, MemoryMap = map });
+            Assert.True(RowCount(compressed.ReadBatches()) > 0);
+            Assert.Equal(map == ParquetMemoryMap.Auto, compressed.MappedChunks > 0);
+            if (parallelism == 1) Assert.Equal(map == ParquetMemoryMap.Off ? 2 : 1, compressed.Buffers.PeakRented);
+            Assert.Equal(0, compressed.Buffers.Rented);
+        }
 
         static long RowCount(IEnumerable<RecordBatch> batches)
         {
@@ -649,8 +654,9 @@ public class ParquetReaderTests
     }
 
     /// <summary>
-    /// Off reads no chunk from a mapping, On every one, Auto the uncompressed fixed-width ones; sources that are not
-    /// local files ignore the setting; an unknown mode is refused.
+    /// Off reads no chunk from a mapping, On every one, Auto (the default) the Snappy-compressed and the uncompressed
+    /// fixed-width ones; only files opened by path are mapped (streams, even file streams, and memory ignore the
+    /// setting); an unknown mode is refused.
     /// </summary>
     [Fact]
     public void MemoryMap_ReadsTheChunksItSays()
@@ -660,8 +666,8 @@ public class ParquetReaderTests
         {
             using var file = ParquetFile.OpenOnSource(ParquetFixtures.FullPath(name));
             int chunks = file.Thrift.RowGroups.Sum(g => g.Columns.Length);
-            int fixedUncompressed = file.Thrift.RowGroups.Sum(g => g.Columns.Count(c => c.MetaData!.Codec == CompressionCodec.Uncompressed
-                && c.MetaData.Type is not (ParquetType.ByteArray)));
+            int automatic = file.Thrift.RowGroups.Sum(g => g.Columns.Count(c => c.MetaData!.Codec == CompressionCodec.Snappy
+                || c.MetaData.Codec == CompressionCodec.Uncompressed && c.MetaData.Type is not (ParquetType.ByteArray)));
             List<string>? reference = null;
             foreach (ParquetMemoryMap map in (ParquetMemoryMap[])[ParquetMemoryMap.Off, ParquetMemoryMap.On, ParquetMemoryMap.Auto])
             {
@@ -669,20 +675,38 @@ public class ParquetReaderTests
                 List<string> rows = Rows(reader.ReadBatches());
                 reference ??= rows;
                 Assert.Equal(reference, rows);
-                Assert.Equal(map switch { ParquetMemoryMap.Off => 0, ParquetMemoryMap.On => chunks, _ => fixedUncompressed }, reader.MappedChunks);
+                Assert.Equal(map switch { ParquetMemoryMap.Off => 0, ParquetMemoryMap.On => chunks, _ => automatic }, reader.MappedChunks);
+            }
+            Assert.True(automatic > 0);
+            using (var byDefault = file.OpenReader())
+            {
+                Assert.Equal(reference, Rows(byDefault.ReadBatches()));
+                Assert.Equal(automatic, byDefault.MappedChunks);
             }
             Assert.True(((Kaminari.Seseragi.Files.IO.RandomAccessSource)file.Source).IsMapped);
         }
 
-        // A file none of whose chunks is read from a mapping (compressed, automatic) is not mapped at all.
-        using (var compressed = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_dict_v1_snappy.parquet")))
-        using (var reader = compressed.OpenReader(new() { MemoryMap = ParquetMemoryMap.Auto }))
+        // A file opened by path with a footer read before maps too.
+        using (var first = ParquetFile.Open(ParquetFixtures.FullPath("matrix/pa_dict_v1_snappy.parquet")))
+        using (var again = ParquetFile.Open(ParquetFixtures.FullPath("matrix/pa_dict_v1_snappy.parquet"), first.Metadata))
+        using (var reader = again.OpenReader())
         {
             Assert.NotEmpty(Rows(reader.ReadBatches()));
+            Assert.True(reader.MappedChunks > 0);
+        }
+
+        // A file none of whose chunks is read from a mapping (Zstandard, automatic) is not mapped at all.
+        using (var compressed = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/duckdb_zstd.parquet")))
+        using (var reader = compressed.OpenReader(new() { MemoryMap = ParquetMemoryMap.Auto }))
+        {
+            Assert.All(compressed.Thrift.RowGroups.SelectMany(g => g.Columns), c => Assert.Equal(CompressionCodec.Zstd, c.MetaData!.Codec));
+            Assert.NotEmpty(Rows(reader.ReadBatches()));
+            Assert.Equal(0, reader.MappedChunks);
             Assert.False(((Kaminari.Seseragi.Files.IO.RandomAccessSource)compressed.Source).IsMapped);
         }
 
-        // A file stream opened at an offset (the Parquet data after 100 other bytes) maps from there.
+        // A file stream handed in (here opened at an offset: the Parquet data after 100 other bytes) is never mapped,
+        // even when the mapping is on: whoever holds the stream may truncate the file under it.
         string path = Path.Combine(Path.GetTempPath(), $"seseragi-offset-{Guid.NewGuid():N}.parquet");
         try
         {
@@ -691,9 +715,12 @@ public class ParquetReaderTests
             using var expected = plain.OpenReader();
             var stream = new FileStream(path, FileMode.Open, FileAccess.Read) { Position = 100 };
             using var shifted = ParquetFile.Open(stream);
-            using var mapped = shifted.OpenReader(new() { MemoryMap = ParquetMemoryMap.On });
-            Assert.Equal(Rows(expected.ReadBatches()), Rows(mapped.ReadBatches()));
-            Assert.True(mapped.MappedChunks > 0);
+            using var reader = shifted.OpenReader(new() { MemoryMap = ParquetMemoryMap.On });
+            Assert.Equal(Rows(expected.ReadBatches()), Rows(reader.ReadBatches()));
+            Assert.Equal(0, reader.MappedChunks);
+            var source = (Kaminari.Seseragi.Files.IO.RandomAccessSource)shifted.Source;
+            Assert.Null(source.Map(out _));
+            Assert.False(source.IsMapped);
         }
         finally
         {
@@ -773,12 +800,15 @@ public class ParquetReaderTests
     [Fact]
     public void MemoryMap_NoMappingAfterDispose_AndRangesInsideTheFile()
     {
-        using var stream = new FileStream(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"), FileMode.Open, FileAccess.Read);
-        var file = ParquetFile.Open(stream, leaveOpen: true);
+        using (var open = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet")))
+            Assert.NotNull(((Kaminari.Seseragi.Files.IO.RandomAccessSource)open.Source).Map(out _)); // a file opened by path maps
+        var file = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"));
         var source = (Kaminari.Seseragi.Files.IO.RandomAccessSource)file.Source;
         file.Dispose();
         Assert.Null(source.Map(out _));
         Assert.False(source.IsMapped);
+
+        using var stream = new FileStream(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"), FileMode.Open, FileAccess.Read);
 
         var mapped = Kaminari.Sazanami.Helpers.MappedFile.Open(stream)!;
         try

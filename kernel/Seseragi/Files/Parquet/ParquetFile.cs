@@ -72,6 +72,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <summary>
     /// Opens a stream from its current position. A stream that cannot seek is first copied into native memory (up
     /// to 2 GB). Unless <paramref name="leaveOpen"/>, the stream is disposed with the file, or when opening fails.
+    /// A stream is never read through a memory mapping (<see cref="ParquetReadOptions.MemoryMap"/>), even a file stream.
     /// </summary>
     /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(Stream stream, bool leaveOpen = false) => Sync(OpenCoreAsync(stream, leaveOpen, useAsync: false, default));
@@ -91,7 +92,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(path);
         FileMetaData thrift = ReadFooter(metadata);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.RandomAccess);
-        var source = new RandomAccessSource(stream, false, null);
+        var source = new RandomAccessSource(stream, false, null, mappable: true);
         return new ParquetFile(source, source, thrift, metadata);
     }
 
@@ -142,16 +143,17 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(path);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1,
             useAsync ? FileOptions.RandomAccess | FileOptions.Asynchronous : FileOptions.RandomAccess);
-        return OpenCoreAsync(stream, leaveOpen: false, useAsync, ct, smallInMemory);
+        return OpenCoreAsync(stream, leaveOpen: false, useAsync, ct, smallInMemory, mappable: true);
     }
 
-    private static async ValueTask<ParquetFile> OpenCoreAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct, bool smallInMemory = true)
+    private static async ValueTask<ParquetFile> OpenCoreAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct, bool smallInMemory = true,
+        bool mappable = false)
     {
         ArgumentNullException.ThrowIfNull(stream);
         RandomAccessSource source;
         try
         {
-            if (stream.CanSeek) source = new RandomAccessSource(stream, leaveOpen, null);
+            if (stream.CanSeek) source = new RandomAccessSource(stream, leaveOpen, null, mappable);
             else
             {
                 var (memory, copy) = await NativeCopy.CopyAsync(stream, leaveOpen, useAsync, ct).ConfigureAwait(false);

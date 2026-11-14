@@ -982,9 +982,9 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Whether a column chunk is decoded from the file's mapping: all of them when it is on; when automatic, those
-    /// uncompressed and of a fixed-width physical type (measured: the mapping pays there, and costs on compressed and
-    /// string chunks read on many threads).
+    /// Whether a column chunk is decoded from the file's mapping: all of them when it is on; when automatic, the
+    /// Snappy-compressed ones and those uncompressed and of a fixed-width physical type (measured: the mapping pays
+    /// there, and costs on uncompressed strings and Zstandard chunks read on many threads).
     /// </summary>
     private PageReader Mapped(ReadOnlyMemory<byte> chunk, ColumnMetaData meta)
     {
@@ -993,6 +993,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     }
 
     private bool FromMapping(ColumnMetaData meta, SchemaNode leaf) => _options.MemoryMap == ParquetMemoryMap.On
+        || meta.Codec == CompressionCodec.Snappy
         || meta.Codec == CompressionCodec.Uncompressed && leaf.Element.Type is ParquetType.Boolean or ParquetType.Int32 or ParquetType.Int64
             or ParquetType.Int96 or ParquetType.Float or ParquetType.Double or ParquetType.FixedLenByteArray;
 

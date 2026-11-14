@@ -65,8 +65,8 @@ or a fixed-size list of another length is an error. Variants read as the struct 
 values, a map keeping its key and value whatever the path; other leaves are not read), and row groups chosen (`RowGroups`).
 Column chunks are read as the source suits: sliced when it lives in memory, page by page from a local file, and fetched
 with few ranged reads (nearby chunks coalesced) from other sources; a local file can also be read through a memory
-mapping (`MemoryMap`: off by default, on, or automatic: only uncompressed fixed-width chunks; a mapped file must not be
-truncated while read). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
+mapping (`MemoryMap`: automatic by default — Snappy-compressed and uncompressed fixed-width chunks —, on, or off; only
+files opened by path are mapped, never a stream; a mapped file must not be truncated while read). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
 deprecated PLAIN_DICTIONARY), RLE booleans, DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY and
 BYTE_STREAM_SPLIT (on every physical type the spec allows them for); levels in the RLE / bit-packing hybrid or the deprecated BIT_PACKED;
 codecs uncompressed, Snappy, GZIP (several members), Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop-framed LZ4;
@@ -402,7 +402,10 @@ value against a logical type is allowed. General unions are not written against 
   an evaluator of the IR's semantics checks that no matching row is lost on the corpus and the fixtures, that single
   comparisons on every type keep exactly the row groups with matches, and that lying statistics, indexes and Bloom
   filters are used or ignored as intended; `ParquetRowSelectionTests`: selected rows equal the full read's in every
-  way of reading; the fixtures and how they are written: `TestData/parquet-pushdown/write_pushdown.py`). Process-wide state (memory pool,
+  way of reading; `ParquetFilterRowsTests`: with `FilterRows`, the rows delivered are those the filter keeps, with the
+  full read's values, densely and sparsely in every way of reading, on the fixtures and the corpus; the fixtures and
+  how they are written: `TestData/parquet-pushdown/write_pushdown.py`). The evaluator of the IR's semantics these share
+  is `IrEvaluator.cs`; `FilterLoweringTests.cs` checks Samidare's filter lowering against it. Process-wide state (memory pool,
   guard pages, early stops) is tested in the serial `tests/Polars.Config.Tests`. Through the engine:
   `tests/Polars.CSharp.Tests/IO/ParquetManagedPipelineTests.cs` (managed read imported into Polars against Polars'
   own read). Through the Delta kernel: `tests/Seseragi.Lakehouse.Tests` (`ParquetFootersTests`,

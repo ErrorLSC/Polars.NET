@@ -13,6 +13,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     private readonly bool _leaveOpen;
     private readonly NativeByteBuffer? _copy;
     private readonly SafeFileHandle? _file;
+    private readonly bool _mappable;
     private readonly long _start;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _mapLock = new();
@@ -20,8 +21,9 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     private bool _disposed;
 
     /// <summary>Wraps a seekable stream; <paramref name="copy"/> is the native memory the stream reads, when it was
-    /// copied there (released on dispose).</summary>
-    public RandomAccessSource(Stream stream, bool leaveOpen, NativeByteBuffer? copy)
+    /// copied there (released on dispose). Only a file this library opened by its path is <paramref name="mappable"/>:
+    /// a stream handed in by a caller is never mapped (whoever holds it may truncate the file under the mapping).</summary>
+    public RandomAccessSource(Stream stream, bool leaveOpen, NativeByteBuffer? copy, bool mappable = false)
     {
         _stream = stream;
         _leaveOpen = leaveOpen;
@@ -29,6 +31,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
         _start = stream.Position;
         Length = stream.Length - _start;
         if (copy is null && stream is FileStream file) _file = file.SafeFileHandle;
+        _mappable = mappable && _file is not null;
     }
 
     public long Length { get; }
@@ -56,7 +59,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     public MappedFile? Map(out long start)
     {
         start = _start;
-        if (_file is null) return null;
+        if (!_mappable) return null;
         lock (_mapLock)
         {
             if (_disposed) return null;
