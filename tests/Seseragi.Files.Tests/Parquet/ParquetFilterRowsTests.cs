@@ -229,6 +229,25 @@ public class ParquetFilterRowsTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ANullTypedColumn_IsNullOnEveryRow(bool sparse)
+    {
+        LateMaterialization mode = sparse ? LateMaterialization.Sparse : LateMaterialization.Dense;
+        // Found by the fuzzer: a column of Arrow's null type (no buffers) tested for null.
+        string path = ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet");
+        using var file = ParquetFile.Open(path);
+        long rows = file.Metadata.RowCount;
+        ScalarExpr isNull = ScalarExpr.NewUnary(UnaryOp.IsNull, Col("null_type"));
+        foreach (var (filter, expected) in (ValueTuple<ScalarExpr, long>[])[(isNull, rows), (Not(isNull), 0)])
+        {
+            using var reader = file.OpenReader(new ParquetReadOptions { Filter = filter, FilterRows = true, LateMaterialization = mode });
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(expected, reader.ReadBatches().Sum(b => { using (b) return (long)b.Length; }));
+        }
+    }
+
     [Fact]
     public void AFilterOnUnselectedColumns_StillFilters()
     {

@@ -280,6 +280,25 @@ public class FilterProgramTests
     }
 
     [Fact]
+    public void NullArrays_AreNullOnEveryRow()
+    {
+        // An Arrow null array has no buffers: only null tests and logic apply to it.
+        IArrowArray nulls = new NullArray(70);
+        FilterColumn[] columns = [new(["n"], NullType.Default)];
+        int[] Run(FilterNode node)
+        {
+            var mask = new ulong[2];
+            FilterProgram.Create(columns, node).Evaluate([nulls], 70, mask);
+            return [.. Enumerable.Range(0, 70).Where(i => (mask[i >> 6] >> (i & 63) & 1) != 0)];
+        }
+        Assert.Equal(70, Run(new FilterNode.IsNull(0)).Length);
+        Assert.Empty(Run(new FilterNode.Not(new FilterNode.IsNull(0))));
+        Assert.Equal(70, Run(new FilterNode.Or([new FilterNode.IsNull(0), new FilterNode.Constant(false)])).Length);
+        Assert.Empty(Run(new FilterNode.Coalesce([new FilterNode.Not(new FilterNode.IsNull(0)), new FilterNode.Constant(true)]))); // NOT IS NULL is false, not null
+        Assert.Throws<ArgumentException>(() => FilterProgram.Create(columns, new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Integer(1))));
+    }
+
+    [Fact]
     public void Boolean_ComparesAsZeroAndOne()
     {
         ColumnKind kind = Kind("bool");

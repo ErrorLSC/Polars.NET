@@ -495,6 +495,13 @@ internal sealed class FilterProgram
     /// <summary>A leaf on plain values: the test where valid, the null outcome elsewhere.</summary>
     private static void EvalValues(LeafTest test, ArrayData data, int length, Span<ulong> t, Span<ulong> f)
     {
+        if (data.DataType is NullType)
+        {
+            // Null on every row (an Arrow null array has no buffers at all).
+            Masks.Fill(t, length, test.NullIsTrue);
+            Masks.Fill(f, length, false);
+            return;
+        }
         int words = Masks.Words(length);
         if (!HasNulls(data))
         {
@@ -514,7 +521,7 @@ internal sealed class FilterProgram
         }
     }
 
-    private static bool HasNulls(ArrayData data) => data.NullCount != 0 && !data.Buffers[0].IsEmpty;
+    private static bool HasNulls(ArrayData data) => data.NullCount != 0 && data.Buffers.Length > 0 && !data.Buffers[0].IsEmpty;
 
     /// <summary>The <paramref name="length"/> values of a fixed-width array from its offset.</summary>
     internal static ReadOnlySpan<T> Values<T>(ArrayData data, int length) where T : unmanaged =>
