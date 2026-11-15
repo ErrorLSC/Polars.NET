@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Kaminari.Sazanami.Filters;
 
@@ -48,6 +49,9 @@ internal static class BytesTests
     /// <summary>Equality with a value.</summary>
     public readonly struct Equal(byte[] literal) : IBytesTest
     {
+        /// <summary>The value tested against.</summary>
+        public byte[] Literal => literal;
+
         public bool Test(ReadOnlySpan<byte> value) => value.SequenceEqual(literal);
 
         public bool? FromView(ReadOnlySpan<byte> view)
@@ -158,6 +162,48 @@ internal static class BinaryKernels
                 ReadOnlySpan<byte> view = views.Slice((first + k) << 4, 16);
                 bool holds = test.FromView(view) ?? test.Test(Long(view, buffers));
                 if (holds) word |= 1UL << k;
+            }
+            mask[w] = word;
+        }
+    }
+
+    /// <summary>
+    /// Utf8View / BinaryView equality with <paramref name="literal"/>, a vector compare per view: a view's length and
+    /// inline bytes (a value of at most 12 bytes), or its length and first four bytes (a longer one, whose bytes are
+    /// then compared only when those match), against the literal's, the rest of the view masked off (its padding is
+    /// not relied on).
+    /// </summary>
+    public static void ViewsEqual(byte[] literal, ReadOnlySpan<byte> views, ReadOnlySpan<ReadOnlyMemory<byte>> buffers, int length, ReadOnlySpan<ulong> valid,
+        Span<ulong> mask)
+    {
+        bool inline = literal.Length <= BytesTests.MaxInline;
+        Span<byte> head = stackalloc byte[16], keep = stackalloc byte[16];
+        BinaryPrimitives.WriteInt32LittleEndian(head, literal.Length);
+        int compared = inline ? literal.Length : 4;
+        literal.AsSpan(0, compared).CopyTo(head[4..]);
+        keep[..(4 + compared)].Fill(0xFF);
+        Vector128<byte> expected = Vector128.Create((ReadOnlySpan<byte>)head), bytes = Vector128.Create((ReadOnlySpan<byte>)keep);
+        if (views.Length < length * 16) throw new ArgumentException("Fewer views than rows.", nameof(views));
+        ref byte first = ref MemoryMarshal.GetReference(views);
+        int words = Masks.Words(length);
+        for (int w = 0; w < words; w++)
+        {
+            int start = w << 6, n = Math.Min(64, length - start);
+            ulong word = 0;
+            for (int k = 0; k < n; k++)
+            {
+                Vector128<byte> view = Vector128.LoadUnsafe(ref first, (nuint)((start + k) << 4));
+                word |= (Vector128.EqualsAll(view & bytes, expected) ? 1UL : 0) << k;
+            }
+            word &= valid.IsEmpty ? Masks.LastWord(n) : valid[w];
+            if (!inline)
+            {
+                // A long value whose length and first bytes match: its bytes decide.
+                for (ulong candidates = word; candidates != 0; candidates &= candidates - 1)
+                {
+                    int k = System.Numerics.BitOperations.TrailingZeroCount(candidates);
+                    if (!Long(views.Slice((start + k) << 4, 16), buffers).SequenceEqual(literal)) word &= ~(1UL << k);
+                }
             }
             mask[w] = word;
         }

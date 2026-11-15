@@ -149,7 +149,8 @@ internal sealed class BytesTest<TTest>(TTest test) : LeafTest where TTest : stru
                 ReadOnlySpan<byte> views = data.Buffers[1].Span.Slice(data.Offset * 16, length * 16);
                 var buffers = new ReadOnlyMemory<byte>[data.Buffers.Length - 2];
                 for (int b = 0; b < buffers.Length; b++) buffers[b] = data.Buffers[b + 2].Memory;
-                BinaryKernels.Views(test, views, buffers, length, valid, mask);
+                if (test is BytesTests.Equal equal) BinaryKernels.ViewsEqual(equal.Literal, views, buffers, length, valid, mask);
+                else BinaryKernels.Views(test, views, buffers, length, valid, mask);
                 break;
             }
             case FixedSizeBinaryType f:
