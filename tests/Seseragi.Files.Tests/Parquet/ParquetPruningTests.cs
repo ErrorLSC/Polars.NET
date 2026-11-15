@@ -260,6 +260,9 @@ public class ParquetPruningTests
         Coalesce(Bin(BinaryOp.Or, nIs5, never), [0, 1, 2]);     // null OR false is null
         Coalesce(Bin(BinaryOp.And, nIs5, never), []);           // anything AND false is false
         Coalesce(Not(nIs5), [0, 1, 2]);                         // NOT null is null
+        ScalarExpr inNothing = ScalarExpr.NewInList(Col("n"), InListSource.NewLiterals(ListModule.Empty<LiteralValue>()), false, false);
+        Coalesce(inNothing, [0, 1, 2]);                         // null IN () is null (every row group holds a null)
+        Coalesce(Not(inNothing), [0, 1, 2]);
 
         void Coalesce(ScalarExpr inner, int[] expected)
         {

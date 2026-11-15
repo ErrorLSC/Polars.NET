@@ -175,7 +175,10 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
             if (!domain.TryConvert(value, out Bound bound)) return UnknownNode.Instance;
             equals.Add(EqualityNode(domain, LeafTest.Eq, bound, excludeNaN));
         }
-        PruneNode any = new OrNode([.. equals]);
+        // No value is in an empty list: false on values, yet null on a null x, as every comparison is.
+        PruneNode any = equals.Count > 0
+            ? new OrNode([.. equals])
+            : new AndNode([new LeafNode(domain, LeafTest.IsNull, default, excludeNaN), new ConstantNode(Outcomes.Null)]);
         PruneNode inList = (nullsEqual, hasNull) switch
         {
             (false, false) => any,
