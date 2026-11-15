@@ -39,13 +39,16 @@ public sealed class RowRanges : IReadOnlyList<(long Start, long Count)>, IEquata
     {
         var sorted = new (long Start, long End)[ranges.Length];
         int n = 0;
+        bool ordered = true; // given in order already (as readers that select rows make them): no sort
         foreach (var (start, count) in ranges)
         {
             if (start < 0 || count < 0 || start > long.MaxValue - count)
                 throw new ArgumentOutOfRangeException(nameof(ranges), $"[{start}, +{count}) is not a range of row numbers.");
-            if (count > 0) sorted[n++] = (start, start + count);
+            if (count == 0) continue;
+            if (n > 0 && start < sorted[n - 1].Start) ordered = false;
+            sorted[n++] = (start, start + count);
         }
-        Array.Sort(sorted, 0, n);
+        if (!ordered) Array.Sort(sorted, 0, n);
         return Merge(sorted.AsSpan(0, n));
     }
 
@@ -113,18 +116,21 @@ public sealed class RowRanges : IReadOnlyList<(long Start, long Count)>, IEquata
 
     private static RowRanges Merge(ReadOnlySpan<(long Start, long End)> sorted)
     {
-        List<long> starts = [], ends = [];
+        if (sorted.IsEmpty) return Empty;
+        var starts = new long[sorted.Length];
+        var ends = new long[sorted.Length];
+        int n = 0;
         foreach (var (start, end) in sorted)
         {
-            if (ends.Count > 0 && start <= ends[^1])
+            if (n > 0 && start <= ends[n - 1])
             {
-                if (end > ends[^1]) ends[^1] = end;
+                if (end > ends[n - 1]) ends[n - 1] = end;
                 continue;
             }
-            starts.Add(start);
-            ends.Add(end);
+            starts[n] = start;
+            ends[n++] = end;
         }
-        return starts.Count == 0 ? Empty : new([.. starts], [.. ends]);
+        return n == sorted.Length ? new(starts, ends) : new(starts[..n], ends[..n]);
     }
 
     /// <summary>The number of ranges.</summary>

@@ -704,17 +704,18 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         Interlocked.Add(ref _rowsKept, total);
         if (total == 0) return [];
 
-        RowRanges selected = Selected(predicates, masks);
+        // The ranges are made only to be read by: the dense way needs their number alone, counted up to the threshold.
+        long enough = (long)Math.Ceiling(read * DenseFrom);
         bool dense = !late.Nested && _options.LateMaterialization switch
         {
             LateMaterialization.Dense => true,
             LateMaterialization.Sparse => false,
-            _ => selected.Count >= read * DenseFrom,
+            _ => Runs(predicates.Rows, masks, enough) >= enough,
         };
         if (!dense)
         {
             Interlocked.Increment(ref _sparseUnits);
-            using Decoded rows = await DecodeSetAsync(_projected, unit.Group, selected, useAsync, parallel, cancellationToken).ConfigureAwait(false);
+            using Decoded rows = await DecodeSetAsync(_projected, unit.Group, Selected(predicates.Rows, masks), useAsync, parallel, cancellationToken).ConfigureAwait(false);
             return Assemble(rows, unit.FirstRow);
         }
 
@@ -792,14 +793,17 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         return current;
     }
 
-    /// <summary>The rows the filter kept, numbered in the row group: each batch's mask over its rows.</summary>
-    private static RowRanges Selected(Decoded decoded, ulong[][] masks)
+    /// <summary>
+    /// The rows the filter kept, numbered in the row group: each batch's mask over its rows (<paramref name="rows"/>,
+    /// the runs of rows of each batch, as <see cref="Decoded.Rows"/>).
+    /// </summary>
+    internal static RowRanges Selected((long Start, int Count)[][] rows, ulong[][] masks)
     {
         List<(long Start, long Count)> kept = [];
-        for (int b = 0; b < decoded.Batches; b++)
+        for (int b = 0; b < rows.Length; b++)
         {
             int at = 0; // the batch's slot of the run's first row
-            foreach (var (start, count) in decoded.Rows[b])
+            foreach (var (start, count) in rows[b])
             {
                 for (int i = 0; i < count;)
                 {
@@ -812,7 +816,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 at += count;
             }
         }
-        return RowRanges.Of([.. kept]);
+        return RowRanges.Of(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(kept));
 
         // The first slot in [from, end) whose bit is set (or clear), else end.
         static int Next(ulong[] mask, int from, int end, bool set)
@@ -825,6 +829,38 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             }
             return end;
         }
+    }
+
+    /// <summary>
+    /// The number of ranges <see cref="Selected"/> makes of the same masks (runs of kept rows, those touching across
+    /// batches merged), counted up to <paramref name="enough"/> at least: a run starts at each kept row whose row before
+    /// it was not kept, found a word of the mask at a time.
+    /// </summary>
+    internal static long Runs((long Start, int Count)[][] rows, ulong[][] masks, long enough)
+    {
+        long runs = 0, end = -1; // the row after the last kept row, when it ends a batch's run of rows
+        for (int b = 0; b < rows.Length && runs < enough; b++)
+        {
+            ulong[] mask = masks[b];
+            int at = 0; // the batch's slot of the run's first row
+            foreach (var (start, count) in rows[b])
+            {
+                // The bit of the slot before, for the first slot of the run of rows: whether the row before it was kept.
+                ulong before = end == start ? 1UL : 0;
+                for (int from = at, stop = at + count; from < stop;)
+                {
+                    int bit = from & 63, take = Math.Min(64 - bit, stop - from);
+                    ulong word = mask[from >> 6] >> bit;
+                    if (take < 64) word &= (1UL << take) - 1;
+                    runs += System.Numerics.BitOperations.PopCount(word & ~(word << 1 | before));
+                    before = word >> (take - 1) & 1;
+                    from += take;
+                }
+                if (before != 0) end = start + count;
+                at += count;
+            }
+        }
+        return runs;
     }
 
     /// <summary>
@@ -845,7 +881,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             long most = group.Columns.Max(c => c.MetaData?.NumValues ?? 0);
             if (rows > most) throw new ParquetFormatException($"Row group {g} has {rows} rows, more than any of its column chunks holds values ({most}).");
         }
-        IEnumerable<(bool Read, int Count, bool Export)> plan = Plan(rows, ranges);
+        IEnumerable<Step> plan = Plan(rows, ranges);
         (long Start, long Length)[] at = ChunkRanges(set, g);
         // A hold on the file's mapping for the decode of this row group (the reader may outlive a disposed file), taken
         // only when a chunk of it is read from the mapping: making and dropping a mapping is not free (measured on
@@ -927,7 +963,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             int length = 0;
             long row = 0; // the row group's number of the step's first row
             List<(long Start, int Count)> rowsOfBatch = [];
-            foreach (var (read, n, export) in plan)
+            foreach (var (read, n, export, _) in plan)
             {
                 if (read)
                 {
@@ -1003,47 +1039,77 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// full batches.
     /// </summary>
     /// <remarks>
-    /// The ranges are checked at once; the steps are made as they are taken (enumerated once per column), so that a
-    /// row count the data does not hold costs no memory before decoding finds that out.
+    /// The ranges are checked at once. When they make few steps for their number, the steps are made once, each read
+    /// step of a batch after its first then reserving nothing (its first reserves room for the whole batch); else they
+    /// are made as they are taken (enumerated once per column), so that a row count the data does not hold (a footer's,
+    /// read or skipped) costs no memory before decoding finds that out.
     /// </remarks>
-    private IEnumerable<(bool Read, int Count, bool Export)> Plan(long rows, IReadOnlyList<(long Start, long Count)>? ranges)
+    private IEnumerable<Step> Plan(long rows, IReadOnlyList<(long Start, long Count)>? ranges)
     {
-        long at = 0;
+        // At most the steps the ranges make, counted while within the limit: the skips of a range are at most 2^32 + 1,
+        // its whole batches are added once below the limit, so no sum overflows.
+        long at = 0, steps = 1, limit = 4L * (ranges?.Count ?? 0) + 1024;
+        bool few = ranges is not null;
+        int batchSize = _options.BatchSize;
         foreach (var (start, count) in ranges ?? [(0, rows)])
         {
             if (start < at || count < 0 || start + count > rows) throw new ArgumentOutOfRangeException(nameof(ranges), "Row ranges must be ordered and inside the row group.");
+            long skips = (start - at) / int.MaxValue + 1, reads = count / batchSize;
+            few = few && reads <= limit && (steps += skips + reads + 2) <= limit;
             at = start + count;
         }
-        return Steps(rows, ranges, _options.BatchSize);
+        if (!few) return Steps(rows, ranges, batchSize);
 
-        static IEnumerable<(bool Read, int Count, bool Export)> Steps(long rows, IReadOnlyList<(long Start, long Count)>? ranges, int batchSize)
+        Step[] plan = [.. Steps(rows, ranges, batchSize)];
+        for (int i = 0, first = -1, batch = 0; i < plan.Length; i++)
+        {
+            if (plan[i].Read)
+            {
+                if (first < 0) first = i;
+                else plan[i] = plan[i] with { Reserve = 0 };
+                batch += plan[i].Count;
+            }
+            if (!plan[i].Export) continue;
+            if (first >= 0) plan[first] = plan[first] with { Reserve = batch };
+            first = -1;
+            batch = 0;
+        }
+        return plan;
+
+        static IEnumerable<Step> Steps(long rows, IReadOnlyList<(long Start, long Count)>? ranges, int batchSize)
         {
             long at = 0;
             int pending = 0; // rows read into the batch being gathered
             foreach (var (start, count) in ranges ?? [(0, rows)])
             {
-                for (long skip = start - at; skip > 0; skip -= int.MaxValue) yield return (false, (int)Math.Min(skip, int.MaxValue), false);
+                for (long skip = start - at; skip > 0; skip -= int.MaxValue) yield return new(false, (int)Math.Min(skip, int.MaxValue), false, 0);
                 for (long left = count; left > 0;)
                 {
                     int n = (int)Math.Min(left, batchSize - pending);
                     left -= n;
                     pending += n;
                     bool full = pending == batchSize;
-                    yield return (true, n, full);
+                    yield return new(true, n, full, n);
                     if (full) pending = 0;
                 }
                 at = start + count;
             }
-            if (pending > 0) yield return (false, 0, true);
+            if (pending > 0) yield return new(false, 0, true, 0);
         }
     }
+
+    /// <summary>
+    /// A step of a plan: <paramref name="Count"/> rows read or skipped, after room is reserved for
+    /// <paramref name="Reserve"/> rows (none: reserved before), and whether a batch ends after it.
+    /// </summary>
+    private readonly record struct Step(bool Read, int Count, bool Export, int Reserve);
 
     /// <summary>
     /// Decodes one column of a row group (its leaves side by side, record by record) through the whole
     /// <paramref name="plan"/>: an array per batch, each over memory of its own.
     /// </summary>
     private static IArrowArray[] DecodeColumn(ColumnSet set, int c, LeafReader[] readers, NativeColumnBuilder builder, Dictionary<ReadNode, LeafReader> byNode,
-        IEnumerable<(bool Read, int Count, bool Export)> plan, long rows, bool finish, CancellationToken cancellationToken)
+        IEnumerable<Step> plan, long rows, bool finish, CancellationToken cancellationToken)
     {
         ColumnMapping column = set.Columns[c];
         var (first, count) = set.ColumnLeaves[c];
@@ -1052,14 +1118,14 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         try
         {
             int n = 0; // rows read into the batch
-            foreach (var (read, steps, export) in plan)
+            foreach (var (read, steps, export, reserve) in plan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (read)
                 {
                     foreach (LeafReader r in leaves)
                     {
-                        r.Reserve(steps, rows);
+                        if (reserve > 0) r.Reserve(reserve, rows);
                         r.Read(steps);
                     }
                     n += steps;

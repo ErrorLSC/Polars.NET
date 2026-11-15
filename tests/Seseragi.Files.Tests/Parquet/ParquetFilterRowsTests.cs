@@ -229,6 +229,45 @@ public class ParquetFilterRowsTests
         }
     }
 
+    [Fact]
+    public void Runs_CountTheRangesOfTheKeptRows_AsSelectedMakesThem()
+    {
+        var random = new Random(5);
+        for (int n = 0; n < 4000; n++)
+        {
+            // Batches of runs of rows, with gaps or touching (within a batch and across batches), over masks of
+            // every density (runs of ones and zeros of random lengths, so words start inside runs).
+            int batches = random.Next(1, 5);
+            var rows = new (long Start, int Count)[batches][];
+            var masks = new ulong[batches][];
+            long row = random.Next(3);
+            for (int b = 0; b < batches; b++)
+            {
+                rows[b] = new (long, int)[random.Next(1, 4)];
+                int length = 0;
+                for (int r = 0; r < rows[b].Length; r++)
+                {
+                    int count = random.Next(5) == 0 ? 0 : random.Next(1, 200);
+                    rows[b][r] = (row, count);
+                    length += count;
+                    row += count + (random.Next(3) == 0 ? random.Next(1, 4) : 0);
+                }
+                masks[b] = new ulong[(length + 63) / 64];
+                int density = random.Next(1, 6);
+                for (int i = 0; i < length; i++)
+                {
+                    bool previous = i > 0 && (masks[b][(i - 1) >> 6] >> ((i - 1) & 63) & 1) == 1;
+                    if (random.Next(density * 4) == 0 || previous && random.Next(density) != 0) masks[b][i >> 6] |= 1UL << (i & 63);
+                }
+            }
+            int expected = ParquetReader.Selected(rows, masks).Count;
+            Assert.Equal(expected, ParquetReader.Runs(rows, masks, long.MaxValue));
+            // Counted up to a threshold: at least it exactly when there are at least that many.
+            long enough = random.Next(1, expected + 3);
+            Assert.Equal(expected >= enough, ParquetReader.Runs(rows, masks, enough) >= enough);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

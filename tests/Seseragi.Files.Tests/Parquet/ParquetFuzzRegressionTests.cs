@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Rows;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
@@ -82,6 +83,35 @@ public class ParquetFuzzRegressionTests
                 foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
             }).Message);
         }
+    }
+
+    /// <summary>
+    /// A row group and its column chunk claiming 2^62 rows or more (only 3 there), read with selections that would make
+    /// billions of steps: two rows far apart (2^31 skips of int.MaxValue rows), nearly every row a row per batch, or many
+    /// ranges each a little within bounds. The steps are not planned up front: the read fails where the data ends.
+    /// </summary>
+    [Theory]
+    [InlineData("far", 1L << 62)]
+    [InlineData("far", long.MaxValue)]
+    [InlineData("rowPerBatch", long.MaxValue)]
+    [InlineData("manyFar", long.MaxValue)]
+    public void Selections_OverRowsTheFooterClaims_AreNotPlannedUpFront(string selection, long rows)
+    {
+        SchemaElement[] schema = [HandBuiltParquet.Group("schema", 1, repetition: null), HandBuiltParquet.Leaf("x", ParquetType.Int32, FieldRepetition.Required)];
+        byte[] file = HandBuiltParquet.Build(schema, rows,
+            new HandBuiltParquet.Column(["x"], ParquetType.Int32, 0, 0, [], [0, 0, 0], HandBuiltParquet.Int32s(1, 2, 3), FooterValues: rows));
+        using var parquet = ParquetFile.Open(new MemoryStream(file));
+        using var reader = parquet.OpenReader(selection switch
+        {
+            "far" => new() { Rows = RowRanges.Of([(0, 1), (rows - 2, 1)]) },
+            "rowPerBatch" => new() { BatchSize = 1, Rows = RowRanges.Of([(1, rows - 1)]) },
+            // 20 000 rows 80 000 skips apart: 1.6 billion steps in all.
+            _ => new() { Rows = RowRanges.Of([.. Enumerable.Range(0, 20_000).Select(i => (i * 80_000L * int.MaxValue, 1L))]) },
+        });
+        Assert.Contains("ends before its row group does", Assert.Throws<ParquetFormatException>(() =>
+        {
+            foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+        }).Message);
     }
 
     /// <summary>The stored Arrow schemas of the corpus (pyarrow, Polars, DuckDB, Spark writers) all pass the check.</summary>

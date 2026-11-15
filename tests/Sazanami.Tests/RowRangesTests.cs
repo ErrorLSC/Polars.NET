@@ -62,6 +62,34 @@ public class RowRangesTests
     }
 
     [Fact]
+    public void Of_IsTheUnionOfItsRanges_InOrderOrNot()
+    {
+        var random = new Random(11);
+        for (int n = 0; n < 3000; n++)
+        {
+            // Ranges that overlap, touch, repeat or are empty; given in order (ties included) and shuffled.
+            var ranges = new (long Start, long Count)[random.Next(12)];
+            for (int i = 0; i < ranges.Length; i++)
+            {
+                long start = random.Next(Universe - 1);
+                ranges[i] = (start, random.Next(4) == 0 ? 0 : random.Next(1, Math.Min(40, Universe - (int)start) + 1));
+            }
+            var expected = new bool[Universe];
+            foreach (var (start, count) in ranges)
+            {
+                for (long i = start; i < start + count; i++) expected[i] = true;
+            }
+            (long Start, long Count)[] ordered = [.. ranges.OrderBy(r => r.Start)];
+            foreach ((long, long)[] given in ((long, long)[][])[ordered, ranges])
+            {
+                RowRanges r = RowRanges.Of(given);
+                AssertCanonical(r);
+                Assert.Equal(expected, Model(r));
+            }
+        }
+    }
+
+    [Fact]
     public void SliceAndTake_MatchTheModel()
     {
         var random = new Random(7);
