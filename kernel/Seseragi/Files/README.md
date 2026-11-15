@@ -2,7 +2,7 @@
 
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
-**Parquet** (files and their full footer metadata read; flat columns written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+**Parquet** (files and their full footer metadata read and written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -120,9 +120,16 @@ of every width and sign (annotated), half, single and double floats, dates (date
 (seconds stored in milliseconds, a zone as UTC-adjusted; `TimestampUnit` coerces exactly, `Int96Timestamps` writes
 the legacy layout), durations, decimals of 32 to 256 bits (in INT32 up to 9 digits, INT64 up to 18, else the shortest
 fixed-length bytes), strings and binary in every layout (large, view), fixed-size binary, dictionary columns (by their
-values), intervals (as INTERVAL when exact) and the null type; nested columns are not written yet. Values Parquet
+values), intervals (as INTERVAL when exact) and the null type. Nested columns at any depth: structs as groups, lists
+of every layout (list, large, fixed-size, list views) as three-level LIST groups (`list` / `element`), maps as MAP
+groups (`key_value` / `key` / `value`, keys required), run-end encoded arrays and dictionaries of nested values by
+the values they stand for (the stored Arrow schema keeps their layout); unions are refused (Parquet has no form for
+them). Definition and repetition levels follow the Dremel rules (as pyarrow and Spark write them, null counts
+included); pages break only between rows. Field ids are written from the Arrow fields' `PARQUET:field_id` (struct
+children, list elements, map keys and values; never the `list` / `key_value` wrappers). Values Parquet
 cannot hold exactly (a date64 that is not a whole day, a decimal with more digits than its precision, an inexact
-interval or timestamp coercion) and nulls in non-nullable columns are refused, never changed. Each row group is
+interval or timestamp coercion) and nulls where the schema says non-nullable, at any depth, are refused before
+anything is written, never changed. Each row group is
 buffered until `RowGroupRows` or `RowGroupBytes` (or `EndRowGroup`), then written column chunk by column chunk; pages
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
@@ -135,7 +142,7 @@ footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra ke
 footer written, `BytesWritten` and `PendingBytes` what is in the stream and in the open row group.
 
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
-and stands in until `ParquetWriter` writes nested columns.
+and stands in until the Delta checkpoints move to `ParquetWriter`.
 
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
 leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
@@ -336,7 +343,8 @@ written synchronously on completion.
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written, row groups buffered and written chunk by chunk, the footer (schema, row groups, column orders, `ARROW:schema`), failure handling as `AvroWriter`'s. |
-| `Parquet/Writing/WriteSchema.cs` | Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
+| `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
+| `Parquet/Writing/Shredding.cs` | The Dremel shredder: the steps from a top-level array to a leaf (struct, list in every layout, map, remapping layouts — run-end encoding, dictionaries of nested values — and the leaf), walked row by row into definition and repetition levels and the positions of the values present; children from the parents' raw data (offsets of parents applied, nulls of parents hiding their children); the same walk validates nullability. |
 | `Parquet/Writing/ColumnWriter.cs`, `TypedColumnWriters.cs` | A leaf column per row group: levels and values page by page, dictionary judged on the first page and dropped when it outgrows its budget, pages v1/v2 compressed and checksummed, the dictionary page first; fixed-width, byte-array and boolean values with their statistics and bound truncation. |
 | `Parquet/Encodings/RleBitPackedEncoder.cs` | The RLE / bit-packing hybrid written: runs of 8 or more as RLE, the rest in bit-packed groups of 8. |
 | `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
@@ -454,7 +462,11 @@ what its predicate cannot match, and gives the rows of one thread on several). W
   every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),
   `ParquetWriterInteropTests` (opt-in, `Category=Interop`: pyarrow, DuckDB, Python Polars and Spark — vectorized and
   not — read our files, `TestData/parquet/writer_interop.py` and `writer_spark.py`, each also filtering at the bounds
-  with statistics and without; the readers' own limits are listed there); the fuzzer's writer cases. The evaluator of the IR's semantics these share
+  with statistics and without; the readers' own limits are listed there); `ParquetNestedWriterTests` (random nested columns —
+  every list layout, maps, run-end encoded and dictionary-encoded nested values, nulls at every level, slices —
+  checked against the generator's own model of each row; the schema and levels pyarrow and Spark write; field ids;
+  refusals); the interop test also reads nested files with the four readers and compares the footer of a nested
+  file with the one pyarrow writes for the same table; the fuzzer's writer cases, flat and nested. The evaluator of the IR's semantics these share
   is `IrEvaluator.cs`; `FilterLoweringTests.cs` checks Samidare's filter lowering against it. Process-wide state (memory pool,
   guard pages, early stops, `ParquetReader<T>` under each client evaluation policy) is tested in the serial
 `tests/Polars.Config.Tests`. Through the engine:

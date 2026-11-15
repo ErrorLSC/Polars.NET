@@ -9,7 +9,8 @@ using Kaminari.Seseragi.Files.Parquet.Writing;
 namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>
-/// Writes Arrow record batches as a Parquet file: flat columns (nested ones are not written yet), each row group
+/// Writes Arrow record batches as a Parquet file: flat and nested columns (structs, lists of every layout, maps,
+/// run-end encoded and dictionary-encoded nested values; not unions), each row group
 /// buffered in memory until it is full (<see cref="ParquetWriteOptions.RowGroupRows"/>, <see cref="ParquetWriteOptions.RowGroupBytes"/>)
 /// and then written column chunk by column chunk; the footer on <see cref="Complete"/>. Values Parquet cannot hold
 /// exactly are refused with <see cref="NotSupportedException"/>, never changed; types it cannot say (time zone
@@ -21,8 +22,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly Stream _stream;
     private readonly ParquetWriteOptions _options;
     private readonly SchemaElement[] _elements;
+    private readonly ColumnPlan[] _plans;
     private readonly ColumnWriter[] _columns;
-    private readonly bool[] _required;
+    private readonly Shredder?[] _shredders;
     private readonly List<RowGroup> _rowGroups = [];
     private readonly KeyValue[]? _keyValues;
     private long _rowGroupRows, _totalRows, _position;
@@ -38,13 +40,14 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         _stream = stream;
         _options = options;
         Schema = schema;
-        LeafPlan[] plans = [.. schema.FieldsList.Select(f => WriteSchema.Plan(f, options))];
+        var (elements, plans) = WriteSchema.Plan(schema, options);
         var settings = new PageSettings(options.Compression.ParquetCodec, options.Compression.ParquetLevel, options.DataPageVersion,
             options.DataPageBytes, options.DataPageRows, options.Dictionary, options.DictionaryPageBytes, options.Statistics,
             options.StatisticsTruncateLength, options.WriteChecksums);
-        _elements = [new SchemaElement { Name = "schema", NumChildren = plans.Length }, .. plans.Select(p => p.Element)];
-        _columns = [.. plans.Select(p => p.CreateWriter(settings))];
-        _required = [.. plans.Select(p => p.Element.Repetition == FieldRepetition.Required)];
+        _elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
+        _plans = plans;
+        _columns = [.. plans.Select(p => p.Leaf.CreateWriter(settings))];
+        _shredders = [.. plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))];
         List<KeyValue> keyValues = [];
         if (options.StoreArrowSchema) keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(schema))));
         if (options.Metadata is { } metadata) keyValues.AddRange(metadata.Select(kv => new KeyValue(kv.Key, kv.Value)));
@@ -203,8 +206,20 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             int offset = 0;
             while (offset < batch.Length)
             {
-                int take = (int)Math.Min(batch.Length - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, _options.DataPageRows));
-                for (int c = 0; c < _columns.Length; c++) _columns[c].Write(batch.Column(c), offset, take);
+                // Steps of at most 1024 rows: nested columns are shredded a step at a time, and the row group's size is
+                // checked after each.
+                int take = (int)Math.Min(batch.Length - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, Math.Min(_options.DataPageRows, 1024)));
+                for (int c = 0; c < _columns.Length; c++)
+                {
+                    IArrowArray column = batch.Column(_plans[c].Field);
+                    if (_shredders[c] is not { } shredder)
+                    {
+                        _columns[c].Write(column, offset, take);
+                        continue;
+                    }
+                    shredder.Shred(column, offset, take);
+                    _columns[c].Write(shredder.Def, shredder.Rep, shredder.Leaf, shredder.Indices);
+                }
                 _rowGroupRows += take;
                 offset += take;
                 if (_rowGroupRows >= _options.RowGroupRows || PendingBytes >= _options.RowGroupBytes)
@@ -218,33 +233,89 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
     }
 
-    /// <summary>The batch's columns have the writer's types, and required columns no nulls (checked before anything is written).</summary>
+    /// <summary>
+    /// The batch's columns have the writer's types and lengths, and no null where the schema says non-nullable, at
+    /// any depth (checked before anything is written).
+    /// </summary>
     private void CheckBatch(RecordBatch batch)
     {
-        if (batch.ColumnCount != _columns.Length)
-            throw new ArgumentException($"The batch has {batch.ColumnCount} columns; the writer schema has {_columns.Length}.", nameof(batch));
+        int fields = Schema.FieldsList.Count;
+        if (batch.ColumnCount != fields)
+            throw new ArgumentException($"The batch has {batch.ColumnCount} columns; the writer schema has {fields}.", nameof(batch));
+        for (int f = 0; f < fields; f++)
+        {
+            Field field = Schema.FieldsList[f];
+            IArrowArray column = batch.Column(f);
+            if (column.Length != batch.Length)
+                throw new ArgumentException($"Column {f} ('{field.Name}') has {column.Length} rows; the batch has {batch.Length}.", nameof(batch));
+            if (!ReferenceEquals(batch.Schema, Schema) && !SameType(field.DataType, column.Data.DataType))
+                throw new ArgumentException($"Column {f} ('{field.Name}') is {column.Data.DataType.Name} in the batch but {field.DataType.Name} in the writer schema.", nameof(batch));
+            if (Mismatch(field.DataType, column.Data, field.Name) is { } where)
+                throw new ArgumentException($"The arrays of column {f} ('{field.Name}') do not have the types its type declares: {where}.", nameof(batch));
+        }
         for (int c = 0; c < _columns.Length; c++)
         {
-            Field field = Schema.FieldsList[c];
-            IArrowArray column = batch.Column(c);
-            if (column.Length != batch.Length)
-                throw new ArgumentException($"Column {c} ('{field.Name}') has {column.Length} rows; the batch has {batch.Length}.", nameof(batch));
-            if (!ReferenceEquals(batch.Schema, Schema) && !SameType(field.DataType, column.Data.DataType))
-                throw new ArgumentException($"Column {c} ('{field.Name}') is {column.Data.DataType.Name} in the batch but {field.DataType.Name} in the writer schema.", nameof(batch));
-            if (_required[c] && ArrowValues.NullCount(column) > 0)
+            IArrowArray column = batch.Column(_plans[c].Field);
+            if (_shredders[c] is { } shredder)
+            {
+                try
+                {
+                    shredder.Validate(column);
+                }
+                catch (ArgumentException e)
+                {
+                    throw new ArgumentException(e.Message, nameof(batch));
+                }
+            }
+            else if (_plans[c].Leaf.Element.Repetition == FieldRepetition.Required && ArrowValues.NullCount(column) > 0)
             {
                 for (int i = 0; i < column.Length; i++)
                 {
                     if (ArrowValues.IsNull(column, i))
-                        throw new ArgumentException($"Column '{field.Name}' is not nullable but row {i} of the batch is null.", nameof(batch));
+                        throw new ArgumentException($"Column '{_plans[c].Path[0]}' is not nullable but row {i} of the batch is null.", nameof(batch));
                 }
             }
         }
     }
 
+    /// <summary>
+    /// Where the arrays under a nested array do not have the types its type declares (Apache.Arrow builds such arrays
+    /// without a check), or null.
+    /// </summary>
+    private static string? Mismatch(IArrowType declared, ArrayData data, string where)
+    {
+        if (!SameType(declared, data.DataType)) return $"'{where}' is {data.DataType.Name}, not {declared.Name}";
+        return declared switch
+        {
+            StructType st when data.Children.Length != st.Fields.Count => $"'{where}' has {data.Children.Length} child arrays for {st.Fields.Count} fields",
+            StructType st => st.Fields.Select((f, k) => Mismatch(f.DataType, data.Children[k], $"{where}.{f.Name}")).FirstOrDefault(m => m is not null),
+            ListType or LargeListType or FixedSizeListType or ListViewType or LargeListViewType when data.Children.Length != 1 => $"'{where}' has no item array",
+            ListType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
+            LargeListType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
+            FixedSizeListType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
+            ListViewType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
+            LargeListViewType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
+            MapType m when data.Children.Length != 1 => $"'{where}' has no entries array",
+            MapType m => Mismatch(m.KeyValueType, data.Children[0], where),
+            RunEndEncodedType r when data.Children.Length != 2 => $"'{where}' has no run ends and values arrays",
+            RunEndEncodedType r => Mismatch(r.RunEndsDataType, data.Children[0], where + ".run_ends") ?? Mismatch(r.ValuesDataType, data.Children[1], where + ".values"),
+            DictionaryType d when data.Dictionary is null => $"'{where}' has no dictionary",
+            DictionaryType d => Mismatch(d.ValueType, data.Dictionary, where + ".dictionary"),
+            _ => null,
+        };
+    }
+
     /// <summary>Whether two Arrow types hold their values the same way (the type and its parameters).</summary>
     private static bool SameType(IArrowType a, IArrowType b) => (a, b) switch
     {
+        (StructType x, StructType y) => x.Fields.Count == y.Fields.Count && x.Fields.Zip(y.Fields).All(p => p.First.Name == p.Second.Name && SameType(p.First.DataType, p.Second.DataType)),
+        (ListType x, ListType y) => SameType(x.ValueDataType, y.ValueDataType),
+        (LargeListType x, LargeListType y) => SameType(x.ValueDataType, y.ValueDataType),
+        (ListViewType x, ListViewType y) => SameType(x.ValueDataType, y.ValueDataType),
+        (LargeListViewType x, LargeListViewType y) => SameType(x.ValueDataType, y.ValueDataType),
+        (FixedSizeListType x, FixedSizeListType y) => x.ListSize == y.ListSize && SameType(x.ValueDataType, y.ValueDataType),
+        (MapType x, MapType y) => SameType(x.KeyField.DataType, y.KeyField.DataType) && SameType(x.ValueField.DataType, y.ValueField.DataType),
+        (RunEndEncodedType x, RunEndEncodedType y) => SameType(x.RunEndsDataType, y.RunEndsDataType) && SameType(x.ValuesDataType, y.ValuesDataType),
         (DictionaryType x, DictionaryType y) => SameType(x.IndexType, y.IndexType) && SameType(x.ValueType, y.ValueType),
         (TimestampType x, TimestampType y) => x.Unit == y.Unit && (x.Timezone ?? "") == (y.Timezone ?? ""),
         (Time32Type x, Time32Type y) => x.Unit == y.Unit,
@@ -283,12 +354,12 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             long start = _position;
             await WriteBytesAsync(chunk.DictionaryPage, useAsync, ct).ConfigureAwait(false);
             await WriteBytesAsync(chunk.DataPages, useAsync, ct).ConfigureAwait(false);
-            SchemaElement element = _elements[c + 1];
+            SchemaElement element = _plans[c].Leaf.Element;
             var meta = new ColumnMetaData
             {
                 Type = element.Type!.Value,
                 Encodings = chunk.Encodings,
-                PathInSchema = [element.Name],
+                PathInSchema = _plans[c].Path,
                 Codec = _options.Compression.ParquetCodec,
                 NumValues = chunk.Values,
                 TotalUncompressedSize = chunk.UncompressedSize,

@@ -240,9 +240,6 @@ public sealed class ParquetWriterTests : IDisposable
     public void Writes_AreRefused_WithReasons()
     {
         RecordBatch batch = Wide(4, 10);
-        // Nested columns wait for the next phase.
-        var nested = new Apache.Arrow.Schema([new Field("l", new ListType(Int32Type.Default), true)], null);
-        Assert.Contains("nested", Assert.Throws<NotSupportedException>(() => ParquetWriter.Create(Path("n.parquet"), nested)).Message);
         // A null in a required column is found before anything is written; the writer goes on.
         var required = new Apache.Arrow.Schema([new Field("x", Int64Type.Default, false)], null);
         using (var writer = ParquetWriter.Create(Path("req.parquet"), required))

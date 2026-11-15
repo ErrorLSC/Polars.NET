@@ -287,7 +287,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         3 => Delta(random),
         4 => DeltaArrays(random),
         5 => RleEncoding(random),
-        6 => WriteAndRead(random),
+        6 => random.Next(2) == 0 ? WriteAndRead(random) : WriteAndReadNested(random),
         _ => Split(random),
     };
 
@@ -315,6 +315,57 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
 
     private static readonly IParquetCompression[] Codecs =
         [NoCompression.Instance, SnappyCompression.Instance, new ZstandardCompression(), new GzipCompression(1), new BrotliCompression(1), Lz4RawCompression.Instance];
+
+    /// <summary>
+    /// Random nested columns (structs, lists of every layout, maps, run-end encoded and dictionary-encoded nested values,
+    /// nulls at every level) written from a random slice, in random pieces and with random options, read back: every row
+    /// must be the generator's (its model, not the arrays read back).
+    /// </summary>
+    private static Outcome WriteAndReadNested(Random random)
+    {
+        int rows = random.Next(random.Next(2) == 0 ? 40 : 1500);
+        var (batch, expected) = ParquetNestedData.Batch(random.Next(), rows, 1 + random.Next(6), 1 + random.Next(4));
+        int skip = rows == 0 ? 0 : random.Next(rows);
+        var options = new ParquetWriteOptions
+        {
+            Compression = Codecs[random.Next(Codecs.Length)],
+            DataPageVersion = (ParquetPageVersion)random.Next(2),
+            DataPageRows = 1 + random.Next(random.Next(2) == 0 ? 20 : 3000),
+            DataPageBytes = 1 + random.Next(random.Next(2) == 0 ? 2000 : 2_000_000),
+            RowGroupRows = 1 + random.Next(random.Next(2) == 0 ? 50 : 2000),
+            Dictionary = random.Next(4) != 0,
+            DictionaryPageBytes = 1 + random.Next(random.Next(2) == 0 ? 500 : 2_000_000),
+            WriteChecksums = random.Next(2) == 0,
+        };
+        using var stream = new MemoryStream();
+        using (var writer = ParquetWriter.Create(stream, batch.Schema, options with { LeaveOpen = true }))
+        {
+            for (int at = skip; at < rows;)
+            {
+                int take = Math.Min(rows - at, random.Next(2) == 0 ? rows : random.Next(1, 300));
+                writer.Write(batch.Slice(at, take));
+                at += take;
+            }
+        }
+        stream.Position = 0;
+        using var file = ParquetFile.Open(stream);
+        using var reader = file.OpenReader(new ParquetReadOptions { VerifyChecksums = options.WriteChecksums, BatchSize = 1 + random.Next(2000) });
+        List<RecordBatch> read = [.. reader.ReadBatches()];
+        try
+        {
+            for (int c = 0; c < batch.ColumnCount; c++)
+            {
+                string[] got = [.. read.SelectMany(b => ParquetNestedData.Canonical(b.Column(c)))];
+                if (!expected[c][skip..].SequenceEqual(got))
+                    return new Outcome(true, "Written nested values do not come back", $"column {batch.Schema.FieldsList[c].Name} ({batch.Schema.FieldsList[c].DataType.Name}), options {options}");
+            }
+            return Outcome.Read;
+        }
+        finally
+        {
+            foreach (RecordBatch b in read) b.Dispose();
+        }
+    }
 
     /// <summary>
     /// Random columns of every written type, in random slices, written with random options (pages, groups, codecs,

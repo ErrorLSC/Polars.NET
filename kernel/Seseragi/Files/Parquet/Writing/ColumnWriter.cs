@@ -35,25 +35,33 @@ internal abstract class ColumnWriter
     private enum DictionaryState { Off, Building, Full }
 
     private readonly PageSettings _settings;
-    private readonly bool _optional;
+    private readonly int _maxDef, _maxRep, _defWidth, _repWidth;
     private readonly ArrayBufferWriter<byte> _pages = new(1 << 16);
     private readonly ArrayBufferWriter<byte> _values = new(1 << 16);
     private readonly ArrayBufferWriter<byte> _levels = new(1 << 12);
+    private readonly ArrayBufferWriter<byte> _levelScratch = new(1 << 12);
     private readonly ArrayBufferWriter<byte> _body = new(1 << 16);
     private readonly ArrayBufferWriter<byte> _dictionaryPage = new(256);
     private readonly ThriftCompactWriter _header = new();
-    private uint[] _pageLevels = new uint[1024];
+    private uint[] _pageDef = new uint[1024], _pageRep = new uint[1024];
     private uint[] _indices = new uint[1024];
-    private int _pageRows, _pageNulls;
-    private long _chunkRows, _chunkNulls, _uncompressed;
+    private int _pageRows, _pageLevels, _pageNulls;
+    private long _chunkLevels, _chunkNulls, _uncompressed;
     private int _dictionaryPages, _plainPages;
     private DictionaryState _dictionary;
     private bool _dictionaryJudged;
 
-    protected ColumnWriter(PageSettings settings, bool optional, bool dictionary)
+    /// <param name="settings">The page options.</param>
+    /// <param name="maxDef">The leaf's maximum definition level (0 for a required top-level column).</param>
+    /// <param name="maxRep">The leaf's maximum repetition level (0 outside lists and maps).</param>
+    /// <param name="dictionary">Whether the type may be dictionary-encoded.</param>
+    protected ColumnWriter(PageSettings settings, int maxDef, int maxRep, bool dictionary)
     {
         _settings = settings;
-        _optional = optional;
+        _maxDef = maxDef;
+        _maxRep = maxRep;
+        _defWidth = 32 - BitOperations.LeadingZeroCount((uint)maxDef);
+        _repWidth = 32 - BitOperations.LeadingZeroCount((uint)maxRep);
         DictionaryCapable = dictionary && settings.Dictionary;
         _dictionary = DictionaryCapable ? DictionaryState.Building : DictionaryState.Off;
     }
@@ -65,17 +73,17 @@ internal abstract class ColumnWriter
     /// <summary>The bytes of the chunk so far, with the open page and the dictionary as they would be written plainly.</summary>
     public long BufferedBytes => _pages.WrittenCount + PagePlainBytes + (_dictionary != DictionaryState.Off ? DictionaryPlainBytes : 0);
 
-    /// <summary>Adds the rows <paramref name="offset"/> .. +<paramref name="count"/> of <paramref name="array"/>.</summary>
+    /// <summary>Adds the rows <paramref name="offset"/> .. +<paramref name="count"/> of a flat column (no repetition, at most one optional level).</summary>
     public void Write(IArrowArray array, int offset, int count)
     {
         while (count > 0)
         {
             int take = Math.Min(Math.Min(count, _settings.PageRows - _pageRows), 1024);
-            if (_pageLevels.Length < _pageRows + take) Array.Resize(ref _pageLevels, Math.Max(_pageLevels.Length * 2, _pageRows + take));
+            EnsureLevels(take);
             int nulls = 0;
-            if (_optional)
+            if (_maxDef > 0)
             {
-                Span<uint> levels = _pageLevels.AsSpan(_pageRows, take);
+                Span<uint> levels = _pageDef.AsSpan(_pageLevels, take);
                 if (ArrowValues.NullCount(array) == 0)
                 {
                     levels.Fill(1);
@@ -92,11 +100,55 @@ internal abstract class ColumnWriter
             }
             Append(array, offset, take, nulls);
             _pageRows += take;
+            _pageLevels += take;
             _pageNulls += nulls;
             offset += take;
             count -= take;
             if (_pageRows >= _settings.PageRows || PagePlainBytes >= _settings.PageBytes) FlushPage();
         }
+    }
+
+    /// <summary>
+    /// Adds shredded rows: their levels (a row starts at each repetition level 0) and the positions in
+    /// <paramref name="leaf"/> of the values present. Pages close only between rows.
+    /// </summary>
+    public void Write(ReadOnlySpan<uint> def, ReadOnlySpan<uint> rep, IArrowArray? leaf, ReadOnlySpan<int> indices)
+    {
+        while (!def.IsEmpty)
+        {
+            // Whole rows, as many as the page has room for and a few thousand levels at most (the page's bytes are
+            // checked after each step, as the flat path checks them every 1024 rows).
+            int room = _settings.PageRows - _pageRows, levels = 0, rows = 0, values = 0, nulls = 0;
+            while (levels < def.Length && (rep[levels] != 0 || (rows < room && levels < LevelStep)))
+            {
+                if (rep[levels] == 0) rows++;
+                if (def[levels] == _maxDef) values++;
+                else nulls++;
+                levels++;
+            }
+            EnsureLevels(levels);
+            def[..levels].CopyTo(_pageDef.AsSpan(_pageLevels));
+            rep[..levels].CopyTo(_pageRep.AsSpan(_pageLevels));
+            if (values > 0) AppendAt(leaf!, indices[..values]);
+            _pageRows += rows;
+            _pageLevels += levels;
+            _pageNulls += nulls;
+            def = def[levels..];
+            rep = rep[levels..];
+            indices = indices[values..];
+            if (_pageRows >= _settings.PageRows || PagePlainBytes >= _settings.PageBytes) FlushPage();
+        }
+    }
+
+    /// <summary>The levels a step of <see cref="Write(ReadOnlySpan{uint}, ReadOnlySpan{uint}, IArrowArray?, ReadOnlySpan{int})"/> takes before the page's size is checked (a row is never split).</summary>
+    private const int LevelStep = 4096;
+
+    private void EnsureLevels(int more)
+    {
+        if (_pageDef.Length >= _pageLevels + more) return;
+        int size = Math.Max(_pageDef.Length * 2, _pageLevels + more);
+        Array.Resize(ref _pageDef, size);
+        Array.Resize(ref _pageRep, size);
     }
 
     /// <summary>Closes the chunk: its last page, the dictionary page; the writer is ready for the next row group after <see cref="Reset"/>.</summary>
@@ -116,7 +168,7 @@ internal abstract class ColumnWriter
         encodings.Add(ParquetEncoding.Rle);
         if (_dictionaryPages > 0) encodings.Add(ParquetEncoding.RleDictionary);
         Statistics? statistics = _settings.Statistics ? ChunkStatistics(_chunkNulls) : null;
-        return new FinishedChunk(_dictionaryPage.WrittenMemory, _pages.WrittenMemory, _uncompressed, [.. encodings], [.. stats], statistics, _chunkRows);
+        return new FinishedChunk(_dictionaryPage.WrittenMemory, _pages.WrittenMemory, _uncompressed, [.. encodings], [.. stats], statistics, _chunkLevels);
     }
 
     /// <summary>Forgets the finished chunk (its buffers are reused).</summary>
@@ -124,7 +176,7 @@ internal abstract class ColumnWriter
     {
         _pages.ResetWrittenCount();
         _dictionaryPage.ResetWrittenCount();
-        _chunkRows = _chunkNulls = _uncompressed = 0;
+        _chunkLevels = _chunkNulls = _uncompressed = 0;
         _dictionaryPages = _plainPages = 0;
         _dictionary = DictionaryCapable ? DictionaryState.Building : DictionaryState.Off;
         _dictionaryJudged = false;
@@ -167,25 +219,25 @@ internal abstract class ColumnWriter
         }
         if (encoding == ParquetEncoding.Plain) EncodePlain(_values);
 
+        // Repetition levels, then definition levels (each RLE / bit-packed; none when the maximum is 0).
         _levels.ResetWrittenCount();
-        if (_optional) RleBitPackedEncoder.Encode(_pageLevels.AsSpan(0, _pageRows), 1, _levels);
+        int repBytes = 0, defBytes = 0;
+        bool v1 = _settings.Version == ParquetPageVersion.V1;
+        if (_maxRep > 0) repBytes = Levels(_pageRep.AsSpan(0, _pageLevels), _repWidth, v1);
+        if (_maxDef > 0) defBytes = Levels(_pageDef.AsSpan(0, _pageLevels), _defWidth, v1);
 
         _body.ResetWrittenCount();
         int uncompressed;
         PageHeader header;
-        if (_settings.Version == ParquetPageVersion.V1)
+        if (v1)
         {
-            // Levels (with their 4-byte length) and values, compressed together.
-            int levels = _optional ? 4 + _levels.WrittenCount : 0;
+            // Levels (each with its 4-byte length) and values, compressed together.
+            int levels = _levels.WrittenCount;
             uncompressed = levels + _values.WrittenCount;
             byte[] raw = ArrayPool<byte>.Shared.Rent(uncompressed);
             try
             {
-                if (_optional)
-                {
-                    BinaryPrimitives.WriteInt32LittleEndian(raw, _levels.WrittenCount);
-                    _levels.WrittenSpan.CopyTo(raw.AsSpan(4));
-                }
+                _levels.WrittenSpan.CopyTo(raw);
                 _values.WrittenSpan.CopyTo(raw.AsSpan(levels));
                 Compress(raw.AsSpan(0, uncompressed), _body);
             }
@@ -200,7 +252,7 @@ internal abstract class ColumnWriter
                 CompressedPageSize = _body.WrittenCount,
                 DataPageHeader = new DataPageHeader
                 {
-                    NumValues = _pageRows,
+                    NumValues = _pageLevels,
                     Encoding = encoding,
                     DefinitionLevelEncoding = ParquetEncoding.Rle,
                     RepetitionLevelEncoding = ParquetEncoding.Rle,
@@ -209,7 +261,7 @@ internal abstract class ColumnWriter
         }
         else
         {
-            // Levels uncompressed and without a length, then the values compressed.
+            // Levels uncompressed and without lengths, then the values compressed.
             int levels = _levels.WrittenCount;
             _levels.WrittenSpan.CopyTo(_body.GetSpan(levels));
             _body.Advance(levels);
@@ -228,12 +280,12 @@ internal abstract class ColumnWriter
                 CompressedPageSize = _body.WrittenCount,
                 DataPageHeaderV2 = new DataPageHeaderV2
                 {
-                    NumValues = _pageRows,
+                    NumValues = _pageLevels,
                     NumNulls = _pageNulls,
                     NumRows = _pageRows,
                     Encoding = encoding,
-                    DefinitionLevelsByteLength = levels,
-                    RepetitionLevelsByteLength = 0,
+                    DefinitionLevelsByteLength = defBytes,
+                    RepetitionLevelsByteLength = repBytes,
                     IsCompressedField = compressed,
                 },
             };
@@ -241,10 +293,25 @@ internal abstract class ColumnWriter
         WritePage(header, _pages);
         if (encoding == ParquetEncoding.RleDictionary) _dictionaryPages++;
         else _plainPages++;
-        _chunkRows += _pageRows;
+        _chunkLevels += _pageLevels;
         _chunkNulls += _pageNulls;
-        _pageRows = _pageNulls = 0;
+        _pageRows = _pageLevels = _pageNulls = 0;
         ClearPage();
+    }
+
+    /// <summary>Appends levels to the level buffer (v1: after a 4-byte length); returns the bytes appended.</summary>
+    private int Levels(ReadOnlySpan<uint> levels, int width, bool withLength)
+    {
+        _levelScratch.ResetWrittenCount();
+        RleBitPackedEncoder.Encode(levels, width, _levelScratch);
+        int length = _levelScratch.WrittenCount;
+        if (withLength)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(_levels.GetSpan(4), length);
+            _levels.Advance(4);
+        }
+        _levels.Write(_levelScratch.WrittenSpan);
+        return (withLength ? 4 : 0) + length;
     }
 
     private void WriteDictionaryPage()
@@ -297,6 +364,9 @@ internal abstract class ColumnWriter
 
     /// <summary>Adds the non-null values of the rows (the page's statistics updated); <paramref name="nulls"/> of them are null.</summary>
     protected abstract void Append(IArrowArray array, int offset, int count, int nulls);
+
+    /// <summary>Adds the values at <paramref name="indices"/> of <paramref name="array"/> (all present; the page's statistics updated).</summary>
+    protected abstract void AppendAt(IArrowArray array, ReadOnlySpan<int> indices);
 
     /// <summary>The non-null values in the open page.</summary>
     protected abstract int PageValueCount { get; }

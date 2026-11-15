@@ -71,7 +71,7 @@ internal static class ParquetWriteData
     private static T?[] Values<T>(bool[] valid, Random r, T[] edges, Func<Random, T> any) where T : unmanaged =>
         [.. valid.Select(v => v ? Pick(r, edges, any) : (T?)null)];
 
-    private static IArrowArray Column(IArrowType type, bool[] valid, Random r)
+    internal static IArrowArray Column(IArrowType type, bool[] valid, Random r)
     {
         long Long(Random x) => x.NextInt64(long.MinValue, long.MaxValue);
         switch (type)
@@ -153,7 +153,8 @@ internal static class ParquetWriteData
             {
                 // A null among the dictionary's values too: rows pointing at it are null.
                 IArrowArray dictionary = Strings(["red", "green", null, "blue", ""]);
-                int?[] indices = [.. valid.Select(v => v ? r.Next(5) : (int?)null)];
+                bool nullable = valid.Contains(false); // a column without nulls never points at the null value
+                int?[] indices = [.. valid.Select(v => v ? (nullable ? r.Next(5) : ((int[])[0, 1, 3, 4])[r.Next(4)]) : (int?)null)];
                 return new DictionaryArray(d, Fixed(Int32Type.Default, indices), dictionary);
             }
             case DictionaryType d:

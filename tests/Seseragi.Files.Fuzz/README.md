@@ -33,8 +33,9 @@ reading mode, batch size, level bits, checksums, column subsets, row selections,
 densely or sparsely), row limits, fetch gaps). The fourth feeds Snappy or LZ4 blocks (valid ones, then
 mutated) or random RLE data straight to the kernels, input and output guarded, and compares the decoders with each
 other; or round-trips the writer: random values through the RLE / bit-packed encoder and back, or random columns of
-every type the Parquet writer writes, in random slices and with random options (pages, row groups, codecs,
-dictionaries, page versions, statistics, checksums), written and read back with every value compared.
+every type the Parquet writer writes, flat or nested (structs, lists of every layout, maps, run-end encoded and
+dictionary-encoded nested values, nulls at every level), in random slices and with random options (pages, row groups,
+codecs, dictionaries, page versions, statistics, checksums), written and read back with every value compared.
 
 ## Running
 

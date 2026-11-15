@@ -1,0 +1,191 @@
+using System.Runtime.InteropServices;
+using Apache.Arrow;
+using Array = System.Array;
+
+namespace Kaminari.Seseragi.Files.Parquet.Writing;
+
+/// <summary>One step on the way from a top-level column to a leaf: what a node of the path does with a row.</summary>
+internal abstract record ShredStep(bool Optional, string Path);
+
+/// <summary>A struct: null (when optional) ends the path, else its child.</summary>
+internal sealed record StructStep(int Child, bool Optional, string Path) : ShredStep(Optional, Path);
+
+/// <summary>How a list-like array lays out its items.</summary>
+internal enum ListLayout { List, LargeList, FixedSize, View, LargeView }
+
+/// <summary>A list (or map: a list of key-value structs): null or empty ends the path, else each item, repeated at <paramref name="RepLevel"/>.</summary>
+internal sealed record ListStep(ListLayout Layout, int FixedSize, int RepLevel, bool Optional, string Path) : ShredStep(Optional, Path);
+
+/// <summary>A layout that only maps rows to the values below it (a dictionary of nested values, run-end encoding): no level of its own.</summary>
+internal sealed record RemapStep(bool Optional, string Path) : ShredStep(Optional, Path);
+
+/// <summary>The leaf: a value, or null.</summary>
+internal sealed record LeafStep(bool Optional, string Path) : ShredStep(Optional, Path);
+
+/// <summary>
+/// Turns rows of a nested Arrow column into the definition and repetition levels of one leaf (Dremel), and the
+/// positions in the leaf array of the values present. Children are taken from the parents' raw array data (a parent's
+/// offset applies to them; nulls of a parent hide whatever its children hold). A null where the schema says
+/// non-nullable is refused (<see cref="Validate"/> runs the same walk without output, before anything is written).
+/// </summary>
+internal sealed class Shredder(ShredStep[] steps)
+{
+    private readonly Dictionary<ArrayData, IArrowArray> _children = new(ReferenceEqualityComparer.Instance);
+    private uint[] _def = new uint[1024], _rep = new uint[1024];
+    private int[] _indices = new int[1024];
+    private bool _emit;
+
+    public ReadOnlySpan<uint> Def => _def.AsSpan(0, Levels);
+    public ReadOnlySpan<uint> Rep => _rep.AsSpan(0, Levels);
+    public ReadOnlySpan<int> Indices => _indices.AsSpan(0, Values);
+    public int Levels { get; private set; }
+    public int Values { get; private set; }
+
+    /// <summary>The leaf array the indices point into (null when no value is present).</summary>
+    public IArrowArray? Leaf { get; private set; }
+
+    /// <summary>Shreds the rows <paramref name="offset"/> .. +<paramref name="count"/> of the top-level <paramref name="column"/>.</summary>
+    public void Shred(IArrowArray column, int offset, int count)
+    {
+        Levels = Values = 0;
+        Leaf = null;
+        _emit = true;
+        for (int i = offset; i < offset + count; i++) Walk(column, i, 0, 0, 0);
+        _children.Clear();
+    }
+
+    /// <summary>Walks every row without output: throws where a non-nullable node holds a null.</summary>
+    public void Validate(IArrowArray column)
+    {
+        _emit = false;
+        for (int i = 0; i < column.Length; i++) Walk(column, i, 0, 0, 0);
+        _children.Clear();
+    }
+
+    private void Walk(IArrowArray array, int i, int s, uint def, uint rep)
+    {
+        ShredStep step = steps[s];
+        switch (step)
+        {
+            case StructStep st:
+                if (array.IsNull(i))
+                {
+                    Null(st, def, rep);
+                    return;
+                }
+                Walk(Child(array.Data, st.Child), array.Data.Offset + i, s + 1, def + (st.Optional ? 1u : 0u), rep);
+                return;
+            case ListStep list:
+            {
+                if (array.IsNull(i))
+                {
+                    Null(list, def, rep);
+                    return;
+                }
+                uint present = def + (list.Optional ? 1u : 0u);
+                var (start, length) = Items(array.Data, i, list);
+                if (length == 0)
+                {
+                    Emit(present, rep);
+                    return;
+                }
+                IArrowArray items = Child(array.Data, 0);
+                for (long j = 0; j < length; j++)
+                    Walk(items, checked((int)(start + j)), s + 1, present + 1, j == 0 ? rep : (uint)list.RepLevel);
+                return;
+            }
+            case RemapStep remap:
+                if (array is DictionaryArray dictionary)
+                {
+                    if (dictionary.IsNull(i))
+                    {
+                        Null(remap, def, rep);
+                        return;
+                    }
+                    Walk(dictionary.Dictionary, ArrowValues.Index(dictionary, i), s + 1, def, rep);
+                }
+                else
+                {
+                    Walk(Child(array.Data, 1), RunOf(array.Data, array.Data.Offset + i), s + 1, def, rep);
+                }
+                return;
+            default:
+                if (ArrowValues.IsNull(array, i))
+                {
+                    Null(step, def, rep);
+                    return;
+                }
+                Emit(def + (step.Optional ? 1u : 0u), rep);
+                if (_emit)
+                {
+                    if (Values == _indices.Length) Array.Resize(ref _indices, _indices.Length * 2);
+                    _indices[Values++] = i;
+                    Leaf = array;
+                }
+                return;
+        }
+    }
+
+    private void Null(ShredStep step, uint def, uint rep)
+    {
+        if (!step.Optional) throw new ArgumentException($"'{step.Path}' is not nullable but holds a null.");
+        Emit(def, rep);
+    }
+
+    private void Emit(uint def, uint rep)
+    {
+        if (!_emit) return;
+        if (Levels == _def.Length)
+        {
+            Array.Resize(ref _def, _def.Length * 2);
+            Array.Resize(ref _rep, _rep.Length * 2);
+        }
+        _def[Levels] = def;
+        _rep[Levels++] = rep;
+    }
+
+    /// <summary>A child of an array, built once per shredding (from the raw data: the parent's offset applies to it).</summary>
+    private IArrowArray Child(ArrayData parent, int index)
+    {
+        ArrayData data = parent.Children[index];
+        if (!_children.TryGetValue(data, out IArrowArray? child)) _children[data] = child = ArrowArrayFactory.BuildArray(data);
+        return child;
+    }
+
+    /// <summary>The first item and the item count of list row <paramref name="i"/>.</summary>
+    private static (long Start, long Length) Items(ArrayData data, int i, ListStep list)
+    {
+        int row = data.Offset + i;
+        return list.Layout switch
+        {
+            ListLayout.FixedSize => ((long)row * list.FixedSize, list.FixedSize),
+            ListLayout.List => (Cast<int>(data.Buffers[1].Span)[row], Cast<int>(data.Buffers[1].Span)[row + 1] - Cast<int>(data.Buffers[1].Span)[row]),
+            ListLayout.LargeList => (Cast<long>(data.Buffers[1].Span)[row], Cast<long>(data.Buffers[1].Span)[row + 1] - Cast<long>(data.Buffers[1].Span)[row]),
+            ListLayout.View => (Cast<int>(data.Buffers[1].Span)[row], Cast<int>(data.Buffers[2].Span)[row]),
+            _ => (Cast<long>(data.Buffers[1].Span)[row], Cast<long>(data.Buffers[2].Span)[row]),
+        };
+    }
+
+    /// <summary>The run holding logical row <paramref name="row"/> of a run-end encoded array (the first run end above it).</summary>
+    private static int RunOf(ArrayData data, int row)
+    {
+        ArrayData ends = data.Children[0];
+        int lo = 0, hi = ends.Length - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (RunEnd(ends, mid) > row) hi = mid;
+            else lo = mid + 1;
+        }
+        return lo;
+    }
+
+    private static ReadOnlySpan<T> Cast<T>(ReadOnlySpan<byte> bytes) where T : struct => MemoryMarshal.Cast<byte, T>(bytes);
+
+    private static long RunEnd(ArrayData ends, int k) => ends.DataType.TypeId switch
+    {
+        Apache.Arrow.Types.ArrowTypeId.Int16 => Cast<short>(ends.Buffers[1].Span)[ends.Offset + k],
+        Apache.Arrow.Types.ArrowTypeId.Int32 => Cast<int>(ends.Buffers[1].Span)[ends.Offset + k],
+        _ => Cast<long>(ends.Buffers[1].Span)[ends.Offset + k],
+    };
+}

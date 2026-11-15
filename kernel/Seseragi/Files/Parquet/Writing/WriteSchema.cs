@@ -5,6 +5,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
+using Kaminari.Sazanami.Arrow;
 
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
 
@@ -46,6 +47,12 @@ internal readonly record struct Int96(long NanosOfDay, int JulianDay);
 internal sealed record LeafPlan(SchemaElement Element, Func<PageSettings, ColumnWriter> CreateWriter);
 
 /// <summary>
+/// A leaf column of the file: the top-level field it belongs to, its path in the Parquet schema, its levels, and the
+/// steps from the top-level array to its values (null for a flat column, written without shredding).
+/// </summary>
+internal sealed record ColumnPlan(int Field, string[] Path, ShredStep[]? Steps, LeafPlan Leaf);
+
+/// <summary>
 /// Maps Arrow fields to Parquet columns (the inverse of the reader's mapping): physical type, annotations, how
 /// values are converted, and how statistics order them. Values Parquet cannot hold exactly are refused with
 /// <see cref="NotSupportedException"/>, never changed.
@@ -56,36 +63,124 @@ internal static class WriteSchema
     private const long NanosPerDay = 86_400_000_000_000;
     private const int JulianEpochDay = 2_440_588;
 
-    public static LeafPlan Plan(Field field, ParquetWriteOptions options)
+    /// <summary>
+    /// The Parquet schema of an Arrow schema (depth first, without the root) and its leaf columns. Structs become
+    /// groups; lists of every layout three-level LIST groups (<c>list</c> / <c>element</c>); maps MAP groups
+    /// (<c>key_value</c> / <c>key</c> / <c>value</c>, keys required); dictionaries of nested values and run-end encoded
+    /// arrays the type of their values. Field ids come from the Arrow fields' <c>PARQUET:field_id</c>.
+    /// </summary>
+    public static (SchemaElement[] Elements, ColumnPlan[] Columns) Plan(Apache.Arrow.Schema schema, ParquetWriteOptions options)
     {
-        string name = field.Name;
-        bool dictionary = field.DataType is DictionaryType;
-        IArrowType type = field.DataType is DictionaryType d ? d.ValueType : field.DataType;
-        bool optional = field.IsNullable || type is NullType;
+        List<SchemaElement> elements = [];
+        List<ColumnPlan> columns = [];
+        for (int f = 0; f < schema.FieldsList.Count; f++)
+        {
+            Field field = schema.FieldsList[f];
+            Node(f, field, field.DataType, field.Name, field.IsNullable, ArrowFieldIds.Of(field), 0, 0, [field.Name], [], field.Name);
+        }
+        return ([.. elements], [.. columns]);
+
+        void Node(int top, Field field, IArrowType type, string name, bool optional, int? id, int def, int rep, string[] path, ShredStep[] steps, string where)
+        {
+            optional |= type is NullType;
+            FieldRepetition repetition = optional ? FieldRepetition.Optional : FieldRepetition.Required;
+            int below = def + (optional ? 1 : 0);
+            switch (type)
+            {
+                case StructType st:
+                    if (st.Fields.Count == 0)
+                        throw new NotSupportedException($"Column '{where}' is a struct without fields, which Parquet cannot hold (a group needs a field).");
+                    elements.Add(new SchemaElement { Name = name, Repetition = repetition, NumChildren = st.Fields.Count, FieldId = id });
+                    for (int c = 0; c < st.Fields.Count; c++)
+                    {
+                        Field child = st.Fields[c];
+                        Node(top, child, child.DataType, child.Name, child.IsNullable, ArrowFieldIds.Of(child), below, rep, [.. path, child.Name],
+                            [.. steps, new StructStep(c, optional, where)], $"{where}.{child.Name}");
+                    }
+                    return;
+                case ListType or LargeListType or FixedSizeListType or ListViewType or LargeListViewType:
+                {
+                    var (layout, size, item) = type switch
+                    {
+                        ListType l => (ListLayout.List, 0, l.ValueField),
+                        LargeListType l => (ListLayout.LargeList, 0, l.ValueField),
+                        FixedSizeListType l => (ListLayout.FixedSize, l.ListSize, l.ValueField),
+                        ListViewType l => (ListLayout.View, 0, l.ValueField),
+                        _ => (ListLayout.LargeView, 0, ((LargeListViewType)type).ValueField),
+                    };
+                    elements.Add(new SchemaElement
+                    {
+                        Name = name, Repetition = repetition, NumChildren = 1, FieldId = id,
+                        LogicalType = new LogicalType(LogicalTypeKind.List), ConvertedType = ConvertedType.List,
+                    });
+                    elements.Add(new SchemaElement { Name = "list", Repetition = FieldRepetition.Repeated, NumChildren = 1 });
+                    Node(top, item, item.DataType, "element", item.IsNullable, ArrowFieldIds.Of(item), below + 1, rep + 1, [.. path, "list", "element"],
+                        [.. steps, new ListStep(layout, size, rep + 1, optional, where)], where + "[]");
+                    return;
+                }
+                case MapType map:
+                {
+                    elements.Add(new SchemaElement
+                    {
+                        Name = name, Repetition = repetition, NumChildren = 1, FieldId = id,
+                        LogicalType = new LogicalType(LogicalTypeKind.Map), ConvertedType = ConvertedType.Map,
+                    });
+                    elements.Add(new SchemaElement { Name = "key_value", Repetition = FieldRepetition.Repeated, NumChildren = 2 });
+                    var entries = new ListStep(ListLayout.List, 0, rep + 1, optional, where);
+                    Node(top, map.KeyField, map.KeyField.DataType, "key", false, ArrowFieldIds.Of(map.KeyField), below + 1, rep + 1, [.. path, "key_value", "key"],
+                        [.. steps, entries, new StructStep(0, false, where)], where + ".key");
+                    Node(top, map.ValueField, map.ValueField.DataType, "value", map.ValueField.IsNullable, ArrowFieldIds.Of(map.ValueField), below + 1, rep + 1,
+                        [.. path, "key_value", "value"], [.. steps, entries, new StructStep(1, false, where)], where + ".value");
+                    return;
+                }
+                case DictionaryType { ValueType: NestedType } dictionary:
+                    Node(top, field, dictionary.ValueType, name, optional, id, def, rep, path, [.. steps, new RemapStep(optional, where)], where);
+                    return;
+                case RunEndEncodedType runEnds:
+                    Node(top, field, runEnds.ValuesDataType, name, optional, id, def, rep, path, [.. steps, new RemapStep(optional, where)], where);
+                    return;
+                case UnionType:
+                    throw new NotSupportedException($"Column '{where}' is a union, which Parquet cannot hold.");
+                default:
+                {
+                    LeafPlan leaf = Leaf(name, type, optional, id, below, rep, options, where);
+                    elements.Add(leaf.Element);
+                    columns.Add(new ColumnPlan(top, path, steps.Length == 0 ? null : [.. steps, new LeafStep(optional, where)], leaf));
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>A leaf of <paramref name="fieldType"/> (a dictionary column by its values), at levels <paramref name="maxDef"/> / <paramref name="maxRep"/>.</summary>
+    private static LeafPlan Leaf(string name, IArrowType fieldType, bool optional, int? id, int maxDef, int maxRep, ParquetWriteOptions options, string where)
+    {
+        bool dictionary = fieldType is DictionaryType;
+        IArrowType type = fieldType is DictionaryType d ? d.ValueType : fieldType;
         FieldRepetition repetition = optional ? FieldRepetition.Optional : FieldRepetition.Required;
 
         SchemaElement Element(ParquetType physical, LogicalType? logical = null, ConvertedType? converted = null, int? length = null,
             int? scale = null, int? precision = null) => new()
         {
             Name = name, Type = physical, Repetition = repetition, LogicalType = logical, ConvertedType = converted,
-            TypeLength = length, Scale = scale, Precision = precision,
+            TypeLength = length, Scale = scale, Precision = precision, FieldId = id,
         };
 
         LeafPlan Int32(FixedSource<int> source, SchemaElement element, bool unsigned = false, bool legacy = true) => unsigned
-            ? new(element, s => new FixedColumnWriter<int, UnsignedOrder32>(s, optional, Fixed(source, dictionary), default))
-            : new(element, s => new FixedColumnWriter<int, SignedOrder<int>>(s, optional, Fixed(source, dictionary), new SignedOrder<int>(legacy)));
+            ? new(element, s => new FixedColumnWriter<int, UnsignedOrder32>(s, maxDef, maxRep, Fixed(source, dictionary), default))
+            : new(element, s => new FixedColumnWriter<int, SignedOrder<int>>(s, maxDef, maxRep, Fixed(source, dictionary), new SignedOrder<int>(legacy)));
 
         LeafPlan Int64(FixedSource<long> source, SchemaElement element, bool unsigned = false, bool legacy = true) => unsigned
-            ? new(element, s => new FixedColumnWriter<long, UnsignedOrder64>(s, optional, Fixed(source, dictionary), default))
-            : new(element, s => new FixedColumnWriter<long, SignedOrder<long>>(s, optional, Fixed(source, dictionary), new SignedOrder<long>(legacy)));
+            ? new(element, s => new FixedColumnWriter<long, UnsignedOrder64>(s, maxDef, maxRep, Fixed(source, dictionary), default))
+            : new(element, s => new FixedColumnWriter<long, SignedOrder<long>>(s, maxDef, maxRep, Fixed(source, dictionary), new SignedOrder<long>(legacy)));
 
         LeafPlan Bytes(BytesSource source, SchemaElement element, int length, BytesOrder order, bool utf8 = false) =>
-            new(element, s => new BytesColumnWriter(s, optional, dictionary ? DictionaryBytes(source) : source, length, order, utf8, name));
+            new(element, s => new BytesColumnWriter(s, maxDef, maxRep, dictionary ? DictionaryBytes(source) : source, length, order, utf8, where));
 
         return type switch
         {
             NullType => Int32(static (_, _, _, d) => d.Clear(), Element(ParquetType.Int32, new LogicalType(LogicalTypeKind.Unknown))),
-            BooleanType when !dictionary => new(Element(ParquetType.Boolean), s => new BooleanColumnWriter(s, optional)),
+            BooleanType when !dictionary => new(Element(ParquetType.Boolean), s => new BooleanColumnWriter(s, maxDef, maxRep)),
             Int8Type => Int32(Widen<sbyte>, Element(ParquetType.Int32, Integer(8, true), ConvertedType.Int8)),
             Int16Type => Int32(Widen<short>, Element(ParquetType.Int32, Integer(16, true), ConvertedType.Int16)),
             Int32Type => Int32(Copy<int>, Element(ParquetType.Int32)),
@@ -94,17 +189,17 @@ internal static class WriteSchema
             UInt32Type => Int32(Copy<int>, Element(ParquetType.Int32, Integer(32, false), ConvertedType.UInt32), unsigned: true),
             Int64Type => Int64(Copy<long>, Element(ParquetType.Int64)),
             UInt64Type => Int64(Copy<long>, Element(ParquetType.Int64, Integer(64, false), ConvertedType.UInt64), unsigned: true),
-            FloatType => new(Element(ParquetType.Float), s => new FixedColumnWriter<float, FloatOrder>(s, optional, Fixed<float>(Copy<float>, dictionary), default)),
-            DoubleType => new(Element(ParquetType.Double), s => new FixedColumnWriter<double, DoubleOrder>(s, optional, Fixed<double>(Copy<double>, dictionary), default)),
+            FloatType => new(Element(ParquetType.Float), s => new FixedColumnWriter<float, FloatOrder>(s, maxDef, maxRep, Fixed<float>(Copy<float>, dictionary), default)),
+            DoubleType => new(Element(ParquetType.Double), s => new FixedColumnWriter<double, DoubleOrder>(s, maxDef, maxRep, Fixed<double>(Copy<double>, dictionary), default)),
             HalfFloatType => Bytes(static (a, i, _) => ArrowValues.Raw(a, i, 2), Element(ParquetType.FixedLenByteArray, new LogicalType(LogicalTypeKind.Float16), length: 2),
                 2, BytesOrder.Float16),
             Date32Type => Int32(Copy<int>, Element(ParquetType.Int32, new LogicalType(LogicalTypeKind.Date), ConvertedType.Date)),
-            Date64Type => Int32((a, o, n, dest) => Date64(a, o, n, dest, name), Element(ParquetType.Int32, new LogicalType(LogicalTypeKind.Date), ConvertedType.Date)),
+            Date64Type => Int32((a, o, n, dest) => Date64(a, o, n, dest, where), Element(ParquetType.Int32, new LogicalType(LogicalTypeKind.Date), ConvertedType.Date)),
             Time32Type t => Int32(t.Unit == TimeUnit.Second ? static (a, o, n, dest) => Scale(a, o, n, dest, 1000) : Copy<int>,
                 Element(ParquetType.Int32, Time(ParquetTimeUnit.Millis))),
             Time64Type t => Int64(Copy<long>, Element(ParquetType.Int64, Time(t.Unit == TimeUnit.Nanosecond ? ParquetTimeUnit.Nanos : ParquetTimeUnit.Micros))),
-            TimestampType t when options.Int96Timestamps => new(Element(ParquetType.Int96), s => new FixedColumnWriter<Int96, NoOrder<Int96>>(s, optional,
-                Fixed<Int96>((a, o, n, dest) => ToInt96(a, o, n, dest, t.Unit, name), dictionary), default)),
+            TimestampType t when options.Int96Timestamps => new(Element(ParquetType.Int96), s => new FixedColumnWriter<Int96, NoOrder<Int96>>(s, maxDef, maxRep,
+                Fixed<Int96>((a, o, n, dest) => ToInt96(a, o, n, dest, t.Unit, where), dictionary), default)),
             TimestampType t => TimestampPlan(t),
             DurationType => Int64(Copy<long>, Element(ParquetType.Int64)),
             Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type => DecimalPlan(),
@@ -118,10 +213,9 @@ internal static class WriteSchema
             BinaryType => Bytes(static (a, i, _) => ((BinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned),
             LargeBinaryType => Bytes(static (a, i, _) => ((LargeBinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned),
             BinaryViewType => Bytes(static (a, i, _) => ((BinaryViewArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned),
-            IntervalType interval => Bytes((a, i, scratch) => Interval(a, i, scratch, interval.Unit, name),
+            IntervalType interval => Bytes((a, i, scratch) => Interval(a, i, scratch, interval.Unit, where),
                 Element(ParquetType.FixedLenByteArray, converted: ConvertedType.Interval, length: 12), 12, BytesOrder.None),
-            StructType or ListType or LargeListType or FixedSizeListType or MapType => throw new NotSupportedException($"Column '{name}' is {type.Name}: nested columns are not written yet."),
-            _ => throw new NotSupportedException($"Column '{name}' is {field.DataType.Name}, which this writer does not write."),
+            _ => throw new NotSupportedException($"Column '{where}' is {fieldType.Name}, which this writer does not write."),
         };
 
         LeafPlan TimestampPlan(TimestampType t)
@@ -137,7 +231,7 @@ internal static class WriteSchema
             // The legacy annotations mean UTC-adjusted milliseconds or microseconds (as Arrow C++ writes them).
             ConvertedType? converted = utc && unit != ParquetTimeUnit.Nanos
                 ? (unit == ParquetTimeUnit.Millis ? ConvertedType.TimestampMillis : ConvertedType.TimestampMicros) : null;
-            FixedSource<long> source = t.Unit == stored ? Copy<long> : (a, o, n, dest) => Rescale(a, o, n, dest, t.Unit, stored, name);
+            FixedSource<long> source = t.Unit == stored ? Copy<long> : (a, o, n, dest) => Rescale(a, o, n, dest, t.Unit, stored, where);
             return Int64(source, Element(ParquetType.Int64, Timestamp(utc, unit), converted));
         }
 
@@ -148,13 +242,13 @@ internal static class WriteSchema
             int width = decimalType.ByteWidth;
             var logical = new LogicalType(LogicalTypeKind.Decimal) { Precision = precision, Scale = scale };
             if (precision <= 9)
-                return Int32((a, o, n, dest) => DecimalToInt32(a, o, n, dest, width, precision, name),
+                return Int32((a, o, n, dest) => DecimalToInt32(a, o, n, dest, width, precision, where),
                     Element(ParquetType.Int32, logical, ConvertedType.Decimal, scale: scale, precision: precision), legacy: false);
             if (precision <= 18)
-                return Int64((a, o, n, dest) => DecimalToInt64(a, o, n, dest, width, precision, name),
+                return Int64((a, o, n, dest) => DecimalToInt64(a, o, n, dest, width, precision, where),
                     Element(ParquetType.Int64, logical, ConvertedType.Decimal, scale: scale, precision: precision), legacy: false);
             int bytes = DecimalBytes(precision);
-            return Bytes((a, i, scratch) => DecimalToBigEndian(a, i, scratch, width, bytes, precision, name),
+            return Bytes((a, i, scratch) => DecimalToBigEndian(a, i, scratch, width, bytes, precision, where),
                 Element(ParquetType.FixedLenByteArray, logical, ConvertedType.Decimal, bytes, scale, precision), bytes, BytesOrder.SignedDecimal);
         }
     }

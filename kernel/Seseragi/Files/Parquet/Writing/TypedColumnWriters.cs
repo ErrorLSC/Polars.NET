@@ -99,8 +99,8 @@ internal readonly struct NoOrder<T> : IValueOrder<T> where T : unmanaged
 }
 
 /// <summary>A column of a fixed-width physical type (INT32, INT64, INT96, FLOAT, DOUBLE).</summary>
-internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, bool optional, FixedSource<T> source, TOrder order)
-    : ColumnWriter(settings, optional, dictionary: true)
+internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int maxDef, int maxRep, FixedSource<T> source, TOrder order)
+    : ColumnWriter(settings, maxDef, maxRep, dictionary: true)
     where T : unmanaged
     where TOrder : struct, IValueOrder<T>
 {
@@ -130,6 +130,22 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, bool o
             {
                 if (!ArrowValues.IsNull(array, offset + i)) _page[_count++] = all[i];
             }
+        }
+        if (Settings.Statistics && order.HasBounds) Bounds(_page.AsSpan(start, _count - start));
+    }
+
+    protected override void AppendAt(IArrowArray array, ReadOnlySpan<int> indices)
+    {
+        if (_page.Length < _count + indices.Length) Array.Resize(ref _page, Math.Max(_page.Length * 2, _count + indices.Length));
+        int start = _count;
+        // Runs of consecutive positions (the items of lists lie together) are read at once.
+        for (int k = 0; k < indices.Length;)
+        {
+            int run = 1;
+            while (k + run < indices.Length && indices[k + run] == indices[k] + run) run++;
+            source(array, indices[k], run, _page.AsSpan(_count, run));
+            _count += run;
+            k += run;
         }
         if (Settings.Statistics && order.HasBounds) Bounds(_page.AsSpan(start, _count - start));
     }
@@ -216,8 +232,8 @@ internal enum BytesOrder
 }
 
 /// <summary>A column of BYTE_ARRAY (<paramref name="fixedLength"/> 0) or FIXED_LEN_BYTE_ARRAY values.</summary>
-internal sealed class BytesColumnWriter(PageSettings settings, bool optional, BytesSource source, int fixedLength, BytesOrder order, bool utf8, string column)
-    : ColumnWriter(settings, optional, dictionary: true)
+internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int maxRep, BytesSource source, int fixedLength, BytesOrder order, bool utf8, string column)
+    : ColumnWriter(settings, maxDef, maxRep, dictionary: true)
 {
     private byte[] _arena = new byte[1 << 16];
     private int _arenaLength;
@@ -234,6 +250,18 @@ internal sealed class BytesColumnWriter(PageSettings settings, bool optional, By
         for (int i = offset; i < offset + count; i++)
         {
             if (nulls > 0 && ArrowValues.IsNull(array, i)) continue;
+            ReadOnlySpan<byte> value = source(array, i, _scratch);
+            if (fixedLength > 0 && value.Length != fixedLength)
+                throw new ArgumentException($"A value of column '{column}' has {value.Length} bytes; the column's values have {fixedLength}.");
+            Add(value);
+            if (Settings.Statistics && order != BytesOrder.None) Bound(value);
+        }
+    }
+
+    protected override void AppendAt(IArrowArray array, ReadOnlySpan<int> indices)
+    {
+        foreach (int i in indices)
+        {
             ReadOnlySpan<byte> value = source(array, i, _scratch);
             if (fixedLength > 0 && value.Length != fixedLength)
                 throw new ArgumentException($"A value of column '{column}' has {value.Length} bytes; the column's values have {fixedLength}.");
@@ -366,7 +394,7 @@ internal sealed class BytesColumnWriter(PageSettings settings, bool optional, By
 }
 
 /// <summary>A BOOLEAN column: values bit-packed, never dictionary-encoded.</summary>
-internal sealed class BooleanColumnWriter(PageSettings settings, bool optional) : ColumnWriter(settings, optional, dictionary: false)
+internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int maxRep) : ColumnWriter(settings, maxDef, maxRep, dictionary: false)
 {
     private bool[] _page = new bool[1024];
     private int _count;
@@ -379,12 +407,23 @@ internal sealed class BooleanColumnWriter(PageSettings settings, bool optional) 
         for (int i = offset; i < offset + count; i++)
         {
             if (nulls > 0 && booleans.IsNull(i)) continue;
-            bool value = booleans.GetValue(i) == true;
-            _page[_count++] = value;
-            _any = true;
-            _min &= value;
-            _max |= value;
+            Add(booleans.GetValue(i) == true);
         }
+    }
+
+    protected override void AppendAt(IArrowArray array, ReadOnlySpan<int> indices)
+    {
+        if (_page.Length < _count + indices.Length) Array.Resize(ref _page, Math.Max(_page.Length * 2, _count + indices.Length));
+        var booleans = (BooleanArray)array;
+        foreach (int i in indices) Add(booleans.GetValue(i) == true);
+    }
+
+    private void Add(bool value)
+    {
+        _page[_count++] = value;
+        _any = true;
+        _min &= value;
+        _max |= value;
     }
 
     protected override int PageValueCount => _count;

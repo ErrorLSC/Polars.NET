@@ -35,9 +35,11 @@ public sealed class ParquetWriterInteropTests : IDisposable
         [("polars", "dur_s")] = "Polars has no durations in seconds: it multiplies them into milliseconds, wrapping the extreme values",
     };
 
-    /// <summary>Whether a reader's failure is a known limit: Polars opens no file holding an INTERVAL column, whoever wrote it.</summary>
+    /// <summary>Whether a reader's failure is a known limit: Polars opens no file holding an INTERVAL column or a list view, whoever wrote it.</summary>
     private static bool KnownFailure(string reader, string column, string error) =>
-        Known.ContainsKey((reader, column)) || (reader == "polars" && error.Contains("nterval", StringComparison.Ordinal));
+        Known.ContainsKey((reader, column)) || (reader == "polars" && error.Contains("nterval", StringComparison.Ordinal))
+        // Polars opens no file whose Arrow schema holds a list view (whoever wrote it; pyarrow's too).
+        || (reader == "polars" && column is "v_list" or "v_large" or "ree_str" or "ree_struct" or "dict_list" && error.Contains("not yet implemented", StringComparison.Ordinal));
 
     /// <summary>
     /// A read value in the form of the value written, where a reader returns the same value as another type: INTERVAL
@@ -130,6 +132,56 @@ public sealed class ParquetWriterInteropTests : IDisposable
             ("ts_ms", Fixed(new TimestampType(TimeUnit.Millisecond, "UTC"), Values(1000)), true));
     }
 
+    /// <summary>Nested columns every reader is expected to read: lists, large lists, fixed-size lists, structs and maps, nested in each other.</summary>
+    internal static RecordBatch NestedCommon(int seed, int rows)
+    {
+        var r = new Random(seed);
+        Field F(string name, IArrowType type, bool nullable = true) => new(name, type, nullable);
+        (string Name, IArrowType Type, bool Nullable)[] columns =
+        [
+            ("c_list", new ListType(F("item", Int64Type.Default)), true),
+            ("c_struct", new StructType([F("a", StringType.Default), F("b", new ListType(F("item", Int32Type.Default)))]), true),
+            ("c_map", new MapType(F("key", StringType.Default, false), F("value", new StructType([F("x", Int32Type.Default)]))), true),
+            ("c_fsl", new FixedSizeListType(F("item", Int32Type.Default), 3), true),
+            ("c_large", new LargeListType(F("item", new ListType(F("item", StringType.Default)))), true),
+            ("c_lmap", new ListType(F("item", new MapType(F("key", Int64Type.Default, false), F("value", StringType.Default)))), true),
+            ("c_req", new StructType([F("id", Int64Type.Default, false), F("tags", new ListType(F("item", StringType.Default, false)), false)]), false),
+        ];
+        ParquetNestedData.Column[] built = [.. columns.Select(c => ParquetNestedData.Build(r, c.Name, c.Type, c.Nullable, rows))];
+        return new RecordBatch(new Apache.Arrow.Schema([.. built.Select(b => b.Field)], null), built.Select(b => b.Array), rows);
+    }
+
+    /// <summary>Nested layouts some readers cannot restore (list views, run-end encoding, dictionaries of nested values).</summary>
+    internal static RecordBatch NestedLayouts(int seed, int rows)
+    {
+        var r = new Random(seed);
+        Field F(string name, IArrowType type, bool nullable = true) => new(name, type, nullable);
+        (string Name, IArrowType Type)[] columns =
+        [
+            ("v_list", new ListViewType(F("item", Int64Type.Default))),
+            ("v_large", new LargeListViewType(F("item", StringType.Default))),
+            ("ree_str", new RunEndEncodedType(Int32Type.Default, StringType.Default)),
+            ("ree_struct", new RunEndEncodedType(Int32Type.Default, new StructType([F("a", Int64Type.Default)]))),
+            ("dict_list", new DictionaryType(Int32Type.Default, new ListType(F("item", Int64Type.Default)), false)),
+        ];
+        ParquetNestedData.Column[] built = [.. columns.Select(c => ParquetNestedData.Build(r, c.Name, c.Type, true, rows))];
+        return new RecordBatch(new Apache.Arrow.Schema([.. built.Select(b => b.Field)], null), built.Select(b => b.Array), rows);
+    }
+
+    /// <summary>Field ids on every named field (writer_interop.py checks pyarrow reads them where they were put).</summary>
+    private static RecordBatch FieldIdBatch()
+    {
+        static Field Id(Field f, int id) => Kaminari.Sazanami.Arrow.ArrowFieldIds.With(f, id);
+        var element = Id(new Field("item", Int32Type.Default, true), 3);
+        var listType = new ListType(element);
+        var stType = new StructType([Id(new Field("a", Int64Type.Default, true), 5)]);
+        var mapType = new MapType(Id(new Field("key", StringType.Default, false), 7), Id(new Field("value", Int32Type.Default, true), 8), false);
+        var schema = new Apache.Arrow.Schema(
+            [Id(new Field("li", listType, true), 2), Id(new Field("st", stType, true), 4), Id(new Field("mp", mapType, true), 6), Id(new Field("x", Int64Type.Default, true), 9)], null);
+        var r = new Random(9);
+        return new RecordBatch(schema, schema.FieldsList.Select(f => ParquetNestedData.Build(r, f.Name, f.DataType, true, 20).Array), 20);
+    }
+
     private Dictionary<string, RecordBatch> WriteFiles()
     {
         Dictionary<string, RecordBatch> written = [];
@@ -147,6 +199,19 @@ public sealed class ParquetWriterInteropTests : IDisposable
         Write("spark_v2_zstd", SparkBatch(22, 2000), new ParquetWriteOptions { DataPageVersion = ParquetPageVersion.V2, Compression = new ZstandardCompression() });
         Write("spark_v1_lz4_plain", SparkBatch(23, 2000), new ParquetWriteOptions { Compression = Lz4RawCompression.Instance, Dictionary = false });
         Write("spark_int96", Int96Batch(), new ParquetWriteOptions { Int96Timestamps = true });
+        RecordBatch common = NestedCommon(31, 1500);
+        // One row group, whole bounds: compared with what pyarrow writes for the same table (<name>.source.arrow).
+        Write("nested_common", common, new ParquetWriteOptions { StatisticsTruncateLength = null, DataPageRows = 200 });
+        using (var stream = File.Create(System.IO.Path.Combine(_dir, "nested_common.source.arrow")))
+        using (var ipc = new ArrowFileWriter(stream, common.Schema))
+        {
+            ipc.WriteRecordBatch(common);
+            ipc.WriteEnd();
+        }
+        Write("nested_v2", NestedCommon(32, 1500), new ParquetWriteOptions { DataPageVersion = ParquetPageVersion.V2, Compression = new ZstandardCompression(), RowGroupRows = 500 });
+        Write("nested_layouts", NestedLayouts(33, 1500), new ParquetWriteOptions { RowGroupRows = 600 });
+        Write("spark_nested", NestedCommon(34, 1500), new ParquetWriteOptions { RowGroupRows = 700 });
+        Write("field_ids", FieldIdBatch(), new ParquetWriteOptions());
         return written;
     }
 
@@ -164,9 +229,10 @@ public sealed class ParquetWriterInteropTests : IDisposable
             if (index < 0 || Known.ContainsKey((reader, name)) && !what.StartsWith("spark_", StringComparison.Ordinal)) continue; // missing columns: errors.json
             // Spark writes NaNs back normalized (one bit pattern): any NaN is NaN there.
             Func<string, string> nan = reader.StartsWith("spark", StringComparison.Ordinal) ? NanAsNan : static v => v;
-            string[] expected = [.. Canonical(written.Column(c)).Select(Loose).Select(nan)];
-            IArrowType readType = schema.FieldsList[index].DataType, writtenType = written.Schema.FieldsList[c].DataType;
-            string[] actual = [.. read.SelectMany(b => Canonical(b.Column(index))).Select(v => nan(Loose(Adapt(what, writtenType, readType, v))))];
+            IArrowType writtenType = written.Schema.FieldsList[c].DataType;
+            string[] expected = [.. ParquetNestedData.Canonical(written.Column(c)).Select(Loose).Select(nan)];
+            IArrowType readType = schema.FieldsList[index].DataType;
+            string[] actual = [.. read.SelectMany(b => ParquetNestedData.Canonical(b.Column(index), writtenType)).Select(v => nan(Loose(Adapt(what, writtenType, readType, v))))];
             if (!expected.SequenceEqual(actual))
             {
                 int row = expected.Zip(actual).TakeWhile(p => p.First == p.Second).Count();
