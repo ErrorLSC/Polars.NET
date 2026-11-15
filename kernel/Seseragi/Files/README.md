@@ -130,15 +130,28 @@ children, list elements, map keys and values; never the `list` / `key_value` wra
 cannot hold exactly (a date64 that is not a whole day, a decimal with more digits than its precision, an inexact
 interval or timestamp coercion) and nulls where the schema says non-nullable, at any depth, are refused before
 anything is written, never changed. Each row group is
-buffered until `RowGroupRows` or `RowGroupBytes` (or `EndRowGroup`), then written column chunk by column chunk; pages
+buffered until `RowGroupRows` or `RowGroupBytes` (checked after each segment of a batch the columns take at once, at
+most 16 384 rows; or `EndRowGroup`), then written column chunk by column chunk. With `MaxDegreeOfParallelism` above 1
+(the processor count by default) the columns of a segment are encoded on several threads, pages are compressed by
+helper threads (a few in flight a column, the total of busy threads kept to the degree), chunks are finished in
+parallel and a row group goes to the stream while the next one is encoded; the file is the same, byte for byte,
+whatever the degree. Pages
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
-dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page shows the dictionary does not
+dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page holding values shows the dictionary does not
 pay; one outgrowing `DictionaryPageBytes` goes on plainly. Statistics follow the type-defined order of every column
 (signed, unsigned, IEEE floats with NaN counts and zeros as -0 / +0, decimals as numbers), with the deprecated fields
 for signed orders; string and binary bounds are cut to `StatisticsTruncateLength` (the upper bound rounded up, marked
-inexact); floating chunks holding NaN get no bounds (Spark orders NaN above every number and ignores NaN counts). The
-footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
+inexact); floating chunks holding NaN get no bounds (Spark orders NaN above every number and ignores NaN counts).
+Chunks carry a page index (`PageIndex`; the offset index always, the column index with statistics, except for chunks
+holding a NaN or of a type without order) and size statistics (`SizeStatistics`: the value bytes of strings and
+binary, level histograms where they say more than the null count). `Columns` sets columns apart by their dotted Parquet
+path (`s.x`, `l.list.element`, `m.key_value.key`; a struct, list or map path applies to every leaf under it, the
+longest path winning): the encoding of pages written without the dictionary (`ParquetValueEncoding`:
+DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE booleans), the dictionary on or
+off, and a Bloom filter (split blocks of XXH64 hashes, sized for each chunk's distinct values, at most `DistinctValues`,
+cut to `MaxBytes`); settings a leaf's type cannot take are refused. Bloom filters, then column and offset indexes, follow
+the row groups. The footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
 footer written, `BytesWritten` and `PendingBytes` what is in the stream and in the open row group.
 
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
@@ -147,9 +160,10 @@ and stands in until the Delta checkpoints move to `ParquetWriter`.
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
 leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
 decoded by Sazanami's own decoder), `Encodings/` (RLE / bit-packing hybrid, BIT_PACKED levels, DELTA_BINARY_PACKED,
-the delta byte arrays; LSB bit unpacking and byte stream split are Sazanami's), `Reading/` (pages, leaf readers by
+the delta byte arrays, and their encoders; LSB bit packing and unpacking and byte stream split are Sazanami's), `Reading/` (pages, leaf readers by
 value kind, value converters, the nested assembler), `Writing/` (Arrow → Parquet schema mapping with value sources,
-column writers by physical type with their dictionaries and statistics, page assembly), `Pruning/` (the IR filter compiled to outcome sets over statistics,
+column writers by physical type with their dictionaries and statistics, page assembly and page index entries,
+page compression jobs and the thread budget, column settings, Bloom filter builders), `Pruning/` (the IR filter compiled to outcome sets over statistics,
 literals in the stored representation, page pruning), `PageIndexes.cs` and `BloomFilters.cs` (per-file caches of
 checked page indexes and Bloom filters); `ParquetFile`, `ParquetReader`, `ParquetWriter` and the options at the top.
 Pages in the non-PLAIN value encodings are decoded whole when entered, into PLAIN layout, so every value kind reads
@@ -345,7 +359,7 @@ written synchronously on completion.
 | `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written, row groups buffered and written chunk by chunk, the footer (schema, row groups, column orders, `ARROW:schema`), failure handling as `AvroWriter`'s. |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
 | `Parquet/Writing/Shredding.cs` | The Dremel shredder: the steps from a top-level array to a leaf (struct, list in every layout, map, remapping layouts — run-end encoding, dictionaries of nested values — and the leaf), walked row by row into definition and repetition levels and the positions of the values present; children from the parents' raw data (offsets of parents applied, nulls of parents hiding their children); the same walk validates nullability. |
-| `Parquet/Writing/ColumnWriter.cs`, `TypedColumnWriters.cs` | A leaf column per row group: levels and values page by page, dictionary judged on the first page and dropped when it outgrows its budget, pages v1/v2 compressed and checksummed, the dictionary page first; fixed-width, byte-array and boolean values with their statistics and bound truncation. |
+| `Parquet/Writing/ColumnWriter.cs`, `TypedColumnWriters.cs` | A leaf column per row group: levels and values page by page, dictionary judged on the first page holding values and dropped when it outgrows its budget, pages encoded then handed to compression jobs (`PageJobs.cs`) and kept in order, the dictionary page first; fixed-width, byte-array and boolean values (runs copied straight from Arrow buffers where no conversion is needed, validity read by words) with their statistics (vector bounds for numbers; string bounds at page end, from the distinct dictionary entries of dictionary pages) and bound truncation. |
 | `Parquet/Encodings/RleBitPackedEncoder.cs` | The RLE / bit-packing hybrid written: runs of 8 or more as RLE, the rest in bit-packed groups of 8. |
 | `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
 

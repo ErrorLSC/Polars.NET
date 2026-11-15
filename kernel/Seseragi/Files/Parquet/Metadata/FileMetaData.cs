@@ -576,10 +576,10 @@ internal sealed class ColumnChunk
     public string? FilePath { get; init; }
     public long FileOffset { get; init; }
     public ColumnMetaData? MetaData { get; init; }
-    public long? OffsetIndexOffset { get; init; }
-    public int? OffsetIndexLength { get; init; }
-    public long? ColumnIndexOffset { get; init; }
-    public int? ColumnIndexLength { get; init; }
+    public long? OffsetIndexOffset { get; set; } // set by the writer once the indexes are placed
+    public int? OffsetIndexLength { get; set; } // set by the writer once the indexes are placed
+    public long? ColumnIndexOffset { get; set; } // set by the writer once the indexes are placed
+    public int? ColumnIndexLength { get; set; } // set by the writer once the indexes are placed
     public ColumnCryptoMetaData? CryptoMetaData { get; init; }
     public byte[]? EncryptedColumnMetadata { get; init; }
 
@@ -667,8 +667,8 @@ internal sealed class ColumnMetaData
     public long? DictionaryPageOffset { get; init; }
     public Statistics? Statistics { get; init; }
     public PageEncodingStats[]? EncodingStats { get; init; }
-    public long? BloomFilterOffset { get; init; }
-    public int? BloomFilterLength { get; init; }
+    public long? BloomFilterOffset { get; set; } // set by the writer once the filters are placed
+    public int? BloomFilterLength { get; set; } // set by the writer once the filters are placed
     public SizeStatistics? SizeStatistics { get; init; }
     public GeospatialStatistics? GeospatialStatistics { get; init; }
 

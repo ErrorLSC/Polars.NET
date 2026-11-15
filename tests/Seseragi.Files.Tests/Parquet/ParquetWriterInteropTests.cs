@@ -39,7 +39,11 @@ public sealed class ParquetWriterInteropTests : IDisposable
     private static bool KnownFailure(string reader, string column, string error) =>
         Known.ContainsKey((reader, column)) || (reader == "polars" && error.Contains("nterval", StringComparison.Ordinal))
         // Polars opens no file whose Arrow schema holds a list view (whoever wrote it; pyarrow's too).
-        || (reader == "polars" && column is "v_list" or "v_large" or "ree_str" or "ree_struct" or "dict_list" && error.Contains("not yet implemented", StringComparison.Ordinal));
+        || (reader == "polars" && column is "v_list" or "v_large" or "ree_str" or "ree_struct" or "dict_list" && error.Contains("not yet implemented", StringComparison.Ordinal))
+        // Encodings the specification allows on FIXED_LEN_BYTE_ARRAY that a reader does not decode there.
+        || (reader == "polars" && error.Contains("Decoding FixedLenByteArray", StringComparison.Ordinal) && error.Contains("not yet supported", StringComparison.Ordinal)
+            && (error.Contains("\"ByteStreamSplit\"", StringComparison.Ordinal) || error.Contains("\"DeltaByteArray\"", StringComparison.Ordinal)))
+        || (reader == "duckdb" && error.Contains("BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32 or INT64", StringComparison.Ordinal));
 
     /// <summary>
     /// A read value in the form of the value written, where a reader returns the same value as another type: INTERVAL
@@ -93,6 +97,55 @@ public sealed class ParquetWriterInteropTests : IDisposable
         int[] keep = [.. Enumerable.Range(0, batch.ColumnCount).Where(c => !names.Contains(batch.Schema.FieldsList[c].Name))];
         return new RecordBatch(new Apache.Arrow.Schema([.. keep.Select(c => batch.Schema.FieldsList[c])], null), keep.Select(batch.Column), batch.Length);
     }
+
+    /// <summary>The columns of spark_bloom.parquet with Bloom filters (writer_spark.py filters on the same).</summary>
+    private static readonly string[] SparkBloomColumns = ["i32", "i64", "str", "bin", "dec15", "dict_str"];
+
+    /// <summary>Every encoding in both page versions.</summary>
+    private static readonly (string File, ParquetValueEncoding Encoding, ParquetPageVersion Version)[] Encodings =
+    [
+        .. Enum.GetValues<ParquetValueEncoding>().Where(e => e != ParquetValueEncoding.Plain).SelectMany(e => ((ParquetPageVersion[])[ParquetPageVersion.V1, ParquetPageVersion.V2])
+            .Select(v => ($"enc_{e}_{(v == ParquetPageVersion.V1 ? "v1" : "v2")}".ToLowerInvariant(), e, v))),
+    ];
+
+    /// <summary>
+    /// The batch with three more columns whose first 700 rows are null (a string, a boolean, an integer): pages
+    /// without values in every encoding.
+    /// </summary>
+    private static RecordBatch WithNullRuns(RecordBatch batch)
+    {
+        int n = batch.Length;
+        var r = new Random(n);
+        var booleans = new BooleanArray.Builder();
+        for (int i = 0; i < n; i++)
+        {
+            if (i < 700) booleans.AppendNull();
+            else booleans.Append(r.Next(3) == 0);
+        }
+        (string Name, IArrowArray Array)[] runs =
+        [
+            ("run_str", Strings([.. Enumerable.Range(0, n).Select(i => i < 700 ? null : "r" + r.Next(500))])),
+            ("run_b", booleans.Build()),
+            ("run_i64", Fixed(Int64Type.Default, [.. Enumerable.Range(0, n).Select(i => i < 700 ? null : (long?)r.NextInt64())])),
+        ];
+        return new RecordBatch(new Apache.Arrow.Schema([.. batch.Schema.FieldsList, .. runs.Select(c => new Field(c.Name, c.Array.Data.DataType, true))], null),
+            [.. Enumerable.Range(0, batch.ColumnCount).Select(batch.Column), .. runs.Select(c => c.Array)], n);
+    }
+
+    /// <summary>Settings writing every column of <paramref name="batch"/> whose physical type takes <paramref name="encoding"/> in it.</summary>
+    private Dictionary<string, ParquetColumnOptions> EncodedColumns(RecordBatch batch, ParquetValueEncoding encoding)
+    {
+        string probe = System.IO.Path.Combine(_dir, $"probe-{Guid.NewGuid():N}.parquet.tmp");
+        ParquetWriter.Write(probe, batch.Schema, [batch.Slice(0, 1)]);
+        using var file = ParquetFile.Open(probe);
+        return file.Metadata.Thrift!.RowGroups[0].Columns
+            .Where(c => Kaminari.Seseragi.Files.Parquet.Writing.ColumnSettings.Takes(c.MetaData!.Type, encoding))
+            .ToDictionary(c => string.Join('.', c.MetaData!.PathInSchema), _ => new ParquetColumnOptions { Encoding = encoding });
+    }
+
+    /// <summary>The flat columns pyarrow writes as we do.</summary>
+    private static readonly string[] FlatCommon =
+        ["b", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "d32", "t64us", "ts_us_tokyo", "str", "bin", "fsb", "req_i64", "req_str"];
 
     /// <summary>The columns Spark reads (no half floats, times, nanoseconds, durations, decimals above 38 digits or intervals).</summary>
     private static readonly string[] SparkColumns =
@@ -199,15 +252,59 @@ public sealed class ParquetWriterInteropTests : IDisposable
         Write("spark_v2_zstd", SparkBatch(22, 2000), new ParquetWriteOptions { DataPageVersion = ParquetPageVersion.V2, Compression = new ZstandardCompression() });
         Write("spark_v1_lz4_plain", SparkBatch(23, 2000), new ParquetWriteOptions { Compression = Lz4RawCompression.Instance, Dictionary = false });
         Write("spark_int96", Int96Batch(), new ParquetWriteOptions { Int96Timestamps = true });
-        RecordBatch common = NestedCommon(31, 1500);
-        // One row group, whole bounds: compared with what pyarrow writes for the same table (<name>.source.arrow).
-        Write("nested_common", common, new ParquetWriteOptions { StatisticsTruncateLength = null, DataPageRows = 200 });
-        using (var stream = File.Create(System.IO.Path.Combine(_dir, "nested_common.source.arrow")))
-        using (var ipc = new ArrowFileWriter(stream, common.Schema))
+        // One row group, whole bounds: footers and page indexes compared with what pyarrow writes for the same table
+        // (<name>.source.arrow, pages of <name>.pages rows).
+        // Bloom filters on <name>.bloom's columns, sized for the chunk's distinct values (as pyarrow sizes them, its ndv
+        // an upper bound): pyarrow's must be the same bits.
+        void Reference(string name, RecordBatch batch, int pageRows, string[]? bloom = null)
         {
-            ipc.WriteRecordBatch(common);
+            var filter = new ParquetColumnOptions { BloomFilter = new() };
+            Write(name, batch, new ParquetWriteOptions
+            {
+                StatisticsTruncateLength = null, DataPageRows = pageRows, Columns = bloom?.ToDictionary(c => c, _ => filter),
+            });
+            File.WriteAllText(System.IO.Path.Combine(_dir, name + ".pages"), pageRows.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (bloom is not null) File.WriteAllText(System.IO.Path.Combine(_dir, name + ".bloom"), string.Join(',', bloom));
+            using var stream = File.Create(System.IO.Path.Combine(_dir, name + ".source.arrow"));
+            using var ipc = new ArrowFileWriter(stream, batch.Schema);
+            ipc.WriteRecordBatch(batch);
             ipc.WriteEnd();
         }
+        Reference("nested_common", NestedCommon(31, 1500), 200);
+        // The flat types pyarrow maps as we do (no decimals, which it writes as FLBA; no floats, whose NaN chunks it indexes).
+        RecordBatch wide = Wide(35, 2500);
+        Reference("flat_common", Without(wide, [.. wide.Schema.FieldsList.Select(f => f.Name).Where(n => !FlatCommon.Contains(n))]), 300,
+            ["i32", "i64", "u64", "d32", "ts_us_tokyo", "str", "bin", "fsb", "req_str"]);
+        // Every encoding over every type that takes it, the dictionary first (giving up halfway); the readers' limits in Known.
+        RecordBatch encoded = WithNullRuns(Without(Wide(36, 3000), "iv_ym", "iv_dt", "iv_mdn"));
+        foreach (var (file, encoding, version) in Encodings)
+        {
+            Write(file, encoded, new ParquetWriteOptions
+            {
+                DataPageVersion = version, RowGroupRows = 1200, DataPageRows = 250, DictionaryPageBytes = 1000,
+                Columns = EncodedColumns(encoded, encoding),
+            });
+        }
+        RecordBatch sparkEncoded = WithNullRuns(SparkBatch(24, 2500));
+        foreach (ParquetPageVersion version in (ParquetPageVersion[])[ParquetPageVersion.V1, ParquetPageVersion.V2])
+        {
+            string v = version == ParquetPageVersion.V1 ? "v1" : "v2";
+            var options = new ParquetWriteOptions { DataPageVersion = version, RowGroupRows = 1000, DataPageRows = 250, DictionaryPageBytes = 1000 };
+            Write($"spark_delta_{v}", sparkEncoded, options with
+            {
+                Columns = ((ParquetValueEncoding[])[ParquetValueEncoding.DeltaBinaryPacked, ParquetValueEncoding.DeltaLengthByteArray, ParquetValueEncoding.Rle])
+                    .SelectMany(e => EncodedColumns(sparkEncoded, e)).ToDictionary(),
+            });
+            Write($"spark_dba_{v}", sparkEncoded, options with { Columns = EncodedColumns(sparkEncoded, ParquetValueEncoding.DeltaByteArray) });
+            // Spark's vectorized reader cannot read BYTE_STREAM_SPLIT: its row reader only (spark_rows_*).
+            Write($"spark_rows_bss_{v}", sparkEncoded, options with { Columns = EncodedColumns(sparkEncoded, ParquetValueEncoding.ByteStreamSplit) });
+        }
+        // Bloom filters over several row groups, which Spark uses to skip row groups (writer_spark.py filters at their values).
+        Write("spark_bloom", SparkBatch(25, 4000), new ParquetWriteOptions
+        {
+            RowGroupRows = 500,
+            Columns = SparkBloomColumns.ToDictionary(c => c, _ => new ParquetColumnOptions { BloomFilter = new() }),
+        });
         Write("nested_v2", NestedCommon(32, 1500), new ParquetWriteOptions { DataPageVersion = ParquetPageVersion.V2, Compression = new ZstandardCompression(), RowGroupRows = 500 });
         Write("nested_layouts", NestedLayouts(33, 1500), new ParquetWriteOptions { RowGroupRows = 600 });
         Write("spark_nested", NestedCommon(34, 1500), new ParquetWriteOptions { RowGroupRows = 700 });
@@ -296,7 +393,7 @@ public sealed class ParquetWriterInteropTests : IDisposable
         List<string> differences = [];
         foreach (var (name, batch) in written.Where(w => w.Key.StartsWith("spark_", StringComparison.Ordinal)))
         {
-            foreach (string mode in (string[])["vectorized", "rows"])
+            foreach (string mode in name.StartsWith("spark_rows_", StringComparison.Ordinal) ? (string[])["rows"] : ["vectorized", "rows"])
             {
                 string part = Directory.GetFiles(System.IO.Path.Combine(_dir, $"{name}.spark-{mode}"), "*.parquet").Single();
                 using var file = ParquetFile.Open(part);

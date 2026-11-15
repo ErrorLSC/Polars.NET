@@ -133,6 +133,12 @@ internal static class PageCodecs
         _ => throw new NotSupportedException($"This library does not write {Name(codec)} pages."),
     };
 
+    [ThreadStatic]
+    private static Compressor? t_zstd;
+
+    [ThreadStatic]
+    private static int t_zstdLevel;
+
     /// <summary>
     /// Compresses <paramref name="source"/> into <paramref name="destination"/> (at least <see cref="MaxCompressedLength"/>
     /// long) at <paramref name="level"/> (Zstandard 1–22, Brotli 0–11, Gzip 1–9; negative: the codec's default).
@@ -149,8 +155,15 @@ internal static class PageCodecs
                 return Snappy.Compress(source, destination);
             case CompressionCodec.Zstd:
             {
-                using var compressor = new Compressor(level < 0 ? 3 : level);
-                return compressor.Wrap(source, destination);
+                // A compressor (its native context) a thread and level, kept for the thread's later pages.
+                int zstdLevel = level < 0 ? 3 : level;
+                if (t_zstd is null || t_zstdLevel != zstdLevel)
+                {
+                    t_zstd?.Dispose();
+                    t_zstd = new Compressor(zstdLevel);
+                    t_zstdLevel = zstdLevel;
+                }
+                return t_zstd.Wrap(source, destination);
             }
             case CompressionCodec.Brotli:
                 return BrotliEncoder.TryCompress(source, destination, out int n, level < 0 ? 4 : level, 22) ? n : throw new ArgumentException("The destination is too small.");

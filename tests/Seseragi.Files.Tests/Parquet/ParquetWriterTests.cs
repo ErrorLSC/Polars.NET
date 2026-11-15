@@ -162,12 +162,38 @@ public sealed class ParquetWriterTests : IDisposable
         Assert.Equal(written.RowGroups.SelectMany(g => g.Columns.Select(c => c.Statistics?.NullCount)),
             file.Metadata.RowGroups.SelectMany(g => g.Columns.Select(c => c.Statistics?.NullCount)));
 
-        // A byte budget closes groups before the row count does.
+        // A byte budget closes groups before the row count does, checked after each segment the columns take at once
+        // (a batch, or 16 384 rows of it): batches of 100 rows, groups of a few batches; one batch of 1000, one group.
         string small = Path("small.parquet");
-        ParquetWriter.Write(small, batch.Schema, [batch], new ParquetWriteOptions { RowGroupBytes = 20_000, DataPageRows = 50 });
+        ParquetWriter.Write(small, batch.Schema, [.. Enumerable.Range(0, 10).Select(i => batch.Slice(i * 100, 100))],
+            new ParquetWriteOptions { RowGroupBytes = 20_000, DataPageRows = 50 });
         using var smallFile = ParquetFile.Open(small);
         Assert.True(smallFile.Metadata.RowGroups.Count > 2, $"{smallFile.Metadata.RowGroups.Count} row groups");
+        Assert.All(smallFile.Metadata.RowGroups, g => Assert.Equal(0, g.RowCount % 100));
         Assert.Equal(Columns([batch], batch.ColumnCount), ReadBack(small, batch.ColumnCount, out _));
+        string whole = Path("whole.parquet");
+        ParquetWriter.Write(whole, batch.Schema, [batch], new ParquetWriteOptions { RowGroupBytes = 20_000, DataPageRows = 50 });
+        using var wholeFile = ParquetFile.Open(whole);
+        Assert.Single(wholeFile.Metadata.RowGroups);
+    }
+
+    /// <summary>The dictionary is judged on the first page holding values, not on pages of nulls before it.</summary>
+    [Fact]
+    public void Dictionary_IsJudgedOnTheFirstPageWithValues()
+    {
+        string?[] values = [.. Enumerable.Range(0, 5000).Select(i => i < 2500 ? null : "v" + i % 7)];
+        RecordBatch batch = Batch(("s", Strings(values), true), ("n", Fixed(Int64Type.Default, [.. values.Select((v, i) => v is null ? null : (long?)(i % 5))]), true));
+        string path = Path("nullfirst.parquet");
+        ParquetWriter.Write(path, batch.Schema, [batch], new ParquetWriteOptions { DataPageRows = 1000 });
+        using var file = ParquetFile.Open(path);
+        foreach (ColumnChunk chunk in file.Metadata.Thrift!.RowGroups[0].Columns)
+        {
+            PageEncodingStats[] stats = chunk.MetaData!.EncodingStats!;
+            Assert.NotNull(chunk.MetaData.DictionaryPageOffset);
+            Assert.Contains(stats, s => s.Encoding == ParquetEncoding.RleDictionary && s.Count == 3); // the pages with values
+            Assert.Contains(stats, s => s.PageType != PageType.DictionaryPage && s.Encoding == ParquetEncoding.Plain && s.Count == 2); // the null pages before
+        }
+        Assert.Equal(Columns([batch], 2), ReadBack(path, 2, out _));
     }
 
     [Fact]

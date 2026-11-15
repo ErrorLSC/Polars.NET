@@ -30,7 +30,9 @@ internal sealed record LeafStep(bool Optional, string Path) : ShredStep(Optional
 /// </summary>
 internal sealed class Shredder(ShredStep[] steps)
 {
-    private readonly Dictionary<ArrayData, IArrowArray> _children = new(ReferenceEqualityComparer.Instance);
+    // The array each step walks is the same for every row of a column (a struct's child, a list's items, a
+    // dictionary's values): built once per shredding.
+    private readonly IArrowArray?[] _arrays = new IArrowArray?[steps.Length];
     private uint[] _def = new uint[1024], _rep = new uint[1024];
     private int[] _indices = new int[1024];
     private bool _emit;
@@ -51,15 +53,19 @@ internal sealed class Shredder(ShredStep[] steps)
         Leaf = null;
         _emit = true;
         for (int i = offset; i < offset + count; i++) Walk(column, i, 0, 0, 0);
-        _children.Clear();
+        Array.Clear(_arrays);
     }
 
-    /// <summary>Walks every row without output: throws where a non-nullable node holds a null.</summary>
+    /// <summary>
+    /// Walks every row without output: throws where a non-nullable node holds a null. Skipped when no non-nullable
+    /// node's array holds a null at all (the walk could only meet nulls where the schema allows them).
+    /// </summary>
     public void Validate(IArrowArray column)
     {
+        if (!MayViolate(column.Data, 0)) return;
         _emit = false;
         for (int i = 0; i < column.Length; i++) Walk(column, i, 0, 0, 0);
-        _children.Clear();
+        Array.Clear(_arrays);
     }
 
     private void Walk(IArrowArray array, int i, int s, uint def, uint rep)
@@ -73,7 +79,7 @@ internal sealed class Shredder(ShredStep[] steps)
                     Null(st, def, rep);
                     return;
                 }
-                Walk(Child(array.Data, st.Child), array.Data.Offset + i, s + 1, def + (st.Optional ? 1u : 0u), rep);
+                Walk(Child(s + 1, array.Data, st.Child), array.Data.Offset + i, s + 1, def + (st.Optional ? 1u : 0u), rep);
                 return;
             case ListStep list:
             {
@@ -89,7 +95,7 @@ internal sealed class Shredder(ShredStep[] steps)
                     Emit(present, rep);
                     return;
                 }
-                IArrowArray items = Child(array.Data, 0);
+                IArrowArray items = Child(s + 1, array.Data, 0);
                 for (long j = 0; j < length; j++)
                     Walk(items, checked((int)(start + j)), s + 1, present + 1, j == 0 ? rep : (uint)list.RepLevel);
                 return;
@@ -106,7 +112,7 @@ internal sealed class Shredder(ShredStep[] steps)
                 }
                 else
                 {
-                    Walk(Child(array.Data, 1), RunOf(array.Data, array.Data.Offset + i), s + 1, def, rep);
+                    Walk(Child(s + 1, array.Data, 1), RunOf(array.Data, array.Data.Offset + i), s + 1, def, rep);
                 }
                 return;
             default:
@@ -124,6 +130,23 @@ internal sealed class Shredder(ShredStep[] steps)
                 }
                 return;
         }
+    }
+
+    /// <summary>
+    /// Whether a non-nullable node from step <paramref name="s"/> down holds a null anywhere in its array (a
+    /// dictionary: among its indices or the values they point at; an unknown null count counts as some).
+    /// </summary>
+    private bool MayViolate(ArrayData data, int s)
+    {
+        ShredStep step = steps[s];
+        if (!step.Optional && (data.NullCount != 0 || data.Dictionary is { NullCount: not 0 })) return true;
+        return step switch
+        {
+            StructStep st => MayViolate(data.Children[st.Child], s + 1),
+            ListStep => MayViolate(data.Children[0], s + 1),
+            RemapStep => MayViolate(data.Dictionary ?? data.Children[1], s + 1),
+            _ => false,
+        };
     }
 
     private void Null(ShredStep step, uint def, uint rep)
@@ -144,13 +167,8 @@ internal sealed class Shredder(ShredStep[] steps)
         _rep[Levels++] = rep;
     }
 
-    /// <summary>A child of an array, built once per shredding (from the raw data: the parent's offset applies to it).</summary>
-    private IArrowArray Child(ArrayData parent, int index)
-    {
-        ArrayData data = parent.Children[index];
-        if (!_children.TryGetValue(data, out IArrowArray? child)) _children[data] = child = ArrowArrayFactory.BuildArray(data);
-        return child;
-    }
+    /// <summary>The array of step <paramref name="s"/>: a child of its parent's, built once per shredding (from the raw data: the parent's offset applies to it).</summary>
+    private IArrowArray Child(int s, ArrayData parent, int index) => _arrays[s] ??= ArrowArrayFactory.BuildArray(parent.Children[index]);
 
     /// <summary>The first item and the item count of list row <paramref name="i"/>.</summary>
     private static (long Start, long Length) Items(ArrayData data, int i, ListStep list)

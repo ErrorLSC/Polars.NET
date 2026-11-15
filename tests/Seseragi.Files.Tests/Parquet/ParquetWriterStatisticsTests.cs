@@ -150,6 +150,21 @@ public sealed class ParquetWriterStatisticsTests : IDisposable
         Assert.All(Write(new ParquetWriteOptions { Statistics = false }, ("s", Strings(["b"]), true)), Assert.Null);
     }
 
+    /// <summary>A page filled by several batches (each bounded at once by the vector kernel) keeps the widest bounds of all.</summary>
+    [Fact]
+    public void Bounds_OfAPageFilledInSteps_SpanEveryStep()
+    {
+        int?[] rising = [.. Enumerable.Range(0, 5000).Select(i => (int?)i)];
+        double?[] falling = [.. Enumerable.Range(0, 5000).Select(i => (double?)(5000 - i))];
+        RecordBatch batch = Batch(("i", Fixed(Int32Type.Default, rising), true), ("d", Fixed(DoubleType.Default, falling), true));
+        string path = Path.Combine(_dir, "steps.parquet");
+        ParquetWriter.Write(path, batch.Schema, [batch.Slice(0, 1500), batch.Slice(1500, 3500)]);
+        using var file = ParquetFile.Open(path);
+        Statistics?[] s = [.. file.Metadata.Thrift!.RowGroups[0].Columns.Select(c => c.MetaData!.Statistics)];
+        Assert.Equal((H(Le(0)), H(Le(4999))), (H(s[0]!.MinValue), H(s[0]!.MaxValue)));
+        Assert.Equal((H(Le(1d)), H(Le(5000d))), (H(s[1]!.MinValue), H(s[1]!.MaxValue)));
+    }
+
     // ------------------------------------------------------------------
     // Filtered reads: with statistics against without
     // ------------------------------------------------------------------

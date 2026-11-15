@@ -31,4 +31,24 @@ internal static class BitPacker
         }
         if (bits > 0) destination[o] = (byte)pending;
     }
+
+    /// <summary>Packs values of 0–64 bits (each below 2^<paramref name="bitWidth"/>), as <see cref="Pack(ReadOnlySpan{uint}, int, Span{byte})"/> does.</summary>
+    public static void Pack(ReadOnlySpan<ulong> values, int bitWidth, Span<byte> destination)
+    {
+        if (bitWidth == 0) return;
+        UInt128 pending = 0;
+        int bits = 0, o = 0;
+        foreach (ulong value in values)
+        {
+            pending |= (UInt128)value << bits;
+            bits += bitWidth;
+            while (bits >= 8)
+            {
+                destination[o++] = (byte)pending;
+                pending >>= 8;
+                bits -= 8;
+            }
+        }
+        if (bits > 0) destination[o] = (byte)pending;
+    }
 }

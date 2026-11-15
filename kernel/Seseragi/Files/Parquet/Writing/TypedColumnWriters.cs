@@ -7,6 +7,8 @@ using System.Text;
 using Apache.Arrow;
 using Array = System.Array;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Helpers;
+using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
@@ -98,8 +100,16 @@ internal readonly struct NoOrder<T> : IValueOrder<T> where T : unmanaged
     public byte[] Bound(T value, bool upper) => [];
 }
 
+/// <summary>The bounds of a page or chunk of fixed-width values (NaNs counted apart).</summary>
+internal struct FixedBounds<T> where T : unmanaged
+{
+    public bool Has;
+    public T Min, Max;
+    public long Nans;
+}
+
 /// <summary>A column of a fixed-width physical type (INT32, INT64, INT96, FLOAT, DOUBLE).</summary>
-internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int maxDef, int maxRep, FixedSource<T> source, TOrder order)
+internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int maxDef, int maxRep, FixedSource<T> source, TOrder order, bool direct = false)
     : ColumnWriter(settings, maxDef, maxRep, dictionary: true)
     where T : unmanaged
     where TOrder : struct, IValueOrder<T>
@@ -108,9 +118,7 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
     private T[] _scratch = new T[1024];
     private int _count;
     private readonly FixedValueDictionary<T> _dictionary = new();
-    private bool _hasBounds;
-    private T _min, _max;
-    private long _nans;
+    private FixedBounds<T> _pageBounds, _chunkBounds;
 
     protected override void Append(IArrowArray array, int offset, int count, int nulls)
     {
@@ -118,20 +126,52 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
         int start = _count;
         if (nulls == 0)
         {
-            source(array, offset, count, _page.AsSpan(_count, count));
+            if (direct) ArrowValues.Values<T>(array).Slice(offset, count).CopyTo(_page.AsSpan(_count));
+            else source(array, offset, count, _page.AsSpan(_count, count));
             _count += count;
         }
         else
         {
-            if (_scratch.Length < count) _scratch = new T[Math.Max(count, _scratch.Length * 2)];
-            Span<T> all = _scratch.AsSpan(0, count);
-            source(array, offset, count, all);
-            for (int i = 0; i < count; i++)
+            // Direct values are gathered from the array itself; others converted first.
+            ReadOnlySpan<T> all;
+            if (direct) all = ArrowValues.Values<T>(array).Slice(offset, count);
+            else
             {
-                if (!ArrowValues.IsNull(array, offset + i)) _page[_count++] = all[i];
+                if (_scratch.Length < count) _scratch = new T[Math.Max(count, _scratch.Length * 2)];
+                source(array, offset, count, _scratch.AsSpan(0, count));
+                all = _scratch.AsSpan(0, count);
+            }
+            ReadOnlySpan<ulong> validity = Validity;
+            if (validity.IsEmpty)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    if (!ArrowValues.IsNull(array, offset + i)) _page[_count++] = all[i];
+                }
+            }
+            else
+            {
+                // The set bits of each word: whole words at once, else bit by bit.
+                for (int w = 0; w < validity.Length; w++)
+                {
+                    ulong bits = validity[w];
+                    int at = w << 6;
+                    if (bits == ulong.MaxValue)
+                    {
+                        all.Slice(at, 64).CopyTo(_page.AsSpan(_count));
+                        _count += 64;
+                        continue;
+                    }
+                    while (bits != 0)
+                    {
+                        _page[_count++] = all[at + BitOperations.TrailingZeroCount(bits)];
+                        bits &= bits - 1;
+                    }
+                }
             }
         }
         if (Settings.Statistics && order.HasBounds) Bounds(_page.AsSpan(start, _count - start));
+        if (Bloom is { } bloom) Hash(bloom, start);
     }
 
     protected override void AppendAt(IArrowArray array, ReadOnlySpan<int> indices)
@@ -148,32 +188,132 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
             k += run;
         }
         if (Settings.Statistics && order.HasBounds) Bounds(_page.AsSpan(start, _count - start));
+        if (Bloom is { } bloom) Hash(bloom, start);
+    }
+
+    private void Hash(BloomBuilder bloom, int start)
+    {
+        for (int i = start; i < _count; i++) bloom.Add(MemoryMarshal.AsBytes(_page.AsSpan(i, 1)));
     }
 
     private void Bounds(ReadOnlySpan<T> values)
     {
+        if (values.Length >= 32 && VectorBounds(values)) return;
+        ref FixedBounds<T> b = ref _pageBounds;
         foreach (T value in values)
         {
             if (order.Floating && order.IsNaN(value))
             {
-                _nans++;
+                b.Nans++;
                 continue;
             }
-            if (!_hasBounds)
+            if (!b.Has)
             {
-                _min = _max = value;
-                _hasBounds = true;
+                b.Min = b.Max = value;
+                b.Has = true;
             }
-            else if (order.Compare(value, _min) < 0) _min = value;
-            else if (order.Compare(value, _max) > 0) _max = value;
+            else if (order.Compare(value, b.Min) < 0) b.Min = value;
+            else if (order.Compare(value, b.Max) > 0) b.Max = value;
         }
     }
+
+    /// <summary>
+    /// The bounds of a run of values by Sazanami's vector kernel, for the orders it knows (signed and unsigned 32 and
+    /// 64-bit integers, floats and doubles), folded into the page's; false for other orders.
+    /// </summary>
+    private bool VectorBounds(ReadOnlySpan<T> values)
+    {
+        T lo, hi;
+        bool found = true;
+        long nans = 0;
+        if (typeof(TOrder) == typeof(SignedOrder<int>) || typeof(TOrder) == typeof(SignedOrder<long>))
+        {
+            if (typeof(T) == typeof(int)) Pair(MemoryMarshal.Cast<T, int>(values), out lo, out hi);
+            else Pair(MemoryMarshal.Cast<T, long>(values), out lo, out hi);
+        }
+        else if (typeof(TOrder) == typeof(UnsignedOrder32)) Pair(MemoryMarshal.Cast<T, uint>(values), out lo, out hi);
+        else if (typeof(TOrder) == typeof(UnsignedOrder64)) Pair(MemoryMarshal.Cast<T, ulong>(values), out lo, out hi);
+        else if (typeof(TOrder) == typeof(DoubleOrder))
+        {
+            found = MinMax.Floating(MemoryMarshal.Cast<T, double>(values), out double a, out double z, out nans);
+            (lo, hi) = (Unsafe.As<double, T>(ref a), Unsafe.As<double, T>(ref z));
+        }
+        else if (typeof(TOrder) == typeof(FloatOrder))
+        {
+            found = MinMax.Floating(MemoryMarshal.Cast<T, float>(values), out float a, out float z, out nans);
+            (lo, hi) = (Unsafe.As<float, T>(ref a), Unsafe.As<float, T>(ref z));
+        }
+        else return false;
+        ref FixedBounds<T> b = ref _pageBounds;
+        b.Nans += nans;
+        if (!found) return true;
+        if (!b.Has) (b.Min, b.Max, b.Has) = (lo, hi, true);
+        else
+        {
+            if (order.Compare(lo, b.Min) < 0) b.Min = lo;
+            if (order.Compare(hi, b.Max) > 0) b.Max = hi;
+        }
+        return true;
+
+        static void Pair<TValue>(ReadOnlySpan<TValue> run, out T lo, out T hi) where TValue : unmanaged, IBinaryInteger<TValue>
+        {
+            MinMax.Integers(run, out TValue a, out TValue z);
+            (lo, hi) = (Unsafe.As<TValue, T>(ref a), Unsafe.As<TValue, T>(ref z));
+        }
+    }
+
+    protected override bool ClosePageBounds(int values, out byte[]? min, out byte[]? max)
+    {
+        FixedBounds<T> page = _pageBounds;
+        _pageBounds = default;
+        _chunkBounds.Nans += page.Nans;
+        if (page.Has)
+        {
+            if (!_chunkBounds.Has) (_chunkBounds.Min, _chunkBounds.Max, _chunkBounds.Has) = (page.Min, page.Max, true);
+            else
+            {
+                if (order.Compare(page.Min, _chunkBounds.Min) < 0) _chunkBounds.Min = page.Min;
+                if (order.Compare(page.Max, _chunkBounds.Max) > 0) _chunkBounds.Max = page.Max;
+            }
+        }
+        min = max = null;
+        if (values == 0) return true;
+        if (!order.HasBounds || page.Nans > 0 || !page.Has) return false;
+        min = order.Bound(page.Min, upper: false);
+        max = order.Bound(page.Max, upper: true);
+        return true;
+    }
+
+    protected override int CompareBounds(byte[] a, byte[] b) => order.Compare(MemoryMarshal.Read<T>(a), MemoryMarshal.Read<T>(b));
 
     protected override int PageValueCount => _count;
 
     protected override long PagePlainBytes => (long)_count * Unsafe.SizeOf<T>();
 
     protected override void EncodePlain(IBufferWriter<byte> output) => output.Write(MemoryMarshal.AsBytes(_page.AsSpan(0, _count)));
+
+    protected override void EncodeAs(ParquetEncoding encoding, IBufferWriter<byte> output)
+    {
+        Span<T> values = _page.AsSpan(0, _count);
+        switch (encoding)
+        {
+            case ParquetEncoding.DeltaBinaryPacked when typeof(T) == typeof(int):
+                DeltaBinaryPackedEncoder.Encode<int>(MemoryMarshal.Cast<T, int>(values), output);
+                break;
+            case ParquetEncoding.DeltaBinaryPacked when typeof(T) == typeof(long):
+                DeltaBinaryPackedEncoder.Encode<long>(MemoryMarshal.Cast<T, long>(values), output);
+                break;
+            case ParquetEncoding.ByteStreamSplit:
+            {
+                ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(values);
+                ByteStreamSplit.Encode(bytes, Unsafe.SizeOf<T>(), output.GetSpan(bytes.Length));
+                output.Advance(bytes.Length);
+                break;
+            }
+            default:
+                throw new NotSupportedException($"{typeof(T).Name} values are not written as {encoding}.");
+        }
+    }
 
     protected override void ClearPage() => _count = 0;
 
@@ -192,29 +332,30 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
 
     protected override Statistics? ChunkStatistics(long nullCount)
     {
+        FixedBounds<T> b = _chunkBounds;
         if (!order.HasBounds) return new Statistics { NullCount = nullCount };
         // A chunk holding NaNs gets no bounds: the specification keeps NaN out of them, but Spark (parquet-mr, which
         // ignores nan_count) orders NaN above every number and would skip the NaN rows of `x > bound`.
-        if (_nans > 0) return new Statistics { NullCount = nullCount, NanCount = _nans };
-        byte[]? min = _hasBounds ? order.Bound(_min, upper: false) : null;
-        byte[]? max = _hasBounds ? order.Bound(_max, upper: true) : null;
+        if (b.Nans > 0) return new Statistics { NullCount = nullCount, NanCount = b.Nans };
+        byte[]? min = b.Has ? order.Bound(b.Min, upper: false) : null;
+        byte[]? max = b.Has ? order.Bound(b.Max, upper: true) : null;
         return new Statistics
         {
             NullCount = nullCount,
             MinValue = min,
             MaxValue = max,
-            IsMinValueExact = _hasBounds ? true : null,
-            IsMaxValueExact = _hasBounds ? true : null,
+            IsMinValueExact = b.Has ? true : null,
+            IsMaxValueExact = b.Has ? true : null,
             Min = order.Legacy ? min : null,
             Max = order.Legacy ? max : null,
-            NanCount = order.Floating ? _nans : null,
+            NanCount = order.Floating ? b.Nans : null,
         };
     }
 
     protected override void ResetStatistics()
     {
-        _hasBounds = false;
-        _nans = 0;
+        _pageBounds = default;
+        _chunkBounds = default;
     }
 }
 
@@ -231,8 +372,38 @@ internal enum BytesOrder
     Float16,
 }
 
-/// <summary>A column of BYTE_ARRAY (<paramref name="fixedLength"/> 0) or FIXED_LEN_BYTE_ARRAY values.</summary>
-internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int maxRep, BytesSource source, int fixedLength, BytesOrder order, bool utf8, string column)
+/// <summary>The bounds of a page or chunk of byte-array values (NaN half floats counted apart).</summary>
+internal sealed class ByteBounds
+{
+    public byte[] MinBuffer = new byte[64], MaxBuffer = new byte[64];
+    public int MinLength = -1, MaxLength = -1; // -1: no bound yet
+    public long Nans;
+
+    public bool Has => MinLength >= 0;
+    public ReadOnlySpan<byte> Min => MinBuffer.AsSpan(0, MinLength);
+    public ReadOnlySpan<byte> Max => MaxBuffer.AsSpan(0, MaxLength);
+
+    public void Clear()
+    {
+        MinLength = MaxLength = -1;
+        Nans = 0;
+    }
+
+    public static void Keep(ReadOnlySpan<byte> value, ref byte[] buffer, ref int length)
+    {
+        if (buffer.Length < value.Length) buffer = new byte[Math.Max(value.Length, buffer.Length * 2)];
+        value.CopyTo(buffer);
+        length = value.Length;
+    }
+}
+
+/// <summary>
+/// A column of BYTE_ARRAY (<paramref name="fixedLength"/> 0) or FIXED_LEN_BYTE_ARRAY values. With
+/// <paramref name="direct"/> the values are the bytes of a (large) binary or string array as they are: runs of them are
+/// copied at once, their offsets shifted, instead of value by value through <paramref name="source"/>.
+/// </summary>
+internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int maxRep, BytesSource source, int fixedLength, BytesOrder order, bool utf8, string column,
+    bool direct = false)
     : ColumnWriter(settings, maxDef, maxRep, dictionary: true)
 {
     private byte[] _arena = new byte[1 << 16];
@@ -241,32 +412,95 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
     private int _count;
     private readonly byte[] _scratch = new byte[32];
     private readonly ByteArrayDictionary _dictionary = new();
-    private byte[] _min = new byte[64], _max = new byte[64];
-    private int _minLength = -1, _maxLength = -1; // -1: no bound yet
-    private long _nans;
+    private readonly ByteBounds _pageBounds = new(), _chunkBounds = new();
 
     protected override void Append(IArrowArray array, int offset, int count, int nulls)
     {
+        if (direct)
+        {
+            // Runs of valid rows, each copied at once.
+            int end = offset + count;
+            for (int i = offset; i < end;)
+            {
+                if (nulls > 0 && IsNullAt(array, offset, i - offset))
+                {
+                    i++;
+                    continue;
+                }
+                int run = 1;
+                while (i + run < end && (nulls == 0 || !IsNullAt(array, offset, i + run - offset))) run++;
+                AppendRun(array, i, run);
+                i += run;
+            }
+            return;
+        }
         for (int i = offset; i < offset + count; i++)
         {
-            if (nulls > 0 && ArrowValues.IsNull(array, i)) continue;
+            if (nulls > 0 && IsNullAt(array, offset, i - offset)) continue;
             ReadOnlySpan<byte> value = source(array, i, _scratch);
             if (fixedLength > 0 && value.Length != fixedLength)
                 throw new ArgumentException($"A value of column '{column}' has {value.Length} bytes; the column's values have {fixedLength}.");
             Add(value);
-            if (Settings.Statistics && order != BytesOrder.None) Bound(value);
         }
     }
 
     protected override void AppendAt(IArrowArray array, ReadOnlySpan<int> indices)
     {
+        if (direct)
+        {
+            // Runs of consecutive positions (the items of lists lie together), each copied at once.
+            for (int k = 0; k < indices.Length;)
+            {
+                int run = 1;
+                while (k + run < indices.Length && indices[k + run] == indices[k] + run) run++;
+                AppendRun(array, indices[k], run);
+                k += run;
+            }
+            return;
+        }
         foreach (int i in indices)
         {
             ReadOnlySpan<byte> value = source(array, i, _scratch);
             if (fixedLength > 0 && value.Length != fixedLength)
                 throw new ArgumentException($"A value of column '{column}' has {value.Length} bytes; the column's values have {fixedLength}.");
             Add(value);
-            if (Settings.Statistics && order != BytesOrder.None) Bound(value);
+        }
+    }
+
+    /// <summary>Appends the values of rows <paramref name="start"/> .. +<paramref name="count"/> (all valid) of a direct array at once.</summary>
+    private void AppendRun(IArrowArray array, int start, int count)
+    {
+        int first = _count;
+        if (_offsets.Length < _count + count + 1) Array.Resize(ref _offsets, Math.Max(_offsets.Length * 2, _count + count + 1));
+        if (array is BinaryArray binary)
+        {
+            ReadOnlySpan<int> offsets = binary.ValueOffsets.Slice(start, count + 1);
+            CopyBytes(binary.ValueBuffer.Span.Slice(offsets[0], offsets[count] - offsets[0]));
+            int shift = _arenaLength - offsets[0];
+            Span<int> into = _offsets.AsSpan(_count + 1, count);
+            for (int k = 0; k < count; k++) into[k] = offsets[k + 1] + shift;
+        }
+        else
+        {
+            var large = (LargeBinaryArray)array;
+            ReadOnlySpan<long> offsets = large.ValueOffsets.Slice(start, count + 1);
+            CopyBytes(large.ValueBuffer.Span.Slice(checked((int)offsets[0]), checked((int)(offsets[count] - offsets[0]))));
+            long shift = _arenaLength - offsets[0];
+            Span<int> into = _offsets.AsSpan(_count + 1, count);
+            for (int k = 0; k < count; k++) into[k] = checked((int)(offsets[k + 1] + shift));
+        }
+        _count += count;
+        _arenaLength = _offsets[_count];
+        if (Bloom is { } bloom)
+        {
+            for (int v = first; v < _count; v++) bloom.Add(Value(v));
+        }
+
+        void CopyBytes(ReadOnlySpan<byte> bytes)
+        {
+            if (_arenaLength + bytes.Length > _arena.Length)
+                Array.Resize(ref _arena, (int)Math.Min(Array.MaxLength, Math.Max(_arena.Length * 2L, (long)_arenaLength + bytes.Length)));
+            bytes.CopyTo(_arena.AsSpan(_arenaLength));
         }
     }
 
@@ -278,28 +512,102 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         value.CopyTo(_arena.AsSpan(_arenaLength));
         _arenaLength += value.Length;
         _offsets[++_count] = _arenaLength;
+        Bloom?.Add(value);
     }
 
     private ReadOnlySpan<byte> Value(int i) => _arena.AsSpan(_offsets[i], _offsets[i + 1] - _offsets[i]);
 
     private void Bound(ReadOnlySpan<byte> value)
     {
+        ByteBounds b = _pageBounds;
         if (order == BytesOrder.Float16 && Half.IsNaN(BinaryPrimitives.ReadHalfLittleEndian(value)))
         {
-            _nans++;
+            b.Nans++;
             return;
         }
-        if (_minLength < 0 || Compare(value, _min.AsSpan(0, _minLength)) < 0) Keep(value, ref _min, ref _minLength);
-        if (_maxLength < 0 || Compare(value, _max.AsSpan(0, _maxLength)) > 0) Keep(value, ref _max, ref _maxLength);
+        // One value: below the lower bound, or else perhaps above the upper one (bounds kept in order).
+        if (b.MinLength < 0)
+        {
+            ByteBounds.Keep(value, ref b.MinBuffer, ref b.MinLength);
+            ByteBounds.Keep(value, ref b.MaxBuffer, ref b.MaxLength);
+        }
+        else if (Compare(value, b.MinBuffer.AsSpan(0, b.MinLength)) < 0) ByteBounds.Keep(value, ref b.MinBuffer, ref b.MinLength);
+        else if (Compare(value, b.MaxBuffer.AsSpan(0, b.MaxLength)) > 0) ByteBounds.Keep(value, ref b.MaxBuffer, ref b.MaxLength);
     }
 
-    private static void Keep(ReadOnlySpan<byte> value, ref byte[] buffer, ref int length)
+    /// <summary>Widens <paramref name="b"/> to hold <paramref name="min"/> and <paramref name="max"/>.</summary>
+    private void Widen(ByteBounds b, ReadOnlySpan<byte> min, ReadOnlySpan<byte> max)
     {
-        if (buffer.Length < value.Length) buffer = new byte[Math.Max(value.Length, buffer.Length * 2)];
-        value.CopyTo(buffer);
-        length = value.Length;
+        if (!b.Has || Compare(min, b.Min) < 0) ByteBounds.Keep(min, ref b.MinBuffer, ref b.MinLength);
+        if (b.MaxLength < 0 || Compare(max, b.Max) > 0) ByteBounds.Keep(max, ref b.MaxBuffer, ref b.MaxLength);
     }
 
+    private int[] _seen = new int[64]; // the page stamp of each dictionary entry bounded
+    private int _stamp;
+
+    /// <summary>
+    /// The page's bounds, gathered at its end: from the distinct dictionary entries of a dictionary-encoded page (half
+    /// floats aside, whose NaNs are counted value by value), else value by value.
+    /// </summary>
+    protected override void FinishPageBounds(ReadOnlySpan<uint> dictionaryIndices)
+    {
+        if (order == BytesOrder.None) return;
+        if (!dictionaryIndices.IsEmpty && order != BytesOrder.Float16)
+        {
+            if (_seen.Length < _dictionary.Count) Array.Resize(ref _seen, Math.Max(_seen.Length * 2, _dictionary.Count));
+            if (++_stamp == int.MaxValue)
+            {
+                Array.Clear(_seen);
+                _stamp = 1;
+            }
+            foreach (uint index in dictionaryIndices)
+            {
+                if (_seen[index] == _stamp) continue;
+                _seen[index] = _stamp;
+                Bound(_dictionary[(int)index]);
+            }
+            return;
+        }
+        for (int i = 0; i < _count; i++) Bound(Value(i));
+    }
+
+    protected override bool ClosePageBounds(int values, out byte[]? min, out byte[]? max)
+    {
+        ByteBounds page = _pageBounds;
+        _chunkBounds.Nans += page.Nans;
+        if (page.Has) Widen(_chunkBounds, page.Min, page.Max);
+        min = max = null;
+        bool usable = values == 0 || (order != BytesOrder.None && page.Nans == 0 && page.Has && Bounds(page, out min, out max, out _, out _));
+        page.Clear();
+        return usable;
+    }
+
+    protected override int CompareBounds(byte[] a, byte[] b) => Compare(a, b);
+
+    /// <summary>
+    /// The bounds of <paramref name="b"/> as written: half-float zeros signed as for floats, strings and binary cut to
+    /// the truncation length; false when no upper bound that short exists.
+    /// </summary>
+    private bool Bounds(ByteBounds b, out byte[]? min, out byte[]? max, out bool minExact, out bool maxExact)
+    {
+        byte[] lower = b.Min.ToArray(), upper = b.Max.ToArray();
+        minExact = maxExact = true;
+        if (order == BytesOrder.Float16)
+        {
+            if (BinaryPrimitives.ReadHalfLittleEndian(lower) == Half.Zero) BinaryPrimitives.WriteHalfLittleEndian(lower, Half.NegativeZero);
+            if (BinaryPrimitives.ReadHalfLittleEndian(upper) == Half.Zero) BinaryPrimitives.WriteHalfLittleEndian(upper, Half.Zero);
+        }
+        else if (fixedLength == 0 && Settings.TruncateLength is int limit)
+        {
+            (min, minExact) = BoundTruncation.Lower(lower, limit, utf8);
+            (max, maxExact) = BoundTruncation.Upper(upper, limit, utf8);
+            return max is not null;
+        }
+        (min, max) = (lower, upper);
+        return true;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int Compare(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => order switch
     {
         BytesOrder.SignedDecimal => (sbyte)a[0] != (sbyte)b[0] ? ((sbyte)a[0]).CompareTo((sbyte)b[0]) : a[1..].SequenceCompareTo(b[1..]),
@@ -319,6 +627,27 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
             return;
         }
         for (int i = 0; i < _count; i++) WriteWithLength(Value(i), output);
+    }
+
+    protected override void EncodeAs(ParquetEncoding encoding, IBufferWriter<byte> output)
+    {
+        ReadOnlySpan<byte> bytes = _arena.AsSpan(0, _arenaLength);
+        ReadOnlySpan<int> offsets = _offsets.AsSpan(0, _count + 1);
+        switch (encoding)
+        {
+            case ParquetEncoding.DeltaLengthByteArray when fixedLength == 0:
+                DeltaByteArrayEncoder.EncodeLengths(bytes, offsets, output);
+                break;
+            case ParquetEncoding.DeltaByteArray:
+                DeltaByteArrayEncoder.EncodeIncremental(bytes, offsets, output);
+                break;
+            case ParquetEncoding.ByteStreamSplit when fixedLength > 0:
+                ByteStreamSplit.Encode(bytes, fixedLength, output.GetSpan(bytes.Length));
+                output.Advance(bytes.Length);
+                break;
+            default:
+                throw new NotSupportedException($"Column '{column}' is not written as {encoding}.");
+        }
     }
 
     private static void WriteWithLength(ReadOnlySpan<byte> value, IBufferWriter<byte> output)
@@ -357,24 +686,12 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
 
     protected override Statistics? ChunkStatistics(long nullCount)
     {
+        ByteBounds b = _chunkBounds;
         // No bounds without values, nor (as for floats) for half floats among which NaNs are.
-        if (order == BytesOrder.None || _minLength < 0 || _nans > 0)
-            return new Statistics { NullCount = nullCount, NanCount = order == BytesOrder.Float16 ? _nans : null };
-        byte[] min = _min.AsSpan(0, _minLength).ToArray(), max = _max.AsSpan(0, _maxLength).ToArray();
-        bool minExact = true, maxExact = true;
-        if (order == BytesOrder.Float16)
-        {
-            if (BinaryPrimitives.ReadHalfLittleEndian(min) == Half.Zero) BinaryPrimitives.WriteHalfLittleEndian(min, Half.NegativeZero);
-            if (BinaryPrimitives.ReadHalfLittleEndian(max) == Half.Zero) BinaryPrimitives.WriteHalfLittleEndian(max, Half.Zero);
-        }
-        else if (fixedLength == 0 && Settings.TruncateLength is int limit)
-        {
-            (min, minExact) = BoundTruncation.Lower(min, limit, utf8);
-            byte[]? upper;
-            (upper, maxExact) = BoundTruncation.Upper(max, limit, utf8);
-            if (upper is null) return new Statistics { NullCount = nullCount, MinValue = min, IsMinValueExact = minExact };
-            max = upper;
-        }
+        if (order == BytesOrder.None || !b.Has || b.Nans > 0)
+            return new Statistics { NullCount = nullCount, NanCount = order == BytesOrder.Float16 ? b.Nans : null };
+        if (!Bounds(b, out byte[]? min, out byte[]? max, out bool minExact, out bool maxExact))
+            return new Statistics { NullCount = nullCount, MinValue = min, IsMinValueExact = minExact };
         return new Statistics
         {
             NullCount = nullCount,
@@ -382,15 +699,19 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
             MaxValue = max,
             IsMinValueExact = minExact,
             IsMaxValueExact = maxExact,
-            NanCount = order == BytesOrder.Float16 ? _nans : null,
+            NanCount = order == BytesOrder.Float16 ? b.Nans : null,
         };
     }
 
     protected override void ResetStatistics()
     {
-        _minLength = _maxLength = -1;
-        _nans = 0;
+        _pageBounds.Clear();
+        _chunkBounds.Clear();
     }
+
+    protected override bool IsByteArray => fixedLength == 0;
+
+    protected override long PageUnencodedBytes => _arenaLength;
 }
 
 /// <summary>A BOOLEAN column: values bit-packed, never dictionary-encoded.</summary>
@@ -398,7 +719,8 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
 {
     private bool[] _page = new bool[1024];
     private int _count;
-    private bool _any, _min = true, _max;
+    private bool _any, _min = true, _max;          // the chunk's
+    private bool _pageAny, _pageMin = true, _pageMax; // the open page's
 
     protected override void Append(IArrowArray array, int offset, int count, int nulls)
     {
@@ -406,7 +728,7 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
         var booleans = (BooleanArray)array;
         for (int i = offset; i < offset + count; i++)
         {
-            if (nulls > 0 && booleans.IsNull(i)) continue;
+            if (nulls > 0 && IsNullAt(array, offset, i - offset)) continue;
             Add(booleans.GetValue(i) == true);
         }
     }
@@ -421,10 +743,28 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
     private void Add(bool value)
     {
         _page[_count++] = value;
-        _any = true;
-        _min &= value;
-        _max |= value;
+        _pageAny = true;
+        _pageMin &= value;
+        _pageMax |= value;
     }
+
+    protected override bool ClosePageBounds(int values, out byte[]? min, out byte[]? max)
+    {
+        min = max = null;
+        if (_pageAny)
+        {
+            _any = true;
+            _min &= _pageMin;
+            _max |= _pageMax;
+            min = [_pageMin ? (byte)1 : (byte)0];
+            max = [_pageMax ? (byte)1 : (byte)0];
+        }
+        _pageAny = _pageMax = false;
+        _pageMin = true;
+        return true;
+    }
+
+    protected override int CompareBounds(byte[] a, byte[] b) => a[0].CompareTo(b[0]);
 
     protected override int PageValueCount => _count;
 
@@ -444,6 +784,22 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
 
     protected override void ClearPage() => _count = 0;
 
+    private readonly ArrayBufferWriter<byte> _rle = new(256);
+    private uint[] _bits = new uint[1024];
+
+    /// <summary>RLE: the values run-length / bit-packed one bit wide, after their byte length (4 bytes).</summary>
+    protected override void EncodeAs(ParquetEncoding encoding, IBufferWriter<byte> output)
+    {
+        if (encoding != ParquetEncoding.Rle) throw new NotSupportedException($"Booleans are not written as {encoding}.");
+        if (_bits.Length < _count) _bits = new uint[Math.Max(_count, _bits.Length * 2)];
+        for (int i = 0; i < _count; i++) _bits[i] = _page[i] ? 1u : 0u;
+        _rle.ResetWrittenCount();
+        RleBitPackedEncoder.Encode(_bits.AsSpan(0, _count), 1, _rle);
+        BinaryPrimitives.WriteInt32LittleEndian(output.GetSpan(4), _rle.WrittenCount);
+        output.Advance(4);
+        output.Write(_rle.WrittenSpan);
+    }
+
     protected override Statistics? ChunkStatistics(long nullCount)
     {
         if (!_any) return new Statistics { NullCount = nullCount };
@@ -457,8 +813,8 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
 
     protected override void ResetStatistics()
     {
-        _any = _max = false;
-        _min = true;
+        _any = _max = _pageAny = _pageMax = false;
+        _min = _pageMin = true;
     }
 }
 

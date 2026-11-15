@@ -336,7 +336,11 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
             Dictionary = random.Next(4) != 0,
             DictionaryPageBytes = 1 + random.Next(random.Next(2) == 0 ? 500 : 2_000_000),
             WriteChecksums = random.Next(2) == 0,
+            PageIndex = random.Next(4) != 0,
+            SizeStatistics = random.Next(4) != 0,
+            MaxDegreeOfParallelism = random.Next(3) == 0 ? 1 : 1 + random.Next(8),
         };
+        options = options with { Columns = RandomColumns(random, batch) };
         using var stream = new MemoryStream();
         using (var writer = ParquetWriter.Create(stream, batch.Schema, options with { LeaveOpen = true }))
         {
@@ -349,6 +353,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         }
         stream.Position = 0;
         using var file = ParquetFile.Open(stream);
+        if (Indexes(stream.ToArray(), file, options) is { } broken) return new Outcome(true, "Written page indexes are not usable", $"{broken}, options {Describe(options)}");
         using var reader = file.OpenReader(new ParquetReadOptions { VerifyChecksums = options.WriteChecksums, BatchSize = 1 + random.Next(2000) });
         List<RecordBatch> read = [.. reader.ReadBatches()];
         try
@@ -357,7 +362,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
             {
                 string[] got = [.. read.SelectMany(b => ParquetNestedData.Canonical(b.Column(c)))];
                 if (!expected[c][skip..].SequenceEqual(got))
-                    return new Outcome(true, "Written nested values do not come back", $"column {batch.Schema.FieldsList[c].Name} ({batch.Schema.FieldsList[c].DataType.Name}), options {options}");
+                    return new Outcome(true, "Written nested values do not come back", $"column {batch.Schema.FieldsList[c].Name} ({batch.Schema.FieldsList[c].DataType.Name}), options {Describe(options)}");
             }
             return Outcome.Read;
         }
@@ -391,7 +396,11 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
             StatisticsTruncateLength = random.Next(3) == 0 ? null : 1 + random.Next(100),
             WriteChecksums = random.Next(2) == 0,
             StoreArrowSchema = random.Next(4) != 0,
+            PageIndex = random.Next(4) != 0,
+            SizeStatistics = random.Next(4) != 0,
+            MaxDegreeOfParallelism = random.Next(3) == 0 ? 1 : 1 + random.Next(8),
         };
+        options = options with { Columns = RandomColumns(random, batch) };
         using var stream = new MemoryStream();
         using (var writer = ParquetWriter.Create(stream, batch.Schema, options with { LeaveOpen = true }))
         {
@@ -405,6 +414,8 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         }
         stream.Position = 0;
         using var file = ParquetFile.Open(stream);
+        if (Indexes(stream.ToArray(), file, options) is { } broken) return new Outcome(true, "Written page indexes are not usable", $"{broken}, options {Describe(options)}");
+        if (FilteredRead(random, file, batch) is { } lost) return new Outcome(true, "A filtered read of a written file loses or adds rows", $"{lost}, options {Describe(options)}");
         using var reader = file.OpenReader(new ParquetReadOptions { VerifyChecksums = options.WriteChecksums, BatchSize = 1 + random.Next(5000) });
         List<RecordBatch> read = [.. reader.ReadBatches()];
         try
@@ -419,7 +430,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
                     actual[c] = [.. actual[c].Select(v => v == "null" ? v : "dur" + System.Numerics.BigInteger.Parse(v) * per)];
                 }
                 if (!expected[c].SequenceEqual(actual[c]))
-                    return new Outcome(true, "Written values do not come back", $"column {batch.Schema.FieldsList[c].Name}, options {options}");
+                    return new Outcome(true, "Written values do not come back", $"column {batch.Schema.FieldsList[c].Name}, options {Describe(options)}");
             }
             return Outcome.Read;
         }
@@ -427,6 +438,117 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         {
             foreach (RecordBatch b in read) b.Dispose();
         }
+    }
+
+    /// <summary>The options, with the column settings spelled out (records print dictionaries as their type).</summary>
+    private static string Describe(ParquetWriteOptions options) =>
+        options + (options.Columns is { } columns ? " columns {" + string.Join("; ", columns.Select(c => $"{c.Key}: {c.Value}")) + "}" : "");
+
+    /// <summary>
+    /// Random settings for some leaves of <paramref name="batch"/>: an encoding the leaf's type takes, the dictionary on
+    /// or off, a Bloom filter of random size; now and then for a whole column by its own (ancestor) path.
+    /// </summary>
+    private static Dictionary<string, ParquetColumnOptions>? RandomColumns(Random random, RecordBatch batch)
+    {
+        if (random.Next(3) == 0) return null;
+        using var probe = new MemoryStream();
+        ParquetWriter.Write(probe, batch.Schema, [batch.Slice(0, 0)], new ParquetWriteOptions { LeaveOpen = true });
+        probe.Position = 0;
+        using var file = ParquetFile.Open(probe);
+        // The leaves' paths, walking the depth-first schema (the root first).
+        SchemaElement[] schema = file.Metadata.Thrift!.Schema;
+        List<(string Path, ParquetType Type)> leaves = [];
+        int at = 1;
+        for (int top = 0; top < (schema[0].NumChildren ?? 0); top++) Walk("");
+        void Walk(string prefix)
+        {
+            SchemaElement e = schema[at++];
+            string path = prefix.Length == 0 ? e.Name : prefix + "." + e.Name;
+            if (e.Type is { } t) leaves.Add((path, t));
+            for (int k = 0; k < (e.NumChildren ?? 0); k++) Walk(path);
+        }
+        Dictionary<string, ParquetColumnOptions> columns = [];
+        foreach (var (path, type) in leaves)
+        {
+            if (random.Next(2) == 0) continue;
+            ParquetValueEncoding[] takes = [.. Enum.GetValues<ParquetValueEncoding>().Where(e => Kaminari.Seseragi.Files.Parquet.Writing.ColumnSettings.Takes(type, e))];
+            columns[path] = new ParquetColumnOptions
+            {
+                Encoding = takes[random.Next(takes.Length)],
+                Dictionary = random.Next(3) switch { 0 => null, 1 => true, _ => false },
+                BloomFilter = type == ParquetType.Boolean || random.Next(2) == 0 ? null : new ParquetBloomFilterOptions
+                {
+                    FalsePositiveRate = (double)random.Next(1, 300) / 1000,
+                    DistinctValues = random.Next(2) == 0 ? null : random.Next(1, 100_000),
+                    MaxBytes = 32 << random.Next(16),
+                },
+            };
+        }
+        // A whole top-level column by its name: Plain and the dictionary fit every leaf under it.
+        if (random.Next(4) == 0) columns[batch.Schema.FieldsList[random.Next(batch.ColumnCount)].Name] = new ParquetColumnOptions { Dictionary = random.Next(2) == 0 };
+        return columns;
+    }
+
+    /// <summary>Where the page indexes our writer wrote do not describe its chunks (as the reader checks them), or null.</summary>
+    private static string? Indexes(byte[] bytes, ParquetFile file, ParquetWriteOptions options)
+    {
+        foreach (var (group, g) in file.Metadata.Thrift!.RowGroups.Select((g, i) => (g, i)))
+        {
+            foreach (ColumnChunk chunk in group.Columns)
+            {
+                ColumnMetaData meta = chunk.MetaData!;
+                if ((chunk.OffsetIndexOffset is not null) != options.PageIndex) return $"row group {g} {string.Join('.', meta.PathInSchema)}: offset index {chunk.OffsetIndexOffset is not null}";
+                if (chunk.OffsetIndexOffset is not long o) continue;
+                OffsetIndex offsets = OffsetIndex.Parse(bytes.AsSpan((int)o, chunk.OffsetIndexLength!.Value));
+                ColumnIndex? columns = chunk.ColumnIndexOffset is long ci ? ColumnIndex.Parse(bytes.AsSpan((int)ci, chunk.ColumnIndexLength!.Value)) : null;
+                long start = meta.DictionaryPageOffset ?? meta.DataPageOffset;
+                ChunkPageIndex? index = ChunkPageIndex.Create(offsets, columns, group.NumRows, start, meta.TotalCompressedSize);
+                if (index is null || (columns is not null && index.Columns is null))
+                    return $"row group {g} {string.Join('.', meta.PathInSchema)}: the reader refuses its {(index is null ? "offset" : "column")} index";
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A random equality or range on an integer or string column, read with every pruning the reader has (statistics,
+    /// page indexes, Bloom filters): the rows kept must be the rows that match.
+    /// </summary>
+    private static string? FilteredRead(Random random, ParquetFile file, RecordBatch batch)
+    {
+        int[] candidates = [.. Enumerable.Range(0, batch.ColumnCount).Where(c => batch.Schema.FieldsList[c].Name is "i32" or "i64" or "str" or "req_i64" or "req_str")];
+        if (candidates.Length == 0 || batch.Length == 0) return null;
+        int column = candidates[random.Next(candidates.Length)];
+        IArrowArray array = batch.Column(column);
+        string name = batch.Schema.FieldsList[column].Name;
+        int row = random.Next(batch.Length);
+        if (array.IsNull(row)) return null;
+        bool absent = random.Next(4) == 0;
+        (LiteralValue literal, Func<int, int> compare) = array switch
+        {
+            Int32Array a => (LiteralValue.NewInt32(absent ? a.Values[row] ^ 0x5A5A5A5A : a.Values[row]), new Func<int, int>(i => a.Values[i].CompareTo(absent ? a.Values[row] ^ 0x5A5A5A5A : a.Values[row]))),
+            Int64Array a => (LiteralValue.NewInt64(absent ? ~a.Values[row] : a.Values[row]), i => a.Values[i].CompareTo(absent ? ~a.Values[row] : a.Values[row])),
+            StringArray a => (LiteralValue.NewString(a.GetString(row) + (absent ? "☃" : "")), i => string.CompareOrdinal(a.GetString(i), a.GetString(row) + (absent ? "☃" : "")) == 0 ? 0 : 1),
+            _ => (LiteralValue.NewInt32(0), _ => 1),
+        };
+        int which = array is StringArray ? 0 : random.Next(3); // =, <, >=
+        BinaryOp op = ((BinaryOp[])[BinaryOp.Eq, BinaryOp.Lt, BinaryOp.GtEq])[which];
+        long[] expected = [.. Enumerable.Range(0, batch.Length).Where(i => !array.IsNull(i) && which switch
+        {
+            0 => compare(i) == 0,
+            1 => compare(i) < 0,
+            _ => compare(i) >= 0,
+        }).Select(i => (long)i)];
+        using var reader = file.OpenReader(new ParquetReadOptions
+        {
+            Filter = ScalarExpr.NewBinary(op, ScalarExpr.NewColumn(name), ScalarExpr.NewLiteral(literal)), FilterRows = true, RowIndexColumn = "row", Columns = [],
+        });
+        List<long> rows = [];
+        foreach (RecordBatch b in reader.ReadBatches())
+        {
+            using (b) rows.AddRange(((Int64Array)b.Column(b.ColumnCount - 1)).Values.ToArray());
+        }
+        return rows.SequenceEqual(expected) ? null : $"{name} {op} {literal}: {rows.Count} rows kept, {expected.Length} match";
     }
 
     /// <summary>A DELTA_BINARY_PACKED stream: a plausible header (or not), then random blocks; decoded as INT32 and INT64, to the end and not.</summary>

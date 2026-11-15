@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
@@ -26,7 +28,11 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly ColumnWriter[] _columns;
     private readonly Shredder?[] _shredders;
     private readonly List<RowGroup> _rowGroups = [];
+    private readonly List<(ColumnChunk Chunk, ColumnIndex? Columns, OffsetIndex? Offsets)> _pageIndexes = [];
+    private readonly List<(ColumnMetaData Chunk, byte[] Bitset)> _bloomFilters = [];
     private readonly KeyValue[]? _keyValues;
+    private readonly WorkBudget _budget;
+    private Task _writing = Task.CompletedTask; // the last row group's bytes, written while the next one is encoded
     private long _rowGroupRows, _totalRows, _position;
     private bool _started, _completed, _faulted, _disposed;
     private ParquetMetadata? _metadata;
@@ -43,10 +49,14 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         var (elements, plans) = WriteSchema.Plan(schema, options);
         var settings = new PageSettings(options.Compression.ParquetCodec, options.Compression.ParquetLevel, options.DataPageVersion,
             options.DataPageBytes, options.DataPageRows, options.Dictionary, options.DictionaryPageBytes, options.Statistics,
-            options.StatisticsTruncateLength, options.WriteChecksums);
+            options.StatisticsTruncateLength, options.WriteChecksums, options.PageIndex, options.SizeStatistics,
+            Budget: _budget = new WorkBudget(options.MaxDegreeOfParallelism));
         _elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
         _plans = plans;
-        _columns = [.. plans.Select(p => p.Leaf.CreateWriter(settings))];
+        ParquetColumnOptions?[] columns = ColumnSettings.Resolve(plans, options.Columns);
+        _columns = [.. plans.Select((p, c) => p.Leaf.CreateWriter(columns[c] is { } column
+            ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
+            : settings))];
         _shredders = [.. plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))];
         List<KeyValue> keyValues = [];
         if (options.StoreArrowSchema) keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(schema))));
@@ -57,11 +67,63 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <summary>The Arrow schema the batches must have.</summary>
     public Apache.Arrow.Schema Schema { get; }
 
-    /// <summary>The bytes written to the stream so far (the row groups closed, and the footer once completed).</summary>
+    /// <summary>
+    /// The bytes of the file so far (the row groups closed, and the footer once completed; with more than one thread,
+    /// the last row group may still be on its way to the stream until the next one closes or the file completes).
+    /// </summary>
     public long BytesWritten => _position;
 
     /// <summary>About how many bytes the open row group will take (its pages so far, the open ones as plainly encoded).</summary>
     public long PendingBytes => _columns.Sum(c => c.BufferedBytes);
+
+    /// <summary>
+    /// The rows of a batch the columns take at once, in parallel; the row group's size is checked after each segment
+    /// (segments depend on the rows alone, never on the threads, so neither do the file's bytes).
+    /// </summary>
+    private const int SegmentRows = 16_384;
+
+    /// <summary>Whether the open row group reached RowGroupBytes: decided on the pages' exact sizes, waited for only near the limit.</summary>
+    private bool RowGroupFull() =>
+        _columns.Sum(c => c.BufferedBytesBound) >= _options.RowGroupBytes && PendingBytes >= _options.RowGroupBytes;
+
+    /// <summary>
+    /// Runs <paramref name="work"/> for every column, in parallel when the budget allows and the work is worth it; the
+    /// first column's exception (in column order, as one thread would meet it) is rethrown.
+    /// </summary>
+    private void ForEachColumn(Action<int> work, bool parallel)
+    {
+        if (!parallel || _budget.Max == 1 || _columns.Length == 1)
+        {
+            _budget.Enter();
+            try
+            {
+                for (int c = 0; c < _columns.Length; c++) work(c);
+            }
+            finally
+            {
+                _budget.Exit();
+            }
+            return;
+        }
+        var errors = new Exception?[_columns.Length];
+        Parallel.For(0, _columns.Length, new ParallelOptions { MaxDegreeOfParallelism = _budget.Max }, c =>
+        {
+            _budget.Enter();
+            try
+            {
+                work(c);
+            }
+            catch (Exception e)
+            {
+                errors[c] = e;
+            }
+            finally
+            {
+                _budget.Exit();
+            }
+        });
+        if (errors.FirstOrDefault(e => e is not null) is { } first) ExceptionDispatchInfo.Throw(first);
+    }
 
     /// <summary>The footer written, once the file is complete.</summary>
     /// <exception cref="InvalidOperationException">The file is not complete yet.</exception>
@@ -206,23 +268,27 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             int offset = 0;
             while (offset < batch.Length)
             {
-                // Steps of at most 1024 rows: nested columns are shredded a step at a time, and the row group's size is
-                // checked after each.
-                int take = (int)Math.Min(batch.Length - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, Math.Min(_options.DataPageRows, 1024)));
-                for (int c = 0; c < _columns.Length; c++)
+                int take = (int)Math.Min(batch.Length - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, SegmentRows));
+                int at = offset;
+                ForEachColumn(c =>
                 {
                     IArrowArray column = batch.Column(_plans[c].Field);
                     if (_shredders[c] is not { } shredder)
                     {
-                        _columns[c].Write(column, offset, take);
-                        continue;
+                        _columns[c].Write(column, at, take);
+                        return;
                     }
-                    shredder.Shred(column, offset, take);
-                    _columns[c].Write(shredder.Def, shredder.Rep, shredder.Leaf, shredder.Indices);
-                }
+                    // Nested columns are shredded in steps, keeping the level buffers small.
+                    for (int step = 0; step < take; step += 1024)
+                    {
+                        int n = Math.Min(1024, take - step);
+                        shredder.Shred(column, at + step, n);
+                        _columns[c].Write(shredder.Def, shredder.Rep, shredder.Leaf, shredder.Indices);
+                    }
+                }, parallel: (long)take * _columns.Length >= 4096);
                 _rowGroupRows += take;
                 offset += take;
-                if (_rowGroupRows >= _options.RowGroupRows || PendingBytes >= _options.RowGroupBytes)
+                if (_rowGroupRows >= _options.RowGroupRows || RowGroupFull())
                     await FlushRowGroupAsync(useAsync, ct).ConfigureAwait(false);
             }
         }
@@ -348,12 +414,18 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         await StartAsync(useAsync, ct).ConfigureAwait(false);
         long groupStart = _position, uncompressed = 0, compressed = 0;
         var chunks = new ColumnChunk[_columns.Length];
+        // Every chunk finished (last pages, dictionary pages, statistics, indexes) in parallel, then laid out in column
+        // order; the bytes go to the stream after the previous row group's, by a task when threads are allowed.
+        var finished = new FinishedChunk[_columns.Length];
+        ForEachColumn(c => finished[c] = _columns[c].Finish(), parallel: true);
+        List<ReadOnlyMemory<byte>> pieces = [];
         for (int c = 0; c < _columns.Length; c++)
         {
-            FinishedChunk chunk = _columns[c].Finish();
+            FinishedChunk chunk = finished[c];
             long start = _position;
-            await WriteBytesAsync(chunk.DictionaryPage, useAsync, ct).ConfigureAwait(false);
-            await WriteBytesAsync(chunk.DataPages, useAsync, ct).ConfigureAwait(false);
+            pieces.Add(chunk.DictionaryPage);
+            pieces.AddRange(chunk.DataPages);
+            _position += chunk.CompressedSize;
             SchemaElement element = _plans[c].Leaf.Element;
             var meta = new ColumnMetaData
             {
@@ -368,11 +440,41 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 DictionaryPageOffset = chunk.DictionaryPage.IsEmpty ? null : start,
                 Statistics = chunk.Statistics,
                 EncodingStats = chunk.EncodingStats,
+                SizeStatistics = chunk.SizeStatistics,
             };
             chunks[c] = new ColumnChunk { FileOffset = start, MetaData = meta };
+            if (chunk.BloomFilter is { } bitset) _bloomFilters.Add((meta, bitset));
+            if (chunk.ColumnIndex is not null || chunk.OffsetIndex is not null)
+                _pageIndexes.Add((chunks[c], chunk.ColumnIndex, Rebase(chunk.OffsetIndex, meta.DataPageOffset)));
             uncompressed += chunk.UncompressedSize;
             compressed += chunk.CompressedSize;
-            _columns[c].Reset();
+        }
+        foreach (ColumnWriter column in _columns) column.Reset();
+        await _writing.ConfigureAwait(false); // one row group on its way at most
+        if (_budget.Max == 1)
+        {
+            try
+            {
+                await WritePiecesAsync(pieces, useAsync, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                foreach (FinishedChunk chunk in finished) chunk.Release();
+            }
+        }
+        else
+        {
+            _writing = Task.Run(async () =>
+            {
+                try
+                {
+                    await WritePiecesAsync(pieces, useAsync, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    foreach (FinishedChunk chunk in finished) chunk.Release();
+                }
+            }, CancellationToken.None);
         }
         _rowGroups.Add(new RowGroup
         {
@@ -387,6 +489,61 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         _rowGroupRows = 0;
     }
 
+    /// <summary>An offset index whose page offsets count from the chunk's data pages, with file offsets.</summary>
+    private static OffsetIndex? Rebase(OffsetIndex? index, long dataPages) => index is null ? null : new OffsetIndex
+    {
+        PageLocations = [.. index.PageLocations.Select(p => p with { Offset = p.Offset + dataPages })],
+        UnencodedByteArrayDataBytes = index.UnencodedByteArrayDataBytes,
+    };
+
+    /// <summary>
+    /// Writes the Bloom filters after the row groups (each a header and its bitset, as pyarrow places them: together,
+    /// so that a reader fetches them at once) and points the column chunks at them.
+    /// </summary>
+    private async ValueTask WriteBloomFiltersAsync(bool useAsync, CancellationToken ct)
+    {
+        var thrift = new ThriftCompactWriter();
+        foreach (var (chunk, bitset) in _bloomFilters)
+        {
+            thrift.Clear();
+            // Members by field id: algorithm BLOCK = 1, hash XXHASH = 1, compression UNCOMPRESSED = 1.
+            new BloomFilterHeader(bitset.Length, 1, 1, 1).Write(thrift);
+            chunk.BloomFilterOffset = _position;
+            chunk.BloomFilterLength = thrift.WrittenSpan.Length + bitset.Length;
+            await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
+            await WriteBytesAsync(bitset, useAsync, ct).ConfigureAwait(false);
+        }
+        _bloomFilters.Clear();
+    }
+
+    /// <summary>
+    /// Writes the page indexes after the row groups (every column index, then every offset index, as parquet-mr and
+    /// Arrow place them) and points the column chunks at them.
+    /// </summary>
+    private async ValueTask WritePageIndexesAsync(bool useAsync, CancellationToken ct)
+    {
+        var thrift = new ThriftCompactWriter();
+        foreach (var (chunk, columns, _) in _pageIndexes)
+        {
+            if (columns is null) continue;
+            thrift.Clear();
+            columns.Write(thrift);
+            chunk.ColumnIndexOffset = _position;
+            chunk.ColumnIndexLength = thrift.WrittenSpan.Length;
+            await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
+        }
+        foreach (var (chunk, _, offsets) in _pageIndexes)
+        {
+            if (offsets is null) continue;
+            thrift.Clear();
+            offsets.Write(thrift);
+            chunk.OffsetIndexOffset = _position;
+            chunk.OffsetIndexLength = thrift.WrittenSpan.Length;
+            await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
+        }
+        _pageIndexes.Clear();
+    }
+
     private async ValueTask StartAsync(bool useAsync, CancellationToken ct)
     {
         if (_started) return;
@@ -394,12 +551,50 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         await WriteBytesAsync(Magic.ToArray(), useAsync, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Writes page headers and bodies (laid out beforehand: <see cref="_position"/> already counts them), small pieces
+    /// gathered into one write, large ones as they are.
+    /// </summary>
+    private async Task WritePiecesAsync(IReadOnlyList<ReadOnlyMemory<byte>> pieces, bool useAsync, CancellationToken ct)
+    {
+        const int Gather = 1 << 16;
+        byte[] staging = ArrayPool<byte>.Shared.Rent(Gather);
+        try
+        {
+            int staged = 0;
+            foreach (ReadOnlyMemory<byte> piece in pieces)
+            {
+                if (staged + piece.Length > Gather && staged > 0)
+                {
+                    await RawWriteAsync(staging.AsMemory(0, staged), useAsync, ct).ConfigureAwait(false);
+                    staged = 0;
+                }
+                if (piece.Length >= Gather) await RawWriteAsync(piece, useAsync, ct).ConfigureAwait(false);
+                else
+                {
+                    piece.Span.CopyTo(staging.AsSpan(staged));
+                    staged += piece.Length;
+                }
+            }
+            if (staged > 0) await RawWriteAsync(staging.AsMemory(0, staged), useAsync, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(staging);
+        }
+    }
+
     private async ValueTask WriteBytesAsync(ReadOnlyMemory<byte> bytes, bool useAsync, CancellationToken ct)
+    {
+        await RawWriteAsync(bytes, useAsync, ct).ConfigureAwait(false);
+        _position += bytes.Length;
+    }
+
+    private async ValueTask RawWriteAsync(ReadOnlyMemory<byte> bytes, bool useAsync, CancellationToken ct)
     {
         if (bytes.IsEmpty) return;
         if (useAsync) await _stream.WriteAsync(bytes, ct).ConfigureAwait(false);
         else _stream.Write(bytes.Span);
-        _position += bytes.Length;
     }
 
     private async ValueTask CompleteCoreAsync(bool useAsync, CancellationToken ct)
@@ -411,6 +606,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         {
             await FlushRowGroupAsync(useAsync, ct).ConfigureAwait(false);
             await StartAsync(useAsync, ct).ConfigureAwait(false);
+            await _writing.ConfigureAwait(false);
+            await WriteBloomFiltersAsync(useAsync, ct).ConfigureAwait(false);
+            await WritePageIndexesAsync(useAsync, ct).ConfigureAwait(false);
             var footer = new FileMetaData
             {
                 Version = 2,
@@ -451,6 +649,19 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         return buffer.ToArray();
     }
 
+    /// <summary>Lets a row group still on its way to the stream finish (its failure was or will be reported elsewhere).</summary>
+    private void WaitForWrites()
+    {
+        try
+        {
+            _writing.Wait();
+        }
+        catch (AggregateException)
+        {
+            // A failed write faulted the writer where it was awaited (or the file is being given up anyway).
+        }
+    }
+
     /// <summary>Completes the file unless writing failed (then the stream keeps what was written, without a footer), and closes the stream unless asked not to.</summary>
     public void Dispose()
     {
@@ -462,6 +673,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         finally
         {
             _disposed = true;
+            WaitForWrites();
             if (!_options.LeaveOpen) _stream.Dispose();
         }
     }
@@ -477,6 +689,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         finally
         {
             _disposed = true;
+            WaitForWrites();
             if (!_options.LeaveOpen) await _stream.DisposeAsync().ConfigureAwait(false);
         }
     }

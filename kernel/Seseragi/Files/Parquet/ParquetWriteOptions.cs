@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Apache.Arrow.Types;
 
 namespace Kaminari.Seseragi.Files.Parquet;
@@ -38,7 +39,7 @@ public sealed record ParquetWriteOptions
     public int DataPageRows { get; init; } = 20_000;
 
     /// <summary>
-    /// Whether columns are dictionary-encoded (booleans never are). A column chunk whose first page shows that the
+    /// Whether columns are dictionary-encoded (booleans never are). A column chunk whose first page holding values shows that the
     /// dictionary does not pay is written plainly; one whose dictionary outgrows <see cref="DictionaryPageBytes"/> goes
     /// on plainly from the next page.
     /// </summary>
@@ -55,6 +56,30 @@ public sealed record ParquetWriteOptions
     /// up so that it still bounds the values; marked inexact); null keeps them whole.
     /// </summary>
     public int? StatisticsTruncateLength { get; init; } = 64;
+
+    /// <summary>
+    /// Whether column chunks carry a page index: where each data page lies and the row it starts at (OffsetIndex),
+    /// and, with <see cref="Statistics"/>, each page's bounds and null count (ColumnIndex), which readers such as
+    /// Spark use to skip pages. A chunk whose values hold a NaN, or whose type has no order (INT96, INTERVAL), gets
+    /// no ColumnIndex.
+    /// </summary>
+    public bool PageIndex { get; init; } = true;
+
+    /// <summary>
+    /// Whether column chunks (and their pages, in the page index) carry size statistics: the bytes of string and
+    /// binary values, and how many values each repetition and definition level has where that says more than the
+    /// null count.
+    /// </summary>
+    public bool SizeStatistics { get; init; } = true;
+
+    /// <summary>
+    /// Settings by column, keyed by the column's path in the Parquet schema, its names joined by dots: <c>"id"</c>,
+    /// <c>"s.x"</c> (a struct field), <c>"l.list.element"</c> (list items), <c>"m.key_value.key"</c> and
+    /// <c>"m.key_value.value"</c> (map keys and values). A path to a struct, list or map applies to every leaf column
+    /// under it, the longest path that names a leaf winning. A path naming no column, or settings a leaf's type cannot
+    /// take (an encoding of another type, a Bloom filter on booleans), are refused when the writer is created.
+    /// </summary>
+    public IReadOnlyDictionary<string, ParquetColumnOptions>? Columns { get; init; }
 
     /// <summary>Whether every page carries the CRC32 of its bytes (as Spark writes).</summary>
     public bool WriteChecksums { get; init; } = true;
@@ -78,6 +103,12 @@ public sealed record ParquetWriteOptions
     /// <summary>Extra key-value metadata of the file (<c>ARROW:schema</c> is reserved while <see cref="StoreArrowSchema"/> is on).</summary>
     public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 
+    /// <summary>
+    /// The most threads the writer keeps busy encoding column chunks and compressing pages (the processor count by
+    /// default; 1 writes on the caller's thread alone). The file is the same, byte for byte, whatever the number.
+    /// </summary>
+    public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
+
     /// <summary>Leave the stream open when the writer is disposed.</summary>
     public bool LeaveOpen { get; init; }
 
@@ -88,11 +119,27 @@ public sealed record ParquetWriteOptions
         if (RowGroupBytes <= 0) throw new ArgumentOutOfRangeException(nameof(RowGroupBytes), RowGroupBytes, "RowGroupBytes must be positive.");
         if (DataPageBytes <= 0) throw new ArgumentOutOfRangeException(nameof(DataPageBytes), DataPageBytes, "DataPageBytes must be positive.");
         if (DataPageRows <= 0) throw new ArgumentOutOfRangeException(nameof(DataPageRows), DataPageRows, "DataPageRows must be positive.");
+        if (MaxDegreeOfParallelism <= 0)
+            throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
         if (DictionaryPageBytes <= 0) throw new ArgumentOutOfRangeException(nameof(DictionaryPageBytes), DictionaryPageBytes, "DictionaryPageBytes must be positive.");
         if (StatisticsTruncateLength is <= 0)
             throw new ArgumentOutOfRangeException(nameof(StatisticsTruncateLength), StatisticsTruncateLength, "StatisticsTruncateLength must be positive (null keeps bounds whole).");
         if (DataPageVersion is not (ParquetPageVersion.V1 or ParquetPageVersion.V2))
             throw new ArgumentOutOfRangeException(nameof(DataPageVersion), DataPageVersion, "Unknown page version.");
+        foreach (var (path, column) in Columns ?? ReadOnlyDictionary<string, ParquetColumnOptions>.Empty)
+        {
+            if (column is null) throw new ArgumentNullException(nameof(Columns), $"The settings of column '{path}' are null.");
+            if (!Enum.IsDefined(column.Encoding)) throw new ArgumentOutOfRangeException(nameof(Columns), column.Encoding, $"Unknown encoding for column '{path}'.");
+            if (column.BloomFilter is { } bloom)
+            {
+                if (!(bloom.FalsePositiveRate is > 0 and < 1))
+                    throw new ArgumentOutOfRangeException(nameof(Columns), bloom.FalsePositiveRate, $"The Bloom filter false positive rate of column '{path}' must lie between 0 and 1.");
+                if (bloom.DistinctValues is <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(Columns), bloom.DistinctValues, $"The Bloom filter of column '{path}' must be sized for a positive number of distinct values.");
+                if (bloom.MaxBytes < 32)
+                    throw new ArgumentOutOfRangeException(nameof(Columns), bloom.MaxBytes, $"The Bloom filter of column '{path}' needs at least 32 bytes (one block).");
+            }
+        }
         if (StoreArrowSchema && Metadata?.ContainsKey(Schema.ArrowMapping.ArrowSchemaKey) == true)
             throw new ArgumentException($"The metadata key '{Schema.ArrowMapping.ArrowSchemaKey}' is written by the writer while StoreArrowSchema is on.", nameof(Metadata));
     }

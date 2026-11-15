@@ -3,7 +3,11 @@
 Usage: python -I writer_interop.py <dir>
 
 - For every <name>.source.arrow, pyarrow writes the same table and the two footers are compared column by column
-  (schema shape, levels, value and null counts, bounds).
+  (schema shape, levels, value and null counts, bounds), and so are the page indexes (pyarrow writing one with the
+  page rows of <name>.pages, when present): page locations' rows, null pages and counts, bounds, boundary order,
+  level histograms where we write them, value bytes) and the chunks' size statistics; for the columns <name>.bloom
+  lists, the Bloom filters (both sized for the chunk's distinct values, pyarrow's ndv only an upper bound: the same bits), and DuckDB's parquet_bloom_probe must
+  rule out no value of the column.
 - Every <name>.parquet is read whole by each reader and saved as <name>.<reader>.arrow (Arrow IPC) for the C# test
   to compare with the values written. A reader that cannot read the whole file reads it column by column; the columns
   it cannot read are listed in errors.json ({file, reader, column, error}) for the test to check against what is known.
@@ -16,6 +20,7 @@ import decimal
 import glob
 import json
 import os
+import struct
 import sys
 
 import duckdb
@@ -49,6 +54,100 @@ def readers(path):
 
 
 # ----------------------------------------------------------------------
+# Compact Thrift, enough to read footers and page indexes: a struct is {field id: value}, a list a Python list.
+# ----------------------------------------------------------------------
+class Thrift:
+    def __init__(self, data, pos=0):
+        self.d, self.p = data, pos
+
+    def varint(self):
+        shift = result = 0
+        while True:
+            b = self.d[self.p]
+            self.p += 1
+            result |= (b & 0x7F) << shift
+            if not b & 0x80:
+                return result
+            shift += 7
+
+    def zigzag(self):
+        n = self.varint()
+        return (n >> 1) ^ -(n & 1)
+
+    def value(self, t):
+        if t in (1, 2):
+            b = self.d[self.p]
+            self.p += 1
+            return b == 1
+        if t == 3:
+            self.p += 1
+            return self.d[self.p - 1]
+        if t in (4, 5, 6):
+            return self.zigzag()
+        if t == 7:
+            self.p += 8
+            return struct.unpack("<d", self.d[self.p - 8:self.p])[0]
+        if t == 8:
+            n = self.varint()
+            self.p += n
+            return bytes(self.d[self.p - n:self.p])
+        if t in (9, 10):
+            head = self.d[self.p]
+            self.p += 1
+            n, et = head >> 4, head & 0x0F
+            if n == 15:
+                n = self.varint()
+            return [self.value(et) for _ in range(n)]
+        if t == 12:
+            return self.struct()
+        raise ValueError(f"thrift type {t}")
+
+    def struct(self):
+        fields, last = {}, 0
+        while True:
+            head = self.d[self.p]
+            self.p += 1
+            if head == 0:
+                return fields
+            t, delta = head & 0x0F, head >> 4
+            fid = last + delta if delta else self.zigzag()
+            last = fid
+            fields[fid] = (t == 1) if t in (1, 2) else self.value(t)
+
+
+def footer(path):
+    data = open(path, "rb").read()
+    n = struct.unpack("<i", data[-8:-4])[0]
+    return data, Thrift(data, len(data) - 8 - n).struct()
+
+
+def bloom_filters(path):
+    """Per leaf of row group 0: (header, bitset) of its Bloom filter, or None."""
+    data, meta = footer(path)
+    out = []
+    for chunk in meta[4][0][1]:
+        offset = chunk[3].get(14)
+        if offset is None:
+            out.append(None)
+            continue
+        reader = Thrift(data, offset)
+        header = reader.struct()
+        out.append((header, data[reader.p:reader.p + header[1]]))
+    return out
+
+
+def page_indexes(path):
+    """Per leaf of row group 0: (column index or None, offset index or None, size statistics or None)."""
+    data, meta = footer(path)
+    out = []
+    for chunk in meta[4][0][1]:
+        ci = Thrift(data, chunk[6]).struct() if 6 in chunk else None
+        oi = Thrift(data, chunk[4]).struct() if 4 in chunk else None
+        out.append((ci, oi, chunk[3].get(16)))
+    return out
+
+
+# ----------------------------------------------------------------------
 # Footers against pyarrow's for the same table (<name>.source.arrow): schema shape, levels, value and null counts, bounds
 # ----------------------------------------------------------------------
 footer_mismatches = []
@@ -57,7 +156,13 @@ for source in sorted(glob.glob(os.path.join(directory, "*.source.arrow"))):
     with pa.memory_map(source) as stream:
         table = pa.ipc.open_file(stream).read_all()
     reference = os.path.join(directory, f"{name}.pyarrow-reference")
-    pq.write_table(table, reference, row_group_size=1 << 30)
+    pages_file = os.path.join(directory, f"{name}.pages")
+    page_rows = int(open(pages_file).read()) if os.path.exists(pages_file) else None
+    bloom_file = os.path.join(directory, f"{name}.bloom")
+    bloomed = open(bloom_file).read().split(",") if os.path.exists(bloom_file) else []
+    pq.write_table(table, reference, row_group_size=1 << 30, write_page_index=page_rows is not None,
+                   **({"max_rows_per_page": page_rows} if page_rows else {}),
+                   **({"bloom_filter_options": {c: {"ndv": 1 << 20, "fpp": 0.01} for c in bloomed}} if bloomed else {}))
     ours, theirs = pq.ParquetFile(os.path.join(directory, f"{name}.parquet")), pq.ParquetFile(reference)
     if ours.metadata.num_columns != theirs.metadata.num_columns:
         footer_mismatches.append(f"{name}: {ours.metadata.num_columns} leaf columns, pyarrow {theirs.metadata.num_columns}")
@@ -73,9 +178,57 @@ for source in sorted(glob.glob(os.path.join(directory, "*.source.arrow"))):
             footer_mismatches.append(f"{name} {a.path}: num_values {ca.num_values} vs pyarrow {cb.num_values}")
         if sa.null_count != sb.null_count:
             footer_mismatches.append(f"{name} {a.path}: null_count {sa.null_count} vs pyarrow {sb.null_count}")
-        if sa.has_min_max != sb.has_min_max or (sa.has_min_max and (sa.min != sb.min or sa.max != sb.max)):
-            footer_mismatches.append(f"{name} {a.path}: bounds {sa.min if sa.has_min_max else None}..{sa.max if sa.has_min_max else None} "
-                                     f"vs pyarrow {sb.min if sb.has_min_max else None}..{sb.max if sb.has_min_max else None}")
+        # Raw (physical) bounds: logical ones overflow Python's types at the extremes (dates of ±2^31 days).
+        if sa.has_min_max != sb.has_min_max or (sa.has_min_max and (sa.min_raw != sb.min_raw or sa.max_raw != sb.max_raw)):
+            footer_mismatches.append(f"{name} {a.path}: bounds {sa.min_raw if sa.has_min_max else None}..{sa.max_raw if sa.has_min_max else None} "
+                                     f"vs pyarrow {sb.min_raw if sb.has_min_max else None}..{sb.max_raw if sb.has_min_max else None}")
+    if bloomed:
+        ours_path = os.path.join(directory, f"{name}.parquet")
+        for i, (a, b) in enumerate(zip(bloom_filters(ours_path), bloom_filters(reference))):
+            path = ours.schema.column(i).path
+            if (a is not None) != (path in bloomed) or (b is not None) != (path in bloomed):
+                footer_mismatches.append(f"{name} {path}: Bloom filter {a is not None} (pyarrow {b is not None}), asked for {path in bloomed}")
+            elif a is not None and (a[0] != b[0] or a[1] != b[1]):
+                footer_mismatches.append(f"{name} {path}: Bloom filter header {a[0]} vs pyarrow {b[0]}, bits {'equal' if a[1] == b[1] else 'differ'}")
+        # DuckDB's probe must not rule out a value the column holds (and should rule out most it does not).
+        written = pq.read_table(ours_path)
+        for column in [c for c in bloomed if c in ("i32", "i64", "str")]:  # dates of ±2^31 days overflow Python
+            values = sorted({v for v in written.column(column).to_pylist() if v is not None}, key=str)[:40]
+            literal = (lambda v: "'" + v.replace("'", "''") + "'") if column == "str" else str
+            for v in values:
+                excluded = duckdb.sql(f"select bloom_filter_excludes from parquet_bloom_probe('{ours_path}', '{column}', {literal(v)})").fetchall()
+                if any(e for (e,) in excluded):
+                    footer_mismatches.append(f"{name} {column}: DuckDB's Bloom probe rules out {v!r}, which the column holds")
+            if column in ("i32", "i64"):
+                absent = [x for x in range(10_000_000, 10_000_200) if x not in set(written.column(column).to_pylist())]
+                ruled = sum(any(e for (e,) in duckdb.sql(f"select bloom_filter_excludes from parquet_bloom_probe('{ours_path}', '{column}', {x})").fetchall()) for x in absent)
+                if ruled < len(absent) * 0.9:
+                    footer_mismatches.append(f"{name} {column}: DuckDB's Bloom probe rules out only {ruled} of {len(absent)} absent values")
+    if page_rows is None:
+        continue
+    # Page indexes and size statistics: pyarrow writes every histogram; we write those that say more than the null
+    # count (repetition levels below lists, definition levels deeper than one), so only ours are compared.
+    for i, ((ci, oi, ss), (pci, poi, pss)) in enumerate(zip(page_indexes(os.path.join(directory, f"{name}.parquet")), page_indexes(reference))):
+        path, max_def, max_rep = ours.schema.column(i).path, ours.schema.column(i).max_definition_level, ours.schema.column(i).max_repetition_level
+        def differ(what, a, b):
+            if a != b:
+                footer_mismatches.append(f"{name} {path}: {what} {a!r:.200} vs pyarrow {b!r:.200}")
+        if oi is None or poi is None:
+            differ("offset index", oi is not None, poi is not None)
+            continue
+        differ("page first rows", [p[3] for p in oi[1]], [p[3] for p in poi[1]])
+        differ("page value bytes", oi.get(2), poi.get(2))
+        differ("column index", ci is not None, pci is not None)
+        if ci is not None and pci is not None:
+            for fid, what in [(1, "null pages"), (2, "page lower bounds"), (3, "page upper bounds"), (4, "boundary order"), (5, "page null counts")]:
+                differ(what, ci.get(fid), pci.get(fid))
+            differ("page repetition histograms", ci.get(6), pci.get(6) if max_rep > 0 else None)
+            differ("page definition histograms", ci.get(7), pci.get(7) if max_def > 1 else None)
+        ss, pss = ss or {}, pss or {}
+        differ("value bytes", ss.get(1), pss.get(1))
+        differ("repetition histogram", ss.get(2), pss.get(2) if max_rep > 0 else None)
+        differ("definition histogram", ss.get(3), pss.get(3) if max_def > 1 else None)
+
 for m in footer_mismatches:
     print("FOOTER", m, flush=True)
 

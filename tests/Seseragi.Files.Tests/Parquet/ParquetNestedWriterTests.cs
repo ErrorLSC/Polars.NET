@@ -255,7 +255,11 @@ public sealed class ParquetNestedWriterTests : IDisposable
         var st = Struct(stType, [Fixed(Int64Type.Default, [(long?)1, null, null])], [true, false, true]);
         var listType = new ListType(new Field("item", Int32Type.Default, false));
         var list = List(listType, [0, 1, 2], Fixed(Int32Type.Default, [(int?)1, null]), [true, true]);
-        foreach (var (batch, where) in (ValueTuple<RecordBatch, string>[])[(Batch(("s", st, true)), "s.a"), (Batch(("l", list, true)), "l[]")])
+        // A dictionary child whose indices are all valid but point at a null value.
+        var dictType = new DictionaryType(Int32Type.Default, StringType.Default, false);
+        var dictStructType = new StructType([new Field("d", dictType, false)]);
+        var dictStruct = Struct(dictStructType, [new DictionaryArray(dictType, Fixed(Int32Type.Default, [(int?)0, 1, 0]), Strings(["x", null]))], [true, true, true]);
+        foreach (var (batch, where) in (ValueTuple<RecordBatch, string>[])[(Batch(("s", st, true)), "s.a"), (Batch(("l", list, true)), "l[]"), (Batch(("s", dictStruct, true)), "s.d")])
         {
             using var stream = new MemoryStream();
             using var writer = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { LeaveOpen = true });

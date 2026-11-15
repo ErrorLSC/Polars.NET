@@ -70,6 +70,9 @@ internal static class Lz4Block
     /// <summary>The largest block <paramref name="length"/> input bytes can compress to.</summary>
     public static int MaxCompressedLength(int length) => length + length / 255 + 16;
 
+    [ThreadStatic]
+    private static int[]? t_table;
+
     /// <summary>Compresses <paramref name="source"/> into one block (greedy, with a hash table of 4-byte sequences).</summary>
     /// <returns>The compressed length.</returns>
     public static int Compress(ReadOnlySpan<byte> source, Span<byte> destination)
@@ -79,7 +82,7 @@ internal static class Lz4Block
         int limit = source.Length - MatchSafeDistance; // matches start before this
         if (source.Length >= MatchSafeDistance + 1)
         {
-            Span<int> table = new int[1 << HashBits];
+            Span<int> table = t_table ??= new int[1 << HashBits]; // one table a thread, refilled for each block
             table.Fill(-1);
             int ip = 0;
             while (ip < limit)

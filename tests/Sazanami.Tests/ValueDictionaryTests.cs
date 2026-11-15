@@ -6,7 +6,8 @@ namespace Sazanami.Tests;
 /// <summary>
 /// The dictionaries of dictionary encoding against a model (first appearance order, an index per distinct value, by
 /// bytes): enough distinct strings that 32-bit hashes collide; NaN payloads and signed zeros distinct; reuse after
-/// Clear. And <see cref="BitPacker"/> against <see cref="BitUnpacking"/> at every width.
+/// Clear. And <see cref="BitPacker"/> against <see cref="BitUnpacking"/> at every width (against a bit-by-bit model up
+/// to 64 bits), and <see cref="ByteStreamSplit"/>'s split against its join.
 /// </summary>
 public class ValueDictionaryTests
 {
@@ -69,6 +70,51 @@ public class ValueDictionaryTests
             uint[] unpacked = new uint[values.Length];
             BitUnpacking.Unpack<uint>(packed, 0, width, unpacked);
             Assert.Equal(values, unpacked);
+        }
+    }
+
+    [Fact]
+    public void WidePackedValues_AreTheirBits_LeastSignificantFirst()
+    {
+        var random = new Random(64);
+        for (int width = 0; width <= 64; width++)
+        {
+            ulong max = width == 64 ? ulong.MaxValue : (1UL << width) - 1;
+            ulong[] values = [.. Enumerable.Range(0, random.Next(1, 200)).Select(_ => (ulong)random.NextInt64() & max), max];
+            byte[] packed = new byte[BitPacker.Bytes(values.Length, width) + 8];
+            BitPacker.Pack(values, width, packed);
+            for (int i = 0; i < values.Length; i++)
+            {
+                ulong value = 0;
+                for (int b = 0; b < width; b++)
+                {
+                    long bit = (long)i * width + b;
+                    if ((packed[bit >> 3] >> (int)(bit & 7) & 1) != 0) value |= 1UL << b;
+                }
+                Assert.True(values[i] == value, $"width {width}, value {i}: {values[i]:X} packed as {value:X}");
+            }
+            Assert.All(packed.AsSpan((int)BitPacker.Bytes(values.Length, width)).ToArray(), b => Assert.Equal(0, b));
+        }
+    }
+
+    [Fact]
+    public void ByteStreamSplit_SplitsByBytePosition_AndJoinsBack()
+    {
+        byte[] split = new byte[6];
+        ByteStreamSplit.Encode([0x11, 0x12, 0x13, 0x21, 0x22, 0x23], 3, split);
+        Assert.Equal([0x11, 0x21, 0x12, 0x22, 0x13, 0x23], split);
+        var random = new Random(9);
+        foreach (int width in (int[])[1, 2, 3, 4, 8, 12, 16])
+        {
+            foreach (int count in (int[])[0, 1, 15, 16, 17, 100])
+            {
+                byte[] values = new byte[width * count];
+                random.NextBytes(values);
+                byte[] streams = new byte[values.Length], joined = new byte[values.Length];
+                ByteStreamSplit.Encode(values, width, streams);
+                if (count > 0) ByteStreamSplit.Decode(streams, width, count, joined);
+                Assert.Equal(values, joined);
+            }
         }
     }
 }

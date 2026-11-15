@@ -166,16 +166,25 @@ internal static class WriteSchema
             TypeLength = length, Scale = scale, Precision = precision, FieldId = id,
         };
 
-        LeafPlan Int32(FixedSource<int> source, SchemaElement element, bool unsigned = false, bool legacy = true) => unsigned
-            ? new(element, s => new FixedColumnWriter<int, UnsignedOrder32>(s, maxDef, maxRep, Fixed(source, dictionary), default))
-            : new(element, s => new FixedColumnWriter<int, SignedOrder<int>>(s, maxDef, maxRep, Fixed(source, dictionary), new SignedOrder<int>(legacy)));
+        // Values taken as they are (Copy) are read straight from the array when it is not a dictionary.
+        LeafPlan Int32(FixedSource<int> source, SchemaElement element, bool unsigned = false, bool legacy = true)
+        {
+            bool direct = !dictionary && source == Copy<int>;
+            return unsigned
+                ? new(element, s => new FixedColumnWriter<int, UnsignedOrder32>(s, maxDef, maxRep, Fixed(source, dictionary), default, direct))
+                : new(element, s => new FixedColumnWriter<int, SignedOrder<int>>(s, maxDef, maxRep, Fixed(source, dictionary), new SignedOrder<int>(legacy), direct));
+        }
 
-        LeafPlan Int64(FixedSource<long> source, SchemaElement element, bool unsigned = false, bool legacy = true) => unsigned
-            ? new(element, s => new FixedColumnWriter<long, UnsignedOrder64>(s, maxDef, maxRep, Fixed(source, dictionary), default))
-            : new(element, s => new FixedColumnWriter<long, SignedOrder<long>>(s, maxDef, maxRep, Fixed(source, dictionary), new SignedOrder<long>(legacy)));
+        LeafPlan Int64(FixedSource<long> source, SchemaElement element, bool unsigned = false, bool legacy = true)
+        {
+            bool direct = !dictionary && source == Copy<long>;
+            return unsigned
+                ? new(element, s => new FixedColumnWriter<long, UnsignedOrder64>(s, maxDef, maxRep, Fixed(source, dictionary), default, direct))
+                : new(element, s => new FixedColumnWriter<long, SignedOrder<long>>(s, maxDef, maxRep, Fixed(source, dictionary), new SignedOrder<long>(legacy), direct));
+        }
 
-        LeafPlan Bytes(BytesSource source, SchemaElement element, int length, BytesOrder order, bool utf8 = false) =>
-            new(element, s => new BytesColumnWriter(s, maxDef, maxRep, dictionary ? DictionaryBytes(source) : source, length, order, utf8, where));
+        LeafPlan Bytes(BytesSource source, SchemaElement element, int length, BytesOrder order, bool utf8 = false, bool direct = false) =>
+            new(element, s => new BytesColumnWriter(s, maxDef, maxRep, dictionary ? DictionaryBytes(source) : source, length, order, utf8, where, direct && !dictionary));
 
         return type switch
         {
@@ -189,8 +198,8 @@ internal static class WriteSchema
             UInt32Type => Int32(Copy<int>, Element(ParquetType.Int32, Integer(32, false), ConvertedType.UInt32), unsigned: true),
             Int64Type => Int64(Copy<long>, Element(ParquetType.Int64)),
             UInt64Type => Int64(Copy<long>, Element(ParquetType.Int64, Integer(64, false), ConvertedType.UInt64), unsigned: true),
-            FloatType => new(Element(ParquetType.Float), s => new FixedColumnWriter<float, FloatOrder>(s, maxDef, maxRep, Fixed<float>(Copy<float>, dictionary), default)),
-            DoubleType => new(Element(ParquetType.Double), s => new FixedColumnWriter<double, DoubleOrder>(s, maxDef, maxRep, Fixed<double>(Copy<double>, dictionary), default)),
+            FloatType => new(Element(ParquetType.Float), s => new FixedColumnWriter<float, FloatOrder>(s, maxDef, maxRep, Fixed<float>(Copy<float>, dictionary), default, !dictionary)),
+            DoubleType => new(Element(ParquetType.Double), s => new FixedColumnWriter<double, DoubleOrder>(s, maxDef, maxRep, Fixed<double>(Copy<double>, dictionary), default, !dictionary)),
             HalfFloatType => Bytes(static (a, i, _) => ArrowValues.Raw(a, i, 2), Element(ParquetType.FixedLenByteArray, new LogicalType(LogicalTypeKind.Float16), length: 2),
                 2, BytesOrder.Float16),
             Date32Type => Int32(Copy<int>, Element(ParquetType.Int32, new LogicalType(LogicalTypeKind.Date), ConvertedType.Date)),
@@ -205,13 +214,13 @@ internal static class WriteSchema
             Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type => DecimalPlan(),
             FixedSizeBinaryType f => Bytes((a, i, _) => ArrowValues.Raw(a, i, f.ByteWidth), Element(ParquetType.FixedLenByteArray, length: f.ByteWidth), f.ByteWidth, BytesOrder.Unsigned),
             StringType => Bytes(static (a, i, _) => ((BinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray, new LogicalType(LogicalTypeKind.String), ConvertedType.Utf8),
-                0, BytesOrder.Unsigned, utf8: true),
+                0, BytesOrder.Unsigned, utf8: true, direct: true),
             LargeStringType => Bytes(static (a, i, _) => ((LargeBinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray, new LogicalType(LogicalTypeKind.String), ConvertedType.Utf8),
-                0, BytesOrder.Unsigned, utf8: true),
+                0, BytesOrder.Unsigned, utf8: true, direct: true),
             StringViewType => Bytes(static (a, i, _) => ((BinaryViewArray)a).GetBytes(i), Element(ParquetType.ByteArray, new LogicalType(LogicalTypeKind.String), ConvertedType.Utf8),
                 0, BytesOrder.Unsigned, utf8: true),
-            BinaryType => Bytes(static (a, i, _) => ((BinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned),
-            LargeBinaryType => Bytes(static (a, i, _) => ((LargeBinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned),
+            BinaryType => Bytes(static (a, i, _) => ((BinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned, direct: true),
+            LargeBinaryType => Bytes(static (a, i, _) => ((LargeBinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned, direct: true),
             BinaryViewType => Bytes(static (a, i, _) => ((BinaryViewArray)a).GetBytes(i), Element(ParquetType.ByteArray), 0, BytesOrder.Unsigned),
             IntervalType interval => Bytes((a, i, scratch) => Interval(a, i, scratch, interval.Unit, where),
                 Element(ParquetType.FixedLenByteArray, converted: ConvertedType.Interval, length: 12), 12, BytesOrder.None),

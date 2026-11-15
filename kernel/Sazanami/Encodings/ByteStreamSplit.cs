@@ -6,7 +6,8 @@ namespace Kaminari.Sazanami.Encodings;
 
 /// <summary>
 /// Byte stream split (Parquet's BYTE_STREAM_SPLIT): values of <c>K</c> bytes stored as K streams of N bytes, stream j
-/// holding byte j of every value. Joining them back, 2-, 4- and 8-byte values interleave 16 values at a time with
+/// holding byte j of every value. Splitting 2-, 4- and 8-byte values narrows 16 values at a time (shifts and truncating
+/// narrowing); joining them back, 2-, 4- and 8-byte values interleave 16 values at a time with
 /// portable widening (byte streams into 16-bit pairs, into 32-bit quads, into 64-bit octets: shifts and ors only);
 /// other widths, the tail and machines without vector support go value by value.
 /// </summary>
@@ -35,6 +36,82 @@ internal static class ByteStreamSplit
         {
             for (int j = 0; j < width; j++) Unsafe.Add(ref d, i * width + j) = Unsafe.Add(ref s, j * stride + i);
         }
+    }
+
+    /// <summary>
+    /// Splits <paramref name="values"/> (values of <paramref name="width"/> bytes, back to back) into
+    /// <paramref name="destination"/>: byte j of every value, then byte j + 1 of every value (the inverse of
+    /// <see cref="Decode"/>). Value by value for now.
+    /// </summary>
+    public static void Encode(ReadOnlySpan<byte> values, int width, Span<byte> destination)
+    {
+        if (width <= 0 || values.Length % width != 0) throw new ArgumentException($"{values.Length} bytes are not values of {width} bytes.", nameof(values));
+        if (destination.Length < values.Length) throw new ArgumentException("The destination is too short.", nameof(destination));
+        int count = values.Length / width;
+        int done = Vector128.IsHardwareAccelerated ? width switch
+        {
+            2 => SplitTwo(values, count, destination),
+            4 => SplitFour(values, count, destination),
+            8 => SplitEight(values, count, destination),
+            _ => 0,
+        } : 0;
+        for (int j = 0; j < width; j++)
+        {
+            Span<byte> stream = destination.Slice(j * count, count);
+            for (int i = done; i < count; i++) stream[i] = values[i * width + j];
+        }
+    }
+
+    // Splitting 16 values at a time: byte j of each value shifted down and narrowed (truncating) to bytes.
+
+    private static int SplitTwo(ReadOnlySpan<byte> values, int count, Span<byte> destination)
+    {
+        ReadOnlySpan<ushort> v = MemoryMarshal.Cast<byte, ushort>(values);
+        int i = 0;
+        for (; i + 16 <= count; i += 16)
+        {
+            Vector128<ushort> a = Vector128.Create(v.Slice(i, 8)), b = Vector128.Create(v.Slice(i + 8, 8));
+            Vector128.Narrow(a, b).CopyTo(destination.Slice(i, 16));
+            Vector128.Narrow(a >> 8, b >> 8).CopyTo(destination.Slice(count + i, 16));
+        }
+        return i;
+    }
+
+    private static int SplitFour(ReadOnlySpan<byte> values, int count, Span<byte> destination)
+    {
+        ReadOnlySpan<uint> v = MemoryMarshal.Cast<byte, uint>(values);
+        int i = 0;
+        for (; i + 16 <= count; i += 16)
+        {
+            Vector128<uint> a = Vector128.Create(v.Slice(i, 4)), b = Vector128.Create(v.Slice(i + 4, 4)),
+                c = Vector128.Create(v.Slice(i + 8, 4)), d = Vector128.Create(v.Slice(i + 12, 4));
+            for (int j = 0; j < 4; j++)
+            {
+                int shift = 8 * j;
+                Vector128.Narrow(Vector128.Narrow(a >> shift, b >> shift), Vector128.Narrow(c >> shift, d >> shift))
+                    .CopyTo(destination.Slice(j * count + i, 16));
+            }
+        }
+        return i;
+    }
+
+    private static int SplitEight(ReadOnlySpan<byte> values, int count, Span<byte> destination)
+    {
+        ReadOnlySpan<ulong> v = MemoryMarshal.Cast<byte, ulong>(values);
+        Span<Vector128<ulong>> q = stackalloc Vector128<ulong>[8];
+        int i = 0;
+        for (; i + 16 <= count; i += 16)
+        {
+            for (int k = 0; k < 8; k++) q[k] = Vector128.Create(v.Slice(i + 2 * k, 2));
+            for (int j = 0; j < 8; j++)
+            {
+                int shift = 8 * j;
+                Vector128<ushort> low = Vector128.Narrow(Vector128.Narrow(q[0] >> shift, q[1] >> shift), Vector128.Narrow(q[2] >> shift, q[3] >> shift));
+                Vector128<ushort> high = Vector128.Narrow(Vector128.Narrow(q[4] >> shift, q[5] >> shift), Vector128.Narrow(q[6] >> shift, q[7] >> shift));
+                Vector128.Narrow(low, high).CopyTo(destination.Slice(j * count + i, 16));
+            }
+        }
+        return i;
     }
 
     private static int Two(ref byte s, int stride, int count, ref byte d)
