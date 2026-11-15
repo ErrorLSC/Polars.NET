@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
@@ -58,6 +60,36 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <exception cref="NotSupportedException">A selected column is nested (lists, maps, structs), which this version does not read yet.</exception>
     /// <exception cref="ArgumentException">The options name a column or row group the file does not have, or are out of range.</exception>
     public ParquetReader OpenReader(ParquetReadOptions? options = null) => new(this, options ?? new ParquetReadOptions());
+
+    /// <summary>
+    /// Opens a reader of the file's rows as <typeparamref name="T"/>, of the columns its members map, filtered by
+    /// <paramref name="where"/> (pushed into the read; see <see cref="ParquetReader{T}"/>).
+    /// </summary>
+    /// <exception cref="ArgumentException">The file has no column for a member, or the options are out of range.</exception>
+    /// <exception cref="NotSupportedException">A conjunct of <paramref name="where"/> cannot be pushed down and the client evaluation policy is Strict.</exception>
+    public ParquetReader<T> OpenReader<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Expression<Func<T, bool>>? where = null,
+        ParquetReadOptions? options = null) => new(this, where, options);
+
+    /// <summary>Reads the rows of the file at <paramref name="path"/> as <typeparamref name="T"/> (see <see cref="ParquetReader{T}"/>).</summary>
+    /// <inheritdoc cref="OpenReader{T}(Expression{Func{T, bool}}?, ParquetReadOptions?)"/>
+    public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, Expression<Func<T, bool>>? where = null,
+        ParquetReadOptions? options = null)
+    {
+        using ParquetFile file = Open(path);
+        using ParquetReader<T> reader = file.OpenReader(where, options);
+        return [.. reader.ReadRows()];
+    }
+
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, ParquetReadOptions?)"/>
+    public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        Expression<Func<T, bool>>? where = null, ParquetReadOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        await using ParquetFile file = await OpenAsync(path, cancellationToken).ConfigureAwait(false);
+        await using ParquetReader<T> reader = file.OpenReader(where, options);
+        List<T> rows = [];
+        await foreach (T row in reader.ReadRowsAsync(cancellationToken).ConfigureAwait(false)) rows.Add(row);
+        return rows;
+    }
 
     /// <summary>The bytes of the file.</summary>
     internal IRandomAccess Source { get; }

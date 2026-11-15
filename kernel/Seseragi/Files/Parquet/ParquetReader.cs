@@ -53,6 +53,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     internal ParquetReader(ParquetFile file, ParquetReadOptions options)
     {
         options.Validate();
+        // The filter in the shapes pruning and lowering read (the LINQ translator gives some in others).
+        if (options.Filter is { } given) options = options with { Filter = FilterShapes.canonical(given) };
         _file = file;
         _options = options;
         var (_, all) = ArrowMapping.Map(file.Tree, file.Thrift, options);

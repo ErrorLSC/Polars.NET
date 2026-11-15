@@ -1,3 +1,4 @@
+using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
@@ -475,6 +476,44 @@ public class ParquetFilterRowsTests
         }
         Assert.Equal(expected, read);
         Assert.Equal(1, reader.MaskedUnits);
+    }
+
+    /// <summary>
+    /// Masked reads check the strings they keep, value by value when the rows kept are scattered: an invalid one kept is
+    /// refused, one not kept is not looked at (as when rows are skipped by ranges), and valid non-ASCII text passes.
+    /// </summary>
+    [Fact]
+    public void MaskedReads_CheckTheStringsTheyKeep()
+    {
+        ParquetNode[] schema = [new ParquetLeaf("k", Repetition.Required, PhysicalType.Int64), new ParquetLeaf("s", Repetition.Optional, PhysicalType.ByteArray, Utf8: true)];
+        IReadOnlyDictionary<string, object?> Row(long i) => new Dictionary<string, object?>
+        {
+            ["k"] = i % 50,
+            ["s"] = i == 777 ? (byte[])[0x68, 0xC3] : i % 50 == 3 ? Encoding.UTF8.GetBytes($"héllo wörld {i}") : Encoding.UTF8.GetBytes($"a long ascii value {i}"),
+        };
+        byte[] bytes = MinimalParquetWriter.Write(schema, [.. Enumerable.Range(0, 1000).Select(i => Row(i))]);
+        List<string> Read(long k)
+        {
+            using var file = ParquetFile.Open(new MemoryStream(bytes));
+            using var reader = file.OpenReader(new ParquetReadOptions
+            {
+                Filter = Bin(BinaryOp.Eq, Col("k"), Lit(LiteralValue.NewInt64(k))), FilterRows = true, LateMaterialization = LateMaterialization.Masked,
+            });
+            List<string> values = [];
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch)
+                {
+                    for (int r = 0; r < batch.Length; r++) values.Add(CanonicalRender.Value(batch.Column(1), r));
+                }
+            }
+            Assert.Equal(1, reader.MaskedUnits);
+            return values;
+        }
+        Assert.Equal([.. Enumerable.Range(0, 20).Select(j => "u:" + Convert.ToHexStringLower(Encoding.UTF8.GetBytes($"héllo wörld {j * 50 + 3}")))],
+            Read(3));                                                        // kept, not ASCII, valid
+        Assert.Equal(20, Read(4).Count);                                     // row 777 holds bad bytes, not kept
+        Assert.Contains("UTF-8", Assert.Throws<ParquetFormatException>(() => Read(27)).Message); // kept
     }
 
     [Fact]

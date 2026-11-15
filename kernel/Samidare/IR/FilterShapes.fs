@@ -78,3 +78,32 @@ module FilterShapes =
         match source, target with
         | LogicalType.Arrow s, LogicalType.Arrow t -> castKeepsValues s t
         | _ -> false
+
+    /// <summary>
+    /// A filter with the shapes the LINQ translator gives rewritten as the readers' skip predicates and filter
+    /// lowering read them: a starts-with call as the binary operator, an IN over a collection of values as an IN over
+    /// their literals (kept as it is when a value has no plain literal). The other nodes are left as they are; the
+    /// semantics are unchanged.
+    /// </summary>
+    let rec canonical (expr: ScalarExpr) : ScalarExpr =
+        match expr with
+        | ScalarExpr.Function(ScalarFunction.StartsWith, [ operand; ScalarExpr.Literal _ as prefix ], _) ->
+            ScalarExpr.Binary(BinaryOp.StartsWith, canonical operand, prefix)
+        | ScalarExpr.InList(target, InListSource.Collection(values, elementType), negated, nullsEqual) ->
+            let literals =
+                [ for value in Seq.cast<obj> values ->
+                      if isNull value then Some(LiteralValue.Null LogicalType.Unknown)
+                      else
+                          match ScalarExprOps.tryToLiteral value elementType with
+                          | Some(ScalarExpr.Literal literal) -> Some literal
+                          | _ -> None ]
+            let source =
+                if literals |> List.forall Option.isSome then InListSource.Literals(literals |> List.map Option.get)
+                else InListSource.Collection(values, elementType)
+            ScalarExpr.InList(canonical target, source, negated, nullsEqual)
+        | ScalarExpr.InList(target, source, negated, nullsEqual) -> ScalarExpr.InList(canonical target, source, negated, nullsEqual)
+        | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, canonical left, canonical right)
+        | ScalarExpr.Unary(op, operand) -> ScalarExpr.Unary(op, canonical operand)
+        | ScalarExpr.Cast(operand, target, strict) -> ScalarExpr.Cast(canonical operand, target, strict)
+        | ScalarExpr.Coalesce operands -> ScalarExpr.Coalesce(operands |> List.map canonical)
+        | _ -> expr

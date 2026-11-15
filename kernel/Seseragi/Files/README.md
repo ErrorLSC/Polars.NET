@@ -97,10 +97,20 @@ materialization): the filter is lowered by Samidare's `FilterLowering` into a Sa
 columns as read, the columns it tests are decoded first (struct fields by path), the program is evaluated batch by
 batch, and the selected columns are then read for the rows kept only: masked (the filter's mask goes into decoding,
 so the columns' readers append only the rows kept; the filter's own columns are reused, filtered with `ArrowFilter`,
-as are columns of booleans or nulls) or sparsely (by row ranges, skipping pages by the offset index), by how
-scattered the rows kept are.
+as are columns of booleans or nulls) or sparsely (by row ranges, skipping pages by the offset index): masked when
+nearly every page read holds a kept row (by the offset indexes; without them, by how scattered the rows kept are).
 Conjuncts that cannot be evaluated here are left to the caller (`FiltersExactly` is then false); `MaxRows` then
 counts the rows delivered.
+
+**Rows as objects**: `ParquetFile.OpenReader<T>(where, options)` gives a `ParquetReader<T>` that reads the rows as `T`
+(records, classes, structs, F# records and tuples, mapped by member name ignoring case as `DataFrame.Rows<T>()` maps
+them: Sazanami's `ArrowRowMapper<T>`), only the columns its members map, batch by batch (`ReadRows`,
+`ReadRowsAsync`); `ParquetFile.ReadList<T>(path, where)` / `ReadListAsync` read a file in one call. The `where`
+predicate (`Expression<Func<T, bool>>`) is translated by Samidare as the LINQ provider translates it (captured values
+evaluated first) and pushed into the read as `Filter` with `FilterRows`; the conjuncts it cannot translate, or that
+the reader cannot evaluate, are evaluated on the rows as `T` when Samidare's client evaluation policy allows it
+(Strict, the default, refuses them). Filters reach pruning and lowering in canonical shapes (`FilterShapes.canonical`:
+a starts-with call as the operator, an IN over a collection as an IN over literals), whoever built them.
 
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
 and stands in until a full Parquet writer exists. Page codecs compress as well as decompress, for the writer to come.
@@ -406,10 +416,13 @@ value against a logical type is allowed. General unions are not written against 
   filters are used or ignored as intended; `ParquetRowSelectionTests`: selected rows equal the full read's in every
   way of reading; `ParquetFilterRowsTests`: with `FilterRows`, the rows delivered are those the filter keeps, with the
   full read's values, densely, sparsely and masked in every way of reading, on the fixtures and the corpus; the fixtures and
-  how they are written: `TestData/parquet-pushdown/write_pushdown.py`). The evaluator of the IR's semantics these share
+  how they are written: `TestData/parquet-pushdown/write_pushdown.py`; `ParquetTypedRowsTests`: `ParquetReader<T>` skips
+what its predicate cannot match). The evaluator of the IR's semantics these share
   is `IrEvaluator.cs`; `FilterLoweringTests.cs` checks Samidare's filter lowering against it. Process-wide state (memory pool,
-  guard pages, early stops) is tested in the serial `tests/Polars.Config.Tests`. Through the engine:
-  `tests/Polars.CSharp.Tests/IO/ParquetManagedPipelineTests.cs` (managed read imported into Polars against Polars'
+  guard pages, early stops, `ParquetReader<T>` under each client evaluation policy) is tested in the serial
+`tests/Polars.Config.Tests`. Through the engine:
+  `tests/Polars.CSharp.Tests/IO/ParquetRowReaderTests.cs` (`ParquetReader<T>` rows and predicates against
+`DataFrame.Rows<T>()` and the LINQ provider), `tests/Polars.CSharp.Tests/IO/ParquetManagedPipelineTests.cs` (managed read imported into Polars against Polars'
   own read). Through the Delta kernel: `tests/Seseragi.Lakehouse.Tests` (`ParquetFootersTests`,
   `CheckpointStatisticsTests`, `FileTypesTests`) and the F# `SeseragiFooterStatisticsTests`.
 * Fuzzing (by hand): `tests/Seseragi.Files.Fuzz` (`README.md` there: contract, guard pages, how to run it capped).

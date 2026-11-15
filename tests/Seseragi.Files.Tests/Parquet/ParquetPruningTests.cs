@@ -272,6 +272,30 @@ public class ParquetPruningTests
         }
     }
 
+    /// <summary>
+    /// The shapes the LINQ translator gives (a starts-with call, an IN over a collection of values) prune as the
+    /// shapes they stand for (FilterShapes.canonical), and are lowered exactly.
+    /// </summary>
+    [Fact]
+    public void TheLinqTranslatorsShapes_PruneAsTheirCanonicalOnes()
+    {
+        FileRows rows = Types.Value;
+        ScalarExpr call = ScalarExpr.NewFunction(ScalarFunction.StartsWith, ListModule.OfSeq<ScalarExpr>([Col("s"), Lit(LiteralValue.NewString("s1"))]),
+            LogicalTypes.Boolean);
+        Assert.Equal([1], rows.Kept(call));
+        long[] values = [-4_000_000_000_000, 6_000_000_000_000, 1];
+        ScalarExpr collection = ScalarExpr.NewInList(Col("i64"), InListSource.NewCollection(values, typeof(long)), false, true);
+        ScalarExpr literals = ScalarExpr.NewInList(Col("i64"), InListSource.NewLiterals(ListModule.OfSeq(values.Select(LiteralValue.NewInt64))), false, true);
+        Assert.Equal([1, 2], rows.Kept(collection));
+        Assert.Equal(rows.Kept(literals), rows.Kept(collection));
+        foreach (ScalarExpr filter in (ScalarExpr[])[call, collection])
+        {
+            using var file = ParquetFile.Open(Fixture("types.parquet"));
+            using var reader = file.OpenReader(new ParquetReadOptions { Filter = filter, FilterRows = true });
+            Assert.True(reader.FiltersExactly, filter.ToString());
+        }
+    }
+
     [Fact]
     public void AbsentNullCounts_AreNotZero()
     {
