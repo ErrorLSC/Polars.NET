@@ -77,7 +77,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     {
         using ParquetFile file = Open(path);
         using ParquetReader<T> reader = file.OpenReader(where, options);
-        return [.. reader.ReadRows()];
+        return reader.ReadList();
     }
 
     /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, ParquetReadOptions?)"/>
@@ -86,9 +86,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     {
         await using ParquetFile file = await OpenAsync(path, cancellationToken).ConfigureAwait(false);
         await using ParquetReader<T> reader = file.OpenReader(where, options);
-        List<T> rows = [];
-        await foreach (T row in reader.ReadRowsAsync(cancellationToken).ConfigureAwait(false)) rows.Add(row);
-        return rows;
+        return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The bytes of the file.</summary>

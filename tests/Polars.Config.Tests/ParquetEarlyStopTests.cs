@@ -72,4 +72,41 @@ public class ParquetEarlyStopTests
         }
         Assert.Equal(before, NativeBatchMemory.Live);
     }
+
+    /// <summary>
+    /// A consumer of typed rows that stops early leaves no batch memory behind: the batches being turned into rows on
+    /// other threads are waited for and freed, the rows not taken dropped.
+    /// </summary>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(8, false)]
+    [InlineData(8, true)]
+    public async Task StoppingTypedRowsEarly_FreesTheBatchesNotTaken(int parallelism, bool async)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "parquet", "indexed_v1.parquet");
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        long before = NativeBatchMemory.Live;
+        using (var file = ParquetFile.Open(path))
+        using (ParquetReader<Row> reader = file.OpenReader<Row>(null, new() { BatchSize = 16, MaxDegreeOfParallelism = parallelism }))
+        {
+            List<long> keys = [];
+            if (async)
+            {
+                await foreach (Row row in reader.ReadRowsAsync())
+                {
+                    keys.Add(row.Key);
+                    if (keys.Count == 40) break;
+                }
+            }
+            else
+            {
+                keys.AddRange(reader.ReadRows().Take(40).Select(r => r.Key));
+            }
+            Assert.Equal(Enumerable.Range(0, 40).Select(i => (long)i), keys);
+        }
+        Assert.Equal(before, NativeBatchMemory.Live);
+    }
+
+    public sealed record Row(long Key, string? Cat);
 }

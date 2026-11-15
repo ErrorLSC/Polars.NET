@@ -67,7 +67,72 @@ public class ParquetTypedRowsTests
         Assert.Equal([new Inner(0, "s0000"), new Inner(1, "s0001"), new Inner(2, "s0002"), new Inner(3, "s0003"), new Inner(4, "s0004")], rows.Select(r => r.St));
     }
 
+    /// <summary>
+    /// Batches turned into rows on several threads give the rows one thread gives, in order: strings, dictionary
+    /// strings, nulls, NaN, lists and records; with a predicate and a row limit; sync and async.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParallelHydration_GivesTheRowsOfOneThread(bool async)
+    {
+        using var file = ParquetFile.Open(Fixture("indexed_v1.parquet"));
+        foreach (var (where, maxRows, count) in (ValueTuple<System.Linq.Expressions.Expression<Func<Full, bool>>?, long?, int>[])
+            [(null, null, 3000), (r => (r.Key < 700 || r.Key >= 2100) && r.Cat != "c3", null, 1371), (r => r.Cat != "c2", 1500, 1500),
+             (r => r.Cat == "c2", null, 429)])
+        {
+            List<List<string>> read = [];
+            foreach (int parallelism in (int[])[1, 8])
+            {
+                var options = new ParquetReadOptions { BatchSize = 64, MaxDegreeOfParallelism = parallelism, MaxRows = maxRows };
+                using ParquetReader<Full> reader = file.OpenReader(where, options);
+                List<Full> rows = [];
+                if (async)
+                    await foreach (Full row in reader.ReadRowsAsync()) rows.Add(row);
+                else
+                    rows.AddRange(reader.ReadRows());
+                read.Add([.. rows.Select(Text)]);
+                // A list in one call: the batches' rows copied once (kept in their pooled arrays, or copied out of them).
+                List<Full> list = async
+                    ? await ParquetFile.ReadListAsync(Fixture("indexed_v1.parquet"), where, options)
+                    : ParquetFile.ReadList(Fixture("indexed_v1.parquet"), where, options);
+                read.Add([.. list.Select(Text)]);
+            }
+            Assert.All(read, r => Assert.Equal(read[0], r));
+            Assert.Equal(count, read[0].Count);
+        }
+
+        static string Text(Full r) => $"{r.Key}|{r.Cat}|{r.Nn}|{BitConverter.DoubleToInt64Bits(r.F)}|{string.Join(",", r.Li!)}|{r.St}";
+    }
+
+    /// <summary>A row that cannot be made fails the read after the rows before it, on several threads as on one.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParallelHydration_FailsAfterTheRowsBeforeTheFailure(bool async)
+    {
+        using var file = ParquetFile.Open(Fixture("indexed_v1.parquet"));
+        foreach (int parallelism in (int[])[1, 8])
+        {
+            using ParquetReader<NotNull> reader = file.OpenReader<NotNull>(null, new ParquetReadOptions { BatchSize = 64, MaxDegreeOfParallelism = parallelism });
+            List<long> keys = [];
+            Exception error = await Assert.ThrowsAnyAsync<Exception>(async () =>
+            {
+                if (async)
+                    await foreach (NotNull row in reader.ReadRowsAsync()) keys.Add(row.Key);
+                else
+                    foreach (NotNull row in reader.ReadRows()) keys.Add(row.Key);
+            });
+            Assert.Contains("Nn", error.Message);
+            Assert.Equal(Enumerable.Range(0, 1000).Select(i => (long)i), keys); // nn is null from row 1000 on
+        }
+    }
+
     public sealed record Row(long Key, string? Cat);
+
+    public sealed record Full(long Key, string? Cat, long? Nn, double F, List<int>? Li, Inner? St);
+
+    public sealed record NotNull(long Key, long Nn);
 
     public sealed record WithNested(long Key, List<int>? Li, Inner? St);
 

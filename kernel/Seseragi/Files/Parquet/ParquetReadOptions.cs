@@ -75,7 +75,8 @@ public sealed record ParquetReadOptions
     /// <summary>
     /// How many threads decode at once (all cores by default; 1 reads on the calling thread). The columns of a row
     /// group are decoded side by side, and several row groups at once; batches still come in order. Up to this many
-    /// decoded row groups (fewer when they are large) are held in memory ahead of the consumer.
+    /// decoded row groups (fewer when they are large) are held in memory ahead of the consumer. <see
+    /// cref="ParquetReader{T}"/> also turns up to this many batches into rows at once.
     /// </summary>
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 

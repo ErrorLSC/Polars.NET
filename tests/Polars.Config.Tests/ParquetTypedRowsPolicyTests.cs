@@ -80,6 +80,44 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Conjuncts evaluated on the rows run on the threads that make them (several batches at once): the rows come in
+    /// order, a row limit still counts the rows delivered, and a conjunct failing mid-batch fails the read after the
+    /// rows before it, as on one thread.
+    /// </summary>
+    [Fact]
+    public void ConjunctsOnTheRows_UnderParallelHydration_KeepTheOrder_TheLimit_AndTheRowsBeforeAFailure()
+    {
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            using var file = ParquetFile.Open(_path);
+            var options = new ParquetReadOptions { BatchSize = 16, MaxDegreeOfParallelism = 8 };
+            using (ParquetReader<Row> reader = file.OpenReader<Row>(r => Odd(r.Id), options))
+                Assert.Equal(_rows.Where(r => Odd(r.Id)), reader.ReadRows());
+            using (ParquetReader<Row> reader = file.OpenReader<Row>(r => Odd(r.Id), options with { MaxRows = 123 }))
+                Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123), reader.ReadRows());
+            using (ParquetReader<Row> reader = file.OpenReader<Row>(r => Odd(r.Id), options with { MaxRows = 123 }))
+                Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123), reader.ReadRowsAsync().ToBlockingEnumerable());
+            Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123), ParquetFile.ReadList<Row>(_path, r => Odd(r.Id), options with { MaxRows = 123 }));
+            Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123),
+                ParquetFile.ReadListAsync<Row>(_path, r => Odd(r.Id), options with { MaxRows = 123 }).GetAwaiter().GetResult());
+            Assert.Equal("537", Assert.Throws<InvalidOperationException>(() => ParquetFile.ReadList<Row>(_path, r => FailsAt537(r.Id), options)).Message);
+            foreach (int parallelism in (int[])[1, 8])
+            {
+                using ParquetReader<Row> reader = file.OpenReader<Row>(r => FailsAt537(r.Id), options with { MaxDegreeOfParallelism = parallelism });
+                List<long> ids = [];
+                var error = Assert.Throws<InvalidOperationException>(() =>
+                {
+                    foreach (Row row in reader.ReadRows()) ids.Add(row.Id);
+                });
+                Assert.Equal("537", error.Message);
+                Assert.Equal(_rows.Where(r => r.Id < 537 && Odd(r.Id)).Select(r => r.Id), ids);
+            }
+        }
+    }
+
+    private static bool FailsAt537(long id) => id == 537 ? throw new InvalidOperationException("537") : Odd(id);
+
     [Fact]
     public void TheOptionsFilter_FiltersTheRows_WhenThePredicateIsAllEvaluatedOnTheRows()
     {

@@ -105,7 +105,8 @@ counts the rows delivered.
 **Rows as objects**: `ParquetFile.OpenReader<T>(where, options)` gives a `ParquetReader<T>` that reads the rows as `T`
 (records, classes, structs, F# records and tuples, mapped by member name ignoring case as `DataFrame.Rows<T>()` maps
 them: Sazanami's `ArrowRowMapper<T>`), only the columns its members map, batch by batch (`ReadRows`,
-`ReadRowsAsync`); `ParquetFile.ReadList<T>(path, where)` / `ReadListAsync` read a file in one call. The `where`
+`ReadRowsAsync`; batches turned into rows on up to `MaxDegreeOfParallelism` threads at once, in order, through
+Sazanami's `OrderedParallel`); `ParquetFile.ReadList<T>(path, where)` / `ReadListAsync` read a file in one call. The `where`
 predicate (`Expression<Func<T, bool>>`) is translated by Samidare as the LINQ provider translates it (captured values
 evaluated first) and pushed into the read as `Filter` with `FilterRows`; the conjuncts it cannot translate, or that
 the reader cannot evaluate, are evaluated on the rows as `T` when Samidare's client evaluation policy allows it
@@ -311,6 +312,7 @@ written synchronously on completion.
 | `Excel/Reading/` | The format-neutral half: `SheetCells` (cell model, row buffer, `SheetSource`), `WorkbookSource`, `ChunkReader` (a part decompressed into a native buffer, refilled between complete chunks), `SharedStringStore` (native UTF-8 plus offsets), `SheetReader` (header, window, inference, projection, batches), `ColumnAppenders` (cells to native builders per Arrow type), `CellText` (cells as text). |
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
+| `Parquet/ParquetReaderOfT.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
 
 In Sazanami (generic, reusable by other formats):
@@ -330,6 +332,7 @@ In Sazanami (generic, reusable by other formats):
 | `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash, size for a count and a false positive rate. |
 | `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
 | `Helpers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
+| `Data/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 
 In Polars.NET (the engine integration):
@@ -417,7 +420,7 @@ value against a logical type is allowed. General unions are not written against 
   way of reading; `ParquetFilterRowsTests`: with `FilterRows`, the rows delivered are those the filter keeps, with the
   full read's values, densely, sparsely and masked in every way of reading, on the fixtures and the corpus; the fixtures and
   how they are written: `TestData/parquet-pushdown/write_pushdown.py`; `ParquetTypedRowsTests`: `ParquetReader<T>` skips
-what its predicate cannot match). The evaluator of the IR's semantics these share
+what its predicate cannot match, and gives the rows of one thread on several). The evaluator of the IR's semantics these share
   is `IrEvaluator.cs`; `FilterLoweringTests.cs` checks Samidare's filter lowering against it. Process-wide state (memory pool,
   guard pages, early stops, `ParquetReader<T>` under each client evaluation policy) is tested in the serial
 `tests/Polars.Config.Tests`. Through the engine:
