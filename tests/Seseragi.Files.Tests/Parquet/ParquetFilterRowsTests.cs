@@ -77,7 +77,7 @@ public class ParquetFilterRowsTests
                 for (int i = 0; i < batch.Length; i++)
                 {
                     rows.Add(index.GetValue(i)!.Value);
-                    values.Add([.. Enumerable.Range(0, batch.ColumnCount - 1).Select(c => CanonicalRender.Value(batch.Column(c), i))]);
+                    values.Add([.. Enumerable.Range(1, batch.ColumnCount - 1).Select(c => CanonicalRender.Value(batch.Column(c), i))]);
                 }
             }
         }
@@ -358,8 +358,8 @@ public class ParquetFilterRowsTests
         {
             using (batch)
             {
-                Assert.Equal(["f", RowColumn], batch.Schema.FieldsList.Select(f => f.Name));
-                var index = (Int64Array)batch.Column(1);
+                Assert.Equal([RowColumn, "f"], batch.Schema.FieldsList.Select(f => f.Name));
+                var index = (Int64Array)batch.Column(0);
                 for (int i = 0; i < batch.Length; i++) delivered.Add(index.GetValue(i)!.Value);
             }
         }

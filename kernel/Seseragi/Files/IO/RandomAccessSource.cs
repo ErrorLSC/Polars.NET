@@ -5,7 +5,8 @@ namespace Kaminari.Seseragi.Files.IO;
 
 /// <summary>
 /// A seekable stream (from its position at open on) read at offsets, so that several readers can share it: a file
-/// through its handle without seeking, native memory by copying, any other stream by seeking under a gate.
+/// through its handle without seeking; bytes in memory (a copy in native memory, a memory stream's buffer, an
+/// unmanaged memory stream over a pointer) sliced without a gate; any other stream by seeking under a gate.
 /// </summary>
 internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposable
 {
@@ -15,6 +16,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     private readonly SafeFileHandle? _file;
     private readonly bool _mappable;
     private readonly long _start;
+    private readonly ReadOnlyMemory<byte>? _memory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _mapLock = new();
     private MappedFile? _map;
@@ -32,29 +34,46 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
         Length = stream.Length - _start;
         if (copy is null && stream is FileStream file) _file = file.SafeFileHandle;
         _mappable = mappable && _file is not null;
+        _memory = Length <= int.MaxValue ? MemoryOf(stream, copy, _start, (int)Length) : null;
+    }
+
+    /// <summary>
+    /// The bytes [<paramref name="start"/>, + <paramref name="length"/>) of a stream that lives in memory: a copy in
+    /// native memory, a memory stream's buffer (visible, or hidden in a plain <see cref="MemoryStream"/>: see
+    /// <see cref="MemoryStreams.TryGetBytes"/>), or the buffer of an unmanaged memory stream made over a pointer
+    /// (one made over a <see cref="System.Runtime.InteropServices.SafeBuffer"/> has no pointer to give: read under the gate).
+    /// </summary>
+    private static unsafe ReadOnlyMemory<byte>? MemoryOf(Stream stream, NativeByteBuffer? copy, long start, int length)
+    {
+        if (copy is not null) return copy.Memory.Slice((int)start, length);
+        if (stream is MemoryStream ms && MemoryStreams.TryGetBytes(ms, out ArraySegment<byte> buffer)) return buffer.AsMemory().Slice((int)start, length);
+        if (stream is UnmanagedMemoryStream unmanaged)
+        {
+            long position = unmanaged.Position;
+            try
+            {
+                byte* at = unmanaged.PositionPointer; // throws over a SafeBuffer
+                return PointerMemory.Of(at - position + start, length);
+            }
+            catch (NotSupportedException)
+            {
+                return null;
+            }
+        }
+        return null;
     }
 
     public long Length { get; }
 
-    /// <summary>The bytes of a stream copied to native memory, or of a memory stream whose buffer is visible.</summary>
+    /// <summary>The bytes of a stream that lives in memory (see <see cref="MemoryOf"/>), up to 2 GiB.</summary>
     public bool TryGetMemory(out ReadOnlyMemory<byte> memory)
     {
-        if (_copy is not null && Length <= int.MaxValue)
-        {
-            memory = _copy.Memory.Slice((int)_start, (int)Length);
-            return true;
-        }
-        if (_stream is MemoryStream ms && ms.TryGetBuffer(out ArraySegment<byte> buffer) && Length <= int.MaxValue)
-        {
-            memory = buffer.AsMemory().Slice((int)_start, (int)Length);
-            return true;
-        }
-        memory = default;
-        return false;
+        memory = _memory ?? default;
+        return _memory is not null;
     }
 
-    /// <summary>A file read through its handle (other streams are read under a gate: better in few large reads).</summary>
-    public bool SmallReadsAreCheap => _file is not null;
+    /// <summary>A file read through its handle, or bytes in memory (other streams are read under a gate: better in few large reads).</summary>
+    public bool SmallReadsAreCheap => _file is not null || _memory is not null;
 
     public MappedFile? Map(out long start)
     {
@@ -74,9 +93,9 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     {
         int count = (int)Math.Clamp(Length - offset, 0, destination.Length);
         if (count == 0) return 0;
-        if (_copy is not null)
+        if (_memory is { } memory)
         {
-            _copy.Span.Slice((int)(_start + offset), count).CopyTo(destination);
+            memory.Span.Slice((int)offset, count).CopyTo(destination);
             return count;
         }
         if (_file is not null)
@@ -106,7 +125,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     {
         int count = (int)Math.Clamp(Length - offset, 0, destination.Length);
         if (count == 0) return 0;
-        if (_copy is not null) return ReadAt(offset, destination.Span);
+        if (_memory is not null) return ReadAt(offset, destination.Span);
         if (_file is not null)
         {
             int total = 0;

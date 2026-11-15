@@ -76,17 +76,6 @@ internal sealed unsafe class MappedFile
     public ReadOnlyMemory<byte> Range(long offset, int length)
     {
         if (offset < 0 || length < 0 || offset > Length - length) throw new ArgumentOutOfRangeException(nameof(offset));
-        return new Pointer(_pointer + offset, length).Memory;
-    }
-
-    private sealed class Pointer(byte* pointer, int length) : MemoryManager<byte>
-    {
-        public override Span<byte> GetSpan() => new(pointer, length);
-
-        public override MemoryHandle Pin(int elementIndex = 0) => new(pointer + elementIndex);
-
-        public override void Unpin() { }
-
-        protected override void Dispose(bool disposing) { }
+        return PointerMemory.Of(_pointer + offset, length);
     }
 }

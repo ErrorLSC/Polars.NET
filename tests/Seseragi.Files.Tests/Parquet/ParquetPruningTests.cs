@@ -400,8 +400,8 @@ public class ParquetPruningTests
                 {
                     using (batch)
                     {
-                        var key = (Int64Array)batch.Column(0);
-                        var row = (Int64Array)batch.Column(1);
+                        var row = (Int64Array)batch.Column(0);
+                        var key = (Int64Array)batch.Column(1);
                         for (int i = 0; i < batch.Length; i++) Assert.Equal(row.GetValue(i), key.GetValue(i));
                     }
                 }
@@ -463,7 +463,7 @@ public class ParquetPruningTests
         using var reader = file.OpenReader(new ParquetReadOptions { Filter = filter, MaxRows = 150, RowIndexColumn = "row" });
         long[] read = [.. reader.ReadBatches().SelectMany(b =>
         {
-            using (b) return Enumerable.Range(0, b.Length).Select(i => ((Int64Array)b.Column(b.ColumnCount - 1)).GetValue(i)!.Value).ToArray();
+            using (b) return Enumerable.Range(0, b.Length).Select(i => ((Int64Array)b.Column(0)).GetValue(i)!.Value).ToArray();
         })];
         Assert.Equal([.. Enumerable.Range(1200, 100).Concat(Enumerable.Range(2900, 50)).Select(i => (long)i)], read);
         // Enumerating again gives the same plan.

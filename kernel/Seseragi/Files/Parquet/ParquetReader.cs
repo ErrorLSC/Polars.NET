@@ -109,7 +109,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         {
             if (fields.Any(f => f.Name == rowIndex))
                 throw new ArgumentException($"The row index column '{rowIndex}' has the name of a column read.", nameof(options));
-            fields = [.. fields, new Field(rowIndex, Int64Type.Default, nullable: false)];
+            fields = [new Field(rowIndex, Int64Type.Default, nullable: false), .. fields];
         }
         Schema = new Apache.Arrow.Schema(fields, null);
         _oldParquetMr = IsOldParquetMr(file.Thrift.CreatedBy);
@@ -695,7 +695,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         {
             int batch = b;
             IArrowArray[] columns = [.. Enumerable.Range(0, decoded.Columns.Length).Select(c => decoded.Take(c, batch))];
-            if (_options.RowIndexColumn is not null) columns = [.. columns, RowIndex(decoded.Rows[b], firstRow, decoded.Lengths[b])];
+            if (_options.RowIndexColumn is not null) columns = [RowIndex(decoded.Rows[b], firstRow, decoded.Lengths[b]), .. columns];
             batches[b] = new RecordBatch(Schema, columns, decoded.Lengths[b]);
         }
         return batches;
@@ -752,15 +752,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 var columns = new List<IArrowArray>(_columns.Length + 1);
                 try
                 {
-                    for (int c = 0; c < _columns.Length; c++)
-                    {
-                        // The selected columns the filter read come from its batches, the others from theirs (those
-                        // decoded masked hold the rows kept already).
-                        IArrowArray? source = late.Reuse[c] >= 0 ? predicates.Columns[late.Reuse[c]][b] : others.Columns[late.RemainingIndex[c]][b];
-                        columns.Add(all || late.Reuse[c] < 0 && others.Filtered[late.RemainingIndex[c]]
-                            ? late.Reuse[c] >= 0 ? predicates.Take(late.Reuse[c], b) : others.Take(late.RemainingIndex[c], b)
-                            : ArrowFilter.Filter(source!, masks[b]));
-                    }
+                    // The row index first (as the schema has it).
                     if (_options.RowIndexColumn is not null)
                     {
                         IArrowArray index = RowIndex(predicates.Rows[b], unit.FirstRow, predicates.Lengths[b]);
@@ -769,6 +761,15 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                         {
                             using (index) columns.Add(ArrowFilter.Filter(index, masks[b]));
                         }
+                    }
+                    for (int c = 0; c < _columns.Length; c++)
+                    {
+                        // The selected columns the filter read come from its batches, the others from theirs (those
+                        // decoded masked hold the rows kept already).
+                        IArrowArray? source = late.Reuse[c] >= 0 ? predicates.Columns[late.Reuse[c]][b] : others.Columns[late.RemainingIndex[c]][b];
+                        columns.Add(all || late.Reuse[c] < 0 && others.Filtered[late.RemainingIndex[c]]
+                            ? late.Reuse[c] >= 0 ? predicates.Take(late.Reuse[c], b) : others.Take(late.RemainingIndex[c], b)
+                            : ArrowFilter.Filter(source!, masks[b]));
                     }
                 }
                 catch

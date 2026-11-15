@@ -57,8 +57,9 @@ public sealed record ParquetReadOptions
     public RowRanges? Rows { get; init; }
 
     /// <summary>
-    /// The name of an Int64 column appended to the batches, holding each row's number in the file (as
-    /// <see cref="Rows"/> numbers them); null adds none. It must differ from the names of the columns read.
+    /// The name of an Int64 column put first in the batches, holding each row's number in the file (as
+    /// <see cref="Rows"/> numbers them, before any filter); null adds none. It must differ from the names of the
+    /// columns read.
     /// </summary>
     public string? RowIndexColumn { get; init; }
 

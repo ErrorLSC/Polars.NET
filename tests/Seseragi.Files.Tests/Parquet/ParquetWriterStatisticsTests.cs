@@ -224,7 +224,7 @@ public sealed class ParquetWriterStatisticsTests : IDisposable
         List<long> rows = [];
         foreach (RecordBatch b in reader.ReadBatches())
         {
-            using (b) rows.AddRange(((Int64Array)b.Column(b.ColumnCount - 1)).Values.ToArray());
+            using (b) rows.AddRange(((Int64Array)b.Column(0)).Values.ToArray());
         }
         return ([.. rows], reader.RowGroupsRead.Count);
     }

@@ -30,6 +30,17 @@ public class ParquetTypedRowsTests
         }
     }
 
+    /// <summary>A row index column put first does not shift the members: they bind by name.</summary>
+    [Fact]
+    public void ARowIndexColumn_DoesNotShiftTheMembers()
+    {
+        using var file = ParquetFile.Open(Fixture("indexed_v1.parquet"));
+        List<Row> plain = file.OpenReader<Row>().ReadList();
+        using ParquetReader<Row> reader = file.OpenReader<Row>(options: new ParquetReadOptions { RowIndexColumn = "n" });
+        Assert.Equal(["n", "key", "cat"], reader.Schema.FieldsList.Select(f => f.Name));
+        Assert.Equal(plain, reader.ReadList());
+    }
+
     [Fact]
     public void OnlyTheMembersColumns_AreRead()
     {

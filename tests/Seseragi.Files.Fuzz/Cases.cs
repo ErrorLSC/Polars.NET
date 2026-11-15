@@ -546,7 +546,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
         List<long> rows = [];
         foreach (RecordBatch b in reader.ReadBatches())
         {
-            using (b) rows.AddRange(((Int64Array)b.Column(b.ColumnCount - 1)).Values.ToArray());
+            using (b) rows.AddRange(((Int64Array)b.Column(0)).Values.ToArray());
         }
         return rows.SequenceEqual(expected) ? null : $"{name} {op} {literal}: {rows.Count} rows kept, {expected.Length} match";
     }

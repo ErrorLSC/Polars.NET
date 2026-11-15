@@ -27,7 +27,7 @@ public class ParquetRowSelectionTests
     private static string PathOf(string name) =>
         name.StartsWith("pushdown:", StringComparison.Ordinal) ? Pushdown(name["pushdown:".Length..]) : ParquetFixtures.FullPath(name);
 
-    /// <summary>Every row of a read, each column rendered (CanonicalRender), with the row index column last when asked.</summary>
+    /// <summary>Every row of a read, each column rendered (CanonicalRender), with the row index column first when asked.</summary>
     private static List<string[]> Rows(ParquetFile file, ParquetReadOptions options)
     {
         using var reader = file.OpenReader(options);
@@ -93,7 +93,7 @@ public class ParquetRowSelectionTests
                     Assert.Equal(numbers.Length, read.Count);
                     for (int i = 0; i < numbers.Length; i++)
                     {
-                        Assert.Equal([.. all[(int)numbers[i]], numbers[i].ToString(System.Globalization.CultureInfo.InvariantCulture)], read[i]);
+                        Assert.Equal([numbers[i].ToString(System.Globalization.CultureInfo.InvariantCulture), .. all[(int)numbers[i]]], read[i]);
                     }
                 }
                 catch (Exception e)
@@ -133,7 +133,7 @@ public class ParquetRowSelectionTests
             }
         }
         Assert.Equal(selection.RowCount, read.Count);
-        foreach (string[] row in read) Assert.Equal(all[int.Parse(row[^1], System.Globalization.CultureInfo.InvariantCulture)], row[..^1]);
+        foreach (string[] row in read) Assert.Equal(all[int.Parse(row[0], System.Globalization.CultureInfo.InvariantCulture)], row[1..]);
         Assert.True(reader.PagesSkipped > file.Metadata.RowGroups.Count, $"only {reader.PagesSkipped} pages skipped");
         Assert.True(rows > 0);
     }
@@ -157,8 +157,8 @@ public class ParquetRowSelectionTests
         long lastStart = file.Metadata.RowGroups.Take(groups - 1).Sum(g => g.RowCount);
         long[] expected = [.. Enumerable.Range((int)lastStart, (int)file.Metadata.RowGroups[^1].RowCount).Concat(Enumerable.Range(0, 70))
                               .Where(i => i % 2 == 0).Take(40).Select(i => (long)i)];
-        Assert.Equal(expected, limited.Select(r => long.Parse(r[^1], System.Globalization.CultureInfo.InvariantCulture)));
-        Assert.All(limited, r => Assert.Equal(all[int.Parse(r[^1], System.Globalization.CultureInfo.InvariantCulture)], r));
+        Assert.Equal(expected, limited.Select(r => long.Parse(r[0], System.Globalization.CultureInfo.InvariantCulture)));
+        Assert.All(limited, r => Assert.Equal(all[int.Parse(r[0], System.Globalization.CultureInfo.InvariantCulture)], r));
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public class ParquetRowSelectionTests
                 for (int i = 0; i < batch.Length; i++)
                 {
                     string[] row = [.. Enumerable.Range(0, batch.ColumnCount).Select(c => CanonicalRender.Value(batch.Column(c), i))];
-                    Assert.Equal(all[int.Parse(row[^1], System.Globalization.CultureInfo.InvariantCulture)], row[..^1]);
+                    Assert.Equal(all[int.Parse(row[0], System.Globalization.CultureInfo.InvariantCulture)], row[1..]);
                 }
             }
         }
@@ -213,6 +213,30 @@ public class ParquetRowSelectionTests
         Assert.Equal(everyOther.RowCount, sizes.Sum());
         Assert.True(sizes.Count(n => n == 40) >= sizes.Count - file.Metadata.RowGroups.Count, $"batch sizes {string.Join(",", sizes)}");
         Assert.True(perGroup > 40);
+    }
+
+    /// <summary>The row index is the first column (as Polars puts it), whether rows are filtered or not.</summary>
+    [Fact]
+    public void TheRowIndex_IsTheFirstColumn()
+    {
+        using var file = ParquetFile.Open(Pushdown("indexed_v1.parquet"));
+        ScalarExpr filter = ScalarExpr.NewBinary(BinaryOp.Lt, ScalarExpr.NewColumn("key"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(5)));
+        foreach (bool filterRows in (bool[])[false, true])
+        {
+            using var reader = file.OpenReader(new ParquetReadOptions { RowIndexColumn = "n", Filter = filterRows ? filter : null, FilterRows = filterRows });
+            string[] names = [.. reader.Schema.FieldsList.Select(f => f.Name)];
+            Assert.Equal(["n", .. file.Schema.FieldsList.Select(f => f.Name)], names);
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch)
+                {
+                    Assert.Equal(names, batch.Schema.FieldsList.Select(f => f.Name));
+                    var n = (Int64Array)batch.Column(0);
+                    var key = (Int64Array)batch.Column(batch.Schema.GetFieldIndex("key"));
+                    for (int i = 0; i < batch.Length; i++) Assert.Equal(n.GetValue(i), key.GetValue(i));
+                }
+            }
+        }
     }
 
     [Fact]

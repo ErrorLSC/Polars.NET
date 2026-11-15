@@ -20,8 +20,10 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, 
 
 ## Parquet
 
-**Files** (`ParquetFile`): opened from a path, a stream (one that cannot seek is copied into native memory first) or
-any `IRandomAccess` source (data read at offsets, such as an object in a store), synchronously or asynchronously.
+**Files** (`ParquetFile`): opened from a path, memory (`ReadOnlyMemory<byte>`, read in place), a stream (memory
+streams, visible buffer or not, and unmanaged memory streams over a pointer are read in place; one that cannot seek is
+copied into native memory first) or any `IRandomAccess` source (data read at offsets, such as an object in a store),
+synchronously or asynchronously.
 The footer is read with one ranged read for most files (two when it is longer than 64 KiB); a file of up to 64 KiB is
 held whole by that read and never read again. The footer is checked: the schema
 tree must account for every element and each row group must hold a chunk per leaf. Encrypted files (modular
@@ -90,7 +92,7 @@ then skip the pages without a selected row unread on every way of reading chunks
 page and the pages needed). Indexes and filters that do not parse or do not describe the chunk are ignored; a page
 read must agree with its offset index. `Rows` selects rows by their number in the file (Sazanami `RowRanges`, as a
 deletion vector's complement); pages wholly between selected rows are passed over by their headers when there is no
-offset index. `RowIndexColumn` appends each row's number, `MaxRows` stops after that many rows, and
+offset index. `RowIndexColumn` puts each row's number first, `MaxRows` stops after that many rows, and
 `ParquetFile.Open(source, metadata)` reopens a file with a footer read before. By default rows are not filtered: the
 batches hold the rows of what is kept, for the caller's filter. With `FilterRows` the reader filters them itself (late
 materialization): the filter is lowered by Samidare's `FilterLowering` into a Sazanami `FilterProgram` over the
@@ -169,8 +171,8 @@ checked page indexes and Bloom filters); `ParquetFile`, `ParquetReader`, `Parque
 Pages in the non-PLAIN value encodings are decoded whole when entered, into PLAIN layout, so every value kind reads
 them as PLAIN; string readers take delta byte arrays as data, starts and lengths instead.
 
-`IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source and the native
-copy of streams that cannot seek.
+`IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
+streams sliced without a lock) and the native copy of streams that cannot seek.
 
 ## Avro features
 
@@ -356,11 +358,16 @@ written synchronously on completion.
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
-| `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written, row groups buffered and written chunk by chunk, the footer (schema, row groups, column orders, `ARROW:schema`), failure handling as `AvroWriter`'s. |
+| `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded; Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
+| `Parquet/ParquetColumnOptions.cs` | Settings by column (`ParquetWriteOptions.Columns`): the encoding of pages written without the dictionary (`ParquetValueEncoding`), the dictionary on or off, Bloom filters (`ParquetBloomFilterOptions`: false positive rate, a cap on the distinct values sized for, the largest size). |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
-| `Parquet/Writing/Shredding.cs` | The Dremel shredder: the steps from a top-level array to a leaf (struct, list in every layout, map, remapping layouts — run-end encoding, dictionaries of nested values — and the leaf), walked row by row into definition and repetition levels and the positions of the values present; children from the parents' raw data (offsets of parents applied, nulls of parents hiding their children); the same walk validates nullability. |
+| `Parquet/Writing/Shredding.cs` | The Dremel shredder: the steps from a top-level array to a leaf (struct, list in every layout, map, remapping layouts — run-end encoding, dictionaries of nested values — and the leaf), walked row by row into definition and repetition levels and the positions of the values present (each step's array built once per call; the validating walk run only when a non-nullable node's array holds nulls); children from the parents' raw data (offsets of parents applied, nulls of parents hiding their children); the same walk validates nullability. |
+| `Parquet/Writing/ColumnSettings.cs` | Which `Columns` entry applies to each leaf (dotted Parquet paths, an ancestor's applying to the leaves below, the longest winning) and what each physical type takes (encodings, Bloom filters); unknown paths and impossible settings refused. |
+| `Parquet/Writing/PageJobs.cs` | Encoded pages waiting for compression (compressed and checksummed by a helper thread or by their column writer, whichever comes first) and the budget of busy threads. |
+| `Parquet/Writing/BloomBuilder.cs` | A chunk's Bloom filter: XXH64 of each value's PLAIN bytes as it enters a page, the distinct hashes kept, the filter sized for them at the chunk's end. |
 | `Parquet/Writing/ColumnWriter.cs`, `TypedColumnWriters.cs` | A leaf column per row group: levels and values page by page, dictionary judged on the first page holding values and dropped when it outgrows its budget, pages encoded then handed to compression jobs (`PageJobs.cs`) and kept in order, the dictionary page first; fixed-width, byte-array and boolean values (runs copied straight from Arrow buffers where no conversion is needed, validity read by words) with their statistics (vector bounds for numbers; string bounds at page end, from the distinct dictionary entries of dictionary pages) and bound truncation. |
 | `Parquet/Encodings/RleBitPackedEncoder.cs` | The RLE / bit-packing hybrid written: runs of 8 or more as RLE, the rest in bit-packed groups of 8. |
+| `Parquet/Encodings/DeltaEncoders.cs` | DELTA_BINARY_PACKED written (blocks of 128 in four miniblocks, INT32 deltas wrapped to 32 bits), DELTA_LENGTH_BYTE_ARRAY and DELTA_BYTE_ARRAY (prefixes shared with the value before). |
 | `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
 
 In Sazanami (generic, reusable by other formats):
@@ -372,6 +379,7 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
 | `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from a flat Arrow array, into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
+| `Helpers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
 | `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
 | `Arrow/ArrowSchemaCheck.cs` | Checks an Arrow IPC schema message as a FlatBuffer (offsets, vectors, strings, nesting) before the Apache.Arrow reader trusts its lengths. |
 | `Encodings/BitUnpacking.cs`, `BitUnpack.cs` | LSB-first bit unpacking of 0–64-bit values (above 32 into 64-bit integers): per-width group kernels and a bounds-checked path. |

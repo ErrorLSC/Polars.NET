@@ -70,7 +70,7 @@ internal static class CheckpointReader
 
         // No size to go by (a sidecar the log gives none for, on a store that cannot read tails): the whole file.
         byte[] bytes = fileSystem.ReadAll(path) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        return ParquetFile.Open(new MemoryStream(bytes, writable: false));
+        return ParquetFile.Open(bytes.AsMemory());
     }
 
     /// <summary>The column paths to read: the action columns the file has, whole, except the typed copies in <c>add</c>.</summary>

@@ -100,12 +100,23 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     internal static ParquetFile OpenOnSource(string path) => Sync(OpenCoreAsync(path, useAsync: false, default, smallInMemory: false));
 
     /// <summary>
-    /// Opens a stream from its current position. A stream that cannot seek is first copied into native memory (up
-    /// to 2 GB). Unless <paramref name="leaveOpen"/>, the stream is disposed with the file, or when opening fails.
-    /// A stream is never read through a memory mapping (<see cref="ParquetReadOptions.MemoryMap"/>), even a file stream.
+    /// Opens a stream from its current position. Bytes already in memory are read in place, without a lock: a
+    /// <see cref="MemoryStream"/> (its buffer visible or not; a subclass only when it shows its buffer), an
+    /// <see cref="UnmanagedMemoryStream"/> made over a pointer (its memory must outlive the file); the memory must
+    /// stay unchanged while the file is used. Other seekable streams are read by seeking under a lock. A stream that
+    /// cannot seek is first copied into native memory (up to 2 GB). Unless <paramref name="leaveOpen"/>, the stream
+    /// is disposed with the file (a copied one at once), or when opening fails. A stream is never read through a
+    /// memory mapping (<see cref="ParquetReadOptions.MemoryMap"/>), even a file stream.
     /// </summary>
     /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(Stream stream, bool leaveOpen = false) => Sync(OpenCoreAsync(stream, leaveOpen, useAsync: false, default));
+
+    /// <summary>
+    /// Opens a file held in memory, read in place without a copy (columns are decoded from slices of it; the batches
+    /// never point into it). The memory must stay unchanged while the file and its readers are used.
+    /// </summary>
+    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
+    public static ParquetFile Open(ReadOnlyMemory<byte> bytes) => Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), null, useAsync: false, default));
 
     /// <summary>Opens data read at offsets (say, an object in a store); the caller keeps ownership of the source.</summary>
     /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
@@ -237,8 +248,10 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             if (thrift.EncryptionAlgorithm is { } algorithm)
                 throw new ParquetFormatException($"The Parquet file is encrypted ({algorithm.Name}, plaintext footer), which is not supported.");
             // A file the tail read held whole (up to 64 KiB) is read from those bytes from now on: on an object store
-            // each read is a request.
-            IRandomAccess data = smallInMemory && tailLength == length ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray()) : source;
+            // each read is a request. Bytes already in memory need no copy.
+            IRandomAccess data = smallInMemory && tailLength == length && !InMemory(source)
+                ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray())
+                : source;
             return new ParquetFile(data, owned, thrift, ParquetMetadata.FromThrift(thrift));
         }
         finally
@@ -247,6 +260,8 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             if (footer is not null) ArrayPool<byte>.Shared.Return(footer);
         }
     }
+
+    private static bool InMemory(IRandomAccess source) => source is ILocalSource local && local.TryGetMemory(out _);
 
     /// <summary>Reads exactly <paramref name="destination"/>.Length bytes at <paramref name="offset"/>.</summary>
     internal static async ValueTask ReadExactlyAsync(IRandomAccess source, long offset, Memory<byte> destination, bool useAsync, CancellationToken ct)
