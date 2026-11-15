@@ -83,14 +83,22 @@ public class ParquetRowSelectionTests
             long[] numbers = [.. selection.SelectMany(r => Enumerable.Range(0, (int)r.Count).Select(i => r.Start + i))];
             foreach (var (reading, parallelism) in (ValueTuple<ChunkReading, int>[])[(ChunkReading.Stream, 1), (ChunkReading.Slice, 4), (ChunkReading.Fetch, 2)])
             {
-                List<string[]> read = Rows(file, new ParquetReadOptions
+                // The selection is drawn anew every run (string hashes are randomized per process): a failure names it.
+                try
                 {
-                    Rows = selection, RowIndexColumn = "__row", MaxDegreeOfParallelism = parallelism, Reading = reading, BatchSize = 37,
-                });
-                Assert.Equal(numbers.Length, read.Count);
-                for (int i = 0; i < numbers.Length; i++)
+                    List<string[]> read = Rows(file, new ParquetReadOptions
+                    {
+                        Rows = selection, RowIndexColumn = "__row", MaxDegreeOfParallelism = parallelism, Reading = reading, BatchSize = 37,
+                    });
+                    Assert.Equal(numbers.Length, read.Count);
+                    for (int i = 0; i < numbers.Length; i++)
+                    {
+                        Assert.Equal([.. all[(int)numbers[i]], numbers[i].ToString(System.Globalization.CultureInfo.InvariantCulture)], read[i]);
+                    }
+                }
+                catch (Exception e)
                 {
-                    Assert.Equal([.. all[(int)numbers[i]], numbers[i].ToString(System.Globalization.CultureInfo.InvariantCulture)], read[i]);
+                    throw new Xunit.Sdk.XunitException($"{name}, Rows = {selection}, {reading}, {parallelism} threads: {e.Message}", e);
                 }
             }
         }

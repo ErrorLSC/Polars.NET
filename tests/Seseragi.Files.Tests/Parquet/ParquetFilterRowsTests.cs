@@ -189,10 +189,12 @@ public class ParquetFilterRowsTests
         if (columns.Length == 0) return;
         string[] flat = FlatColumns(path);
         long count = rows.AllRows.LongCount();
-        var random = new Random(StringComparer.Ordinal.GetHashCode(name) & 0x7FFFFFFF);
+        // A new seed every run (string hashes are randomized per process), printed on failure; CORPUS_SEED replays one.
+        int seed = int.TryParse(Environment.GetEnvironmentVariable("CORPUS_SEED"), out int replay) ? replay : StringComparer.Ordinal.GetHashCode(name) & 0x7FFFFFFF;
+        var random = new Random(seed);
         int dense = 0, sparse = 0;
         for (int round = 0; round < 4; round++)
-            Check(rows, RandomFilter(random, rows, columns, depth: 1), RandomConfig(random, count, flat), $"{name} round {round}", ref dense, ref sparse);
+            Check(rows, RandomFilter(random, rows, columns, depth: 1), RandomConfig(random, count, flat), $"{name} (CORPUS_SEED={seed}) round {round}", ref dense, ref sparse);
     }
 
     // ------------------------------------------------------------------
