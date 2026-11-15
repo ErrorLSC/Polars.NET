@@ -15,4 +15,10 @@
     <ProjectReference Include="..\..\kernel\Seseragi\Files\Seseragi.Files.csproj" />
   </ItemGroup>
 
+  <!-- The writer cases build batches and compare values as the writer tests do. -->
+  <ItemGroup>
+    <Compile Include="..\Seseragi.Files.Tests\TestBatches.cs" Link="Shared\TestBatches.cs" />
+    <Compile Include="..\Seseragi.Files.Tests\Parquet\ParquetWriteData.cs" Link="Shared\ParquetWriteData.cs" />
+  </ItemGroup>
+
 </Project>

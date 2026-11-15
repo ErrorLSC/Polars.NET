@@ -1,6 +1,6 @@
 # Seseragi.Files.Fuzz
 
-A mutation fuzzer for the managed Parquet reader (`Kaminari.Seseragi.Files`) and the unsafe kernels under it
+A mutation fuzzer for the managed Parquet reader (`Kaminari.Seseragi.Files`), with round trips through its writer, and the unsafe kernels under it
 (Sazanami's Snappy and LZ4 decoders, the RLE / bit-packed decoder, bit unpacking, null expansion, the Arrow
 builders). Not part of the test suite: run by hand.
 
@@ -32,7 +32,9 @@ from the original footer) and at the footer, and read the result with random opt
 reading mode, batch size, level bits, checksums, column subsets, row selections, filters (pruning only, or filtering rows
 densely or sparsely), row limits, fetch gaps). The fourth feeds Snappy or LZ4 blocks (valid ones, then
 mutated) or random RLE data straight to the kernels, input and output guarded, and compares the decoders with each
-other.
+other; or round-trips the writer: random values through the RLE / bit-packed encoder and back, or random columns of
+every type the Parquet writer writes, in random slices and with random options (pages, row groups, codecs,
+dictionaries, page versions, statistics, checksums), written and read back with every value compared.
 
 ## Running
 

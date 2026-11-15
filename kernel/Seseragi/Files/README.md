@@ -2,7 +2,7 @@
 
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
-**Parquet** (files and their full footer metadata; a minimal checkpoint writer). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+**Parquet** (files and their full footer metadata read; flat columns written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -113,16 +113,38 @@ the reader cannot evaluate, are evaluated on the rows as `T` when Samidare's cli
 (Strict, the default, refuses them). Filters reach pruning and lowering in canonical shapes (`FilterShapes.canonical`:
 a starts-with call as the operator, an IN over a collection as an IN over literals), whoever built them.
 
+**Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches as a Parquet file, to a stream or a path
+(`Create`, then `Write` / `WriteAsync` batch by batch and `Complete`; or the static `Write` / `WriteAsync` of a whole
+sequence, which delete a partial file on failure). Flat columns of every Arrow type Parquet holds: booleans, integers
+of every width and sign (annotated), half, single and double floats, dates (date64 in whole days), times, timestamps
+(seconds stored in milliseconds, a zone as UTC-adjusted; `TimestampUnit` coerces exactly, `Int96Timestamps` writes
+the legacy layout), durations, decimals of 32 to 256 bits (in INT32 up to 9 digits, INT64 up to 18, else the shortest
+fixed-length bytes), strings and binary in every layout (large, view), fixed-size binary, dictionary columns (by their
+values), intervals (as INTERVAL when exact) and the null type; nested columns are not written yet. Values Parquet
+cannot hold exactly (a date64 that is not a whole day, a decimal with more digits than its precision, an inexact
+interval or timestamp coercion) and nulls in non-nullable columns are refused, never changed. Each row group is
+buffered until `RowGroupRows` or `RowGroupBytes` (or `EndRowGroup`), then written column chunk by column chunk; pages
+close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
+`IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
+dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page shows the dictionary does not
+pay; one outgrowing `DictionaryPageBytes` goes on plainly. Statistics follow the type-defined order of every column
+(signed, unsigned, IEEE floats with NaN counts and zeros as -0 / +0, decimals as numbers), with the deprecated fields
+for signed orders; string and binary bounds are cut to `StatisticsTruncateLength` (the upper bound rounded up, marked
+inexact); floating chunks holding NaN get no bounds (Spark orders NaN above every number and ignores NaN counts). The
+footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
+footer written, `BytesWritten` and `PendingBytes` what is in the stream and in the open row group.
+
 `MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
-and stands in until a full Parquet writer exists. Page codecs compress as well as decompress, for the writer to come.
+and stands in until `ParquetWriter` writes nested columns.
 
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
 leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
 decoded by Sazanami's own decoder), `Encodings/` (RLE / bit-packing hybrid, BIT_PACKED levels, DELTA_BINARY_PACKED,
 the delta byte arrays; LSB bit unpacking and byte stream split are Sazanami's), `Reading/` (pages, leaf readers by
-value kind, value converters, the nested assembler), `Pruning/` (the IR filter compiled to outcome sets over statistics,
+value kind, value converters, the nested assembler), `Writing/` (Arrow → Parquet schema mapping with value sources,
+column writers by physical type with their dictionaries and statistics, page assembly), `Pruning/` (the IR filter compiled to outcome sets over statistics,
 literals in the stored representation, page pruning), `PageIndexes.cs` and `BloomFilters.cs` (per-file caches of
-checked page indexes and Bloom filters); `ParquetFile`, `ParquetReader` and the options at the top.
+checked page indexes and Bloom filters); `ParquetFile`, `ParquetReader`, `ParquetWriter` and the options at the top.
 Pages in the non-PLAIN value encodings are decoded whole when entered, into PLAIN layout, so every value kind reads
 them as PLAIN; string readers take delta byte arrays as data, starts and lengths instead.
 
@@ -313,6 +335,10 @@ written synchronously on completion.
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
+| `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written, row groups buffered and written chunk by chunk, the footer (schema, row groups, column orders, `ARROW:schema`), failure handling as `AvroWriter`'s. |
+| `Parquet/Writing/WriteSchema.cs` | Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
+| `Parquet/Writing/ColumnWriter.cs`, `TypedColumnWriters.cs` | A leaf column per row group: levels and values page by page, dictionary judged on the first page and dropped when it outgrows its budget, pages v1/v2 compressed and checksummed, the dictionary page first; fixed-width, byte-array and boolean values with their statistics and bound truncation. |
+| `Parquet/Encodings/RleBitPackedEncoder.cs` | The RLE / bit-packing hybrid written: runs of 8 or more as RLE, the rest in bit-packed groups of 8. |
 | `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
 
 In Sazanami (generic, reusable by other formats):
@@ -332,6 +358,8 @@ In Sazanami (generic, reusable by other formats):
 | `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash, size for a count and a false positive rate. |
 | `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
 | `Helpers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
+| `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
+| `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order) for dictionary encoding. |
 | `Data/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 
@@ -420,7 +448,13 @@ value against a logical type is allowed. General unions are not written against 
   way of reading; `ParquetFilterRowsTests`: with `FilterRows`, the rows delivered are those the filter keeps, with the
   full read's values, densely, sparsely and masked in every way of reading, on the fixtures and the corpus; the fixtures and
   how they are written: `TestData/parquet-pushdown/write_pushdown.py`; `ParquetTypedRowsTests`: `ParquetReader<T>` skips
-what its predicate cannot match, and gives the rows of one thread on several). The evaluator of the IR's semantics these share
+what its predicate cannot match, and gives the rows of one thread on several). Writing: `ParquetWriterTests` (every type in every
+  page layout, codec and dictionary setting read back by our reader with checksums verified; slices, empty batches,
+  row groups, the footer's chunks and encodings, the async API, refusals), `ParquetWriterStatisticsTests` (bounds of
+  every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),
+  `ParquetWriterInteropTests` (opt-in, `Category=Interop`: pyarrow, DuckDB, Python Polars and Spark — vectorized and
+  not — read our files, `TestData/parquet/writer_interop.py` and `writer_spark.py`, each also filtering at the bounds
+  with statistics and without; the readers' own limits are listed there); the fuzzer's writer cases. The evaluator of the IR's semantics these share
   is `IrEvaluator.cs`; `FilterLoweringTests.cs` checks Samidare's filter lowering against it. Process-wide state (memory pool,
   guard pages, early stops, `ParquetReader<T>` under each client evaluation policy) is tested in the serial
 `tests/Polars.Config.Tests`. Through the engine:

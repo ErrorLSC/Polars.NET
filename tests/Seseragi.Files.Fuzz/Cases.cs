@@ -9,7 +9,9 @@ using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
+using Seseragi.Files.Tests.Parquet;
 
 namespace Seseragi.Files.Fuzz;
 
@@ -277,15 +279,104 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
     // Kernels
     // ------------------------------------------------------------------
 
-    private static Outcome Kernel(Random random) => random.Next(6) switch
+    private static Outcome Kernel(Random random) => random.Next(8) switch
     {
         0 => Codec(random, snappy: true),
         1 => Codec(random, snappy: false),
         2 => Rle(random),
         3 => Delta(random),
         4 => DeltaArrays(random),
+        5 => RleEncoding(random),
+        6 => WriteAndRead(random),
         _ => Split(random),
     };
+
+    /// <summary>Random values RLE / bit-packed by the encoder (runs and literals mixed) read back by the decoder.</summary>
+    private static Outcome RleEncoding(Random random)
+    {
+        int width = random.Next(33);
+        uint max = width == 32 ? uint.MaxValue : (1u << width) - 1;
+        uint[] values = new uint[random.Next(random.Next(2) == 0 ? 20 : 5000)];
+        for (int i = 0; i < values.Length; i++)
+        {
+            values[i] = random.Next(3) == 0 && i > 0 ? values[i - 1] : (uint)random.NextInt64(0, (long)max + 1);
+        }
+        var output = new System.Buffers.ArrayBufferWriter<byte>();
+        RleBitPackedEncoder.Encode(values, width, output);
+        if (output.WrittenCount > RleBitPackedEncoder.MaxBytes(values.Length, width))
+            return new Outcome(true, "Rle encoder writes more than MaxBytes", $"width {width}, {values.Length} values");
+        using var input = GuardedMemory.Block.Copy(output.WrittenSpan.ToArray());
+        uint[] read = new uint[values.Length];
+        int n = new RleBitPackedDecoder(input.GetSpan(), width).Read<uint>(read);
+        return n == values.Length && read.AsSpan().SequenceEqual(values)
+            ? Outcome.Read
+            : new Outcome(true, "Rle encoder and decoder disagree", $"width {width}, {values.Length} values, {n} read");
+    }
+
+    private static readonly IParquetCompression[] Codecs =
+        [NoCompression.Instance, SnappyCompression.Instance, new ZstandardCompression(), new GzipCompression(1), new BrotliCompression(1), Lz4RawCompression.Instance];
+
+    /// <summary>
+    /// Random columns of every written type, in random slices, written with random options (pages, groups, codecs,
+    /// dictionaries, page versions, statistics) and read back (checksums verified): the values must come back.
+    /// </summary>
+    private static Outcome WriteAndRead(Random random)
+    {
+        int rows = random.Next(random.Next(2) == 0 ? 50 : 3000);
+        RecordBatch wide = ParquetWriteData.Wide(random.Next(), rows);
+        int[] columns = [.. Enumerable.Range(0, wide.ColumnCount).Where(_ => random.Next(3) == 0).DefaultIfEmpty(random.Next(wide.ColumnCount))];
+        var batch = new RecordBatch(new Schema([.. columns.Select(c => wide.Schema.FieldsList[c])], null), columns.Select(wide.Column), rows);
+        var options = new ParquetWriteOptions
+        {
+            Compression = Codecs[random.Next(Codecs.Length)],
+            DataPageVersion = (ParquetPageVersion)random.Next(2),
+            DataPageRows = 1 + random.Next(random.Next(2) == 0 ? 50 : 30_000),
+            DataPageBytes = 1 + random.Next(random.Next(2) == 0 ? 2000 : 2_000_000),
+            RowGroupRows = 1 + random.Next(random.Next(2) == 0 ? 100 : 5000),
+            RowGroupBytes = 1 + random.Next(random.Next(2) == 0 ? 20_000 : 50_000_000),
+            Dictionary = random.Next(4) != 0,
+            DictionaryPageBytes = 1 + random.Next(random.Next(2) == 0 ? 500 : 2_000_000),
+            Statistics = random.Next(4) != 0,
+            StatisticsTruncateLength = random.Next(3) == 0 ? null : 1 + random.Next(100),
+            WriteChecksums = random.Next(2) == 0,
+            StoreArrowSchema = random.Next(4) != 0,
+        };
+        using var stream = new MemoryStream();
+        using (var writer = ParquetWriter.Create(stream, batch.Schema, options with { LeaveOpen = true }))
+        {
+            for (int at = 0; at < rows;)
+            {
+                int take = Math.Min(rows - at, random.Next(2) == 0 ? rows : random.Next(1, 400));
+                writer.Write(batch.Slice(at, take));
+                at += take;
+                if (random.Next(20) == 0) writer.EndRowGroup();
+            }
+        }
+        stream.Position = 0;
+        using var file = ParquetFile.Open(stream);
+        using var reader = file.OpenReader(new ParquetReadOptions { VerifyChecksums = options.WriteChecksums, BatchSize = 1 + random.Next(5000) });
+        List<RecordBatch> read = [.. reader.ReadBatches()];
+        try
+        {
+            List<string>[] expected = ParquetWriteData.Columns([batch], batch.ColumnCount), actual = ParquetWriteData.Columns(read, batch.ColumnCount);
+            for (int c = 0; c < batch.ColumnCount; c++)
+            {
+                // Without the stored Arrow schema a duration comes back as its INT64 count.
+                if (!options.StoreArrowSchema && batch.Schema.FieldsList[c].DataType is DurationType duration)
+                {
+                    long per = duration.Unit switch { TimeUnit.Second => 1_000_000_000, TimeUnit.Millisecond => 1_000_000, TimeUnit.Microsecond => 1000, _ => 1 };
+                    actual[c] = [.. actual[c].Select(v => v == "null" ? v : "dur" + System.Numerics.BigInteger.Parse(v) * per)];
+                }
+                if (!expected[c].SequenceEqual(actual[c]))
+                    return new Outcome(true, "Written values do not come back", $"column {batch.Schema.FieldsList[c].Name}, options {options}");
+            }
+            return Outcome.Read;
+        }
+        finally
+        {
+            foreach (RecordBatch b in read) b.Dispose();
+        }
+    }
 
     /// <summary>A DELTA_BINARY_PACKED stream: a plausible header (or not), then random blocks; decoded as INT32 and INT64, to the end and not.</summary>
     private static byte[] DeltaStream(Random random)

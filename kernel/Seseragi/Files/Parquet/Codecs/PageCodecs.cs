@@ -133,9 +133,12 @@ internal static class PageCodecs
         _ => throw new NotSupportedException($"This library does not write {Name(codec)} pages."),
     };
 
-    /// <summary>Compresses <paramref name="source"/> into <paramref name="destination"/> (at least <see cref="MaxCompressedLength"/> long).</summary>
+    /// <summary>
+    /// Compresses <paramref name="source"/> into <paramref name="destination"/> (at least <see cref="MaxCompressedLength"/>
+    /// long) at <paramref name="level"/> (Zstandard 1–22, Brotli 0–11, Gzip 1–9; negative: the codec's default).
+    /// </summary>
     /// <returns>The compressed length.</returns>
-    public static unsafe int Compress(CompressionCodec codec, ReadOnlySpan<byte> source, Span<byte> destination, int level = 0)
+    public static unsafe int Compress(CompressionCodec codec, ReadOnlySpan<byte> source, Span<byte> destination, int level = -1)
     {
         switch (codec)
         {
@@ -146,18 +149,23 @@ internal static class PageCodecs
                 return Snappy.Compress(source, destination);
             case CompressionCodec.Zstd:
             {
-                using var compressor = new Compressor(level == 0 ? 3 : level);
+                using var compressor = new Compressor(level < 0 ? 3 : level);
                 return compressor.Wrap(source, destination);
             }
             case CompressionCodec.Brotli:
-                return BrotliEncoder.TryCompress(source, destination, out int n, level == 0 ? 4 : level, 22) ? n : throw new ArgumentException("The destination is too small.");
+                return BrotliEncoder.TryCompress(source, destination, out int n, level < 0 ? 4 : level, 22) ? n : throw new ArgumentException("The destination is too small.");
             case CompressionCodec.Lz4Raw:
                 return Lz4Block.Compress(source, destination);
             case CompressionCodec.Gzip:
                 fixed (byte* p = destination)
                 {
                     using var output = new UnmanagedMemoryStream(p, 0, destination.Length, FileAccess.Write);
-                    using (var gzip = new GZipStream(output, level is >= 1 and <= 3 ? CompressionLevel.Fastest : CompressionLevel.Optimal, leaveOpen: true))
+                    using (var gzip = new GZipStream(output, level switch
+                    {
+                        >= 1 and <= 3 => CompressionLevel.Fastest,
+                        >= 7 => CompressionLevel.SmallestSize,
+                        _ => CompressionLevel.Optimal,
+                    }, leaveOpen: true))
                         gzip.Write(source);
                     return (int)output.Position;
                 }
