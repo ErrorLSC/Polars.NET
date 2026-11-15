@@ -28,6 +28,20 @@ The footer is read with one ranged read for most files (two when it is longer th
 held whole by that read and never read again. The footer is checked: the schema
 tree must account for every element and each row group must hold a chunk per leaf. Encrypted files (modular
 encryption, `PARE` or a plaintext footer) are refused by name; damaged footers fail with `ParquetFormatException`.
+One stream holds one file: data the footer does not describe before it (beyond the metadata copy some writers leave
+there, or zero padding) is refused as files joined together, a source cheap to read at its start must begin with
+`PAR1`, and column chunks reaching into the footer are refused when read.
+
+**Datasets** (`ParquetDataset`, `ParquetDatasetOptions`, `ParquetDatasetReader`): many files read as one table, from
+paths, directories (every file below them), globs (`*`, `?`, `[...]`, `**` as a whole segment) or a list of files
+known beforehand (`ParquetDatasetFile`: size, rows to read, footer read before), expanded as Polars expands them (each
+glob's or directory's files in path order, inputs in the order given, empty files left out, hidden and `_` files
+read unless `IgnorePrefixes` says otherwise, a directory given alone holding one extension). The schema is the first
+file's (columns nullable); later files must hold its columns with the same types, in any order, extra columns not
+read. Files are read one after another (footers of the next ones read meanwhile) with the reader options: the row
+index numbers rows across files and comes first, `MaxRows` counts across files, `FilePathColumn` adds each row's
+file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors name their file. Files come from an `IFileStore`
+(`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), or a store of the caller.
 
 **Metadata** (`ParquetMetadata`): the footer as a read-only view (schema elements with their annotations, row count,
 row groups, per-chunk statistics, `CreatedBy`, `KeyValueMetadata`), also parsed from footer bytes alone
@@ -172,7 +186,9 @@ Pages in the non-PLAIN value encodings are decoded whole when entered, into PLAI
 them as PLAIN; string readers take delta byte arrays as data, starts and lengths instead.
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
-streams sliced without a lock) and the native copy of streams that cannot seek.
+streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
+open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`). `Parquet/Datasets/` holds the dataset: path
+expansion (`ParquetDataset`) and the reader of its files (`ParquetDatasetReader`).
 
 ## Avro features
 
@@ -379,6 +395,9 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
 | `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from a flat Arrow array, into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
+| `Helpers/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
+| `Arrow/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path column): string views over one copy, or repeated strings. |
+| `Arrow/ArrowTypes.cs` | Whether two Arrow types hold values the same way (parameters compared, nested nullability not); decimal parameters. |
 | `Helpers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
 | `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
 | `Arrow/ArrowSchemaCheck.cs` | Checks an Arrow IPC schema message as a FlatBuffer (offsets, vectors, strings, nesting) before the Apache.Arrow reader trusts its lengths. |
@@ -478,7 +497,12 @@ value against a logical type is allowed. General unions are not written against 
   way of reading; `ParquetFilterRowsTests`: with `FilterRows`, the rows delivered are those the filter keeps, with the
   full read's values, densely, sparsely and masked in every way of reading, on the fixtures and the corpus; the fixtures and
   how they are written: `TestData/parquet-pushdown/write_pushdown.py`; `ParquetTypedRowsTests`: `ParquetReader<T>` skips
-what its predicate cannot match, and gives the rows of one thread on several). Writing: `ParquetWriterTests` (every type in every
+what its predicate cannot match, and gives the rows of one thread on several). Sources and datasets:
+  `ParquetMemorySourceTests` (memory, memory streams and unmanaged streams read in place), `ParquetSingleFileTests`
+  (joined, prefixed and cut files refused; padding and metadata copies accepted), `FileStoreTests`,
+  `ParquetDatasetTests` (expansion, order, schema across files, row index, limits, file paths, stores) and, opt-in
+  with `SESERAGI_PARQUET_PYTHON`, `ParquetDatasetInteropTests` (the same datasets read by Python Polars,
+  `TestData/parquet/dataset_polars.py`). Writing: `ParquetWriterTests` (every type in every
   page layout, codec and dictionary setting read back by our reader with checksums verified; slices, empty batches,
   row groups, the footer's chunks and encodings, the async API, refusals), `ParquetWriterStatisticsTests` (bounds of
   every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),

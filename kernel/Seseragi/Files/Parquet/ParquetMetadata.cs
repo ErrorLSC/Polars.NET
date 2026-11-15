@@ -69,6 +69,9 @@ public sealed class ParquetMetadata
     /// <summary>The full footer this view was made from; null for a view built by hand.</summary>
     internal FileMetaData? Thrift { get; init; }
 
+    /// <summary>The length of the footer this was read from (where the file's data ends), when read from a file.</summary>
+    internal int? FooterSize { get; init; }
+
     /// <summary>How much of a file's end to read first: enough for almost every footer.</summary>
     public const int TailGuess = 64 * 1024;
 
@@ -123,7 +126,7 @@ public sealed class ParquetMetadata
 
     /// <summary>The public view of a footer, after checking that its schema tree and row groups agree.</summary>
     /// <exception cref="ParquetFormatException">The schema tree or the column chunks are inconsistent.</exception>
-    internal static ParquetMetadata FromThrift(FileMetaData meta)
+    internal static ParquetMetadata FromThrift(FileMetaData meta, int? footerLength = null)
     {
         int leaves = SchemaTree.CountLeaves(meta.Schema);
         var rowGroups = new ParquetRowGroup[meta.RowGroups.Length];
@@ -150,6 +153,7 @@ public sealed class ParquetMetadata
             CreatedBy = meta.CreatedBy,
             KeyValueMetadata = meta.KeyValueMetadata is { } kv ? [.. kv.Select(p => KeyValuePair.Create(p.Key, p.Value))] : [],
             Thrift = meta,
+            FooterSize = footerLength,
         };
     }
 

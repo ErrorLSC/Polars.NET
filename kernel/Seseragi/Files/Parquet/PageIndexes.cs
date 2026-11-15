@@ -99,7 +99,7 @@ internal sealed class PageIndexes(ParquetFile file)
         RowGroup g = file.Thrift.RowGroups[group];
         ColumnMetaData? meta = g.Columns[leaf].MetaData;
         if (meta is null) return null;
-        (long start, long length) = ParquetReader.ChunkRange(meta, file.Source.Length, "", ParquetReader.IsOldParquetMr(file.Thrift.CreatedBy));
+        (long start, long length) = ParquetReader.ChunkRange(meta, file.DataEnd, "", ParquetReader.IsOldParquetMr(file.Thrift.CreatedBy));
         return ChunkPageIndex.Create(offsets, columns, g.NumRows, start, length);
     }
 

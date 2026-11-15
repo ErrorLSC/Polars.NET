@@ -109,6 +109,9 @@ public sealed record ParquetReadOptions
     /// </summary>
     public TimeUnit Int96Unit { get; init; } = TimeUnit.Microsecond;
 
+    /// <summary>Added to the numbers in <see cref="RowIndexColumn"/> (a dataset numbers rows across its files).</summary>
+    internal long RowIndexOffset { get; init; }
+
     /// <summary>How column chunks are read (tests and measurements force one; the default follows the source).</summary>
     internal ChunkReading Reading { get; init; }
 

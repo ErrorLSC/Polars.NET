@@ -463,7 +463,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// </summary>
     public Apache.Arrow.Ipc.IArrowArrayStream ReadArrowStream() => new OwningBatchStream(Schema, ReadBatches());
 
-    private sealed class OwningBatchStream(Apache.Arrow.Schema schema, IEnumerable<RecordBatch> batches) : Apache.Arrow.Ipc.IArrowArrayStream
+    internal sealed class OwningBatchStream(Apache.Arrow.Schema schema, IEnumerable<RecordBatch> batches) : Apache.Arrow.Ipc.IArrowArrayStream
     {
         private readonly IEnumerator<RecordBatch> _batches = batches.GetEnumerator();
         private RecordBatch? _current;
@@ -695,7 +695,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         {
             int batch = b;
             IArrowArray[] columns = [.. Enumerable.Range(0, decoded.Columns.Length).Select(c => decoded.Take(c, batch))];
-            if (_options.RowIndexColumn is not null) columns = [RowIndex(decoded.Rows[b], firstRow, decoded.Lengths[b]), .. columns];
+            if (_options.RowIndexColumn is not null) columns = [RowIndex(decoded.Rows[b], firstRow + _options.RowIndexOffset, decoded.Lengths[b]), .. columns];
             batches[b] = new RecordBatch(Schema, columns, decoded.Lengths[b]);
         }
         return batches;
@@ -755,7 +755,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                     // The row index first (as the schema has it).
                     if (_options.RowIndexColumn is not null)
                     {
-                        IArrowArray index = RowIndex(predicates.Rows[b], unit.FirstRow, predicates.Lengths[b]);
+                        IArrowArray index = RowIndex(predicates.Rows[b], unit.FirstRow + _options.RowIndexOffset, predicates.Lengths[b]);
                         if (all) columns.Add(index);
                         else
                         {
@@ -1295,7 +1295,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             if (chunk.FilePath is not null) throw new ParquetFormatException($"Column '{name}' of row group {g} is stored in another file ('{chunk.FilePath}').");
             ColumnMetaData meta = chunk.MetaData!;
             if (!PageCodecs.CanDecompress(meta.Codec)) throw new ParquetFormatException($"Column '{name}' is compressed with {PageCodecs.Name(meta.Codec)}, which is not supported.");
-            ranges[l] = ChunkRange(meta, _file.Source.Length, name, _oldParquetMr);
+            ranges[l] = ChunkRange(meta, _file.DataEnd, name, _oldParquetMr);
         }
         return ranges;
     }
@@ -1335,20 +1335,23 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Where a column chunk lies: from its dictionary page when it has one, else its first data page. Offsets
-    /// below the file's magic are not trusted (some writers leave data_page_offset 0 after a dictionary page).
+    /// below the file's magic are not trusted (some writers leave data_page_offset 0 after a dictionary page). A chunk
+    /// must end before the footer (<paramref name="dataEnd"/>): one reaching into it belongs to a file cut short or
+    /// to another file joined before this one.
     /// </summary>
-    internal static (long Start, long Length) ChunkRange(ColumnMetaData meta, long fileLength, string name, bool padDictionaryHeader)
+    internal static (long Start, long Length) ChunkRange(ColumnMetaData meta, long dataEnd, string name, bool padDictionaryHeader)
     {
         long start = meta.DataPageOffset;
         if (meta.DictionaryPageOffset is long d && d >= 4 && (d < start || start < 4)) start = d;
         long length = meta.TotalCompressedSize;
         if (length == 0) return (0, 0);
-        if (start < 4 || length < 0 || length > int.MaxValue || start > fileLength - length)
-            throw new ParquetFormatException($"Column '{name}' gives a chunk of {length} bytes at {start}, outside the file.");
+        if (start < 4 || length < 0 || length > int.MaxValue || start > dataEnd - length)
+            throw new ParquetFormatException($"Column '{name}' gives a chunk of {length} bytes at {start}, outside the file's data (bytes 4 to {dataEnd}, "
+                + "before the footer): the file is cut short or not a single Parquet file.");
         // PARQUET-816: parquet-mr before 1.2.9 left the dictionary page header out of the chunk size; as the reference
         // readers do, read up to 100 more bytes (the page sizes then decide).
         if (padDictionaryHeader)
-            length = Math.Min(length + 100, Math.Min(int.MaxValue, fileLength - start));
+            length = Math.Min(length + 100, Math.Min(int.MaxValue, dataEnd - start));
         return (start, length);
     }
 

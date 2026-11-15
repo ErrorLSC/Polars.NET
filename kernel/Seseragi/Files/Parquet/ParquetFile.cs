@@ -21,6 +21,8 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     private ParquetFile(IRandomAccess source, IDisposable? owned, FileMetaData thrift, ParquetMetadata metadata)
     {
         Source = source;
+        // Where the data ends: at the footer (when its length is known; else at the closing length and magic).
+        DataEnd = source.Length - TailLength - (metadata.FooterSize ?? 0);
         _owned = owned;
         Thrift = thrift;
         Metadata = metadata;
@@ -92,6 +94,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <summary>The bytes of the file.</summary>
     internal IRandomAccess Source { get; }
 
+    /// <summary>Where the bytes the footer describes end (the footer's start): column chunks lie before it.</summary>
+    internal long DataEnd { get; }
+
     /// <summary>Opens a file.</summary>
     /// <exception cref="ParquetFormatException">The file is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(string path) => Sync(OpenCoreAsync(path, useAsync: false, default));
@@ -143,6 +148,26 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(source);
         return new ParquetFile(source, null, ReadFooter(metadata), metadata);
+    }
+
+    /// <summary>
+    /// Opens a source the file then owns (disposed with it when it is <see cref="IDisposable"/>, or when opening
+    /// fails): from <paramref name="metadata"/> without a read when the footer was read before.
+    /// </summary>
+    internal static async ValueTask<ParquetFile> OpenOwnedAsync(IRandomAccess source, ParquetMetadata? metadata, bool useAsync, CancellationToken ct)
+    {
+        var owned = source as IDisposable;
+        try
+        {
+            return metadata is null
+                ? await OpenCoreAsync(source, owned, useAsync, ct).ConfigureAwait(false)
+                : new ParquetFile(source, owned, ReadFooter(metadata), metadata);
+        }
+        catch
+        {
+            owned?.Dispose();
+            throw;
+        }
     }
 
     private static FileMetaData ReadFooter(ParquetMetadata metadata)
@@ -247,18 +272,76 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             FileMetaData thrift = FileMetaData.Parse(bytes.Span);
             if (thrift.EncryptionAlgorithm is { } algorithm)
                 throw new ParquetFormatException($"The Parquet file is encrypted ({algorithm.Name}, plaintext footer), which is not supported.");
+            if (footer is null) CheckLayout(thrift, tail.AsSpan(0, tailLength - TailLength - footerLength), length - TailLength - footerLength, footerLength);
+            if (tailLength < length && source is ILocalSource { SmallReadsAreCheap: true })
+            {
+                // The start is checked where reading it is cheap (memory, a local file); on a store it would cost a request.
+                // The footer is parsed: the tail buffer is free (it is kept only for a file it holds whole).
+                await ReadExactlyAsync(source, 0, tail.AsMemory(0, MagicLength), useAsync, ct).ConfigureAwait(false);
+                if (!tail.AsSpan(0, MagicLength).SequenceEqual("PAR1"u8))
+                    throw new ParquetFormatException("The data does not start with PAR1: it is not a single Parquet file (cut at the start, or preceded by other bytes).");
+            }
             // A file the tail read held whole (up to 64 KiB) is read from those bytes from now on: on an object store
             // each read is a request. Bytes already in memory need no copy.
             IRandomAccess data = smallInMemory && tailLength == length && !InMemory(source)
                 ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray())
                 : source;
-            return new ParquetFile(data, owned, thrift, ParquetMetadata.FromThrift(thrift));
+            return new ParquetFile(data, owned, thrift, ParquetMetadata.FromThrift(thrift, footerLength));
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(tail);
             if (footer is not null) ArrayPool<byte>.Shared.Return(footer);
         }
+    }
+
+    /// <summary>
+    /// Checks that the footer describes the bytes before it, as a single Parquet file's footer does. Writers leave
+    /// little there that the footer does not point at: a copy of the last column's metadata (older parquet-cpp, Impala,
+    /// parquet-rs: never longer than the footer itself), or zeros padding the file to a block size. When files are
+    /// joined together, the last footer describes bytes of the first file and leaves the data of its own file
+    /// unaccounted for: such data is refused here rather than read as garbage (a first file no longer than the footer
+    /// passes for a metadata copy; reading it then fails on the shifted pages). Only the bytes the opening read holds
+    /// (<paramref name="before"/>, ending at the footer) are looked at: a run of zeros reaching past them is taken for
+    /// padding. With a Bloom filter of unstated length the bytes accounted for cannot be told. Column chunks outside
+    /// the data are refused when read, as are page indexes and filters there ignored: here they only count where they
+    /// lie within it.
+    /// </summary>
+    private static void CheckLayout(FileMetaData thrift, ReadOnlySpan<byte> before, long footerStart, int footerLength)
+    {
+        long end = MagicLength;
+        foreach (RowGroup group in thrift.RowGroups)
+        {
+            foreach (ColumnChunk chunk in group.Columns)
+            {
+                if (chunk.FilePath is not null || chunk.MetaData is not { } meta) continue; // stored elsewhere, or encrypted
+                if (meta.TotalCompressedSize > 0)
+                {
+                    long start = meta.DataPageOffset;
+                    if (meta.DictionaryPageOffset is long d && d >= MagicLength && (d < start || start < MagicLength)) start = d;
+                    end = Math.Max(end, Within(start, meta.TotalCompressedSize));
+                }
+                end = Math.Max(end, Within(chunk.ColumnIndexOffset, chunk.ColumnIndexLength));
+                end = Math.Max(end, Within(chunk.OffsetIndexOffset, chunk.OffsetIndexLength));
+                if (meta.BloomFilterOffset is long bloom && bloom >= MagicLength && bloom < footerStart)
+                {
+                    if (meta.BloomFilterLength is not int bloomLength) return;
+                    end = Math.Max(end, Within(bloom, bloomLength));
+                }
+            }
+        }
+        long unaccounted = footerStart - end;
+        if (unaccounted <= footerLength) return;
+        ReadOnlySpan<byte> seen = before[^(int)Math.Min(unaccounted, before.Length)..];
+        int zeros = seen.Length - 1 - seen.LastIndexOfAnyExcept((byte)0);
+        if (zeros == seen.Length && seen.Length < unaccounted) return; // zeros as far as can be seen: padding
+        long data = unaccounted - zeros;
+        if (data > footerLength)
+            throw new ParquetFormatException($"{data} bytes before the Parquet footer belong to no column chunk, index or filter it describes: "
+                + "the data is not a single Parquet file (several files joined together?).");
+
+        long Within(long? offset, long? length) =>
+            offset is long o && length is long n && o >= MagicLength && n >= 0 && o <= footerStart - n ? o + n : MagicLength;
     }
 
     private static bool InMemory(IRandomAccess source) => source is ILocalSource local && local.TryGetMemory(out _);

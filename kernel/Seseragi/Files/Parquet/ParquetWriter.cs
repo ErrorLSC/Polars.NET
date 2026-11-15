@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Files.Parquet.Writing;
@@ -314,7 +315,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             IArrowArray column = batch.Column(f);
             if (column.Length != batch.Length)
                 throw new ArgumentException($"Column {f} ('{field.Name}') has {column.Length} rows; the batch has {batch.Length}.", nameof(batch));
-            if (!ReferenceEquals(batch.Schema, Schema) && !SameType(field.DataType, column.Data.DataType))
+            if (!ReferenceEquals(batch.Schema, Schema) && !ArrowTypes.SameType(field.DataType, column.Data.DataType))
                 throw new ArgumentException($"Column {f} ('{field.Name}') is {column.Data.DataType.Name} in the batch but {field.DataType.Name} in the writer schema.", nameof(batch));
             if (Mismatch(field.DataType, column.Data, field.Name) is { } where)
                 throw new ArgumentException($"The arrays of column {f} ('{field.Name}') do not have the types its type declares: {where}.", nameof(batch));
@@ -350,7 +351,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// </summary>
     private static string? Mismatch(IArrowType declared, ArrayData data, string where)
     {
-        if (!SameType(declared, data.DataType)) return $"'{where}' is {data.DataType.Name}, not {declared.Name}";
+        if (!ArrowTypes.SameType(declared, data.DataType)) return $"'{where}' is {data.DataType.Name}, not {declared.Name}";
         return declared switch
         {
             StructType st when data.Children.Length != st.Fields.Count => $"'{where}' has {data.Children.Length} child arrays for {st.Fields.Count} fields",
@@ -370,29 +371,6 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             _ => null,
         };
     }
-
-    /// <summary>Whether two Arrow types hold their values the same way (the type and its parameters).</summary>
-    private static bool SameType(IArrowType a, IArrowType b) => (a, b) switch
-    {
-        (StructType x, StructType y) => x.Fields.Count == y.Fields.Count && x.Fields.Zip(y.Fields).All(p => p.First.Name == p.Second.Name && SameType(p.First.DataType, p.Second.DataType)),
-        (ListType x, ListType y) => SameType(x.ValueDataType, y.ValueDataType),
-        (LargeListType x, LargeListType y) => SameType(x.ValueDataType, y.ValueDataType),
-        (ListViewType x, ListViewType y) => SameType(x.ValueDataType, y.ValueDataType),
-        (LargeListViewType x, LargeListViewType y) => SameType(x.ValueDataType, y.ValueDataType),
-        (FixedSizeListType x, FixedSizeListType y) => x.ListSize == y.ListSize && SameType(x.ValueDataType, y.ValueDataType),
-        (MapType x, MapType y) => SameType(x.KeyField.DataType, y.KeyField.DataType) && SameType(x.ValueField.DataType, y.ValueField.DataType),
-        (RunEndEncodedType x, RunEndEncodedType y) => SameType(x.RunEndsDataType, y.RunEndsDataType) && SameType(x.ValuesDataType, y.ValuesDataType),
-        (DictionaryType x, DictionaryType y) => SameType(x.IndexType, y.IndexType) && SameType(x.ValueType, y.ValueType),
-        (TimestampType x, TimestampType y) => x.Unit == y.Unit && (x.Timezone ?? "") == (y.Timezone ?? ""),
-        (Time32Type x, Time32Type y) => x.Unit == y.Unit,
-        (Time64Type x, Time64Type y) => x.Unit == y.Unit,
-        (DurationType x, DurationType y) => x.Unit == y.Unit,
-        (IntervalType x, IntervalType y) => x.Unit == y.Unit,
-        (Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type, _) =>
-            a.TypeId == b.TypeId && WriteSchema.DecimalParameters(a) == WriteSchema.DecimalParameters(b),
-        (FixedSizeBinaryType x, FixedSizeBinaryType y) => a.TypeId == b.TypeId && x.ByteWidth == y.ByteWidth,
-        _ => a.TypeId == b.TypeId,
-    };
 
     private async ValueTask EndRowGroupCoreAsync(bool useAsync, CancellationToken ct)
     {

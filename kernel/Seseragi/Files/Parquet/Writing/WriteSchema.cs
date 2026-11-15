@@ -263,14 +263,7 @@ internal static class WriteSchema
     }
 
     /// <summary>The precision and scale of a decimal type.</summary>
-    public static (int Precision, int Scale) DecimalParameters(IArrowType type) => type switch
-    {
-        Decimal32Type d => (d.Precision, d.Scale),
-        Decimal64Type d => (d.Precision, d.Scale),
-        Decimal128Type d => (d.Precision, d.Scale),
-        Decimal256Type d => (d.Precision, d.Scale),
-        _ => throw new ArgumentException($"{type.Name} is not a decimal type.", nameof(type)),
-    };
+    public static (int Precision, int Scale) DecimalParameters(IArrowType type) => ArrowTypes.DecimalParameters(type);
 
     private static LogicalType Integer(int bits, bool signed) => new(LogicalTypeKind.Integer) { BitWidth = (sbyte)bits, IsSigned = signed };
 
