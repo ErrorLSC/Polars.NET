@@ -742,6 +742,7 @@ internal sealed class NullLeafReader(PageReader pages, SchemaNode leaf, LeafType
     private readonly NativeNullBuilder _builder = new();
 
     public override NativeColumnBuilder Builder => _builder;
+    protected override bool KeepsRows => false;
     protected override int DictionaryCount => int.MaxValue;
     protected override void LoadDictionary(ReadOnlySpan<byte> plain, int count) { }
     protected override bool BeginOtherEncoding(ParquetEncoding encoding, ReadOnlySpan<byte> values, int valid) => true;

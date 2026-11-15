@@ -142,7 +142,10 @@ public sealed record ParquetReadOptions
 /// <summary>How the columns a filter does not read are read for the rows it keeps (<see cref="ParquetReadOptions.FilterRows"/>).</summary>
 internal enum LateMaterialization
 {
-    /// <summary>By how scattered the rows kept are: <see cref="Dense"/> from <see cref="ParquetReader.DenseFrom"/> runs of them per row read on, else <see cref="Sparse"/>.</summary>
+    /// <summary>
+    /// <see cref="Masked"/> when nearly every page read holds a kept row (<see cref="ParquetReader.MaskedPagesFrom"/>;
+    /// without offset indexes, by runs of kept rows: <see cref="ParquetReader.MaskedRunsFrom"/>), else <see cref="Sparse"/>.
+    /// </summary>
     Auto,
 
     /// <summary>Decoded for the rows the filter read and filtered batch by batch (batches keep the filter's boundaries).</summary>
@@ -150,6 +153,12 @@ internal enum LateMaterialization
 
     /// <summary>Decoded for the rows kept only, skipping the others (full batches); also whenever a selected column is nested.</summary>
     Sparse,
+
+    /// <summary>
+    /// Decoded for the rows the filter read, appending the rows kept only (the filter's mask goes into decoding; the
+    /// batches keep the filter's boundaries); columns whose values are bits or none are read as <see cref="Dense"/> does.
+    /// </summary>
+    Masked,
 }
 
 /// <summary>How a reader gets the bytes of column chunks.</summary>

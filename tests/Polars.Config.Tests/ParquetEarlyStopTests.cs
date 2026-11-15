@@ -42,6 +42,8 @@ public class ParquetEarlyStopTests
     [InlineData("Dense", 8, true)]
     [InlineData("Auto", 8, false)]
     [InlineData("Sparse", 8, true)]
+    [InlineData("Masked", 1, false)]
+    [InlineData("Masked", 8, true)]
     public void FilteredReads_LeaveNoBatchMemoryBehind(string mode, int parallelism, bool limit)
     {
         string path = Path.Combine(AppContext.BaseDirectory, "TestData", "parquet", "indexed_v1.parquet");

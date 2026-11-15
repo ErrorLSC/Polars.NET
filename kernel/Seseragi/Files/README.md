@@ -95,8 +95,10 @@ offset index. `RowIndexColumn` appends each row's number, `MaxRows` stops after 
 batches hold the rows of what is kept, for the caller's filter. With `FilterRows` the reader filters them itself (late
 materialization): the filter is lowered by Samidare's `FilterLowering` into a Sazanami `FilterProgram` over the
 columns as read, the columns it tests are decoded first (struct fields by path), the program is evaluated batch by
-batch, and the selected columns are then read for the rows kept only, densely (the same batches, filtered with
-`ArrowFilter`, the filter's own columns reused) or sparsely (by row ranges, skipping pages by the offset index).
+batch, and the selected columns are then read for the rows kept only: masked (the filter's mask goes into decoding,
+so the columns' readers append only the rows kept; the filter's own columns are reused, filtered with `ArrowFilter`,
+as are columns of booleans or nulls) or sparsely (by row ranges, skipping pages by the offset index), by how
+scattered the rows kept are.
 Conjuncts that cannot be evaluated here are left to the caller (`FiltersExactly` is then false); `MaxRows` then
 counts the rows delivered.
 
@@ -403,7 +405,7 @@ value against a logical type is allowed. General unions are not written against 
   comparisons on every type keep exactly the row groups with matches, and that lying statistics, indexes and Bloom
   filters are used or ignored as intended; `ParquetRowSelectionTests`: selected rows equal the full read's in every
   way of reading; `ParquetFilterRowsTests`: with `FilterRows`, the rows delivered are those the filter keeps, with the
-  full read's values, densely and sparsely in every way of reading, on the fixtures and the corpus; the fixtures and
+  full read's values, densely, sparsely and masked in every way of reading, on the fixtures and the corpus; the fixtures and
   how they are written: `TestData/parquet-pushdown/write_pushdown.py`). The evaluator of the IR's semantics these share
   is `IrEvaluator.cs`; `FilterLoweringTests.cs` checks Samidare's filter lowering against it. Process-wide state (memory pool,
   guard pages, early stops) is tested in the serial `tests/Polars.Config.Tests`. Through the engine:

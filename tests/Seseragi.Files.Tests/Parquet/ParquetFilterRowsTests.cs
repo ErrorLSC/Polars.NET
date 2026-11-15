@@ -10,8 +10,8 @@ namespace Seseragi.Files.Tests.Parquet;
 /// <summary>
 /// <see cref="ParquetReadOptions.FilterRows"/> (late materialization) against the IR evaluator: the rows delivered are
 /// exactly those the filter keeps (a superset when <see cref="ParquetReader.FiltersExactly"/> is false), with the
-/// values the full read gives at those rows, in every way of reading: dense and sparse, streamed, sliced and fetched,
-/// on one thread and many, with small batches, row selections, row limits and projections.
+/// values the full read gives at those rows, in every way of reading: dense, sparse and masked, streamed, sliced and
+/// fetched, on one thread and many, with small batches, row selections, row limits and projections.
 /// </summary>
 [Collection(RowLevelCorpus.Name)]
 public class ParquetFilterRowsTests
@@ -19,7 +19,7 @@ public class ParquetFilterRowsTests
     private const string RowColumn = "__row";
 
     private sealed record Config(LateMaterialization Mode, ChunkReading Reading, int Parallelism, int BatchSize, RowRanges? Rows, long? MaxRows,
-        string[]? Columns, bool Async)
+        string[]? Columns, bool Async, bool LevelsAsBits = true)
     {
         public ParquetReadOptions Options(ScalarExpr? filter) => new()
         {
@@ -33,6 +33,7 @@ public class ParquetFilterRowsTests
             MaxRows = filter is null ? null : MaxRows,
             Columns = Columns,
             RowIndexColumn = RowColumn,
+            LevelsAsBits = LevelsAsBits,
         };
     }
 
@@ -46,18 +47,19 @@ public class ParquetFilterRowsTests
         }
         string[]? columns = random.Next(2) == 0 || flat.Length == 0 ? null : [.. flat.Where(_ => random.Next(2) == 0).DefaultIfEmpty(flat[0])];
         return new Config(
-            (LateMaterialization)random.Next(3),
+            (LateMaterialization)random.Next(4),
             random.Next(3) switch { 0 => ChunkReading.Stream, 1 => ChunkReading.Slice, _ => ChunkReading.Fetch },
             random.Next(2) == 0 ? 1 : 4,
             random.Next(3) switch { 0 => 65_536, 1 => 7, _ => 100 },
             selection,
             random.Next(5) == 0 ? random.NextInt64(rows + 1) : null,
             columns,
-            random.Next(3) == 0);
+            random.Next(3) == 0,
+            random.Next(4) != 0);
     }
 
     /// <summary>The rows a reader delivers: each row's number and rendered values, and what the reader reported.</summary>
-    private sealed record Delivery(List<long> Rows, List<string[]> Values, bool Exact, int Dense, int Sparse);
+    private sealed record Delivery(List<long> Rows, List<string[]> Values, bool Exact, int Dense, int Sparse, int Masked);
 
     private static Delivery Read(string path, ParquetReadOptions options, bool async = false)
     {
@@ -78,7 +80,7 @@ public class ParquetFilterRowsTests
                 }
             }
         }
-        return new Delivery(rows, values, reader.FiltersExactly, reader.DenseUnits, reader.SparseUnits);
+        return new Delivery(rows, values, reader.FiltersExactly, reader.DenseUnits, reader.SparseUnits, reader.MaskedUnits);
     }
 
     /// <summary>The columns and struct fields filters may test, with their literals.</summary>
@@ -98,13 +100,14 @@ public class ParquetFilterRowsTests
     }
 
     /// <summary>Checks a filtered read against the full read and the evaluator; returns whether it was exact.</summary>
-    private static bool Check(FileRows rows, ScalarExpr filter, Config config, string where, ref int dense, ref int sparse)
+    private static bool Check(FileRows rows, ScalarExpr filter, Config config, string where, ref int dense, ref int sparse, ref int masked)
     {
         Delivery full = Read(rows.Path, config.Options(null));
         Dictionary<long, string[]> byRow = full.Rows.Zip(full.Values).ToDictionary(p => p.First, p => p.Second);
         Delivery all = Read(rows.Path, config.Options(filter) with { MaxRows = null }, config.Async);
         dense += all.Dense;
         sparse += all.Sparse;
+        masked += all.Masked;
         where = $"{where}: {Show(filter)} ({config with { Rows = null }}, rows {config.Rows})";
 
         // In file order, each row once, from the selection, with the full read's values.
@@ -147,14 +150,14 @@ public class ParquetFilterRowsTests
         string[] flat = FlatColumns(Fixture(name));
         long count = rows.AllRows.LongCount();
         var random = new Random(name.Length * 104_729);
-        int exact = 0, dense = 0, sparse = 0, rounds = name == "types.parquet" ? 160 : 60;
+        int exact = 0, dense = 0, sparse = 0, masked = 0, rounds = name == "types.parquet" ? 160 : 60;
         for (int round = 0; round < rounds; round++)
         {
             ScalarExpr filter = RandomFilter(random, rows, columns, depth: 2);
-            if (Check(rows, filter, RandomConfig(random, count, flat), $"{name} round {round}", ref dense, ref sparse)) exact++;
+            if (Check(rows, filter, RandomConfig(random, count, flat), $"{name} round {round}", ref dense, ref sparse, ref masked)) exact++;
         }
         Assert.True(exact > rounds * 9 / 10, $"only {exact} of {rounds} filters were evaluated exactly");
-        Assert.True(dense > 0 && sparse > 0, $"{dense} row groups read densely, {sparse} sparsely");
+        Assert.True(dense > 0 && sparse > 0 && masked > 0, $"{dense} row groups read densely, {sparse} sparsely, {masked} masked");
     }
 
     /// <summary>The top-level columns that are neither lists nor structs nor maps.</summary>
@@ -192,9 +195,9 @@ public class ParquetFilterRowsTests
         // A new seed every run (string hashes are randomized per process), printed on failure; CORPUS_SEED replays one.
         int seed = int.TryParse(Environment.GetEnvironmentVariable("CORPUS_SEED"), out int replay) ? replay : StringComparer.Ordinal.GetHashCode(name) & 0x7FFFFFFF;
         var random = new Random(seed);
-        int dense = 0, sparse = 0;
+        int dense = 0, sparse = 0, masked = 0;
         for (int round = 0; round < 4; round++)
-            Check(rows, RandomFilter(random, rows, columns, depth: 1), RandomConfig(random, count, flat), $"{name} (CORPUS_SEED={seed}) round {round}", ref dense, ref sparse);
+            Check(rows, RandomFilter(random, rows, columns, depth: 1), RandomConfig(random, count, flat), $"{name} (CORPUS_SEED={seed}) round {round}", ref dense, ref sparse, ref masked);
     }
 
     // ------------------------------------------------------------------
@@ -270,12 +273,61 @@ public class ParquetFilterRowsTests
         }
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ANullTypedColumn_IsNullOnEveryRow(bool sparse)
+    [Fact]
+    public void PageBytes_CountThePagesHoldingRowsKeptAndRead()
     {
-        LateMaterialization mode = sparse ? LateMaterialization.Sparse : LateMaterialization.Dense;
+        var random = new Random(9);
+        for (int n = 0; n < 3000; n++)
+        {
+            // Batches of runs of rows with gaps (rows not read), masks of every density, pages of 1 to 300 rows.
+            int batches = random.Next(1, 4);
+            var rows = new (long Start, int Count)[batches][];
+            var masks = new ulong[batches][];
+            List<long> read = [], kept = [];
+            long row = random.Next(50);
+            for (int b = 0; b < batches; b++)
+            {
+                rows[b] = new (long, int)[random.Next(1, 4)];
+                int length = 0;
+                for (int r = 0; r < rows[b].Length; r++)
+                {
+                    int count = random.Next(5) == 0 ? 0 : random.Next(1, 300);
+                    rows[b][r] = (row, count);
+                    for (int i = 0; i < count; i++) read.Add(row + i);
+                    length += count;
+                    row += count + (random.Next(2) == 0 ? random.Next(1, 400) : 0);
+                }
+                masks[b] = new ulong[(length + 63) / 64];
+                int density = random.Next(1, 30);
+                int slot = 0;
+                foreach (var (start, count) in rows[b])
+                {
+                    for (int i = 0; i < count; i++, slot++)
+                    {
+                        if (random.Next(density) != 0) continue;
+                        masks[b][slot >> 6] |= 1UL << (slot & 63);
+                        kept.Add(start + i);
+                    }
+                }
+            }
+            List<long> firstRows = [0];
+            while (firstRows[^1] < row + 10) firstRows.Add(firstRows[^1] + random.Next(1, 300));
+            firstRows.RemoveAt(firstRows.Count - 1);
+            int[] sizes = [.. firstRows.Select(_ => random.Next(1, 1000))];
+            long Bytes(List<long> of) => firstRows.Select((first, p) => (first, p))
+                .Where(page => of.Any(r => r >= page.first && (page.p + 1 == firstRows.Count || r < firstRows[page.p + 1])))
+                .Sum(page => (long)sizes[page.p]);
+            Assert.Equal((Bytes(kept), Bytes(read)), ParquetReader.PageBytes([.. firstRows], sizes, rows, masks));
+        }
+    }
+
+    [Theory]
+    [InlineData("Dense")]
+    [InlineData("Sparse")]
+    [InlineData("Masked")]
+    public void ANullTypedColumn_IsNullOnEveryRow(string way)
+    {
+        var mode = Enum.Parse<LateMaterialization>(way);
         // Found by the fuzzer: a column of Arrow's null type (no buffers) tested for null.
         string path = ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet");
         using var file = ParquetFile.Open(path);
@@ -314,10 +366,12 @@ public class ParquetFilterRowsTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void AFieldOfANullStruct_IsNull_EvenWhenItIsRequired(bool sparse)
+    [InlineData("Dense")]
+    [InlineData("Sparse")]
+    [InlineData("Masked")]
+    public void AFieldOfANullStruct_IsNull_EvenWhenItIsRequired(string way)
     {
+        var mode = Enum.Parse<LateMaterialization>(way);
         // s is optional, s.a required: where s is null the reader gives s.a a placeholder value, which the filter must
         // read as null (the IR reads a field of a null struct as null).
         ParquetNode[] schema =
@@ -346,7 +400,7 @@ public class ParquetFilterRowsTests
             using var reader = file.OpenReader(new ParquetReadOptions
             {
                 Filter = filter, FilterRows = true, Columns = ["id"], BatchSize = 32,
-                LateMaterialization = sparse ? LateMaterialization.Sparse : LateMaterialization.Dense,
+                LateMaterialization = mode,
             });
             Assert.True(reader.FiltersExactly);
             List<long> ids = [];
@@ -360,6 +414,67 @@ public class ParquetFilterRowsTests
             }
             Assert.True(Enumerable.Range(0, 200).Select(i => (long)i).Where(keeps).SequenceEqual(ids), $"{Show(filter)}: {string.Join(",", ids.Take(20))}");
         }
+    }
+
+    /// <summary>
+    /// Masked reads pick the kept values of nullable columns of every kind (fixed width, strings short and long,
+    /// booleans filtered after) across many words of rows, with levels as bits and as bytes, in whole and small batches.
+    /// </summary>
+    [Theory]
+    [InlineData(true, 1000)]
+    [InlineData(false, 1000)]
+    [InlineData(false, 100)]
+    public void MaskedReads_PickTheKeptValues_OfNullableColumns(bool levelsAsBits, int batchSize)
+    {
+        ParquetNode[] schema =
+        [
+            new ParquetLeaf("id", Repetition.Required, PhysicalType.Int64),
+            new ParquetLeaf("k", Repetition.Required, PhysicalType.Int64),
+            new ParquetLeaf("v", Repetition.Optional, PhysicalType.Int64),
+            new ParquetLeaf("i", Repetition.Optional, PhysicalType.Int32),
+            new ParquetLeaf("s", Repetition.Optional, PhysicalType.ByteArray, Utf8: true),
+            new ParquetLeaf("b", Repetition.Optional, PhysicalType.Boolean),
+        ];
+        IReadOnlyDictionary<string, object?> Row(long i) => new Dictionary<string, object?>
+        {
+            ["id"] = i,
+            ["k"] = i * 7919 % 11,
+            ["v"] = i % 5 == 0 ? null : i * 3,
+            ["i"] = i % 7 == 0 ? null : (int)(i - 500),
+            ["s"] = i % 4 == 0 ? null : i % 3 == 0 ? $"s{i}" : $"a long string value {i}",
+            ["b"] = i % 6 == 0 ? null : i % 2 == 0,
+        };
+        IReadOnlyDictionary<string, object?>[] rows = [.. Enumerable.Range(0, 1000).Select(i => Row(i))];
+        byte[] bytes = MinimalParquetWriter.Write(schema, rows);
+        ScalarExpr filter = Bin(BinaryOp.Lt, Col("k"), Lit(LiteralValue.NewInt64(4)));
+        string[] expected = [.. rows.Where(r => (long)r["k"]! < 4).Select(r => string.Join("|", schema.Select(c => r[c.Name]?.ToString() ?? "null")))];
+
+        using var file = ParquetFile.Open(new MemoryStream(bytes));
+        using var reader = file.OpenReader(new ParquetReadOptions
+        {
+            Filter = filter, FilterRows = true, BatchSize = batchSize, LevelsAsBits = levelsAsBits, LateMaterialization = LateMaterialization.Masked,
+        });
+        List<string> read = [];
+        foreach (RecordBatch batch in reader.ReadBatches())
+        {
+            using (batch)
+            {
+                for (int r = 0; r < batch.Length; r++)
+                {
+                    read.Add(string.Join("|", Enumerable.Range(0, batch.ColumnCount).Select(c => batch.Column(c) switch
+                    {
+                        Int64Array a => a.GetValue(r)?.ToString() ?? "null",
+                        Int32Array a => a.GetValue(r)?.ToString() ?? "null",
+                        StringViewArray a => a.IsNull(r) ? "null" : a.GetString(r),
+                        StringArray a => a.IsNull(r) ? "null" : a.GetString(r),
+                        BooleanArray a => a.GetValue(r)?.ToString() ?? "null",
+                        var other => throw new InvalidOperationException(other.GetType().Name),
+                    })));
+                }
+            }
+        }
+        Assert.Equal(expected, read);
+        Assert.Equal(1, reader.MaskedUnits);
     }
 
     [Fact]
@@ -405,13 +520,14 @@ public class ParquetFilterRowsTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void FetchedReads_TakeOnlyWhatEachPhaseNeeds(bool sparse)
+    [InlineData("Dense")]
+    [InlineData("Sparse")]
+    [InlineData("Masked")]
+    public void FetchedReads_TakeOnlyWhatEachPhaseNeeds(string way)
     {
-        LateMaterialization mode = sparse ? LateMaterialization.Sparse : LateMaterialization.Dense;
+        var mode = Enum.Parse<LateMaterialization>(way);
         // key = 1234 keeps one row of group 1 (page 24 of key); the other columns are read for that row only when
-        // sparse (page 24 of each), for the filter's rows when dense (the pages the page index left).
+        // sparse (page 24 of each), for the filter's rows when dense or masked (the pages the page index left).
         byte[] bytes = File.ReadAllBytes(Fixture("indexed_v1.parquet"));
         var source = new RecordingSource(bytes);
         using var file = ParquetFile.Open(source);
@@ -426,6 +542,7 @@ public class ParquetFilterRowsTests
         Assert.Equal(1, rowsRead);
         Assert.Equal(mode == LateMaterialization.Dense ? 1 : 0, reader.DenseUnits);
         Assert.Equal(mode == LateMaterialization.Sparse ? 1 : 0, reader.SparseUnits);
+        Assert.Equal(mode == LateMaterialization.Masked ? 1 : 0, reader.MaskedUnits);
         // Data pages other than page 4 of group 1 (rows 1200..1249) of key, cat and f are never read, nor any page of
         // the columns neither selected nor tested (planning reads only footers and indexes).
         List<(long Offset, int Length)> reads = [.. source.Reads];

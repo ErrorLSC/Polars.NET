@@ -212,7 +212,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
                 Filter = random.Next(3) == 0 ? RandomFilter(random, file.Schema) : null,
                 // Late materialization: the filter's columns first, the others for the rows kept (densely or by ranges).
                 FilterRows = random.Next(2) == 0,
-                LateMaterialization = (LateMaterialization)random.Next(3),
+                LateMaterialization = (LateMaterialization)random.Next(4),
                 MaxRows = random.Next(8) == 0 ? random.Next(0, 5000) : null,
                 FetchGap = random.Next(2) == 0 ? 0 : 1 << 20,
             };

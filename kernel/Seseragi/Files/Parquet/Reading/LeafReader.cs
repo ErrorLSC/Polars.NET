@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Filters;
 using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
@@ -56,6 +57,13 @@ internal abstract class LeafReader : IDisposable
     private byte[] _batchDef = [], _batchRep = [];
     private int _batchCount;
     private byte[] _mask = [];
+
+    // Rows kept (Keep): a bit per row of the batch being read, and the bit of the next row read; scratch for them.
+    private ulong[]? _keep;
+    private int _keepAt;
+    private ulong[] _keepBits = [], _validBits = [], _keptValidity = [];
+    private int[] _keptStarts = [], _keptLengths = [], _plainStarts = [], _plainLengths = [];
+    private byte[] _keptValues = [];
 
     protected LeafReader(PageReader pages, SchemaNode leaf, LeafType type, long valueCount)
     {
@@ -118,6 +126,32 @@ internal abstract class LeafReader : IDisposable
             _fixedElementDef = fixedSizeList.ElementDef;
             _fixedSize = fixedSizeList.ListSize;
         }
+        // A flat leaf (a slot per entry, a value per valid slot) of values as bytes can append only the rows kept.
+        CanKeep = _maxRepetition == 0 && _maxDefinition <= 1 && !keepLevels && node.SlotDef == 0 && fixedSizeList is null && !node.RejectNulls
+            && KeepsRows && Leaf.Element.Type switch
+            {
+                ParquetType.Boolean => false,
+                ParquetType.FixedLenByteArray => Leaf.Element.TypeLength > 0,
+                _ => true,
+            };
+    }
+
+    /// <summary>Whether the reader can append only the rows a mask keeps (<see cref="Keep"/>); known once configured.</summary>
+    public bool CanKeep { get; private set; }
+
+    /// <summary>Whether the kind's values are bytes the base can pick from (not the case for a kind whose values are none).</summary>
+    protected virtual bool KeepsRows => true;
+
+    /// <summary>
+    /// From the next read on, appends only the rows whose bits are set in <paramref name="keep"/>, the next row read
+    /// being bit <paramref name="at"/> (rows of the batch, as the filter's mask numbers them); null appends every row.
+    /// Only when <see cref="CanKeep"/>.
+    /// </summary>
+    public void Keep(ulong[]? keep, int at)
+    {
+        if (keep is not null && !CanKeep) throw new InvalidOperationException($"Column '{Name}' cannot keep rows.");
+        _keep = keep;
+        _keepAt = at;
     }
 
     /// <summary>The definition levels of the entries read into the current batch.</summary>
@@ -287,6 +321,7 @@ internal abstract class LeafReader : IDisposable
     {
         int n = b - a;
         if (n == 0) return;
+        if (_keep is not null && ConsumeKept(a, n)) return;
         if (_bitLevels)
         {
             int present = (int)Bits.Count(_defBits, a, n);
@@ -356,6 +391,126 @@ internal abstract class LeafReader : IDisposable
             if (_rejectNulls && valid != slots) throw new ParquetFormatException("a map key is null.");
         }
         Append(slots, mask, valid);
+    }
+
+    /// <summary>
+    /// Reads the entries [<paramref name="a"/>, +<paramref name="n"/>) of a flat leaf, appending the rows kept only:
+    /// none, skipped as a skip would; some, their values picked from the page's (dictionary indices, byte arrays,
+    /// fixed-width PLAIN values, or PLAIN byte arrays copied to scratch) and appended as the encoding's own. Returns
+    /// false when every row is kept (read as usual). Values not kept are not looked at (UTF-8 is checked on the kept).
+    /// </summary>
+    private bool ConsumeKept(int a, int n)
+    {
+        int words = Masks.Words(n);
+        EnsureWords(ref _keepBits, words);
+        Masks.Load(MemoryMarshal.AsBytes(_keep.AsSpan()), _keepAt, n, _keepBits);
+        _keepAt += n;
+        ReadOnlySpan<ulong> keep = _keepBits.AsSpan(0, words);
+        int kept = Masks.Count(keep);
+        if (kept == n) return false;
+        if (kept == 0)
+        {
+            SkipEntries(a, a + n);
+            return true;
+        }
+
+        // The slots' validity (empty: all valid), and that of the slots kept.
+        ReadOnlySpan<ulong> valid = default;
+        int present = n;
+        if (_maxDefinition > 0)
+        {
+            EnsureWords(ref _validBits, words);
+            Span<ulong> bits = _validBits.AsSpan(0, words);
+            if (_bitLevels) Masks.Load(_defBits, a, n, bits);
+            else
+            {
+                // A flat leaf's levels are 0 or 1: the bytes are the mask.
+                SlotMask levels = _def.AsSpan(a, n);
+                for (int w = 0; w < words; w++) bits[w] = w < words - 1 || (n & 63) == 0 ? levels.Word(w << 6) : levels.PartialWord(w << 6, n & 63);
+            }
+            present = Masks.Count(bits);
+            if (present != n) valid = bits;
+        }
+        int keptValid = kept;
+        SlotMask keptMask = default;
+        if (!valid.IsEmpty)
+        {
+            EnsureWords(ref _keptValidity, Masks.Words(kept));
+            keptValid = MaskCompact.Bits(valid, keep, n, _keptValidity);
+            if (keptValid != kept) keptMask = SlotMask.FromBits(MemoryMarshal.AsBytes(_keptValidity.AsSpan()), 0, kept);
+        }
+
+        if (_fromDictionary)
+        {
+            EnsureInts(ref _keptStarts, keptValid);
+            MaskCompact.Values(_indices.AsSpan(_indexAt, present), keep, valid, n, _keptStarts.AsSpan());
+            _indexAt += present;
+            AppendFromDictionary(kept, keptMask, _keptStarts.AsSpan(0, keptValid));
+        }
+        else if (_fromArrays)
+        {
+            AppendKeptByteArrays(kept, keptMask, keptValid, _arrayData.Span, _starts.AsSpan(_arrayAt, present), _lengths.AsSpan(_arrayAt, present), keep, valid, n);
+            _arrayAt += present;
+        }
+        else if (_other) throw new InvalidOperationException($"Column '{Name}' cannot keep rows of its page's encoding.");
+        else if (Leaf.Element.Type == ParquetType.ByteArray)
+        {
+            ReadOnlySpan<byte> values = _values.Span;
+            EnsureInts(ref _plainStarts, present);
+            EnsureInts(ref _plainLengths, present);
+            LeafReaders.ParsePlain(values, ref _valuePosition, _plainStarts.AsSpan(0, present), _plainLengths.AsSpan(0, present), int.MaxValue);
+            AppendKeptByteArrays(kept, keptMask, keptValid, values, _plainStarts.AsSpan(0, present), _plainLengths.AsSpan(0, present), keep, valid, n);
+        }
+        else
+        {
+            int width = Leaf.Element.Type switch
+            {
+                ParquetType.Int32 or ParquetType.Float => 4,
+                ParquetType.Int64 or ParquetType.Double => 8,
+                ParquetType.Int96 => 12,
+                _ => Leaf.Element.TypeLength!.Value,
+            };
+            ReadOnlySpan<byte> values = _values.Span;
+            if ((long)present * width > values.Length - _valuePosition) throw new ParquetFormatException($"the page holds fewer values than its {present} present ones.");
+            Ensure(ref _keptValues, keptValid * width);
+            MaskCompact.Values(values.Slice(_valuePosition, present * width), width, keep, valid, n, _keptValues);
+            _valuePosition += present * width;
+            int position = 0;
+            AppendPlain(kept, keptMask, keptValid, _keptValues.AsSpan(0, keptValid * width), ref position);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Appends the kept ones of byte arrays (a start and length per valid slot): as byte arrays where the kind takes
+    /// them, else rewritten as PLAIN values (a length, then the bytes) in scratch.
+    /// </summary>
+    private void AppendKeptByteArrays(int kept, SlotMask keptMask, int keptValid, ReadOnlySpan<byte> data, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths,
+        ReadOnlySpan<ulong> keep, ReadOnlySpan<ulong> valid, int n)
+    {
+        EnsureInts(ref _keptStarts, keptValid);
+        EnsureInts(ref _keptLengths, keptValid);
+        Span<int> keptStarts = _keptStarts.AsSpan(0, keptValid), keptLengths = _keptLengths.AsSpan(0, keptValid);
+        MaskCompact.Values(starts, keep, valid, n, keptStarts);
+        MaskCompact.Values(lengths, keep, valid, n, keptLengths);
+        if (TakesByteArrays)
+        {
+            AppendByteArrays(kept, keptMask, data, keptStarts, keptLengths);
+            return;
+        }
+        long bytes = 4L * keptValid;
+        foreach (int length in keptLengths) bytes += length;
+        Ensure(ref _keptValues, checked((int)bytes));
+        Span<byte> plain = _keptValues.AsSpan(0, (int)bytes);
+        int at = 0;
+        for (int i = 0; i < keptValid; i++)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(plain[at..], keptLengths[i]);
+            data.Slice(keptStarts[i], keptLengths[i]).CopyTo(plain[(at + 4)..]);
+            at += 4 + keptLengths[i];
+        }
+        int position = 0;
+        AppendPlain(kept, keptMask, keptValid, plain, ref position);
     }
 
     /// <summary>Appends <paramref name="slots"/> slots, <paramref name="valid"/> of them with values, from the page's encoding.</summary>
@@ -675,6 +830,13 @@ internal abstract class LeafReader : IDisposable
         return _transcoded!.Memory[..plain.Length];
     }
 
+    private static void EnsureWords(ref ulong[] buffer, int length)
+    {
+        if (buffer.Length >= length) return;
+        if (buffer.Length > 0) ArrayPool<ulong>.Shared.Return(buffer);
+        buffer = ArrayPool<ulong>.Shared.Rent(length);
+    }
+
     private static void EnsureInts(ref int[] buffer, int length)
     {
         if (buffer.Length >= length) return;
@@ -737,13 +899,22 @@ internal abstract class LeafReader : IDisposable
     public virtual void Dispose()
     {
         ReleasePages();
-        foreach (byte[] buffer in (byte[][])[_mask, _def, _rep, _batchDef, _batchRep, _defBits, _maskBytes])
+        foreach (byte[] buffer in (byte[][])[_mask, _def, _rep, _batchDef, _batchRep, _defBits, _maskBytes, _keptValues])
         {
             if (buffer.Length > 0) ArrayPool<byte>.Shared.Return(buffer);
         }
-        if (_indices.Length > 0) ArrayPool<int>.Shared.Return(_indices);
-        _mask = _def = _rep = _batchDef = _batchRep = _defBits = _maskBytes = [];
-        _indices = [];
+        foreach (int[] buffer in (int[][])[_indices, _keptStarts, _keptLengths, _plainStarts, _plainLengths])
+        {
+            if (buffer.Length > 0) ArrayPool<int>.Shared.Return(buffer);
+        }
+        foreach (ulong[] buffer in (ulong[][])[_keepBits, _validBits, _keptValidity])
+        {
+            if (buffer.Length > 0) ArrayPool<ulong>.Shared.Return(buffer);
+        }
+        _mask = _def = _rep = _batchDef = _batchRep = _defBits = _maskBytes = _keptValues = [];
+        _indices = _keptStarts = _keptLengths = _plainStarts = _plainLengths = [];
+        _keepBits = _validBits = _keptValidity = [];
+        _keep = null;
         Builder.Dispose();
         GC.SuppressFinalize(this);
     }
