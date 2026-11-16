@@ -359,9 +359,12 @@ internal abstract class ColumnWriter
             bitWidth = DictionaryCount <= 1 ? 0 : 32 - BitOperations.LeadingZeroCount((uint)DictionaryCount - 1);
             if (!_dictionaryJudged)
             {
-                // The first page with values decides: a dictionary that does not make it smaller is dropped for the whole chunk.
+                // The first page with values decides: a dictionary that does not make it smaller is dropped for the whole chunk;
+                // for fixed-width values compressed afterwards, one that does not make it a quarter smaller (bit-packed
+                // indices hardly compress, plain values do: measured, plain then wrote smaller files and read faster).
                 _dictionaryJudged = true;
-                if (DictionaryPlainBytes + 1 + RleBitPackedEncoder.MaxBytes(count, bitWidth) >= PagePlainBytes)
+                long worth = IsByteArray || _settings.Codec == CompressionCodec.Uncompressed ? PagePlainBytes : PagePlainBytes * 3 / 4;
+                if (DictionaryPlainBytes + 1 + RleBitPackedEncoder.MaxBytes(count, bitWidth) >= worth)
                 {
                     _dictionary = DictionaryState.Off;
                     ClearDictionary();

@@ -204,7 +204,8 @@ whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
 dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page holding values shows the dictionary does not
-pay; one outgrowing `DictionaryPageBytes` goes on plainly. Statistics follow the type-defined order of every column
+pay (smaller than the plain values; for fixed-width values compressed afterwards, at most three quarters of them, as
+bit-packed indices hardly compress where plain values do); one outgrowing `DictionaryPageBytes` goes on plainly. Statistics follow the type-defined order of every column
 (signed, unsigned, IEEE floats with NaN counts and zeros as -0 / +0, decimals as numbers), with the deprecated fields
 for signed orders; string and binary bounds are cut to `StatisticsTruncateLength` (the upper bound rounded up, marked
 inexact); floating chunks holding NaN get no bounds (Spark orders NaN above every number and ignores NaN counts).

@@ -59,8 +59,10 @@ public sealed record ParquetWriteOptions
 
     /// <summary>
     /// Whether columns are dictionary-encoded (booleans never are). A column chunk whose first page holding values shows that the
-    /// dictionary does not pay is written plainly; one whose dictionary outgrows <see cref="DictionaryPageBytes"/> goes
-    /// on plainly from the next page.
+    /// dictionary does not pay is written plainly: the dictionary and its indices must take fewer bytes than the plain
+    /// values, and for fixed-width values (numbers, dates and times, fixed-length bytes) compressed afterwards at most
+    /// three quarters of them (bit-packed indices hardly compress where plain values do). One whose dictionary outgrows
+    /// <see cref="DictionaryPageBytes"/> goes on plainly from the next page.
     /// </summary>
     public bool Dictionary { get; init; } = true;
 

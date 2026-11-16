@@ -1,6 +1,7 @@
 using System.Buffers;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
@@ -82,9 +83,11 @@ public sealed class ParquetWriterEncodingTests : IDisposable
         };
         Assert.All(expected, leaf => Assert.Contains(leaf, columns.Keys));
         string path = Path("enc.parquet");
+        // Uncompressed: a dictionary that makes the first page smaller is kept, so that chunks go on in the encoding after it
+        // (compressed, fixed-width dictionaries must make it a quarter smaller: see FixedWidthDictionaries_PayAQuarter_WhenCompressed).
         ParquetWriter.Write(path, batch.Schema, [batch.Slice(0, 900), batch.Slice(900, 1600)], new ParquetWriteOptions
         {
-            DataPageVersion = version, DataPageRows = 97, RowGroupRows = 1000, DictionaryPageBytes = 300, Columns = columns,
+            DataPageVersion = version, DataPageRows = 97, RowGroupRows = 1000, DictionaryPageBytes = 300, Columns = columns, Compression = NoCompression.Instance,
         });
         List<string>[] read = ParquetWriterTests.ReadBack(path, batch.ColumnCount, out _);
         List<string>[] written = Columns([batch], batch.ColumnCount);
@@ -114,6 +117,29 @@ public sealed class ParquetWriterEncodingTests : IDisposable
             }
         }
         if (dictionary && encoding != ParquetValueEncoding.Rle) Assert.True(fallback, "no chunk went on in the encoding after its dictionary");
+    }
+
+    [Fact]
+    public void FixedWidthDictionaries_PayAQuarter_WhenCompressed()
+    {
+        // One page of 20 000 rows. int32 with 8 000 distinct values: dictionary 32 000 bytes + 13-bit indices ≈ 32 500, about
+        // 81 % of the 80 000 plain bytes; with 1 000 distinct about 36 %. Strings of 5 characters with 12 000 distinct:
+        // about 79 % of their plain bytes.
+        const int Rows = 20_000;
+        RecordBatch batch = Batch(
+            ("mid", Fixed(Int32Type.Default, [.. Enumerable.Range(0, Rows).Select(i => (int?)(i * 7919 % 8000))]), false),
+            ("low", Fixed(Int32Type.Default, [.. Enumerable.Range(0, Rows).Select(i => (int?)(i * 7919 % 1000))]), false),
+            ("text", Strings([.. Enumerable.Range(0, Rows).Select(i => $"k{i * 7919 % 12000:D4}")]), false));
+        foreach (var (compression, midKept) in (ValueTuple<IParquetCompression, bool>[])[(SnappyCompression.Instance, false), (new ZstandardCompression(), false), (NoCompression.Instance, true)])
+        {
+            string path = Path("pay.parquet");
+            ParquetWriter.Write(path, batch.Schema, [batch], new ParquetWriteOptions { Compression = compression });
+            List<string>[] read = ParquetWriterTests.ReadBack(path, batch.ColumnCount, out _);
+            Assert.True(Columns([batch], batch.ColumnCount).Zip(read).All(p => p.First.SequenceEqual(p.Second)));
+            using var file = ParquetFile.Open(path);
+            bool[] dictionaries = [.. file.Metadata.Thrift!.RowGroups[0].Columns.Select(c => c.MetaData!.DictionaryPageOffset is not null)];
+            Assert.Equal([midKept, true, true], dictionaries);
+        }
     }
 
     /// <summary>Nested leaves (lists, structs, maps) take encodings too, a whole column's leaves by its own path.</summary>
