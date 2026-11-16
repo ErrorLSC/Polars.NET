@@ -67,9 +67,11 @@ internal static class ArrowMapping
 {
     public const string ArrowSchemaKey = "ARROW:schema";
 
-    public static (Apache.Arrow.Schema Schema, ColumnMapping[] Columns) Map(ParquetSchemaTree tree, FileMetaData meta, ParquetReadOptions options)
+    /// <param name="tree">The file's schema tree.</param>
+    /// <param name="stored">The Arrow schema the writer stored (see <see cref="StoredArrowSchema"/>), or null.</param>
+    /// <param name="options">The options that shape types.</param>
+    public static (Apache.Arrow.Schema Schema, ColumnMapping[] Columns) Map(ParquetSchemaTree tree, Apache.Arrow.Schema? stored, ParquetReadOptions options)
     {
-        Apache.Arrow.Schema? stored = StoredArrowSchema(meta);
         var columns = new ColumnMapping[tree.Root.Children.Length];
         for (int i = 0; i < columns.Length; i++)
         {
@@ -87,9 +89,8 @@ internal static class ArrowMapping
     /// is checked as a FlatBuffer first: the Apache.Arrow reader trusts its lengths (a damaged one makes it allocate
     /// gigabytes), and whatever it throws on a sound but nonsensical schema means unreadable too.
     /// </summary>
-    public static Apache.Arrow.Schema? StoredArrowSchema(FileMetaData meta)
+    public static Apache.Arrow.Schema? StoredArrowSchema(string? encoded)
     {
-        string? encoded = meta.KeyValueMetadata?.LastOrDefault(kv => kv.Key == ArrowSchemaKey)?.Value;
         if (string.IsNullOrEmpty(encoded)) return null;
         try
         {
@@ -102,6 +103,17 @@ internal static class ArrowMapping
         {
             return null;
         }
+    }
+
+    /// <summary>The value of the last <c>ARROW:schema</c> key (base64), or null.</summary>
+    public static string? ArrowSchemaValue(KeyValue[]? keyValues)
+    {
+        if (keyValues is null) return null;
+        for (int i = keyValues.Length - 1; i >= 0; i--)
+        {
+            if (keyValues[i].Key == ArrowSchemaKey) return keyValues[i].Value;
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------

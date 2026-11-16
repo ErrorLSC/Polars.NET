@@ -1,3 +1,4 @@
+using Kaminari.Seseragi.Files.Parquet.Schema;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using static Kaminari.Seseragi.Files.Parquet.Metadata.ThriftModel;
 
@@ -21,18 +22,23 @@ internal sealed class FileMetaData
     public EncryptionAlgorithm? EncryptionAlgorithm { get; init; }
     public byte[]? FooterSigningKeyMetadata { get; init; }
 
+    /// <summary>The shape shared with the dataset's files of the same schema, when read with an interner.</summary>
+    internal SchemaShape? Shape { get; init; }
+
     /// <summary>
     /// Reads a footer. Bytes after the struct are left alone: a signed plaintext footer (encryption) has its
-    /// 28-byte signature there.
+    /// 28-byte signature there. With <paramref name="interner"/>, the schema and key-value lists are shared with the
+    /// footers read before that hold the same bytes.
     /// </summary>
-    public static FileMetaData Parse(ReadOnlySpan<byte> footer)
+    public static FileMetaData Parse(ReadOnlySpan<byte> footer, FooterInterner? interner = null)
     {
-        var reader = new ThriftCompactReader(footer);
+        var reader = new ThriftCompactReader(footer) { Interner = interner };
         return Read(ref reader);
     }
 
     public static FileMetaData Read(ref ThriftCompactReader r)
     {
+        FooterInterner? interner = r.Interner;
         r.EnterStruct();
         int? version = null;
         SchemaElement[]? schema = null;
@@ -49,11 +55,21 @@ internal sealed class FileMetaData
             switch (id)
             {
                 case 1 when t == ThriftType.I32: version = r.ReadI32(); break;
+                case 2 when t == ThriftType.List && interner is not null:
+                    int schemaAt = r.Position;
+                    r.Skip(t);
+                    schema = interner.Schema(r.Since(schemaAt));
+                    break;
                 case 2 when t == ThriftType.List: schema = r.ReadStructList(SchemaElement.Read); break;
                 case 3 when t == ThriftType.I64: numRows = r.ReadI64(); break;
                 case 4 when t == ThriftType.List: rowGroups = r.ReadStructList(RowGroup.Read); break;
+                case 5 when t == ThriftType.List && interner is not null:
+                    int keyValuesAt = r.Position;
+                    r.Skip(t);
+                    keyValues = interner.KeyValues(r.Since(keyValuesAt));
+                    break;
                 case 5 when t == ThriftType.List: keyValues = r.ReadStructList(KeyValue.Read); break;
-                case 6 when t == ThriftType.Binary: createdBy = r.ReadString(); break;
+                case 6 when t == ThriftType.Binary: createdBy = interner is null ? r.ReadString() : interner.Text(r.ReadBinary()); break;
                 case 7 when t == ThriftType.List: orders = r.ReadStructList(ReadColumnOrder); break;
                 case 8 when t == ThriftType.Struct: encryption = EncryptionAlgorithm.Read(ref r); break;
                 case 9 when t == ThriftType.Binary: signing = r.ReadBytes(); break;
@@ -61,10 +77,11 @@ internal sealed class FileMetaData
             }
         }
         r.ExitStruct();
+        if (schema is null) throw Missing("FileMetaData.schema");
         return new FileMetaData
         {
             Version = version ?? throw Missing("FileMetaData.version"),
-            Schema = schema ?? throw Missing("FileMetaData.schema"),
+            Schema = schema,
             NumRows = numRows ?? throw Missing("FileMetaData.num_rows"),
             RowGroups = rowGroups ?? throw Missing("FileMetaData.row_groups"),
             KeyValueMetadata = keyValues,
@@ -72,6 +89,7 @@ internal sealed class FileMetaData
             ColumnOrders = orders,
             EncryptionAlgorithm = encryption,
             FooterSigningKeyMetadata = signing,
+            Shape = interner?.Shape(schema, ArrowMapping.ArrowSchemaValue(keyValues)),
         };
     }
 
@@ -693,6 +711,11 @@ internal sealed class ColumnMetaData
             {
                 case 1 when t == ThriftType.I32: type = (ParquetType)r.ReadI32(); break;
                 case 2 when t == ThriftType.List: encodings = [.. r.ReadI32List().Select(e => (ParquetEncoding)e)]; break;
+                case 3 when t == ThriftType.List && r.Interner is { } interner:
+                    int pathAt = r.Position;
+                    r.Skip(t);
+                    path = interner.Path(r.Since(pathAt));
+                    break;
                 case 3 when t == ThriftType.List: path = r.ReadStringList(); break;
                 case 4 when t == ThriftType.I32: codec = (CompressionCodec)r.ReadI32(); break;
                 case 5 when t == ThriftType.I64: numValues = r.ReadI64(); break;

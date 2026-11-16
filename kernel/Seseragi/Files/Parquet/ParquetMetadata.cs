@@ -57,14 +57,25 @@ public sealed class ParquetMetadata
     /// <summary>The number of rows in the file.</summary>
     public required long RowCount { get; init; }
 
-    /// <summary>The row groups.</summary>
-    public required IReadOnlyList<ParquetRowGroup> RowGroups { get; init; }
+    private IReadOnlyList<ParquetRowGroup>? _rowGroups;
+    private IReadOnlyList<KeyValuePair<string, string?>>? _keyValues;
+
+    /// <summary>The row groups (made from the footer on first use).</summary>
+    public IReadOnlyList<ParquetRowGroup> RowGroups
+    {
+        get => _rowGroups ??= Thrift is { } meta ? RowGroupsOf(meta) : [];
+        init => _rowGroups = value;
+    }
 
     /// <summary>The application that wrote the file, when it says.</summary>
     public string? CreatedBy { get; init; }
 
-    /// <summary>The file's key-value metadata, in footer order (keys may repeat).</summary>
-    public IReadOnlyList<KeyValuePair<string, string?>> KeyValueMetadata { get; init; } = [];
+    /// <summary>The file's key-value metadata, in footer order (keys may repeat; made from the footer on first use).</summary>
+    public IReadOnlyList<KeyValuePair<string, string?>> KeyValueMetadata
+    {
+        get => _keyValues ??= Thrift?.KeyValueMetadata is { } kv ? [.. kv.Select(p => KeyValuePair.Create(p.Key, p.Value))] : [];
+        init => _keyValues = value;
+    }
 
     /// <summary>The full footer this view was made from; null for a view built by hand.</summary>
     internal FileMetaData? Thrift { get; init; }
@@ -124,40 +135,61 @@ public sealed class ParquetMetadata
         return FromThrift(meta);
     }
 
+    /// <summary>Parses a footer kept from a file read before (its whole Thrift bytes: their length is the footer's).</summary>
+    internal static ParquetMetadata ParseFooter(ReadOnlySpan<byte> footer, Schema.FooterInterner? interner = null)
+    {
+        FileMetaData meta = FileMetaData.Parse(footer, interner);
+        if (meta.EncryptionAlgorithm is not null) throw Encrypted("The Parquet file");
+        return FromThrift(meta, footer.Length);
+    }
+
     /// <summary>The public view of a footer, after checking that its schema tree and row groups agree.</summary>
     /// <exception cref="ParquetFormatException">The schema tree or the column chunks are inconsistent.</exception>
     internal static ParquetMetadata FromThrift(FileMetaData meta, int? footerLength = null)
     {
-        int leaves = SchemaTree.CountLeaves(meta.Schema);
-        var rowGroups = new ParquetRowGroup[meta.RowGroups.Length];
-        for (int g = 0; g < rowGroups.Length; g++)
+        int leaves = meta.Shape?.LeafCount ?? SchemaTree.CountLeaves(meta.Schema);
+        for (int g = 0; g < meta.RowGroups.Length; g++)
         {
             RowGroup group = meta.RowGroups[g];
             if (group.Columns.Length != leaves)
                 throw new ParquetFormatException($"Row group {g} has {group.Columns.Length} column chunks for {leaves} schema leaves.");
+            for (int c = 0; c < group.Columns.Length; c++)
+            {
+                if (group.Columns[c].MetaData is null) throw new ParquetFormatException($"Column chunk {c} of row group {g} has no metadata.");
+            }
+        }
+        // The views of the row groups and the key-value pairs are made on first use (readers use the full footer).
+        return new ParquetMetadata
+        {
+            Schema = meta.Shape?.PublicSchema ?? [.. meta.Schema.Select(SchemaElement)],
+            RowCount = meta.NumRows,
+            CreatedBy = meta.CreatedBy,
+            Thrift = meta,
+            FooterSize = footerLength,
+        };
+    }
+
+    /// <summary>The public views of the row groups of a footer checked by <see cref="FromThrift"/>.</summary>
+    private static ParquetRowGroup[] RowGroupsOf(FileMetaData meta)
+    {
+        var rowGroups = new ParquetRowGroup[meta.RowGroups.Length];
+        for (int g = 0; g < rowGroups.Length; g++)
+        {
+            RowGroup group = meta.RowGroups[g];
             var chunks = new ParquetColumnChunk[group.Columns.Length];
             for (int c = 0; c < chunks.Length; c++)
             {
-                ColumnMetaData column = group.Columns[c].MetaData ?? throw new ParquetFormatException($"Column chunk {c} of row group {g} has no metadata.");
+                ColumnMetaData column = group.Columns[c].MetaData!;
                 // Only min_value / max_value: the legacy min / max used a signed byte order for binary.
                 Statistics? s = column.Statistics;
                 chunks[c] = new ParquetColumnChunk(column.PathInSchema, column.NumValues, s is null ? null : new(s.MinValue, s.MaxValue, s.NullCount));
             }
             rowGroups[g] = new ParquetRowGroup(group.NumRows, chunks);
         }
-        return new ParquetMetadata
-        {
-            Schema = [.. meta.Schema.Select(SchemaElement)],
-            RowCount = meta.NumRows,
-            RowGroups = rowGroups,
-            CreatedBy = meta.CreatedBy,
-            KeyValueMetadata = meta.KeyValueMetadata is { } kv ? [.. kv.Select(p => KeyValuePair.Create(p.Key, p.Value))] : [],
-            Thrift = meta,
-            FooterSize = footerLength,
-        };
+        return rowGroups;
     }
 
-    private static ParquetSchemaElement SchemaElement(SchemaElement e)
+    internal static ParquetSchemaElement SchemaElement(SchemaElement e)
     {
         int? scale = null, precision = null, bitWidth = null;
         ParquetTimeUnit? unit = null;

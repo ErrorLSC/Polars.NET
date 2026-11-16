@@ -248,7 +248,7 @@ internal sealed class PageReader : IDisposable
         {
             try
             {
-                return PageHeader.Parse(Bytes(_position, offered).Span, out headerLength);
+                return PageHeader.Parse(Bytes(_position, offered).Span, out headerLength, skipStatistics: true);
             }
             catch (ParquetFormatException) when (offered < rest)
             {

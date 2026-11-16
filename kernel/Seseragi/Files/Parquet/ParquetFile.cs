@@ -45,12 +45,15 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <summary>The Bloom filters of the column chunks, read as readers ask for them and kept for every reader.</summary>
     internal BloomFilters BloomFilters => LazyInitializer.EnsureInitialized(ref _bloomFilters, () => new BloomFilters(this));
 
-    private ParquetSchemaTree? _tree;
+    private SchemaShape? _shape;
     private Apache.Arrow.Schema? _schema;
+
+    /// <summary>The file's schema and what is derived from it (shared with the files of a dataset of the same schema).</summary>
+    internal SchemaShape Shape => Thrift.Shape ?? LazyInitializer.EnsureInitialized(ref _shape, () => SchemaShape.Of(Thrift));
 
     /// <summary>The schema tree.</summary>
     /// <exception cref="ParquetFormatException">A leaf has an unknown physical type, or the tree nests too deeply.</exception>
-    internal ParquetSchemaTree Tree => _tree ??= ParquetSchemaTree.Build(Thrift.Schema);
+    internal ParquetSchemaTree Tree => Shape.Tree;
 
     /// <summary>
     /// The Arrow schema of the file, read with default options: Parquet types and annotations, refined by the Arrow
@@ -59,27 +62,11 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <exception cref="ParquetFormatException">The schema has a leaf of an unknown physical type.</exception>
     public Apache.Arrow.Schema Schema => _schema ??= Mapping(new ParquetReadOptions()).Schema;
 
-    private readonly object _mappingsLock = new();
-    private List<(bool Views, bool BinaryAsString, Apache.Arrow.Types.TimeUnit Int96, (Apache.Arrow.Schema, ColumnMapping[]) Mapping)>? _mappings;
-
     /// <summary>
     /// The file's columns as a reader with <paramref name="options"/> maps them (the options that shape types: views,
-    /// binaries as strings, the INT96 unit), mapped once per shape and kept (readers of one file share them).
+    /// binaries as strings, the INT96 unit), mapped once per shape of options and kept (see <see cref="Shape"/>).
     /// </summary>
-    internal (Apache.Arrow.Schema Schema, ColumnMapping[] Columns) Mapping(ParquetReadOptions options)
-    {
-        lock (_mappingsLock)
-        {
-            _mappings ??= [];
-            foreach (var (views, binary, int96, mapping) in _mappings)
-            {
-                if (views == options.ViewTypes && binary == options.BinaryAsString && int96 == options.Int96Unit) return mapping;
-            }
-            var mapped = ArrowMapping.Map(Tree, Thrift, options);
-            _mappings.Add((options.ViewTypes, options.BinaryAsString, options.Int96Unit, mapped));
-            return mapped;
-        }
-    }
+    internal (Apache.Arrow.Schema Schema, ColumnMapping[] Columns) Mapping(ParquetReadOptions options) => Shape.Mapping(options);
 
     /// <summary>Opens a reader of the file's batches.</summary>
     /// <exception cref="NotSupportedException">A selected column is nested (lists, maps, structs), which this version does not read yet.</exception>
@@ -175,15 +162,18 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Opens a source the file then owns (disposed with it when it is <see cref="IDisposable"/>, or when opening
-    /// fails): from <paramref name="metadata"/> without a read when the footer was read before.
+    /// fails): from <paramref name="metadata"/> without a read when the footer was read before. When the footer is read,
+    /// <paramref name="footerRead"/> (if given) gets its bytes, once they are parsed without error; with
+    /// <paramref name="interner"/> it shares what it holds alike with the footers read before.
     /// </summary>
-    internal static async ValueTask<ParquetFile> OpenOwnedAsync(IRandomAccess source, ParquetMetadata? metadata, bool useAsync, CancellationToken ct)
+    internal static async ValueTask<ParquetFile> OpenOwnedAsync(IRandomAccess source, ParquetMetadata? metadata, bool useAsync, CancellationToken ct,
+        FooterRead? footerRead = null, FooterInterner? interner = null)
     {
         var owned = source as IDisposable;
         try
         {
             return metadata is null
-                ? await OpenCoreAsync(source, owned, useAsync, ct).ConfigureAwait(false)
+                ? await OpenCoreAsync(source, owned, useAsync, ct, footerRead: footerRead, interner: interner).ConfigureAwait(false)
                 : new ParquetFile(source, owned, ReadFooter(metadata), metadata);
         }
         catch
@@ -265,7 +255,8 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         }
     }
 
-    private static async ValueTask<ParquetFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct, bool smallInMemory = true)
+    private static async ValueTask<ParquetFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct, bool smallInMemory = true,
+        FooterRead? footerRead = null, FooterInterner? interner = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         long length = source.Length;
@@ -292,10 +283,12 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
                 bytes = footer.AsMemory(0, footerLength);
             }
 
-            FileMetaData thrift = FileMetaData.Parse(bytes.Span);
+            FileMetaData thrift = FileMetaData.Parse(bytes.Span, interner);
             if (thrift.EncryptionAlgorithm is { } algorithm)
                 throw new ParquetFormatException($"The Parquet file is encrypted ({algorithm.Name}, plaintext footer), which is not supported.");
             if (footer is null) CheckLayout(thrift, tail.AsSpan(0, tailLength - TailLength - footerLength), length - TailLength - footerLength, footerLength);
+            ParquetMetadata metadata = ParquetMetadata.FromThrift(thrift, footerLength);
+            footerRead?.Invoke(bytes.Span); // before the tail buffer is reused below
             if (tailLength < length && source is ILocalSource { SmallReadsAreCheap: true })
             {
                 // The start is checked where reading it is cheap (memory, a local file); on a store it would cost a request.
@@ -311,9 +304,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             {
                 var copy = new NativeByteBuffer(tailLength);
                 tail.AsSpan(0, tailLength).CopyTo(copy.Span);
-                return new ParquetFile(new MemoryRandomAccess(copy.Memory[..tailLength]), new Owned(owned, copy), thrift, ParquetMetadata.FromThrift(thrift, footerLength));
+                return new ParquetFile(new MemoryRandomAccess(copy.Memory[..tailLength]), new Owned(owned, copy), thrift, metadata);
             }
-            return new ParquetFile(source, owned, thrift, ParquetMetadata.FromThrift(thrift, footerLength));
+            return new ParquetFile(source, owned, thrift, metadata);
         }
         finally
         {

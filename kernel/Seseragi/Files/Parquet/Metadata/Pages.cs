@@ -17,10 +17,13 @@ internal sealed class PageHeader
     public DictionaryPageHeader? DictionaryPageHeader { get; init; }
     public DataPageHeaderV2? DataPageHeaderV2 { get; init; }
 
-    /// <summary>Reads a page header from the start of <paramref name="data"/>; <paramref name="length"/> is its size in bytes.</summary>
-    public static PageHeader Parse(ReadOnlySpan<byte> data, out int length)
+    /// <summary>
+    /// Reads a page header from the start of <paramref name="data"/>; <paramref name="length"/> is its size in bytes.
+    /// With <paramref name="skipStatistics"/> data page statistics are skipped (left null).
+    /// </summary>
+    public static PageHeader Parse(ReadOnlySpan<byte> data, out int length, bool skipStatistics = false)
     {
-        var reader = new ThriftCompactReader(data);
+        var reader = new ThriftCompactReader(data) { SkipPageStatistics = skipStatistics };
         PageHeader header = Read(ref reader);
         length = reader.Position;
         return header;
@@ -120,7 +123,7 @@ internal sealed class DataPageHeader
                 case 2 when t == ThriftType.I32: encoding = r.ReadI32(); break;
                 case 3 when t == ThriftType.I32: definition = r.ReadI32(); break;
                 case 4 when t == ThriftType.I32: repetition = r.ReadI32(); break;
-                case 5 when t == ThriftType.Struct: statistics = Statistics.Read(ref r); break;
+                case 5 when t == ThriftType.Struct && !r.SkipPageStatistics: statistics = Statistics.Read(ref r); break;
                 default: r.Skip(t); break;
             }
         }
@@ -224,7 +227,7 @@ internal sealed class DataPageHeaderV2
                 case 5 when t == ThriftType.I32: definition = r.ReadI32(); break;
                 case 6 when t == ThriftType.I32: repetition = r.ReadI32(); break;
                 case 7 when ThriftCompactReader.IsBool(t): compressed = r.BoolField(); break;
-                case 8 when t == ThriftType.Struct: statistics = Statistics.Read(ref r); break;
+                case 8 when t == ThriftType.Struct && !r.SkipPageStatistics: statistics = Statistics.Read(ref r); break;
                 default: r.Skip(t); break;
             }
         }

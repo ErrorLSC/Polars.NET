@@ -55,7 +55,14 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// A reader of the file; with <paramref name="shared"/>, one of several readers a dataset drives unit by unit
     /// (<see cref="PlanUnitsAsync"/>, <see cref="DecodeUnitAsync"/>) on its threads and buffers, which it owns.
     /// </summary>
-    internal ParquetReader(ParquetFile file, ParquetReadOptions options, ReadBudget? shared = null)
+    /// <param name="file">The file read.</param>
+    /// <param name="options">The options.</param>
+    /// <param name="shared">The dataset's threads and buffers, when one reads the file.</param>
+    /// <param name="selection">
+    /// What the options select from the file's columns, made before by another reader with the same column lists, row
+    /// index column and type options of a file of the same shape (a dataset's readers of one schema); else selected here.
+    /// </param>
+    internal ParquetReader(ParquetFile file, ParquetReadOptions options, ReadBudget? shared = null, Selection? selection = null)
     {
         options.Validate();
         // The filter in the shapes pruning and lowering read (the LINQ translator gives some in others).
@@ -63,8 +70,10 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         _file = file;
         _options = options;
         var (_, all) = file.Mapping(options);
-        _columns = Select(all, options.Columns, options.ColumnPaths);
-        _projected = new ColumnSet(_columns);
+        selection ??= Selection.Of(all, options);
+        ColumnSelection = selection;
+        _columns = selection.Projected.Columns;
+        _projected = selection.Projected;
         _leaves = _projected.Leaves;
         if (options.Reading is ChunkReading.Auto or ChunkReading.Slice && file.Source is ILocalSource local && local.TryGetMemory(out ReadOnlyMemory<byte> memory))
             _memory = memory;
@@ -110,14 +119,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         long total = file.Thrift.RowGroups.Sum(g => Math.Max(0, g.NumRows));
         if (options.Rows is { } rows && rows.End > total)
             throw new ArgumentOutOfRangeException(nameof(options), $"The rows selected reach row {rows.End - 1}; the file has {total} rows.");
-        Field[] fields = [.. _columns.Select(c => c.Field)];
-        if (options.RowIndexColumn is { } rowIndex)
-        {
-            if (fields.Any(f => f.Name == rowIndex))
-                throw new ArgumentException($"The row index column '{rowIndex}' has the name of a column read.", nameof(options));
-            fields = [new Field(rowIndex, Int64Type.Default, nullable: false), .. fields];
-        }
-        Schema = new Apache.Arrow.Schema(fields, null);
+        Schema = selection.Schema;
         _oldParquetMr = IsOldParquetMr(file.Thrift.CreatedBy);
         // Per row group in flight: its fetched chunks (a few), and per leaf a decompression scratch and a read window.
         int inFlight = options.MaxDegreeOfParallelism > 1 ? Math.Min(options.MaxDegreeOfParallelism, _candidates.Length) + 1 : 1;
@@ -172,7 +174,28 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     internal long RowsKept => Interlocked.Read(ref _rowsKept);
 
     /// <summary>Columns of a row group read together: their mappings, their leaves in column order, each column's leaves.</summary>
-    private sealed class ColumnSet
+    /// <summary>The columns a reader selects, and the schema of its batches (the row index column first).</summary>
+    /// <summary>What this reader selected (another reader of a file of the same shape and options may take it).</summary>
+    internal Selection ColumnSelection { get; }
+
+    internal sealed record Selection(ColumnSet Projected, Apache.Arrow.Schema Schema)
+    {
+        /// <exception cref="ArgumentException">The options name a column the file lacks, or a row index column of a column's name.</exception>
+        public static Selection Of(ColumnMapping[] all, ParquetReadOptions options)
+        {
+            ColumnMapping[] columns = Select(all, options.Columns, options.ColumnPaths);
+            Field[] fields = [.. columns.Select(c => c.Field)];
+            if (options.RowIndexColumn is { } rowIndex)
+            {
+                if (fields.Any(f => f.Name == rowIndex))
+                    throw new ArgumentException($"The row index column '{rowIndex}' has the name of a column read.", nameof(options));
+                fields = [new Field(rowIndex, Int64Type.Default, nullable: false), .. fields];
+            }
+            return new Selection(new ColumnSet(columns), new Apache.Arrow.Schema(fields, null));
+        }
+    }
+
+    internal sealed class ColumnSet
     {
         public ColumnSet(ColumnMapping[] columns)
         {

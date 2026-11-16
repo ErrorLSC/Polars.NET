@@ -132,6 +132,48 @@ public class ParquetFooterTests
     ];
 
     /// <summary>
+    /// Page headers read for decoding skip the data pages' statistics: the same length and fields, statistics left
+    /// null (counts the pages that had some, so the test cannot pass empty).
+    /// </summary>
+    [Fact]
+    public void PageHeaders_ReadForDecoding_SkipOnlyTheStatistics()
+    {
+        int withStatistics = 0;
+        foreach (string name in ParquetFixtures.All)
+        {
+            if (!Opens(name, out FileMetaData? meta) || name.StartsWith("apache/bad_data/", StringComparison.Ordinal)) continue;
+            byte[] file = File.ReadAllBytes(ParquetFixtures.FullPath(name));
+            foreach (ColumnChunk chunk in meta.RowGroups.SelectMany(g => g.Columns))
+            {
+                ColumnMetaData m = chunk.MetaData!;
+                if (m.TotalCompressedSize == 0 || m.DataPageOffset < 4 || m.DataPageOffset >= file.Length) continue;
+                PageHeader full, skipped;
+                int fullLength, skippedLength;
+                try
+                {
+                    full = PageHeader.Parse(file.AsSpan((int)m.DataPageOffset), out fullLength);
+                }
+                catch (ParquetFormatException)
+                {
+                    Assert.Throws<ParquetFormatException>(() => PageHeader.Parse(file.AsSpan((int)m.DataPageOffset), out _, skipStatistics: true));
+                    continue;
+                }
+                skipped = PageHeader.Parse(file.AsSpan((int)m.DataPageOffset), out skippedLength, skipStatistics: true);
+                Assert.Equal(fullLength, skippedLength);
+                Assert.Equal((full.Type, full.CompressedPageSize, full.UncompressedPageSize), (skipped.Type, skipped.CompressedPageSize, skipped.UncompressedPageSize));
+                Assert.Equal(full.DataPageHeader?.NumValues, skipped.DataPageHeader?.NumValues);
+                Assert.Equal(full.DataPageHeader?.Encoding, skipped.DataPageHeader?.Encoding);
+                Assert.Equal(full.DataPageHeaderV2?.NumRows, skipped.DataPageHeaderV2?.NumRows);
+                Assert.Equal(full.DataPageHeaderV2?.IsCompressed, skipped.DataPageHeaderV2?.IsCompressed);
+                Assert.Null(skipped.DataPageHeader?.Statistics);
+                Assert.Null(skipped.DataPageHeaderV2?.Statistics);
+                if (full.DataPageHeader?.Statistics is not null || full.DataPageHeaderV2?.Statistics is not null) withStatistics++;
+            }
+        }
+        Assert.True(withStatistics > 50, $"{withStatistics} pages with statistics");
+    }
+
+    /// <summary>
     /// The page-level structs found through the footer (first page headers, column and offset indexes, bloom filter
     /// headers) parse and write back byte for byte; counts how many of each were seen, so the test cannot pass empty.
     /// </summary>

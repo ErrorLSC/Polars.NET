@@ -293,6 +293,44 @@ public sealed class ParquetHiveTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Files of one schema, one filtered after converting and one not: each reads and converts its own columns (the
+    /// filter's too where it filters after), though they share what their schema decides.
+    /// </summary>
+    [Fact]
+    public void FilesOfOneSchema_FilteredAfterOrNot_ReadTheirOwnColumns()
+    {
+        static (Field, IArrowArray) Names(long first)
+        {
+            var names = new StringArray.Builder();
+            for (int i = 0; i < 3; i++) names.Append($"n{first + i}");
+            return (new Field("name", StringType.Default, true), names.Build());
+        }
+        Write("z/year=2023/p.parquet", 0, 3, Names(0));
+        Write("z/year=__HIVE_DEFAULT_PARTITION__/p.parquet", 3, 3, Names(3));
+        using var dataset = ParquetDataset.Open(At("z"));
+        // (year = 2023 and id >= 1) or id >= 4: the null partition cannot stand in it, that file is filtered after.
+        ScalarExpr mixed = ScalarExpr.NewBinary(BinaryOp.Or,
+            ScalarExpr.NewBinary(BinaryOp.And, Binary(BinaryOp.Eq, "year", LiteralValue.NewInt64(2023)), Binary(BinaryOp.GtEq, "id", LiteralValue.NewInt64(1))),
+            Binary(BinaryOp.GtEq, "id", LiteralValue.NewInt64(4)));
+        foreach (int threads in (int[])[1, 4])
+        {
+            using var reader = dataset.OpenReader(new ParquetReadOptions { Filter = mixed, FilterRows = true, Columns = ["name"], MaxDegreeOfParallelism = threads });
+            List<string> names = [];
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch)
+                {
+                    Assert.Equal(1, batch.ColumnCount);
+                    var column = (StringViewArray)batch.Column(0);
+                    for (int r = 0; r < batch.Length; r++) names.Add(column.GetString(r));
+                }
+            }
+            Assert.Equal(["n1", "n2", "n4", "n5"], names);
+            Assert.Equal(1, reader.FilesFilteredAfter);
+        }
+    }
+
     /// <summary>The asynchronous read leaves the same files out and numbers rows the same way.</summary>
     [Fact]
     public async Task TheAsynchronousRead_PrunesAndNumbersAlike()

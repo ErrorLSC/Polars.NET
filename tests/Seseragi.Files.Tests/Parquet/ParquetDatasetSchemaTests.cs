@@ -191,6 +191,21 @@ public sealed class ParquetDatasetSchemaTests
         Assert.Equal(["null", "null", "3.5"], Read(dataset, new ParquetReadOptions { Columns = ["z"] }));
     }
 
+    /// <summary>Another layout unites the files again: footers not kept (memory: none is) are read again.</summary>
+    [Fact]
+    public void UnionByName_OtherLayouts_ReadTheFootersAgain()
+    {
+        Put("d/a.parquet", ("x", Ints(1)), ("s", Strings("a")));
+        Put("d/b.parquet", ("s", Strings("b")), ("x", Longs(2)));
+        var counting = new CountingStore(_store);
+        using ParquetDataset dataset = ParquetDataset.Open("d/", new ParquetDatasetOptions { Store = counting, SchemaMode = DatasetSchemaMode.UnionByName });
+        Assert.Equal(2, counting.Opened);
+        using var plain = dataset.OpenReader(new ParquetReadOptions { ViewTypes = false });
+        Assert.Equal(4, counting.Opened);
+        Assert.IsType<StringType>(plain.Schema.FieldsList[1].DataType);
+        Assert.Equal(["1|a", "2|b"], Rows(plain.ReadBatches()));
+    }
+
     [Fact]
     public void UnionByName_TypesWithoutACommonOne_AreNamed()
     {

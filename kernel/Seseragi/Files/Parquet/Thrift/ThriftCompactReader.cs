@@ -29,8 +29,17 @@ internal ref struct ThriftCompactReader(ReadOnlySpan<byte> data)
     private int _depth;
     private bool _pendingBool; // a bool field's value lives in its header
 
+    /// <summary>What footers read alike share (lists of schema elements, key-value pairs and column paths, texts), when given.</summary>
+    public Schema.FooterInterner? Interner { get; init; }
+
+    /// <summary>Whether the statistics of data page headers are skipped (readers of pages do not use them).</summary>
+    public bool SkipPageStatistics { get; init; }
+
     /// <summary>How many bytes were read.</summary>
     public readonly int Position => _position;
+
+    /// <summary>The bytes read from <paramref name="start"/> (a <see cref="Position"/> before) to here.</summary>
+    public readonly ReadOnlySpan<byte> Since(int start) => _data[start.._position];
 
     /// <summary>How many bytes are left.</summary>
     public readonly int Remaining => _data.Length - _position;
@@ -104,11 +113,10 @@ internal ref struct ThriftCompactReader(ReadOnlySpan<byte> data)
 
     public byte[] ReadBytes() => ReadBinary().ToArray();
 
-    public string ReadString()
-    {
-        ReadOnlySpan<byte> bytes = ReadBinary();
-        return bytes.IsEmpty ? "" : Encoding.UTF8.GetString(bytes);
-    }
+    public string ReadString() => Decode(ReadBinary());
+
+    /// <summary>A string value's bytes as text.</summary>
+    public static string Decode(ReadOnlySpan<byte> bytes) => bytes.IsEmpty ? "" : Encoding.UTF8.GetString(bytes);
 
     /// <summary>A list (or set) header: the element count, at most the bytes left (every element takes one at least).</summary>
     public int ReadListHeader(out byte elementType)

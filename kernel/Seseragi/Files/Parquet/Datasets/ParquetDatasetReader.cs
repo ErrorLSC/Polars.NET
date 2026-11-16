@@ -400,6 +400,97 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     private FilePlan Plan(ParquetFile file, int index, long before, long? remaining, ReadBudget? shared = null)
     {
         string path = PathOf(index);
+        ShapePlan shape = ShapePlanOf(file, path);
+        var (fileFilter, complete) = FileFilter(index, shape.Missing, shape.Dropped);
+
+        bool after = FiltersExactly && _program is not null && !complete;
+        ParquetReader reader = Open(file, index, before, after ? null : remaining, shape, fileFilter, after, shared);
+        if (FiltersExactly && _program is not null && !after && !reader.FiltersExactly)
+        {
+            // The file's filtering is not exact: read again with what the dataset's filter needs.
+            reader.Dispose();
+            after = true;
+            reader = Open(file, index, before, null, shape, fileFilter, after, shared);
+        }
+        try
+        {
+            int variant = after ? 1 : 0;
+            Converted converted = Volatile.Read(ref shape.Converted[variant]) ?? Conversions(reader.Schema, after, path);
+            Volatile.Write(ref shape.Converted[variant], converted); // the same for every file of the shape
+            if (after) Interlocked.Increment(ref _filteredAfter);
+            return new FilePlan(reader, converted.Outputs, converted.Filtered, after);
+        }
+        catch
+        {
+            reader.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>How the columns of a file's batches (<paramref name="read"/>) convert to the dataset's.</summary>
+    private Converted Conversions(Apache.Arrow.Schema read, bool after, string path)
+    {
+        int skip = _options.RowIndexColumn is null ? 0 : 1;
+        var outputs = new (int, ArrowConversion)[_targets.Length];
+        for (int t = 0; t < _targets.Length; t++)
+            outputs[t] = Conversion(read, skip, _targets[t].Name, _targets[t].Field.DataType, path);
+        var filtered = after ? new (int, ArrowConversion)[_filterRoots.Length] : [];
+        for (int f = 0; f < filtered.Length; f++) filtered[f] = Conversion(read, skip, _filterRoots[f], _columns[_filterRoots[f]].DataType, path);
+        return new Converted(outputs, filtered);
+    }
+
+    /// <summary>The conversions of a file's columns: per selected column, and per column the dataset's filter reads.</summary>
+    private sealed record Converted((int Source, ArrowConversion Conversion)[] Outputs, (int Source, ArrowConversion Conversion)[] Filtered);
+
+    /// <summary>
+    /// What the files of one schema shape read, and how their columns convert: the same for each of them, so made by the
+    /// first one and shared (the file filter, which holds the file's partition values, is the file's own).
+    /// </summary>
+    private sealed class ShapePlan
+    {
+        /// <summary>The file's columns as these options read them, by name.</summary>
+        public required Dictionary<string, Field> Has { get; init; }
+
+        /// <summary>The columns the row filter reads that the files lack (nulls), and those whose conjuncts are left out.</summary>
+        public required HashSet<string> Missing { get; init; }
+
+        public required HashSet<string> Dropped { get; init; }
+
+        /// <summary>The reader's column lists: the columns read, and (second) with the columns the dataset's filter reads.</summary>
+        public required (IReadOnlyList<string> Columns, IReadOnlyList<string[]>? Paths)[] Lists { get; init; }
+
+        /// <summary>The conversions of the readers of either list, once a file made them.</summary>
+        public readonly Converted?[] Converted = new Converted?[2];
+
+        /// <summary>What the readers of either list select from the files' columns, once a file's reader selected it.</summary>
+        public readonly ParquetReader.Selection?[] Selections = new ParquetReader.Selection?[2];
+    }
+
+    /// <summary>The most shapes planned (files of other shapes plan for themselves).</summary>
+    private const int MaxShapePlans = 64;
+
+    private readonly object _plansLock = new();
+    private readonly Dictionary<SchemaShape, ShapePlan> _plans = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The plan of the file's shape: made once per shape (errors name the file that made it).</summary>
+    private ShapePlan ShapePlanOf(ParquetFile file, string path)
+    {
+        SchemaShape key = file.Shape;
+        lock (_plansLock)
+        {
+            if (_plans.TryGetValue(key, out ShapePlan? known)) return known;
+        }
+        ShapePlan made = MakeShapePlan(file, path);
+        lock (_plansLock)
+        {
+            if (_plans.TryGetValue(key, out ShapePlan? known)) return known;
+            if (_plans.Count < MaxShapePlans) _plans.Add(key, made);
+        }
+        return made;
+    }
+
+    private ShapePlan MakeShapePlan(ParquetFile file, string path)
+    {
         Dictionary<string, Field> has;
         try
         {
@@ -449,62 +540,41 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                 else if (!ArrowWidening.CanConvert(field.DataType, target.DataType, default)) dropped.Add(root);
             }
         }
-        var (fileFilter, complete) = FileFilter(index, missing, dropped);
 
-        bool after = FiltersExactly && _program is not null && !complete;
-        ParquetReader reader = Open(file, index, before, after ? null : remaining, whole, paths, fileFilter, after, shared);
-        if (FiltersExactly && _program is not null && !after && !reader.FiltersExactly)
+        // With the dataset filtering after converting, the reader reads the columns the filter reads too, whole.
+        HashSet<string> withFilter = new(whole, StringComparer.Ordinal);
+        foreach (string root in _filterRoots)
         {
-            // The file's filtering is not exact: read again with what the dataset's filter needs.
-            reader.Dispose();
-            after = true;
-            reader = Open(file, index, before, null, whole, paths, fileFilter, after, shared);
+            if (has.ContainsKey(root)) withFilter.Add(root);
         }
-        try
+        List<string[]> pathsWithFilter = [.. paths.Where(p => !withFilter.Contains(p[0]))];
+        return new ShapePlan
         {
-            Apache.Arrow.Schema read = reader.Schema;
-            int skip = _options.RowIndexColumn is null ? 0 : 1;
-            var outputs = new (int, ArrowConversion)[_targets.Length];
-            for (int t = 0; t < _targets.Length; t++)
-                outputs[t] = Conversion(read, skip, _targets[t].Name, _targets[t].Field.DataType, path);
-            var filtered = after ? new (int, ArrowConversion)[_filterRoots.Length] : [];
-            for (int f = 0; f < filtered.Length; f++) filtered[f] = Conversion(read, skip, _filterRoots[f], _columns[_filterRoots[f]].DataType, path);
-            if (after) Interlocked.Increment(ref _filteredAfter);
-            return new FilePlan(reader, outputs, filtered, after);
-        }
-        catch
-        {
-            reader.Dispose();
-            throw;
-        }
+            Has = has,
+            Missing = missing,
+            Dropped = dropped,
+            Lists = [([.. whole], paths.Count == 0 ? null : paths), ([.. withFilter], pathsWithFilter.Count == 0 ? null : pathsWithFilter)],
+        };
     }
 
     /// <summary>The file's reader: the columns read, and with <paramref name="after"/> the columns the dataset's filter reads, whole.</summary>
-    private ParquetReader Open(ParquetFile file, int index, long before, long? remaining, HashSet<string> whole, List<string[]> paths, ScalarExpr? filter, bool after,
-        ReadBudget? shared)
+    private ParquetReader Open(ParquetFile file, int index, long before, long? remaining, ShapePlan shape, ScalarExpr? filter, bool after, ReadBudget? shared)
     {
-        HashSet<string> columns = new(whole, StringComparer.Ordinal);
-        List<string[]> parts = paths;
-        if (after)
-        {
-            Dictionary<string, Field> has = file.Schema.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
-            foreach (string root in _filterRoots)
-            {
-                if (has.ContainsKey(root)) columns.Add(root);
-            }
-            parts = [.. paths.Where(p => !columns.Contains(p[0]))];
-        }
+        int variant = after ? 1 : 0;
+        var (columns, paths) = shape.Lists[variant];
         try
         {
-            return new ParquetReader(file, _options with
+            var reader = new ParquetReader(file, _options with
             {
-                Columns = [.. columns],
-                ColumnPaths = parts.Count == 0 ? null : parts,
+                Columns = columns,
+                ColumnPaths = paths,
                 Rows = _dataset.Files[index].Rows,
                 RowIndexOffset = before,
                 MaxRows = remaining,
                 Filter = filter,
-            }, shared);
+            }, shared, Volatile.Read(ref shape.Selections[variant]));
+            Volatile.Write(ref shape.Selections[variant], reader.ColumnSelection); // the same for every file of the shape
+            return reader;
         }
         catch (ParquetFormatException e)
         {
@@ -843,12 +913,10 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
 
     // ---- files ----------------------------------------------------------------------------------------------------
 
-    /// <summary>Opens a file (its footer from before when there is one, kept for the next reads otherwise).</summary>
+    /// <summary>Opens a file (its footer from before when there is one, kept for the next reads when worth it).</summary>
     private async ValueTask<ParquetFile> OpenAsync(int index, bool useAsync, CancellationToken ct)
     {
-        ParquetFile file = await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), useAsync, ct).ConfigureAwait(false);
-        _dataset.KeepFooter(index, file.Metadata);
-        return file;
+        return await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), useAsync, ct, _dataset.Footers, index, _dataset.Interner).ConfigureAwait(false);
     }
 
     /// <summary>A file's row count as its reader numbers rows (the row groups' counts).</summary>

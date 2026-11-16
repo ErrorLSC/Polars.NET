@@ -2,6 +2,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Rows;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
 
@@ -362,23 +363,150 @@ public sealed class ParquetDatasetTests : IDisposable
         Assert.Equal(store.Opened, store.Disposed);
     }
 
-    /// <summary>A footer read once (or given) is not read again: later reads open the files without reading their tails.</summary>
+    /// <summary>Rows per file of <see cref="WriteLarge"/>: files beyond the first read of a tail (64 KiB).</summary>
+    private const int Large = 8000;
+
+    /// <summary>A file of <see cref="Write"/>'s columns, uncompressed: larger than the first read of its tail.</summary>
+    private string WriteLarge(string relative, long first, int rows = Large, int rowGroupRows = 1000)
+    {
+        string path = At(relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var schema = new Apache.Arrow.Schema([new Field("id", Int64Type.Default, true), new Field("name", StringType.Default, true)], null);
+        using (var writer = ParquetWriter.Create(path, schema, new ParquetWriteOptions { RowGroupRows = rowGroupRows, Compression = NoCompression.Instance }))
+        {
+            writer.Write(new RecordBatch(schema, [Ids(first, rows), Names(first, rows)], rows));
+            writer.Complete();
+        }
+        Assert.True(new FileInfo(path).Length > ParquetMetadata.TailGuess);
+        return path;
+    }
+
+    /// <summary>
+    /// The footers of files on a store beyond the first read of a tail are kept between reads: later reads open them
+    /// without reading their tails. The first file's footer stays with the dataset's schema.
+    /// </summary>
     [Fact]
-    public void Footers_AreReadOnce()
+    public void Footers_OfLargeFilesOnAStore_AreReadOnce()
+    {
+        for (int i = 0; i < 3; i++) WriteLarge($"large/f{i}.parquet", i * Large);
+        var store = new Counting(new LocalFileStore()); // its sources are not local: a store's
+        using var dataset = ParquetDataset.Open(At("large/*.parquet"), new ParquetDatasetOptions { Store = store });
+        Assert.Equal(1, store.TailReads); // the first file's, for the schema
+        Assert.Equal(Expected((0, 3 * Large)), Read(dataset));
+        Assert.Equal(3, store.TailReads);
+        Assert.Equal(2, dataset.Footers.Count);
+        Assert.Equal(Expected((0, 3 * Large)), Read(dataset, new ParquetReadOptions { MaxDegreeOfParallelism = 4 }));
+        Assert.Equal(3, store.TailReads);
+    }
+
+    /// <summary>A small file comes whole in the first read of its tail: its footer is not kept, each read reads it whole again.</summary>
+    [Fact]
+    public void Footers_OfSmallFiles_AreNotKept()
     {
         for (int i = 0; i < 5; i++) Write($"once/f{i}.parquet", i * 100, 100);
         var store = new Counting(new LocalFileStore());
         using var dataset = ParquetDataset.Open(At("once/*.parquet"), new ParquetDatasetOptions { Store = store });
-        Assert.Equal(1, store.TailReads); // the first file's, for the schema
+        Assert.Equal(1, store.TailReads);
         Assert.Equal(500, Read(dataset).Count);
         Assert.Equal(5, store.TailReads);
         Assert.Equal(500, Read(dataset).Count);
-        Assert.Equal(5, store.TailReads);
-        // A footer given is never read.
-        string path = At("once/f3.parquet");
+        Assert.Equal(9, store.TailReads);
+        Assert.Equal(0, dataset.Footers.Count);
+    }
+
+    /// <summary>Local files and memory: reading a tail costs microseconds, no footer is kept.</summary>
+    [Fact]
+    public void Footers_OfLocalFilesAndMemory_AreNotKept()
+    {
+        string a = WriteLarge("local/a.parquet", 0), b = WriteLarge("local/b.parquet", Large);
+        using var local = ParquetDataset.Open(At("local/*.parquet"));
+        Assert.Equal(Expected((0, 2 * Large)), Read(local));
+        Assert.Equal(0, local.Footers.Count);
+
+        var memory = new MemoryFileStore();
+        memory.Add("m/a.parquet", File.ReadAllBytes(a));
+        memory.Add("m/b.parquet", File.ReadAllBytes(b));
+        using var inMemory = ParquetDataset.Open("m/", new ParquetDatasetOptions { Store = memory });
+        Assert.Equal(Expected((0, 2 * Large)), Read(inMemory));
+        Assert.Equal(0, inMemory.Footers.Count);
+    }
+
+    /// <summary>
+    /// A local file given by path (no size listed) rewritten between reads is read as it is then: its footer was not kept.
+    /// (The first file's footer stays with the dataset's schema.)
+    /// </summary>
+    [Fact]
+    public void LocalFilesRewrittenBetweenReads_AreReadAsTheyAre()
+    {
+        string a = WriteLarge("rewrite/a.parquet", 0), b = WriteLarge("rewrite/b.parquet", Large);
+        using var dataset = ParquetDataset.Open([a, b]);
+        Assert.Equal(Expected((0, 2 * Large)), Read(dataset));
+        Write("rewrite/b.parquet", 7, 3);
+        Assert.Equal([.. Expected((0, Large)), .. Expected((7, 3))], Read(dataset));
+    }
+
+    /// <summary>Footers are kept up to the limit; the others are read again, and every read is whole.</summary>
+    [Fact]
+    public void KeptFooters_StopAtTheLimit()
+    {
+        for (int i = 0; i < 3; i++) WriteLarge($"limit/f{i}.parquet", i * Large);
+        using (var all = ParquetDataset.Open(At("limit/*.parquet"), new ParquetDatasetOptions { Store = new Counting(new LocalFileStore()) }))
+        {
+            Assert.Equal(Expected((0, 3 * Large)), Read(all));
+            Assert.Equal(2, all.Footers.Count);
+            long two = all.Footers.Bytes;
+
+            var store = new Counting(new LocalFileStore());
+            using var limited = ParquetDataset.Open(At("limit/*.parquet"), new ParquetDatasetOptions { Store = store });
+            limited.Footers.Limit = two - 1;
+            Assert.Equal(Expected((0, 3 * Large)), Read(limited));
+            Assert.Equal(1, limited.Footers.Count);
+            Assert.Equal(3, store.TailReads);
+            Assert.Equal(Expected((0, 3 * Large)), Read(limited));
+            Assert.Equal(4, store.TailReads); // the file whose footer was left out
+        }
+    }
+
+    /// <summary>
+    /// Kept footers parse back to what was read: small ones share chunks (a new chunk when one is full), a large one gets
+    /// an array of its own and the small ones after it still go to the open chunk.
+    /// </summary>
+    [Fact]
+    public void KeptFooters_ParseBackToTheFootersKept()
+    {
+        static byte[] Footer(string path)
+        {
+            byte[] file = File.ReadAllBytes(path);
+            var (offset, length) = ParquetMetadata.FooterRange(file, file.Length, path);
+            return file.AsSpan((int)offset, length).ToArray();
+        }
+        byte[] small = Footer(Write("kept/small.parquet", 0, 10)), other = Footer(Write("kept/other.parquet", 5, 20));
+        byte[] large = Footer(Write("kept/large.parquet", 0, 4000, rowGroupRows: 1));
+        Assert.True(large.Length > KeptFooters.ChunkSize / 4, $"{large.Length}");
+        int count = 2 * KeptFooters.ChunkSize / small.Length + 3; // past two chunks
+        var kept = new KeptFooters(count);
+        for (int i = 0; i < count; i++) kept.Keep(i, i == 1 ? large : i % 2 == 0 ? small : other);
+        kept.Keep(0, other); // one footer per file: the first stays
+        Assert.Equal(count, kept.Count);
+        Assert.Equal(large.Length + (count / 2 + count % 2) * (long)small.Length + (count / 2 - 1) * (long)other.Length, kept.Bytes);
+        for (int i = 0; i < count; i++)
+        {
+            ParquetMetadata footer = kept.Get(i)!;
+            Assert.Equal(i == 1 ? 4000 : i % 2 == 0 ? 10 : 20, footer.RowCount);
+            Assert.Equal(i == 1 ? large.Length : i % 2 == 0 ? small.Length : other.Length, footer.FooterSize);
+        }
+        Assert.Null(new KeptFooters(1).Get(0));
+    }
+
+    /// <summary>A footer given is never read.</summary>
+    [Fact]
+    public void GivenFooters_AreNotRead()
+    {
+        for (int i = 0; i < 5; i++) Write($"given/f{i}.parquet", i * 100, 100);
+        string path = At("given/f3.parquet");
         using ParquetFile file = ParquetFile.Open(path);
         var given = new Counting(new LocalFileStore());
-        using var known = ParquetDataset.Open([new ParquetDatasetFile(At("once/f0.parquet")), new ParquetDatasetFile(path, Metadata: file.Metadata)],
+        using var known = ParquetDataset.Open([new ParquetDatasetFile(At("given/f0.parquet")), new ParquetDatasetFile(path, Metadata: file.Metadata)],
             new ParquetDatasetOptions { Store = given });
         Assert.Equal([.. Expected((0, 100)), .. Expected((300, 100))], Read(known));
         Assert.Equal(1, given.TailReads); // the first file's only
