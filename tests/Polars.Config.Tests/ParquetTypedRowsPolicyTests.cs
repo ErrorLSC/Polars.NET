@@ -136,4 +136,49 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
     }
 
     public sealed record Row(long Id, long M);
+
+    /// <summary>A dataset's typed rows follow the policy too, conjuncts over the dataset's columns pushed down.</summary>
+    [Fact]
+    public void DatasetRows_FollowThePolicy()
+    {
+        string[] paths = [Path.Combine(_dir, "rows.parquet")];
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Strict).BeginScope())
+        {
+            using var dataset = ParquetDataset.Open(paths);
+            Assert.Contains("could not be pushed down", Assert.Throws<NotSupportedException>(() => dataset.OpenReader(Where("mixed"))).Message);
+        }
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            using var dataset = ParquetDataset.Open(paths);
+            using ParquetDatasetReader<Row> reader = dataset.OpenReader(Where("mixed"), new ParquetReadOptions { MaxRows = 10, MaxDegreeOfParallelism = 8 });
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(_rows.Where(Where("mixed").Compile()).Take(10), reader.ReadRows());
+        }
+    }
+
+    private sealed record Located(long Id, string File);
+
+    /// <summary>
+    /// A conjunct over a dataset's file path is evaluated on the rows (no file holds the column): refused when Strict,
+    /// the rows filtered all the same otherwise, the other conjuncts still pushed down.
+    /// </summary>
+    [Fact]
+    public void DatasetRows_FilterTheFilePath_OnTheRows()
+    {
+        string[] paths = [Path.Combine(_dir, "rows.parquet")];
+        var options = new ParquetDatasetOptions { FilePathColumn = "File" };
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Strict).BeginScope())
+        {
+            using var dataset = ParquetDataset.Open(paths, options);
+            Assert.Throws<NotSupportedException>(() => dataset.OpenReader<Located>(r => r.File == paths[0]));
+        }
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
+        {
+            using var dataset = ParquetDataset.Open(paths, options);
+            using ParquetDatasetReader<Located> reader = dataset.OpenReader<Located>(r => r.File == paths[0] && r.Id < 5);
+            Assert.Equal([.. Enumerable.Range(0, 5).Select(i => new Located(i, paths[0]))], reader.ReadRows());
+            using ParquetDatasetReader<Located> none = dataset.OpenReader<Located>(r => r.File == "elsewhere" && r.Id < 5);
+            Assert.Empty(none.ReadRows());
+        }
+    }
 }

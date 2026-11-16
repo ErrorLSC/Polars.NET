@@ -88,13 +88,88 @@ public class ParquetDatasetMemoryTests
         GC.Collect();
         GC.WaitForPendingFinalizers();
         long before = NativeBatchMemory.Live;
+        // One value per batch: the second fails after the first was converted (the unit's converted batches are freed).
         using (var dataset = ParquetDataset.Open("d/", new ParquetDatasetOptions { Store = store }))
-        using (var reader = dataset.OpenReader())
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { BatchSize = 1, MaxDegreeOfParallelism = 8 }))
         {
             Assert.Throws<ParquetFormatException>(() =>
             {
                 foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
             });
+        }
+        Assert.Equal(before, NativeBatchMemory.Live);
+    }
+
+    private static MemoryFileStore ManyFiles(int files, bool damagedMiddle)
+    {
+        var store = new MemoryFileStore();
+        for (int f = 0; f < files; f++)
+        {
+            if (damagedMiddle && f == files / 2)
+            {
+                store.Add($"m/f{f:D3}.parquet", (byte[])[.. "PAR1"u8, .. new byte[64], .. "PAR1"u8]);
+                continue;
+            }
+            Put(store, $"m/f{f:D3}.parquet", ("x", new Int64Array.Builder().AppendRange(Enumerable.Range(f * 9, 9).Select(i => (long)i)).Build()),
+                ("y", new StringArray.Builder().AppendRange(Enumerable.Range(f * 9, 9).Select(i => $"a string long enough to leave the view {i}")).Build()));
+        }
+        return store;
+    }
+
+    /// <summary>
+    /// Reading several files' row groups side by side leaves no batch memory behind when the consumer stops early,
+    /// when a file fails midway, or when an asynchronous read is cancelled: the units decoded ahead are freed.
+    /// </summary>
+    [Theory]
+    [InlineData("stop")]
+    [InlineData("error")]
+    [InlineData("cancel")]
+    [InlineData("all")]
+    public async Task TheWindow_LeavesNoBatchMemoryBehind(string how)
+    {
+        MemoryFileStore store = ManyFiles(60, damagedMiddle: how == "error");
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        long before = NativeBatchMemory.Live;
+        using (var dataset = ParquetDataset.Open("m/", new ParquetDatasetOptions { Store = store, FilePathColumn = "file" }))
+        // Batches of 2 rows: a unit gives several, so stopping takes some of a unit's and leaves the others.
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = 8, RowIndexColumn = "n", BatchSize = 2 }))
+        {
+            switch (how)
+            {
+                case "stop":
+                {
+                    using IEnumerator<RecordBatch> batches = reader.ReadBatches().GetEnumerator();
+                    for (int i = 0; i < 3 && batches.MoveNext(); i++) batches.Current.Dispose();
+                    break;
+                }
+                case "error":
+                    Assert.Throws<ParquetFormatException>(() =>
+                    {
+                        foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+                    });
+                    break;
+                case "cancel":
+                {
+                    using var cancel = new CancellationTokenSource();
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                    {
+                        int n = 0;
+                        await foreach (RecordBatch batch in reader.ReadBatchesAsync(cancel.Token))
+                        {
+                            batch.Dispose();
+                            if (++n == 4) cancel.Cancel();
+                        }
+                    });
+                    break;
+                }
+                default:
+                    Assert.Equal(540, reader.ReadBatches().Sum(b =>
+                    {
+                        using (b) return b.Length;
+                    }));
+                    break;
+            }
         }
         Assert.Equal(before, NativeBatchMemory.Live);
     }

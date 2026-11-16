@@ -4,15 +4,18 @@ using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Filters;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Schema;
 using Microsoft.FSharp.Core;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>
-/// Reads a dataset's files one after another, each as <see cref="ParquetFile.OpenReader(ParquetReadOptions?)"/> does
-/// with the options given, into batches of one schema: batches never span files. The footers of the next files are
-/// read while a file is read.
+/// Reads a dataset's files in order, each as <see cref="ParquetFile.OpenReader(ParquetReadOptions?)"/> does with the
+/// options given, into batches of one schema: batches never span files. With
+/// <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> above 1 the row groups of several files are decoded side by
+/// side ahead of the consumer, on that many threads and within one reader's in-flight memory, files opened and
+/// planned ahead (<see cref="ParquetDatasetOptions.MaxFilesInFlight"/>); with 1, file after file on the calling thread.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -44,8 +47,18 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// </remarks>
 public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
 {
-    /// <summary>How many files ahead of the one read are opened (their footers read) at once.</summary>
-    private const int FilesAhead = 16;
+    /// <summary>
+    /// How many units (row groups) beyond the one the consumer waits for are decoded at once, per thread. Measured
+    /// (16 threads; 2000 small files, 64 mid-sized, 4 large, 60 partitioned): 1, 2, 4 and 8 read as fast; 1 holds the
+    /// least memory.
+    /// </summary>
+    internal const int UnitsAheadPerThread = 1;
+
+    /// <summary>From how many uncompressed bytes a unit decodes its columns side by side.</summary>
+    internal const long ParallelColumnsFrom = 8L << 20;
+
+    /// <summary>The fewest files open at once (read, or opened ahead) when <see cref="ParquetDatasetOptions.MaxFilesInFlight"/> is not set.</summary>
+    internal const int MinFilesAhead = 16;
 
     private readonly ParquetDataset _dataset;
     private readonly ParquetReadOptions _options;
@@ -138,12 +151,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         FiltersExactly = options.FilterRows && exact;
         if (options.FilterRows && _rowFilter is { } rows)
         {
-            List<Field> fields = [.. columns.FieldsList.Select(f => partitions?.IndexOf(f.Name) is int p and >= 0 ? dataset.PartitionField(p, options.ViewTypes) : f)];
-            for (int p = 0; p < (partitions?.Fields.Length ?? 0); p++)
-            {
-                if (!_columns.ContainsKey(partitions!.Fields[p].Name)) fields.Add(dataset.PartitionField(p, options.ViewTypes));
-            }
-            LoweredFilter lowered = FilterLowering.lower(new Apache.Arrow.Schema(fields, null), rows);
+            LoweredFilter lowered = FilterLowering.lower(dataset.FilterSchema(options), rows);
             FiltersExactly &= lowered.Exact;
             if (FiltersExactly && OptionModule.IsSome(lowered.Program))
             {
@@ -184,6 +192,20 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         static ScalarExpr And(ScalarExpr a, ScalarExpr b) => ScalarExpr.NewBinary(BinaryOp.And, a, b);
     }
 
+    /// <summary>How many units are decoded at once ahead of the consumer.</summary>
+    private int UnitsAhead => Math.Max(1, _options.MaxDegreeOfParallelism) * UnitsAheadPerThread;
+
+    /// <summary>
+    /// How many files are open at once (read, planned, or opened ahead): as the options say; else, from local files
+    /// and memory, enough to feed the units ahead (a small file is one unit), and from other stores, whose requests
+    /// wait on the network, eight per thread (measured at 16 threads, 5–25 ms per request: 300 small files read in
+    /// 115 ms with 128 open, 164 ms with 64; 60 partitioned files no faster beyond 64).
+    /// </summary>
+    private int FilesInFlight => _dataset.Options.MaxFilesInFlight
+        ?? (_dataset.Store is LocalFileStore or MemoryFileStore
+            ? Math.Max(MinFilesAhead, UnitsAhead + 1)
+            : Math.Max(4 * MinFilesAhead, 8 * Math.Max(1, _options.MaxDegreeOfParallelism)));
+
     /// <summary>The schema of the batches: the row index if asked, the columns read (nullable), the file path if asked.</summary>
     public Apache.Arrow.Schema Schema { get; }
 
@@ -197,20 +219,36 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>The files a filter over partition columns leaves (for tests).</summary>
     internal IReadOnlyList<bool> FilesRead => _read;
 
+    /// <summary>
+    /// The most uncompressed bytes and units decoded at once ahead of the consumer, and files open at once, in the last
+    /// windowed read (for tests).
+    /// </summary>
+    internal (long Bytes, int Units, int Files) PeakInFlight { get; private set; }
+
     /// <summary>The files whose rows the dataset filtered after converting them (for tests).</summary>
     internal int FilesFilteredAfter => _filteredAfter;
 
     private int _filteredAfter;
 
-    /// <summary>Reads the batches, file after file.</summary>
+    /// <summary>
+    /// Reads the batches, in file order. With <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> above 1 the row
+    /// groups of several files are decoded side by side on that many threads (and within the in-flight memory of
+    /// one reader), ahead of the consumer; with 1, file after file on the calling thread.
+    /// </summary>
     /// <exception cref="ParquetFormatException">
     /// A file is damaged, is not a Parquet file, lacks a column read, holds a column of a type that does not convert
-    /// to the dataset's, or a value beyond the range of the dataset's type (the message names the file).
+    /// to the dataset's, or a value beyond the range of the dataset's type (the message names the file). It surfaces
+    /// after the rows of the files before it.
     /// </exception>
     /// <exception cref="FileNotFoundException">A file named does not exist.</exception>
     public IEnumerable<RecordBatch> ReadBatches()
     {
-        using var ahead = new Ahead(this, default);
+        if (_options.MaxDegreeOfParallelism > 1)
+        {
+            foreach (RecordBatch batch in ReadWindowed()) yield return batch;
+            yield break;
+        }
+        using var ahead = new Ahead(this, FilesInFlight, default); // the file taken counts among them
         long? remaining = _options.MaxRows;
         long before = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
@@ -225,7 +263,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     using IEnumerator<RecordBatch> batches = plan.Reader.ReadBatches().GetEnumerator();
                     while (remaining != 0 && Next(batches, i) is { } batch)
                     {
-                        if (Complete(batch, plan, i, ref remaining) is { } done) yield return done;
+                        if (Convert(batch, plan, i) is { } done) yield return Cut(done, ref remaining);
                     }
                 }
                 before += RowCount(file);
@@ -240,7 +278,12 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <inheritdoc cref="ReadBatches"/>
     public async IAsyncEnumerable<RecordBatch> ReadBatchesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        using var ahead = new Ahead(this, cancellationToken);
+        if (_options.MaxDegreeOfParallelism > 1)
+        {
+            await foreach (RecordBatch batch in ReadWindowedAsync(cancellationToken).ConfigureAwait(false)) yield return batch;
+            yield break;
+        }
+        using var ahead = new Ahead(this, FilesInFlight, cancellationToken);
         long? remaining = _options.MaxRows;
         long before = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
@@ -255,7 +298,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     await using IAsyncEnumerator<RecordBatch> batches = plan.Reader.ReadBatchesAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
                     while (remaining != 0 && await NextAsync(batches, i).ConfigureAwait(false) is { } batch)
                     {
-                        if (Complete(batch, plan, i, ref remaining) is { } done) yield return done;
+                        if (Convert(batch, plan, i) is { } done) yield return Cut(done, ref remaining);
                     }
                 }
                 before += RowCount(file);
@@ -263,6 +306,55 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             finally
             {
                 await file.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>The files' units through the window, the batches of each in order, cut to the rows asked.</summary>
+    private IEnumerable<RecordBatch> ReadWindowed()
+    {
+        using var window = new UnitWindow(this, default);
+        long? remaining = _options.MaxRows;
+        while (remaining != 0 && window.NextAsync().GetAwaiter().GetResult() is { } batches)
+        {
+            int i = 0;
+            try
+            {
+                for (; i < batches.Length && remaining != 0; i++)
+                {
+                    RecordBatch batch = batches[i];
+                    batches[i] = null!;
+                    yield return Cut(batch, ref remaining);
+                }
+            }
+            finally
+            {
+                for (; i < batches.Length; i++) batches[i]?.Dispose();
+            }
+        }
+    }
+
+    /// <inheritdoc cref="ReadWindowed"/>
+    private async IAsyncEnumerable<RecordBatch> ReadWindowedAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var window = new UnitWindow(this, cancellationToken);
+        long? remaining = _options.MaxRows;
+        while (remaining != 0 && await window.NextAsync().ConfigureAwait(false) is { } batches)
+        {
+            int i = 0;
+            try
+            {
+                for (; i < batches.Length && remaining != 0; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    RecordBatch batch = batches[i];
+                    batches[i] = null!;
+                    yield return Cut(batch, ref remaining);
+                }
+            }
+            finally
+            {
+                for (; i < batches.Length; i++) batches[i]?.Dispose();
             }
         }
     }
@@ -301,14 +393,17 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         public void Dispose() => Reader.Dispose();
     }
 
-    /// <summary>The plan of a file: its rows numbered after <paramref name="before"/> rows, up to <paramref name="remaining"/>.</summary>
-    private FilePlan Plan(ParquetFile file, int index, long before, long? remaining)
+    /// <summary>
+    /// The plan of a file: its rows numbered after <paramref name="before"/> rows, up to <paramref name="remaining"/>;
+    /// its reader on the dataset's threads and buffers when <paramref name="shared"/> is given.
+    /// </summary>
+    private FilePlan Plan(ParquetFile file, int index, long before, long? remaining, ReadBudget? shared = null)
     {
         string path = PathOf(index);
         Dictionary<string, Field> has;
         try
         {
-            has = ArrowMapping.Map(file.Tree, file.Thrift, _options).Schema.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
+            has = file.Mapping(_options).Schema.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
         }
         catch (ParquetFormatException e)
         {
@@ -357,13 +452,13 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         var (fileFilter, complete) = FileFilter(index, missing, dropped);
 
         bool after = FiltersExactly && _program is not null && !complete;
-        ParquetReader reader = Open(file, index, before, after ? null : remaining, whole, paths, fileFilter, after);
+        ParquetReader reader = Open(file, index, before, after ? null : remaining, whole, paths, fileFilter, after, shared);
         if (FiltersExactly && _program is not null && !after && !reader.FiltersExactly)
         {
             // The file's filtering is not exact: read again with what the dataset's filter needs.
             reader.Dispose();
             after = true;
-            reader = Open(file, index, before, null, whole, paths, fileFilter, after);
+            reader = Open(file, index, before, null, whole, paths, fileFilter, after, shared);
         }
         try
         {
@@ -385,7 +480,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>The file's reader: the columns read, and with <paramref name="after"/> the columns the dataset's filter reads, whole.</summary>
-    private ParquetReader Open(ParquetFile file, int index, long before, long? remaining, HashSet<string> whole, List<string[]> paths, ScalarExpr? filter, bool after)
+    private ParquetReader Open(ParquetFile file, int index, long before, long? remaining, HashSet<string> whole, List<string[]> paths, ScalarExpr? filter, bool after,
+        ReadBudget? shared)
     {
         HashSet<string> columns = new(whole, StringComparer.Ordinal);
         List<string[]> parts = paths;
@@ -400,7 +496,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         }
         try
         {
-            return file.OpenReader(_options with
+            return new ParquetReader(file, _options with
             {
                 Columns = [.. columns],
                 ColumnPaths = parts.Count == 0 ? null : parts,
@@ -408,7 +504,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                 RowIndexOffset = before,
                 MaxRows = remaining,
                 Filter = filter,
-            });
+            }, shared);
         }
         catch (ParquetFormatException e)
         {
@@ -504,10 +600,9 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// A file's batch in the dataset's schema: its columns converted and in order, partition values and the file
-    /// path added; filtered by the dataset when the plan says so; cut to <paramref name="remaining"/> rows. Null when
-    /// no row is left.
+    /// path added; filtered by the dataset when the plan says so. Null when no row is left. Safe on any thread.
     /// </summary>
-    private RecordBatch? Complete(RecordBatch batch, FilePlan plan, int index, ref long? remaining)
+    private RecordBatch? Convert(RecordBatch batch, FilePlan plan, int index)
     {
         int length = batch.Length, skip = _options.RowIndexColumn is null ? 0 : 1;
         var columns = new IArrowArray[Schema.FieldsList.Count];
@@ -603,14 +698,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             foreach (IArrowArray column in columns) column.Dispose();
             return null;
         }
-        var result = new RecordBatch(Schema, columns, length);
-        if (remaining is long left && length >= left)
-        {
-            if (length > left) result = new RecordBatch(Schema, [.. columns.Select(a => ArrowArrayFactory.Slice(a, 0, (int)left))], (int)left);
-            remaining = 0;
-        }
-        else remaining -= length;
-        return result;
+        return new RecordBatch(Schema, columns, length);
 
         static IArrowArray Constant(IArrowArray values, int file, int length, IArrowType type)
         {
@@ -621,6 +709,19 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     : ConstantArrays.String(strings.GetString(file), length, view: true);
             return ConstantArrays.Repeat(values, file, length);
         }
+    }
+
+    /// <summary>A batch cut to the <paramref name="remaining"/> rows still to deliver (over its memory: disposing the cut releases it all).</summary>
+    private RecordBatch Cut(RecordBatch batch, ref long? remaining)
+    {
+        if (remaining is not long left) return batch;
+        if (batch.Length < left)
+        {
+            remaining = left - batch.Length;
+            return batch;
+        }
+        remaining = 0;
+        return batch.Length == left ? batch : new RecordBatch(Schema, [.. batch.Arrays.Select(a => ArrowArrayFactory.Slice(a, 0, (int)left))], (int)left);
     }
 
     /// <summary>A column of the batch converted (the batch's own when nothing changes, marked used), or nulls when the file lacks it.</summary>
@@ -777,11 +878,327 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>A file the window reads: its plan and file, released once its last unit is taken.</summary>
+    private sealed class FileSlot(int index, ParquetFile? file, FilePlan? plan, int units) : IDisposable
+    {
+        private int _taken;
+        private bool _disposed;
+
+        public int Index => index;
+
+        public FilePlan Plan => plan!;
+
+        public int Units => units;
+
+        /// <summary>One more unit taken; true when it was the last (the slot is then disposed).</summary>
+        public bool Taken()
+        {
+            if (++_taken < units) return false;
+            Dispose();
+            return true;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            plan?.Dispose();
+            file?.Dispose();
+        }
+    }
+
+    /// <summary>A unit of the window: a file's row group, decoded and converted by its task once started.</summary>
+    private sealed class Unit(FileSlot file, int index, long bytes)
+    {
+        public FileSlot File => file;
+
+        public int Index => index;
+
+        public long Bytes => bytes;
+
+        public Task<RecordBatch[]>? Task { get; set; }
+    }
+
     /// <summary>
-    /// Files opened ahead of the one read (up to <see cref="FilesAhead"/> of those to open: the files read, and the
-    /// others when their row counts are needed); those not taken are disposed once opened.
+    /// The units of the dataset's files (row groups with their rows) in output order, decoded ahead of the consumer
+    /// on one scheduler: the unit the consumer waits for always starts; the others start up to
+    /// <see cref="UnitsAhead"/> beyond it while the uncompressed bytes in flight stay within one reader's budget.
+    /// Files are opened ahead and planned side by side (a file's row numbers follow the earlier files' counts, known
+    /// from their footers); their units join the window in file order as their plans complete. A file's failure
+    /// surfaces when the consumer reaches it. Disposing the window stops the work, waits for what runs, and frees
+    /// what was decoded and not taken, then the files.
     /// </summary>
-    private sealed class Ahead(ParquetDatasetReader owner, CancellationToken ct) : IDisposable
+    private sealed class UnitWindow : IDisposable
+    {
+        private readonly ParquetDatasetReader _owner;
+        private readonly ReadBudget _budget;
+        private readonly Ahead _ahead;
+        private readonly CancellationTokenSource _cancel;
+        private readonly object _lock = new();
+        private readonly List<Unit> _units = [];
+        private readonly List<Task<FileSlot>> _plans = [];   // the files planned or planning, in order (null once joined)
+        private readonly HashSet<FileSlot> _live = [];        // the files joined whose units are not all taken
+        private readonly long? _maxRows;                     // the rows to plan, when no row is filtered
+        private Task<long> _before = Task.FromResult(0L);   // the rows of the files before the next one planned
+        private int _nextFile, _integrated, _head, _started;
+        private long _inFlight, _plannedRows, _peakBytes;
+        private int _peakUnits, _peakFiles;
+        private bool _disposed;
+
+        public UnitWindow(ParquetDatasetReader owner, CancellationToken cancellationToken)
+        {
+            _owner = owner;
+            _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            int threads = Math.Max(1, owner._options.MaxDegreeOfParallelism);
+            int leaves = Math.Max(1, owner._targets.Sum(t => Leaves(t.Field.DataType)) + owner._filterRoots.Length);
+            _budget = new ReadBudget(threads, owner._options.InFlightBytes, (2 * leaves + 4) * owner.UnitsAhead, writesPastCaches: true);
+            _ahead = new Ahead(owner, 0, _cancel.Token); // files open as they are planned (counted below)
+            // MaxRows bounds the planning only when no row is filtered (the consumer cuts in any case).
+            _maxRows = !owner._options.FilterRows || owner._options.Filter is null ? owner._options.MaxRows : null;
+        }
+
+        /// <summary>The next unit's batches (converted), in order; null when every unit was taken.</summary>
+        public async Task<RecordBatch[]?> NextAsync()
+        {
+            while (true)
+            {
+                Task<FileSlot> waiting;
+                lock (_lock)
+                {
+                    Fill();
+                    if (_head < _units.Count) break;
+                    if (_integrated == _plans.Count) return null; // every file planned and taken
+                    waiting = _plans[_integrated];
+                }
+                await waiting.ConfigureAwait(false); // a failure to open or plan surfaces here, in order
+            }
+            Unit unit;
+            lock (_lock) unit = _units[_head];
+            RecordBatch[] batches = await unit.Task!.ConfigureAwait(false);
+            lock (_lock)
+            {
+                unit.Task = null;
+                _inFlight -= unit.Bytes;
+                _units[_head++] = null!;
+                if (unit.File.Taken()) _live.Remove(unit.File);
+            }
+            return batches;
+        }
+
+        /// <summary>
+        /// Under the lock: joins the plans completed in order, starts the units the window allows, and starts planning
+        /// more files while the units known ahead run short.
+        /// </summary>
+        private void Fill()
+        {
+            if (_disposed) return;
+            while (_integrated < _plans.Count && _plans[_integrated].IsCompletedSuccessfully)
+            {
+                FileSlot slot = _plans[_integrated].Result;
+                _plans[_integrated++] = null!;
+                if (slot.Units == 0)
+                {
+                    slot.Dispose();
+                    continue;
+                }
+                _live.Add(slot);
+                for (int u = 0; u < slot.Units; u++)
+                {
+                    _units.Add(new Unit(slot, u, slot.Plan.Reader.UnitBytes(u)));
+                    _plannedRows += slot.Plan.Reader.UnitRows(u);
+                }
+            }
+            int ahead = _owner.UnitsAhead;
+            while (_started < _units.Count && (_started == _head || _started - _head < ahead && _inFlight + _units[_started].Bytes <= _budget.Bytes))
+            {
+                Unit unit = _units[_started++];
+                _inFlight += unit.Bytes;
+                CancellationToken token = _cancel.Token;
+                // Small units decode their columns one after another, units side by side on the scheduler; large
+                // ones (few at a time), and the last units when fewer than the threads are left, their columns side
+                // by side.
+                bool parallel = unit.Bytes >= ParallelColumnsFrom
+                    || _units.Count - _started < _budget.Threads && _integrated == _plans.Count && _nextFile >= _owner._dataset.Files.Count;
+                _peakBytes = Math.Max(_peakBytes, _inFlight);
+                _peakUnits = Math.Max(_peakUnits, _started - _head);
+                unit.Task = parallel
+                    ? Task.Run(() => _owner.DecodeAsync(unit.File, unit.Index, parallel: true, token), token)
+                    : Task.Factory.StartNew(() => _owner.DecodeAsync(unit.File, unit.Index, parallel: false, token), token,
+                        TaskCreationOptions.DenyChildAttach, _budget.Schedulers.ConcurrentScheduler).Unwrap();
+            }
+            // Files open: those planning or planned and not joined, and those joined with units not taken.
+            while (_plans.Count - _integrated + _live.Count < _owner.FilesInFlight && _units.Count - _head < ahead && !(_plannedRows >= _maxRows)
+                   && Next() is int file)
+            {
+                _plans.Add(Plan(file));
+                _peakFiles = Math.Max(_peakFiles, _plans.Count - _integrated + _live.Count);
+            }
+        }
+
+        /// <summary>The next file to plan (read, or counted for row numbers), past those left out; null when none is left.</summary>
+        private int? Next()
+        {
+            ParquetDatasetReader owner = _owner;
+            for (; _nextFile < owner._dataset.Files.Count; _nextFile++)
+            {
+                if (owner._read[_nextFile] || owner._options.RowIndexColumn is not null) return _nextFile++;
+            }
+            return null;
+        }
+
+        /// <summary>Plans a file on the thread pool: opened ahead (in order), numbered after the files before it.</summary>
+        private Task<FileSlot> Plan(int index)
+        {
+            Task<FileSlot> planning = Planning(index);
+            // Once planned, its units may start (when it is next in order) and more files may be planned.
+            planning.ContinueWith(_ =>
+            {
+                lock (_lock) Fill();
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            return planning;
+        }
+
+        private Task<FileSlot> Planning(int index)
+        {
+            Task<ParquetFile> opening = _ahead.Take(index);
+            Task<long> previous = _before;
+            var after = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _before = after.Task;
+            CancellationToken token = _cancel.Token;
+            ParquetDatasetReader owner = _owner;
+            // Started without the token: every planning runs and settles the row count the next file awaits (a
+            // planning cancelled before it ran would leave the next waiting).
+            return Task.Run(async () =>
+            {
+                ParquetFile? file = null;
+                FilePlan? plan = null;
+                try
+                {
+                    file = await opening.ConfigureAwait(false);
+                    long before = await previous.ConfigureAwait(false);
+                    after.TrySetResult(before + RowCount(file));
+                    token.ThrowIfCancellationRequested();
+                    if (!owner._read[index])
+                    {
+                        file.Dispose();
+                        return new FileSlot(index, null, null, 0);
+                    }
+                    plan = owner.Plan(file, index, before, _maxRows, _budget);
+                    int units;
+                    try
+                    {
+                        units = await plan.Reader.PlanUnitsAsync(useAsync: true, token).ConfigureAwait(false);
+                    }
+                    catch (ParquetFormatException e)
+                    {
+                        throw ParquetDataset.InFile(owner.PathOf(index), e);
+                    }
+                    return new FileSlot(index, file, plan, units);
+                }
+                catch (Exception e)
+                {
+                    after.TrySetException(e); // the files after this one fail with it (when reached)
+                    plan?.Dispose();
+                    file?.Dispose();
+                    throw;
+                }
+            });
+        }
+
+        public void Dispose()
+        {
+            Task<FileSlot>[] plans;
+            FileSlot[] live;
+            lock (_lock)
+            {
+                _disposed = true;
+                _cancel.Cancel();
+                plans = [.. _plans.Skip(_integrated)];
+                live = [.. _live];
+            }
+            foreach (Task<FileSlot> plan in plans)
+            {
+                try
+                {
+                    plan.GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    // abandoned: its error no longer matters
+                }
+            }
+            for (int u = _head; u < _units.Count; u++)
+            {
+                if (_units[u]?.Task is not { } task) continue;
+                try
+                {
+                    foreach (RecordBatch batch in task.GetAwaiter().GetResult()) batch?.Dispose();
+                }
+                catch
+                {
+                    // abandoned
+                }
+            }
+            foreach (Task<FileSlot> plan in plans)
+            {
+                if (plan.IsCompletedSuccessfully) plan.Result.Dispose();
+            }
+            foreach (FileSlot slot in live) slot.Dispose();
+            _ahead.Dispose();
+            _budget.Dispose();
+            _cancel.Dispose();
+            _owner.PeakInFlight = (_peakBytes, _peakUnits, _peakFiles);
+        }
+
+        /// <summary>The leaves of a type (a struct's fields, a list's elements, a map's keys and values).</summary>
+        private static int Leaves(IArrowType type) => type switch
+        {
+            StructType s => s.Fields.Sum(f => Leaves(f.DataType)),
+            ListType l => Leaves(l.ValueDataType),
+            FixedSizeListType l => Leaves(l.ValueDataType),
+            MapType m => Leaves(m.KeyField.DataType) + Leaves(m.ValueField.DataType),
+            _ => 1,
+        };
+    }
+
+    /// <summary>Decodes a unit of a file and converts its batches (on the window's threads); errors name the file.</summary>
+    private async Task<RecordBatch[]> DecodeAsync(FileSlot slot, int unit, bool parallel, CancellationToken cancellationToken)
+    {
+        RecordBatch[] decoded;
+        try
+        {
+            decoded = await slot.Plan.Reader.DecodeUnitAsync(unit, parallel, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ParquetFormatException e)
+        {
+            throw ParquetDataset.InFile(PathOf(slot.Index), e);
+        }
+        List<RecordBatch> converted = [];
+        int b = 0;
+        try
+        {
+            for (; b < decoded.Length; b++)
+            {
+                RecordBatch batch = decoded[b];
+                decoded[b] = null!;
+                if (Convert(batch, slot.Plan, slot.Index) is { } done) converted.Add(done);
+            }
+            return [.. converted];
+        }
+        catch
+        {
+            for (; b < decoded.Length; b++) decoded[b]?.Dispose();
+            foreach (RecordBatch batch in converted) batch.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Files opened ahead of the one taken (up to <paramref name="count"/> of those to open: the files read, and the
+    /// others when their row counts are needed); those not taken are disposed once opened. Taken in order, by one
+    /// caller at a time.
+    /// </summary>
+    private sealed class Ahead(ParquetDatasetReader owner, int count, CancellationToken ct) : IDisposable
     {
         private readonly Dictionary<int, Task<ParquetFile>> _started = [];
         private int _next;
@@ -791,9 +1208,9 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         /// <summary>The file at <paramref name="index"/> (files are taken in order), the next ones started meanwhile.</summary>
         public Task<ParquetFile> Take(int index)
         {
-            int count = owner._dataset.Files.Count;
+            int files = owner._dataset.Files.Count;
             _next = Math.Max(_next, index);
-            for (; _next < count && _started.Count < FilesAhead; _next++)
+            for (; _next < files && _started.Count < count; _next++)
             {
                 if (!Needed(_next)) continue;
                 int file = _next;
@@ -815,3 +1232,4 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         }
     }
 }
+

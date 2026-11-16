@@ -6,7 +6,7 @@ using Kaminari.Sazanami.Helpers;
 namespace Kaminari.Sazanami.Arrow;
 
 /// <summary>Arrays holding one value on every row (a file's path, a partition's value), in native memory.</summary>
-internal static class ConstantArrays
+internal static unsafe class ConstantArrays
 {
     /// <summary>
     /// <paramref name="length"/> rows of <paramref name="value"/>: in the view layout (<paramref name="view"/>) every view
@@ -41,27 +41,39 @@ internal static class ConstantArrays
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         IArrowType type = source.Data.DataType;
         bool valid = source.IsValid(index);
-        ArrowBuffer validity = valid ? ArrowBuffer.Empty : new ArrowBuffer(new byte[(length + 7) / 8]);
         int nulls = valid ? 0 : length;
         switch (type)
         {
-            case BooleanType:
+            case BooleanType or FixedWidthType:
             {
-                bool value = valid && ((BooleanArray)source).GetValue(index) == true;
-                var bits = new byte[(length + 7) / 8];
-                if (value) bits.AsSpan().Fill(0xFF);
-                return ArrowArrayFactory.BuildArray(new ArrayData(type, length, nulls, 0, [validity, new ArrowBuffer(bits)]));
-            }
-            case FixedWidthType fixedWidth:
-            {
-                int width = fixedWidth.BitWidth / 8;
-                var data = new byte[(long)width * length];
-                if (valid)
+                // In native memory (freed with the array), filled by doubling copies.
+                var export = new NativeBatchExport();
+                try
                 {
-                    ReadOnlySpan<byte> value = source.Data.Buffers[1].Span.Slice((source.Offset + index) * width, width);
-                    for (int i = 0; i < length; i++) value.CopyTo(data.AsSpan(i * width, width));
+                    nint validity = valid ? 0 : (nint)export.Allocate((length + 7) / 8); // zeroed: every row null
+                    long bytes = type is BooleanType ? (length + 7) / 8 : (long)((FixedWidthType)type).BitWidth / 8 * length;
+                    var data = (byte*)export.Allocate(bytes);
+                    if (type is BooleanType)
+                    {
+                        if (valid && ((BooleanArray)source).GetValue(index) == true) new Span<byte>(data, (int)bytes).Fill(0xFF);
+                    }
+                    else if (valid && length > 0)
+                    {
+                        int width = ((FixedWidthType)type).BitWidth / 8;
+                        source.Data.Buffers[1].Span.Slice((source.Offset + index) * width, width).CopyTo(new Span<byte>(data, width));
+                        for (long filled = width; filled < bytes; filled *= 2)
+                        {
+                            long n = Math.Min(filled, bytes - filled);
+                            Buffer.MemoryCopy(data, data + filled, n, n);
+                        }
+                    }
+                    return export.ImportArray(export.NewArray(length, nulls, [validity, (nint)data], []), type);
                 }
-                return ArrowArrayFactory.BuildArray(new ArrayData(type, length, nulls, 0, [validity, new ArrowBuffer(data)]));
+                catch
+                {
+                    export.FreeAll();
+                    throw;
+                }
             }
             case StringType or BinaryType or StringViewType or BinaryViewType:
             {

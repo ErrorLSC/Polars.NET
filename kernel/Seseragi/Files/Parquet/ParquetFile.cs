@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
@@ -56,7 +57,29 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// schema the writer stored (if any), and each column's Parquet field id as <c>PARQUET:field_id</c> metadata.
     /// </summary>
     /// <exception cref="ParquetFormatException">The schema has a leaf of an unknown physical type.</exception>
-    public Apache.Arrow.Schema Schema => _schema ??= ArrowMapping.Map(Tree, Thrift, new ParquetReadOptions()).Schema;
+    public Apache.Arrow.Schema Schema => _schema ??= Mapping(new ParquetReadOptions()).Schema;
+
+    private readonly object _mappingsLock = new();
+    private List<(bool Views, bool BinaryAsString, Apache.Arrow.Types.TimeUnit Int96, (Apache.Arrow.Schema, ColumnMapping[]) Mapping)>? _mappings;
+
+    /// <summary>
+    /// The file's columns as a reader with <paramref name="options"/> maps them (the options that shape types: views,
+    /// binaries as strings, the INT96 unit), mapped once per shape and kept (readers of one file share them).
+    /// </summary>
+    internal (Apache.Arrow.Schema Schema, ColumnMapping[] Columns) Mapping(ParquetReadOptions options)
+    {
+        lock (_mappingsLock)
+        {
+            _mappings ??= [];
+            foreach (var (views, binary, int96, mapping) in _mappings)
+            {
+                if (views == options.ViewTypes && binary == options.BinaryAsString && int96 == options.Int96Unit) return mapping;
+            }
+            var mapped = ArrowMapping.Map(Tree, Thrift, options);
+            _mappings.Add((options.ViewTypes, options.BinaryAsString, options.Int96Unit, mapped));
+            return mapped;
+        }
+    }
 
     /// <summary>Opens a reader of the file's batches.</summary>
     /// <exception cref="NotSupportedException">A selected column is nested (lists, maps, structs), which this version does not read yet.</exception>
@@ -282,11 +305,15 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
                     throw new ParquetFormatException("The data does not start with PAR1: it is not a single Parquet file (cut at the start, or preceded by other bytes).");
             }
             // A file the tail read held whole (up to 64 KiB) is read from those bytes from now on: on an object store
-            // each read is a request. Bytes already in memory need no copy.
-            IRandomAccess data = smallInMemory && tailLength == length && !InMemory(source)
-                ? new MemoryRandomAccess(tail.AsSpan(0, tailLength).ToArray())
-                : source;
-            return new ParquetFile(data, owned, thrift, ParquetMetadata.FromThrift(thrift, footerLength));
+            // each read is a request. Bytes already in memory need no copy. The copy is native (freed with the file:
+            // batches never point into it), so that many small files read at once leave the managed heap alone.
+            if (smallInMemory && tailLength == length && !InMemory(source))
+            {
+                var copy = new NativeByteBuffer(tailLength);
+                tail.AsSpan(0, tailLength).CopyTo(copy.Span);
+                return new ParquetFile(new MemoryRandomAccess(copy.Memory[..tailLength]), new Owned(owned, copy), thrift, ParquetMetadata.FromThrift(thrift, footerLength));
+            }
+            return new ParquetFile(source, owned, thrift, ParquetMetadata.FromThrift(thrift, footerLength));
         }
         finally
         {
@@ -354,5 +381,15 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             : source.ReadAt(offset, destination.Span);
         if (n != destination.Length)
             throw new ParquetFormatException($"The Parquet data ended early: {n} of {destination.Length} bytes at offset {offset}.");
+    }
+
+    /// <summary>The source a file owns, and the native copy it reads instead.</summary>
+    private sealed class Owned(IDisposable? source, NativeByteBuffer copy) : IDisposable
+    {
+        public void Dispose()
+        {
+            source?.Dispose();
+            ((IDisposable)copy).Dispose();
+        }
     }
 }

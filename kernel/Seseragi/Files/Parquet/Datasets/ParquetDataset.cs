@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Helpers;
@@ -110,6 +112,21 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         return SchemaOf(Files[0].Path, Footer(0)!, options);
     }
 
+    /// <summary>
+    /// The columns a filter reads, as a reader with <paramref name="options"/> filters them: the columns from files (a
+    /// partition column of the same name in its place), then the other partition columns.
+    /// </summary>
+    internal Apache.Arrow.Schema FilterSchema(ParquetReadOptions options)
+    {
+        Apache.Arrow.Schema columns = ColumnsFor(options);
+        List<Field> fields = [.. columns.FieldsList.Select(f => Partitions?.IndexOf(f.Name) is int p and >= 0 ? PartitionField(p, options.ViewTypes) : f)];
+        for (int p = 0; p < (Partitions?.Fields.Length ?? 0); p++)
+        {
+            if (columns.GetFieldIndex(Partitions!.Fields[p].Name) < 0) fields.Add(PartitionField(p, options.ViewTypes));
+        }
+        return new Apache.Arrow.Schema(fields, null);
+    }
+
     /// <summary>A file's schema as a reader with <paramref name="options"/> reads it.</summary>
     internal static Apache.Arrow.Schema SchemaOf(string path, ParquetMetadata footer, ParquetReadOptions options)
     {
@@ -219,6 +236,36 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// <summary>Opens a reader of the dataset's batches (see <see cref="ParquetDatasetReader"/> for how the options apply).</summary>
     /// <exception cref="ArgumentException">The options select rows or row groups by number (per file: <see cref="ParquetDatasetFile.Rows"/>), name columns the dataset lacks, or are out of range.</exception>
     public ParquetDatasetReader OpenReader(ParquetReadOptions? options = null) => new(this, options ?? new ParquetReadOptions());
+
+    /// <summary>
+    /// Opens a reader of the dataset's rows as <typeparamref name="T"/>, of the columns its members map (columns from
+    /// files and partition columns), filtered by <paramref name="where"/> (pushed into the read: conjuncts over
+    /// partition members decide which files are read; see <see cref="ParquetDatasetReader{T}"/>).
+    /// </summary>
+    /// <exception cref="ArgumentException">The dataset has no column for a member, or the options are out of range.</exception>
+    /// <exception cref="NotSupportedException">A conjunct of <paramref name="where"/> cannot be pushed down and the client evaluation policy is Strict.</exception>
+    public ParquetDatasetReader<T> OpenReader<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Expression<Func<T, bool>>? where = null,
+        ParquetReadOptions? options = null) => new(this, where, options);
+
+    /// <summary>Reads the rows of the dataset at a path, a directory or a glob as <typeparamref name="T"/> (see <see cref="ParquetDatasetReader{T}"/>).</summary>
+    /// <inheritdoc cref="OpenReader{T}(Expression{Func{T, bool}}?, ParquetReadOptions?)"/>
+    public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string pathOrGlob, Expression<Func<T, bool>>? where = null,
+        ParquetDatasetOptions? datasetOptions = null, ParquetReadOptions? readOptions = null)
+    {
+        using ParquetDataset dataset = Open(pathOrGlob, datasetOptions);
+        using ParquetDatasetReader<T> reader = dataset.OpenReader(where, readOptions);
+        return reader.ReadList();
+    }
+
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, ParquetDatasetOptions?, ParquetReadOptions?)"/>
+    public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string pathOrGlob,
+        Expression<Func<T, bool>>? where = null, ParquetDatasetOptions? datasetOptions = null, ParquetReadOptions? readOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using ParquetDataset dataset = await OpenAsync(pathOrGlob, datasetOptions, cancellationToken).ConfigureAwait(false);
+        await using ParquetDatasetReader<T> reader = dataset.OpenReader(where, readOptions);
+        return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Nothing is held open between reads; kept for stores that will hold connections.</summary>
     public void Dispose() { }

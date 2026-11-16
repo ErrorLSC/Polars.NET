@@ -49,15 +49,20 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly ReadOnlyMemory<byte>? _memory;           // the source's bytes, when it lives in memory
     private readonly bool _fetch;                             // whether chunks are fetched before decoding (not a local source)
     private readonly ConcurrentExclusiveSchedulerPair _schedulers;
+    private readonly ReadBudget? _shared;                     // the dataset's threads and buffers, when this reader is one of its files'
 
-    internal ParquetReader(ParquetFile file, ParquetReadOptions options)
+    /// <summary>
+    /// A reader of the file; with <paramref name="shared"/>, one of several readers a dataset drives unit by unit
+    /// (<see cref="PlanUnitsAsync"/>, <see cref="DecodeUnitAsync"/>) on its threads and buffers, which it owns.
+    /// </summary>
+    internal ParquetReader(ParquetFile file, ParquetReadOptions options, ReadBudget? shared = null)
     {
         options.Validate();
         // The filter in the shapes pruning and lowering read (the LINQ translator gives some in others).
         if (options.Filter is { } given) options = options with { Filter = FilterShapes.canonical(given) };
         _file = file;
         _options = options;
-        var (_, all) = ArrowMapping.Map(file.Tree, file.Thrift, options);
+        var (_, all) = file.Mapping(options);
         _columns = Select(all, options.Columns, options.ColumnPaths);
         _projected = new ColumnSet(_columns);
         _leaves = _projected.Leaves;
@@ -69,7 +74,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             ChunkReading.Stream => false,
             _ => _memory is null && file.Source is not ILocalSource { SmallReadsAreCheap: true },
         };
-        _schedulers = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, Math.Max(1, options.MaxDegreeOfParallelism));
+        _shared = shared;
+        _schedulers = shared?.Schedulers ?? new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, Math.Max(1, options.MaxDegreeOfParallelism));
         int[] rowGroups = options.RowGroups is { } groups ? [.. groups] : [.. Enumerable.Range(0, file.Thrift.RowGroups.Length)];
         foreach (int g in rowGroups)
         {
@@ -115,7 +121,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         _oldParquetMr = IsOldParquetMr(file.Thrift.CreatedBy);
         // Per row group in flight: its fetched chunks (a few), and per leaf a decompression scratch and a read window.
         int inFlight = options.MaxDegreeOfParallelism > 1 ? Math.Min(options.MaxDegreeOfParallelism, _candidates.Length) + 1 : 1;
-        _buffers = new NativeBufferPool((2 * (_leaves.Length + (_late?.Predicates.Leaves.Length ?? 0)) + 4) * inFlight);
+        _buffers = shared?.Buffers ?? new NativeBufferPool((2 * (_leaves.Length + (_late?.Predicates.Leaves.Length ?? 0)) + 4) * inFlight);
 
         // A program reading no column is true, false or null on every row.
         static bool Constant(FilterProgram program)
@@ -1011,7 +1017,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 // Measured: staged non-temporal writes of strings win when threads compete for memory bandwidth and
                 // lose a few percent on one thread.
                 if (readers[l].Builder is NativeBinaryViewBuilder views)
-                    views.WritesPastCaches = _options.MaxDegreeOfParallelism > 1 && (_candidates.Length > 1 || set.Columns.Length > 1);
+                    views.WritesPastCaches = _shared?.WritesPastCaches ?? _options.MaxDegreeOfParallelism > 1 && (_candidates.Length > 1 || set.Columns.Length > 1);
                 byNode[leaf] = readers[l];
             }
             foreach (ColumnMapping column in set.Columns) ConfigureLeaves(column.Read, byNode, keepLevels: !column.IsFlat, fixedSizeList: null);
@@ -1480,9 +1486,26 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         }
     }
 
+    // ---- driven by a dataset ---------------------------------------------------------------------------------------
+
+    /// <summary>Plans the units (row groups with their rows) and tells how many there are.</summary>
+    internal async ValueTask<int> PlanUnitsAsync(bool useAsync, CancellationToken cancellationToken) =>
+        (useAsync ? await UnitsAsync(cancellationToken).ConfigureAwait(false) : Units()).Length;
+
+    /// <summary>The uncompressed bytes of unit <paramref name="index"/>'s row group (what it holds in memory, about).</summary>
+    internal long UnitBytes(int index) => Math.Max(0, _file.Thrift.RowGroups[_planned![index].Group].TotalByteSize);
+
+    /// <summary>The rows unit <paramref name="index"/> reads, before any row filter.</summary>
+    internal long UnitRows(int index) => _planned![index].Rows?.RowCount ?? Math.Max(0, _file.Thrift.RowGroups[_planned[index].Group].NumRows);
+
+    /// <summary>Decodes unit <paramref name="index"/> (its columns side by side on the scheduler when <paramref name="parallel"/>).</summary>
+    internal Task<RecordBatch[]> DecodeUnitAsync(int index, bool parallel, CancellationToken cancellationToken) =>
+        DecodeRowGroupAsync(_planned![index], useAsync: true, parallel, cancellationToken);
+
     /// <inheritdoc/>
     public void Dispose()
     {
+        if (_shared is not null) return; // the dataset's threads and buffers
         _schedulers.Complete();
         _buffers.Dispose();
     }

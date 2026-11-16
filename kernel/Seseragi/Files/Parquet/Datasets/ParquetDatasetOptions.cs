@@ -74,8 +74,17 @@ public sealed record ParquetDatasetOptions
     /// </summary>
     public bool AllowLossyCasts { get; init; }
 
+    /// <summary>
+    /// How many files are open at once: read, planned (their footers read, their row groups started as threads
+    /// allow) or opened ahead; null decides it from the reader's threads: enough that small files keep every thread
+    /// busy from local files and memory, eight per thread (at least 64) from other stores, whose requests wait on the
+    /// network.
+    /// </summary>
+    public int? MaxFilesInFlight { get; init; }
+
     internal void Validate()
     {
+        if (MaxFilesInFlight is < 1) throw new ArgumentOutOfRangeException(nameof(MaxFilesInFlight), MaxFilesInFlight, "At least one file is opened at a time.");
         if (!Enum.IsDefined(Partitioning)) throw new ArgumentOutOfRangeException(nameof(Partitioning), Partitioning, "Unknown partitioning.");
         if (!Enum.IsDefined(SchemaMode)) throw new ArgumentOutOfRangeException(nameof(SchemaMode), SchemaMode, "Unknown schema mode.");
         if (Schema is { } given)

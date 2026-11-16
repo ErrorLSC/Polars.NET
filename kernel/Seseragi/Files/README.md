@@ -49,9 +49,16 @@ Columns and struct fields beyond the dataset's are not read; those a file lacks 
 way out, or nulls (`AllowMissingColumns`; always when united). Filters prune each file on its own types; columns it
 lacks become nulls folded into the filter; conjuncts over lossily converted columns do not prune; where a file's own
 filtering cannot be exact the dataset filters its rows after converting, so `FiltersExactly` holds across files.
-Files are read one after another (footers of the next ones read meanwhile) with the reader options: the row
-index numbers rows across files and comes first, `MaxRows` counts across files, `FilePathColumn` adds each row's
-file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors name their file. Files come from an `IFileStore`
+Files are read in order with the reader options; with several threads the row groups of several files decode side
+by side ahead of the consumer, on one scheduler and within one reader's in-flight memory (the row group waited for
+always starts), files opened and planned ahead (`MaxFilesInFlight`; by default enough to keep the threads busy,
+more for stores other than local files and memory), columns converted and filtered on those threads; with one
+thread, file after file on the caller's. The row index numbers rows across files and comes first, `MaxRows` counts
+across files, `FilePathColumn` adds each row's file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors
+name their file and surface after the rows of the files before it. Rows come typed too
+(`ParquetDataset.OpenReader<T>`, `ParquetDatasetReader<T>`, `ParquetDataset.ReadList<T>`): members map columns and
+partitions by name, a `where` predicate is pushed down (conjuncts over partitions decide the files read), the rest
+evaluated on the rows as the query compiler's client evaluation policy allows. Files come from an `IFileStore`
 (`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), or a store of the caller.
 `Glob = false` reads wildcard characters as names (Polars' `glob=False`).
 
@@ -214,7 +221,8 @@ them as PLAIN; string readers take delta byte arrays as data, starts and lengths
 streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
 open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`). `Parquet/Datasets/` holds the dataset: path
 expansion (`ParquetDataset`), partition values (`Partitions`: Hive paths or given values as a typed table of one row
-per file) and the reader of its files (`ParquetDatasetReader`: column layout, partition pruning, filters per file).
+per file) and the reader of its files (`ParquetDatasetReader`: column layout, partition pruning, filters per file,
+the window of row groups across files; `ParquetDatasetReader<T>`: typed rows).
 
 ## Avro features
 
@@ -399,7 +407,8 @@ written synchronously on completion.
 | `Excel/Reading/` | The format-neutral half: `SheetCells` (cell model, row buffer, `SheetSource`), `WorkbookSource`, `ChunkReader` (a part decompressed into a native buffer, refilled between complete chunks), `SharedStringStore` (native UTF-8 plus offsets), `SheetReader` (header, window, inference, projection, batches), `ColumnAppenders` (cells to native builders per Arrow type), `CellText` (cells as text). |
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
-| `Parquet/ParquetReaderOfT.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
+| `Parquet/ParquetReaderOfT.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>`): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
+| `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
 | `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded; Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
 | `Parquet/ParquetColumnOptions.cs` | Settings by column (`ParquetWriteOptions.Columns`): the encoding of pages written without the dictionary (`ParquetValueEncoding`), the dictionary on or off, Bloom filters (`ParquetBloomFilterOptions`: false positive rate, a cap on the distinct values sized for, the largest size). |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
@@ -531,6 +540,8 @@ what its predicate cannot match, and gives the rows of one thread on several). S
   `ParquetDatasetTests` (expansion, order, schema across files, row index, limits, file paths, stores),
   `ParquetDatasetSchemaTests` (schema modes, conversions, missing and extra columns and fields, filters over converted
   and missing columns),
+  `ParquetDatasetWindowTests` (several threads read the rows one thread reads, failures in order, the in-flight
+  budget, files open at once, typed rows),
   `ParquetHiveTests` (keys, types, values, collisions, given values, the glob switch, partition pruning),
   `FilterConstantFoldingTests` and, opt-in with `SESERAGI_PARQUET_PYTHON`, `ParquetDatasetInteropTests` (the same
   datasets, plain and partitioned, read by Python Polars, `TestData/parquet/dataset_polars.py`; files of mixed types
