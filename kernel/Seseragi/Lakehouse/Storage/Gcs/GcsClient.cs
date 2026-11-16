@@ -64,23 +64,34 @@ internal sealed class GcsClient : ObjectStoreClient
             .ConfigureAwait(false);
     }
 
-    private Func<HttpRequestMessage> Request(HttpMethod method, string pathAndQuery, Dictionary<string, string>? headers, ReadOnlyMemory<byte>? body, string? token)
-    {
-        string url = _baseUrl + pathAndQuery;
-        return () =>
+    private Func<HttpRequestMessage> Request(HttpMethod method, string pathAndQuery, Dictionary<string, string>? headers, ReadOnlyMemory<byte>? body, string? token) =>
+        RequestTo(method, _baseUrl + pathAndQuery, headers, body, token);
+
+    /// <summary>
+    /// Makes a request to <paramref name="url"/>. Headers of the content (<c>Content-*</c>) go with the body; a body is
+    /// <c>application/octet-stream</c> unless the headers name another type (an empty one: none).
+    /// </summary>
+    private static Func<HttpRequestMessage> RequestTo(HttpMethod method, string url, Dictionary<string, string>? headers, ReadOnlyMemory<byte>? body, string? token) =>
+        () =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
             if (token is not null) request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-            if (headers is not null)
-                foreach (var (name, value) in headers) request.Headers.TryAddWithoutValidation(name, value);
             if (body is { } bytes)
             {
                 request.Content = new ReadOnlyMemoryContent(bytes);
-                request.Content.Headers.TryAddWithoutValidation("Content-Type", "application/octet-stream");
+                if (headers?.ContainsKey("Content-Type") != true)
+                    request.Content.Headers.TryAddWithoutValidation("Content-Type", "application/octet-stream");
+            }
+            if (headers is not null)
+            {
+                foreach (var (name, value) in headers)
+                {
+                    if (!name.StartsWith("Content-", StringComparison.OrdinalIgnoreCase)) request.Headers.TryAddWithoutValidation(name, value);
+                    else if (request.Content is not null && value.Length > 0) request.Content.Headers.TryAddWithoutValidation(name, value);
+                }
             }
             return request;
         };
-    }
 
     /// <summary>An object's version: its generation (sent with its content).</summary>
     private static string? Generation(HttpResponseMessage response) =>
@@ -238,6 +249,194 @@ internal sealed class GcsClient : ObjectStoreClient
     {
         StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: false), body: content);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
+    }
+
+    /// <summary>Sends a request to <paramref name="url"/> asynchronously and reads its whole answer.</summary>
+    private async Task<StoreResponse> SendBufferedAsync(
+        HttpMethod method, string url, Dictionary<string, string>? headers, ReadOnlyMemory<byte>? body, CancellationToken cancellationToken)
+    {
+        string? token = _token is null ? null : await _token.GetAsync(cancellationToken).ConfigureAwait(false);
+        return await HttpTransport.SendAsync(RequestTo(method, url, headers, body, token), HttpTransport.Buffer, _retry, alsoRetry: null, _http,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The XML API address of an object (its name a path below the bucket).</summary>
+    private string XmlObjectUrl(string key) => $"{_baseUrl}/{Encode(_bucket)}/{PercentEncoding.Encode(key, encodeSlash: false)}";
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Replacing uploads use the XML API's multipart uploads (parts in parallel, as the object_store library does).
+    /// Creating uploads use a resumable upload of the JSON API: multipart uploads take no preconditions (refused when
+    /// they start, ignored when they complete), resumable ones check <c>ifGenerationMatch=0</c> when they finish.
+    /// </remarks>
+    public override async Task<ObjectUpload> StartUploadAsync(string key, bool create, CancellationToken cancellationToken)
+    {
+        if (create)
+        {
+            var query = new List<KeyValuePair<string, string>> { new("uploadType", "resumable"), new("name", key), new("ifGenerationMatch", "0") };
+            StoreResponse started = await SendBufferedAsync(HttpMethod.Post, $"{_baseUrl}/upload/storage/v1/b/{Encode(_bucket)}/o?{Query(query)}",
+                new() { ["Content-Type"] = "", ["X-Upload-Content-Type"] = "application/octet-stream" }, ReadOnlyMemory<byte>.Empty,
+                cancellationToken).ConfigureAwait(false);
+            if (!started.IsSuccess) throw Failure(started, $"start an upload of '{key}'");
+            string session = started.Header("Location")
+                ?? throw new StorageException($"Failed to start an upload of '{key}': the answer names no upload session.", started.Status);
+            return new GcsResumableUpload(this, key, session);
+        }
+
+        StoreResponse response = await SendBufferedAsync(HttpMethod.Post, XmlObjectUrl(key) + "?uploads", null, ReadOnlyMemory<byte>.Empty,
+            cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccess) throw Failure(response, $"start an upload of '{key}'");
+        string uploadId = S3.S3Client.ElementText(response.Body, "UploadId")
+            ?? throw new StorageException($"Failed to start an upload of '{key}': the answer names no upload.", response.Status);
+        return new GcsMultipartUpload(this, key, uploadId);
+    }
+
+    /// <summary>A multipart upload of the XML API (S3's protocol): parts numbered from 1, completed by their ETags.</summary>
+    private sealed class GcsMultipartUpload(GcsClient client, string key, string uploadId) : ObjectUpload(key, create: false)
+    {
+        private string Url(int? index = null) => client.XmlObjectUrl(Key) + (index is { } i
+            ? $"?partNumber={(i + 1).ToString(CultureInfo.InvariantCulture)}&uploadId={Encode(uploadId)}"
+            : $"?uploadId={Encode(uploadId)}");
+
+        public override async Task<UploadedPart> PutPartAsync(int index, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Url(index), null, content, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccess) throw Failure(response, $"upload part {index + 1} of '{Key}'");
+            string etag = response.Header("ETag")
+                ?? throw new StorageException($"Failed to upload part {index + 1} of '{Key}': the answer has no ETag.", response.Status);
+            return new UploadedPart(index, etag);
+        }
+
+        public override async Task<bool> CompleteAsync(IReadOnlyList<UploadedPart> parts, ReadOnlyMemory<byte> last, CancellationToken cancellationToken)
+        {
+            CheckOrder(parts);
+            if (!last.IsEmpty) parts = [.. parts, await PutPartAsync(parts.Count, last, cancellationToken).ConfigureAwait(false)];
+            if (parts.Count == 0)
+            {
+                // The service refuses a completion without parts: an empty object is written plainly.
+                await AbortAsync(cancellationToken).ConfigureAwait(false);
+                client.Put(Key, ReadOnlyMemory<byte>.Empty);
+                return true;
+            }
+
+            // ETags go in as they came, quotes and all (the service does not take them escaped).
+            var body = new System.Text.StringBuilder("<CompleteMultipartUpload>");
+            foreach (UploadedPart part in parts)
+            {
+                body.Append("<Part><PartNumber>").Append(part.Index + 1).Append("</PartNumber><ETag>").Append(part.Id).Append("</ETag></Part>");
+            }
+            body.Append("</CompleteMultipartUpload>");
+            // A completion sent again after its answer was lost is answered as the first one was.
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Post, Url(), new() { ["Content-Type"] = "application/xml" },
+                System.Text.Encoding.UTF8.GetBytes(body.ToString()), cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccess) return true;
+            throw Failure(response, $"complete the upload of '{Key}'");
+        }
+
+        public override async Task AbortAsync(CancellationToken cancellationToken)
+        {
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, Url(), null, null, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"abort the upload of '{Key}'");
+        }
+    }
+
+    /// <summary>
+    /// A resumable upload of the JSON API, created only when no object exists: chunks go in order to the session's
+    /// address (every one but the last a multiple of 256 KiB), the last one with the total size, where the service
+    /// checks the precondition. The service says how much it kept after each chunk; the rest is sent again.
+    /// </summary>
+    private sealed class GcsResumableUpload(GcsClient client, string key, string session) : ObjectUpload(key, create: true)
+    {
+        /// <summary>Answers in a row that keep nothing more (or do not finish) before giving up.</summary>
+        private const int MaxStalls = 3;
+
+        private long _offset; // bytes the service has kept
+        private int _next;    // the index of the next part
+
+        public override int MaxConcurrency => 1;
+
+        public override async Task<UploadedPart> PutPartAsync(int index, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+        {
+            if (index != _next) throw new InvalidOperationException($"A resumable upload takes its parts in order: part {_next} is next, not {index}.");
+            await SendAsync(content, total: null, cancellationToken).ConfigureAwait(false);
+            _next++;
+            return new UploadedPart(index, "");
+        }
+
+        public override async Task<bool> CompleteAsync(IReadOnlyList<UploadedPart> parts, ReadOnlyMemory<byte> last, CancellationToken cancellationToken)
+        {
+            CheckOrder(parts);
+            if (parts.Count != _next) throw new ArgumentException($"The upload has {_next} parts, not {parts.Count}.", nameof(parts));
+            return await SendAsync(last, _offset + last.Length, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sends bytes from the current offset, and with <paramref name="total"/> finishes the object: true when it was
+        /// created, false when the precondition failed (an object exists).
+        /// </summary>
+        private async Task<bool> SendAsync(ReadOnlyMemory<byte> data, long? total, CancellationToken cancellationToken)
+        {
+            string size = total?.ToString(CultureInfo.InvariantCulture) ?? "*";
+            for (int stalls = 0; ;)
+            {
+                string range = data.IsEmpty ? $"bytes */{size}" : $"bytes {_offset}-{_offset + data.Length - 1}/{size}";
+                StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, session, new() { ["Content-Range"] = range }, data,
+                    cancellationToken).ConfigureAwait(false);
+                switch ((int)response.Status)
+                {
+                    case 200 or 201 when total is not null:
+                        return true;
+                    case 412 when total is not null:
+                        await AbortQuietlyAsync().ConfigureAwait(false);
+                        return false;
+                    case 308:
+                    {
+                        long kept = Kept(response.Header("Range"));
+                        if (kept < _offset || kept > _offset + data.Length)
+                            throw new StorageException($"Failed to upload '{Key}': the service kept {kept} bytes, {_offset + data.Length} were sent.", response.Status);
+                        stalls = kept == _offset ? stalls + 1 : 0; // a finish answered 308 makes no progress either
+                        if (stalls > MaxStalls) throw new StorageException($"Failed to upload '{Key}': the service keeps no more bytes past {kept}.", response.Status);
+                        data = data[(int)(kept - _offset)..];
+                        _offset = kept;
+                        if (total is null && data.IsEmpty) return true;
+                        break;
+                    }
+                    default:
+                        throw Failure(response, $"upload '{Key}'");
+                }
+            }
+        }
+
+        /// <summary>Ends the session after a refused finish (best effort: the service ends it too).</summary>
+        private async Task AbortQuietlyAsync()
+        {
+            try
+            {
+                await AbortAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (StorageException)
+            {
+                // The object exists; the session is the service's to drop.
+            }
+        }
+
+        /// <summary>The bytes kept, from a 308's <c>Range: bytes=0-N</c> (none without the header).</summary>
+        private static long Kept(string? range)
+        {
+            if (range is null) return 0;
+            int dash = range.LastIndexOf('-');
+            return dash > 0 && long.TryParse(range.AsSpan(dash + 1), NumberStyles.None, CultureInfo.InvariantCulture, out long end)
+                ? end + 1
+                : throw new StorageException($"The upload service answered with an unreadable range '{range}'.");
+        }
+
+        public override async Task AbortAsync(CancellationToken cancellationToken)
+        {
+            // A cancelled session answers 499; one that finished or expired, 404 or 410.
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, session, null, null, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccess && (int)response.Status is not (499 or 404 or 410)) throw Failure(response, $"abort the upload of '{Key}'");
+        }
     }
 
     /// <inheritdoc/>

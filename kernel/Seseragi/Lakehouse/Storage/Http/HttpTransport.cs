@@ -89,19 +89,38 @@ internal static class HttpTransport
     /// Sends the request <paramref name="build"/> makes and hands the answer (its body not read) to
     /// <paramref name="read"/>; a network failure while it reads sends the request again (see <see cref="HttpSender"/>).
     /// </summary>
-    public static async Task<T> SendAsync<T>(
+    public static Task<T> SendAsync<T>(
         Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<T>> read, RetrySettings retry,
-        HttpOptions? http = null, CancellationToken cancellationToken = default)
+        HttpOptions? http = null, CancellationToken cancellationToken = default) =>
+        SendAsync(build, (response, _, ct) => read(response, ct), retry, alsoRetry: null, http, cancellationToken);
+
+    /// <summary>
+    /// Sends the request <paramref name="build"/> makes and hands the answer (its body not read) to
+    /// <paramref name="read"/> with whether an earlier attempt was made. Answers <paramref name="alsoRetry"/> names are
+    /// retried too; an <see cref="IOException"/> <paramref name="read"/> throws (other than
+    /// <see cref="HttpAnswerException"/>) counts as a network failure and sends the request again.
+    /// </summary>
+    public static async Task<T> SendAsync<T>(
+        Func<HttpRequestMessage> build, Func<HttpResponseMessage, bool, CancellationToken, Task<T>> read, RetrySettings retry,
+        Func<HttpStatusCode, bool>? alsoRetry, HttpOptions? http = null, CancellationToken cancellationToken = default)
     {
         var (store, _) = ClientsFor(http ?? HttpOptions.Default);
         try
         {
-            return await new HttpSender(store, retry).SendAsync(build, (response, _, ct) => read(response, ct), cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+            return await new HttpSender(store, retry).SendAsync(build, read, alsoRetry, cancellationToken).ConfigureAwait(false);
         }
         catch (HttpRetriesExhaustedException e)
         {
             throw new StorageException(e.Message, inner: e.InnerException);
         }
+    }
+
+    /// <summary>Reads an answer's whole body (none for a HEAD) into a <see cref="StoreResponse"/>.</summary>
+    public static async Task<StoreResponse> Buffer(HttpResponseMessage response, bool retried, CancellationToken cancellationToken)
+    {
+        byte[] body = response.RequestMessage?.Method == HttpMethod.Head
+            ? []
+            : await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        return new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, body, retried);
     }
 }

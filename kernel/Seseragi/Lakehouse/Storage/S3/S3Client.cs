@@ -245,6 +245,157 @@ internal sealed class S3Client : ObjectStoreClient
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 
+    /// <summary>
+    /// Sends a request asynchronously and reads its whole answer. An answer <paramref name="retryAnswer"/> rejects is
+    /// sent again like a network failure (S3 can answer a completion with 200 and an error document).
+    /// </summary>
+    private async Task<StoreResponse> SendBufferedAsync(
+        HttpMethod method, string path, IReadOnlyList<KeyValuePair<string, string>>? query, IReadOnlyDictionary<string, string>? extraHeaders,
+        ReadOnlyMemory<byte>? body, CancellationToken cancellationToken, Func<HttpStatusCode, bool>? alsoRetry = null,
+        Func<StoreResponse, bool>? retryAnswer = null)
+    {
+        AwsCredential? credential = _credential is null ? null : await _credential.GetAsync(cancellationToken).ConfigureAwait(false);
+        return await HttpTransport.SendAsync(Request(method, path, query, extraHeaders, body, credential), async (response, retried, ct) =>
+        {
+            StoreResponse answer = await HttpTransport.Buffer(response, retried, ct).ConfigureAwait(false);
+            if (retryAnswer is not null && retryAnswer(answer))
+                throw new IOException($"The store answered {(int)answer.Status} with an error: {Failure(answer, "complete the upload").Message}");
+            return answer;
+        }, _retry, alsoRetry, _http, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether an answer's body is an S3 error document.</summary>
+    private static bool IsErrorDocument(byte[] body)
+    {
+        if (body.Length == 0) return false;
+        try
+        {
+            using var reader = XmlReader.Create(new MemoryStream(body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            return reader.MoveToContent() == XmlNodeType.Element && reader.LocalName == "Error";
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The text of the first element named <paramref name="name"/> in an XML answer, or null.</summary>
+    internal static string? ElementText(byte[] xml, string name)
+    {
+        try
+        {
+            using var reader = XmlReader.Create(new MemoryStream(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            while (reader.Read())
+            {
+                if (reader.NodeType == XmlNodeType.Element && reader.LocalName == name) return reader.ReadElementContentAsString();
+            }
+        }
+        catch (XmlException)
+        {
+            // Not XML: no such element.
+        }
+        return null;
+    }
+
+    /// <inheritdoc/>
+    public override async Task<ObjectUpload> StartUploadAsync(string key, bool create, CancellationToken cancellationToken)
+    {
+        // Encryption settings are given when the upload starts (customer keys again with every part).
+        StoreResponse response = await SendBufferedAsync(HttpMethod.Post, ObjectPath(key), [new("uploads", "")], With(_headers.Put),
+            ReadOnlyMemory<byte>.Empty, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccess) throw Failure(response, $"start an upload of '{key}'");
+        string uploadId = ElementText(response.Body, "UploadId")
+            ?? throw new StorageException($"Failed to start an upload of '{key}': the answer names no upload.", response.Status);
+        return new S3Upload(this, key, create, uploadId);
+    }
+
+    /// <summary>
+    /// An S3 multipart upload: parts are numbered from 1; completing names every part by its ETag. With create, the
+    /// completion carries <c>If-None-Match: *</c>.
+    /// </summary>
+    private sealed class S3Upload(S3Client client, string key, bool create, string uploadId) : ObjectUpload(key, create)
+    {
+        private string Path => client.ObjectPath(Key);
+
+        private List<KeyValuePair<string, string>> Query(int? index = null) => index is { } i
+            ? [new("partNumber", (i + 1).ToString(CultureInfo.InvariantCulture)), new("uploadId", uploadId)]
+            : [new("uploadId", uploadId)];
+
+        public override async Task<UploadedPart> PutPartAsync(int index, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, Query(index), With(client._headers.Read), content,
+                cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccess) throw Failure(response, $"upload part {index + 1} of '{Key}'");
+            string etag = response.Header("ETag")
+                ?? throw new StorageException($"Failed to upload part {index + 1} of '{Key}': the answer has no ETag.", response.Status);
+            return new UploadedPart(index, etag);
+        }
+
+        public override async Task<bool> CompleteAsync(IReadOnlyList<UploadedPart> parts, ReadOnlyMemory<byte> last, CancellationToken cancellationToken)
+        {
+            CheckOrder(parts);
+            // A completion needs one part at least: an empty object is one empty part.
+            if (!last.IsEmpty || parts.Count == 0)
+                parts = [.. parts, await PutPartAsync(parts.Count, last, cancellationToken).ConfigureAwait(false)];
+
+            var body = new System.Text.StringBuilder("<CompleteMultipartUpload>");
+            foreach (UploadedPart part in parts)
+            {
+                body.Append("<Part><ETag>").Append(System.Security.SecurityElement.Escape(part.Id)).Append("</ETag><PartNumber>")
+                    .Append(part.Index + 1).Append("</PartNumber></Part>");
+            }
+            body.Append("</CompleteMultipartUpload>");
+
+            var headers = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (Create) headers["if-none-match"] = "*";
+            // 409: S3 is completing another conditional write of the key; asking again settles who won.
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Post, Path, Query(), headers,
+                System.Text.Encoding.UTF8.GetBytes(body.ToString()), cancellationToken,
+                alsoRetry: Create ? static status => status == HttpStatusCode.Conflict : null,
+                retryAnswer: static answer => answer.Status == HttpStatusCode.OK && IsErrorDocument(answer.Body)).ConfigureAwait(false);
+            if (response.IsSuccess) return true;
+
+            // After a retry, the first attempt may have landed with its answer lost: the store then refuses the
+            // condition (MinIO) or no longer knows the upload (404). The upload is gone only once completed (it was
+            // not aborted), so its absence says the object is ours. ETags cannot tell: encrypted parts have no MD5s.
+            if (response.Retried && response.Status is HttpStatusCode.PreconditionFailed or HttpStatusCode.NotFound
+                && await GoneAsync(cancellationToken).ConfigureAwait(false))
+                return true;
+            if (Create && response.Status is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+            {
+                // The key exists (or another writer's create of it is still in progress after the retries): the
+                // upload stays open on the store until it is aborted.
+                await AbortAsync(cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+            if (Create && response.Status == HttpStatusCode.NotImplemented)
+            {
+                await AbortAsync(cancellationToken).ConfigureAwait(false);
+                throw new StorageException(
+                    $"The store does not support conditional writes (If-None-Match) of multipart uploads: {Failure(response, $"create '{Key}'").Message}",
+                    response.Status);
+            }
+            throw Failure(response, $"complete the upload of '{Key}'");
+        }
+
+        /// <summary>Whether the store no longer knows the upload (completed or aborted).</summary>
+        private async Task<bool> GoneAsync(CancellationToken cancellationToken)
+        {
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Get, Path, [.. Query(), new("max-parts", "1")], With(client._headers.Read),
+                null, cancellationToken).ConfigureAwait(false);
+            if (response.Status == HttpStatusCode.NotFound) return true;
+            if (response.IsSuccess) return false;
+            throw Failure(response, $"read the state of the upload of '{Key}'");
+        }
+
+        public override async Task AbortAsync(CancellationToken cancellationToken)
+        {
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, Path, Query(), null, null, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"abort the upload of '{Key}'");
+        }
+    }
+
     /// <inheritdoc/>
     public override void Delete(string key)
     {

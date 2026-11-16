@@ -8,7 +8,14 @@ using System.Text;
 namespace Seseragi.Lakehouse.Tests;
 
 /// <summary>A request as the fake server saw it.</summary>
-public sealed record SeenRequest(string Method, string PathAndQuery, IReadOnlyDictionary<string, string> Headers, string Body = "");
+public sealed record SeenRequest(string Method, string PathAndQuery, IReadOnlyDictionary<string, string> Headers, string Body = "")
+{
+    /// <summary>The body's bytes.</summary>
+    public byte[] Content { get; init; } = [];
+}
+
+/// <summary>An answer of the fake server: a status, a body and headers of its own (<c>Name: value</c> lines).</summary>
+public sealed record FakeAnswer(int Status, string Body = "", IReadOnlyList<string>? Headers = null);
 
 /// <summary>
 /// A loopback HTTP/1.1 server answering with <c>respond</c> (status and body), for metadata services and token
@@ -18,7 +25,7 @@ public sealed record SeenRequest(string Method, string PathAndQuery, IReadOnlyDi
 public sealed class FakeHttpServer : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
-    private readonly Func<SeenRequest, (int Status, string Body)> _respond;
+    private readonly Func<SeenRequest, FakeAnswer> _respond;
     private volatile bool _stopped;
 
     private readonly X509Certificate2? _certificate;
@@ -26,8 +33,15 @@ public sealed class FakeHttpServer : IDisposable
     /// <param name="respond">The answer to a request.</param>
     /// <param name="certificate">The server certificate (with its key) for https, or null for http.</param>
     public FakeHttpServer(Func<SeenRequest, (int Status, string Body)> respond, X509Certificate2? certificate = null)
+        : this(request => { var (status, body) = respond(request); return new FakeAnswer(status, body); }, certificate)
     {
-        _respond = respond;
+    }
+
+    /// <param name="answer">The answer to a request, with headers of its own.</param>
+    /// <param name="certificate">The server certificate (with its key) for https, or null for http.</param>
+    public FakeHttpServer(Func<SeenRequest, FakeAnswer> answer, X509Certificate2? certificate = null)
+    {
+        _respond = answer;
         _certificate = certificate;
         _listener.Start();
         Url = $"{(certificate is null ? "http" : "https")}://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
@@ -104,7 +118,7 @@ public sealed class FakeHttpServer : IDisposable
             stream.ReadExactly(content);
         }
 
-        var seen = new SeenRequest(requestLine[0], requestLine[1], headers, Encoding.UTF8.GetString(content));
+        var seen = new SeenRequest(requestLine[0], requestLine[1], headers, Encoding.UTF8.GetString(content)) { Content = content };
         Requests.Enqueue(seen);
         if (seen.Method == "CONNECT" && TunnelCertificate is { } tunnel)
         {
@@ -115,9 +129,9 @@ public sealed class FakeHttpServer : IDisposable
             Serve(ssl);
             return;
         }
-        var (status, body) = _respond(seen);
+        var (status, body, own) = _respond(seen);
         byte[] bytes = Encoding.UTF8.GetBytes(body);
-        string extra = string.Concat(ResponseHeaders.Select(h => h + "\r\n"));
+        string extra = string.Concat(ResponseHeaders.Concat(own ?? []).Select(h => h + "\r\n"));
         string response = $"HTTP/1.1 {status} {(HttpStatusCode)status}\r\nContent-Length: {bytes.Length}\r\n{extra}Connection: close\r\n\r\n";
         stream.Write(Encoding.ASCII.GetBytes(response));
         stream.Write(bytes);

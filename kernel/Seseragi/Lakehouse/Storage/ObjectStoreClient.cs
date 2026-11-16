@@ -142,6 +142,13 @@ internal abstract class ObjectStoreClient
     /// <summary>Writes the object, replacing any existing one.</summary>
     public abstract void Put(string key, ReadOnlyMemory<byte> content);
 
+    /// <summary>
+    /// Starts writing an object in parts (see <see cref="ObjectUpload"/>); with <paramref name="create"/>, completing
+    /// it only creates the object when none exists.
+    /// </summary>
+    /// <exception cref="StorageException">The store refused to start the upload.</exception>
+    public abstract Task<ObjectUpload> StartUploadAsync(string key, bool create, CancellationToken cancellationToken);
+
     /// <summary>Deletes the object; a missing object is not an error.</summary>
     public abstract void Delete(string key);
 

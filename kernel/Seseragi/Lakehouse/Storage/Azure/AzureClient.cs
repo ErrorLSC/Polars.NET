@@ -254,6 +254,107 @@ internal sealed class AzureClient : ObjectStoreClient
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 
+    /// <summary>Sends a request asynchronously and reads its whole answer.</summary>
+    private async Task<StoreResponse> SendBufferedAsync(
+        HttpMethod method, string path, List<KeyValuePair<string, string>> query, Dictionary<string, string>? extraHeaders,
+        ReadOnlyMemory<byte>? body, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<KeyValuePair<string, string>>? sas = _auth is AzureAuth.RenewedSas renewed
+            ? await renewed.Pairs.GetAsync(cancellationToken).ConfigureAwait(false) : null;
+        string? bearerToken = _auth is AzureAuth.Bearer bearer ? await bearer.Token.GetAsync(cancellationToken).ConfigureAwait(false) : null;
+        return await HttpTransport.SendAsync(Request(method, path, query, extraHeaders, body, sas, bearerToken), HttpTransport.Buffer,
+            _retry, alsoRetry: null, _http, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Blocks need no request to start; the blob appears when its block list is committed.</remarks>
+    public override Task<ObjectUpload> StartUploadAsync(string key, bool create, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<ObjectUpload>(new AzureUpload(this, key, create));
+    }
+
+    /// <summary>
+    /// A block blob written block by block: every block gets a random id (all of one length, as the service requires),
+    /// and committing the block list makes the blob. With create, the commit carries <c>If-None-Match: *</c>.
+    /// </summary>
+    private sealed class AzureUpload(AzureClient client, string key, bool create) : ObjectUpload(key, create)
+    {
+        private string Path => client.BlobPath(Key);
+
+        private static string NewBlockId() => Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(Guid.NewGuid().ToString("N")));
+
+        public override async Task<UploadedPart> PutPartAsync(int index, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            string id = NewBlockId(); // one id for every attempt: a retry rewrites the same block
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, [new("comp", "block"), new("blockid", id)], null, content,
+                cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccess) throw Failure(response, $"upload block {index} of '{Key}'");
+            return new UploadedPart(index, id);
+        }
+
+        public override async Task<bool> CompleteAsync(IReadOnlyList<UploadedPart> parts, ReadOnlyMemory<byte> last, CancellationToken cancellationToken)
+        {
+            CheckOrder(parts);
+            if (!last.IsEmpty) parts = [.. parts, await PutPartAsync(parts.Count, last, cancellationToken).ConfigureAwait(false)];
+
+            // "Latest" takes the uncommitted block, or the committed one of that id: a commit sent again after its
+            // answer was lost commits the same blocks again instead of failing.
+            var body = new System.Text.StringBuilder("""<?xml version="1.0" encoding="utf-8"?><BlockList>""");
+            foreach (UploadedPart part in parts) body.Append("<Latest>").Append(part.Id).Append("</Latest>");
+            body.Append("</BlockList>");
+            Dictionary<string, string>? headers = Create ? new() { ["if-none-match"] = "*" } : null;
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, [new("comp", "blocklist")], headers,
+                System.Text.Encoding.UTF8.GetBytes(body.ToString()), cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccess) return true;
+
+            if (Create && response.Status is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed)
+            {
+                // After a retry the blob may be our own commit, whose answer was lost: it is ours when it is made
+                // of exactly our blocks (their ids are random).
+                return response.Retried && await CommittedAsync(cancellationToken).ConfigureAwait(false) is { } committed
+                    && committed.SequenceEqual(parts.Select(static p => p.Id));
+            }
+            if (Create && response.Status == HttpStatusCode.BadRequest && ErrorCode(response) == "InvalidBlockList"
+                && await client.HeadAsync(Key, cancellationToken).ConfigureAwait(false))
+            {
+                // Another writer committed the blob first, which discards every uncommitted block, ours included.
+                return false;
+            }
+            throw Failure(response, $"commit the blocks of '{Key}'");
+        }
+
+        /// <summary>The ids of the blob's committed blocks, or null when there is no blob.</summary>
+        private async Task<List<string>?> CommittedAsync(CancellationToken cancellationToken)
+        {
+            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Get, Path, [new("comp", "blocklist"), new("blocklisttype", "committed")],
+                null, null, cancellationToken).ConfigureAwait(false);
+            if (response.Status == HttpStatusCode.NotFound) return null;
+            if (!response.IsSuccess) throw Failure(response, $"read the blocks of '{Key}'");
+            var ids = new List<string>();
+            using var reader = XmlReader.Create(new MemoryStream(response.Body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            while (!reader.EOF)
+            {
+                if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "Name") ids.Add(reader.ReadElementContentAsString());
+                else reader.Read();
+            }
+            return ids;
+        }
+
+        /// <summary>Uncommitted blocks cannot be deleted; the service drops them after a week, or at the blob's next commit.</summary>
+        public override Task AbortAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    /// <summary>Whether a blob exists at the key.</summary>
+    private async Task<bool> HeadAsync(string key, CancellationToken cancellationToken)
+    {
+        StoreResponse response = await SendBufferedAsync(HttpMethod.Head, BlobPath(key), [], null, null, cancellationToken).ConfigureAwait(false);
+        if (response.Status == HttpStatusCode.NotFound) return false;
+        if (!response.IsSuccess) throw Failure(response, $"read the properties of '{key}'");
+        return true;
+    }
+
     /// <inheritdoc/>
     public override void Delete(string key)
     {
