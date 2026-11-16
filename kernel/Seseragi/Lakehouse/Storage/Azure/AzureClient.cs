@@ -44,20 +44,39 @@ internal sealed class AzureClient : ObjectStoreClient
         HttpMethod method, string path, List<KeyValuePair<string, string>>? query = null,
         Dictionary<string, string>? extraHeaders = null, ReadOnlyMemory<byte>? body = null)
     {
-        query ??= [];
+        // Fetched once per request, outside the retried part: a token source reports its own failures.
+        IReadOnlyList<KeyValuePair<string, string>>? sas = _auth is AzureAuth.RenewedSas renewed ? renewed.Pairs.Get() : null;
+        string? bearerToken = _auth is AzureAuth.Bearer bearer ? bearer.Token.Get() : null;
+        return HttpTransport.Send(Request(method, path, query ?? [], extraHeaders, body, sas, bearerToken), _retry, http: _http);
+    }
+
+    /// <summary>Sends a request asynchronously and hands its answer (body not read) to <paramref name="read"/>.</summary>
+    private async Task<T> SendAsync<T>(
+        HttpMethod method, string path, Dictionary<string, string>? extraHeaders, Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<KeyValuePair<string, string>>? sas = _auth is AzureAuth.RenewedSas renewed
+            ? await renewed.Pairs.GetAsync(cancellationToken).ConfigureAwait(false) : null;
+        string? bearerToken = _auth is AzureAuth.Bearer bearer ? await bearer.Token.GetAsync(cancellationToken).ConfigureAwait(false) : null;
+        return await HttpTransport.SendAsync(Request(method, path, [], extraHeaders, null, sas, bearerToken), read, _retry, _http, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Makes the request (afresh for every attempt: each is dated and signed at its own time).</summary>
+    private Func<HttpRequestMessage> Request(
+        HttpMethod method, string path, List<KeyValuePair<string, string>> query, Dictionary<string, string>? extraHeaders,
+        ReadOnlyMemory<byte>? body, IReadOnlyList<KeyValuePair<string, string>>? renewedSas, string? bearerToken)
+    {
         IEnumerable<KeyValuePair<string, string>> sent = _auth switch
         {
             AzureAuth.Sas sas => query.Concat(sas.Pairs),
-            AzureAuth.RenewedSas renewed => query.Concat(renewed.Pairs.Get()),
+            AzureAuth.RenewedSas => query.Concat(renewedSas!),
             _ => query,
         };
         string queryText = string.Join('&', sent.Select(p =>
             PercentEncoding.Encode(p.Key, encodeSlash: true) + "=" + PercentEncoding.Encode(p.Value, encodeSlash: true)));
         string url = _origin + path + (queryText.Length == 0 ? "" : "?" + queryText);
-
-        // Fetched once per request, outside the retried part: a token source reports its own failures.
-        string? bearerToken = _auth is AzureAuth.Bearer bearer ? bearer.Token.Get() : null;
-        return HttpTransport.Send(() =>
+        return () =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
             var headers = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -85,7 +104,7 @@ internal sealed class AzureClient : ObjectStoreClient
             }
             if (body is { } bytes) request.Content = new ReadOnlyMemoryContent(bytes);
             return request;
-        }, _retry, http: _http);
+        };
     }
 
     private static string? ErrorCode(StoreResponse response) => response.Header("x-ms-error-code");
@@ -139,6 +158,49 @@ internal sealed class AzureClient : ObjectStoreClient
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccess) throw Failure(response, $"read '{key}'");
         return IsDirectory(response) ? null : response.Body;
+    }
+
+    /// <inheritdoc/>
+    public override Task<RangeRead?> ReadRangeAsync(string key, long offset, Memory<byte> destination, string? version, CancellationToken cancellationToken)
+    {
+        if (destination.IsEmpty) return base.ReadRangeAsync(key, offset, destination, version, cancellationToken);
+        var headers = new Dictionary<string, string> { ["range"] = $"bytes={offset}-{offset + destination.Length - 1}" };
+        if (version is not null) headers["if-match"] = version;
+        return SendAsync(HttpMethod.Get, BlobPath(key), headers, async (response, ct) =>
+        {
+            // A directory (hierarchical namespace) is no file; Azure answers its range with 416 and no resource type.
+            if (response.Headers.TryGetValues("x-ms-resource-type", out var type) && type.First() != "file") return null;
+            if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable && Head(key) is null) return null;
+            return await ReadRangeAnswer(response, offset, destination, response.Headers.ETag?.ToString() ?? version, version, r => Failure(r, $"read '{key}'"), ct)
+                .ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// The end of a blob: its properties (Azure has no suffix ranges), then a ranged read of that version (the size
+    /// and version both from the first request).
+    /// </summary>
+    public override async Task<ObjectTail?> GetTailAsync(string key, int length, CancellationToken cancellationToken)
+    {
+        ObjectInfo? info = null;
+        string? etag = await SendAsync(HttpMethod.Head, BlobPath(key), null, (response, _) =>
+        {
+            var answer = new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, [], retried: false);
+            if (answer.Status == HttpStatusCode.NotFound || answer.IsSuccess && IsDirectory(answer)) return Task.FromResult<string?>(null);
+            if (!answer.IsSuccess) throw Failure(answer, $"read the properties of '{key}'");
+            info = new ObjectInfo(key, response.Content.Headers.ContentLength ?? 0, response.Content.Headers.LastModified ?? DateTimeOffset.UnixEpoch);
+            return Task.FromResult(response.Headers.ETag?.ToString());
+        }, cancellationToken).ConfigureAwait(false);
+        if (info is not { } blob) return null;
+        int count = (int)Math.Min(length, blob.Size);
+        byte[] tail = new byte[count];
+        if (count > 0)
+        {
+            if (await ReadRangeAsync(key, blob.Size - count, tail, etag, cancellationToken).ConfigureAwait(false) is not { } read) return null;
+            if (read.Count != count)
+                throw new StorageException($"Failed to read the end of '{key}': the blob changed while it was read.", HttpStatusCode.PreconditionFailed);
+        }
+        return new ObjectTail(tail, blob.Size, etag);
     }
 
     /// <inheritdoc/>

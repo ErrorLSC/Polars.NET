@@ -122,7 +122,6 @@ public sealed class HttpFileStore(HttpClient? client = null, HttpFileStoreOption
                 return new Opened(null); // no suffix range here: explicit ranges (the answer's body is not read)
             }, cancellationToken: cancellationToken, retryOnly: Throttled).ConfigureAwait(false);
             if (opened.Source is not null || !opened.Found) return opened.Source;
-            _noSuffix[host] = true;
         }
         // The first bytes (a small file whole), with the size; then the last ones.
         Opened head = await _sender.SendAsync(() => Request(path, $"bytes=0-{TailRequest - 1}", null), async (response, _, ct) =>
@@ -137,6 +136,7 @@ public sealed class HttpFileStore(HttpClient? client = null, HttpFileStoreOption
                     return new Opened(new MemoryRandomAccess(await Whole(response, path, ct).ConfigureAwait(false)));
             }
             Check(response, path);
+            _noSuffix[host] = true; // explicit ranges answered where the suffix was not: go there at once from now on
             if (Total(response, path) > TailRequest) return new Opened(null, Size: Total(response, path));
             return new Opened(await Tail(response, path, ct).ConfigureAwait(false));
         }, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -306,6 +306,9 @@ public sealed class HttpFileStore(HttpClient? client = null, HttpFileStoreOption
                 return destination.Length;
             }
             Check(response, url);
+            // A server not checking the version asked for is checked here: an answer of another version is a change.
+            if (ETag is { } required && StrongTag(response.Headers.ETag?.ToString()) is { } answered && answered != required)
+                throw new HttpAnswerException($"{url}: the file changed while it was read (precondition failed).");
             if (response.Content.Headers.ContentRange is not { From: { } from } || from != offset)
                 throw new HttpAnswerException($"{url}: the server answered another range than bytes {offset}-.");
             if (ETag is null && LastModified is null) (ETag, LastModified) = Validators(response);

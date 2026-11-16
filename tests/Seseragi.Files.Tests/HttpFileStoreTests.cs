@@ -163,6 +163,19 @@ public sealed class HttpFileStoreTests
         Assert.Contains("changed while it was read", error.Message);
     }
 
+    /// <summary>A server that does not check the version asked for answers another one: the change is noticed all the same.</summary>
+    [Fact]
+    public async Task AServerNotCheckingVersions_IsCheckedByTheClient()
+    {
+        var (server, store) = Serve();
+        server.CheckConditions = false;
+        server.Put("/f", Bytes(200_000));
+        IRandomAccess source = (await store.OpenAsync("http://h/f"))!;
+        server.Put("/f", Bytes(200_000));
+        var error = await Assert.ThrowsAnyAsync<IOException>(async () => await source.ReadAtAsync(0, new byte[10], default));
+        Assert.Contains("changed while it was read", error.Message);
+    }
+
     /// <summary>Opened with its size only (a listing's), a file takes its version from the first answer and requires it after.</summary>
     [Fact]
     public async Task AFileOpenedWithoutAVersion_TakesTheFirstAnswers()
@@ -271,7 +284,7 @@ public sealed class HttpFileStoreTests
     public void UrlsWithoutAStore_AreReadByTheirSchemesStores()
     {
         var error = Assert.Throws<ArgumentException>(() => ParquetDataset.Open("s3://bucket/data/*.parquet"));
-        Assert.Contains("CloudStorage.OpenStore", error.Message);
+        Assert.Contains("CloudFileStore.Open", error.Message);
         error = Assert.Throws<ArgumentException>(() => ParquetDataset.Open(["/tmp/a.parquet", "https://host/b.parquet"]));
         Assert.Contains("different stores", error.Message);
         // hf:// goes to the Hub's store, which checks the form of its paths.
@@ -317,7 +330,11 @@ public sealed class HttpFileStoreTests
         Assert.False(hub.IsDirectory("hf://datasets/me/repo/data/a.parquet"));
     }
 
-    /// <summary>The real Hub (only with <c>SESERAGI_NETWORK_TESTS=1</c>): a public dataset's Parquet conversion.</summary>
+    /// <summary>
+    /// The real Hub (only with <c>SESERAGI_NETWORK_TESTS=1</c>): a public dataset's Parquet conversion (one small file),
+    /// and files beyond the first tail read, read twice at several threads (ranges through the Hub's redirect to its CDN,
+    /// the kept footer's version required).
+    /// </summary>
     [Fact]
     [Trait("Category", "Network")]
     public void HuggingFace_ThePublicHub()
@@ -331,5 +348,18 @@ public sealed class HttpFileStoreTests
             using (batch) rows += batch.Length;
         }
         Assert.Equal(150, rows);
+
+        using var glue = ParquetDataset.Open("hf://datasets/nyu-mll/glue/cola/*.parquet");
+        Assert.Contains(glue.Files, f => f.Size > ParquetMetadata.TailGuess);
+        for (int round = 0; round < 2; round++)
+        {
+            using var read = glue.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = 8 });
+            long count = 0;
+            foreach (RecordBatch batch in read.ReadBatches())
+            {
+                using (batch) count += batch.Length;
+            }
+            Assert.Equal(10_657, count);
+        }
     }
 }

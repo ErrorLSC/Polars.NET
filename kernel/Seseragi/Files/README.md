@@ -61,7 +61,9 @@ partitions by name, a `where` predicate is pushed down (conjuncts over partition
 evaluated on the rows as the query compiler's client evaluation policy allows. Files come from an `IFileStore`
 (`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), HTTP(S) URLs
 (`HttpFileStore`, chosen for http(s) URLs when no store is given), Hugging Face Hub repositories (`HuggingFaceFileStore`,
-chosen for `hf://datasets/…` and `hf://spaces/…`), or a store of the caller (the object stores of the lakehouse library).
+chosen for `hf://datasets/…` and `hf://spaces/…`), object stores (`CloudFileStore.Open("s3://bucket")` of the lakehouse
+library: S3, Azure Blob Storage, Google Cloud Storage through its managed clients, read asynchronously, files opened by
+their ends and read at the version first seen; a path without a trailing '/' names a file), or a store of the caller.
 Over HTTP a file is opened with one ranged request for its last bytes (its size and footer; explicit ranges where a
 server has no suffix ranges), never a HEAD (presigned URLs are signed for GET only); later ranges require the version
 first seen (`If-Match`, else `If-Unmodified-Since`), so a file changed while read fails; answers must not be compressed;

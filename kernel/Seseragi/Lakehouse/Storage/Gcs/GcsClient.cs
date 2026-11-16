@@ -49,11 +49,25 @@ internal sealed class GcsClient : ObjectStoreClient
     private StoreResponse Send(
         HttpMethod method, string pathAndQuery, Dictionary<string, string>? headers = null, ReadOnlyMemory<byte>? body = null)
     {
-        string url = _baseUrl + pathAndQuery;
         // Fetched once per request, outside the retried part: a token source reports its own failures.
         bool read = method == HttpMethod.Get || method == HttpMethod.Head;
         string? token = _token is not null && !(read && _unsignedReads) ? _token.Get() : null;
-        return HttpTransport.Send(() =>
+        return HttpTransport.Send(Request(method, pathAndQuery, headers, body, token), _retry, http: _http);
+    }
+
+    /// <summary>Sends a read asynchronously and hands its answer (body not read) to <paramref name="read"/>.</summary>
+    private async Task<T> SendAsync<T>(string pathAndQuery, Dictionary<string, string>? headers, Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+        CancellationToken cancellationToken)
+    {
+        string? token = _token is not null && !_unsignedReads ? await _token.GetAsync(cancellationToken).ConfigureAwait(false) : null;
+        return await HttpTransport.SendAsync(Request(HttpMethod.Get, pathAndQuery, headers, null, token), read, _retry, _http, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private Func<HttpRequestMessage> Request(HttpMethod method, string pathAndQuery, Dictionary<string, string>? headers, ReadOnlyMemory<byte>? body, string? token)
+    {
+        string url = _baseUrl + pathAndQuery;
+        return () =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
             if (token is not null) request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
@@ -65,8 +79,12 @@ internal sealed class GcsClient : ObjectStoreClient
                 request.Content.Headers.TryAddWithoutValidation("Content-Type", "application/octet-stream");
             }
             return request;
-        }, _retry, http: _http);
+        };
     }
+
+    /// <summary>An object's version: its generation (sent with its content).</summary>
+    private static string? Generation(HttpResponseMessage response) =>
+        response.Headers.TryGetValues("x-goog-generation", out var values) ? values.FirstOrDefault() : null;
 
     private static StorageException Failure(StoreResponse response, string what)
     {
@@ -141,6 +159,33 @@ internal sealed class GcsClient : ObjectStoreClient
         // Read raw: stores write an empty object's range in forms the header parser refuses ("bytes 0--1/0").
         string? contentRange = response.ContentHeaders.NonValidated.TryGetValues("Content-Range", out var values) ? values.ToString() : null;
         return SuffixAnswer(response.Status, contentRange, response.Body, length) ?? base.GetTail(key, length);
+    }
+
+    /// <inheritdoc/>
+    public override Task<RangeRead?> ReadRangeAsync(string key, long offset, Memory<byte> destination, string? version, CancellationToken cancellationToken)
+    {
+        if (destination.IsEmpty) return base.ReadRangeAsync(key, offset, destination, version, cancellationToken);
+        var range = new Dictionary<string, string> { ["Range"] = $"bytes={offset}-{offset + destination.Length - 1}" };
+        string path = ObjectPath(_bucket, key) + "?alt=media" + (version is null ? "" : "&ifGenerationMatch=" + Encode(version));
+        return SendAsync(path, range, (response, ct) =>
+            ReadRangeAnswer(response, offset, destination, Generation(response) ?? version, version, r => Failure(r, $"read '{key}'"), ct), cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public override async Task<ObjectTail?> GetTailAsync(string key, int length, CancellationToken cancellationToken)
+    {
+        if (length == 0) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
+        var range = new Dictionary<string, string> { ["Range"] = $"bytes=-{length}" };
+        var (response, generation) = await SendAsync(ObjectPath(_bucket, key) + "?alt=media", range,
+            static async (r, ct) => (new StoreResponse(r.StatusCode, r.Headers, r.Content.Headers, await r.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false), false),
+                Generation(r)), cancellationToken).ConfigureAwait(false);
+        if (response.Status == HttpStatusCode.NotFound) return null;
+        if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
+        string? contentRange = response.ContentHeaders.NonValidated.TryGetValues("Content-Range", out var values) ? values.ToString() : null;
+        return SuffixAnswer(response.Status, contentRange, response.Body, length) is var (tail, size)
+            ? new ObjectTail(tail, size, generation)
+            : await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

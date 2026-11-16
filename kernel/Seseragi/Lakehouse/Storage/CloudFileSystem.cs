@@ -6,7 +6,7 @@ namespace Kaminari.Seseragi.Lakehouse.Storage;
 /// A table on an object store, rooted at a location such as <c>s3://bucket/dir/table</c>. Paths are relative to the
 /// root; absolute URIs (percent-encoded, as a table log writes them) are read inside or outside the root.
 /// </summary>
-public sealed class CloudFileSystem : IWritableFileSystem, ITailReadable
+public sealed class CloudFileSystem : IWritableFileSystem, ITailReadable, IAsyncFileSystem
 {
     private readonly string _rootUrl;
     private readonly string _bucket;
@@ -147,6 +147,57 @@ public sealed class CloudFileSystem : IWritableFileSystem, ITailReadable
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         var (client, key) = Resolve(path);
         return client.GetTail(key, length) is var (tail, size) ? new FileTail(tail, size) : null;
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<FileRead?> ReadRangeAsync(string path, long offset, Memory<byte> destination, string? version, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        var (client, key) = Resolve(path);
+        try
+        {
+            return await client.ReadRangeAsync(key, offset, destination, version, cancellationToken).ConfigureAwait(false) is { } read
+                ? new FileRead(read.Count, read.Version)
+                : null;
+        }
+        catch (StorageException e) when (e.Status == System.Net.HttpStatusCode.PreconditionFailed && version is not null)
+        {
+            throw new IOException($"the file changed while it was read (it is no longer at version {version})", e);
+        }
+        catch (StorageException e)
+        {
+            throw new IOException(e.Message, e);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<FileTail?> ReadTailAsync(string path, int length, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        var (client, key) = Resolve(path);
+        try
+        {
+            return await client.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false) is { } tail
+                ? new FileTail(tail.Tail, tail.Size, tail.Version)
+                : null;
+        }
+        catch (StorageException e)
+        {
+            throw new IOException(e.Message, e);
+        }
+    }
+
+    /// <summary>The files below a directory, at any depth (listed on the thread pool: listings are paged requests).</summary>
+    public async ValueTask<IReadOnlyList<FileEntry>> ListAllAsync(string directory, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await Task.Run(() => ListAll(directory), cancellationToken).ConfigureAwait(false);
+        }
+        catch (StorageException e)
+        {
+            throw new IOException(e.Message, e);
+        }
     }
 
     /// <inheritdoc/>

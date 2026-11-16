@@ -67,4 +67,41 @@ internal static class HttpTransport
             throw new StorageException(e.Message, inner: e.InnerException);
         }
     }
+
+    /// <inheritdoc cref="Send"/>
+    public static async Task<StoreResponse> SendAsync(
+        Func<HttpRequestMessage> build, RetrySettings retry, Func<HttpStatusCode, bool>? alsoRetry = null, HttpOptions? http = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (store, _) = ClientsFor(http ?? HttpOptions.Default);
+        try
+        {
+            HttpAnswer answer = await new HttpSender(store, retry).SendAsync(build, alsoRetry, cancellationToken).ConfigureAwait(false);
+            return new StoreResponse(answer.Status, answer.Headers, answer.ContentHeaders, answer.Body, answer.Retried);
+        }
+        catch (HttpRetriesExhaustedException e)
+        {
+            throw new StorageException(e.Message, inner: e.InnerException);
+        }
+    }
+
+    /// <summary>
+    /// Sends the request <paramref name="build"/> makes and hands the answer (its body not read) to
+    /// <paramref name="read"/>; a network failure while it reads sends the request again (see <see cref="HttpSender"/>).
+    /// </summary>
+    public static async Task<T> SendAsync<T>(
+        Func<HttpRequestMessage> build, Func<HttpResponseMessage, CancellationToken, Task<T>> read, RetrySettings retry,
+        HttpOptions? http = null, CancellationToken cancellationToken = default)
+    {
+        var (store, _) = ClientsFor(http ?? HttpOptions.Default);
+        try
+        {
+            return await new HttpSender(store, retry).SendAsync(build, (response, _, ct) => read(response, ct), cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRetriesExhaustedException e)
+        {
+            throw new StorageException(e.Message, inner: e.InnerException);
+        }
+    }
 }

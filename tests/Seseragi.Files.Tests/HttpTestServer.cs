@@ -26,6 +26,9 @@ internal sealed class HttpTestServer : HttpMessageHandler
     /// <summary>What validators answers carry: "strong" ETags (and Last-Modified), "weak" ETags, "date" only, or "none".</summary>
     public string Validators { get; set; } = "strong";
 
+    /// <summary>Whether conditions (If-Match, If-Unmodified-Since) are checked; validators are sent either way.</summary>
+    public bool CheckConditions { get; set; } = true;
+
     /// <summary>Answers compressed (a Content-Encoding the client did not ask for).</summary>
     public bool Compress { get; set; }
 
@@ -56,9 +59,9 @@ internal sealed class HttpTestServer : HttpMessageHandler
         var (bytes, version) = file;
         string etag = $"\"v{version}\"";
         DateTimeOffset modified = Epoch.AddSeconds(version);
-        if (request.Headers.TryGetValues("If-Match", out var match) && Validators is "strong" && !match.Contains(etag))
+        if (CheckConditions && request.Headers.TryGetValues("If-Match", out var match) && Validators is "strong" && !match.Contains(etag))
             return Answer(HttpStatusCode.PreconditionFailed, [], null);
-        if (request.Headers.IfUnmodifiedSince is { } since && Validators is "strong" or "date" && modified > since)
+        if (CheckConditions && request.Headers.IfUnmodifiedSince is { } since && Validators is "strong" or "date" && modified > since)
             return Answer(HttpStatusCode.PreconditionFailed, [], null);
         HttpResponseMessage response;
         if (IgnoreRanges || !request.Headers.TryGetValues("Range", out var ranges)) response = Answer(HttpStatusCode.OK, bytes, null);

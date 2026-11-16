@@ -58,6 +58,52 @@ public class AwsCredentialTests
         Assert.Equal("f1", noExpiry.Get());
     }
 
+    /// <summary>
+    /// Asynchronous callers arriving together share one fetch (none blocks a thread on it), a synchronous caller
+    /// arriving meanwhile waits for it, and a failed fetch fails them all and is not remembered.
+    /// </summary>
+    [Fact]
+    public async Task TheCache_SharesOneFetch_AmongAsynchronousCallers()
+    {
+        var now = new DateTimeOffset(2026, 11, 11, 0, 0, 0, TimeSpan.Zero);
+        int fetches = 0;
+        bool fail = false;
+        using var release = new ManualResetEventSlim(false);
+        var cache = new CachedCredential<string>(() =>
+        {
+            Interlocked.Increment(ref fetches);
+            release.Wait(TimeSpan.FromSeconds(10));
+            if (fail) throw new StorageException("down");
+            return new Temporary<string>($"v{fetches}", now.AddMinutes(10));
+        }, clock: () => now);
+
+        Task<string>[] waiting = [.. Enumerable.Range(0, 50).Select(_ => cache.GetAsync(default).AsTask())];
+        Task<string> synchronous = Task.Run(cache.Get);
+        await Task.Delay(100);
+        Assert.All(waiting, t => Assert.False(t.IsCompleted));
+        release.Set();
+        Assert.All(await Task.WhenAll(waiting), v => Assert.Equal("v1", v));
+        Assert.Equal("v1", await synchronous);
+        Assert.Equal(1, fetches);
+
+        now = now.AddMinutes(8); // two minutes left: refreshed
+        fail = true;
+        Task<string>[] failing = [.. Enumerable.Range(0, 10).Select(_ => cache.GetAsync(default).AsTask())];
+        foreach (Task<string> task in failing) await Assert.ThrowsAsync<StorageException>(() => task);
+        Assert.Equal(2, fetches);
+        fail = false;
+        Assert.Equal("v3", await cache.GetAsync(default)); // the failure was not remembered
+        // A cancelled waiter leaves the fetch to the others.
+        now = now.AddMinutes(9);
+        release.Reset();
+        using var cancel = new CancellationTokenSource(50);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cache.GetAsync(cancel.Token).AsTask());
+        Task<string> after = cache.GetAsync(default).AsTask();
+        release.Set();
+        Assert.Equal("v4", await after);
+        Assert.Equal(4, fetches);
+    }
+
     // ---- the sources ----
 
     [Fact]

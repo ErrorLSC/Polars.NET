@@ -3,7 +3,8 @@ namespace Kaminari.Seseragi.Lakehouse.Engine;
 /// <summary>The end of a file and the file's size, as one read gives them.</summary>
 /// <param name="Bytes">The last bytes of the file (all of it when it is shorter than asked).</param>
 /// <param name="Size">The file's size.</param>
-public readonly record struct FileTail(byte[] Bytes, long Size);
+/// <param name="Version">The file's version (an object store's ETag or generation), when the read tells it.</param>
+public readonly record struct FileTail(byte[] Bytes, long Size, string? Version = null);
 
 /// <summary>
 /// A file system that reads the end of a file without knowing its size: Parquet footers of freshly written files

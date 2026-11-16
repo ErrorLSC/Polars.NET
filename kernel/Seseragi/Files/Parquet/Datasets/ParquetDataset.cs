@@ -348,7 +348,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                 "http" or "https" => DefaultHttp.Value,
                 "hf" => DefaultHuggingFace.Value,
                 _ => throw new ArgumentException($"'{input}' is a {scheme}:// URL: give the store that reads it (ParquetDatasetOptions.Store), "
-                    + $"such as CloudStorage.OpenStore(\"{scheme}://…\") of Kaminari.Seseragi.Lakehouse.", nameof(inputs)),
+                    + $"such as CloudFileStore.Open(\"{scheme}://…\") of Kaminari.Seseragi.Lakehouse.", nameof(inputs)),
             };
             if (chosen is null)
             {

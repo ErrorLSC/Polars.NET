@@ -53,13 +53,30 @@ internal sealed class S3Client : ObjectStoreClient
         IReadOnlyDictionary<string, string>? extraHeaders = null, ReadOnlyMemory<byte>? body = null,
         Func<HttpStatusCode, bool>? alsoRetry = null)
     {
+        // Fetched once per request, outside the retried part: a credential source reports its own failures.
+        AwsCredential? credential = _credential?.Get();
+        return HttpTransport.Send(Request(method, path, query, extraHeaders, body, credential), _retry, alsoRetry, http: _http);
+    }
+
+    /// <summary>Sends a request asynchronously and hands its answer (body not read) to <paramref name="read"/>.</summary>
+    private async Task<T> SendAsync<T>(
+        HttpMethod method, string path, IReadOnlyDictionary<string, string>? extraHeaders, Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+        CancellationToken cancellationToken)
+    {
+        AwsCredential? credential = _credential is null ? null : await _credential.GetAsync(cancellationToken).ConfigureAwait(false);
+        return await HttpTransport.SendAsync(Request(method, path, null, extraHeaders, null, credential), read, _retry, _http, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Makes the request (afresh for every attempt: each is signed at its own time).</summary>
+    private Func<HttpRequestMessage> Request(
+        HttpMethod method, string path, IReadOnlyList<KeyValuePair<string, string>>? query, IReadOnlyDictionary<string, string>? extraHeaders,
+        ReadOnlyMemory<byte>? body, AwsCredential? credential)
+    {
         string canonicalQuery = query is null ? "" : SigV4.CanonicalQuery(query);
         string payloadHash = body is { } content ? SigV4.Hash(content.Span) : SigV4.EmptyPayloadHash;
         string url = _origin + path + (canonicalQuery.Length == 0 ? "" : "?" + canonicalQuery);
-
-        // Fetched once per request, outside the retried part: a credential source reports its own failures.
-        AwsCredential? credential = _credential?.Get();
-        return HttpTransport.Send(() =>
+        return () =>
         {
             var request = new HttpRequestMessage(method, new Uri(url, Verbatim));
             var signed = new Dictionary<string, string>(StringComparer.Ordinal) { ["host"] = _host };
@@ -80,7 +97,7 @@ internal sealed class S3Client : ObjectStoreClient
                 if (name != "host") request.Headers.TryAddWithoutValidation(name, value);
             if (body is { } bytes) request.Content = new ReadOnlyMemoryContent(bytes);
             return request;
-        }, _retry, alsoRetry, http: _http);
+        };
     }
 
     private static Dictionary<string, string> With(IReadOnlyDictionary<string, string> headers, params (string Name, string Value)[] more)
@@ -144,6 +161,32 @@ internal sealed class S3Client : ObjectStoreClient
         // Read raw: stores write an empty object's range in forms the header parser refuses ("bytes 0--1/0").
         string? contentRange = response.ContentHeaders.NonValidated.TryGetValues("Content-Range", out var values) ? values.ToString() : null;
         return SuffixAnswer(response.Status, contentRange, response.Body, length) ?? base.GetTail(key, length);
+    }
+
+    /// <inheritdoc/>
+    public override Task<RangeRead?> ReadRangeAsync(string key, long offset, Memory<byte> destination, string? version, CancellationToken cancellationToken)
+    {
+        if (destination.IsEmpty) return base.ReadRangeAsync(key, offset, destination, version, cancellationToken);
+        var headers = With(_headers.Read, ("range", $"bytes={offset}-{offset + destination.Length - 1}"));
+        if (version is not null) headers["if-match"] = version;
+        return SendAsync(HttpMethod.Get, ObjectPath(key), headers, (response, ct) =>
+            ReadRangeAnswer(response, offset, destination, response.Headers.ETag?.ToString() ?? version, version, r => Failure(r, $"read '{key}'"), ct), cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public override async Task<ObjectTail?> GetTailAsync(string key, int length, CancellationToken cancellationToken)
+    {
+        if (length == 0) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
+        var (response, etag) = await SendAsync(HttpMethod.Get, ObjectPath(key), With(_headers.Read, ("range", $"bytes=-{length}")),
+            static async (r, ct) => (new StoreResponse(r.StatusCode, r.Headers, r.Content.Headers, await r.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false), false),
+                r.Headers.ETag?.ToString()), cancellationToken).ConfigureAwait(false);
+        if (response.Status == HttpStatusCode.NotFound) return null;
+        if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
+        string? contentRange = response.ContentHeaders.NonValidated.TryGetValues("Content-Range", out var values) ? values.ToString() : null;
+        return SuffixAnswer(response.Status, contentRange, response.Body, length) is var (tail, size)
+            ? new ObjectTail(tail, size, etag)
+            : await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

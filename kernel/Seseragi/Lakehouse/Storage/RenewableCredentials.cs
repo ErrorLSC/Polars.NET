@@ -76,6 +76,16 @@ public sealed class RenewableCredentials
         }
     }
 
+    /// <summary>Whether the credentials held need no renewal now (asking does not fetch).</summary>
+    internal bool Fresh(out VendedCredentials? current)
+    {
+        lock (_lock)
+        {
+            current = _current;
+            return _current is not null && _clock() < _renewAt;
+        }
+    }
+
     private void Accept(VendedCredentials credentials, DateTimeOffset now)
     {
         _current = credentials;
@@ -100,6 +110,10 @@ public sealed class RenewableCredentials
         private readonly object _lock = new();
         private VendedCredentials? _from;
         private T? _value;
+
+        /// <summary>Without blocking when the vended credentials need no renewal; else renewed on the thread pool.</summary>
+        public override ValueTask<T> GetAsync(CancellationToken cancellationToken) =>
+            source.Fresh(out _) ? ValueTask.FromResult(Get()) : new ValueTask<T>(Task.Run(Get, cancellationToken));
 
         public override T Get()
         {
