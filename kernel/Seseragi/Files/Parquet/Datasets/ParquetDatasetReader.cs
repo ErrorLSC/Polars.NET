@@ -932,6 +932,10 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         {
             throw ParquetDataset.InFile(PathOf(index), e);
         }
+        catch (IOException e) when (ParquetDataset.Unnamed(e, PathOf(index)))
+        {
+            throw ParquetDataset.InFile(PathOf(index), e);
+        }
     }
 
     private async ValueTask<RecordBatch?> NextAsync(IAsyncEnumerator<RecordBatch> batches, int index)
@@ -941,6 +945,10 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             return await batches.MoveNextAsync().ConfigureAwait(false) ? batches.Current : null;
         }
         catch (ParquetFormatException e)
+        {
+            throw ParquetDataset.InFile(PathOf(index), e);
+        }
+        catch (IOException e) when (ParquetDataset.Unnamed(e, PathOf(index)))
         {
             throw ParquetDataset.InFile(PathOf(index), e);
         }
@@ -1161,6 +1169,10 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     {
                         throw ParquetDataset.InFile(owner.PathOf(index), e);
                     }
+                    catch (IOException e) when (ParquetDataset.Unnamed(e, owner.PathOf(index)))
+                    {
+                        throw ParquetDataset.InFile(owner.PathOf(index), e);
+                    }
                     return new FileSlot(index, file, plan, units);
                 }
                 catch (Exception e)
@@ -1241,6 +1253,10 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         {
             throw ParquetDataset.InFile(PathOf(slot.Index), e);
         }
+        catch (IOException e) when (ParquetDataset.Unnamed(e, PathOf(slot.Index)))
+        {
+            throw ParquetDataset.InFile(PathOf(slot.Index), e);
+        }
         List<RecordBatch> converted = [];
         int b = 0;
         try
@@ -1264,12 +1280,15 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>
     /// Files opened ahead of the one taken (up to <paramref name="count"/> of those to open: the files read, and the
     /// others when their row counts are needed); those not taken are disposed once opened. Taken in order, by one
-    /// caller at a time.
+    /// caller at a time. Disposing it cancels the opens still running (a store that hangs does not hold them).
     /// </summary>
-    private sealed class Ahead(ParquetDatasetReader owner, int count, CancellationToken ct) : IDisposable
+    private sealed class Ahead(ParquetDatasetReader owner, int count, CancellationToken cancellationToken) : IDisposable
     {
         private readonly Dictionary<int, Task<ParquetFile>> _started = [];
+        private readonly CancellationTokenSource _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         private int _next;
+
+        private CancellationToken Token => _cancel.Token;
 
         private bool Needed(int index) => owner._read[index] || owner._options.RowIndexColumn is not null;
 
@@ -1282,14 +1301,18 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             {
                 if (!Needed(_next)) continue;
                 int file = _next;
-                _started[file] = Task.Run(() => owner.OpenAsync(file, useAsync: true, ct).AsTask(), ct);
+                CancellationToken token = Token;
+                _started[file] = Task.Run(() => owner.OpenAsync(file, useAsync: true, token).AsTask(), token);
             }
-            return _started.Remove(index, out Task<ParquetFile>? task) ? task : Task.Run(() => owner.OpenAsync(index, useAsync: true, ct).AsTask(), ct);
+            CancellationToken taken = Token;
+            return _started.Remove(index, out Task<ParquetFile>? task) ? task : Task.Run(() => owner.OpenAsync(index, useAsync: true, taken).AsTask(), taken);
         }
 
         public void Dispose()
         {
-            foreach (Task<ParquetFile> task in _started.Values)
+            _cancel.Cancel();
+            Task<ParquetFile>[] pending = [.. _started.Values];
+            foreach (Task<ParquetFile> task in pending)
                 task.ContinueWith(static t =>
                 {
                     if (t.IsCompletedSuccessfully) t.Result.Dispose();
@@ -1297,6 +1320,9 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                 }, CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             _started.Clear();
+            // Disposed once the opens it cancelled are done with its token (those taken were awaited by their takers).
+            CancellationTokenSource cancel = _cancel;
+            Task.WhenAll(pending).ContinueWith(_ => cancel.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
     }
 }

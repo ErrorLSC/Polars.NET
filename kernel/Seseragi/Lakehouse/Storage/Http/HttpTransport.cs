@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Runtime.CompilerServices;
+using Kaminari.Sazanami.Network;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.Http;
 
@@ -23,8 +23,8 @@ internal sealed class StoreResponse(HttpStatusCode status, HttpResponseHeaders h
 
 /// <summary>
 /// Sends requests to object stores, synchronously, over one connection pool shared by every store, retrying what
-/// can be retried. No time limit applies to a single request (uploads of large files take as long as they take);
-/// connecting is limited to five minutes.
+/// can be retried (see <see cref="HttpSender"/>). No time limit applies to a single request (uploads of large files
+/// take as long as they take); connecting is limited to five minutes.
 /// </summary>
 internal static class HttpTransport
 {
@@ -40,24 +40,8 @@ internal static class HttpTransport
             // connect timeout gives quick feedback.
             new HttpClient(options.Handler(TimeSpan.FromSeconds(1))) { Timeout = Timeout.InfiniteTimeSpan }));
 
-    private static readonly AsyncLocal<StrongBox<int>?> Counter = new();
-
     /// <summary>Runs <paramref name="action"/> and counts the requests it sends on this flow (diagnostics and tests).</summary>
-    internal static int CountRequests(Action action)
-    {
-        var box = new StrongBox<int>();
-        StrongBox<int>? outer = Counter.Value;
-        Counter.Value = box;
-        try
-        {
-            action();
-        }
-        finally
-        {
-            Counter.Value = outer;
-        }
-        return box.Value;
-    }
+    internal static int CountRequests(Action action) => HttpSender.CountRequests(action);
 
     /// <summary>
     /// Sends the request <paramref name="build"/> makes (afresh for every attempt). Network failures and answers
@@ -73,54 +57,14 @@ internal static class HttpTransport
         HttpOptions? http = null)
     {
         var (store, metadataClient) = ClientsFor(http ?? HttpOptions.Default);
-        HttpClient client = metadata ? metadataClient : store;
-        var backoff = new Backoff(retry);
-        while (true)
+        try
         {
-            bool retried = backoff.Retries > 0;
-            try
-            {
-                using HttpRequestMessage request = build();
-                if (Counter.Value is { } count) Interlocked.Increment(ref count.Value);
-                using HttpResponseMessage response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
-                byte[] body = request.Method == HttpMethod.Head ? [] : ReadBody(response);
-                var answer = new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, body, retried);
-                if (Retryable(answer.Status, alsoRetry) && backoff.CanRetry)
-                {
-                    backoff.Wait();
-                    continue;
-                }
-                return answer;
-            }
-            // A connect timeout surfaces as a cancellation; nothing else cancels these requests.
-            catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && backoff.CanRetry)
-            {
-                backoff.Wait();
-            }
-            catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException)
-            {
-                throw new StorageException($"The request failed after {backoff.Retries} retries: {e.Message}", inner: e);
-            }
+            HttpAnswer answer = new HttpSender(metadata ? metadataClient : store, retry).Send(build, alsoRetry);
+            return new StoreResponse(answer.Status, answer.Headers, answer.ContentHeaders, answer.Body, answer.Retried);
         }
-    }
-
-    private static bool Retryable(HttpStatusCode status, Func<HttpStatusCode, bool>? alsoRetry) =>
-        status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
-        || ((int)status >= 500 && status != HttpStatusCode.NotImplemented)
-        || (alsoRetry?.Invoke(status) ?? false);
-
-    private static byte[] ReadBody(HttpResponseMessage response)
-    {
-        using Stream stream = response.Content.ReadAsStream();
-        long? length = response.Content.Headers.ContentLength;
-        if (length is { } exact and <= int.MaxValue)
+        catch (HttpRetriesExhaustedException e)
         {
-            var buffer = new byte[exact];
-            stream.ReadExactly(buffer);
-            return buffer;
+            throw new StorageException(e.Message, inner: e.InnerException);
         }
-        using var copy = new MemoryStream();
-        stream.CopyTo(copy);
-        return copy.ToArray();
     }
 }

@@ -74,11 +74,12 @@ public class LinqArchitectureTests
         Assert.Equal(["Sazanami", "Seseragi.Files", "Samidare"], ProjectReferences("kernel", "Seseragi", "Lakehouse", "Seseragi.Lakehouse.csproj"));
     }
 
-    // The object store clients stand on the BCL and the file system contracts only, so they can leave the lakehouse
-    // project for an engine of their own without being untangled first.
+    // The object store clients stand on the BCL, the file system contracts and the shared HTTP transport
+    // (Kaminari.Sazanami.Network) only, so they can leave the lakehouse project for an engine of their own without
+    // being untangled first.
     private static readonly Regex ForbiddenInStorage = new(
-        @"^\s*using\s+(?!System\b|Kaminari\.Seseragi\.Lakehouse\.(Storage|Engine)\b)[\w.]+\s*;"
-        + @"|\bKaminari\.(Samidare|Sazanami)\b"
+        @"^\s*using\s+(?!System\b|Kaminari\.Seseragi\.Lakehouse\.(Storage|Engine)\b|Kaminari\.Sazanami\.Network\b)[\w.]+\s*;"
+        + @"|\bKaminari\.Samidare\b|\bKaminari\.Sazanami\.(?!Network\b)\w+"
         + @"|\bKaminari\.Seseragi\.Lakehouse\.(?!Storage\b|Engine\b)\w+",
         RegexOptions.Compiled);
 
@@ -93,7 +94,7 @@ public class LinqArchitectureTests
             .Select(x => $"{Path.GetRelativePath(root, x.path)}:{x.number}: {x.line.Trim()}")
             .ToList();
 
-        Assert.True(violations.Count == 0, "Storage may use only System.* and Lakehouse.Engine:\n" + string.Join('\n', violations));
+        Assert.True(violations.Count == 0, "Storage may use only System.*, Lakehouse.Engine and Sazanami.Network:\n" + string.Join('\n', violations));
     }
 
     [Theory]

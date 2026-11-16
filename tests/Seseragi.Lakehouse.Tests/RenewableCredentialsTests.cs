@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Network;
 using Kaminari.Seseragi.Lakehouse.Storage;
 
 namespace Seseragi.Lakehouse.Tests;

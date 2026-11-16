@@ -351,9 +351,16 @@ public sealed class ParquetDatasetTests : IDisposable
         for (int i = 0; i < 30; i++) Write($"ahead/f{i:D2}.parquet", i * 3, 3);
         var store = new Counting(new LocalFileStore());
         using var dataset = ParquetDataset.Open(At("ahead/*.parquet"), new ParquetDatasetOptions { Store = store });
-        Assert.Equal(3, Read(dataset, new ParquetReadOptions { MaxRows = 3 }).Count);
+        // Stopped once files are open ahead (stopping cancels the opens not yet done; those done are disposed).
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { MaxRows = 3 }))
+        using (IEnumerator<RecordBatch> batches = reader.ReadBatches().GetEnumerator())
+        {
+            Assert.True(batches.MoveNext());
+            batches.Current.Dispose();
+            for (int i = 0; i < 500 && store.Opened <= 2; i++) await Task.Delay(10);
+            Assert.True(store.Opened > 2, $"{store.Opened} opened");
+        }
         await store.Settled();
-        Assert.True(store.Opened > 2, $"{store.Opened} opened");
         Assert.Equal(store.Opened, store.Disposed);
         using (var reader = dataset.OpenReader(new ParquetReadOptions { MaxRows = 4 }))
         {
@@ -383,7 +390,7 @@ public sealed class ParquetDatasetTests : IDisposable
 
     /// <summary>
     /// The footers of files on a store beyond the first read of a tail are kept between reads: later reads open them
-    /// without reading their tails. The first file's footer stays with the dataset's schema.
+    /// without reading their tails (the first file's too, read when the dataset opened, for its schema).
     /// </summary>
     [Fact]
     public void Footers_OfLargeFilesOnAStore_AreReadOnce()
@@ -394,7 +401,7 @@ public sealed class ParquetDatasetTests : IDisposable
         Assert.Equal(1, store.TailReads); // the first file's, for the schema
         Assert.Equal(Expected((0, 3 * Large)), Read(dataset));
         Assert.Equal(3, store.TailReads);
-        Assert.Equal(2, dataset.Footers.Count);
+        Assert.Equal(3, dataset.Footers.Count);
         Assert.Equal(Expected((0, 3 * Large)), Read(dataset, new ParquetReadOptions { MaxDegreeOfParallelism = 4 }));
         Assert.Equal(3, store.TailReads);
     }
@@ -453,14 +460,14 @@ public sealed class ParquetDatasetTests : IDisposable
         using (var all = ParquetDataset.Open(At("limit/*.parquet"), new ParquetDatasetOptions { Store = new Counting(new LocalFileStore()) }))
         {
             Assert.Equal(Expected((0, 3 * Large)), Read(all));
-            Assert.Equal(2, all.Footers.Count);
-            long two = all.Footers.Bytes;
+            Assert.Equal(3, all.Footers.Count);
+            long three = all.Footers.Bytes;
 
             var store = new Counting(new LocalFileStore());
             using var limited = ParquetDataset.Open(At("limit/*.parquet"), new ParquetDatasetOptions { Store = store });
-            limited.Footers.Limit = two - 1;
+            limited.Footers.Limit = three - 1; // the first file's kept when the dataset opened, one more fits
             Assert.Equal(Expected((0, 3 * Large)), Read(limited));
-            Assert.Equal(1, limited.Footers.Count);
+            Assert.Equal(2, limited.Footers.Count);
             Assert.Equal(3, store.TailReads);
             Assert.Equal(Expected((0, 3 * Large)), Read(limited));
             Assert.Equal(4, store.TailReads); // the file whose footer was left out

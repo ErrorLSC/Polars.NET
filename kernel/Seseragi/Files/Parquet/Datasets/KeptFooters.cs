@@ -23,6 +23,7 @@ internal sealed class KeptFooters(int files)
 
     private readonly object _lock = new();
     private readonly (int Chunk, int Offset, int Length)[] _slots = new (int, int, int)[files];
+    private readonly StoredFile?[] _versions = new StoredFile?[files];
     private readonly List<byte[]> _chunks = [];
     private int _current = -1;     // the chunk small footers go to
     private int _used = ChunkSize; // of that chunk: none yet
@@ -39,8 +40,12 @@ internal sealed class KeptFooters(int files)
     /// <summary>Whether a footer read from <paramref name="source"/> is worth keeping (see the class remarks).</summary>
     internal static bool Worth(IRandomAccess source) => source is not ILocalSource && source.Length > ParquetMetadata.TailGuess;
 
-    /// <summary>Keeps the footer of file <paramref name="index"/> unless one is kept already or the limit is reached.</summary>
-    internal void Keep(int index, ReadOnlySpan<byte> footer)
+    /// <summary>
+    /// Keeps the footer of file <paramref name="index"/> unless one is kept already or the limit is reached, with the
+    /// file's size and version when its source tells them (<paramref name="version"/>: the file is then opened again
+    /// without a request, and its reads require that version).
+    /// </summary>
+    internal void Keep(int index, ReadOnlySpan<byte> footer, StoredFile? version = null)
     {
         if (footer.IsEmpty) return;
         lock (_lock)
@@ -63,9 +68,16 @@ internal sealed class KeptFooters(int files)
                 _slots[index] = (_current, _used, footer.Length);
                 _used += footer.Length;
             }
+            _versions[index] = version;
             Bytes += footer.Length;
             Count++;
         }
+    }
+
+    /// <summary>The size and version of file <paramref name="index"/> when its footer was kept (and its source told them).</summary>
+    internal StoredFile? Version(int index)
+    {
+        lock (_lock) return _versions[index];
     }
 
     /// <summary>The footer of file <paramref name="index"/> parsed again (sharing with <paramref name="interner"/>), or null when none is kept.</summary>

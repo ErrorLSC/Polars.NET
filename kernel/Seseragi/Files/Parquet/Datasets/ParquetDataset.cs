@@ -290,13 +290,11 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         options ??= new ParquetDatasetOptions();
         options.Validate();
         if (inputs.Length == 0) throw new ArgumentException("No path is given.", nameof(inputs));
-        IFileStore store = options.Store ?? LocalFiles;
         foreach (string input in inputs)
         {
             if (string.IsNullOrEmpty(input)) throw new ArgumentException("A path is empty.", nameof(inputs));
-            if (options.Store is null && input.Contains("://", StringComparison.Ordinal))
-                throw new ArgumentException($"'{input}' is a URL: give the store that reads it (ParquetDatasetOptions.Store).", nameof(inputs));
         }
+        IFileStore store = options.Store ?? StoreOf(inputs);
         List<ParquetDatasetFile> files = [];
         int hiveStart = int.MaxValue;
         bool directory = false;
@@ -323,7 +321,44 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
             if (string.IsNullOrEmpty(file.Path)) throw new ArgumentException("A file has no path.", nameof(files));
             if (file.Size < 0) throw new ArgumentException($"'{file.Path}' has a negative size.", nameof(files));
         }
-        return await FromFilesAsync(options.Store ?? LocalFiles, options, files, options.Partitioning == HivePartitioning.On ? 0 : null, useAsync, ct).ConfigureAwait(false);
+        return await FromFilesAsync(options.Store ?? StoreOf([.. files.Select(f => f.Path)]), options, files, options.Partitioning == HivePartitioning.On ? 0 : null, useAsync, ct)
+            .ConfigureAwait(false);
+    }
+
+    private static readonly Lazy<HttpFileStore> DefaultHttp = new(() => new HttpFileStore());
+
+    private static readonly Lazy<HuggingFaceFileStore> DefaultHuggingFace = new(() => new HuggingFaceFileStore());
+
+    /// <summary>
+    /// The store of inputs given without one: the local file system for paths, a shared <see cref="HttpFileStore"/>
+    /// for http(s) URLs, a shared <see cref="HuggingFaceFileStore"/> for hf:// ones; one store for all of them.
+    /// </summary>
+    /// <exception cref="ArgumentException">A URL of another scheme (its store must be given), or inputs of several stores.</exception>
+    private static IFileStore StoreOf(IReadOnlyList<string> inputs)
+    {
+        IFileStore? chosen = null;
+        string? first = null;
+        foreach (string input in inputs)
+        {
+            int end = input.IndexOf("://", StringComparison.Ordinal);
+            string? scheme = end > 0 ? input[..end].ToLowerInvariant() : null;
+            IFileStore store = scheme switch
+            {
+                null => LocalFiles,
+                "http" or "https" => DefaultHttp.Value,
+                "hf" => DefaultHuggingFace.Value,
+                _ => throw new ArgumentException($"'{input}' is a {scheme}:// URL: give the store that reads it (ParquetDatasetOptions.Store), "
+                    + $"such as CloudStorage.OpenStore(\"{scheme}://…\") of Kaminari.Seseragi.Lakehouse.", nameof(inputs)),
+            };
+            if (chosen is null)
+            {
+                chosen = store;
+                first = input;
+            }
+            else if (!ReferenceEquals(chosen, store))
+                throw new ArgumentException($"'{first}' and '{input}' are read from different stores: a dataset reads from one.", nameof(inputs));
+        }
+        return chosen ?? LocalFiles;
     }
 
     /// <summary>
@@ -346,7 +381,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         }
         else
         {
-            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, useAsync, ct, interner: interner).ConfigureAwait(false);
+            // Kept as the other files' footers are (with its version, when worth it): reading it opens it without a request.
+            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, useAsync, ct, kept, 0, interner).ConfigureAwait(false);
             firstFooter = first.Metadata;
             schema = SchemaOf(files[0].Path, first.Metadata, new ParquetReadOptions());
         }
@@ -389,10 +425,21 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     internal static async ValueTask<ParquetFile> OpenFileAsync(IFileStore store, ParquetDatasetFile file, ParquetMetadata? footer, bool useAsync, CancellationToken ct,
         KeptFooters? kept = null, int index = 0, FooterInterner? interner = null)
     {
-        IRandomAccess source = file.Size is long size
-            ? await store.OpenAsync(new StoredFile(file.Path, size), ct).ConfigureAwait(false)
-            : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
-        FooterRead? keep = footer is null && kept is not null && KeptFooters.Worth(source) ? bytes => kept.Keep(index, bytes) : null;
+        // A kept footer comes with the file's size and version: opened without a request, read at that version.
+        StoredFile? known = footer is not null && kept?.Version(index) is { } version ? version with { Path = file.Path }
+            : file.Size is long size ? new StoredFile(file.Path, size) : null;
+        IRandomAccess source;
+        try
+        {
+            source = known is { } stored
+                ? await store.OpenAsync(stored, ct).ConfigureAwait(false)
+                : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
+        }
+        catch (IOException e) when (Unnamed(e, file.Path))
+        {
+            throw InFile(file.Path, e);
+        }
+        FooterRead? keep = footer is null && kept is not null && KeptFooters.Worth(source) ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
         try
         {
             return await ParquetFile.OpenOwnedAsync(source, footer, useAsync, ct, keep, interner).ConfigureAwait(false);
@@ -401,10 +448,20 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         {
             throw InFile(file.Path, e);
         }
+        catch (IOException e) when (Unnamed(e, file.Path))
+        {
+            throw InFile(file.Path, e);
+        }
     }
 
     /// <summary>The error with the file it is about.</summary>
     internal static ParquetFormatException InFile(string path, ParquetFormatException e) => new($"{path}: {e.Message}", e);
+
+    /// <summary>A store's failure (a network's, a disk's) with the file it is about.</summary>
+    internal static IOException InFile(string path, IOException e) => new($"{path}: {e.Message}", e);
+
+    /// <summary>Whether a store's failure does not name the file yet (a missing file's does).</summary>
+    internal static bool Unnamed(IOException e, string path) => e is not FileNotFoundException && !e.Message.StartsWith(path + ": ", StringComparison.Ordinal);
 
     /// <summary>
     /// Adds the files <paramref name="input"/> names: itself, the files below a directory, or a glob's matches. Tells

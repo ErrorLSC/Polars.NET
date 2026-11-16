@@ -59,7 +59,16 @@ name their file and surface after the rows of the files before it. Rows come typ
 (`ParquetDataset.OpenReader<T>`, `ParquetDatasetReader<T>`, `ParquetDataset.ReadList<T>`): members map columns and
 partitions by name, a `where` predicate is pushed down (conjuncts over partitions decide the files read), the rest
 evaluated on the rows as the query compiler's client evaluation policy allows. Files come from an `IFileStore`
-(`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), or a store of the caller.
+(`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), HTTP(S) URLs
+(`HttpFileStore`, chosen for http(s) URLs when no store is given), Hugging Face Hub repositories (`HuggingFaceFileStore`,
+chosen for `hf://datasets/…` and `hf://spaces/…`), or a store of the caller (the object stores of the lakehouse library).
+Over HTTP a file is opened with one ranged request for its last bytes (its size and footer; explicit ranges where a
+server has no suffix ranges), never a HEAD (presigned URLs are signed for GET only); later ranges require the version
+first seen (`If-Match`, else `If-Unmodified-Since`), so a file changed while read fails; answers must not be compressed;
+a server ignoring ranges gives small files whole (`HttpFileStoreOptions.WholeFileLimit`). A plain server cannot list
+(files are named by URL); the Hub lists through its tree API, so globs and directories work there. Footers of large
+files on such stores are kept between reads with their sizes and versions: a dataset read again opens them without a
+request. A store's failure names the file and surfaces in order; a hung request ends with the caller's cancellation.
 `Glob = false` reads wildcard characters as names (Polars' `glob=False`).
 
 **Partitions** (`HivePartitioning`, `PartitionSchema`, `ParseHiveDates`, `ParquetDatasetFile.PartitionValues`): Hive
@@ -219,7 +228,8 @@ them as PLAIN; string readers take delta byte arrays as data, starts and lengths
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
 streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
-open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`). `Parquet/Datasets/` holds the dataset: path
+open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`, `HttpFileStore` over Sazanami's `HttpSender`,
+`HuggingFaceFileStore`). `Parquet/Datasets/` holds the dataset: path
 expansion (`ParquetDataset`), partition values (`Partitions`: Hive paths or given values as a typed table of one row
 per file) and the reader of its files (`ParquetDatasetReader`: column layout, partition pruning, filters per file,
 the window of row groups across files; `ParquetDatasetReader<T>`: typed rows).
@@ -443,6 +453,7 @@ In Sazanami (generic, reusable by other formats):
 | `Rows/RowRanges.cs` | Sets of row numbers as sorted, disjoint ranges: union, intersection, difference, complement, slice, take; from indices or a bitmap. |
 | `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash, size for a count and a false positive rate. |
 | `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
+| `Network/RetrySettings.cs`, `HttpSender.cs` | HTTP requests with retries shared by the file stores and the lakehouse's object store clients: network failures (a failed body read included), 408, 429 and 5xx retried with jittered backoff (`Retry-After` honoured up to the cap), failures an answer decided never retried, caller cancellations never retried; synchronous and asynchronous; requests counted per flow. |
 | `Helpers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
 | `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order) for dictionary encoding. |
@@ -536,7 +547,9 @@ value against a logical type is allowed. General unions are not written against 
   how they are written: `TestData/parquet-pushdown/write_pushdown.py`; `ParquetTypedRowsTests`: `ParquetReader<T>` skips
 what its predicate cannot match, and gives the rows of one thread on several). Sources and datasets:
   `ParquetMemorySourceTests` (memory, memory streams and unmanaged streams read in place), `ParquetSingleFileTests`
-  (joined, prefixed and cut files refused; padding and metadata copies accepted), `FileStoreTests`,
+  (joined, prefixed and cut files refused; padding and metadata copies accepted), `FileStoreTests`, `HttpFileStoreTests`
+  (ranges, versions, servers without ranges or suffix ranges, compression, the Hub's listing; a local server for
+  datasets of URLs), `ParquetDatasetFaultTests` (stores failing, hanging and answering late),
   `ParquetDatasetTests` (expansion, order, schema across files, row index, limits, file paths, stores),
   `ParquetDatasetSchemaTests` (schema modes, conversions, missing and extra columns and fields, filters over converted
   and missing columns),

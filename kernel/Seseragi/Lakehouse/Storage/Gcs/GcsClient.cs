@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Xml;
+using Kaminari.Sazanami.Network;
 using Kaminari.Seseragi.Lakehouse.Storage.Http;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.Gcs;

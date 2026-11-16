@@ -1,4 +1,4 @@
-namespace Kaminari.Seseragi.Lakehouse.Storage;
+namespace Kaminari.Sazanami.Network;
 
 /// <summary>
 /// How failed requests are retried: up to <paramref name="MaxRetries"/> times while <paramref name="Budget"/> has not
@@ -26,15 +26,24 @@ internal sealed class Backoff(RetrySettings settings)
     public bool CanRetry =>
         Retries < settings.MaxRetries && Environment.TickCount64 - _start <= settings.Budget.TotalMilliseconds;
 
-    /// <summary>Waits before the next retry.</summary>
-    public void Wait()
+    /// <summary>
+    /// Counts a retry and tells how long to wait before it: the backoff, or longer when the server asked for it
+    /// (<paramref name="retryAfter"/>), never beyond <see cref="RetrySettings.MaxBackoff"/>.
+    /// </summary>
+    public TimeSpan Next(TimeSpan? retryAfter = null)
     {
         Retries++;
         double low = settings.InitialBackoff.TotalSeconds;
         double high = Math.Max(low, _nextSeconds * 2);
         double drawn = low + Random.Shared.NextDouble() * (high - low);
-        double wait = _nextSeconds;
+        double wait = Math.Max(_nextSeconds, retryAfter?.TotalSeconds ?? 0);
         _nextSeconds = Math.Min(settings.MaxBackoff.TotalSeconds, drawn);
-        Thread.Sleep(TimeSpan.FromSeconds(Math.Min(wait, settings.MaxBackoff.TotalSeconds)));
+        return TimeSpan.FromSeconds(Math.Min(wait, settings.MaxBackoff.TotalSeconds));
     }
+
+    /// <summary>Waits before the next retry.</summary>
+    public void Wait(TimeSpan? retryAfter = null) => Thread.Sleep(Next(retryAfter));
+
+    /// <inheritdoc cref="Wait"/>
+    public Task WaitAsync(TimeSpan? retryAfter, CancellationToken cancellationToken) => Task.Delay(Next(retryAfter), cancellationToken);
 }
