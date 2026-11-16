@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Apache.Arrow;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
 using Kaminari.Seseragi.Lakehouse.Engine;
@@ -98,7 +99,7 @@ public static class Checkpoints
                 .. snapshot.Files.Select(a => Row("add", Add(a, json, typed))),
                 .. tombstones.Select(r => Row("remove", Remove(r))),
             ];
-            content = MinimalParquetWriter.Write(Schema(json, typed), rows);
+            content = ParquetFile(Schema(json, typed), rows);
             actionCount = rows.Count;
             path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.parquet";
             // The same version always gives the same checkpoint, so replacing one written concurrently is harmless.
@@ -185,6 +186,22 @@ public static class Checkpoints
         Str("storageType"), Str("pathOrInlineDv"), I32("offset"), I32("sizeInBytes"), I64("cardinality"), I64("maxRowIndex"));
 
     /// <summary>The checkpoint schema; the <c>add</c> columns in Spark's order, statistics as the table asks.</summary>
+    /// <summary>
+    /// How checkpoint files are written, as Spark writes them: Snappy, statistics and page indexes, row groups of up to
+    /// 128 MiB of pages whatever the rows, no stored Arrow schema; the same actions always give the same bytes (a
+    /// checkpoint written concurrently for the same version may be replaced).
+    /// </summary>
+    private static readonly ParquetWriteOptions FileOptions = new() { RowGroupRows = int.MaxValue, StoreArrowSchema = false, LeaveOpen = true };
+
+    /// <summary>The checkpoint file of the rows.</summary>
+    private static byte[] ParquetFile(IReadOnlyList<ParquetNode> schema, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
+    {
+        using RecordBatch batch = ParquetNodeArrow.ToArrow(schema, rows);
+        using var stream = new MemoryStream();
+        ParquetWriter.Write(stream, batch.Schema, [batch], FileOptions);
+        return stream.ToArray();
+    }
+
     private static IReadOnlyList<ParquetNode> Schema(bool json, CheckpointStatistics? typed) =>
     [
         Struct("txn", Str("appId"), I64("version"), I64("lastUpdated")),

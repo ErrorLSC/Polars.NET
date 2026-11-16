@@ -220,8 +220,9 @@ cut to `MaxBytes`); settings a leaf's type cannot take are refused. Bloom filter
 the row groups. The footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
 footer written, `BytesWritten` and `PendingBytes` what is in the stream and in the open row group.
 
-`MinimalParquetWriter` writes the fixed-schema files a Delta table keeps beside its log (checkpoints); it is internal
-and stands in until the Delta checkpoints move to `ParquetWriter`.
+Delta checkpoints are written by `ParquetWriter`: their rows, described by `ParquetNode`s, become an Arrow batch
+(`ParquetNodeArrow`) whose types write back to the same Parquet types. `MinimalParquetWriter`, the small writer they
+used before, stays internal for tests that need such files.
 
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
 leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
@@ -438,7 +439,8 @@ written synchronously on completion.
 | `Parquet/Writing/ColumnWriter.cs`, `TypedColumnWriters.cs` | A leaf column per row group: levels and values page by page, dictionary judged on the first page holding values and dropped when it outgrows its budget, pages encoded then handed to compression jobs (`PageJobs.cs`) and kept in order, the dictionary page first; fixed-width, byte-array and boolean values (runs copied straight from Arrow buffers where no conversion is needed, validity read by words) with their statistics (vector bounds for numbers; string bounds at page end, from the distinct dictionary entries of dictionary pages) and bound truncation. |
 | `Parquet/Encodings/RleBitPackedEncoder.cs` | The RLE / bit-packing hybrid written: runs of 8 or more as RLE, the rest in bit-packed groups of 8. |
 | `Parquet/Encodings/DeltaEncoders.cs` | DELTA_BINARY_PACKED written (blocks of 128 in four miniblocks, INT32 deltas wrapped to 32 bits), DELTA_LENGTH_BYTE_ARRAY and DELTA_BYTE_ARRAY (prefixes shared with the value before). |
-| `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (Delta checkpoints): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; visible to Seseragi.Lakehouse. |
+| `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (the `ParquetNode` model): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; tests write fixtures with it. |
+| `Parquet/ParquetNodeArrow.cs` | Rows described by `ParquetNode`s as an Arrow batch `ParquetWriter` writes back to the same Parquet types (Delta checkpoints): annotated leaves (strings, int8/int16, dates, decimals as numbers or big-endian bytes, UTC and local microsecond timestamps), structs, lists, string maps. |
 
 In Sazanami (generic, reusable by other formats):
 
@@ -574,7 +576,8 @@ what its predicate cannot match, and gives the rows of one thread on several). S
   every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),
   `ParquetWriterOwnershipTests` (the writer owning its batches: the caller's file whatever the threads, each batch
   disposed once after its rows are encoded — watched memory poisoned on disposal — also on failures and abandoned
-  writers; row groups in flight bounded by count and bytes; row groups by the batches' bytes),
+  writers; row groups in flight bounded by count and bytes; row groups by the batches' bytes), `ParquetNodeArrowTests`
+  (checkpoint-shaped rows through Arrow and the writer: the minimal writer's schema and values),
   `ParquetWriterInteropTests` (opt-in, `Category=Interop`: pyarrow, DuckDB, Python Polars and Spark — vectorized and
   not — read our files, `TestData/parquet/writer_interop.py` and `writer_spark.py`, each also filtering at the bounds
   with statistics and without; the readers' own limits are listed there); `ParquetNestedWriterTests` (random nested columns —

@@ -289,6 +289,10 @@ internal static class ParquetWriteData
             IntervalType { Unit: IntervalUnit.YearMonth } => $"iv{V<int>()},0,0",
             IntervalType { Unit: IntervalUnit.DayTime } => $"iv0,{V<DayTime>().Days},{V<DayTime>().Millis * 1_000_000L}",
             IntervalType => $"iv{V<MonthDayNano>().Months},{V<MonthDayNano>().Days},{V<MonthDayNano>().Nanos}",
+            // Nested values (lists and maps by their items, structs by their fields; a map's entries are structs).
+            ListType or MapType => "[" + string.Join(",", Enumerable.Range(((ListArray)a).ValueOffsets[i], ((ListArray)a).ValueOffsets[i + 1] - ((ListArray)a).ValueOffsets[i])
+                .Select(k => Canonical(((ListArray)a).Values, k))) + "]",
+            StructType st => "{" + string.Join(",", st.Fields.Select((f, k) => f.Name + "=" + Canonical(ArrowArrayFactory.BuildArray(a.Data.Children[k]), a.Data.Offset + i))) + "}",
             _ => throw new NotSupportedException(type.Name),
         };
 
