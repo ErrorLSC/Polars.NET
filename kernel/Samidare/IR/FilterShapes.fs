@@ -129,13 +129,17 @@ module FilterShapes =
         | _ -> None
 
     /// <summary>
-    /// A filter with comparisons between two literals decided (where <c>compareLiterals</c> can order them) and the
-    /// boolean constants left folded into AND, OR and NOT, in Kleene logic (false wins an AND, true an OR; a null
-    /// stays). A filter whose columns were replaced by values (a file's partition values) then reads only the columns
-    /// it still names. The semantics are unchanged.
+    /// A filter with comparisons between two literals decided (where <c>compareLiterals</c> can order them), null
+    /// literals carried through (a comparison with a null is null, a null-safe one decided; IS NULL and IS NOT NULL of
+    /// a literal decided; an IN of a null), and the constants left folded into AND, OR and NOT, in Kleene logic (false
+    /// wins an AND, true an OR; a null stays beside a column, two nulls make a null). A filter whose columns were
+    /// replaced by values (a file's partition values, nulls for columns the file lacks) then reads only the columns it
+    /// still names. The semantics are unchanged.
     /// </summary>
     let rec foldConstants (expr: ScalarExpr) : ScalarExpr =
         let boolean value = ScalarExpr.Literal(LiteralValue.Bool value)
+        let nullValue = ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Boolean)
+        let isNullLiteral e = match e with ScalarExpr.Literal(LiteralValue.Null _) -> true | _ -> false
         match expr with
         | ScalarExpr.Binary(BinaryOp.And, left, right) ->
             match foldConstants left, foldConstants right with
@@ -143,6 +147,7 @@ module FilterShapes =
             | _, ScalarExpr.Literal(LiteralValue.Bool false) -> boolean false
             | ScalarExpr.Literal(LiteralValue.Bool true), other
             | other, ScalarExpr.Literal(LiteralValue.Bool true) -> other
+            | l, r when isNullLiteral l && isNullLiteral r -> nullValue
             | l, r -> ScalarExpr.Binary(BinaryOp.And, l, r)
         | ScalarExpr.Binary(BinaryOp.Or, left, right) ->
             match foldConstants left, foldConstants right with
@@ -150,11 +155,33 @@ module FilterShapes =
             | _, ScalarExpr.Literal(LiteralValue.Bool true) -> boolean true
             | ScalarExpr.Literal(LiteralValue.Bool false), other
             | other, ScalarExpr.Literal(LiteralValue.Bool false) -> other
+            | l, r when isNullLiteral l && isNullLiteral r -> nullValue
             | l, r -> ScalarExpr.Binary(BinaryOp.Or, l, r)
         | ScalarExpr.Unary(UnaryOp.Not, operand) ->
             match foldConstants operand with
             | ScalarExpr.Literal(LiteralValue.Bool value) -> boolean (not value)
+            | ScalarExpr.Literal(LiteralValue.Null _) -> nullValue
             | other -> ScalarExpr.Unary(UnaryOp.Not, other)
+        | ScalarExpr.Unary(UnaryOp.IsNull, ScalarExpr.Literal value) ->
+            boolean (match value with LiteralValue.Null _ -> true | _ -> false)
+        | ScalarExpr.Unary(UnaryOp.IsNotNull, ScalarExpr.Literal value) ->
+            boolean (match value with LiteralValue.Null _ -> false | _ -> true)
+        | ScalarExpr.Binary((BinaryOp.EqMissing | BinaryOp.NotEqMissing) as op, ScalarExpr.Literal a, ScalarExpr.Literal b)
+            when (match a, b with LiteralValue.Null _, _ | _, LiteralValue.Null _ -> true | _ -> false) ->
+            // Null-safe: equal when both are null, unequal when one is.
+            let equal = (match a, b with LiteralValue.Null _, LiteralValue.Null _ -> true | _ -> false)
+            boolean (if op = BinaryOp.EqMissing then equal else not equal)
+        | ScalarExpr.Binary((BinaryOp.EqMissing | BinaryOp.NotEqMissing) as op, ScalarExpr.Literal(LiteralValue.Null _), other)
+        | ScalarExpr.Binary((BinaryOp.EqMissing | BinaryOp.NotEqMissing) as op, other, ScalarExpr.Literal(LiteralValue.Null _)) ->
+            ScalarExpr.Unary((if op = BinaryOp.EqMissing then UnaryOp.IsNull else UnaryOp.IsNotNull), other)
+        | ScalarExpr.Binary((BinaryOp.Eq | BinaryOp.NotEq | BinaryOp.Lt | BinaryOp.LtEq | BinaryOp.Gt | BinaryOp.GtEq), left, right)
+            when isNullLiteral left || isNullLiteral right ->
+            nullValue
+        | ScalarExpr.InList(ScalarExpr.Literal(LiteralValue.Null _), InListSource.Literals values, negated, nullsEqual) ->
+            if nullsEqual then
+                let found = values |> List.exists (fun v -> match v with LiteralValue.Null _ -> true | _ -> false)
+                boolean (found <> negated)
+            else nullValue
         | ScalarExpr.Binary((BinaryOp.Eq | BinaryOp.NotEq | BinaryOp.EqMissing | BinaryOp.NotEqMissing | BinaryOp.Lt | BinaryOp.LtEq | BinaryOp.Gt | BinaryOp.GtEq) as op,
                             ScalarExpr.Literal a,
                             ScalarExpr.Literal b) ->

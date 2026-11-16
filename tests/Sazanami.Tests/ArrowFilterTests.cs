@@ -200,7 +200,87 @@ public class ArrowFilterTests
         var list = new ListArray.Builder(Int32Type.Default);
         list.Append();
         list.Append();
-        Assert.Throws<NotSupportedException>(() => ArrowFilter.Filter(list.Build(), [1]));
+        using IArrowArray lists = ArrowFilter.Filter(list.Build(), [1]); // nested arrays filter too (see below)
+        Assert.Equal(1, lists.Length);
         Assert.Throws<ArgumentException>(() => ArrowFilter.Filter(new NullArray(100), [1]));
+    }
+
+    [Fact]
+    public void NestedArrays_KeepTheSelectedRows_AndTheirElements()
+    {
+        var random = new Random(1116);
+        var type = new StructType(
+        [
+            new Field("a", Int32Type.Default, true),
+            new Field("l", new ListType(new Field("item", StringType.Default, true)), true),
+            new Field("m", new MapType(StringType.Default, Int64Type.Default), true),
+            new Field("f", new FixedSizeListType(new Field("item", Int16Type.Default, true), 2), true),
+        ]);
+        foreach (int length in (int[])[0, 1, 5, 64, 65, 200])
+        {
+            for (int round = 0; round < 8; round++)
+            {
+                var a = new Int32Array.Builder();
+                var lists = new ListArray.Builder(StringType.Default);
+                var maps = new MapArray.Builder(new MapType(StringType.Default, Int64Type.Default));
+                var fixedValues = new Int16Array.Builder();
+                var validity = new byte[(length + 7) / 8];
+                var fixedValidity = new byte[(length + 7) / 8];
+                for (int i = 0; i < length; i++)
+                {
+                    bool valid = random.Next(6) != 0;
+                    if (valid) validity[i / 8] |= (byte)(1 << (i % 8));
+                    a.Append(random.Next(4) == 0 ? null : i);
+                    if (random.Next(5) == 0) lists.AppendNull();
+                    else
+                    {
+                        lists.Append();
+                        int n = random.Next(4);
+                        for (int k = 0; k < n; k++) ((StringArray.Builder)lists.ValueBuilder).Append(random.Next(5) == 0 ? null : $"v{i}.{k}");
+                    }
+                    if (random.Next(5) == 0) maps.AppendNull();
+                    else
+                    {
+                        maps.Append();
+                        int n = random.Next(3);
+                        for (int k = 0; k < n; k++)
+                        {
+                            ((StringArray.Builder)maps.KeyBuilder).Append($"k{k}");
+                            ((Int64Array.Builder)maps.ValueBuilder).Append(i * 10L + k);
+                        }
+                    }
+                    if (random.Next(5) != 0) fixedValidity[i / 8] |= (byte)(1 << (i % 8));
+                    fixedValues.Append((short)i).Append((short)-i);
+                }
+                var fixedList = new FixedSizeListArray(new FixedSizeListType(new Field("item", Int16Type.Default, true), 2), length, fixedValues.Build(),
+                    new ArrowBuffer(fixedValidity), -1);
+                IArrowArray[] children = [a.Build(), lists.Build(), maps.Build(), fixedList];
+                IArrowArray whole = new StructArray(type, length, children, new ArrowBuffer(validity), -1);
+                int offset = length > 2 && random.Next(2) == 0 ? random.Next(1, 3) : 0;
+                IArrowArray array = ArrowArrayFactory.Slice(whole, offset, length - offset);
+                ulong[] mask = RandomMask(random, array.Length);
+                using IArrowArray filtered = ArrowFilter.Filter(array, mask);
+                string[] expected = [.. Enumerable.Range(0, array.Length).Where(i => (mask[i >> 6] >> (i & 63) & 1) != 0).Select(i => Render(array, i))];
+                Assert.Equal(expected, Enumerable.Range(0, filtered.Length).Select(i => Render(filtered, i)));
+            }
+        }
+    }
+
+    /// <summary>A row of any array as text (nested values included).</summary>
+    private static string Render(IArrowArray array, int i)
+    {
+        if (array.IsNull(i)) return "null";
+        return array switch
+        {
+            StructArray s => "{" + string.Join(",", s.Fields.Select(f => Render(f, i))) + "}",
+            MapArray m => "{" + string.Join(",", Enumerable.Range(m.ValueOffsets[i], m.GetValueLength(i)).Select(j => $"{Render(m.Keys, j)}:{Render(m.Values, j)}")) + "}",
+            ListArray l => "[" + string.Join(",", Enumerable.Range(l.ValueOffsets[i], l.GetValueLength(i)).Select(j => Render(l.Values, j))) + "]",
+            FixedSizeListArray f => "[" + Render(f.Values, 2 * (f.Offset + i)) + "," + Render(f.Values, 2 * (f.Offset + i) + 1) + "]",
+            StringArray s => s.GetString(i),
+            Int16Array x => x.GetValue(i).ToString()!,
+            Int32Array x => x.GetValue(i).ToString()!,
+            Int64Array x => x.GetValue(i).ToString()!,
+            _ => throw new NotSupportedException(array.GetType().Name),
+        };
     }
 }

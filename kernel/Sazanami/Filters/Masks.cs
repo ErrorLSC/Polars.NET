@@ -31,6 +31,9 @@ internal static class Masks
         if (words > 0) mask[words - 1] = LastWord(length);
     }
 
+    /// <summary>Sets rows <paramref name="start"/> to <paramref name="start"/> + <paramref name="count"/> - 1.</summary>
+    public static void SetRange(Span<ulong> mask, int start, int count) => Bits.Fill(MemoryMarshal.AsBytes(mask), start, count, true);
+
     /// <summary><c>target &amp;= other</c>.</summary>
     public static void And(Span<ulong> target, ReadOnlySpan<ulong> other)
     {

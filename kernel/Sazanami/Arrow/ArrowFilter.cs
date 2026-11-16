@@ -9,7 +9,7 @@ using Kaminari.Sazanami.Helpers;
 namespace Kaminari.Sazanami.Arrow;
 
 /// <summary>
-/// Keeps the rows of a flat Arrow array that a row mask selects (<see cref="Masks"/> layout), in a new array over
+/// Keeps the rows of an Arrow array (flat, or structs, lists, maps and fixed-size lists of them) that a row mask selects (<see cref="Masks"/> layout), in a new array over
 /// native memory of its own (freed when it is disposed, as the arrays of <see cref="NativeBatchExport"/>). The input
 /// is left as it is; it must stay alive while it is filtered.
 /// </summary>
@@ -30,7 +30,7 @@ internal static unsafe class ArrowFilter
     /// are ignored). <paramref name="shareViewData"/> forces sharing (true) or copying (false) of long view values;
     /// null decides by the rows kept.
     /// </summary>
-    /// <exception cref="NotSupportedException">A nested array (lists, structs, maps) or a type without a native builder.</exception>
+    /// <exception cref="NotSupportedException">A type without a native layout here (large lists, list views, unions, run-end encoded).</exception>
     public static IArrowArray Filter(IArrowArray array, ReadOnlySpan<ulong> selected, bool? shareViewData = null)
     {
         ArgumentNullException.ThrowIfNull(array);
@@ -111,9 +111,54 @@ internal static unsafe class ArrowFilter
                 return Offsets(export, data, selected, count, validity, nulls);
             case StringViewType or BinaryViewType:
                 return Views(export, data, selected, count, validity, nulls, shareViewData ?? count >= length * ShareViewDataFrom);
+            case NullType:
+                return export.NewArray(count, count, [], []);
+            case StructType s:
+            {
+                var children = new nint[s.Fields.Count];
+                for (int c = 0; c < children.Length; c++)
+                    children[c] = (nint)Build(export, data.Children[c].Slice(data.Offset, length), selected, count, shareViewData);
+                return export.NewArray(count, nulls, [validity], children);
+            }
+            case ListType or MapType:
+                return Lists(export, data, selected, count, validity, nulls, shareViewData);
+            case FixedSizeListType f:
+            {
+                // Each row kept keeps its ListSize elements.
+                int size = f.ListSize;
+                var elements = new ulong[Masks.Words(length * size) + 1];
+                var runs = new Runs(selected, length);
+                while (runs.Next(out int start, out int n)) Masks.SetRange(elements, start * size, n * size);
+                NativeCArray* child = Build(export, data.Children[0].Slice(data.Offset * size, length * size), elements, count * size, shareViewData);
+                return export.NewArray(count, nulls, [validity], [(nint)child]);
+            }
             default:
-                throw new NotSupportedException($"Filtering {data.DataType.Name} arrays is not supported (flat arrays only).");
+                throw new NotSupportedException($"Filtering {data.DataType.Name} arrays is not supported.");
         }
+    }
+
+    /// <summary>Lists and maps: the elements of the rows kept, offsets rebuilt from 0.</summary>
+    private static NativeCArray* Lists(NativeBatchExport export, ArrayData data, ReadOnlySpan<ulong> selected, int count, nint validity, long nulls, bool? shareViewData)
+    {
+        int length = data.Length;
+        ReadOnlySpan<int> offsets = data.Buffers[1].Span.CastTo<int>().Slice(data.Offset, length + 1);
+        int first = offsets[0], span = offsets[length] - first;
+        var elements = new ulong[Masks.Words(span) + 1];
+        var targetOffsets = (int*)export.Allocate((count + 1L) * sizeof(int));
+        int o = 0, at = 0;
+        targetOffsets[o++] = 0;
+        var runs = new Runs(selected, length);
+        while (runs.Next(out int start, out int n))
+        {
+            Masks.SetRange(elements, offsets[start] - first, offsets[start + n] - offsets[start]);
+            for (int i = 0; i < n; i++)
+            {
+                at += offsets[start + i + 1] - offsets[start + i];
+                targetOffsets[o++] = at;
+            }
+        }
+        NativeCArray* child = Build(export, data.Children[0].Slice(first, span), elements, at, shareViewData);
+        return export.NewArray(count, nulls, [validity, (nint)targetOffsets], [(nint)child]);
     }
 
     /// <summary>A dictionary for the filtered array: the input's, shared, or else copied whole.</summary>

@@ -255,12 +255,22 @@ public sealed class ParquetHiveTests : IDisposable
         Write("x/year=2023/p.parquet", 0, 3);
         Write("x/year=__HIVE_DEFAULT_PARTITION__/p.parquet", 3, 3);
         using var dataset = ParquetDataset.Open(At("x"));
-        // A null partition value cannot stand in the mixed conjunct: that file is filtered less.
+        // A null partition value cannot stand in the mixed conjunct: that file's reader filters less, the dataset
+        // filters its rows again (the filter lowers exactly over the dataset's types).
         ScalarExpr mixed = ScalarExpr.NewBinary(BinaryOp.Or,
             ScalarExpr.NewBinary(BinaryOp.And, Binary(BinaryOp.Eq, "year", LiteralValue.NewInt64(2023)), Binary(BinaryOp.GtEq, "id", LiteralValue.NewInt64(1))),
             Binary(BinaryOp.Lt, "id", LiteralValue.NewInt64(0)));
         using (var reader = dataset.OpenReader(new ParquetReadOptions { Filter = mixed, FilterRows = true }))
-            Assert.False(reader.FiltersExactly);
+        {
+            Assert.True(reader.FiltersExactly);
+            List<long> kept = [];
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch) kept.AddRange(((Int64Array)batch.Column(0)).Values.ToArray());
+            }
+            Assert.Equal([1L, 2], kept);
+            Assert.Equal(1, reader.FilesFilteredAfter);
+        }
         // The first file folds to true; the other keeps a conjunct the reader cannot evaluate.
         Write("y/year=2023/p.parquet", 0, 3);
         Write("y/year=2024/p.parquet", 3, 3);

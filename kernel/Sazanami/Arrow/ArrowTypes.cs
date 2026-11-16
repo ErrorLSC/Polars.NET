@@ -31,6 +31,32 @@ internal static class ArrowTypes
         _ => a.TypeId == b.TypeId,
     };
 
+    /// <summary>A type as messages show it: <c>int32</c>, <c>decimal128(10, 2)</c>, <c>timestamp[us, UTC]</c>, <c>struct&lt;a: int64&gt;</c>.</summary>
+    public static string Describe(IArrowType type) => type switch
+    {
+        TimestampType t => string.IsNullOrEmpty(t.Timezone) ? $"timestamp[{Unit(t.Unit)}]" : $"timestamp[{Unit(t.Unit)}, {t.Timezone}]",
+        Time32Type t => $"time32[{Unit(t.Unit)}]",
+        Time64Type t => $"time64[{Unit(t.Unit)}]",
+        DurationType t => $"duration[{Unit(t.Unit)}]",
+        Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type => $"{type.Name}({DecimalParameters(type).Precision}, {DecimalParameters(type).Scale})",
+        FixedSizeBinaryType f => $"fixed_size_binary[{f.ByteWidth}]",
+        DictionaryType d => $"dictionary<{Describe(d.IndexType)}, {Describe(d.ValueType)}>",
+        StructType s => $"struct<{string.Join(", ", s.Fields.Select(f => $"{f.Name}: {Describe(f.DataType)}"))}>",
+        ListType l => $"list<{Describe(l.ValueDataType)}>",
+        LargeListType l => $"large_list<{Describe(l.ValueDataType)}>",
+        FixedSizeListType l => $"fixed_size_list<{Describe(l.ValueDataType)}, {l.ListSize}>",
+        MapType m => $"map<{Describe(m.KeyField.DataType)}, {Describe(m.ValueField.DataType)}>",
+        _ => type.Name,
+    };
+
+    private static string Unit(TimeUnit unit) => unit switch
+    {
+        TimeUnit.Second => "s",
+        TimeUnit.Millisecond => "ms",
+        TimeUnit.Microsecond => "us",
+        _ => "ns",
+    };
+
     /// <summary>The precision and scale of a decimal type.</summary>
     public static (int Precision, int Scale) DecimalParameters(IArrowType type) => type switch
     {

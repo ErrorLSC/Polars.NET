@@ -243,11 +243,21 @@ public sealed class ParquetDatasetTests : IDisposable
             Assert.Equal(["0", "1", "2"], Read(dataset, new ParquetReadOptions { Columns = ["id"] }).Select(r => r.Split('|')[0]));
         }
         File.Delete(missing);
-        var retyped = new Apache.Arrow.Schema([new Field("id", Int32Type.Default, true), new Field("name", StringType.Default, true)], null);
+        // A narrower integer widens; a string does not convert.
+        var narrower = new Apache.Arrow.Schema([new Field("id", Int32Type.Default, true), new Field("name", StringType.Default, true)], null);
         string other = At("x/3.parquet");
+        using (var writer = ParquetWriter.Create(other, narrower))
+        {
+            writer.Write(new RecordBatch(narrower, [new Int32Array.Builder().Append(9).Build(), Names(9, 1)], 1));
+            writer.Complete();
+        }
+        using (var dataset = ParquetDataset.Open(At("x")))
+            Assert.Equal(["0", "1", "9"], Read(dataset, new ParquetReadOptions { Columns = ["id"] }).Select(r => r.Split('|')[0]));
+        File.Delete(other);
+        var retyped = new Apache.Arrow.Schema([new Field("id", StringType.Default, true), new Field("name", StringType.Default, true)], null);
         using (var writer = ParquetWriter.Create(other, retyped))
         {
-            writer.Write(new RecordBatch(retyped, [new Int32Array.Builder().Append(9).Build(), Names(9, 1)], 1));
+            writer.Write(new RecordBatch(retyped, [Names(9, 1), Names(9, 1)], 1));
             writer.Complete();
         }
         using (var dataset = ParquetDataset.Open(At("x")))

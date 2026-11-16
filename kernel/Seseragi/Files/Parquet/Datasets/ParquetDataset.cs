@@ -2,14 +2,17 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.IO;
+using Kaminari.Seseragi.Files.Parquet.Schema;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>
 /// Parquet files read as one table: files named, directories (every file below them), globs (<c>*</c>, <c>?</c>,
 /// <c>[...]</c>, <c>**</c> as a whole segment), or a list of files known beforehand, from the local file system or a
-/// store (<see cref="ParquetDatasetOptions.Store"/>). The schema is the first file's; the other files must hold its
-/// columns (with the same types; columns they have beyond it are not read).
+/// store (<see cref="ParquetDatasetOptions.Store"/>). The columns are the first file's, every file's united
+/// (<see cref="DatasetSchemaMode"/>), or given (<see cref="ParquetDatasetOptions.Schema"/>); files' columns convert
+/// to the dataset's types by lossless widenings (<see cref="ParquetDatasetReader"/>), columns they have beyond them
+/// are not read.
 /// </summary>
 /// <remarks>
 /// Paths are expanded as dataframe engines expand them: each glob's or directory's files in path order, inputs in the order
@@ -21,16 +24,20 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
 {
     private static readonly LocalFileStore LocalFiles = new();
 
+    private static readonly ParquetReadOptions DefaultRead = new();
+
+    /// <summary>How many footers are read at once (a dataset united by name reads every one when it opens).</summary>
+    internal const int FootersAtOnce = 16;
+
     private readonly ParquetMetadata?[] _footers;
 
-    private ParquetDataset(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, ParquetMetadata first, Apache.Arrow.Schema fileSchema,
+    private ParquetDataset(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, ParquetMetadata?[] footers, Apache.Arrow.Schema fileSchema,
         Partitions? partitions)
     {
         Store = store;
         Options = options;
         Files = files;
-        _footers = new ParquetMetadata?[files.Length];
-        _footers[0] = first;
+        _footers = footers;
         FileSchema = fileSchema;
         Partitions = partitions;
         // The files' columns (a partition column of the same name in its place: the path's value wins), then the
@@ -75,14 +82,99 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
 
     internal ParquetDatasetOptions Options { get; }
 
-    /// <summary>The first file's schema, read with default options.</summary>
+    /// <summary>The dataset's columns from files (the first file's, united or given), read with default options.</summary>
     internal Apache.Arrow.Schema FileSchema { get; }
 
     /// <summary>
-    /// The schema read with default options: the first file's columns (nullable), then the file path column if asked
-    /// (in the view layout; <see cref="ParquetReadOptions.ViewTypes"/> off makes it a plain string).
+    /// The schema read with default options: the columns from files (the first file's, every file's united, or the
+    /// given ones; nullable), then the partition columns the files do not have, then the file path column if asked
+    /// (strings in the view layout; <see cref="ParquetReadOptions.ViewTypes"/> off makes them plain strings).
     /// </summary>
     public Apache.Arrow.Schema Schema { get; }
+
+    /// <summary>
+    /// The dataset's columns from files as a reader with <paramref name="options"/> reads them (their layouts and
+    /// types follow the options): the given schema, the first file's, or every file's united.
+    /// </summary>
+    /// <exception cref="ParquetFormatException">A file's schema is damaged, or (united) no type holds a column's types in two files.</exception>
+    internal Apache.Arrow.Schema ColumnsFor(ParquetReadOptions options)
+    {
+        if (Options.Schema is { } given) return Layout(given, options.ViewTypes);
+        if (Options.SchemaMode == DatasetSchemaMode.UnionByName)
+        {
+            // United once with default options when the dataset opened; again only for other layouts.
+            if (options.ViewTypes == DefaultRead.ViewTypes && options.BinaryAsString == DefaultRead.BinaryAsString && options.Int96Unit == DefaultRead.Int96Unit)
+                return FileSchema;
+            return Union(Files, [.. Enumerable.Range(0, Files.Count).Select(i => Footer(i)!)], options, Options.AllowLossyCasts);
+        }
+        return SchemaOf(Files[0].Path, Footer(0)!, options);
+    }
+
+    /// <summary>A file's schema as a reader with <paramref name="options"/> reads it.</summary>
+    internal static Apache.Arrow.Schema SchemaOf(string path, ParquetMetadata footer, ParquetReadOptions options)
+    {
+        try
+        {
+            return ArrowMapping.Map(ParquetSchemaTree.Build(footer.Thrift!.Schema), footer.Thrift, options).Schema;
+        }
+        catch (ParquetFormatException e)
+        {
+            throw InFile(path, e);
+        }
+    }
+
+    /// <summary>The files' columns united by name: first appearance order, each of the narrowest type holding the files'.</summary>
+    private static Apache.Arrow.Schema Union(IReadOnlyList<ParquetDatasetFile> files, ParquetMetadata[] footers, ParquetReadOptions options, bool lossy)
+    {
+        List<Field> fields = [];
+        List<string> origins = [];
+        Dictionary<string, int> index = new(StringComparer.Ordinal);
+        for (int i = 0; i < files.Count; i++)
+        {
+            foreach (Field field in SchemaOf(files[i].Path, footers[i], options).FieldsList)
+            {
+                if (!index.TryGetValue(field.Name, out int at))
+                {
+                    index[field.Name] = fields.Count;
+                    fields.Add(field.IsNullable ? field : new Field(field.Name, field.DataType, nullable: true, field.Metadata));
+                    origins.Add(files[i].Path);
+                    continue;
+                }
+                IArrowType current = fields[at].DataType;
+                if (Sazanami.Arrow.ArrowWidening.Common(current, field.DataType, lossy) is not { } common)
+                {
+                    string hint = !lossy && Sazanami.Arrow.ArrowWidening.Common(current, field.DataType, lossy: true) is not null
+                        ? " without a lossy conversion (ParquetDatasetOptions.AllowLossyCasts allows them)" : "";
+                    throw new ParquetFormatException($"{files[i].Path}: column '{field.Name}' is {Sazanami.Arrow.ArrowTypes.Describe(field.DataType)} in this file but "
+                        + $"{Sazanami.Arrow.ArrowTypes.Describe(current)} in '{origins[at]}': no type holds both{hint}.");
+                }
+                fields[at] = new Field(field.Name, common, nullable: true, fields[at].Metadata);
+            }
+        }
+        return new Apache.Arrow.Schema(fields, null);
+    }
+
+    /// <summary>
+    /// A schema's strings and binaries (nested ones too) in the layout a reader returns: views, or plain offsets
+    /// (dictionaries' values always plain).
+    /// </summary>
+    internal static Apache.Arrow.Schema Layout(Apache.Arrow.Schema schema, bool views) =>
+        new([.. schema.FieldsList.Select(f => Retyped(f, Layout(f.DataType, views)))], schema.Metadata);
+
+    private static IArrowType Layout(IArrowType type, bool views) => type switch
+    {
+        StringType or LargeStringType or StringViewType => views ? StringViewType.Default : StringType.Default,
+        BinaryType or LargeBinaryType or BinaryViewType => views ? BinaryViewType.Default : BinaryType.Default,
+        DictionaryType d => new DictionaryType(d.IndexType, Layout(d.ValueType, views: false), d.Ordered), // a reader's dictionaries hold plain values
+        StructType s => new StructType([.. s.Fields.Select(f => Retyped(f, Layout(f.DataType, views)))]),
+        ListType l => new ListType(Retyped(l.ValueField, Layout(l.ValueDataType, views))),
+        LargeListType l => new ListType(Retyped(l.ValueField, Layout(l.ValueDataType, views))),
+        FixedSizeListType l => new FixedSizeListType(Retyped(l.ValueField, Layout(l.ValueDataType, views)), l.ListSize),
+        MapType m => new MapType(Retyped(m.KeyField, Layout(m.KeyField.DataType, views)), Retyped(m.ValueField, Layout(m.ValueField.DataType, views)), m.KeySorted),
+        _ => type,
+    };
+
+    private static Field Retyped(Field field, IArrowType type) => new(field.Name, type, field.IsNullable, field.Metadata);
 
     /// <summary>The files, in the order read.</summary>
     public IReadOnlyList<ParquetDatasetFile> Files { get; }
@@ -94,7 +186,9 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
 
     /// <summary>Opens the dataset at a path, a directory or a glob.</summary>
     /// <exception cref="FileNotFoundException">No file is found.</exception>
-    /// <exception cref="ParquetFormatException">The first file is not a Parquet file.</exception>
+    /// <exception cref="ParquetFormatException">
+    /// The first file (every file, united by name) is not a Parquet file, or (united) no type holds a column's types in two files.
+    /// </exception>
     public static ParquetDataset Open(string pathOrGlob, ParquetDatasetOptions? options = null) =>
         Sync(OpenCoreAsync([pathOrGlob ?? throw new ArgumentNullException(nameof(pathOrGlob))], options, useAsync: false, default));
 
@@ -123,7 +217,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         OpenCoreAsync([.. files ?? throw new ArgumentNullException(nameof(files))], options, useAsync: true, cancellationToken);
 
     /// <summary>Opens a reader of the dataset's batches (see <see cref="ParquetDatasetReader"/> for how the options apply).</summary>
-    /// <exception cref="ArgumentException">The options select rows or row groups by number (per file: <see cref="ParquetDatasetFile.Rows"/>), name columns the first file lacks, or are out of range.</exception>
+    /// <exception cref="ArgumentException">The options select rows or row groups by number (per file: <see cref="ParquetDatasetFile.Rows"/>), name columns the dataset lacks, or are out of range.</exception>
     public ParquetDatasetReader OpenReader(ParquetReadOptions? options = null) => new(this, options ?? new ParquetReadOptions());
 
     /// <summary>Nothing is held open between reads; kept for stores that will hold connections.</summary>
@@ -182,15 +276,19 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     private static async ValueTask<ParquetDataset> FromFilesAsync(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, int? hiveStart,
         bool useAsync, CancellationToken ct)
     {
-        await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, useAsync, ct).ConfigureAwait(false);
+        var footers = new ParquetMetadata?[files.Length];
         Apache.Arrow.Schema schema;
-        try
+        if (options.Schema is { } declared) schema = Layout(declared, views: true); // no file read
+        else if (options.SchemaMode == DatasetSchemaMode.UnionByName)
         {
-            schema = first.Schema;
+            await ReadFootersAsync(store, files, footers, ct).ConfigureAwait(false);
+            schema = Union(files, footers!, new ParquetReadOptions(), options.AllowLossyCasts);
         }
-        catch (ParquetFormatException e)
+        else
         {
-            throw InFile(files[0].Path, e);
+            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, useAsync, ct).ConfigureAwait(false);
+            footers[0] = first.Metadata;
+            schema = SchemaOf(files[0].Path, first.Metadata, new ParquetReadOptions());
         }
         Partitions? partitions;
         if (files.Any(f => f.PartitionValues is not null))
@@ -202,7 +300,23 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         else partitions = hiveStart is int start && options.Partitioning != HivePartitioning.Off
             ? Partitions.FromHive([.. files.Select(f => f.Path)], start, options.PartitionSchema, schema, options.ParseHiveDates)
             : null;
-        return new ParquetDataset(store, options, files, first.Metadata, schema, partitions);
+        return new ParquetDataset(store, options, files, footers, schema, partitions);
+    }
+
+    /// <summary>Reads the footers of the files (those not given), <see cref="FootersAtOnce"/> at a time.</summary>
+    private static async ValueTask ReadFootersAsync(IFileStore store, ParquetDatasetFile[] files, ParquetMetadata?[] footers, CancellationToken ct)
+    {
+        await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = FootersAtOnce, CancellationToken = ct },
+            async (i, token) =>
+            {
+                if (files[i].Metadata is { } known)
+                {
+                    footers[i] = known;
+                    return;
+                }
+                await using ParquetFile file = await OpenFileAsync(store, files[i], null, useAsync: true, token).ConfigureAwait(false);
+                footers[i] = file.Metadata;
+            }).ConfigureAwait(false);
     }
 
     /// <summary>Opens a file of the store (owned by the <see cref="ParquetFile"/>); errors name the file.</summary>

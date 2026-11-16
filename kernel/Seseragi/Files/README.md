@@ -36,9 +36,20 @@ there, or zero padding) is refused as files joined together, a source cheap to r
 paths, directories (every file below them), globs (`*`, `?`, `[...]`, `**` as a whole segment) or a list of files
 known beforehand (`ParquetDatasetFile`: size, rows to read, footer read before), expanded as Polars expands them (each
 glob's or directory's files in path order, inputs in the order given, empty files left out, hidden and `_` files
-read unless `IgnorePrefixes` says otherwise, a directory given alone holding one extension). The schema is the first
-file's (columns nullable); later files must hold its columns with the same types, in any order, extra columns not
-read. Files are read one after another (footers of the next ones read meanwhile) with the reader options: the row
+read unless `IgnorePrefixes` says otherwise, a directory given alone holding one extension). The columns (nullable)
+are the first file's (`DatasetSchemaMode.FirstFile`, the default), every file's united by name in first-appearance
+order with the narrowest type holding each (`UnionByName`: every footer read when the dataset opens), or given
+(`Schema`: no file read to open; string layouts follow the reader). Files' columns convert to the dataset's types:
+as they are, by lossless widenings (wider integers, floats holding the integers, decimals of no fewer digits or a
+larger scale, integers into decimals, dates into timestamps, finer time units — values beyond the range fail —,
+timestamps of another zone, struct fields matched by name, list and map elements, dictionaries to and from their
+values, plain and view layouts), or with `AllowLossyCasts` by approximating ones (integers and decimals into floats,
+narrower floats, coarser time units rounded down); wall-clock times and instants, strings and numbers never mix.
+Columns and struct fields beyond the dataset's are not read; those a file lacks are an error naming the file and the
+way out, or nulls (`AllowMissingColumns`; always when united). Filters prune each file on its own types; columns it
+lacks become nulls folded into the filter; conjuncts over lossily converted columns do not prune; where a file's own
+filtering cannot be exact the dataset filters its rows after converting, so `FiltersExactly` holds across files.
+Files are read one after another (footers of the next ones read meanwhile) with the reader options: the row
 index numbers rows across files and comes first, `MaxRows` counts across files, `FilePathColumn` adds each row's
 file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors name their file. Files come from an `IFileStore`
 (`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), or a store of the caller.
@@ -408,12 +419,13 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeGrowBuffer.cs` | Growable 64-byte-aligned native buffer and bitmap. |
 | `Arrow/NativeColumnBuilders.cs` | Arrow column builders in native memory (fixed width, boolean, binary, fixed-size binary, dictionary, list/map, struct, null) with lazy validity. |
 | `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
-| `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from a flat Arrow array, into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
+| `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from an Arrow array (flat, or structs, lists, maps and fixed-size lists of them), into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
 | `Helpers/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
 | `Arrow/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path and partition columns): string views over one copy, repeated strings, any flat type repeated from one element of an array. |
 | `Text/TextValues.cs` | Text values inferred and parsed as Polars' CSV reader does: booleans, floats, integers (Int128 beyond Int64), dates and date-times with offsets; the kind of a column from the kinds of its values. |
-| `Arrow/ArrowTypes.cs` | Whether two Arrow types hold values the same way (parameters compared, nested nullability not); decimal parameters. |
+| `Arrow/ArrowTypes.cs` | Whether two Arrow types hold values the same way (parameters compared, nested nullability not); decimal parameters; types as messages show them. |
+| `Arrow/ArrowWidening.cs`, `ArrowConversion.cs` | Conversions between Arrow types as datasets need them: which compile (lossless widenings, lossy ones on request, struct fields by name with missing ones null on request), the narrowest common type of two, and the conversions themselves into native memory (unchanged parts shared with a native source; portable vector paths for the common numeric widenings); arrays of nulls of any type. |
 | `Helpers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
 | `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
 | `Arrow/ArrowSchemaCheck.cs` | Checks an Arrow IPC schema message as a FlatBuffer (offsets, vectors, strings, nesting) before the Apache.Arrow reader trusts its lengths. |
@@ -517,9 +529,12 @@ what its predicate cannot match, and gives the rows of one thread on several). S
   `ParquetMemorySourceTests` (memory, memory streams and unmanaged streams read in place), `ParquetSingleFileTests`
   (joined, prefixed and cut files refused; padding and metadata copies accepted), `FileStoreTests`,
   `ParquetDatasetTests` (expansion, order, schema across files, row index, limits, file paths, stores),
+  `ParquetDatasetSchemaTests` (schema modes, conversions, missing and extra columns and fields, filters over converted
+  and missing columns),
   `ParquetHiveTests` (keys, types, values, collisions, given values, the glob switch, partition pruning),
   `FilterConstantFoldingTests` and, opt-in with `SESERAGI_PARQUET_PYTHON`, `ParquetDatasetInteropTests` (the same
-  datasets, plain and partitioned, read by Python Polars, `TestData/parquet/dataset_polars.py`). Writing: `ParquetWriterTests` (every type in every
+  datasets, plain and partitioned, read by Python Polars, `TestData/parquet/dataset_polars.py`; files of mixed types
+  read by Polars, DuckDB and pyarrow where the rules agree, `TestData/parquet/dataset_schema_oracle.py`). Writing: `ParquetWriterTests` (every type in every
   page layout, codec and dictionary setting read back by our reader with checksums verified; slices, empty batches,
   row groups, the footer's chunks and encodings, the async API, refusals), `ParquetWriterStatisticsTests` (bounds of
   every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),

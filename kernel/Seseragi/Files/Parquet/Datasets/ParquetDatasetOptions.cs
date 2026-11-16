@@ -42,9 +42,50 @@ public sealed record ParquetDatasetOptions
     /// <summary>Whether partition values are read as dates and timestamps when they are written so (on by default).</summary>
     public bool ParseHiveDates { get; init; } = true;
 
+    /// <summary>
+    /// How the dataset's columns are found (<see cref="DatasetSchemaMode"/>; by default the first file's), when no
+    /// <see cref="Schema"/> is given.
+    /// </summary>
+    public DatasetSchemaMode SchemaMode { get; init; } = DatasetSchemaMode.FirstFile;
+
+    /// <summary>
+    /// The dataset's columns, given (as a table's schema records them): no file is read to find them. Files'
+    /// columns convert to their types (see <see cref="ParquetDatasetReader"/>); columns the files have beyond them
+    /// are not read; a column a file lacks is an error unless <see cref="AllowMissingColumns"/>. Strings and binaries
+    /// in any layout (plain, large, view) are read in the layout <see cref="ParquetReadOptions.ViewTypes"/> says (a
+    /// dictionary's values plain), large lists as lists;
+    /// nullability is not enforced (a dataset's columns are nullable). Not with <see cref="DatasetSchemaMode.UnionByName"/>.
+    /// </summary>
+    public Apache.Arrow.Schema? Schema { get; init; }
+
+    /// <summary>
+    /// Whether a column or struct field the dataset has and a file lacks is read as nulls for that file's rows (off
+    /// by default: an error naming the file and the column). <see cref="DatasetSchemaMode.UnionByName"/> always does.
+    /// </summary>
+    public bool AllowMissingColumns { get; init; }
+
+    /// <summary>
+    /// Whether files' columns may convert to the dataset's types by conversions that approximate values (off by
+    /// default: only lossless widenings): integers and decimals into floats that cannot hold them exactly (the
+    /// nearest float), floats into narrower floats, times, timestamps and durations into a coarser unit (rounded
+    /// down). Never narrower integers, wall-clock times into instants or back, strings into numbers or back,
+    /// timestamps into dates. <see cref="DatasetSchemaMode.UnionByName"/> then also finds types for mixes such as
+    /// 64-bit integers and floats (doubles).
+    /// </summary>
+    public bool AllowLossyCasts { get; init; }
+
     internal void Validate()
     {
         if (!Enum.IsDefined(Partitioning)) throw new ArgumentOutOfRangeException(nameof(Partitioning), Partitioning, "Unknown partitioning.");
+        if (!Enum.IsDefined(SchemaMode)) throw new ArgumentOutOfRangeException(nameof(SchemaMode), SchemaMode, "Unknown schema mode.");
+        if (Schema is { } given)
+        {
+            if (SchemaMode == DatasetSchemaMode.UnionByName)
+                throw new ArgumentException("A given schema names the columns itself: it does not go with SchemaMode.UnionByName.", nameof(Schema));
+            if (given.FieldsList.Count == 0) throw new ArgumentException("The given schema has no column.", nameof(Schema));
+            if (given.FieldsList.Select(f => f.Name).Distinct(StringComparer.Ordinal).Count() != given.FieldsList.Count)
+                throw new ArgumentException("The given schema names a column twice.", nameof(Schema));
+        }
         if (PartitionSchema is { } schema)
         {
             foreach (Apache.Arrow.Field field in schema.FieldsList)
@@ -89,4 +130,21 @@ public enum HivePartitioning
 
     /// <summary>No partition columns from paths.</summary>
     Off,
+}
+
+/// <summary>How a dataset's columns are found when no <see cref="ParquetDatasetOptions.Schema"/> is given.</summary>
+public enum DatasetSchemaMode
+{
+    /// <summary>
+    /// The first file's columns (the default; read when the dataset opens): the other files' columns must convert
+    /// to their types (a wider type in a later file is an error), columns beyond them are not read.
+    /// </summary>
+    FirstFile,
+
+    /// <summary>
+    /// Every file's columns, by name, in the order they first appear (every footer is read when the dataset opens):
+    /// each column of the narrowest type every file's converts to; a file lacking a column reads nulls for it. Struct
+    /// fields unite the same way.
+    /// </summary>
+    UnionByName,
 }
