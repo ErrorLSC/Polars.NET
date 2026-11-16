@@ -13,6 +13,21 @@ public enum ParquetPageVersion
     V2,
 }
 
+/// <summary>Who owns the record batches given to <see cref="ParquetWriter"/>.</summary>
+public enum ParquetBatchOwnership
+{
+    /// <summary>The caller: a batch is encoded before Write returns and may be disposed then.</summary>
+    Caller,
+
+    /// <summary>
+    /// The writer: it takes every batch given to Write (and those of the static Write methods), reads it after Write
+    /// returns, and disposes it once its rows are encoded (also when Write fails); the caller neither uses nor disposes
+    /// it afterwards. With more than one thread, several row groups are then encoded at once, straight from the
+    /// batches.
+    /// </summary>
+    Writer,
+}
+
 /// <summary>Options for <see cref="ParquetWriter"/>.</summary>
 public sealed record ParquetWriteOptions
 {
@@ -29,7 +44,11 @@ public sealed record ParquetWriteOptions
     /// <summary>A row group is closed once it holds this many rows (or <see cref="RowGroupBytes"/>, whichever comes first).</summary>
     public int RowGroupRows { get; init; } = 1_048_576;
 
-    /// <summary>A row group is closed once its encoded pages reach about this many bytes (128 MiB by default).</summary>
+    /// <summary>
+    /// A row group is closed once its encoded pages reach about this many bytes (128 MiB by default); with
+    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, once the batches' Arrow buffers for its rows
+    /// do (row groups are then laid out before they are encoded).
+    /// </summary>
     public long RowGroupBytes { get; init; } = 128L << 20;
 
     /// <summary>A data page is closed once its values reach about this many bytes before compression (1 MiB by default).</summary>
@@ -109,6 +128,20 @@ public sealed record ParquetWriteOptions
     /// </summary>
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
+    /// <summary>
+    /// Who owns the batches (<see cref="ParquetBatchOwnership.Caller"/> by default). With
+    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, row groups are encoded side by side.
+    /// </summary>
+    public ParquetBatchOwnership BatchOwnership { get; init; } = ParquetBatchOwnership.Caller;
+
+    /// <summary>
+    /// With <see cref="ParquetBatchOwnership.Writer"/>, the batches' Arrow bytes of the row groups encoded at once, at
+    /// most (a row group goes beyond alone). Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested table)
+    /// wrote fastest eight at a time, of 210 MB (1 Mi rows of eight flat columns) two at a time; more held memory and
+    /// slowed the writes. Tests set less.
+    /// </summary>
+    internal long InFlightBytes { get; init; } = 512L << 20;
+
     /// <summary>Leave the stream open when the writer is disposed.</summary>
     public bool LeaveOpen { get; init; }
 
@@ -119,6 +152,7 @@ public sealed record ParquetWriteOptions
         if (RowGroupBytes <= 0) throw new ArgumentOutOfRangeException(nameof(RowGroupBytes), RowGroupBytes, "RowGroupBytes must be positive.");
         if (DataPageBytes <= 0) throw new ArgumentOutOfRangeException(nameof(DataPageBytes), DataPageBytes, "DataPageBytes must be positive.");
         if (DataPageRows <= 0) throw new ArgumentOutOfRangeException(nameof(DataPageRows), DataPageRows, "DataPageRows must be positive.");
+        if (!Enum.IsDefined(BatchOwnership)) throw new ArgumentOutOfRangeException(nameof(BatchOwnership), BatchOwnership, "Unknown batch ownership.");
         if (MaxDegreeOfParallelism <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
         if (DictionaryPageBytes <= 0) throw new ArgumentOutOfRangeException(nameof(DictionaryPageBytes), DictionaryPageBytes, "DictionaryPageBytes must be positive.");

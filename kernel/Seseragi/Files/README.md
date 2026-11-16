@@ -196,7 +196,11 @@ most 16 384 rows; or `EndRowGroup`), then written column chunk by column chunk. 
 (the processor count by default) the columns of a segment are encoded on several threads, pages are compressed by
 helper threads (a few in flight a column, the total of busy threads kept to the degree), chunks are finished in
 parallel and a row group goes to the stream while the next one is encoded; the file is the same, byte for byte,
-whatever the degree. Pages
+whatever the degree. With `BatchOwnership = Writer` the writer takes the batches (reading them after `Write` returns,
+disposing each once its rows are encoded, also on failure) and, on several threads, encodes several row groups at once
+straight from them (each by column writers of its own, within a bound on their batches' bytes), writing them in order;
+row groups are then closed on rows or on the batches' Arrow bytes, and the file is the one the caller's batches give
+whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once its row group is in the stream. Pages
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
 dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page holding values shows the dictionary does not
@@ -423,7 +427,7 @@ written synchronously on completion.
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>`): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
-| `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded; Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
+| `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded; with the writer owning the batches, row groups encoded side by side (sets of column writers, one column scheduler, reference-counted batches, laid out and written in order); Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
 | `Parquet/ParquetColumnOptions.cs` | Settings by column (`ParquetWriteOptions.Columns`): the encoding of pages written without the dictionary (`ParquetValueEncoding`), the dictionary on or off, Bloom filters (`ParquetBloomFilterOptions`: false positive rate, a cap on the distinct values sized for, the largest size). |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
 | `Parquet/Writing/Shredding.cs` | The Dremel shredder: the steps from a top-level array to a leaf (struct, list in every layout, map, remapping layouts — run-end encoding, dictionaries of nested values — and the leaf), walked row by row into definition and repetition levels and the positions of the values present (each step's array built once per call; the validating walk run only when a non-nullable node's array holds nulls); children from the parents' raw data (offsets of parents applied, nulls of parents hiding their children); the same walk validates nullability. |
@@ -567,6 +571,9 @@ what its predicate cannot match, and gives the rows of one thread on several). S
   page layout, codec and dictionary setting read back by our reader with checksums verified; slices, empty batches,
   row groups, the footer's chunks and encodings, the async API, refusals), `ParquetWriterStatisticsTests` (bounds of
   every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),
+  `ParquetWriterOwnershipTests` (the writer owning its batches: the caller's file whatever the threads, each batch
+  disposed once after its rows are encoded — watched memory poisoned on disposal — also on failures and abandoned
+  writers; row groups in flight bounded by count and bytes; row groups by the batches' bytes),
   `ParquetWriterInteropTests` (opt-in, `Category=Interop`: pyarrow, DuckDB, Python Polars and Spark — vectorized and
   not — read our files, `TestData/parquet/writer_interop.py` and `writer_spark.py`, each also filtering at the bounds
   with statistics and without; the readers' own limits are listed there); `ParquetNestedWriterTests` (random nested columns —
