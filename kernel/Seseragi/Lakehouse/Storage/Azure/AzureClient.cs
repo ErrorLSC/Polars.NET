@@ -332,7 +332,7 @@ internal sealed class AzureClient : ObjectStoreClient
                 null, null, cancellationToken).ConfigureAwait(false);
             if (response.Status == HttpStatusCode.NotFound) return null;
             if (!response.IsSuccess) throw Failure(response, $"read the blocks of '{Key}'");
-            var ids = new List<string>();
+            List<string> ids = [];
             using var reader = XmlReader.Create(new MemoryStream(response.Body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
             while (!reader.EOF)
             {

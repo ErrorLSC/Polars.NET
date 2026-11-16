@@ -120,12 +120,23 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
     public bool TryCreate(string path, ReadOnlyMemory<byte> content)
     {
         string target = Resolve(path);
-        string temp = WriteTemp(target, content);
+        return Publish(WriteTemp(target, content), target, createOnly: true);
+    }
+
+    /// <summary>
+    /// Gives a complete temporary file its name, and removes the temporary name. Creating, the step fails when the
+    /// name is taken, so the file appears complete and only one of two writers gets it: File.Move without overwrite
+    /// does not do that on Unix (it checks, then renames), so a hard link is made there. Replacing is a rename.
+    /// </summary>
+    private static bool Publish(string temp, string target, bool createOnly)
+    {
         try
         {
-            // The whole file is written under a temporary name, then given its name in one step that fails when
-            // the name is taken, so the file appears complete and only one of two writers gets it. File.Move
-            // without overwrite does not do that on Unix (it checks, then renames), so a hard link is made there.
+            if (!createOnly)
+            {
+                File.Move(temp, target, overwrite: true);
+                return true;
+            }
             if (OperatingSystem.IsWindows())
             {
                 try
@@ -142,6 +153,44 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
         }
         finally
         {
+            File.Delete(temp); // gone already after a move
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>The bytes go to a hidden temporary file beside the target, flushed to disk and renamed at commit.</remarks>
+    public FileWriteStream OpenWrite(string path, bool createOnly)
+    {
+        string target = Resolve(path);
+        string temp = TempPath(target);
+        return new LocalWriteStream(new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16), temp, target, createOnly);
+    }
+
+    private sealed class LocalWriteStream(FileStream file, string temp, string target, bool createOnly) : FileWriteStream
+    {
+        protected override void WriteCore(ReadOnlySpan<byte> buffer) => file.Write(buffer);
+
+        protected override ValueTask WriteCoreAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>
+            file.WriteAsync(buffer, cancellationToken);
+
+        protected override bool CommitCore()
+        {
+            file.Flush(flushToDisk: true);
+            file.Dispose();
+            return Publish(temp, target, createOnly);
+        }
+
+        protected override async ValueTask<bool> CommitCoreAsync(CancellationToken cancellationToken)
+        {
+            await file.FlushAsync(cancellationToken).ConfigureAwait(false);
+            file.Flush(flushToDisk: true);
+            await file.DisposeAsync().ConfigureAwait(false);
+            return Publish(temp, target, createOnly);
+        }
+
+        protected override void Abort()
+        {
+            file.Dispose();
             File.Delete(temp);
         }
     }
@@ -212,24 +261,21 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
     public void Overwrite(string path, ReadOnlyMemory<byte> content)
     {
         string target = Resolve(path);
-        string temp = WriteTemp(target, content);
-        try
-        {
-            File.Move(temp, target, overwrite: true);
-        }
-        catch
-        {
-            File.Delete(temp);
-            throw;
-        }
+        Publish(WriteTemp(target, content), target, createOnly: false);
+    }
+
+    /// <summary>A hidden name beside the target (its directory created), so that the final step is a rename.</summary>
+    private static string TempPath(string target)
+    {
+        string directory = Path.GetDirectoryName(target)!;
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, $".{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
     }
 
     /// <summary>Writes the content to a hidden file beside the target, so that the final step is a rename.</summary>
     private static string WriteTemp(string target, ReadOnlyMemory<byte> content)
     {
-        string directory = Path.GetDirectoryName(target)!;
-        Directory.CreateDirectory(directory);
-        string temp = Path.Combine(directory, $".{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
+        string temp = TempPath(target);
         using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write))
         {
             stream.Write(content.Span);

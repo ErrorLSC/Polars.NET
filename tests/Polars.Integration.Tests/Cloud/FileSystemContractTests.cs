@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using Kaminari.Sazanami.Network;
 using Kaminari.Seseragi.Lakehouse.Engine;
@@ -20,6 +21,37 @@ namespace Polars.Integration.Tests;
 /// </summary>
 public abstract class FileSystemContract
 {
+    /// <summary>
+    /// Runs every check of the contract on one implementation (each theory once per data row, asynchronous checks to
+    /// their end), for runs outside the test framework's discovery (real clouds); the failures, one line each.
+    /// </summary>
+    public static List<string> RunAll(FileSystemContract contract)
+    {
+        var checks = typeof(FileSystemContract).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(static m => m.GetCustomAttribute<FactAttribute>() is not null).ToList();
+        Assert.True(checks.Count >= 10);
+        List<string> failures = [];
+        foreach (MethodInfo check in checks)
+        {
+            object?[][] rows = check.GetCustomAttribute<TheoryAttribute>() is null
+                ? [[]]
+                : [.. check.GetCustomAttributes<InlineDataAttribute>().SelectMany(d => d.GetData(check))];
+            foreach (object?[] row in rows)
+            {
+                try
+                {
+                    if (check.Invoke(contract, row.Length == 0 ? null : row) is Task task) task.GetAwaiter().GetResult();
+                }
+                catch (Exception e)
+                {
+                    Exception failure = e is TargetInvocationException { InnerException: { } inner } ? inner : e;
+                    failures.Add($"{check.Name}({string.Join(", ", row)}): {failure.GetType().Name}: {failure.Message}");
+                }
+            }
+        }
+        return failures;
+    }
+
     /// <summary>A fresh, empty root no other test uses.</summary>
     protected abstract string NewRoot();
 
@@ -248,6 +280,120 @@ public abstract class FileSystemContract
             Assert.Equal("outs", Text(fs.ReadRange(AbsoluteUri(other, "data/part 1=a.parquet"), 0, 4)));
         }
         finally { Dispose(otherFs); }
+    });
+
+    // ---- streamed writes ----
+
+    /// <summary>
+    /// Whether a large file can replace another in parts here (fake-gcs takes no XML multipart uploads, which the
+    /// managed GCS store uses for replacing; creating uses resumable uploads, which it takes).
+    /// </summary>
+    protected virtual bool MultipartOverwrite => true;
+
+    /// <summary>
+    /// Whether the checks write large files (in parts). Real-cloud runs repeat the contract per sign-in and backend;
+    /// one run per cloud writes them, the others keep to small files (the large ones cost seconds each far away).
+    /// </summary>
+    public bool LargeStreams { get; init; } = true;
+
+    /// <summary>More than two parts of the managed stores' default part size (10 MiB): written in parts.</summary>
+    protected const int LargeSize = 2 * 10 * 1024 * 1024 + 12345;
+
+    private static byte[] Random(int length, int seed)
+    {
+        var bytes = new byte[length];
+        new Random(seed).NextBytes(bytes);
+        return bytes;
+    }
+
+    /// <summary>Writes in pieces of uneven sizes (a writer's buffers rarely match parts).</summary>
+    private static async Task WriteInPieces(FileWriteStream stream, byte[] content, bool async)
+    {
+        for (int offset = 0, piece = 1; offset < content.Length; piece = piece * 7 % 1_000_003)
+        {
+            int count = Math.Min(Math.Max(piece, 1), content.Length - offset);
+            if (async) await stream.WriteAsync(content.AsMemory(offset, count));
+            else stream.Write(content.AsSpan(offset, count));
+            offset += count;
+        }
+    }
+
+    private async Task WithAsync(Func<IWritableFileSystem, Task> check)
+    {
+        IWritableFileSystem fs = Open(NewRoot());
+        try { await check(fs); }
+        finally { Dispose(fs); }
+    }
+
+    [Theory]
+    [InlineData(10, true, false)]
+    [InlineData(0, true, true)]
+    [InlineData(LargeSize, true, false)]
+    [InlineData(LargeSize, true, true)]
+    [InlineData(LargeSize, false, false)]
+    [InlineData(LargeSize, false, true)]
+    public Task StreamedWrites_AppearWhole_OnlyAtCommit(int size, bool createOnly, bool async) => WithAsync(async fs =>
+    {
+        if (size == LargeSize && (!LargeStreams || (!createOnly && !MultipartOverwrite))) return;
+        byte[] content = Random(size, size + (createOnly ? 1 : 0));
+        if (!createOnly) Assert.True(fs.TryCreate("data/f.bin", Bytes("old")));
+        await using (FileWriteStream stream = fs.OpenWrite("data/f.bin", createOnly))
+        {
+            await WriteInPieces(stream, content, async);
+            Assert.Equal(size, stream.Position);
+            Assert.Equal(createOnly ? null : "old", fs.ReadAll("data/f.bin") is { } before ? Text(before) : null);
+            Assert.True(async ? await stream.CommitAsync() : stream.Commit());
+        }
+        Assert.Equal(content, fs.ReadAll("data/f.bin"));
+        Assert.Equal([("data/f.bin", (long)size)], fs.ListAll("").Select(e => (e.Path, e.Size)));
+    });
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(LargeSize)]
+    public Task StreamedCreate_OfAnExistingFile_IsRefused_AndLeavesItAsItWas(int size) => WithAsync(async fs =>
+    {
+        if (size == LargeSize && !LargeStreams) return;
+        Assert.True(fs.TryCreate("f.bin", Bytes("first")));
+        await using (FileWriteStream stream = fs.OpenWrite("f.bin", createOnly: true))
+        {
+            await stream.WriteAsync(Random(size, 7));
+            Assert.False(await stream.CommitAsync());
+        }
+        Assert.Equal("first", Text(fs.ReadAll("f.bin")));
+        Assert.Single(fs.ListAll(""));
+    });
+
+    [Fact]
+    public Task StreamedCreates_OfOnePath_OneWins() => WithAsync(async fs =>
+    {
+        int size = LargeStreams ? LargeSize : 1000;
+        byte[] a = Random(size, 11), b = Random(size, 12);
+        await using FileWriteStream first = fs.OpenWrite("_delta_log/00000000000000000010.checkpoint.parquet", createOnly: true);
+        await using FileWriteStream second = fs.OpenWrite("_delta_log/00000000000000000010.checkpoint.parquet", createOnly: true);
+        await Task.WhenAll(first.WriteAsync(a).AsTask(), second.WriteAsync(b).AsTask());
+        bool[] won = await Task.WhenAll(first.CommitAsync().AsTask(), second.CommitAsync().AsTask());
+        Assert.Single(won, true);
+        Assert.Equal(won[0] ? a : b, fs.ReadAll("_delta_log/00000000000000000010.checkpoint.parquet"));
+        Assert.Single(fs.ListAll(""));
+    });
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(LargeSize)]
+    public Task StreamedWrites_NotCommitted_LeaveNothing(int size) => WithAsync(async fs =>
+    {
+        if (size == LargeSize && !LargeStreams) return;
+        await using (FileWriteStream stream = fs.OpenWrite("f.bin", createOnly: true))
+            await stream.WriteAsync(Random(size, 13));
+        if (MultipartOverwrite || size < LargeSize)
+        {
+            using FileWriteStream stream = fs.OpenWrite("g.bin", createOnly: false);
+            stream.Write(Random(size, 14));
+        }
+        Assert.Null(fs.ReadAll("f.bin"));
+        Assert.Null(fs.ReadAll("g.bin"));
+        Assert.Empty(fs.ListAll(""));
     });
 }
 
@@ -711,6 +857,8 @@ internal static class GcsKeys
 [Trait("FileSystemContract", "Cloud")]
 public sealed class ManagedGcsFileSystemContractTests(FakeGcsFixture gcs) : FileSystemContract, IClassFixture<FakeGcsFixture>
 {
+    protected override bool MultipartOverwrite => false;
+
     protected override string NewRoot() => $"gs://{FakeGcsFixture.BucketName}/managed_{Guid.NewGuid():N}";
 
     protected override IWritableFileSystem Open(string root) => GcsKeys.Open(root, GcsKeys.Of(gcs));
@@ -796,6 +944,8 @@ public sealed class ManagedGcsFileSystemContractTests(FakeGcsFixture gcs) : File
 [Trait("FileSystemContract", "Cloud")]
 public sealed class ManagedGcsSmallPagesContractTests(FakeGcsFixture gcs) : FileSystemContract, IClassFixture<FakeGcsFixture>
 {
+    protected override bool MultipartOverwrite => false;
+
     protected override string NewRoot() => $"gs://{FakeGcsFixture.BucketName}/pages_{Guid.NewGuid():N}";
 
     protected override IWritableFileSystem Open(string root) => GcsKeys.Open(root, GcsKeys.Of(gcs), pageSize: 2);

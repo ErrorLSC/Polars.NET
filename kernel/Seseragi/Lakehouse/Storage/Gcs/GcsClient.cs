@@ -273,7 +273,7 @@ internal sealed class GcsClient : ObjectStoreClient
     {
         if (create)
         {
-            var query = new List<KeyValuePair<string, string>> { new("uploadType", "resumable"), new("name", key), new("ifGenerationMatch", "0") };
+            List<KeyValuePair<string, string>> query = [new("uploadType", "resumable"), new("name", key), new("ifGenerationMatch", "0")];
             StoreResponse started = await SendBufferedAsync(HttpMethod.Post, $"{_baseUrl}/upload/storage/v1/b/{Encode(_bucket)}/o?{Query(query)}",
                 new() { ["Content-Type"] = "", ["X-Upload-Content-Type"] = "application/octet-stream" }, ReadOnlyMemory<byte>.Empty,
                 cancellationToken).ConfigureAwait(false);

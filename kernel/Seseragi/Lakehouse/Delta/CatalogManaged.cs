@@ -97,6 +97,8 @@ public sealed class CatalogManagedFileSystem(IWritableFileSystem inner, ICatalog
     /// <inheritdoc/>
     public void Overwrite(string path, ReadOnlyMemory<byte> content) => Inner.Overwrite(path, content);
     /// <inheritdoc/>
+    public FileWriteStream OpenWrite(string path, bool createOnly) => Inner.OpenWrite(path, createOnly);
+    /// <inheritdoc/>
     public bool Delete(string path) =>
         path.StartsWith(LogFile.LogDirectory + "/", StringComparison.Ordinal)
             ? throw new DeltaProtocolException($"The table is catalog-managed: its log files are not deleted by its writers ({path}).")

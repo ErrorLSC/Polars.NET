@@ -159,6 +159,46 @@ public static class RealAwsApi
     public static string? Value(System.Xml.Linq.XElement e, string name) =>
         e.Elements().FirstOrDefault(c => c.Name.LocalName == name)?.Value;
 
+    /// <summary>A request to the test bucket, signed with the test key; the answer's text. Fails with the service's error text.</summary>
+    private static string S3Request(HttpMethod method, string key, IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        string host = $"{RealAws.Bucket}.s3.{Region}.amazonaws.com";
+        string path = "/" + Kaminari.Seseragi.Lakehouse.Storage.S3.SigV4.Encode(key, encodeSlash: false);
+        string canonical = Kaminari.Seseragi.Lakehouse.Storage.S3.SigV4.CanonicalQuery(query);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string empty = Kaminari.Seseragi.Lakehouse.Storage.S3.SigV4.EmptyPayloadHash;
+        var signed = new Dictionary<string, string>
+        {
+            ["host"] = host,
+            ["x-amz-content-sha256"] = empty,
+            ["x-amz-date"] = Kaminari.Seseragi.Lakehouse.Storage.S3.SigV4.AmzDate(now),
+        };
+        string authorization = Kaminari.Seseragi.Lakehouse.Storage.S3.SigV4.Authorization(
+            method.Method, path, canonical, signed, empty, Credential(), Region, "s3", now);
+
+        using var http = new HttpClient();
+        using var request = new HttpRequestMessage(method,
+            new Uri($"https://{host}{path}?{canonical}", new UriCreationOptions { DangerousDisablePathAndQueryCanonicalization = true }));
+        request.Headers.TryAddWithoutValidation("x-amz-date", signed["x-amz-date"]);
+        request.Headers.TryAddWithoutValidation("x-amz-content-sha256", empty);
+        request.Headers.TryAddWithoutValidation("Authorization", authorization);
+        using HttpResponseMessage response = http.Send(request);
+        string answer = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"S3 {method} {key}: HTTP {(int)response.StatusCode}: {answer}");
+        return answer;
+    }
+
+    /// <summary>The multipart uploads of the test bucket not completed or aborted, below a prefix (ListMultipartUploads; one page).</summary>
+    public static List<(string Key, string UploadId)> OpenUploadList(string prefix) =>
+        [.. All(System.Xml.Linq.XDocument.Parse(S3Request(HttpMethod.Get, "", [new("prefix", prefix), new("uploads", "")])), "Upload")
+            .Select(u => (Value(u, "Key")!, Value(u, "UploadId")!))];
+
+    /// <inheritdoc cref="OpenUploadList"/>
+    public static int OpenUploads(string prefix) => OpenUploadList(prefix).Count;
+
+    /// <summary>Aborts a multipart upload of the test bucket.</summary>
+    public static void AbortUpload(string key, string uploadId) => S3Request(HttpMethod.Delete, key, [new("uploadId", uploadId)]);
+
     /// <summary>A presigned (query-signed, unsigned payload) URL of an object of the test bucket.</summary>
     public static string Presign(string method, string key, TimeSpan expires)
     {
@@ -233,23 +273,12 @@ public sealed class RealCloudAwsTests : IClassFixture<RealAwsCleanup>
 
     private static void RunContract(bool withRegion)
     {
-        var contract = new Contract(withRegion);
-        var checks = typeof(FileSystemContract).GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.GetCustomAttribute<FactAttribute>() is not null).ToList();
-        Assert.True(checks.Count >= 10);
-        var failures = new List<string>();
-        foreach (MethodInfo check in checks)
-        {
-            try
-            {
-                check.Invoke(contract, null);
-            }
-            catch (TargetInvocationException e)
-            {
-                failures.Add($"{check.Name}: {e.InnerException?.GetType().Name}: {e.InnerException?.Message}");
-            }
-        }
+        // Large streamed files once: managed, with the region.
+        var contract = new Contract(withRegion) { LargeStreams = withRegion && Backend == "managed" };
+        List<string> failures = FileSystemContract.RunAll(contract);
         Assert.True(failures.Count == 0, $"{Backend}: " + string.Join("\n", failures));
+        // Uncommitted streams, refused creates and race losers leave no multipart upload behind.
+        Assert.Equal(0, RealAwsApi.OpenUploads($"{RealAws.RunPrefix}/contract_"));
     }
 
     [AwsFact]

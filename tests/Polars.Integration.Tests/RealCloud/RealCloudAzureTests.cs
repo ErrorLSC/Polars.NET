@@ -245,22 +245,9 @@ public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
 
     private static void RunContract(AzureAccountKind kind, AzureSignIn signIn)
     {
-        var contract = new Contract(kind, RealAzure.Args(kind, signIn));
-        var checks = typeof(FileSystemContract).GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.GetCustomAttribute<FactAttribute>() is not null).ToList();
-        Assert.True(checks.Count >= 10);
-        var failures = new List<string>();
-        foreach (MethodInfo check in checks)
-        {
-            try
-            {
-                check.Invoke(contract, null);
-            }
-            catch (TargetInvocationException e)
-            {
-                failures.Add($"{check.Name}: {e.InnerException?.GetType().Name}: {e.InnerException?.Message}");
-            }
-        }
+        // Large streamed files once per account kind: managed, with the account key.
+        var contract = new Contract(kind, RealAzure.Args(kind, signIn)) { LargeStreams = signIn == AzureSignIn.AccountKey && Backend == "managed" };
+        List<string> failures = FileSystemContract.RunAll(contract);
         Assert.True(failures.Count == 0, $"{Backend} {kind} {signIn}: " + string.Join("\n", failures));
     }
 

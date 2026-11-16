@@ -199,22 +199,9 @@ public sealed class RealCloudGcsTests : IClassFixture<RealGcsCleanup>
     [InlineData(GcsSignIn.OAuthToken)]
     public void TheFileSystemContract_Holds(GcsSignIn signIn)
     {
-        var contract = new Contract(RealGcs.Args(signIn));
-        var checks = typeof(FileSystemContract).GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.GetCustomAttribute<FactAttribute>() is not null).ToList();
-        Assert.True(checks.Count >= 10);
-        var failures = new List<string>();
-        foreach (MethodInfo check in checks)
-        {
-            try
-            {
-                check.Invoke(contract, null);
-            }
-            catch (TargetInvocationException e)
-            {
-                failures.Add($"{check.Name}: {e.InnerException?.GetType().Name}: {e.InnerException?.Message}");
-            }
-        }
+        // Large streamed files once: managed, with the key file.
+        var contract = new Contract(RealGcs.Args(signIn)) { LargeStreams = signIn == GcsSignIn.KeyFile && Backend == "managed" };
+        List<string> failures = FileSystemContract.RunAll(contract);
         Assert.True(failures.Count == 0, $"{Backend} {signIn}: " + string.Join("\n", failures));
     }
 

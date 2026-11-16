@@ -119,6 +119,74 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
         && path.Length == "_delta_log/".Length + 25 && path.AsSpan("_delta_log/".Length, 20).IndexOfAnyExceptInRange('0', '9') < 0;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Recorded as <see cref="TryCreate"/> records: a file outside the log once its commit created it (a refused
+    /// create-only commit is another writer's file); a commit file marks the operation committed, or its fate unknown
+    /// when committing it failed.
+    /// </remarks>
+    public FileWriteStream OpenWrite(string path, bool createOnly)
+    {
+        FileWriteStream inner = Inner.OpenWrite(path, createOnly);
+        if (IsCommit(path) && Catalog is null)
+            return new ObservedWriteStream(inner, landed => _committed |= landed, () => _commitOutcomeUnknown = true);
+        if (path.StartsWith("_delta_log/", StringComparison.Ordinal)) return inner;
+        return new ObservedWriteStream(inner, landed =>
+        {
+            if (landed)
+            {
+                lock (_created) _created.Add(path);
+            }
+        }, null);
+    }
+
+    /// <summary>A stream that reports how its commit ended.</summary>
+    private sealed class ObservedWriteStream(FileWriteStream inner, Action<bool> committed, Action? failed) : FileWriteStream
+    {
+        protected override void WriteCore(ReadOnlySpan<byte> buffer) => inner.Write(buffer);
+
+        protected override ValueTask WriteCoreAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>
+            inner.WriteAsync(buffer, cancellationToken);
+
+        protected override bool CommitCore()
+        {
+            bool landed;
+            try
+            {
+                landed = inner.Commit();
+            }
+            catch
+            {
+                failed?.Invoke();
+                throw;
+            }
+            committed(landed);
+            return landed;
+        }
+
+        protected override async ValueTask<bool> CommitCoreAsync(CancellationToken cancellationToken)
+        {
+            bool landed;
+            try
+            {
+                landed = await inner.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                failed?.Invoke();
+                throw;
+            }
+            committed(landed);
+            return landed;
+        }
+
+        protected override void Abort() => inner.Dispose();
+
+        protected override ValueTask AbortAsync() => inner.DisposeAsync();
+
+        protected override void Release() => inner.Dispose();
+    }
+
+    /// <inheritdoc/>
     public void Overwrite(string path, ReadOnlyMemory<byte> content) => Inner.Overwrite(path, content);
     /// <inheritdoc/>
     public bool Delete(string path) => Inner.Delete(path);

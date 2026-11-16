@@ -32,10 +32,26 @@ internal static class RealUploads
         return (done, [.. a, .. b, .. tail]);
     }
 
-    /// <summary>Replaces, creates, refuses, races and aborts on one store, checking what the store holds after each.</summary>
-    public static async Task Check(CloudFileSystem fs, string prefix, bool abortRemovesTheUpload)
+    /// <summary>
+    /// Replaces, creates, refuses, races and aborts on one store, checking what the store holds after each; deletes
+    /// what it wrote below <paramref name="prefix"/> (and only that: the cloud's other test classes share the run's
+    /// prefix and run alongside, so its cleanup fixture must not run when this class ends).
+    /// </summary>
+    public static async Task Check(CloudFileSystem fs, string prefix, bool abortRemovesTheUpload, Func<Task>? more = null)
     {
-        ObjectStoreClient client = fs.Client;
+        try
+        {
+            await CheckCore(fs.Client, prefix, abortRemovesTheUpload);
+            if (more is not null) await more();
+        }
+        finally
+        {
+            foreach (ObjectInfo info in fs.Client.List(prefix + "/", delimited: false, startAfter: null).ToList()) fs.Client.Delete(info.Key);
+        }
+    }
+
+    private static async Task CheckCore(ObjectStoreClient client, string prefix, bool abortRemovesTheUpload)
+    {
 
         // Replacing an existing object, and creating a new one.
         string replaced = $"{prefix}/replaced.bin";
@@ -75,18 +91,23 @@ internal static class RealUploads
 }
 
 [Trait("RealCloud", "Aws")]
-public sealed class RealCloudAwsUploadTests : IClassFixture<RealAwsCleanup>
+public sealed class RealCloudAwsUploadTests
 {
     [AwsFact]
-    public async Task Uploads_InParts() =>
-        await RealUploads.Check(Open(), $"{RealAws.RunPrefix}/uploads-{Guid.NewGuid():N}", abortRemovesTheUpload: true);
+    public async Task Uploads_InParts()
+    {
+        string prefix = $"{RealAws.RunPrefix}/uploads-{Guid.NewGuid():N}";
+        await RealUploads.Check(Open(), prefix, abortRemovesTheUpload: true);
+        // Refused creates and the abort leave no upload behind (S3 would keep billing its parts).
+        Assert.Equal(0, RealAwsApi.OpenUploads(prefix + "/"));
+    }
 
     private static CloudFileSystem Open() =>
         CloudStorage.TryOpen($"s3://{RealAws.Bucket}", RealAws.Keys(), null, out string? reason) ?? throw new InvalidOperationException(reason);
 }
 
 [Trait("RealCloud", "Azure")]
-public sealed class RealCloudAzureUploadTests : IClassFixture<RealAzureCleanup>
+public sealed class RealCloudAzureUploadTests
 {
     [AzureTheory]
     [InlineData(AzureAccountKind.Blob, AzureSignIn.AccountKey)]
@@ -102,7 +123,7 @@ public sealed class RealCloudAzureUploadTests : IClassFixture<RealAzureCleanup>
 }
 
 [Trait("RealCloud", "Gcs")]
-public sealed class RealCloudGcsUploadTests : IClassFixture<RealGcsCleanup>
+public sealed class RealCloudGcsUploadTests
 {
     [GcsFact]
     public async Task Uploads_InParts()
@@ -110,11 +131,12 @@ public sealed class RealCloudGcsUploadTests : IClassFixture<RealGcsCleanup>
         CloudFileSystem fs = CloudStorage.TryOpen($"gs://{RealGcs.Bucket}", RealGcs.Keys(), null, out string? reason)
             ?? throw new InvalidOperationException(reason);
         string prefix = $"{RealGcs.RunPrefix}/uploads-{Guid.NewGuid():N}";
-        await RealUploads.Check(fs, prefix, abortRemovesTheUpload: true);
-
         // Both kinds of upload make plain binary objects: the completion's XML body does not become the type.
-        Assert.Equal("application/octet-stream", await ContentType($"{prefix}/replaced.bin"));
-        Assert.Equal("application/octet-stream", await ContentType($"{prefix}/created.bin"));
+        await RealUploads.Check(fs, prefix, abortRemovesTheUpload: true, async () =>
+        {
+            Assert.Equal("application/octet-stream", await ContentType($"{prefix}/replaced.bin"));
+            Assert.Equal("application/octet-stream", await ContentType($"{prefix}/created.bin"));
+        });
     }
 
     private static async Task<string?> ContentType(string key)

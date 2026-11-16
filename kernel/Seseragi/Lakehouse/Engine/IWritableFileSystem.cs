@@ -16,6 +16,15 @@ public interface IWritableFileSystem : IFileSystem
     /// <summary>Writes a file, replacing the one at the path if there is one.</summary>
     void Overwrite(string path, ReadOnlyMemory<byte> content);
 
+    /// <summary>
+    /// Opens a file for writing as a stream, for content too large to hold at once: the file appears, whole, when the
+    /// stream is committed (<see cref="FileWriteStream.Commit"/>), and not at all when it is disposed uncommitted. With
+    /// <paramref name="createOnly"/>, the commit creates the file only when none exists, atomically against other
+    /// writers (as <see cref="TryCreate"/>); otherwise it replaces any file at the path. By default the bytes are held
+    /// in memory and written with one call at commit; stores that can write in pieces override it.
+    /// </summary>
+    FileWriteStream OpenWrite(string path, bool createOnly) => FileWriteStream.Buffered(this, path, createOnly);
+
     /// <summary>Deletes a file; returns false when there was none.</summary>
     bool Delete(string path);
 

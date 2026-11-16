@@ -206,6 +206,23 @@ public sealed class CloudFileSystem : IWritableFileSystem, ITailReadable, IAsync
     /// <inheritdoc/>
     public void Overwrite(string path, ReadOnlyMemory<byte> content) => _client.Put(Key(path), content);
 
+    /// <summary>The size of the parts of streamed writes (stores take 5 MiB at least, but the last part).</summary>
+    internal int UploadPartSize { get; set; } = 10 * 1024 * 1024;
+
+    /// <summary>The parts of one streamed write uploaded at once (fewer where the store takes them in order).</summary>
+    internal int UploadConcurrency { get; set; } = 8;
+
+    /// <summary>The parts one streamed write may have (S3 and GCS take 10 000); larger files are refused.</summary>
+    internal int MaxUploadParts { get; set; } = 10_000;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A file of one part at most (<see cref="UploadPartSize"/>) is written with one request at commit; a larger one in
+    /// parts, <see cref="UploadConcurrency"/> at a time (see <see cref="CloudWriteStream"/>).
+    /// </remarks>
+    public FileWriteStream OpenWrite(string path, bool createOnly) =>
+        new CloudWriteStream(_client, Key(path), createOnly, UploadPartSize, UploadConcurrency, MaxUploadParts);
+
     /// <inheritdoc/>
     public bool Delete(string path)
     {

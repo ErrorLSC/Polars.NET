@@ -39,7 +39,30 @@ public abstract class FakeUploadStore : IDisposable
         lock (Gate) _faults.Add((match, true, times));
     }
 
+    private int _inFlight;
+
+    /// <summary>How long every request waits before it is answered (outside the gate, so requests overlap).</summary>
+    public TimeSpan Delay { get; set; }
+
+    /// <summary>The most requests seen in flight at once.</summary>
+    public int MostInFlight { get; private set; }
+
     private FakeAnswer Handle(SeenRequest request)
+    {
+        int now = Interlocked.Increment(ref _inFlight);
+        lock (Gate) MostInFlight = Math.Max(MostInFlight, now);
+        try
+        {
+            if (Delay > TimeSpan.Zero) Thread.Sleep(Delay);
+            return HandleInGate(request);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _inFlight);
+        }
+    }
+
+    private FakeAnswer HandleInGate(SeenRequest request)
     {
         lock (Gate)
         {
@@ -157,6 +180,11 @@ public sealed class FakeS3 : FakeUploadStore
                 return _uploads.ContainsKey(id) ? new FakeAnswer(200, "<ListPartsResult />") : NoSuchUpload();
             case "DELETE" when query.TryGetValue("uploadId", out string? id):
                 return _uploads.Remove(id) ? new FakeAnswer(204) : NoSuchUpload();
+            case "PUT":
+                if (request.Headers.TryGetValue("If-None-Match", out string? none) && none == "*" && Objects.ContainsKey(key))
+                    return new FakeAnswer(412, "<Error><Code>PreconditionFailed</Code></Error>");
+                Objects[key] = request.Content;
+                return new FakeAnswer(200, "", [$"ETag: {Md5Tag(request.Content)}"]);
             case "HEAD" or "GET":
                 return Objects.TryGetValue(key, out byte[]? content)
                     ? new FakeAnswer(200, Encoding.UTF8.GetString(content))
@@ -214,7 +242,7 @@ public sealed class FakeAzureBlocks : FakeUploadStore
                 if (request.Headers.TryGetValue("If-None-Match", out string? match) && match == "*" && exists)
                     return new FakeAnswer(409, "", ["x-ms-error-code: BlobAlreadyExists"]);
                 var ids = XDocument.Parse(request.Body).Root!.Elements().Select(e => (Kind: e.Name.LocalName, Id: e.Value)).ToList();
-                var chosen = new List<(string Id, byte[] Bytes)>();
+                List<(string Id, byte[] Bytes)> chosen = [];
                 foreach (var (kind, id) in ids)
                 {
                     byte[]? bytes = kind == "Latest" && _uncommitted.GetValueOrDefault(key)?.GetValueOrDefault(id) is { } staged ? staged

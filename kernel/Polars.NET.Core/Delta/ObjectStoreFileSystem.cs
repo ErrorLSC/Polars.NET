@@ -269,6 +269,11 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
     }
 
     /// <inheritdoc/>
+    /// <remarks>The managed store writes in parts; the native one holds the bytes and writes them at commit.</remarks>
+    public FileWriteStream OpenWrite(string path, bool createOnly) =>
+        _managed is not null ? _managed.OpenWrite(path, createOnly) : FileWriteStream.Buffered(this, path, createOnly);
+
+    /// <inheritdoc/>
     public bool Delete(string path)
     {
         if (_managed is not null) return _managed.Delete(path);
