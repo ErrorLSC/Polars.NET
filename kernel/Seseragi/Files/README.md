@@ -52,8 +52,10 @@ filtering cannot be exact the dataset filters its rows after converting, so `Fil
 Files are read in order with the reader options; with several threads the row groups of several files decode side
 by side ahead of the consumer, on one scheduler and within one reader's in-flight memory (the row group waited for
 always starts), files opened and planned ahead (`MaxFilesInFlight`; by default enough to keep the threads busy,
-more for stores other than local files and memory), columns converted and filtered on those threads; with one
-thread, file after file on the caller's. The row index numbers rows across files and comes first, `MaxRows` counts
+more for stores other than local files and memory, so that the files after one whose request is slow keep being
+read), columns converted and filtered on those threads; requests to such stores are bounded apart
+(`MaxRequestsInFlight`, those of the files read first let in first). With one thread, file after file on the
+caller's from local files and memory, and from other stores fetched ahead as with several, decoded on one. The row index numbers rows across files and comes first, `MaxRows` counts
 across files, `FilePathColumn` adds each row's file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors
 name their file and surface after the rows of the files before it. Rows come typed too
 (`ParquetDataset.OpenReader<T>`, `ParquetDatasetReader<T>`, `ParquetDataset.ReadList<T>`): members map columns and
@@ -455,7 +457,7 @@ In Sazanami (generic, reusable by other formats):
 | `Rows/RowRanges.cs` | Sets of row numbers as sorted, disjoint ranges: union, intersection, difference, complement, slice, take; from indices or a bitmap. |
 | `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash, size for a count and a false positive rate. |
 | `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
-| `Network/RetrySettings.cs`, `HttpSender.cs` | HTTP requests with retries shared by the file stores and the lakehouse's object store clients: network failures (a failed body read included), 408, 429 and 5xx retried with jittered backoff (`Retry-After` honoured up to the cap), failures an answer decided never retried, caller cancellations never retried; synchronous and asynchronous; requests counted per flow. |
+| `Network/RetrySettings.cs`, `HttpSender.cs`, `RequestGate.cs` | HTTP requests with retries shared by the file stores and the lakehouse's object store clients: network failures (a failed body read included), 408, 429 and 5xx retried with jittered backoff (`Retry-After` honoured up to the cap), failures an answer decided never retried, caller cancellations never retried; synchronous and asynchronous; requests counted per flow; a bound on requests at once that lets waiters in by their order (the dataset reader's request budget). |
 | `Helpers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
 | `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order) for dictionary encoding. |
@@ -556,7 +558,8 @@ what its predicate cannot match, and gives the rows of one thread on several). S
   `ParquetDatasetSchemaTests` (schema modes, conversions, missing and extra columns and fields, filters over converted
   and missing columns),
   `ParquetDatasetWindowTests` (several threads read the rows one thread reads, failures in order, the in-flight
-  budget, files open at once, typed rows),
+  budget, files open at once, typed rows), `ParquetDatasetRequestTests` (requests to remote stores bounded apart from
+  the files open, a slow file not stopping the files after it, early stops with requests waiting),
   `ParquetHiveTests` (keys, types, values, collisions, given values, the glob switch, partition pruning),
   `FilterConstantFoldingTests` and, opt-in with `SESERAGI_PARQUET_PYTHON`, `ParquetDatasetInteropTests` (the same
   datasets, plain and partitioned, read by Python Polars, `TestData/parquet/dataset_polars.py`; files of mixed types

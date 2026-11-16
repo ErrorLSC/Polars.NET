@@ -3,6 +3,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Network;
 using Kaminari.Sazanami.Rows;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
@@ -50,6 +51,12 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly bool _fetch;                             // whether chunks are fetched before decoding (not a local source)
     private readonly ConcurrentExclusiveSchedulerPair _schedulers;
     private readonly ReadBudget? _shared;                     // the dataset's threads and buffers, when this reader is one of its files'
+
+    /// <summary>
+    /// The order of this reader's requests among those of the dataset's other readers (its file's position): requests
+    /// beyond <see cref="ReadBudget.Requests"/> wait, the lowest order let in first.
+    /// </summary>
+    internal long RequestOrder { get; init; }
 
     /// <summary>
     /// A reader of the file; with <paramref name="shared"/>, one of several readers a dataset drives unit by unit
@@ -676,6 +683,13 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         CancellationToken cancellationToken, Keeping? keeping = null)
     {
         using RowGroupChunks? chunks = _fetch && set.Leaves.Length > 0 ? await Fetch(set, g, ranges, useAsync, cancellationToken).ConfigureAwait(false) : null;
+        // A fetch that waited resumes on the thread pool: decode back on the scheduler, within the threads the options
+        // allow (else the units fetched ahead from a store would decode side by side, whatever the threads).
+        if (chunks is not null && useAsync && TaskScheduler.Current != _schedulers.ConcurrentScheduler)
+        {
+            return await Task.Factory.StartNew(() => DecodeColumnsAsync(set, g, chunks, ranges, parallel, cancellationToken, keeping), cancellationToken,
+                TaskCreationOptions.DenyChildAttach, _schedulers.ConcurrentScheduler).Unwrap().ConfigureAwait(false);
+        }
         return await DecodeColumnsAsync(set, g, chunks, ranges, parallel, cancellationToken, keeping).ConfigureAwait(false);
     }
 
@@ -1057,7 +1071,18 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 {
                     int column = c;
                     tasks[c] = Task.Factory.StartNew(
-                        () => DecodeColumn(set, column, readers, builders[column], byNode, plan, rows, ranges is null, filtered[column] ? keeping : null, cancellationToken),
+                        () =>
+                        {
+                            _shared?.DecodeStarts();
+                            try
+                            {
+                                return DecodeColumn(set, column, readers, builders[column], byNode, plan, rows, ranges is null, filtered[column] ? keeping : null, cancellationToken);
+                            }
+                            finally
+                            {
+                                _shared?.DecodeEnds();
+                            }
+                        },
                         cancellationToken, TaskCreationOptions.DenyChildAttach, _schedulers.ConcurrentScheduler);
                 }
                 try
@@ -1078,8 +1103,16 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             }
             else
             {
-                for (int c = 0; c < set.Columns.Length; c++)
-                    arrays[c] = DecodeColumn(set, c, readers, builders[c], byNode, plan, rows, ranges is null, filtered[c] ? keeping : null, cancellationToken);
+                _shared?.DecodeStarts();
+                try
+                {
+                    for (int c = 0; c < set.Columns.Length; c++)
+                        arrays[c] = DecodeColumn(set, c, readers, builders[c], byNode, plan, rows, ranges is null, filtered[c] ? keeping : null, cancellationToken);
+                }
+                finally
+                {
+                    _shared?.DecodeEnds();
+                }
             }
 
             List<int> lengths = [];
@@ -1351,8 +1384,17 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         var chunks = new RowGroupChunks(pieces, whole, _options.FetchGap, _buffers);
         try
         {
+            RequestGate? gate = useAsync ? _shared?.Requests : null;
             foreach (var (start, length, buffer) in chunks.Reads)
+            {
+                if (gate is null)
+                {
+                    await ParquetFile.ReadExactlyAsync(_file.Source, start, buffer.Memory[..(int)length], useAsync, ct).ConfigureAwait(false);
+                    continue;
+                }
+                using RequestGate.Lease lease = await gate.EnterAsync(RequestOrder, ct).ConfigureAwait(false);
                 await ParquetFile.ReadExactlyAsync(_file.Source, start, buffer.Memory[..(int)length], useAsync, ct).ConfigureAwait(false);
+            }
             return chunks;
         }
         catch

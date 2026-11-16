@@ -76,15 +76,24 @@ public sealed record ParquetDatasetOptions
 
     /// <summary>
     /// How many files are open at once: read, planned (their footers read, their row groups started as threads
-    /// allow) or opened ahead; null decides it from the reader's threads: enough that small files keep every thread
-    /// busy from local files and memory, eight per thread (at least 64) from other stores, whose requests wait on the
-    /// network.
+    /// allow) or opened ahead; null decides it: from local files and memory enough that small files keep every
+    /// thread busy, from other stores 1024, so that the files after one whose request is slow keep being read
+    /// meanwhile (their requests bounded by <see cref="MaxRequestsInFlight"/>). Set, it bounds the requests too.
     /// </summary>
     public int? MaxFilesInFlight { get; init; }
+
+    /// <summary>
+    /// How many requests to the store run at once (files opened, row groups fetched), those of the files read first
+    /// let in first; null: 64 for stores whose requests wait on the network (not local files or memory, which are not
+    /// bounded). Fewer suit a store close by, more a distant one; many more at once lose packets on the way. Set for
+    /// local files or memory read on one thread, it bounds the files opened ahead (their reads come one at a time).
+    /// </summary>
+    public int? MaxRequestsInFlight { get; init; }
 
     internal void Validate()
     {
         if (MaxFilesInFlight is < 1) throw new ArgumentOutOfRangeException(nameof(MaxFilesInFlight), MaxFilesInFlight, "At least one file is opened at a time.");
+        if (MaxRequestsInFlight is < 1) throw new ArgumentOutOfRangeException(nameof(MaxRequestsInFlight), MaxRequestsInFlight, "At least one request runs at a time.");
         if (!Enum.IsDefined(Partitioning)) throw new ArgumentOutOfRangeException(nameof(Partitioning), Partitioning, "Unknown partitioning.");
         if (!Enum.IsDefined(SchemaMode)) throw new ArgumentOutOfRangeException(nameof(SchemaMode), SchemaMode, "Unknown schema mode.");
         if (Schema is { } given)

@@ -4,6 +4,7 @@ using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Filters;
+using Kaminari.Sazanami.Network;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Schema;
 using Microsoft.FSharp.Core;
@@ -15,7 +16,10 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// options given, into batches of one schema: batches never span files. With
 /// <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> above 1 the row groups of several files are decoded side by
 /// side ahead of the consumer, on that many threads and within one reader's in-flight memory, files opened and
-/// planned ahead (<see cref="ParquetDatasetOptions.MaxFilesInFlight"/>); with 1, file after file on the calling thread.
+/// planned ahead (<see cref="ParquetDatasetOptions.MaxFilesInFlight"/>), requests to a remote store bounded apart
+/// (<see cref="ParquetDatasetOptions.MaxRequestsInFlight"/>, those of the files read first let in first); with 1, from
+/// local files and memory file after file on the calling thread, from other stores (whose requests wait on the
+/// network) as with several threads, on one.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -54,11 +58,39 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// </summary>
     internal const int UnitsAheadPerThread = 1;
 
+    /// <summary>
+    /// How many units are fetched and decoded at once ahead of the consumer, per thread, from a remote store: their
+    /// requests wait on the network. Measured (16 threads, 64 files of 2 MB, 4 of 33 MB, stores 6 and 23 ms away): 4
+    /// read 5–30% faster than 1.
+    /// </summary>
+    internal const int RemoteUnitsAheadPerThread = 4;
+
+    /// <summary>
+    /// The fewest units ahead from a remote store, whatever the threads: with one thread, 16 units ahead read 60
+    /// partitioned files of 425 KB 3.5–5 times as fast as 1 (stores 6, 23 and 170 ms away).
+    /// </summary>
+    internal const int RemoteMinUnitsAhead = 16;
+
     /// <summary>From how many uncompressed bytes a unit decodes its columns side by side.</summary>
     internal const long ParallelColumnsFrom = 8L << 20;
 
     /// <summary>The fewest files open at once (read, or opened ahead) when <see cref="ParquetDatasetOptions.MaxFilesInFlight"/> is not set.</summary>
     internal const int MinFilesAhead = 16;
+
+    /// <summary>
+    /// The requests to a remote store at once when <see cref="ParquetDatasetOptions.MaxRequestsInFlight"/> is not set
+    /// (provisional). Measured on 2000 files of 52 KB, 16 threads, from one home link: the best number differs by the
+    /// store's distance (16–32 at 6 ms, 64 at 23 ms, 128 or more at 170 ms), and many more requests at once lose
+    /// packets on the way, so that a few requests take hundreds of milliseconds.
+    /// </summary>
+    internal const int RemoteRequests = 64;
+
+    /// <summary>
+    /// The files open at once from a remote store when <see cref="ParquetDatasetOptions.MaxFilesInFlight"/> is not set:
+    /// many, so that the files after one whose request is slow keep being read while the consumer waits for it (each
+    /// holds its footer, and a small file its bytes).
+    /// </summary>
+    internal const int RemoteFilesHeld = 1024;
 
     private readonly ParquetDataset _dataset;
     private readonly ParquetReadOptions _options;
@@ -193,18 +225,39 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>How many units are decoded at once ahead of the consumer.</summary>
-    private int UnitsAhead => Math.Max(1, _options.MaxDegreeOfParallelism) * UnitsAheadPerThread;
+    private int UnitsAhead => Remote
+        ? Math.Max(RemoteMinUnitsAhead, Math.Max(1, _options.MaxDegreeOfParallelism) * RemoteUnitsAheadPerThread)
+        : Math.Max(1, _options.MaxDegreeOfParallelism) * UnitsAheadPerThread;
+
+    /// <summary>Whether the files come from a store whose requests wait on the network (not local files or memory).</summary>
+    private bool Remote => _dataset.Store is not (LocalFileStore or MemoryFileStore);
 
     /// <summary>
     /// How many files are open at once (read, planned, or opened ahead): as the options say; else, from local files
-    /// and memory, enough to feed the units ahead (a small file is one unit), and from other stores, whose requests
-    /// wait on the network, eight per thread (measured at 16 threads, 5–25 ms per request: 300 small files read in
-    /// 115 ms with 128 open, 164 ms with 64; 60 partitioned files no faster beyond 64).
+    /// and memory, enough to feed the units ahead (a small file is one unit), and from other stores
+    /// <see cref="RemoteFilesHeld"/> (their requests bounded apart, see <see cref="RequestsInFlight"/>).
     /// </summary>
     private int FilesInFlight => _dataset.Options.MaxFilesInFlight
-        ?? (_dataset.Store is LocalFileStore or MemoryFileStore
-            ? Math.Max(MinFilesAhead, UnitsAhead + 1)
-            : Math.Max(4 * MinFilesAhead, 8 * Math.Max(1, _options.MaxDegreeOfParallelism)));
+        ?? (Remote ? RemoteFilesHeld : Math.Max(MinFilesAhead, UnitsAhead + 1));
+
+    /// <summary>
+    /// How many requests to the store run at once (files opened, row groups fetched), null when not bounded: as the
+    /// options say, else <see cref="RemoteRequests"/> from a remote store; never more than the files open at once
+    /// when the options bound those.
+    /// </summary>
+    private int? RequestsInFlight =>
+        (_dataset.Options.MaxRequestsInFlight ?? (Remote ? RemoteRequests : null)) is int requests
+            ? Math.Min(requests, _dataset.Options.MaxFilesInFlight ?? int.MaxValue)
+            : null;
+
+    /// <summary>A gate for <see cref="RequestsInFlight"/>, null when not bounded.</summary>
+    private RequestGate? NewRequestGate() => RequestsInFlight is int requests ? new RequestGate(requests) : null;
+
+    /// <summary>The most requests to the store at once in the last read (0 when not bounded; for tests).</summary>
+    internal int PeakRequests { get; private set; }
+
+    /// <summary>The most decodes running at once in the last windowed read (see <see cref="ReadBudget.PeakDecoding"/>; for tests).</summary>
+    internal int PeakDecoding { get; private set; }
 
     /// <summary>The schema of the batches: the row index if asked, the columns read (nullable), the file path if asked.</summary>
     public Apache.Arrow.Schema Schema { get; }
@@ -233,7 +286,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>
     /// Reads the batches, in file order. With <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> above 1 the row
     /// groups of several files are decoded side by side on that many threads (and within the in-flight memory of
-    /// one reader), ahead of the consumer; with 1, file after file on the calling thread.
+    /// one reader), ahead of the consumer; with 1, from local files and memory file after file on the calling thread,
+    /// from other stores fetched ahead in the same way and decoded on one thread.
     /// </summary>
     /// <exception cref="ParquetFormatException">
     /// A file is damaged, is not a Parquet file, lacks a column read, holds a column of a type that does not convert
@@ -243,12 +297,13 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <exception cref="FileNotFoundException">A file named does not exist.</exception>
     public IEnumerable<RecordBatch> ReadBatches()
     {
-        if (_options.MaxDegreeOfParallelism > 1)
+        if (_options.MaxDegreeOfParallelism > 1 || Remote)
         {
             foreach (RecordBatch batch in ReadWindowed()) yield return batch;
             yield break;
         }
-        using var ahead = new Ahead(this, FilesInFlight, default); // the file taken counts among them
+        RequestGate? gate = NewRequestGate();
+        using var ahead = new Ahead(this, FilesInFlight, gate, default); // the file taken counts among them
         long? remaining = _options.MaxRows;
         long before = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
@@ -278,12 +333,13 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <inheritdoc cref="ReadBatches"/>
     public async IAsyncEnumerable<RecordBatch> ReadBatchesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        if (_options.MaxDegreeOfParallelism > 1)
+        if (_options.MaxDegreeOfParallelism > 1 || Remote)
         {
             await foreach (RecordBatch batch in ReadWindowedAsync(cancellationToken).ConfigureAwait(false)) yield return batch;
             yield break;
         }
-        using var ahead = new Ahead(this, FilesInFlight, cancellationToken);
+        RequestGate? gate = NewRequestGate();
+        using var ahead = new Ahead(this, FilesInFlight, gate, cancellationToken);
         long? remaining = _options.MaxRows;
         long before = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
@@ -572,7 +628,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                 RowIndexOffset = before,
                 MaxRows = remaining,
                 Filter = filter,
-            }, shared, Volatile.Read(ref shape.Selections[variant]));
+            }, shared, Volatile.Read(ref shape.Selections[variant])) { RequestOrder = index };
             Volatile.Write(ref shape.Selections[variant], reader.ColumnSelection); // the same for every file of the shape
             return reader;
         }
@@ -1027,8 +1083,9 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             int threads = Math.Max(1, owner._options.MaxDegreeOfParallelism);
             int leaves = Math.Max(1, owner._targets.Sum(t => Leaves(t.Field.DataType)) + owner._filterRoots.Length);
-            _budget = new ReadBudget(threads, owner._options.InFlightBytes, (2 * leaves + 4) * owner.UnitsAhead, writesPastCaches: true);
-            _ahead = new Ahead(owner, 0, _cancel.Token); // files open as they are planned (counted below)
+            _budget = new ReadBudget(threads, owner._options.InFlightBytes, (2 * leaves + 4) * owner.UnitsAhead, writesPastCaches: true,
+                owner.NewRequestGate());
+            _ahead = new Ahead(owner, 0, _budget.Requests, _cancel.Token); // files open as they are planned (counted below)
             // MaxRows bounds the planning only when no row is filtered (the consumer cuts in any case).
             _maxRows = !owner._options.FilterRows || owner._options.Filter is null ? owner._options.MaxRows : null;
         }
@@ -1163,6 +1220,11 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     int units;
                     try
                     {
+                        // With a filter, planning may read page indexes and Bloom filters: requests too, a place held
+                        // only while it runs (not while waiting for the previous file above, which may wait in turn
+                        // for a place).
+                        RequestGate? gate = owner._options.Filter is null ? null : _budget.Requests;
+                        using RequestGate.Lease lease = gate is null ? default : await gate.EnterAsync(index, token).ConfigureAwait(false);
                         units = await plan.Reader.PlanUnitsAsync(useAsync: true, token).ConfigureAwait(false);
                     }
                     catch (ParquetFormatException e)
@@ -1228,6 +1290,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             _budget.Dispose();
             _cancel.Dispose();
             _owner.PeakInFlight = (_peakBytes, _peakUnits, _peakFiles);
+            _owner.PeakRequests = _budget.Requests?.PeakInside ?? 0;
+            _owner.PeakDecoding = _budget.PeakDecoding;
         }
 
         /// <summary>The leaves of a type (a struct's fields, a list's elements, a map's keys and values).</summary>
@@ -1282,7 +1346,11 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// others when their row counts are needed); those not taken are disposed once opened. Taken in order, by one
     /// caller at a time. Disposing it cancels the opens still running (a store that hangs does not hold them).
     /// </summary>
-    private sealed class Ahead(ParquetDatasetReader owner, int count, CancellationToken cancellationToken) : IDisposable
+    /// <summary>
+    /// Opens the files ahead of the one taken, up to <c>count</c> not taken yet, each open a request through
+    /// <c>gate</c> when there is one (the lower files first).
+    /// </summary>
+    private sealed class Ahead(ParquetDatasetReader owner, int count, RequestGate? gate, CancellationToken cancellationToken) : IDisposable
     {
         private readonly Dictionary<int, Task<ParquetFile>> _started = [];
         private readonly CancellationTokenSource _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -1302,10 +1370,26 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                 if (!Needed(_next)) continue;
                 int file = _next;
                 CancellationToken token = Token;
-                _started[file] = Task.Run(() => owner.OpenAsync(file, useAsync: true, token).AsTask(), token);
+                _started[file] = Open(file, token);
             }
             CancellationToken taken = Token;
-            return _started.Remove(index, out Task<ParquetFile>? task) ? task : Task.Run(() => owner.OpenAsync(index, useAsync: true, taken).AsTask(), taken);
+            return _started.Remove(index, out Task<ParquetFile>? task) ? task : Open(index, taken);
+        }
+
+        /// <summary>
+        /// Opens a file on the thread pool. Through the gate, it queues here, as files are taken (in order), not on the
+        /// thread pool, which may start later files first; it then waits there, whatever the token, so that a place
+        /// given is given back.
+        /// </summary>
+        private Task<ParquetFile> Open(int file, CancellationToken token)
+        {
+            if (gate is null) return Task.Run(() => owner.OpenAsync(file, useAsync: true, token).AsTask(), token);
+            ValueTask<RequestGate.Lease> entering = gate.EnterAsync(file, token);
+            return Task.Run(async () =>
+            {
+                using RequestGate.Lease lease = await entering.ConfigureAwait(false);
+                return await owner.OpenAsync(file, useAsync: true, token).ConfigureAwait(false);
+            }, CancellationToken.None);
         }
 
         public void Dispose()
