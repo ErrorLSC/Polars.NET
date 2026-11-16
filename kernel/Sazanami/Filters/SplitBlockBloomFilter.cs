@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Kaminari.Sazanami.Filters;
 
@@ -40,6 +41,12 @@ public sealed class SplitBlockBloomFilter
     {
         Span<byte> block = _bitset.AsSpan(BlockOf(hash) * BlockBytes, BlockBytes);
         uint key = (uint)hash;
+        if (BitConverter.IsLittleEndian)
+        {
+            Span<uint> words = MemoryMarshal.Cast<byte, uint>(block);
+            for (int i = 0; i < 8; i++) words[i] |= Bit(key, i);
+            return;
+        }
         for (int i = 0; i < 8; i++)
         {
             Span<byte> word = block.Slice(i * 4, 4);

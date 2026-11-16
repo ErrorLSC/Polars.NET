@@ -89,7 +89,7 @@ internal abstract class ColumnWriter
         _repWidth = 32 - BitOperations.LeadingZeroCount((uint)maxRep);
         DictionaryCapable = dictionary && settings.Dictionary;
         _dictionary = DictionaryCapable ? DictionaryState.Building : DictionaryState.Off;
-        Bloom = settings.Bloom is { } bloom ? new BloomBuilder(bloom) : null;
+        Bloom = settings.Bloom is { } bloom ? new BloomBuilder(bloom, settings.Budget) : null;
         FallbackEncoding = settings.Encoding switch
         {
             ParquetValueEncoding.DeltaBinaryPacked => ParquetEncoding.DeltaBinaryPacked,

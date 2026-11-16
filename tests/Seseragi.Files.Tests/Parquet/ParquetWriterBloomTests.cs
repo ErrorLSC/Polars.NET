@@ -193,6 +193,38 @@ public sealed class ParquetWriterBloomTests : IDisposable
         Assert.True(observed <= rate * 1.5, $"{observed:P3} of absent values pass a filter asked for {rate:P3}");
     }
 
+    [Theory]
+    [InlineData(65_536, 1)]      // the table's limit: counted in the table
+    [InlineData(65_537, 1)]      // one more: appended and sorted
+    [InlineData(200_000, 1)]     // many: sorted in parts
+    [InlineData(200_000, 8)]     // on helper threads
+    public void ManyDistinctValues_GiveTheFilterOfEachValueInsertedOnce(int distinct, int threads)
+    {
+        // Every distinct value once, scattered, then the last one again and again (the values counted before the table
+        // gave way come back no more); a second column with a small filter (fewer blocks than parts).
+        long?[] values = [.. Enumerable.Range(0, 2 * distinct).Select(i => (long?)(i < distinct ? i * 7919L % distinct : (distinct - 1) * 7919L % distinct))];
+        RecordBatch batch = Batch(("a", Fixed(Int64Type.Default, values), true), ("b", Fixed(Int64Type.Default, values), true));
+        string path = Path($"many_{distinct}_{threads}.parquet");
+        ParquetWriter.Write(path, batch.Schema, [batch], new ParquetWriteOptions
+        {
+            MaxDegreeOfParallelism = threads,
+            Columns = new Dictionary<string, ParquetColumnOptions>
+            {
+                ["a"] = new() { BloomFilter = new() },
+                ["b"] = new() { BloomFilter = new() { MaxBytes = 256 } },
+            },
+        });
+        byte[] bytes = File.ReadAllBytes(path);
+        using var file = ParquetFile.Open(path);
+        ColumnChunk[] chunks = [.. file.Metadata.Thrift!.RowGroups[0].Columns];
+        foreach (var (chunk, blocks) in (IEnumerable<(ColumnChunk, int)>)[(chunks[0], Math.Min(SplitBlockBloomFilter.BlocksFor(distinct, 0.01), 32_768)), (chunks[1], 8)])
+        {
+            var expected = SplitBlockBloomFilter.Empty(blocks);
+            for (long v = 0; v < distinct; v++) expected.Insert(Hash(Le(v)));
+            Assert.True(expected.Bitset.SequenceEqual(Filter(bytes, chunk)!.Bitset), $"{distinct} distinct values, {blocks} blocks");
+        }
+    }
+
     [Fact]
     public void Filters_AreSizedForTheDistinctValues_AtMostDistinctValues_CutToMaxBytes()
     {

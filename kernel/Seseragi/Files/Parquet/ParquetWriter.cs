@@ -70,7 +70,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// The bytes of the file so far (the row groups closed, and the footer once completed; with more than one thread,
-    /// the last row group may still be on its way to the stream until the next one closes or the file completes).
+    /// a row group closed by <see cref="Write(RecordBatch)"/> may still be on its way to the stream until the next one
+    /// closes, <see cref="EndRowGroup"/> is called or the file completes).
     /// </summary>
     public long BytesWritten => _position;
 
@@ -240,7 +241,10 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <inheritdoc cref="Write(RecordBatch)"/>
     public ValueTask WriteAsync(RecordBatch batch, CancellationToken cancellationToken = default) => WriteCoreAsync(batch, true, cancellationToken);
 
-    /// <summary>Closes the open row group now (nothing happens when it holds no rows).</summary>
+    /// <summary>
+    /// Closes the open row group now (nothing happens when it holds no rows); its bytes, and those of the row groups
+    /// before it, are written to the stream before this returns (a failure to write them surfaces here).
+    /// </summary>
     public void EndRowGroup() => EndRowGroupCoreAsync(false, default).AsTask().GetAwaiter().GetResult();
 
     /// <inheritdoc cref="EndRowGroup"/>
@@ -378,6 +382,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         try
         {
             await FlushRowGroupAsync(useAsync, ct).ConfigureAwait(false);
+            await _writing.ConfigureAwait(false); // written behind only when Write closes the group
         }
         catch
         {

@@ -10,7 +10,7 @@ namespace Seseragi.Files.Tests.Parquet;
 /// <see cref="ParquetWriter"/> on several threads (<see cref="ParquetWriteOptions.MaxDegreeOfParallelism"/>): the
 /// file is the same, byte for byte, whatever the number of threads, in every layout; a failing column reports what one
 /// thread would have met first; a stream failing under a row group still on its way faults the writer, and disposing
-/// waits for it.
+/// waits for it; an explicit <see cref="ParquetWriter.EndRowGroup"/> returns once its row group reached the stream.
 /// </summary>
 public sealed class ParquetWriterParallelTests
 {
@@ -127,5 +127,86 @@ public sealed class ParquetWriterParallelTests
         Assert.Throws<InvalidOperationException>(() => writer.Write(batch.Slice(0, 10))); // faulted
         writer.Dispose(); // waits for the row group on its way; no footer
         Assert.True(stream.Length <= 200_000);
+    }
+
+    /// <summary>A stream whose writes take a while (a row group written behind is then still on its way).</summary>
+    private sealed class SlowStream : MemoryStream
+    {
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            Thread.Sleep(5);
+            base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer) => Write(buffer.ToArray(), 0, buffer.Length);
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            Write(buffer.Span);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(8, false)]
+    [InlineData(8, true)]
+    public void EndRowGroup_ReturnsOnceItsBytesReachedTheStream(int threads, bool useAsync)
+    {
+        RecordBatch batch = ParquetWriteData.Wide(74, 12_000);
+        var stream = new SlowStream();
+        using var writer = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { MaxDegreeOfParallelism = threads, LeaveOpen = true });
+        for (int at = 0; at < batch.Length; at += 3000)
+        {
+            if (useAsync)
+            {
+                writer.WriteAsync(batch.Slice(at, 3000)).AsTask().GetAwaiter().GetResult();
+                writer.EndRowGroupAsync().AsTask().GetAwaiter().GetResult();
+            }
+            else
+            {
+                writer.Write(batch.Slice(at, 3000));
+                writer.EndRowGroup();
+            }
+            Assert.Equal(writer.BytesWritten, stream.Length);
+        }
+        writer.Complete();
+        Assert.Equal(writer.BytesWritten, stream.Length);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public void AStreamFailing_SurfacesAtTheEndRowGroupOfTheGroupThatDidNotFit(int threads)
+    {
+        RecordBatch batch = ParquetWriteData.Wide(75, 8_000);
+        // The stream's length after each group (the same whatever the threads); the limit falls inside the fourth.
+        List<long> ends = [];
+        using (var whole = new MemoryStream())
+        using (var writer = ParquetWriter.Create(whole, batch.Schema, new ParquetWriteOptions { LeaveOpen = true }))
+        {
+            for (int at = 0; at < batch.Length; at += 1000)
+            {
+                writer.Write(batch.Slice(at, 1000));
+                writer.EndRowGroup();
+                ends.Add(whole.Length);
+            }
+        }
+        long limit = (ends[2] + ends[3]) / 2;
+        var stream = new FailingStream(limit);
+        using var failing = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { MaxDegreeOfParallelism = threads, LeaveOpen = true });
+        int ended = 0;
+        Assert.Throws<IOException>(() =>
+        {
+            for (int at = 0; at < batch.Length; at += 1000)
+            {
+                failing.Write(batch.Slice(at, 1000));
+                failing.EndRowGroup();
+                ended++;
+            }
+        });
+        Assert.Equal(3, ended); // the fourth EndRowGroup failed, not a later call
+        Assert.InRange(stream.Length, ends[2], limit); // the third group whole, the fourth's pieces that fitted
+        Assert.Throws<InvalidOperationException>(() => failing.Write(batch.Slice(0, 10))); // faulted
     }
 }
