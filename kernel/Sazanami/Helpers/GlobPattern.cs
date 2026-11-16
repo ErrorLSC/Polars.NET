@@ -3,7 +3,7 @@ using System.Buffers;
 namespace Kaminari.Sazanami.Helpers;
 
 /// <summary>
-/// A glob over '/'-separated paths, as Polars expands local paths (the <c>glob</c> crate): <c>*</c> any run of
+/// A glob over '/'-separated paths, as the <c>glob</c> crate matches local paths: <c>*</c> any run of
 /// characters within a segment, <c>?</c> one character, <c>[abc]</c>, <c>[a-z]</c> one of a set (<c>[!a]</c> or
 /// <c>[^a]</c> none of it), <c>**</c> as a whole segment any number of segments (none included). Wildcards match a
 /// leading dot (hidden files are not special) and never a '/'; matching is case-sensitive; there are no escapes (a

@@ -37,7 +37,9 @@ public sealed class ParquetDatasetInteropTests : IDisposable
         writer.Complete();
     }
 
-    private sealed record Case(string[] Inputs, string? RowIndex, string? FileColumn, long? Rows);
+    /// <summary>A dataset read: <paramref name="Hive"/> null is Auto (Polars' None); <paramref name="Filter"/> is a column and the value it equals.</summary>
+    private sealed record Case(string[] Inputs, string? RowIndex, string? FileColumn, long? Rows, bool? Hive = false, bool ParseDates = true,
+        (string Column, object Value)? Filter = null);
 
     [Fact]
     public async Task Datasets_ReadAsPolarsReadsThem()
@@ -66,6 +68,61 @@ public sealed class ParquetDatasetInteropTests : IDisposable
             ["index_paths_limit"] = new([At("t/**/*.parquet")], "n", "file", 41),
             ["limit_zero"] = new([At("t")], "n", null, 0),
         };
+        await Compare(python, cases);
+    }
+
+    /// <summary>Partitioned datasets: keys, types and values from paths, collisions, filters over partitions, row numbers past files left out.</summary>
+    [Fact]
+    public async Task HiveDatasets_ReadAsPolarsReadsThem()
+    {
+        string? python = Environment.GetEnvironmentVariable("SESERAGI_PARQUET_PYTHON");
+        if (string.IsNullOrEmpty(python)) return;
+        int n = 0;
+        foreach (string year in (string[])["2023", "2024", "2025"])
+        {
+            foreach (string month in (string[])["01", "12"]) Write($"h/year={year}/month={month}/p.parquet", n++ * 10, 3 + n % 4, 1000);
+        }
+        Write("s/s=x/p.parquet", 0, 2, 1000);
+        Write("s/s=/p.parquet", 10, 2, 1000);
+        Write("s/s=__HIVE_DEFAULT_PARTITION__/p.parquet", 20, 2, 1000);
+        Write("s/s=a%2Fb%20c/p.parquet", 30, 2, 1000);
+        Write("d/d=2024-01-15/p.parquet", 0, 2, 1000);
+        Write("d/d=2024-02-29/p.parquet", 10, 2, 1000);
+        Write("f/k=1/p.parquet", 0, 1, 1000);
+        Write("f/k=1.5/p.parquet", 10, 1, 1000);
+        Write("f/k=-2/p.parquet", 20, 1, 1000);
+        Write("b/k=True/p.parquet", 0, 1, 1000);
+        Write("b/k=false/p.parquet", 10, 1, 1000);
+        Write("t/t=2024-01-15 10%3A00%3A00/p.parquet", 0, 1, 1000);
+        Write("t/t=2024-01-15T11%3A30%3A00.5/p.parquet", 10, 1, 1000);
+        Write("u/t=2024-01-15T10%3A00%3A00Z/p.parquet", 0, 1, 1000);
+        Write("u/t=2024-01-15T10%3A00%3A00%2B02%3A00/p.parquet", 10, 1, 1000);
+        Write("i/k=99999999999999999999/p.parquet", 0, 1, 1000);
+        Write("c/id=7/p.parquet", 0, 3, 1000);
+        Dictionary<string, Case> cases = new()
+        {
+            ["dir_auto"] = new([At("h")], null, null, null, Hive: null),
+            ["dir_off"] = new([At("h")], null, null, null, Hive: false),
+            ["glob_on"] = new([At("h/**/*.parquet")], "n", "file", null, Hive: true),
+            ["glob_auto"] = new([At("h/**/*.parquet")], null, null, null, Hive: null),
+            ["filter_partition_index"] = new([At("h")], "n", null, null, Hive: null, Filter: ("year", 2024L)),
+            ["filter_partition_limit"] = new([At("h")], "n", "file", 4, Hive: null, Filter: ("month", 12L)),
+            ["strings"] = new([At("s")], null, null, null, Hive: null),
+            ["strings_filter"] = new([At("s")], null, null, null, Hive: null, Filter: ("s", "a/b c")),
+            ["dates"] = new([At("d")], null, null, null, Hive: null),
+            ["dates_off"] = new([At("d")], null, null, null, Hive: null, ParseDates: false),
+            ["floats"] = new([At("f")], null, null, null, Hive: null),
+            ["booleans"] = new([At("b")], null, null, null, Hive: null),
+            ["datetimes"] = new([At("t")], null, null, null, Hive: null),
+            ["datetimes_utc"] = new([At("u")], null, null, null, Hive: null),
+            ["int128"] = new([At("i")], null, null, null, Hive: null),
+            ["collision"] = new([At("c")], "n", null, null, Hive: null),
+        };
+        await Compare(python, cases);
+    }
+
+    private async Task Compare(string python, Dictionary<string, Case> cases)
+    {
         string casesPath = At("cases.json"), outPath = At("polars.json");
         using (var stream = File.Create(casesPath))
         using (var json = new Utf8JsonWriter(stream))
@@ -80,6 +137,16 @@ public sealed class ParquetDatasetInteropTests : IDisposable
                 if (c.RowIndex is null) json.WriteNull("row_index"); else json.WriteString("row_index", c.RowIndex);
                 if (c.FileColumn is null) json.WriteNull("file_column"); else json.WriteString("file_column", c.FileColumn);
                 if (c.Rows is null) json.WriteNull("n_rows"); else json.WriteNumber("n_rows", c.Rows.Value);
+                if (c.Hive is null) json.WriteNull("hive"); else json.WriteBoolean("hive", c.Hive.Value);
+                json.WriteBoolean("parse_dates", c.ParseDates);
+                if (c.Filter is var (column, value))
+                {
+                    json.WriteStartArray("filter");
+                    json.WriteStringValue(column);
+                    json.WriteStringValue("==");
+                    if (value is long number) json.WriteNumberValue(number); else json.WriteStringValue((string)value);
+                    json.WriteEndArray();
+                }
                 json.WriteEndObject();
             }
             json.WriteEndObject();
@@ -103,36 +170,84 @@ public sealed class ParquetDatasetInteropTests : IDisposable
         {
             JsonElement expected = polars.RootElement.GetProperty(name);
             Assert.False(expected.TryGetProperty("error", out JsonElement error), $"{name}: Polars failed: {error}");
-            using var dataset = ParquetDataset.Open(c.Inputs, new ParquetDatasetOptions { FilePathColumn = c.FileColumn });
-            using var reader = dataset.OpenReader(new ParquetReadOptions { RowIndexColumn = c.RowIndex, MaxRows = c.Rows });
+            var options = new ParquetDatasetOptions
+            {
+                FilePathColumn = c.FileColumn,
+                Partitioning = c.Hive switch { null => HivePartitioning.Auto, true => HivePartitioning.On, false => HivePartitioning.Off },
+                ParseHiveDates = c.ParseDates,
+            };
+            using var dataset = ParquetDataset.Open(c.Inputs, options);
+            Kaminari.Samidare.IR.ScalarExpr? filter = c.Filter is var (column, value)
+                ? Kaminari.Samidare.IR.ScalarExpr.NewBinary(Kaminari.Samidare.IR.BinaryOp.Eq, Kaminari.Samidare.IR.ScalarExpr.NewColumn(column),
+                    Kaminari.Samidare.IR.ScalarExpr.NewLiteral(value is long number ? Kaminari.Samidare.IR.LiteralValue.NewInt64(number)
+                        : Kaminari.Samidare.IR.LiteralValue.NewString((string)value)))
+                : null;
+            using var reader = dataset.OpenReader(new ParquetReadOptions { RowIndexColumn = c.RowIndex, MaxRows = c.Rows, Filter = filter, FilterRows = filter is not null });
             string[] columns = [.. expected.GetProperty("columns").EnumerateArray().Select(e => e.GetString()!)];
             if (!columns.SequenceEqual(reader.Schema.FieldsList.Select(f => f.Name)))
                 differences.Add($"{name}: columns {string.Join(",", reader.Schema.FieldsList.Select(f => f.Name))}, Polars {string.Join(",", columns)}");
-            List<string> ours = [];
+            // Types as Polars names them (the row index aside: Polars numbers rows as UInt32, we as Int64).
+            string[] types = [.. expected.GetProperty("types").EnumerateArray().Select(e => e.GetString()!)];
+            string[] ours = [.. reader.Schema.FieldsList.Select(f => f.Name == c.RowIndex ? "UInt32" : PolarsType(f.DataType))];
+            if (!types.SequenceEqual(ours)) differences.Add($"{name}: types {string.Join(",", ours)}, Polars {string.Join(",", types)}");
+            List<string> rows = [];
             foreach (RecordBatch batch in reader.ReadBatches())
             {
                 using (batch)
                 {
                     for (int i = 0; i < batch.Length; i++)
-                        ours.Add(string.Join('|', Enumerable.Range(0, batch.ColumnCount).Select(k => Render(batch.Column(k), i))));
+                        rows.Add(string.Join('|', Enumerable.Range(0, batch.ColumnCount).Select(k => Render(batch.Column(k), i))));
                 }
             }
             string[] theirs = [.. expected.GetProperty("rows").EnumerateArray().Select(e => e.GetString()!)];
-            if (!ours.SequenceEqual(theirs))
+            if (!rows.SequenceEqual(theirs))
             {
-                int at = Enumerable.Range(0, Math.Min(ours.Count, theirs.Length)).FirstOrDefault(i => ours[i] != theirs[i], Math.Min(ours.Count, theirs.Length));
-                differences.Add($"{name}: {ours.Count} rows, Polars {theirs.Length}; first difference at {at}: "
-                    + $"{(at < ours.Count ? ours[at] : "-")} vs {(at < theirs.Length ? theirs[at] : "-")}");
+                int at = Enumerable.Range(0, Math.Min(rows.Count, theirs.Length)).FirstOrDefault(i => rows[i] != theirs[i], Math.Min(rows.Count, theirs.Length));
+                differences.Add($"{name}: {rows.Count} rows, Polars {theirs.Length}; first difference at {at}: "
+                    + $"{(at < rows.Count ? rows[at] : "-")} vs {(at < theirs.Length ? theirs[at] : "-")}");
             }
         }
         Assert.True(differences.Count == 0, string.Join(Environment.NewLine, differences));
     }
 
+    /// <summary>An Arrow type as Polars names the type it reads it as.</summary>
+    private static string PolarsType(IArrowType type) => type switch
+    {
+        Int64Type => "Int64",
+        Int32Type => "Int32",
+        DoubleType => "Float64",
+        BooleanType => "Boolean",
+        StringType or StringViewType => "String",
+        Date32Type => "Date",
+        TimestampType t => $"Datetime(time_unit='{t.Unit switch { TimeUnit.Microsecond => "us", TimeUnit.Nanosecond => "ns", _ => "ms" }}', time_zone={(t.Timezone is null ? "None" : $"'{t.Timezone}'")})",
+        Decimal128Type { Precision: 38, Scale: 0 } => "Int128",
+        _ => type.Name,
+    };
+
+    /// <summary>A value as Python's <c>str</c> writes it.</summary>
     private static string Render(IArrowArray array, int i) => array.IsNull(i) ? "" : array switch
     {
         Int64Array a => a.GetValue(i)!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        Int32Array a => a.GetValue(i)!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        DoubleArray a => Float(a.GetValue(i)!.Value),
+        BooleanArray a => a.GetValue(i)!.Value ? "True" : "False",
+        Date32Array a => a.GetDateOnly(i)!.Value.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        TimestampArray a => Timestamp(a, i),
+        Decimal128Array a => a.GetSqlDecimal(i)!.Value.ToString(),
         StringArray s => s.GetString(i),
         StringViewArray v => v.GetString(i),
         _ => throw new NotSupportedException(array.GetType().Name),
     };
+
+    private static string Float(double value) => double.IsNaN(value) ? "nan" : double.IsInfinity(value) ? value > 0 ? "inf" : "-inf"
+        : value == Math.Floor(value) && Math.Abs(value) < 1e16 ? value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+        : value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Timestamp(TimestampArray array, int i)
+    {
+        DateTime time = array.GetTimestamp(i)!.Value.UtcDateTime;
+        string text = time.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        if (time.Ticks % TimeSpan.TicksPerSecond != 0) text += "." + (time.Ticks % TimeSpan.TicksPerSecond / 10).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+        return ((TimestampType)array.Data.DataType).Timezone is null ? text : text + "+00:00";
+    }
 }

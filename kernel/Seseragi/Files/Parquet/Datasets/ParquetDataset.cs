@@ -12,7 +12,7 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// columns (with the same types; columns they have beyond it are not read).
 /// </summary>
 /// <remarks>
-/// Paths are expanded as Polars expands them: each glob's or directory's files in path order, inputs in the order
+/// Paths are expanded as dataframe engines expand them: each glob's or directory's files in path order, inputs in the order
 /// given; directories and empty files are left out of listings; files of a directory given alone must share their
 /// extension; hidden files and files starting with '_' are read unless <see cref="ParquetDatasetOptions.IgnorePrefixes"/>
 /// says otherwise. A dataset's columns are nullable: its files may declare them differently.
@@ -23,7 +23,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
 
     private readonly ParquetMetadata?[] _footers;
 
-    private ParquetDataset(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, ParquetMetadata first, Apache.Arrow.Schema fileSchema)
+    private ParquetDataset(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, ParquetMetadata first, Apache.Arrow.Schema fileSchema,
+        Partitions? partitions)
     {
         Store = store;
         Options = options;
@@ -31,13 +32,42 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         _footers = new ParquetMetadata?[files.Length];
         _footers[0] = first;
         FileSchema = fileSchema;
-        Field[] fields = [.. fileSchema.FieldsList.Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))];
+        Partitions = partitions;
+        // The files' columns (a partition column of the same name in its place: the path's value wins), then the
+        // other partition columns, then the file path.
+        List<Field> fields = [.. fileSchema.FieldsList.Select(f => partitions?.IndexOf(f.Name) is int p and >= 0
+            ? PartitionField(p, views: true)
+            : f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))];
+        for (int p = 0; p < (partitions?.Fields.Length ?? 0); p++)
+        {
+            if (fileSchema.GetFieldIndex(partitions!.Fields[p].Name) < 0) fields.Add(PartitionField(p, views: true));
+        }
         if (options.FilePathColumn is { } path)
         {
             if (fields.Any(f => f.Name == path)) throw new ArgumentException($"The file path column '{path}' has the name of a column of the files.", nameof(options));
-            fields = [.. fields, new Field(path, StringViewType.Default, nullable: false)];
+            fields.Add(new Field(path, StringViewType.Default, nullable: false));
         }
         Schema = new Apache.Arrow.Schema(fields, fileSchema.Metadata);
+        PartitionSchema = partitions is null ? null : new Apache.Arrow.Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
+    }
+
+    /// <summary>The partition values of the files (one row per file), when the dataset is partitioned.</summary>
+    internal Partitions? Partitions { get; }
+
+    /// <summary>
+    /// The partition columns, in the order of the keys, as read with default options: the type given in
+    /// <see cref="ParquetDatasetOptions.PartitionSchema"/>, else the type inferred (strings in the view layout unless
+    /// <see cref="ParquetReadOptions.ViewTypes"/> is off); null when the dataset is not partitioned.
+    /// </summary>
+    public Apache.Arrow.Schema? PartitionSchema { get; }
+
+    /// <summary>Partition column <paramref name="index"/> as batches hold it: inferred strings follow the reader's layout.</summary>
+    internal Field PartitionField(int index, bool views)
+    {
+        Field field = Partitions!.Fields[index];
+        // As given, unless the given type was a temporal one read as strings.
+        bool given = Options.PartitionSchema?.GetFieldByName(field.Name) is { } declared && declared.DataType.TypeId == field.DataType.TypeId;
+        return field.DataType is StringType && !given && views ? new Field(field.Name, StringViewType.Default, nullable: true) : field;
     }
 
     /// <summary>The store the files are read from.</summary>
@@ -117,9 +147,18 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                 throw new ArgumentException($"'{input}' is a URL: give the store that reads it (ParquetDatasetOptions.Store).", nameof(inputs));
         }
         List<ParquetDatasetFile> files = [];
-        foreach (string input in inputs) await ExpandAsync(store, input, options, files, alone: inputs.Length == 1, ct).ConfigureAwait(false);
+        int hiveStart = int.MaxValue;
+        bool directory = false;
+        foreach (string input in inputs)
+        {
+            (bool isDirectory, int start) = await ExpandAsync(store, input, options, files, alone: inputs.Length == 1, ct).ConfigureAwait(false);
+            hiveStart = Math.Min(hiveStart, start);
+            directory |= isDirectory;
+        }
         if (files.Count == 0) throw new FileNotFoundException($"No file is found at {string.Join(", ", inputs.Select(i => $"'{i}'"))}.");
-        return await FromFilesAsync(store, options, [.. files], useAsync, ct).ConfigureAwait(false);
+        // Partitions from the paths: when asked, or for a directory given alone (the default).
+        bool hive = options.Partitioning == HivePartitioning.On || options.Partitioning == HivePartitioning.Auto && inputs.Length == 1 && directory;
+        return await FromFilesAsync(store, options, [.. files], hive ? hiveStart : null, useAsync, ct).ConfigureAwait(false);
     }
 
     private static async ValueTask<ParquetDataset> OpenCoreAsync(ParquetDatasetFile[] files, ParquetDatasetOptions? options, bool useAsync, CancellationToken ct)
@@ -133,12 +172,15 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
             if (string.IsNullOrEmpty(file.Path)) throw new ArgumentException("A file has no path.", nameof(files));
             if (file.Size < 0) throw new ArgumentException($"'{file.Path}' has a negative size.", nameof(files));
         }
-        return await FromFilesAsync(options.Store ?? LocalFiles, options, files, useAsync, ct).ConfigureAwait(false);
+        return await FromFilesAsync(options.Store ?? LocalFiles, options, files, options.Partitioning == HivePartitioning.On ? 0 : null, useAsync, ct).ConfigureAwait(false);
     }
 
-    /// <summary>The dataset of the files: the first one's footer is read for the schema.</summary>
-    private static async ValueTask<ParquetDataset> FromFilesAsync(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, bool useAsync,
-        CancellationToken ct)
+    /// <summary>
+    /// The dataset of the files: the first one's footer is read for the schema; partitions from the values given with
+    /// the files, else from the paths after <paramref name="hiveStart"/> when it is set.
+    /// </summary>
+    private static async ValueTask<ParquetDataset> FromFilesAsync(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, int? hiveStart,
+        bool useAsync, CancellationToken ct)
     {
         await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, useAsync, ct).ConfigureAwait(false);
         Apache.Arrow.Schema schema;
@@ -150,7 +192,17 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         {
             throw InFile(files[0].Path, e);
         }
-        return new ParquetDataset(store, options, files, first.Metadata, schema);
+        Partitions? partitions;
+        if (files.Any(f => f.PartitionValues is not null))
+        {
+            Apache.Arrow.Schema given = options.PartitionSchema
+                ?? throw new ArgumentException("Files are given with partition values: give their types too (ParquetDatasetOptions.PartitionSchema).", nameof(files));
+            partitions = Partitions.FromValues(files, given);
+        }
+        else partitions = hiveStart is int start && options.Partitioning != HivePartitioning.Off
+            ? Partitions.FromHive([.. files.Select(f => f.Path)], start, options.PartitionSchema, schema, options.ParseHiveDates)
+            : null;
+        return new ParquetDataset(store, options, files, first.Metadata, schema, partitions);
     }
 
     /// <summary>Opens a file of the store (owned by the <see cref="ParquetFile"/>); errors name the file.</summary>
@@ -172,15 +224,18 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// <summary>The error with the file it is about.</summary>
     internal static ParquetFormatException InFile(string path, ParquetFormatException e) => new($"{path}: {e.Message}", e);
 
-    /// <summary>Adds the files <paramref name="input"/> names: itself, the files below a directory, or a glob's matches.</summary>
-    private static async ValueTask ExpandAsync(IFileStore store, string input, ParquetDatasetOptions options, List<ParquetDatasetFile> files, bool alone,
+    /// <summary>
+    /// Adds the files <paramref name="input"/> names: itself, the files below a directory, or a glob's matches. Tells
+    /// whether it was a directory, and where Hive keys start in the paths (after a directory; everywhere for others).
+    /// </summary>
+    private static async ValueTask<(bool Directory, int HiveStart)> ExpandAsync(IFileStore store, string input, ParquetDatasetOptions options, List<ParquetDatasetFile> files, bool alone,
         CancellationToken ct)
     {
         bool local = store is LocalFileStore;
         // Local paths may use the platform's separator; patterns and listings are matched with '/'.
         string path = local && Path.DirectorySeparatorChar != '/' ? input.Replace(Path.DirectorySeparatorChar, '/') : input;
         int start = files.Count;
-        if (GlobPattern.IsGlob(path) && !IsHttp(path))
+        if (options.Glob && GlobPattern.IsGlob(path) && !IsHttp(path))
         {
             GlobPattern glob = GlobPattern.Parse(path);
             if (!store.CanList) throw new NotSupportedException($"'{input}' is a glob, but the store cannot list its files.");
@@ -199,13 +254,16 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                 if (file.Size > 0 && Kept(file.Path, options)) files.Add(new ParquetDatasetFile(file.Path, file.Size));
             }
             if (alone) SameExtension(input, files);
+            files.Sort(start, files.Count - start, ByPath.Instance);
+            return (true, input.Length);
         }
         else
         {
             if (Kept(input, options)) files.Add(new ParquetDatasetFile(input));
-            return;
+            return (false, 0);
         }
         files.Sort(start, files.Count - start, ByPath.Instance);
+        return (false, 0);
     }
 
     /// <summary>HTTP(S) URLs are never globs: their '?' starts a query (as in signed URLs).</summary>
@@ -220,7 +278,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         return !prefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal));
     }
 
-    /// <summary>The files of a directory given alone must share an extension (as Polars requires): a glob says which to read otherwise.</summary>
+    /// <summary>The files of a directory given alone must share an extension: a glob says which to read otherwise.</summary>
     private static void SameExtension(string directory, List<ParquetDatasetFile> files)
     {
         string? first = null;

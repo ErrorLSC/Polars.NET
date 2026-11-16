@@ -276,7 +276,7 @@ public sealed class ParquetDatasetTests : IDisposable
         using ParquetFile footer = ParquetFile.Open(b);
         using var dataset = ParquetDataset.Open(
         [
-            new ParquetDatasetFile(b, new FileInfo(b).Length, RowRanges.Of([(0, 2)]), footer.Metadata),
+            new ParquetDatasetFile(b, new FileInfo(b).Length, Rows: RowRanges.Of([(0, 2)]), Metadata: footer.Metadata),
             new ParquetDatasetFile(a, Rows: RowRanges.Of([(8, 2)])),
         ]);
         Assert.Equal([.. Expected((10, 2)), .. Expected((8, 2))], Read(dataset));

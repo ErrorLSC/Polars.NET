@@ -107,3 +107,67 @@ module FilterShapes =
         | ScalarExpr.Cast(operand, target, strict) -> ScalarExpr.Cast(canonical operand, target, strict)
         | ScalarExpr.Coalesce operands -> ScalarExpr.Coalesce(operands |> List.map canonical)
         | _ -> expr
+
+    /// The order of two literals of one kind, where the IR's order and the CLR's agree: booleans, integers, decimals,
+    /// dates and times of one kind; strings only for equality (the IR orders them by UTF-8 bytes); floats never (NaN
+    /// is ordered in the IR). None for anything else, null literals included.
+    let private compareLiterals (equalityOnly: bool) (a: LiteralValue) (b: LiteralValue) : int option =
+        match a, b with
+        | LiteralValue.Bool x, LiteralValue.Bool y -> Some(compare x y)
+        | LiteralValue.Int8 x, LiteralValue.Int8 y -> Some(compare x y)
+        | LiteralValue.Int16 x, LiteralValue.Int16 y -> Some(compare x y)
+        | LiteralValue.Int32 x, LiteralValue.Int32 y -> Some(compare x y)
+        | LiteralValue.Int64 x, LiteralValue.Int64 y -> Some(compare x y)
+        | LiteralValue.UInt8 x, LiteralValue.UInt8 y -> Some(compare x y)
+        | LiteralValue.UInt16 x, LiteralValue.UInt16 y -> Some(compare x y)
+        | LiteralValue.UInt32 x, LiteralValue.UInt32 y -> Some(compare x y)
+        | LiteralValue.UInt64 x, LiteralValue.UInt64 y -> Some(compare x y)
+        | LiteralValue.Decimal x, LiteralValue.Decimal y -> Some(compare x y)
+        | LiteralValue.Date x, LiteralValue.Date y -> Some(compare x y)
+        | LiteralValue.TimeOnly x, LiteralValue.TimeOnly y -> Some(compare x y)
+        | LiteralValue.String x, LiteralValue.String y when equalityOnly -> Some(if String.Equals(x, y, StringComparison.Ordinal) then 0 else 1)
+        | _ -> None
+
+    /// <summary>
+    /// A filter with comparisons between two literals decided (where <c>compareLiterals</c> can order them) and the
+    /// boolean constants left folded into AND, OR and NOT, in Kleene logic (false wins an AND, true an OR; a null
+    /// stays). A filter whose columns were replaced by values (a file's partition values) then reads only the columns
+    /// it still names. The semantics are unchanged.
+    /// </summary>
+    let rec foldConstants (expr: ScalarExpr) : ScalarExpr =
+        let boolean value = ScalarExpr.Literal(LiteralValue.Bool value)
+        match expr with
+        | ScalarExpr.Binary(BinaryOp.And, left, right) ->
+            match foldConstants left, foldConstants right with
+            | ScalarExpr.Literal(LiteralValue.Bool false), _
+            | _, ScalarExpr.Literal(LiteralValue.Bool false) -> boolean false
+            | ScalarExpr.Literal(LiteralValue.Bool true), other
+            | other, ScalarExpr.Literal(LiteralValue.Bool true) -> other
+            | l, r -> ScalarExpr.Binary(BinaryOp.And, l, r)
+        | ScalarExpr.Binary(BinaryOp.Or, left, right) ->
+            match foldConstants left, foldConstants right with
+            | ScalarExpr.Literal(LiteralValue.Bool true), _
+            | _, ScalarExpr.Literal(LiteralValue.Bool true) -> boolean true
+            | ScalarExpr.Literal(LiteralValue.Bool false), other
+            | other, ScalarExpr.Literal(LiteralValue.Bool false) -> other
+            | l, r -> ScalarExpr.Binary(BinaryOp.Or, l, r)
+        | ScalarExpr.Unary(UnaryOp.Not, operand) ->
+            match foldConstants operand with
+            | ScalarExpr.Literal(LiteralValue.Bool value) -> boolean (not value)
+            | other -> ScalarExpr.Unary(UnaryOp.Not, other)
+        | ScalarExpr.Binary((BinaryOp.Eq | BinaryOp.NotEq | BinaryOp.EqMissing | BinaryOp.NotEqMissing | BinaryOp.Lt | BinaryOp.LtEq | BinaryOp.Gt | BinaryOp.GtEq) as op,
+                            ScalarExpr.Literal a,
+                            ScalarExpr.Literal b) ->
+            let equality = op = BinaryOp.Eq || op = BinaryOp.NotEq || op = BinaryOp.EqMissing || op = BinaryOp.NotEqMissing
+            match compareLiterals equality a b with
+            | Some order ->
+                boolean (
+                    match op with
+                    | BinaryOp.Eq | BinaryOp.EqMissing -> order = 0
+                    | BinaryOp.NotEq | BinaryOp.NotEqMissing -> order <> 0
+                    | BinaryOp.Lt -> order < 0
+                    | BinaryOp.LtEq -> order <= 0
+                    | BinaryOp.Gt -> order > 0
+                    | _ -> order >= 0)
+            | None -> expr
+        | _ -> expr

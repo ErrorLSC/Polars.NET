@@ -42,6 +42,20 @@ read. Files are read one after another (footers of the next ones read meanwhile)
 index numbers rows across files and comes first, `MaxRows` counts across files, `FilePathColumn` adds each row's
 file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors name their file. Files come from an `IFileStore`
 (`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), or a store of the caller.
+`Glob = false` reads wildcard characters as names (Polars' `glob=False`).
+
+**Partitions** (`HivePartitioning`, `PartitionSchema`, `ParseHiveDates`, `ParquetDatasetFile.PartitionValues`): Hive
+`key=value` directories give partition columns as Polars reads them — by default for a directory given alone, on
+request for globs and files (their whole path); values percent-decoded, `__HIVE_DEFAULT_PARTITION__` null, an empty
+value null (an empty string for strings); the keys are the first path's and every path must hold them all. A key's
+type is the partition schema's, else the files' column of that name, else inferred over all values with Polars' CSV
+rules (booleans, floats, integers — beyond Int64 a decimal(38, 0) — dates and timestamps, strings; dates parsed by
+default; times of day and mixed date orders stay strings). Values may also come with a list of files (typed by the
+partition schema; strings read as Hive values). Partition columns follow the files' columns; a key the files hold
+takes that column's place with the path's value. A filter's conjuncts over partition columns only decide which files
+are read (the IR's semantics, evaluated on a table of one row per file); conjuncts over both partition and file
+columns get each file's values as literals, folded (`FilterShapes.foldConstants`) before the file is read. Row
+numbers count the rows of files left out.
 
 **Metadata** (`ParquetMetadata`): the footer as a read-only view (schema elements with their annotations, row count,
 row groups, per-chunk statistics, `CreatedBy`, `KeyValueMetadata`), also parsed from footer bytes alone
@@ -188,7 +202,8 @@ them as PLAIN; string readers take delta byte arrays as data, starts and lengths
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
 streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
 open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`). `Parquet/Datasets/` holds the dataset: path
-expansion (`ParquetDataset`) and the reader of its files (`ParquetDatasetReader`).
+expansion (`ParquetDataset`), partition values (`Partitions`: Hive paths or given values as a typed table of one row
+per file) and the reader of its files (`ParquetDatasetReader`: column layout, partition pruning, filters per file).
 
 ## Avro features
 
@@ -396,7 +411,8 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from a flat Arrow array, into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
 | `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
 | `Helpers/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
-| `Arrow/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path column): string views over one copy, or repeated strings. |
+| `Arrow/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path and partition columns): string views over one copy, repeated strings, any flat type repeated from one element of an array. |
+| `Text/TextValues.cs` | Text values inferred and parsed as Polars' CSV reader does: booleans, floats, integers (Int128 beyond Int64), dates and date-times with offsets; the kind of a column from the kinds of its values. |
 | `Arrow/ArrowTypes.cs` | Whether two Arrow types hold values the same way (parameters compared, nested nullability not); decimal parameters. |
 | `Helpers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
 | `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
@@ -500,9 +516,10 @@ value against a logical type is allowed. General unions are not written against 
 what its predicate cannot match, and gives the rows of one thread on several). Sources and datasets:
   `ParquetMemorySourceTests` (memory, memory streams and unmanaged streams read in place), `ParquetSingleFileTests`
   (joined, prefixed and cut files refused; padding and metadata copies accepted), `FileStoreTests`,
-  `ParquetDatasetTests` (expansion, order, schema across files, row index, limits, file paths, stores) and, opt-in
-  with `SESERAGI_PARQUET_PYTHON`, `ParquetDatasetInteropTests` (the same datasets read by Python Polars,
-  `TestData/parquet/dataset_polars.py`). Writing: `ParquetWriterTests` (every type in every
+  `ParquetDatasetTests` (expansion, order, schema across files, row index, limits, file paths, stores),
+  `ParquetHiveTests` (keys, types, values, collisions, given values, the glob switch, partition pruning),
+  `FilterConstantFoldingTests` and, opt-in with `SESERAGI_PARQUET_PYTHON`, `ParquetDatasetInteropTests` (the same
+  datasets, plain and partitioned, read by Python Polars, `TestData/parquet/dataset_polars.py`). Writing: `ParquetWriterTests` (every type in every
   page layout, codec and dictionary setting read back by our reader with checksums verified; slices, empty batches,
   row groups, the footer's chunks and encodings, the async API, refusals), `ParquetWriterStatisticsTests` (bounds of
   every order, truncation, null and NaN counts; filtered reads at the bounds with statistics against without),
