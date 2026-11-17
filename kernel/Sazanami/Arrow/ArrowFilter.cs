@@ -30,7 +30,7 @@ internal static unsafe class ArrowFilter
     /// are ignored). <paramref name="shareViewData"/> forces sharing (true) or copying (false) of long view values;
     /// null decides by the rows kept.
     /// </summary>
-    /// <exception cref="NotSupportedException">A type without a native layout here (large lists, list views, unions, run-end encoded).</exception>
+    /// <exception cref="NotSupportedException">A type without a native layout here (list views, unions, run-end encoded).</exception>
     public static IArrowArray Filter(IArrowArray array, ReadOnlySpan<ulong> selected, bool? shareViewData = null)
     {
         ArgumentNullException.ThrowIfNull(array);
@@ -108,7 +108,9 @@ internal static unsafe class ArrowFilter
             case FixedWidthType f:
                 return export.NewArray(count, nulls, [validity, GatherFixed(export, data.Buffers[1].Span, data.Offset, f.BitWidth / 8, selected, length, count)], []);
             case StringType or BinaryType:
-                return Offsets(export, data, selected, count, validity, nulls);
+                return Offsets<int>(export, data, selected, count, validity, nulls);
+            case LargeStringType or LargeBinaryType:
+                return Offsets<long>(export, data, selected, count, validity, nulls);
             case StringViewType or BinaryViewType:
                 return Views(export, data, selected, count, validity, nulls, shareViewData ?? count >= length * ShareViewDataFrom);
             case NullType:
@@ -121,7 +123,9 @@ internal static unsafe class ArrowFilter
                 return export.NewArray(count, nulls, [validity], children);
             }
             case ListType or MapType:
-                return Lists(export, data, selected, count, validity, nulls, shareViewData);
+                return Lists<int>(export, data, selected, count, validity, nulls, shareViewData);
+            case LargeListType:
+                return Lists<long>(export, data, selected, count, validity, nulls, shareViewData);
             case FixedSizeListType f:
             {
                 // Each row kept keeps its ListSize elements.
@@ -137,32 +141,34 @@ internal static unsafe class ArrowFilter
         }
     }
 
-    /// <summary>Lists and maps: the elements of the rows kept, offsets rebuilt from 0.</summary>
-    private static NativeCArray* Lists(NativeBatchExport export, ArrayData data, ReadOnlySpan<ulong> selected, int count, nint validity, long nulls, bool? shareViewData)
+    /// <summary>Lists, maps and large lists: the elements of the rows kept, offsets rebuilt from 0.</summary>
+    private static NativeCArray* Lists<TOffset>(NativeBatchExport export, ArrayData data, ReadOnlySpan<ulong> selected, int count, nint validity, long nulls, bool? shareViewData)
+        where TOffset : unmanaged, IBinaryInteger<TOffset>
     {
         int length = data.Length;
-        ReadOnlySpan<int> offsets = data.Buffers[1].Span.CastTo<int>().Slice(data.Offset, length + 1);
-        int first = offsets[0], span = offsets[length] - first;
+        ReadOnlySpan<TOffset> offsets = data.Buffers[1].Span.CastTo<TOffset>().Slice(data.Offset, length + 1);
+        int first = int.CreateChecked(offsets[0]), span = int.CreateChecked(offsets[length]) - first;
         var elements = new ulong[Masks.Words(span) + 1];
-        var targetOffsets = (int*)export.Allocate((count + 1L) * sizeof(int));
+        var targetOffsets = (TOffset*)export.Allocate((count + 1L) * sizeof(TOffset));
         int o = 0, at = 0;
-        targetOffsets[o++] = 0;
+        targetOffsets[o++] = TOffset.Zero;
         var runs = new Runs(selected, length);
         while (runs.Next(out int start, out int n))
         {
-            Masks.SetRange(elements, offsets[start] - first, offsets[start + n] - offsets[start]);
+            int begin = int.CreateTruncating(offsets[start]);
+            Masks.SetRange(elements, begin - first, int.CreateTruncating(offsets[start + n]) - begin);
             for (int i = 0; i < n; i++)
             {
-                at += offsets[start + i + 1] - offsets[start + i];
-                targetOffsets[o++] = at;
+                at += int.CreateTruncating(offsets[start + i + 1] - offsets[start + i]);
+                targetOffsets[o++] = TOffset.CreateTruncating(at);
             }
         }
         NativeCArray* child = Build(export, data.Children[0].Slice(first, span), elements, at, shareViewData);
         return export.NewArray(count, nulls, [validity, (nint)targetOffsets], [(nint)child]);
     }
 
-    /// <summary>A dictionary for the filtered array: the input's, shared, or else copied whole.</summary>
-    private static NativeCArray* Dictionary(NativeBatchExport export, ArrayData dictionary)
+    /// <summary>A dictionary for a filtered or taken array: the input's, shared, or else copied whole.</summary>
+    internal static NativeCArray* Dictionary(NativeBatchExport export, ArrayData dictionary)
     {
         if (dictionary.Dictionary is null && dictionary.Children is null or { Length: 0 })
         {
@@ -250,24 +256,27 @@ internal static unsafe class ArrowFilter
         }
     }
 
-    private static NativeCArray* Offsets(NativeBatchExport export, ArrayData data, ReadOnlySpan<ulong> selected, int count, nint validity, long nulls)
+    private static NativeCArray* Offsets<TOffset>(NativeBatchExport export, ArrayData data, ReadOnlySpan<ulong> selected, int count, nint validity, long nulls)
+        where TOffset : unmanaged, IBinaryInteger<TOffset>
     {
         int length = data.Length;
-        ReadOnlySpan<int> offsets = data.Buffers[1].Span.CastTo<int>().Slice(data.Offset, length + 1);
+        ReadOnlySpan<TOffset> offsets = data.Buffers[1].Span.CastTo<TOffset>().Slice(data.Offset, length + 1);
         ReadOnlySpan<byte> bytes = data.Buffers[2].Span;
         long total = 0;
         var runs = new Runs(selected, length);
-        while (runs.Next(out int start, out int n)) total += offsets[start + n] - offsets[start];
-        var targetOffsets = (int*)export.Allocate((count + 1L) * sizeof(int));
+        while (runs.Next(out int start, out int n)) total += long.CreateTruncating(offsets[start + n] - offsets[start]);
+        var targetOffsets = (TOffset*)export.Allocate((count + 1L) * sizeof(TOffset));
         byte* targetBytes = (byte*)export.Allocate(total);
-        int at = 0, o = 0;
-        targetOffsets[o++] = 0;
+        long at = 0;
+        int o = 0;
+        targetOffsets[o++] = TOffset.Zero;
         runs = new Runs(selected, length);
         while (runs.Next(out int start, out int n))
         {
-            int begin = offsets[start], size = offsets[start + n] - begin;
-            bytes.Slice(begin, size).CopyTo(new Span<byte>(targetBytes + at, size));
-            for (int i = 1; i <= n; i++) targetOffsets[o++] = at + offsets[start + i] - begin;
+            long begin = long.CreateTruncating(offsets[start]);
+            int size = int.CreateChecked(long.CreateTruncating(offsets[start + n]) - begin);
+            bytes.Slice(checked((int)begin), size).CopyTo(new Span<byte>(targetBytes + at, size));
+            for (int i = 1; i <= n; i++) targetOffsets[o++] = TOffset.CreateTruncating(at + long.CreateTruncating(offsets[start + i]) - begin);
             at += size;
         }
         return export.NewArray(count, nulls, [validity, (nint)targetOffsets, (nint)targetBytes], []);
@@ -275,8 +284,18 @@ internal static unsafe class ArrowFilter
 
     private static NativeCArray* Views(NativeBatchExport export, ArrayData data, ReadOnlySpan<ulong> selected, int count, nint validity, long nulls, bool share)
     {
-        int length = data.Length, buffers = data.Buffers.Length - 2;
-        var views = (Int128*)GatherFixed(export, data.Buffers[1].Span, data.Offset, 16, selected, length, count);
+        var views = (Int128*)GatherFixed(export, data.Buffers[1].Span, data.Offset, 16, selected, data.Length, count);
+        return ViewData(export, data, views, count, validity, nulls, share);
+    }
+
+    /// <summary>
+    /// A view array of <paramref name="count"/> views gathered from <paramref name="data"/> (into memory of
+    /// <paramref name="export"/>): its long values in the input's data buffers, shared when <paramref name="share"/>
+    /// and they are native, or else copied into buffers of their own (the views rewritten, null views cleared).
+    /// </summary>
+    internal static NativeCArray* ViewData(NativeBatchExport export, ArrayData data, Int128* views, int count, nint validity, long nulls, bool share)
+    {
+        int buffers = data.Buffers.Length - 2;
         if (buffers == 0) return export.NewArray(count, nulls, [validity, (nint)views], []);
         if (share)
         {

@@ -63,6 +63,9 @@ internal sealed unsafe class NativeBatchExport
         return pointer;
     }
 
+    /// <summary>Like <see cref="Allocate"/>, without clearing the memory: for buffers the caller writes in full.</summary>
+    public void* AllocateUninitialized(long bytes) => Own(NativeMemoryPool.Alloc(Math.Max(bytes, 8)), bytes);
+
     public void* Allocate(long bytes)
     {
         byte* p = NativeMemoryPool.Alloc(Math.Max(bytes, 8));
@@ -157,6 +160,7 @@ internal sealed unsafe class NativeBatchExport
         StructType s => s.Fields[index].DataType,
         MapType m => m.KeyValueType,
         ListType l => l.ValueDataType,
+        LargeListType l => l.ValueDataType,
         FixedSizeListType f => f.ValueDataType,
         _ => throw new InvalidOperationException($"A {type.Name} array has no children."),
     };

@@ -25,7 +25,7 @@ public sealed unsafe class ArrowImportFromEngineTests
     /// A frame of every type the engine exports to Arrow, with nulls, nesting and a dictionary (not Int128: Apache.Arrow
     /// has no type for it, its schema importer refuses it).
     /// </summary>
-    private static DataFrame EveryType(int rows)
+    internal static DataFrame EveryType(int rows)
     {
         using DataFrame typed = DataFrame.From<Row>([.. Enumerable.Range(0, rows).Select(Row.Of)]);
         return typed.Lazy().WithColumns(

@@ -266,6 +266,33 @@ public class ArrowFilterTests
         }
     }
 
+    [Fact]
+    public void LargeOffsets_KeepTheSelectedRows()
+    {
+        var random = new Random(1121);
+        foreach (int length in (int[])[0, 1, 64, 65, 300])
+        {
+            foreach ((string name, IArrowType type) in (ReadOnlySpan<(string, IArrowType)>)[("utf8", LargeStringType.Default), ("binary", LargeBinaryType.Default)])
+            {
+                ColumnKind kind = Kinds.Single(k => k.Name == name);
+                object?[] values = Values(random, kind, length, 0.3);
+                IArrowArray array = ArrowTakeTests.ToLarge(Build(random, kind, values), type);
+                ulong[] mask = RandomMask(random, length);
+                using var filtered = (LargeBinaryArray)ArrowFilter.Filter(array, mask);
+                object?[] expected = [.. Enumerable.Range(0, length).Where(i => (mask[i >> 6] >> (i & 63) & 1) != 0).Select(i => values[i])];
+                Assert.Equal(expected.Length, filtered.Length);
+                for (int j = 0; j < expected.Length; j++)
+                    Assert.True(SameValue(expected[j], filtered.IsNull(j) ? null : filtered.GetBytes(j).ToArray()), $"{name} length {length} row {j}");
+            }
+            // Structs of every nested layout, a large list among them.
+            IArrowArray nested = ArrowTakeTests.Nested(random, length);
+            ulong[] rows = RandomMask(random, length);
+            using IArrowArray kept = ArrowFilter.Filter(nested, rows);
+            Assert.Equal(Enumerable.Range(0, length).Where(i => (rows[i >> 6] >> (i & 63) & 1) != 0).Select(i => ArrowTakeTests.Render(nested, i)),
+                Enumerable.Range(0, kept.Length).Select(i => ArrowTakeTests.Render(kept, i)));
+        }
+    }
+
     /// <summary>A row of any array as text (nested values included).</summary>
     private static string Render(IArrowArray array, int i)
     {
