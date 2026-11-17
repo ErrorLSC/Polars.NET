@@ -215,10 +215,16 @@ internal static class ByteHash
     public static uint Of(ReadOnlySpan<byte> bytes)
     {
         ulong h = (ulong)bytes.Length * K;
-        while (bytes.Length >= 8)
+        if (bytes.Length >= 8)
         {
-            h = BitOperations.RotateLeft(h ^ BinaryPrimitives.ReadUInt64LittleEndian(bytes), 27) * K;
-            bytes = bytes[8..];
+            // Whole words, then the last 8 bytes (overlapping the words already taken: the length is in the hash).
+            ReadOnlySpan<byte> last = bytes[^8..];
+            while (bytes.Length > 8)
+            {
+                h = BitOperations.RotateLeft(h ^ BinaryPrimitives.ReadUInt64LittleEndian(bytes), 27) * K;
+                bytes = bytes[8..];
+            }
+            return Mix(h ^ BinaryPrimitives.ReadUInt64LittleEndian(last));
         }
         ulong tail = 0;
         for (int i = 0; i < bytes.Length; i++) tail |= (ulong)bytes[i] << (8 * i);

@@ -323,9 +323,9 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
 
     protected override void ClearPage() => _count = 0;
 
-    protected override void MapToDictionary(Span<uint> indices)
+    protected override void MapToDictionary(Span<uint> indices, int first)
     {
-        ReadOnlySpan<T> page = _page.AsSpan(0, indices.Length);
+        ReadOnlySpan<T> page = _page.AsSpan(first, indices.Length);
         for (int i = 0; i < indices.Length; i++) indices[i] = (uint)_dictionary.GetOrAdd(page[i]);
     }
 
@@ -537,7 +537,8 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         ReadOnlySpan<ArrowStringView> views = MemoryMarshal.Cast<byte, ArrowStringView>(array.ViewsBuffer.Span).Slice(array.Offset + start, count);
         long total = 0;
         foreach (ref readonly ArrowStringView view in views) total += view.Length;
-        _arena.Grow(checked((int)(_arenaLength + total)), _arenaLength);
+        // 12 bytes of slack: an inline value is copied as its view's whole 12 bytes (the next value overwrites the rest).
+        _arena.Grow(checked((int)(_arenaLength + total + 12)), _arenaLength);
         Span<byte> arena = _arena.Span;
         Span<int> into = _offsets.AsSpan(_count + 1, count);
         int at = _arenaLength, current = -1;
@@ -546,7 +547,12 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         {
             ref readonly ArrowStringView view = ref views[k];
             int length = view.Length;
-            if (length <= NativeBinaryViewBuilder.MaxInline) MemoryMarshal.AsBytes(views.Slice(k, 1)).Slice(4, length).CopyTo(arena[at..]);
+            if (length <= NativeBinaryViewBuilder.MaxInline)
+            {
+                ref byte inline = ref Unsafe.Add(ref Unsafe.As<ArrowStringView, byte>(ref Unsafe.AsRef(in view)), 4);
+                Unsafe.WriteUnaligned(ref arena[at], Unsafe.ReadUnaligned<ulong>(ref inline));
+                Unsafe.WriteUnaligned(ref arena[at + 8], Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref inline, 8)));
+            }
             else
             {
                 if (view.BufferIndex != current)
@@ -554,7 +560,7 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
                     current = view.BufferIndex;
                     data = array.DataBuffer(current).Span;
                 }
-                data.Slice(view.Offset, length).CopyTo(arena[at..]);
+                ShortCopy.Copy(data.Slice(view.Offset, length), arena[at..]);
             }
             at += length;
             into[k] = at;
@@ -690,8 +696,20 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
     {
         BytesOrder.SignedDecimal => (sbyte)a[0] != (sbyte)b[0] ? ((sbyte)a[0]).CompareTo((sbyte)b[0]) : a[1..].SequenceCompareTo(b[1..]),
         BytesOrder.Float16 => BinaryPrimitives.ReadHalfLittleEndian(a).CompareTo(BinaryPrimitives.ReadHalfLittleEndian(b)),
-        _ => a.SequenceCompareTo(b),
+        _ => Bytewise(a, b),
     };
+
+    /// <summary>Unsigned bytewise order; the first 8 bytes, read as one big-endian number, decide most comparisons.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int Bytewise(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)
+    {
+        if (a.Length >= 8 && b.Length >= 8)
+        {
+            ulong x = BinaryPrimitives.ReadUInt64BigEndian(a), y = BinaryPrimitives.ReadUInt64BigEndian(b);
+            if (x != y) return x < y ? -1 : 1;
+        }
+        return a.SequenceCompareTo(b);
+    }
 
     protected override int PageValueCount => _count;
 
@@ -704,7 +722,19 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
             output.Write(_arena.AsSpan(0, _arenaLength));
             return;
         }
-        for (int i = 0; i < _count; i++) WriteWithLength(Value(i), output);
+        // Each value after its length, into one span taken at once.
+        ReadOnlySpan<byte> arena = _arena.AsSpan(0, _arenaLength);
+        ReadOnlySpan<int> offsets = _offsets.AsSpan(0, _count + 1);
+        Span<byte> into = output.GetSpan(checked((int)PagePlainBytes));
+        int at = 0;
+        for (int i = 0; i < _count; i++)
+        {
+            int start = offsets[i], length = offsets[i + 1] - start;
+            BinaryPrimitives.WriteInt32LittleEndian(into[at..], length);
+            ShortCopy.Copy(arena.Slice(start, length), into[(at + 4)..]);
+            at += 4 + length;
+        }
+        output.Advance(at);
     }
 
     protected override void EncodeAs(ParquetEncoding encoding, IBufferWriter<byte> output)
@@ -743,9 +773,9 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         _arenaLength = 0;
     }
 
-    protected override void MapToDictionary(Span<uint> indices)
+    protected override void MapToDictionary(Span<uint> indices, int first)
     {
-        for (int i = 0; i < indices.Length; i++) indices[i] = (uint)_dictionary.GetOrAdd(Value(i));
+        for (int i = 0; i < indices.Length; i++) indices[i] = (uint)_dictionary.GetOrAdd(Value(first + i));
     }
 
     protected override int DictionaryCount => _dictionary.Count;

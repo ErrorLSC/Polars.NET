@@ -100,6 +100,28 @@ public sealed class ParquetWriterAbortTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task AbortingWhileRowGroupsAreSealed_WritesNothingMore(bool useAsync)
+    {
+        // The caller owns the batches, on several threads: each full row group is sealed and finished by a task, so the
+        // last one is still sealed (not in the stream) at the abort, rows of the next one open. Neither is written.
+        using var stream = new MemoryStream();
+        RecordBatch batch = ParquetWriteData.Wide(90, 5500);
+        var writer = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { LeaveOpen = true, MaxDegreeOfParallelism = 8, RowGroupRows = 1000 });
+        if (useAsync) await writer.WriteAsync(batch);
+        else writer.Write(batch);
+        long laidOut = writer.BytesWritten;
+        Assert.Equal(1, writer.PeakRowGroupsInFlight); // sealed ones, one at a time
+        Assert.True(writer.PendingBytes > 0);
+        writer.Abort();
+        if (useAsync) await writer.DisposeAsync();
+        else writer.Dispose();
+        Assert.Equal(laidOut, stream.Length);
+        Assert.False(EndsWithFooter(stream));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task TheStaticWrites_GiveTheFileUp_WhenTheBatchesFail(bool useAsync)
     {
         // The batches' enumeration fails after one batch: the helpers abort the writer, so that the stream keeps no

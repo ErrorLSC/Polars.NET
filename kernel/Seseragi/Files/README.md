@@ -194,11 +194,12 @@ cannot hold exactly (a date64 that is not a whole day, a decimal with more digit
 interval or timestamp coercion) and nulls where the schema says non-nullable, at any depth, are refused before
 anything is written, never changed. Each row group is
 buffered until `RowGroupRows` or `RowGroupBytes` (checked after each segment of a batch the columns take at once, at
-most 16 384 rows; or `EndRowGroup`), then written column chunk by column chunk. With `MaxDegreeOfParallelism` above 1
-(the processor count by default) the columns of a segment are encoded on several threads, pages are compressed by
-helper threads (a few in flight a column, the total of busy threads kept to the degree), chunks are finished in
-parallel and a row group goes to the stream while the next one is encoded; the file is the same, byte for byte,
-whatever the degree. With `BatchOwnership = Writer` the writer takes the batches (reading them after `Write` returns,
+most 16 384 rows; or `EndRowGroup`), then written column chunk by column chunk.
+With `MaxDegreeOfParallelism` above 1 (the processor count by default) the columns of a segment are encoded on several
+threads, pages are compressed by helper threads (a few in flight a column, the total of busy threads kept to the
+degree), a full row group is sealed and finished (last pages, dictionary pages, indexes) by a task while the next one
+fills another set of column writers, and goes to the stream while the next one is encoded; the file is the same, byte
+for byte, whatever the degree. With `BatchOwnership = Writer` the writer takes the batches (reading them after `Write` returns,
 disposing each once its rows are encoded, also on failure) and, on several threads, encodes several row groups at once
 straight from them (each by column writers of its own, within a bound on their batches' bytes), writing them in order;
 row groups are then closed on rows or on the batches' Arrow bytes, and the file is the one the caller's batches give
@@ -206,7 +207,7 @@ whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
 dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page holding values shows the dictionary does not
-pay (smaller than the plain values; for fixed-width values compressed afterwards, at most three quarters of them, as
+pay (smaller than the plain values, judged as it is mapped; for fixed-width values compressed afterwards, at most three quarters of them, as
 bit-packed indices hardly compress where plain values do); one outgrowing `DictionaryPageBytes` goes on plainly. Statistics follow the type-defined order of every column
 (signed, unsigned, IEEE floats with NaN counts and zeros as -0 / +0, decimals as numbers), with the deprecated fields
 for signed orders; string and binary bounds are cut to `StatisticsTruncateLength` (the upper bound rounded up, marked
@@ -221,7 +222,7 @@ off, and a Bloom filter (split blocks of XXH64 hashes, sized for each chunk's di
 cut to `MaxBytes`); settings a leaf's type cannot take are refused. Bloom filters, then column and offset indexes, follow
 the row groups. The footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
 footer written, `BytesWritten` and `PendingBytes` what is in the stream and what the row groups not there yet will take
-(with the writer owning batches on several threads, those still being encoded too: exactly once encoded, else
+(sealed row groups exactly, waiting for them; with the writer owning batches on several threads, those still being encoded too: exactly once encoded, else
 estimated from the compression of those laid out), so that their sum can drive splitting files by size. View columns
 (`string_view`, `binary_view`, as Polars exports strings) are copied from their views and data buffers in runs, like
 plain and large strings.

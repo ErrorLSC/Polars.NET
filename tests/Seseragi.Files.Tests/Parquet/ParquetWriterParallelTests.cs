@@ -10,7 +10,8 @@ namespace Seseragi.Files.Tests.Parquet;
 /// <see cref="ParquetWriter"/> on several threads (<see cref="ParquetWriteOptions.MaxDegreeOfParallelism"/>): the
 /// file is the same, byte for byte, whatever the number of threads, in every layout; a failing column reports what one
 /// thread would have met first; a stream failing under a row group still on its way faults the writer, and disposing
-/// waits for it; an explicit <see cref="ParquetWriter.EndRowGroup"/> returns once its row group reached the stream.
+/// waits for it; an explicit <see cref="ParquetWriter.EndRowGroup"/> returns once its row group reached the stream;
+/// row groups sealed and still being finished count in <see cref="ParquetWriter.PendingBytes"/>.
 /// </summary>
 public sealed class ParquetWriterParallelTests
 {
@@ -127,6 +128,27 @@ public sealed class ParquetWriterParallelTests
         Assert.Throws<InvalidOperationException>(() => writer.Write(batch.Slice(0, 10))); // faulted
         writer.Dispose(); // waits for the row group on its way; no footer
         Assert.True(stream.Length <= 200_000);
+    }
+
+    [Fact]
+    public void PendingBytes_CountTheSealedRowGroups_Exactly()
+    {
+        // Caller-owned batches on several threads: a full row group is sealed, finished by a task while the next one
+        // fills, and in BytesWritten only once laid out. With no rows open, BytesWritten + PendingBytes is exactly where
+        // the next row group would start, as with one thread.
+        RecordBatch batch = ParquetWriteData.Wide(76, 12_000);
+        long[] totals = [.. ((int[])[1, 8]).Select(threads =>
+        {
+            using var stream = new MemoryStream();
+            using var writer = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { MaxDegreeOfParallelism = threads, RowGroupRows = 4000, LeaveOpen = true });
+            writer.Write(batch); // three row groups, none left open
+            long total = writer.BytesWritten + writer.PendingBytes;
+            if (threads > 1) Assert.True(writer.BytesWritten < total, "no row group was still sealed");
+            writer.EndRowGroup();
+            Assert.Equal(total, writer.BytesWritten);
+            return total;
+        })];
+        Assert.Equal(totals[0], totals[1]);
     }
 
     /// <summary>A stream whose writes take a while (a row group written behind is then still on its way).</summary>

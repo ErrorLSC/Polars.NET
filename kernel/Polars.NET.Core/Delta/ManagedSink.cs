@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using Apache.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
@@ -81,41 +82,35 @@ internal static class ManagedSink
             {
                 using DataFrameHandle frame = PolarsWrapper.CollectBatchesNext(batches, out bool done);
                 if (done) break;
-                long height = PolarsWrapper.DataFrameHeight(frame);
-                for (long at = 0; at < height;)
+                foreach (RecordBatch chunk in Chunks(frame))
                 {
-                    RecordBatch batch = Export(frame, at, height - at);
-                    try
+                    using (chunk)
                     {
-                        if (schema is null) (schema, maps) = WriterSchema(batch.Schema, dataFields);
-                        open ??= File.Open(fileSystem, pathFor(written.Count), schema, WriterOptions(options, rowGroupRows, maps), options.SyncOnClose != PlSyncOnClose.None);
-                        // As many rows as the file takes: up to its row limit, and up to its size, a row's bytes on disk
-                        // as the file shows them so far (before its first rows, the rows' Arrow bytes: no fewer than on
-                        // disk; the file goes on filling after them).
-                        long take = batch.Length;
-                        if (maxRows > 0) take = Math.Min(take, maxRows - open.Rows);
-                        if (target > 0)
+                        for (int at = 0; at < chunk.Length;)
                         {
-                            double perRow = open.PerRow ?? (double)ParquetWriter.ArrowBytes(batch) / batch.Length;
-                            take = Math.Min(take, Math.Max(1, (long)((target - open.Bytes(target)) / perRow)));
+                            // The chunk's rows from at: a slice shares the chunk's memory (never disposed; the chunk is).
+                            RecordBatch part = at == 0 ? chunk : chunk.Slice(at, chunk.Length - at);
+                            if (schema is null) (schema, maps) = WriterSchema(part.Schema, dataFields);
+                            open ??= File.Open(fileSystem, pathFor(written.Count), schema, WriterOptions(options, rowGroupRows, maps), options.SyncOnClose != PlSyncOnClose.None);
+                            // As many rows as the file takes: up to its row limit, and up to its size, a row's bytes on
+                            // disk as the file shows them so far (before its first rows, the Arrow bytes of the chunk's
+                            // buffers: no fewer than on disk; the file goes on filling after them).
+                            int take = part.Length;
+                            if (maxRows > 0) take = (int)Math.Min(take, maxRows - open.Rows);
+                            if (target > 0)
+                            {
+                                double perRow = open.PerRow ?? (double)ParquetWriter.ArrowBytes(part) / part.Length;
+                                take = (int)Math.Min(take, Math.Max(1, (long)((target - open.Bytes(target)) / perRow)));
+                            }
+                            open.Write(take < part.Length ? part.Slice(0, take) : part); // encoded at once
+                            at += take;
+                            // Closed at its row limit, or when not one more row fits.
+                            if ((maxRows > 0 && open.Rows >= maxRows) || (target > 0 && target - open.Bytes(target) < open.PerRow))
+                            {
+                                written.Add(open.Close());
+                                open = null;
+                            }
                         }
-                        if (take < batch.Length)
-                        {
-                            batch.Dispose();
-                            batch = Export(frame, at, take);
-                        }
-                        open.Write(batch); // encoded at once: the batch is let go after
-                        at += take;
-                    }
-                    finally
-                    {
-                        batch.Dispose();
-                    }
-                    // Closed at its row limit, or when not one more row fits.
-                    if ((maxRows > 0 && open.Rows >= maxRows) || (target > 0 && target - open.Bytes(target) < open.PerRow))
-                    {
-                        written.Add(open.Close());
-                        open = null;
                     }
                 }
             }
@@ -133,12 +128,14 @@ internal static class ManagedSink
         }
     }
 
-    /// <summary>Rows <paramref name="offset"/> .. +<paramref name="length"/> of an engine batch as Arrow (owning its memory).</summary>
-    private static RecordBatch Export(DataFrameHandle frame, long offset, long length)
+    /// <summary>
+    /// An engine batch as Arrow, chunk by chunk as the engine holds it: nothing copied (one Arrow batch for the whole
+    /// would concatenate its chunks, and compact a join's gathered strings); each chunk owns its memory.
+    /// </summary>
+    private static IEnumerable<RecordBatch> Chunks(DataFrameHandle frame)
     {
-        if (offset == 0 && length == PolarsWrapper.DataFrameHeight(frame)) return ArrowFfiBridge.ExportDataFrame(frame);
-        using DataFrameHandle slice = PolarsWrapper.Slice(frame, offset, (ulong)length);
-        return ArrowFfiBridge.ExportDataFrame(slice);
+        using IArrowArrayStream stream = ArrowStreamInterop.ExportToStream(frame);
+        while (stream.ReadNextRecordBatchAsync().AsTask().GetAwaiter().GetResult() is { } chunk) yield return chunk;
     }
 
     private static ParquetWriteOptions WriterOptions(KernelWriteOptions options, int rowGroupRows, IReadOnlySet<string>? maps) => new()

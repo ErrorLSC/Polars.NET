@@ -413,22 +413,31 @@ internal abstract class ColumnWriter : IDisposable
         if (_dictionary == DictionaryState.Building && (count > 0 || _dictionaryJudged))
         {
             _indices.Reserve(count);
-            indices = _indices.AsSpan(0, count);
-            MapToDictionary(indices);
-            bitWidth = DictionaryCount <= 1 ? 0 : 32 - BitOperations.LeadingZeroCount((uint)DictionaryCount - 1);
-            if (!_dictionaryJudged)
+            if (_dictionaryJudged) MapToDictionary(_indices.AsSpan(0, count), 0);
+            else
             {
-                // The first page with values decides: a dictionary that does not make it smaller is dropped for the whole chunk;
-                // for fixed-width values compressed afterwards, one that does not make it a quarter smaller (bit-packed
-                // indices hardly compress, plain values do: measured, plain then wrote smaller files and read faster).
+                // The first page with values decides: a dictionary that does not make it smaller is dropped for the whole
+                // chunk; for fixed-width values compressed afterwards, one that does not make it a quarter smaller
+                // (bit-packed indices hardly compress, plain values do: measured, plain then wrote smaller files and read
+                // faster). Mapped in steps: the dictionary and its indices' width only grow, so one that does not pay
+                // part way never will (keys and measurements are dropped without mapping the rest of the page).
                 _dictionaryJudged = true;
                 long worth = IsByteArray || _settings.Codec == CompressionCodec.Uncompressed ? PagePlainBytes : PagePlainBytes * 3 / 4;
-                if (DictionaryPlainBytes + 1 + RleBitPackedEncoder.MaxBytes(count, bitWidth) >= worth)
+                for (int first = 0; first < count; first += JudgeStep)
                 {
-                    _dictionary = DictionaryState.Off;
-                    ClearDictionary();
-                    indices = default;
+                    MapToDictionary(_indices.AsSpan(first, Math.Min(JudgeStep, count - first)), first);
+                    if (DictionaryPlainBytes + 1 + RleBitPackedEncoder.MaxBytes(count, IndexWidth) >= worth)
+                    {
+                        _dictionary = DictionaryState.Off;
+                        ClearDictionary();
+                        break;
+                    }
                 }
+            }
+            if (_dictionary == DictionaryState.Building)
+            {
+                indices = _indices.AsSpan(0, count);
+                bitWidth = IndexWidth;
             }
         }
         bool dictionaryPage = _dictionary == DictionaryState.Building && indices.Length == count && (count > 0 || _dictionaryJudged);
@@ -667,8 +676,14 @@ internal abstract class ColumnWriter : IDisposable
 
     protected abstract void ClearPage();
 
-    /// <summary>Adds the page's values to the dictionary and gives their indices.</summary>
-    protected virtual void MapToDictionary(Span<uint> indices) => throw new NotSupportedException();
+    /// <summary>Adds the page's values <paramref name="first"/> .. + indices' length to the dictionary and gives their indices.</summary>
+    protected virtual void MapToDictionary(Span<uint> indices, int first) => throw new NotSupportedException();
+
+    /// <summary>The values of the page judging the dictionary mapped before it is judged again.</summary>
+    private const int JudgeStep = 1024;
+
+    /// <summary>The bits of a dictionary index (none for one entry).</summary>
+    private int IndexWidth => DictionaryCount <= 1 ? 0 : 32 - BitOperations.LeadingZeroCount((uint)DictionaryCount - 1);
 
     protected virtual int DictionaryCount => 0;
 
