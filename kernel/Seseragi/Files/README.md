@@ -466,7 +466,8 @@ In Sazanami (generic, reusable by other formats):
 | :--- | :--- |
 | `Arrow/NativeGrowBuffer.cs` | Growable 64-byte-aligned native buffer and bitmap. |
 | `Arrow/NativeColumnBuilders.cs` | Arrow column builders in native memory (fixed width, boolean, binary, fixed-size binary, dictionary, list/map, struct, null) with lazy validity. |
-| `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
+| `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and made into Apache.Arrow arrays over that memory, freed with the last buffer. |
+| `Arrow/ArrowCImport.cs` | Imports Arrow C data interface arrays and streams (from the engine or any producer) as Apache.Arrow arrays over the producer's memory, released with the last buffer; replaces Apache.Arrow's importer, which reports every buffer to the GC as memory pressure (banned: `BannedSymbols.txt`). |
 | `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from an Arrow array (flat, or structs, lists, maps and fixed-size lists of them), into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
 | `Buffers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
 | `Buffers/NativeBufferWriter.cs`, `NativeStreamWriter.cs` | `IBufferWriter<byte>` in native memory: a growable one shaped like `ArrayBufferWriter` (Parquet pages, levels, scratch), and a small window that hands its bytes to a stream (JSON written line by line). |

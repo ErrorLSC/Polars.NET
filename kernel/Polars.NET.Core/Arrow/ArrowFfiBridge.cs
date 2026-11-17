@@ -97,9 +97,6 @@ public static class ArrowFfiBridge
     {
         var array = CArrowArray.Create();
         var schema = CArrowSchema.Create();
-
-        bool ownershipTransferred = false;
-
         try
         {
             NativeBindings.pl_to_arrow(handle, array, schema);
@@ -107,16 +104,13 @@ public static class ArrowFfiBridge
             ErrorHelper.CheckVoid();
 
             var managedSchema = CArrowSchemaImporter.ImportSchema(schema);
-            var batch = CArrowArrayImporter.ImportRecordBatch(array, managedSchema);
-            ownershipTransferred = true;
-            return batch;
+            // The import moves the array out of the struct (no GC memory pressure, unlike Apache.Arrow's importer).
+            return ArrowCImport.ImportRecordBatch(array, managedSchema);
         }
         finally
         {
-            if (!ownershipTransferred)
-            {
-                CArrowArray.Free(array);
-            }
+            // Releases what is still ours (nothing once imported) and frees both structs.
+            CArrowArray.Free(array);
             CArrowSchema.Free(schema);
         }
     }

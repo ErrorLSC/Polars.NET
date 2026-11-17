@@ -84,7 +84,7 @@ public class ArrowFilterTests
     private static unsafe nint Address(ArrowBuffer buffer) =>
         (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(buffer.Span));
 
-    private static NativeBatchMemory Owner(ArrowBuffer buffer) =>
+    private static NativeMemoryOwner Owner(ArrowBuffer buffer) =>
         MemoryMarshal.TryGetMemoryManager(buffer.Memory, out NativeBufferMemory? manager) ? manager.Owner : throw new InvalidOperationException("Not native.");
 
     private static object?[] LongStrings(int n) =>
@@ -133,7 +133,7 @@ public class ArrowFilterTests
         ColumnKind kind = Kinds.Single(k => k.Name == "view");
         object?[] values = LongStrings(200);
         IArrowArray source = BuildNative(kind, values);
-        NativeBatchMemory owner = Owner(source.Data.Buffers[2]);
+        NativeMemoryOwner owner = Owner(source.Data.Buffers[2]);
         ulong[] all = new ulong[Masks.Words(200)];
         Masks.Fill(all, 200, true);
         IArrowArray filtered = ArrowFilter.Filter(source, all, shareViewData: true);
@@ -157,7 +157,7 @@ public class ArrowFilterTests
             else builder.Append(i % 3);
         }
         IArrowArray source = builder.ExportArray();
-        NativeBatchMemory owner = Owner(source.Data.Dictionary!.Buffers[2]);
+        NativeMemoryOwner owner = Owner(source.Data.Dictionary!.Buffers[2]);
         var mask = new ulong[2];
         mask[0] = 0xF0F0F0F0F0F0F0F0;
         mask[1] = 0b111;

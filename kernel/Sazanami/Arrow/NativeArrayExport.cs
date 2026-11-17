@@ -39,12 +39,12 @@ internal sealed unsafe class NativeBatchExport
 {
     private NativeGrowBuffer _allocations; // void* entries
     private readonly Dictionary<nint, long> _sizes = [];
-    private readonly Dictionary<nint, (NativeBatchMemory Owner, int Length)> _shared = []; // buffers of other batches
+    private readonly Dictionary<nint, (NativeMemoryOwner Owner, int Length)> _shared = []; // buffers of other batches
 
     /// <summary>
     /// Puts a buffer of another imported batch into this one without copying (when it is one: a buffer over native
-    /// memory of a <see cref="NativeBatchMemory"/>): the arrays made here then hold that batch's memory too, until they
-    /// are disposed. Returns false for other buffers (managed memory, other importers), which must be copied.
+    /// memory of a <see cref="NativeMemoryOwner"/>, built here or imported by <see cref="ArrowCImport"/>): the arrays
+    /// made here then hold that batch's memory too, until they are disposed. Returns false for other buffers (managed memory, other importers), which must be copied.
     /// </summary>
     public bool TryShare(ArrowBuffer buffer, out nint pointer)
     {
@@ -163,7 +163,7 @@ internal sealed unsafe class NativeBatchExport
 
     /// <summary>Apache.Arrow's owning buffer constructor (internal there): the buffer disposes its memory owner.</summary>
     [UnsafeAccessor(UnsafeAccessorKind.Constructor)]
-    private static extern ArrowBuffer NewBuffer(IMemoryOwner<byte> owner);
+    internal static extern ArrowBuffer NewBuffer(IMemoryOwner<byte> owner);
 
     /// <summary>Frees everything collected so far (used when a batch is abandoned before import).</summary>
     public void FreeAll()
@@ -178,27 +178,17 @@ internal sealed unsafe class NativeBatchExport
 }
 
 /// <summary>
-/// The native allocations of one imported batch, freed once every buffer over them is disposed. A finalizer frees
-/// them if the batch is dropped undisposed.
+/// The native memory behind the buffers of one imported batch: counted references (one per buffer over it, one per
+/// pin, one for the import until it is sealed), the memory let go of when the last goes. A finalizer lets it go if
+/// the batch is dropped undisposed.
 /// </summary>
-internal sealed unsafe class NativeBatchMemory
+internal abstract class NativeMemoryOwner
 {
-    private nint[]? _allocations;
     private int _buffers = 1; // the import itself holds a reference until it is sealed
+    private int _freed;
 
-    private static long _live;
-
-    public NativeBatchMemory(ReadOnlySpan<nint> allocations)
-    {
-        _allocations = allocations.ToArray();
-        Interlocked.Increment(ref _live);
-    }
-
-    /// <summary>How many batch memories are allocated and not yet freed, in the whole process (for tests).</summary>
-    internal static long Live => Volatile.Read(ref _live);
-
-    /// <summary>Whether the allocations were freed (for tests).</summary>
-    internal bool IsFreed => Volatile.Read(ref _allocations) is null;
+    /// <summary>Whether the memory was let go of (for tests).</summary>
+    internal bool IsFreed => Volatile.Read(ref _freed) != 0;
 
     public void AddBuffer() => Interlocked.Increment(ref _buffers);
 
@@ -212,14 +202,38 @@ internal sealed unsafe class NativeBatchMemory
 
     private void Free()
     {
-        nint[]? allocations = Interlocked.Exchange(ref _allocations, null);
-        if (allocations is null) return;
-        Interlocked.Decrement(ref _live);
-        foreach (nint p in allocations) NativeMemoryPool.Free((void*)p);
+        if (Interlocked.Exchange(ref _freed, 1) != 0) return;
+        FreeMemory();
         GC.SuppressFinalize(this);
     }
 
-    ~NativeBatchMemory() => Free();
+    /// <summary>Lets the memory go (called once).</summary>
+    protected abstract void FreeMemory();
+
+    ~NativeMemoryOwner() => Free();
+}
+
+/// <summary>The native allocations of one batch built here (<see cref="NativeBatchExport"/>), freed with its last buffer.</summary>
+internal sealed unsafe class NativeBatchMemory : NativeMemoryOwner
+{
+    private readonly nint[] _allocations;
+
+    private static long _live;
+
+    public NativeBatchMemory(ReadOnlySpan<nint> allocations)
+    {
+        _allocations = allocations.ToArray();
+        Interlocked.Increment(ref _live);
+    }
+
+    /// <summary>How many batch memories are allocated and not yet freed, in the whole process (for tests).</summary>
+    internal static long Live => Volatile.Read(ref _live);
+
+    protected override void FreeMemory()
+    {
+        Interlocked.Decrement(ref _live);
+        foreach (nint p in _allocations) NativeMemoryPool.Free((void*)p);
+    }
 }
 
 /// <summary>
@@ -229,12 +243,12 @@ internal sealed unsafe class NativeBatchMemory
 /// </summary>
 internal sealed unsafe class NativeBufferMemory : MemoryManager<byte>
 {
-    private readonly NativeBatchMemory _owner;
+    private readonly NativeMemoryOwner _owner;
     private readonly byte* _pointer;
     private readonly int _length;
     private int _disposed;
 
-    public NativeBufferMemory(NativeBatchMemory owner, byte* pointer, int length)
+    public NativeBufferMemory(NativeMemoryOwner owner, byte* pointer, int length)
     {
         _owner = owner;
         _pointer = pointer;
@@ -243,7 +257,7 @@ internal sealed unsafe class NativeBufferMemory : MemoryManager<byte>
     }
 
     /// <summary>The memory of the batch this buffer belongs to.</summary>
-    internal NativeBatchMemory Owner => _owner;
+    internal NativeMemoryOwner Owner => _owner;
 
     public override Span<byte> GetSpan() => new(_pointer, _length);
 

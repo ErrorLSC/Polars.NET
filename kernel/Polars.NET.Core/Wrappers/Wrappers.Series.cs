@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.C;
+using Kaminari.Sazanami.Arrow;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Native;
@@ -1269,10 +1270,21 @@ public readonly partial struct PolarsWrapper
         bool schemaSuccess = NativeBindings.pl_arrow_schema_export(contextHandle, out cSchema);
         ErrorHelper.CheckBool(schemaSuccess);
 
-        var importedField = CArrowSchemaImporter.ImportField(&cSchema);
-
-        var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
-        return array;
+        Field importedField;
+        try
+        {
+            importedField = CArrowSchemaImporter.ImportField(&cSchema);
+        }
+        catch
+        {
+            ArrowCImport.Release((CArrowArray*)&cArray);
+            throw;
+        }
+        finally
+        {
+            ArrowCImport.Release(&cSchema); // ours: the engine exported it for this call
+        }
+        return ArrowCImport.ImportArray(&cArray, importedField.DataType);
     }
     /// <summary>
     /// Imports an Arrow Array via C Data Interface.

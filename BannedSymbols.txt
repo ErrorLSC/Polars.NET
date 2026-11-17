@@ -1,0 +1,2 @@
+T:Apache.Arrow.C.CArrowArrayImporter;Reports every imported buffer to the GC as memory pressure, forcing a full collection per batch: use Kaminari.Sazanami.Arrow.ArrowCImport
+T:Apache.Arrow.C.CArrowArrayStreamImporter;Imports with CArrowArrayImporter (GC memory pressure per buffer): use Kaminari.Sazanami.Arrow.ArrowCStreamReader

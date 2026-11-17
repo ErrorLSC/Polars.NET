@@ -812,7 +812,7 @@ public class ParquetKernelTests
         using var reader = file.OpenReader(new() { MaxDegreeOfParallelism = 1 });
         Apache.Arrow.RecordBatch batch = reader.ReadBatches().First();
         Assert.True(System.Runtime.InteropServices.MemoryMarshal.TryGetMemoryManager(batch.Column(0).Data.Buffers[1].Memory, out NativeBufferMemory? memory));
-        NativeBatchMemory owner = memory!.Owner;
+        NativeMemoryOwner owner = memory!.Owner;
 
         Apache.Arrow.C.CArrowArray* exported = Apache.Arrow.C.CArrowArray.Create();
         Apache.Arrow.C.CArrowArrayExporter.ExportRecordBatch(batch, exported);

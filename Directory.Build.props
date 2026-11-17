@@ -13,6 +13,16 @@
     <LangVersion>14</LangVersion>
   </PropertyGroup>
 
+  <!-- APIs banned in every C# project (BannedSymbols.txt says why and what to use instead): a use fails the build. -->
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+    <AdditionalFiles Include="$(RepoRoot)BannedSymbols.txt" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
     <ParallelCompilation>true</ParallelCompilation>
     <OtherFlags>$(OtherFlags) --parallelcompilation+</OtherFlags>

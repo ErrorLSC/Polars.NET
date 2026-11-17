@@ -30,7 +30,7 @@ public readonly partial struct PolarsWrapper
     private static unsafe IArrowArray ImportSingle(CArrowArray* arr, CArrowSchema* sch)
     {
         var field = CArrowSchemaImporter.ImportField(sch);
-        return CArrowArrayImporter.ImportArray(arr, field.DataType);
+        return Kaminari.Sazanami.Arrow.ArrowCImport.ImportArray(arr, field.DataType);
     }
 
     private static unsafe void ExportResult(IArrowArray result, CArrowArray* outArr, CArrowSchema* outSch)

@@ -227,6 +227,21 @@ public static unsafe class ArrowStreamInterop
             stream = exported.Inner;
         }
 
+        // The engine's own stream goes back to it as it is (moved out of the reader: a second import is refused).
+        if (stream is ArrowCStreamReader reader)
+        {
+            var moved = Apache.Arrow.C.CArrowArrayStream.Create();
+            try
+            {
+                reader.MoveTo((CArrowArrayStream*)moved);
+                return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type((CArrowArrayStream*)moved));
+            }
+            finally
+            {
+                Apache.Arrow.C.CArrowArrayStream.Free(moved);
+            }
+        }
+
         // Only an imported C stream holds the struct that can be moved out directly. Any other stream is a managed
         // implementation, and reading its object layout would read unrelated memory.
         var type = stream.GetType();
@@ -385,7 +400,8 @@ public static unsafe class ArrowStreamInterop
 
         ErrorHelper.CheckStatus(result);
 
-        var managedStream = Apache.Arrow.C.CArrowArrayStreamImporter.ImportArrayStream(cStream);
+        // The reader moves the stream out of the struct; SafePolarsExportStream frees the struct.
+        var managedStream = new ArrowCStreamReader(cStream);
 
         return new SafePolarsExportStream(managedStream, (IntPtr)cStream);
     }
@@ -484,7 +500,7 @@ public static unsafe class ArrowStreamInterop
             try
             {
                 var schema = CArrowSchemaImporter.ImportSchema(schemaPtr);
-                var batch = CArrowArrayImporter.ImportRecordBatch(arrPtr, schema);
+                var batch = ArrowCImport.ImportRecordBatch(arrPtr, schema);
                 ctx.UserAction(batch);
                 return 0; // Success
             }
