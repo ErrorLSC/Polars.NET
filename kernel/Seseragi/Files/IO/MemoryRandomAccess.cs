@@ -13,7 +13,7 @@ internal sealed class MemoryRandomAccess(ReadOnlyMemory<byte> bytes) : IRandomAc
 
     public bool SmallReadsAreCheap => true;
 
-    public Sazanami.Helpers.MappedFile? Map(out long start)
+    public Sazanami.Buffers.MappedFile? Map(out long start)
     {
         start = 0;
         return null;

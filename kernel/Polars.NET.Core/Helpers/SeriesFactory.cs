@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using Polars.NET.Core.Wrappers;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Polars.NET.Core.Helpers;
 

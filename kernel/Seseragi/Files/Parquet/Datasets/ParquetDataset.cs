@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Schema;
 

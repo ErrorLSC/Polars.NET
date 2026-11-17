@@ -48,7 +48,7 @@ internal struct LazyValidity
     /// bitmap, copied as they are); the bitmap is materialized only once a null arrives.
     /// </summary>
     /// <param name="lengthBefore">Number of slots appended before these.</param>
-    public void AppendMask(Helpers.SlotMask mask, long lengthBefore)
+    public void AppendMask(Kernels.SlotMask mask, long lengthBefore)
     {
         if (mask.IsBits)
         {
@@ -184,7 +184,7 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
     }
 
     /// <summary>Marks one slot per slot of <paramref name="mask"/>, valid where the mask says so.</summary>
-    protected void MarkMask(Helpers.SlotMask mask)
+    protected void MarkMask(Kernels.SlotMask mask)
     {
         Validity.AppendMask(mask, Length);
         Length += mask.Length;
@@ -281,7 +281,7 @@ internal sealed unsafe class NativeBooleanBuilder() : NativeColumnBuilder(Boolea
     /// Appends one slot per byte of <paramref name="values"/> (true where not zero); with a <paramref name="mask"/>
     /// of the same length, slots whose mask byte is zero are null.
     /// </summary>
-    public void AppendValues(ReadOnlySpan<byte> values, Helpers.SlotMask mask = default)
+    public void AppendValues(ReadOnlySpan<byte> values, Kernels.SlotMask mask = default)
     {
         _values.AppendMask(values);
         if (mask.IsEmpty) MarkValid(values.Length);
@@ -297,9 +297,9 @@ internal sealed unsafe class NativeBooleanBuilder() : NativeColumnBuilder(Boolea
 
     /// <summary>
     /// Appends <paramref name="mask"/>.Length slots whose values are bits of an LSB-first bitmap from bit
-    /// <paramref name="firstBit"/>, one per slot (see <see cref="Helpers.MaskExpand.Bits"/>); slots the mask marks are null.
+    /// <paramref name="firstBit"/>, one per slot (see <see cref="Kernels.MaskExpand.Bits"/>); slots the mask marks are null.
     /// </summary>
-    public void AppendBits(ReadOnlySpan<byte> bits, long firstBit, Helpers.SlotMask mask)
+    public void AppendBits(ReadOnlySpan<byte> bits, long firstBit, Kernels.SlotMask mask)
     {
         if (mask.IsEmpty) throw new ArgumentException("An empty mask gives no slot count; use the overload with a count.", nameof(mask));
         _values.AppendBits(bits, firstBit, mask.Length);
@@ -354,7 +354,7 @@ internal sealed unsafe class NativeFixedWidthBuilder<T>(IArrowType type) : Nativ
     /// Appends one slot per byte of <paramref name="mask"/>, null where the byte is zero, and returns them
     /// uninitialized: the caller writes every slot, zero under the nulls.
     /// </summary>
-    public Span<T> AppendUninitializedSlots(Helpers.SlotMask mask)
+    public Span<T> AppendUninitializedSlots(Kernels.SlotMask mask)
     {
         byte* at = _values.Reserve((long)mask.Length * sizeof(T));
         MarkMask(mask);
@@ -525,7 +525,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
     /// <summary>Copies <paramref name="bytes"/> into a data buffer of this batch; returns its index for views to point into.</summary>
     public int AddBuffer(ReadOnlySpan<byte> bytes)
     {
-        byte* p = Helpers.NativeMemoryPool.Alloc(Math.Max(bytes.Length, 8));
+        byte* p = Buffers.NativeMemoryPool.Alloc(Math.Max(bytes.Length, 8));
         bytes.CopyTo(new Span<byte>(p, bytes.Length));
         _buffers.Add(((nint)p, bytes.Length));
         return _buffers.Count - 1;
@@ -573,7 +573,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
     /// is zero; every row a value when <paramref name="mask"/> is empty). <paramref name="longBytes"/> is the total
     /// length of the values longer than <see cref="MaxInline"/>.
     /// </summary>
-    public void AppendValues(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, Helpers.SlotMask mask, long longBytes)
+    public void AppendValues(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, Kernels.SlotMask mask, long longBytes)
     {
         int rows = mask.IsEmpty ? starts.Length : mask.Length;
         if (longBytes > 0 && (_dataIndex < 0 || _data.Length + longBytes > int.MaxValue))
@@ -596,7 +596,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         }
         _data.EnsureAdditional(longBytes);
         var views = (Int128*)_views.Reserve((long)rows * sizeof(Int128));
-        if (WritesPastCaches && Helpers.NonTemporal.IsSupported)
+        if (WritesPastCaches && Buffers.NonTemporal.IsSupported)
         {
             AppendValuesStaged(source, starts, lengths, mask, views, rows);
             if (mask.IsEmpty) MarkValid(rows);
@@ -644,7 +644,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
     /// </summary>
     public bool WritesPastCaches { get; set; }
 
-    private void AppendValuesStaged(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, Helpers.SlotMask mask, Int128* views, int rows)
+    private void AppendValuesStaged(ReadOnlySpan<byte> source, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, Kernels.SlotMask mask, Int128* views, int rows)
     {
         const int ViewBlock = 256, DataBlock = 16 * 1024;
         Int128* stagedViews = stackalloc Int128[ViewBlock];
@@ -670,7 +670,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
                         long offset = dataBase + staged;
                         if (length > DataBlock)
                         {
-                            Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(from + start, length), new Span<byte>(_data.Reserve(length), length));
+                            Buffers.NonTemporal.Copy(new ReadOnlySpan<byte>(from + start, length), new Span<byte>(_data.Reserve(length), length));
                             dataBase += length;
                         }
                         else
@@ -686,12 +686,12 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
                 stagedViews[k++] = view;
                 if (k == ViewBlock)
                 {
-                    Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedViews, k * sizeof(Int128)), new Span<byte>(views + first, k * sizeof(Int128)));
+                    Buffers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedViews, k * sizeof(Int128)), new Span<byte>(views + first, k * sizeof(Int128)));
                     first += k;
                     k = 0;
                 }
             }
-            if (k > 0) Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedViews, k * sizeof(Int128)), new Span<byte>(views + first, k * sizeof(Int128)));
+            if (k > 0) Buffers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedViews, k * sizeof(Int128)), new Span<byte>(views + first, k * sizeof(Int128)));
             FlushData(stagedData, ref staged, ref dataBase);
         }
     }
@@ -699,7 +699,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
     private void FlushData(byte* stagedData, ref int staged, ref long dataBase)
     {
         if (staged == 0) return;
-        Helpers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedData, staged), new Span<byte>(_data.Reserve(staged), staged));
+        Buffers.NonTemporal.Copy(new ReadOnlySpan<byte>(stagedData, staged), new Span<byte>(_data.Reserve(staged), staged));
         dataBase += staged;
         staged = 0;
     }
@@ -716,7 +716,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
     /// Appends one slot per byte of <paramref name="mask"/>, null where it is zero; returns their views
     /// uninitialized: the caller writes every view, zero under the nulls.
     /// </summary>
-    public Span<Int128> AppendUninitializedViewSlots(Helpers.SlotMask mask)
+    public Span<Int128> AppendUninitializedViewSlots(Kernels.SlotMask mask)
     {
         var slots = new Span<Int128>(_views.Reserve((long)mask.Length * sizeof(Int128)), mask.Length);
         MarkMask(mask);
@@ -763,7 +763,7 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         _data.Free();
         foreach (var (pointer, _) in _buffers)
         {
-            Helpers.NativeMemoryPool.Free((void*)pointer);
+            Buffers.NativeMemoryPool.Free((void*)pointer);
         }
         _buffers.Clear();
         _dataIndex = -1;

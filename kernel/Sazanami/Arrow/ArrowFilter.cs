@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Filters;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Kernels;
 
 namespace Kaminari.Sazanami.Arrow;
 

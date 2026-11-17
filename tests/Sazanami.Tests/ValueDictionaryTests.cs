@@ -15,7 +15,7 @@ public class ValueDictionaryTests
     public void ByteStrings_GetOneIndexEach_InFirstAppearanceOrder()
     {
         var random = new Random(7);
-        var dictionary = new ByteArrayDictionary();
+        using var dictionary = new ByteArrayDictionary();
         for (int round = 0; round < 2; round++)
         {
             Dictionary<string, int> model = new(StringComparer.Ordinal);
@@ -37,15 +37,15 @@ public class ValueDictionaryTests
     [Fact]
     public void FixedValues_AreEqualByTheirBytes()
     {
-        var doubles = new FixedValueDictionary<double>();
+        using var doubles = new FixedValueDictionary<double>();
         double otherNaN = BitConverter.Int64BitsToDouble(0x7FF8_0000_0000_0001);
         double[] values = [1.5, double.NaN, otherNaN, 0d, -0d, 1.5, double.NaN, -0d];
         Assert.Equal([0, 1, 2, 3, 4, 0, 1, 4], values.Select(doubles.GetOrAdd));
         Assert.Equal(5, doubles.Count);
 
         var random = new Random(3);
-        var longs = new FixedValueDictionary<long>();
-        var twelve = new FixedValueDictionary<(long, int)>();
+        using var longs = new FixedValueDictionary<long>();
+        using var twelve = new FixedValueDictionary<(long, int)>();
         Dictionary<long, int> model = [];
         for (int i = 0; i < 200_000; i++)
         {

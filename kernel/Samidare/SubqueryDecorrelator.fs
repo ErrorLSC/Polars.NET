@@ -6,7 +6,7 @@ open System.Reflection
 open System.Linq.Expressions
 open System.Linq
 open System.Collections.Generic
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Dedicated engine for decorrelating subqueries (EXISTS, NOT EXISTS, IN, NOT IN, scalar aggregates,
 /// and embedded projection subqueries) into native pushdown operations.

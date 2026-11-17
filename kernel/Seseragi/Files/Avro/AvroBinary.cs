@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 
 namespace Kaminari.Seseragi.Files.Avro;
 

@@ -1,6 +1,6 @@
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Kaminari.Sazanami.Data;

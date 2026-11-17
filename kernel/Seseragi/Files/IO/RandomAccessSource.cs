@@ -1,4 +1,4 @@
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Microsoft.Win32.SafeHandles;
 
 namespace Kaminari.Seseragi.Files.IO;

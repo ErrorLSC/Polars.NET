@@ -7,7 +7,7 @@ open System.Linq.Expressions
 open System.Reflection
 open Kaminari.Samidare
 open Kaminari.Samidare.IR
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 open Kaminari.Samidare.Config
 
 [<AutoOpen>]

@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Kaminari.Sazanami.Encodings;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Kernels;
 
 namespace Kaminari.Seseragi.Files.Parquet.Encodings;
 

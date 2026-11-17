@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.IO.Hashing;
 using Kaminari.Sazanami.Compression;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Snappier;
 using ZstdSharp;
 

@@ -9,7 +9,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Kaminari.Sazanami.Data;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 /// <summary>
 /// Vectorized Arrow batch adapter for managed UDF callbacks invoked from the native engine.

@@ -6,7 +6,7 @@ open System.Linq
 open System.Linq.Expressions
 open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 open Kaminari.Samidare
 
 /// Executing a pipeline that needs the full LINQ-to-Objects fallback: the longest natively compilable prefix

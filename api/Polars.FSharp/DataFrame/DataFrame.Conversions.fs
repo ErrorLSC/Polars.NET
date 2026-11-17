@@ -10,7 +10,7 @@ open System
 open System.Runtime.CompilerServices
 open Polars.NET.Core.Helpers
 open Kaminari.Sazanami.Data
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 type internal FSharpRowMapper<'T>() =
 

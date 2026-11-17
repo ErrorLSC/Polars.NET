@@ -81,48 +81,34 @@ internal static class DeltaBinaryPackedEncoder
 /// Writes DELTA_LENGTH_BYTE_ARRAY (the lengths as DELTA_BINARY_PACKED, then the bytes back to back) and
 /// DELTA_BYTE_ARRAY (each value's prefix shared with the one before, as DELTA_BINARY_PACKED, then the rest as
 /// DELTA_LENGTH_BYTE_ARRAY), from values back to back in <c>bytes</c> with their <c>offsets</c> (one more than values).
+/// The caller lends the <c>scratch</c> the lengths are gathered in: a value each, two for DELTA_BYTE_ARRAY.
 /// </summary>
 internal static class DeltaByteArrayEncoder
 {
-    public static void EncodeLengths(ReadOnlySpan<byte> bytes, ReadOnlySpan<int> offsets, IBufferWriter<byte> output)
+    public static void EncodeLengths(ReadOnlySpan<byte> bytes, ReadOnlySpan<int> offsets, Span<int> scratch, IBufferWriter<byte> output)
     {
         int count = offsets.Length - 1;
-        int[] lengths = ArrayPool<int>.Shared.Rent(Math.Max(1, count));
-        try
-        {
-            for (int i = 0; i < count; i++) lengths[i] = offsets[i + 1] - offsets[i];
-            DeltaBinaryPackedEncoder.Encode<int>(lengths.AsSpan(0, count), output);
-            output.Write(bytes[offsets[0]..offsets[count]]);
-        }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(lengths);
-        }
+        Span<int> lengths = scratch[..count];
+        for (int i = 0; i < count; i++) lengths[i] = offsets[i + 1] - offsets[i];
+        DeltaBinaryPackedEncoder.Encode<int>(lengths, output);
+        output.Write(bytes[offsets[0]..offsets[count]]);
     }
 
-    public static void EncodeIncremental(ReadOnlySpan<byte> bytes, ReadOnlySpan<int> offsets, IBufferWriter<byte> output)
+    public static void EncodeIncremental(ReadOnlySpan<byte> bytes, ReadOnlySpan<int> offsets, Span<int> scratch, IBufferWriter<byte> output)
     {
         int count = offsets.Length - 1;
-        int[] prefixes = ArrayPool<int>.Shared.Rent(Math.Max(1, count)), suffixes = ArrayPool<int>.Shared.Rent(Math.Max(1, count));
-        try
+        Span<int> prefixes = scratch[..count], suffixes = scratch.Slice(count, count);
+        ReadOnlySpan<byte> previous = [];
+        for (int i = 0; i < count; i++)
         {
-            ReadOnlySpan<byte> previous = [];
-            for (int i = 0; i < count; i++)
-            {
-                ReadOnlySpan<byte> value = bytes[offsets[i]..offsets[i + 1]];
-                int prefix = value.CommonPrefixLength(previous);
-                prefixes[i] = prefix;
-                suffixes[i] = value.Length - prefix;
-                previous = value;
-            }
-            DeltaBinaryPackedEncoder.Encode<int>(prefixes.AsSpan(0, count), output);
-            DeltaBinaryPackedEncoder.Encode<int>(suffixes.AsSpan(0, count), output);
-            for (int i = 0; i < count; i++) output.Write(bytes.Slice(offsets[i] + prefixes[i], suffixes[i]));
+            ReadOnlySpan<byte> value = bytes[offsets[i]..offsets[i + 1]];
+            int prefix = value.CommonPrefixLength(previous);
+            prefixes[i] = prefix;
+            suffixes[i] = value.Length - prefix;
+            previous = value;
         }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(prefixes);
-            ArrayPool<int>.Shared.Return(suffixes);
-        }
+        DeltaBinaryPackedEncoder.Encode<int>(prefixes, output);
+        DeltaBinaryPackedEncoder.Encode<int>(suffixes, output);
+        for (int i = 0; i < count; i++) output.Write(bytes.Slice(offsets[i] + prefixes[i], suffixes[i]));
     }
 }

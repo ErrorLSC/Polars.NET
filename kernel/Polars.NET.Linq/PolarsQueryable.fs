@@ -12,7 +12,7 @@ open System.Diagnostics.CodeAnalysis
 open System.Threading
 open Kaminari.Samidare.IR
 open Polars.NET.Linq.Backend.Polars
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 open Kaminari.Samidare
 
 /// The language whose compiler built a query's expression trees. F# query expressions are rewritten

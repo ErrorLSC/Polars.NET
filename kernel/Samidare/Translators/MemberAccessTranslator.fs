@@ -3,7 +3,7 @@ namespace Kaminari.Samidare
 open Kaminari.Samidare.IR
 open System
 open System.Linq.Expressions
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 [<AutoOpen>]
 module internal MemberAccessTranslator =

@@ -7,7 +7,7 @@ using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Exceptions;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Polars.NET.Core.Wrappers;
 

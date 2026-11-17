@@ -237,6 +237,38 @@ public sealed class ParquetNestedWriterTests : IDisposable
     }
 
     [Fact]
+    public void ManyItemsOnOnePage_ComeBack_InOrder()
+    {
+        // Rows of a few items each (and flat booleans), all on one page: the page's values grow while it fills,
+        // keeping those before.
+        const int Rows = 20_000;
+        var longs = new ListArray.Builder(Int64Type.Default);
+        var ints = new ListArray.Builder(Int32Type.Default);
+        var flags = new ListArray.Builder(BooleanType.Default);
+        var flat = new BooleanArray.Builder();
+        for (int r = 0; r < Rows; r++)
+        {
+            flat.Append(r % 5 == 1);
+            longs.Append();
+            ints.Append();
+            flags.Append();
+            for (int k = 0; k < 3; k++)
+            {
+                ((Int64Array.Builder)longs.ValueBuilder).Append(r * 1_000_003L + k);
+                ((Int32Array.Builder)ints.ValueBuilder).Append(r * 7 + k);
+                ((BooleanArray.Builder)flags.ValueBuilder).Append((r + k) % 3 == 0);
+            }
+        }
+        IArrowArray[] columns = [longs.Build(), ints.Build(), flags.Build(), flat.Build()];
+        var schema = new Apache.Arrow.Schema([.. columns.Select((c, i) => new Field($"c{i}", c.Data.DataType, true))], null);
+        var batch = new RecordBatch(schema, columns, Rows);
+        string path = Path("many.parquet");
+        ParquetWriter.Write(path, schema, [batch], new ParquetWriteOptions { DataPageRows = Rows, DataPageBytes = 8 << 20, Dictionary = false });
+        string[][] read = ReadBack(path);
+        for (int c = 0; c < columns.Length; c++) Assert.Equal(ParquetNestedData.Canonical(columns[c]), read[c]);
+    }
+
+    [Fact]
     public void Writes_AreRefused_WithReasons()
     {
         // Unions have no Parquet form. (Nor have structs without fields, but Apache.Arrow refuses to make one.)

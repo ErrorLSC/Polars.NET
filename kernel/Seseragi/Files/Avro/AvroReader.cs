@@ -5,7 +5,7 @@ using Apache.Arrow;
 using Array = System.Array;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 
 namespace Kaminari.Seseragi.Files.Avro;
 

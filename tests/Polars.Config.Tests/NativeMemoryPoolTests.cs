@@ -1,4 +1,4 @@
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 
 namespace Polars.Config.Tests;
 

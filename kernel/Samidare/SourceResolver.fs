@@ -5,7 +5,7 @@ open System.Collections
 open System.Linq
 open System.Linq.Expressions
 open Kaminari.Samidare.IR
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Pure symbolic resolution of sequence operands (Join/Concat/Union/Zip inputs, subquery roots, Append/Prepend
 /// elements) into LogicalPlan subtrees. Every source is registered in the caller's SourceRegistry and scanned

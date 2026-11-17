@@ -1,5 +1,5 @@
 using System.IO.Compression;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Excel.Xml;
 
 namespace Kaminari.Seseragi.Files.Excel.Packaging;

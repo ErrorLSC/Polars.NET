@@ -5,7 +5,7 @@ open System.Reflection
 open System.Linq
 open System.Linq.Expressions
 open Kaminari.Samidare
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Extraction of key and projection expressions from selector lambdas.
 module internal ProjectionExtraction =

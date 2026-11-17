@@ -34,12 +34,15 @@ public sealed class SplitBlockBloomFilter
     /// <summary>The bitset (for writing it out).</summary>
     public ReadOnlySpan<byte> Bitset => _bitset;
 
-    private int BlockOf(ulong hash) => (int)(((hash >> 32) * (ulong)(_bitset.Length / BlockBytes)) >> 32);
+    private static int BlockOf(ulong hash, int bytes) => (int)(((hash >> 32) * (ulong)(bytes / BlockBytes)) >> 32);
 
     /// <summary>Records a value by its hash.</summary>
-    public void Insert(ulong hash)
+    public void Insert(ulong hash) => Insert(_bitset, hash);
+
+    /// <summary>Records a value by its hash in the <paramref name="bitset"/> of a filter (whole blocks, wherever it lives).</summary>
+    internal static void Insert(Span<byte> bitset, ulong hash)
     {
-        Span<byte> block = _bitset.AsSpan(BlockOf(hash) * BlockBytes, BlockBytes);
+        Span<byte> block = bitset.Slice(BlockOf(hash, bitset.Length) * BlockBytes, BlockBytes);
         uint key = (uint)hash;
         if (BitConverter.IsLittleEndian)
         {
@@ -57,7 +60,7 @@ public sealed class SplitBlockBloomFilter
     /// <summary>False only when no value with this hash was inserted.</summary>
     public bool MightContain(ulong hash)
     {
-        ReadOnlySpan<byte> block = _bitset.AsSpan(BlockOf(hash) * BlockBytes, BlockBytes);
+        ReadOnlySpan<byte> block = _bitset.AsSpan(BlockOf(hash, _bitset.Length) * BlockBytes, BlockBytes);
         uint key = (uint)hash;
         for (int i = 0; i < 8; i++)
         {

@@ -2,10 +2,11 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Hashing;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Array = System.Array;
 using Kaminari.Sazanami.Filters;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
@@ -22,20 +23,28 @@ internal sealed record PageSettings(
 /// <summary>
 /// A column chunk ready to be written: its pages (the dictionary page first; the data pages as header and body
 /// pieces, <see cref="DataPagesLength"/> bytes in all) and what its metadata needs. The offset index's page offsets
-/// count from the start of the data pages.
+/// count from the start of the data pages. The chunk owns its native buffers: the pages and the dictionary page until
+/// written (<see cref="ReleasePages"/>), the Bloom filter's bitset until the writer takes it, at layout.
 /// </summary>
 internal readonly record struct FinishedChunk(
     ReadOnlyMemory<byte> DictionaryPage, NativeBufferWriter? DictionaryOwner, IReadOnlyList<ReadOnlyMemory<byte>> DataPages, long DataPagesLength, long UncompressedSize,
     ParquetEncoding[] Encodings, PageEncodingStats[] EncodingStats, Statistics? Statistics, long Values, ColumnIndex? ColumnIndex,
-    OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, byte[]? BloomFilter, PageJob[] Pages)
+    OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, NativeBufferWriter? BloomFilter, PageJob[] Pages)
 {
     public long CompressedSize => DictionaryPage.Length + DataPagesLength;
 
     /// <summary>Returns the pages' buffers to the pool, once they are in the file (the chunk owns them; the writer moved on).</summary>
-    public void Release()
+    public void ReleasePages()
     {
         foreach (PageJob page in Pages) page.Release();
         DictionaryOwner?.Dispose();
+    }
+
+    /// <summary>Returns every buffer to the pool, the Bloom filter's too: a chunk that is never laid out.</summary>
+    public void Release()
+    {
+        ReleasePages();
+        BloomFilter?.Dispose();
     }
 }
 
@@ -64,19 +73,37 @@ internal abstract class ColumnWriter : IDisposable
     private readonly NativeBufferWriter _body = new(1 << 16);
     private NativeBufferWriter _dictionaryPage = new(256);
     private readonly ThriftCompactWriter _header = new();
-    private uint[] _pageDef = new uint[1024], _pageRep = new uint[1024];
-    private readonly ulong[] _validity = new ulong[16]; // the validity of the rows of a flat step (1024 at most)
+    // The open page's levels and dictionary indices, in native memory too.
+    private readonly NativeArray<uint> _pageDef = new(InitialLevels), _pageRep; // repetition levels only below a list
+    private ValidityWords _validity; // the validity of the rows of a flat step (1024 at most)
     private int _validityWords;
-    private uint[] _indices = new uint[1024];
+    private readonly NativeArray<uint> _indices = new(InitialLevels);
     private int _pageRows, _pageLevels, _pageNulls;
     private long _chunkLevels, _chunkNulls, _uncompressed;
-    private readonly int[] _pagesBy = new int[10]; // data pages by ParquetEncoding
+    private PagesByEncoding _pagesBy; // data pages by ParquetEncoding
     private DictionaryState _dictionary;
     private bool _dictionaryJudged;
     private readonly List<PageRecord> _pageRecords = [];
     private readonly List<long> _defHistograms = [], _repHistograms = []; // per page, maxDef + 1 / maxRep + 1 counts each
     private long _chunkRows, _chunkUnencoded;
     private bool _indexable = true; // every page so far has bounds a column index can hold
+
+    /// <summary>The bytes a page buffer (levels, indices, values) takes at first.</summary>
+    protected const int InitialBytes = 16 * 1024;
+
+    private const int InitialLevels = InitialBytes / sizeof(uint);
+
+    [InlineArray(16)]
+    private struct ValidityWords
+    {
+        private ulong _word;
+    }
+
+    [InlineArray(10)]
+    private struct PagesByEncoding
+    {
+        private int _count;
+    }
 
     /// <param name="settings">The page options.</param>
     /// <param name="maxDef">The leaf's maximum definition level (0 for a required top-level column).</param>
@@ -89,6 +116,7 @@ internal abstract class ColumnWriter : IDisposable
         _maxRep = maxRep;
         _defWidth = 32 - BitOperations.LeadingZeroCount((uint)maxDef);
         _repWidth = 32 - BitOperations.LeadingZeroCount((uint)maxRep);
+        _pageRep = new(maxRep > 0 ? InitialLevels : 0);
         DictionaryCapable = dictionary && settings.Dictionary;
         _dictionary = DictionaryCapable ? DictionaryState.Building : DictionaryState.Off;
         Bloom = settings.Bloom is { } bloom ? new BloomBuilder(bloom, settings.Budget) : null;
@@ -146,6 +174,7 @@ internal abstract class ColumnWriter : IDisposable
             if (_maxDef > 0)
             {
                 Span<uint> levels = _pageDef.AsSpan(_pageLevels, take);
+                Span<ulong> validityWords = _validity;
                 if (ArrowValues.NullCount(array) == 0)
                 {
                     levels.Fill(1);
@@ -154,10 +183,10 @@ internal abstract class ColumnWriter : IDisposable
                 {
                     // The validity bits, word by word: the levels, and (through Validity) which values to take.
                     int words = Masks.Words(take);
-                    Masks.Load(validity.Span, (long)array.Offset + offset, take, _validity.AsSpan(0, words));
+                    Masks.Load(validity.Span, (long)array.Offset + offset, take, validityWords[..words]);
                     _validityWords = words;
-                    nulls = take - Masks.Count(_validity.AsSpan(0, words));
-                    for (int i = 0; i < take; i++) levels[i] = (uint)(_validity[i >> 6] >> (i & 63)) & 1;
+                    nulls = take - Masks.Count(validityWords[..words]);
+                    for (int i = 0; i < take; i++) levels[i] = (uint)(validityWords[i >> 6] >> (i & 63)) & 1;
                 }
                 else
                 {
@@ -199,7 +228,7 @@ internal abstract class ColumnWriter : IDisposable
             }
             EnsureLevels(levels);
             def[..levels].CopyTo(_pageDef.AsSpan(_pageLevels));
-            rep[..levels].CopyTo(_pageRep.AsSpan(_pageLevels));
+            if (_maxRep > 0) rep[..levels].CopyTo(_pageRep.AsSpan(_pageLevels));
             if (values > 0) AppendAt(leaf!, indices[..values]);
             _pageRows += rows;
             _pageLevels += levels;
@@ -216,10 +245,9 @@ internal abstract class ColumnWriter : IDisposable
 
     private void EnsureLevels(int more)
     {
-        if (_pageDef.Length >= _pageLevels + more) return;
-        int size = Math.Max(_pageDef.Length * 2, _pageLevels + more);
-        Array.Resize(ref _pageDef, size);
-        Array.Resize(ref _pageRep, size);
+        int size = checked(_pageLevels + more);
+        _pageDef.Grow(size, _pageLevels);
+        if (_maxRep > 0) _pageRep.Grow(size, _pageLevels);
     }
 
     /// <summary>Closes the chunk: its last page, the dictionary page; the writer is ready for the next row group after <see cref="Reset"/>.</summary>
@@ -343,6 +371,10 @@ internal abstract class ColumnWriter : IDisposable
         _levelScratch.Dispose();
         _body.Dispose();
         _dictionaryPage.Dispose();
+        _pageDef.Dispose();
+        _pageRep.Dispose();
+        _indices.Dispose();
+        Bloom?.Dispose();
     }
 
     /// <summary>Forgets the finished chunk (its buffers are reused).</summary>
@@ -359,7 +391,7 @@ internal abstract class ColumnWriter : IDisposable
         _chunkRows = _chunkUnencoded = 0;
         _indexable = true;
         _chunkLevels = _chunkNulls = _uncompressed = 0;
-        Array.Clear(_pagesBy);
+        _pagesBy = default;
         _dictionary = DictionaryCapable ? DictionaryState.Building : DictionaryState.Off;
         _dictionaryJudged = false;
         ClearDictionary();
@@ -380,7 +412,7 @@ internal abstract class ColumnWriter : IDisposable
         int bitWidth = 0;
         if (_dictionary == DictionaryState.Building && (count > 0 || _dictionaryJudged))
         {
-            if (_indices.Length < count) _indices = new uint[Math.Max(count, _indices.Length * 2)];
+            _indices.Reserve(count);
             indices = _indices.AsSpan(0, count);
             MapToDictionary(indices);
             bitWidth = DictionaryCount <= 1 ? 0 : 32 - BitOperations.LeadingZeroCount((uint)DictionaryCount - 1);
@@ -610,7 +642,7 @@ internal abstract class ColumnWriter : IDisposable
     /// The validity of the rows <see cref="Append"/> takes (bit k: row offset + k), when it was read from the bitmap;
     /// empty otherwise (no nulls, or a dictionary whose values may be null: ask <see cref="ArrowValues.IsNull"/>).
     /// </summary>
-    protected ReadOnlySpan<ulong> Validity => _validity.AsSpan(0, _validityWords);
+    protected ReadOnlySpan<ulong> Validity => ((ReadOnlySpan<ulong>)_validity)[.._validityWords];
 
     /// <summary>Whether row <paramref name="offset"/> + <paramref name="k"/> of a step is null.</summary>
     protected bool IsNullAt(IArrowArray array, int offset, int k) =>

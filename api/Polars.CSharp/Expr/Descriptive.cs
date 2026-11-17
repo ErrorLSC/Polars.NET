@@ -1,6 +1,6 @@
 using Polars.NET.Core.Helpers;
 using System.Text;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Display;
 
 namespace Polars.CSharp;
 

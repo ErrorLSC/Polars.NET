@@ -1,5 +1,5 @@
 using Apache.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet;
 
 namespace Polars.Config.Tests;

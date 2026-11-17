@@ -36,7 +36,7 @@ public static class ActionWriter
     {
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(stream);
-        using var buffer = new Sazanami.Helpers.NativeStreamWriter(stream);
+        using var buffer = new Sazanami.Buffers.NativeStreamWriter(stream);
         using var json = new Utf8JsonWriter(buffer, JsonOptions);
         int count = 0;
         foreach (DeltaAction action in actions)

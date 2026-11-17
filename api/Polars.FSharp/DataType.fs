@@ -6,7 +6,7 @@ open Polars.NET.Core.Arrow
 open System
 open Polars.NET.Core.Enums
 open Kaminari.Sazanami.Arrow
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 [<RequireQualifiedAccess>]
 type DataTypeKind =

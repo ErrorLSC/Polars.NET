@@ -9,7 +9,7 @@ open Polars.NET.Core.Arrow
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Helpers
 open Kaminari.Samidare.IR
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Lowers pure symbolic ScalarExpr AST nodes to unmanaged Polars ExprHandle pointers.
 module internal PolarsScalarLowerer =

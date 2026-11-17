@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.IO.Hashing;
 using System.Runtime.ExceptionServices;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;

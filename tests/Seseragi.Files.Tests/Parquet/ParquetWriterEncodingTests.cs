@@ -257,11 +257,12 @@ public sealed class ParquetWriterEncodingTests : IDisposable
         byte[][] values = [.. words.Select(System.Text.Encoding.UTF8.GetBytes)];
         byte[] bytes = [.. values.SelectMany(v => v)];
         int[] offsets = [0, .. values.Select((v, i) => values.Take(i + 1).Sum(x => x.Length))];
+        Span<int> scratch = stackalloc int[2 * values.Length];
         foreach (bool prefixed in (bool[])[false, true])
         {
             var output = new ArrayBufferWriter<byte>();
-            if (prefixed) DeltaByteArrayEncoder.EncodeIncremental(bytes, offsets, output);
-            else DeltaByteArrayEncoder.EncodeLengths(bytes, offsets, output);
+            if (prefixed) DeltaByteArrayEncoder.EncodeIncremental(bytes, offsets, scratch, output);
+            else DeltaByteArrayEncoder.EncodeLengths(bytes, offsets, scratch, output);
             int[] prefixes = new int[values.Length], lengths = new int[values.Length];
             var sections = DeltaByteArrays.Read(output.WrittenSpan, prefixed, prefixed ? prefixes : [], lengths, new ulong[DeltaBinaryPacked.Chunk]);
             // Rebuild the values from the sections.

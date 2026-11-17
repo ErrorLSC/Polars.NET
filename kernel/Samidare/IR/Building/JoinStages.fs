@@ -8,7 +8,7 @@ open Kaminari.Samidare.IR.TransparentScopes
 open Kaminari.Samidare.IR.ProjectionExtraction
 open Kaminari.Samidare.IR.GroupJoinAndZipPlanning
 open Kaminari.Samidare.IR.StageContext
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Join stages: equi joins, group joins, cross joins and as-of joins.
 /// Each handler compiles one stage onto the query state and continues with the remaining stages.

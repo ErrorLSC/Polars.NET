@@ -6,7 +6,7 @@ open Polars.NET.Core.Helpers
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Wrappers
 open Kaminari.Samidare.IR
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Maps IR vocabulary (logical types and relational / function enums) to native Polars counterparts.
 module internal PolarsVocabulary =

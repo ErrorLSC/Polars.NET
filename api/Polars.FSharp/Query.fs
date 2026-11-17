@@ -14,7 +14,7 @@ open System.Collections.Generic
 open Polars.NET.Core.Helpers
 open System.Runtime.ExceptionServices
 open System.Reflection
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Display
 
 [<AutoOpen>]
 module LinqExtension =

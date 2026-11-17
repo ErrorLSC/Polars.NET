@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Core;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Kaminari.Sazanami.Arrow;
 

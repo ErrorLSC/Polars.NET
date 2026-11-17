@@ -5,7 +5,7 @@ open System.Collections
 open System.Linq.Expressions
 open System.Runtime.CompilerServices
 open Kaminari.Samidare
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// How the rows of a plan must be reshaped before they are materialized as a given element type.
 [<RequireQualifiedAccess>]

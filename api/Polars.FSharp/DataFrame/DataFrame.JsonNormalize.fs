@@ -4,7 +4,7 @@ open Polars.NET.Core
 open Polars.NET.Core.Helpers
 open System.Collections.Generic
 open System.Diagnostics.CodeAnalysis
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Json
 
 [<AutoOpen>]
 module DataFrameJsonNormalizeOps =

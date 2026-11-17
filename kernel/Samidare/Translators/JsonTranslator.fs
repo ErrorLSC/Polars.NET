@@ -8,7 +8,7 @@ open System.Text.Json
 open System.Text.Json.Nodes
 open System.Text.Json.Serialization
 open Kaminari.Samidare.IR
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Metadata representation of an inferred JSON schema field
 type internal JsonFieldMeta =

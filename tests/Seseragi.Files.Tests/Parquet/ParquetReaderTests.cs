@@ -810,7 +810,7 @@ public class ParquetReaderTests
 
         using var stream = new FileStream(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"), FileMode.Open, FileAccess.Read);
 
-        var mapped = Kaminari.Sazanami.Helpers.MappedFile.Open(stream)!;
+        var mapped = Kaminari.Sazanami.Buffers.MappedFile.Open(stream)!;
         try
         {
             Assert.Equal(stream.Length, mapped.Length);

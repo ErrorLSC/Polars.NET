@@ -1,4 +1,4 @@
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Kernels;
 
 namespace Sazanami.Tests;
 

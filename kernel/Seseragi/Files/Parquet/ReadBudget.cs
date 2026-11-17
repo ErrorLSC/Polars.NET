@@ -1,4 +1,4 @@
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Network;
 
 namespace Kaminari.Seseragi.Files.Parquet;

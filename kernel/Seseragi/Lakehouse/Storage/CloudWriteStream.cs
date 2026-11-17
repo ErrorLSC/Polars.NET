@@ -1,5 +1,5 @@
 using System.Globalization;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Lakehouse.Engine;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage;

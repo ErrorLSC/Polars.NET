@@ -1,7 +1,7 @@
 namespace Kaminari.Samidare.IR
 
 open System
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Resolves the expressions whose translation depends on the types of the columns they read: EnumConvert nodes,
 /// the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals), and the checked sums of integers

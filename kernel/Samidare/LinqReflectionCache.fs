@@ -7,7 +7,7 @@ open System.Collections.Concurrent
 open System.Linq
 open System.Linq.Expressions
 open System.Reflection
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Global reflection cache for LINQ / Enumerable / Queryable methods and managed delegate factories.
 [<AbstractClass; Sealed>]

@@ -12,7 +12,8 @@ using Apache.Arrow.Types;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Json;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Kaminari.Sazanami.Data;
 

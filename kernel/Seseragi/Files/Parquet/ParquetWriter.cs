@@ -6,7 +6,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Files.Parquet.Writing;
@@ -32,7 +32,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly Shredder?[] _shredders;
     private readonly List<RowGroup> _rowGroups = [];
     private readonly List<(ColumnChunk Chunk, ColumnIndex? Columns, OffsetIndex? Offsets)> _pageIndexes = [];
-    private readonly List<(ColumnMetaData Chunk, byte[] Bitset)> _bloomFilters = [];
+    private readonly List<(ColumnMetaData Chunk, NativeBufferWriter Bitset)> _bloomFilters = []; // native, freed once written
     private readonly KeyValue[]? _keyValues;
     private readonly WorkBudget _budget;
     private readonly PageSettings[] _columnSettings;
@@ -86,21 +86,37 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private (ColumnWriter[] Columns, Shredder?[] Shredders) NewColumns()
     {
         ColumnWriter[] columns = [.. _plans.Select((p, c) => p.Leaf.CreateWriter(_columnSettings[c]))];
-        lock (_allColumns) _allColumns.AddRange(columns);
-        return (columns, [.. _plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))]);
+        Shredder?[] shredders = [.. _plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))];
+        lock (_allColumns)
+        {
+            _allColumns.AddRange(columns);
+            foreach (Shredder? shredder in shredders)
+            {
+                if (shredder is not null) _allColumns.Add(shredder);
+            }
+        }
+        return (columns, shredders);
     }
 
-    /// <summary>Every column writer made (their native buffers are freed when the writer is disposed).</summary>
-    private readonly List<ColumnWriter> _allColumns = [];
+    /// <summary>Every column writer and shredder made (their native buffers are freed when the writer is disposed).</summary>
+    private readonly List<IDisposable> _allColumns = [];
 
-    /// <summary>Frees the column writers' native buffers, once nothing encodes or writes any more.</summary>
+    /// <summary>Frees the column writers' and shredders' native buffers, once nothing encodes or writes any more.</summary>
     private void FreeColumns()
     {
         lock (_allColumns)
         {
-            foreach (ColumnWriter column in _allColumns) column.Dispose();
+            foreach (IDisposable column in _allColumns) column.Dispose();
             _allColumns.Clear();
         }
+        FreeBloomFilters();
+    }
+
+    /// <summary>Frees the bitsets of the Bloom filters taken from the chunks laid out (written, or the file given up).</summary>
+    private void FreeBloomFilters()
+    {
+        foreach (var (_, bitset) in _bloomFilters) bitset.Dispose();
+        _bloomFilters.Clear();
     }
 
     /// <summary>The Arrow schema the batches must have.</summary>
@@ -728,7 +744,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             }
             finally
             {
-                foreach (FinishedChunk chunk in finished) chunk.Release();
+                foreach (FinishedChunk chunk in finished) chunk.ReleasePages(); // the Bloom filters are the writer's now
             }
         }
         else
@@ -741,7 +757,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 }
                 finally
                 {
-                    foreach (FinishedChunk chunk in finished) chunk.Release();
+                    foreach (FinishedChunk chunk in finished) chunk.ReleasePages();
                 }
             }, CancellationToken.None);
         }
@@ -775,13 +791,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         {
             thrift.Clear();
             // Members by field id: algorithm BLOCK = 1, hash XXHASH = 1, compression UNCOMPRESSED = 1.
-            new BloomFilterHeader(bitset.Length, 1, 1, 1).Write(thrift);
+            new BloomFilterHeader(bitset.WrittenCount, 1, 1, 1).Write(thrift);
             chunk.BloomFilterOffset = _position;
-            chunk.BloomFilterLength = thrift.WrittenSpan.Length + bitset.Length;
+            chunk.BloomFilterLength = thrift.WrittenSpan.Length + bitset.WrittenCount;
             await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
-            await WriteBytesAsync(bitset, useAsync, ct).ConfigureAwait(false);
+            await WriteBytesAsync(bitset.WrittenMemory, useAsync, ct).ConfigureAwait(false);
         }
-        _bloomFilters.Clear();
+        FreeBloomFilters();
     }
 
     /// <summary>

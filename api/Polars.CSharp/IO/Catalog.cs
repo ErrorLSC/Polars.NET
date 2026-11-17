@@ -4,7 +4,7 @@ using System.Text.Json;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Json;
 
 namespace Polars.CSharp;
 

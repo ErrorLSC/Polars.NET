@@ -8,7 +8,7 @@ using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Arrow;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Polars.CSharp;
 
@@ -492,7 +492,7 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     /// </summary>
     public static DataType Enum<T>() where T : struct, Enum
     {
-        string[] names = global::Kaminari.Sazanami.Helpers.EnumCategories.GetCategories(typeof(T));
+        string[] names = global::Kaminari.Sazanami.Marshalling.EnumCategories.GetCategories(typeof(T));
         FrozenCategories cate = new(names);
         return Enum(cate);
     }
@@ -612,8 +612,8 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
         var core = ClrTypeHelper.UnwrapCoreType(type);
         if (core.IsEnum)
         {
-            return global::Kaminari.Sazanami.Helpers.EnumCategories.UsesEnumDataType(core)
-                ? Enum(global::Kaminari.Sazanami.Helpers.EnumCategories.GetCategories(core))
+            return global::Kaminari.Sazanami.Marshalling.EnumCategories.UsesEnumDataType(core)
+                ? Enum(global::Kaminari.Sazanami.Marshalling.EnumCategories.GetCategories(core))
                 : FromNetType(System.Enum.GetUnderlyingType(core));
         }
         return FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(type));

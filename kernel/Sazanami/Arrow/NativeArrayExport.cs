@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using System.Buffers;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 
 namespace Kaminari.Sazanami.Arrow;
 

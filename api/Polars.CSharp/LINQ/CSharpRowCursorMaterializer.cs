@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Polars.CSharp.Linq;
 

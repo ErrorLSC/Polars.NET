@@ -7,7 +7,7 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Kaminari.Samidare.IR
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Managed operation applied by the backend to the rows of a collected plan.
 [<RequireQualifiedAccess>]

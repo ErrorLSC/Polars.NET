@@ -220,9 +220,16 @@ cut to `MaxBytes`); settings a leaf's type cannot take are refused. Bloom filter
 the row groups. The footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
 footer written, `BytesWritten` and `PendingBytes` what is in the stream and in the open row group.
 
-Delta checkpoints are written by `ParquetWriter`: their rows, described by `ParquetNode`s, become an Arrow batch
-(`ParquetNodeArrow`) whose types write back to the same Parquet types. `MinimalParquetWriter`, the small writer they
-used before, stays internal for tests that need such files.
+Everything the writer holds per page and per chunk lives in native memory (`NativeMemoryPool`, through
+`NativeBufferWriter` and `NativeArray<T>`): page values, levels and dictionary indices, shredded levels, string arenas,
+dictionaries and their hash tables, Bloom hashes and bitsets, page bytes, compressed bodies and dictionary pages. The
+column writers and shredders are freed when the writer is disposed; only metadata (headers, statistics, indexes) is
+managed.
+
+Delta checkpoints are written by `ParquetWriter` from Arrow batches the lakehouse builds straight into native column
+builders; their schema, described by `ParquetNode`s, becomes the Arrow schema through `ParquetNodeArrow`, whose types
+write back to the same Parquet types. `MinimalParquetWriter`, the small writer they used before, stays internal for
+tests that need such files.
 
 Layout of `Parquet/`: `Thrift/` (compact protocol), `Metadata/` (the `parquet.thrift` structs), `Schema/` (schema tree,
 leaf types, Arrow mapping with each node's level rules, projection by path), `Codecs/` (page codecs; Snappy blocks are
@@ -440,7 +447,7 @@ written synchronously on completion.
 | `Parquet/Encodings/RleBitPackedEncoder.cs` | The RLE / bit-packing hybrid written: runs of 8 or more as RLE, the rest in bit-packed groups of 8. |
 | `Parquet/Encodings/DeltaEncoders.cs` | DELTA_BINARY_PACKED written (blocks of 128 in four miniblocks, INT32 deltas wrapped to 32 bits), DELTA_LENGTH_BYTE_ARRAY and DELTA_BYTE_ARRAY (prefixes shared with the value before). |
 | `Parquet/MinimalParquetWriter.cs` | A small, dependency-free Parquet writer for fixed schemas (the `ParquetNode` model): optional and required fields, structs, maps, three-level lists, plain encoding, one row group, no compression. Internal; tests write fixtures with it. |
-| `Parquet/ParquetNodeArrow.cs` | Rows described by `ParquetNode`s as an Arrow batch `ParquetWriter` writes back to the same Parquet types (Delta checkpoints): annotated leaves (strings, int8/int16, dates, decimals as numbers or big-endian bytes, UTC and local microsecond timestamps), structs, lists, string maps. |
+| `Parquet/ParquetNodeArrow.cs` | `ParquetNode`s as the Arrow schema (and rows as a batch) `ParquetWriter` writes back to the same Parquet types (the Delta checkpoint schema; test fixtures): annotated leaves (strings, int8/int16, dates, decimals as numbers or big-endian bytes, UTC and local microsecond timestamps), structs, lists, string maps. |
 
 In Sazanami (generic, reusable by other formats):
 
@@ -450,24 +457,27 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/NativeColumnBuilders.cs` | Arrow column builders in native memory (fixed width, boolean, binary, fixed-size binary, dictionary, list/map, struct, null) with lazy validity. |
 | `Arrow/NativeArrayExport.cs` | Builders to a `RecordBatch` without copying: buffers are detached into an Arrow C data interface `ArrowArray` (`NativeCArray`) and imported with `CArrowArrayImporter`; the root release callback frees everything. |
 | `Arrow/ArrowFilter.cs` | Keeps the rows a row mask selects from an Arrow array (flat, or structs, lists, maps and fixed-size lists of them), into native memory of its own; long view values and dictionaries are shared with a native input when enough rows are kept (the result then holds its memory), copied otherwise. |
-| `Helpers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
-| `Helpers/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
+| `Buffers/NativeByteBuffer.cs`, `NativeByteBufferStream.cs` | Native I/O buffers (block bytes, decompression, writer output) and a write stream over them. |
+| `Buffers/NativeBufferWriter.cs`, `NativeStreamWriter.cs` | `IBufferWriter<byte>` in native memory: a growable one shaped like `ArrayBufferWriter` (Parquet pages, levels, scratch), and a small window that hands its bytes to a stream (JSON written line by line). |
+| `Buffers/NativeMemoryPool.cs` | The process's native memory for large buffers: blocks kept by size class and released when idle; `Poison` (the tests and the fuzzer) hands every block out filled with 0xCC, so code counting on zeroed memory fails. |
+| `Buffers/NativeArray.cs` | A growable array of unmanaged values in pooled native memory (page values, levels, indices, hash tables): growth keeps what it is told to keep, memory is not zeroed. |
+| `Text/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
 | `Arrow/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path and partition columns): string views over one copy, repeated strings, any flat type repeated from one element of an array. |
 | `Text/TextValues.cs` | Text values inferred and parsed as Polars' CSV reader does: booleans, floats, integers (Int128 beyond Int64), dates and date-times with offsets; the kind of a column from the kinds of its values. |
 | `Arrow/ArrowTypes.cs` | Whether two Arrow types hold values the same way (parameters compared, nested nullability not); decimal parameters; types as messages show them. |
 | `Arrow/ArrowWidening.cs`, `ArrowConversion.cs` | Conversions between Arrow types as datasets need them: which compile (lossless widenings, lossy ones on request, struct fields by name with missing ones null on request), the narrowest common type of two, and the conversions themselves into native memory (unchanged parts shared with a native source; portable vector paths for the common numeric widenings); arrays of nulls of any type. |
-| `Helpers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
+| `Buffers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
 | `Arrow/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
 | `Arrow/ArrowSchemaCheck.cs` | Checks an Arrow IPC schema message as a FlatBuffer (offsets, vectors, strings, nesting) before the Apache.Arrow reader trusts its lengths. |
 | `Encodings/BitUnpacking.cs`, `BitUnpack.cs` | LSB-first bit unpacking of 0–64-bit values (above 32 into 64-bit integers): per-width group kernels and a bounds-checked path. |
 | `Encodings/ByteStreamSplit.cs` | Joins byte streams back into values (portable widening for 2-, 4- and 8-byte values). |
 | `Rows/RowRanges.cs` | Sets of row numbers as sorted, disjoint ranges: union, intersection, difference, complement, slice, take; from indices or a bitmap. |
-| `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash, size for a count and a false positive rate. |
+| `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash (insert also into a bitset held elsewhere, such as native memory), size for a count and a false positive rate. |
 | `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
 | `Network/RetrySettings.cs`, `HttpSender.cs`, `RequestGate.cs` | HTTP requests with retries shared by the file stores and the lakehouse's object store clients: network failures (a failed body read included), 408, 429 and 5xx retried with jittered backoff (`Retry-After` honoured up to the cap), failures an answer decided never retried, caller cancellations never retried; synchronous and asynchronous; requests counted per flow; a bound on requests at once that lets waiters in by their order (the dataset reader's request budget). |
-| `Helpers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
+| `Buffers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
-| `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order) for dictionary encoding. |
+| `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order, native memory) for dictionary encoding. |
 | `Data/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 

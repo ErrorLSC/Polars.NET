@@ -2,7 +2,7 @@ using Polars.NET.Core.Helpers;
 using Polars.NET.Linq;
 using Kaminari.Samidare;
 using Kaminari.Samidare.IR;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Display;
 
 namespace Polars.CSharp.Linq;
 

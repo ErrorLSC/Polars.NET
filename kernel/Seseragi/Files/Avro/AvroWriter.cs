@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Apache.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 
 namespace Kaminari.Seseragi.Files.Avro;
 

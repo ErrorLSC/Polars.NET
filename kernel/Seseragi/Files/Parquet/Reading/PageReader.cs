@@ -1,5 +1,5 @@
 using System.IO.Hashing;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Metadata;

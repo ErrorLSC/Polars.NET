@@ -8,7 +8,7 @@ open Kaminari.Samidare.IR.TransparentScopes
 open Kaminari.Samidare.IR.ProjectionExtraction
 open Kaminari.Samidare.IR.GroupJoinAndZipPlanning
 open Kaminari.Samidare.IR.StageContext
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Set and sequence-combining stages: set operations, concatenation, zips, unpivot and explode.
 /// Each handler compiles one stage onto the query state and continues with the remaining stages.

@@ -2,7 +2,7 @@ using Polars.NET.Core.Config;
 using System.Text;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Display;
 
 namespace Polars.CSharp;
 

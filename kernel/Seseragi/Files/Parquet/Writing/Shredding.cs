@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
+using Kaminari.Sazanami.Buffers;
 using Array = System.Array;
 
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
@@ -27,15 +29,19 @@ internal sealed record LeafStep(bool Optional, string Path) : ShredStep(Optional
 /// positions in the leaf array of the values present. Children are taken from the parents' raw array data (a parent's
 /// offset applies to them; nulls of a parent hide whatever its children hold). A null where the schema says
 /// non-nullable is refused (<see cref="Validate"/> runs the same walk without output, before anything is written).
+/// The levels and positions are in native memory, freed by <see cref="Dispose"/>.
 /// </summary>
-internal sealed class Shredder(ShredStep[] steps)
+internal sealed class Shredder(ShredStep[] steps) : IDisposable
 {
     // The array each step walks is the same for every row of a column (a struct's child, a list's items, a
     // dictionary's values): built once per shredding.
     private readonly IArrowArray?[] _arrays = new IArrowArray?[steps.Length];
-    private uint[] _def = new uint[1024], _rep = new uint[1024];
-    private int[] _indices = new int[1024];
+    private readonly NativeArray<uint> _def = new(Initial), _rep = new(Initial);
+    private readonly NativeArray<int> _indices = new(Initial);
     private bool _emit;
+
+    /// <summary>The levels and positions the buffers hold at first (16 KiB each).</summary>
+    private const int Initial = 4096;
 
     public ReadOnlySpan<uint> Def => _def.AsSpan(0, Levels);
     public ReadOnlySpan<uint> Rep => _rep.AsSpan(0, Levels);
@@ -124,8 +130,8 @@ internal sealed class Shredder(ShredStep[] steps)
                 Emit(def + (step.Optional ? 1u : 0u), rep);
                 if (_emit)
                 {
-                    if (Values == _indices.Length) Array.Resize(ref _indices, _indices.Length * 2);
-                    _indices[Values++] = i;
+                    if (Values == _indices.Capacity) GrowIndices();
+                    _indices.At(Values++) = i;
                     Leaf = array;
                 }
                 return;
@@ -158,13 +164,29 @@ internal sealed class Shredder(ShredStep[] steps)
     private void Emit(uint def, uint rep)
     {
         if (!_emit) return;
-        if (Levels == _def.Length)
-        {
-            Array.Resize(ref _def, _def.Length * 2);
-            Array.Resize(ref _rep, _rep.Length * 2);
-        }
-        _def[Levels] = def;
-        _rep[Levels++] = rep;
+        int at = Levels;
+        if (at == _def.Capacity) GrowLevels();
+        _def.At(at) = def;
+        _rep.At(at) = rep;
+        Levels = at + 1;
+    }
+
+    // Growth stays out of line: Emit and the leaf's append are inlined into the walk, which must stay small.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void GrowLevels()
+    {
+        _def.Grow(Levels + 1, Levels);
+        _rep.Grow(Levels + 1, Levels);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void GrowIndices() => _indices.Grow(Values + 1, Values);
+
+    public void Dispose()
+    {
+        _def.Dispose();
+        _rep.Dispose();
+        _indices.Dispose();
     }
 
     /// <summary>The array of step <paramref name="s"/>: a child of its parent's, built once per shredding (from the raw data: the parent's offset applies to it).</summary>

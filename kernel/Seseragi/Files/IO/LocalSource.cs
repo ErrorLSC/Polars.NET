@@ -17,5 +17,5 @@ internal interface ILocalSource
     /// The read-only mapping of a local file (made on first use, shared, unmapped once the source and every holder let
     /// go), with where the source starts in it; null for other sources, an empty file, or a disposed source.
     /// </summary>
-    Sazanami.Helpers.MappedFile? Map(out long start);
+    Sazanami.Buffers.MappedFile? Map(out long start);
 }

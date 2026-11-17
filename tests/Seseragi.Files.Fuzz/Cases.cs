@@ -5,7 +5,7 @@ using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Sazanami.Rows;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Encodings;

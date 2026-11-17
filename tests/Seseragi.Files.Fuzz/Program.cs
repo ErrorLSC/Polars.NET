@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Seseragi.Files.Fuzz;
 
 // Mutation fuzzer for the managed Parquet reader and its unsafe kernels. Contract: any input reads, or is refused with
@@ -57,6 +57,7 @@ static string[] CorpusFiles(string dir) => Parent.CorpusFilesOf(dir);
 static int Worker(long seed, long first, int count, string corpus)
 {
     GuardedMemory.Enabled = true;
+    NativeMemoryPool.Poison = true;
     var cases = new Cases(CorpusFiles(corpus));
     for (long n = first; n < first + count; n++)
     {
@@ -72,6 +73,7 @@ static int Worker(long seed, long first, int count, string corpus)
 static int OneCase(long seed, long n, string corpus)
 {
     GuardedMemory.Enabled = true;
+    NativeMemoryPool.Poison = true;
     var cases = new Cases(CorpusFiles(corpus));
     if (Cases.IsFileCase(n))
     {

@@ -5,7 +5,7 @@ open System
 open System.Linq
 open System.Reflection
 open System.Linq.Expressions
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 [<AutoOpen>]
 module internal ColumnResolver =

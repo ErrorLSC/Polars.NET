@@ -2,7 +2,7 @@ namespace Kaminari.Samidare.IR
 
 open System
 open Kaminari.Sazanami.Arrow
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 /// Pure symbolic description of the target schema for JSON decoding, inferred from a .NET DTO type.
 /// Backends materialize it into their own physical data type representation.

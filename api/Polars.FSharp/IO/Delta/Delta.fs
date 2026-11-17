@@ -3,7 +3,7 @@ namespace Polars.FSharp
 open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Helpers
 open System
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Json
 
 /// <summary>
 /// Common Delta Lake Table Features.

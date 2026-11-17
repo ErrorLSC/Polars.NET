@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Helpers;

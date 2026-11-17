@@ -9,7 +9,7 @@ using Apache.Arrow.Types;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Reflection;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Marshalling;
 
 namespace Kaminari.Sazanami.Arrow;
 

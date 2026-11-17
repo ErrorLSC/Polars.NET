@@ -1,7 +1,10 @@
 using System.IO.Hashing;
 using System.Numerics;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Kernels;
 using Kaminari.Sazanami.Filters;
 using Kaminari.Sazanami.Ordering;
 
@@ -17,9 +20,10 @@ namespace Kaminari.Seseragi.Files.Parquet.Writing;
 /// appended and the chunk's hashes are sorted and deduplicated at the end by buckets of their top bits (Sazanami's
 /// <see cref="HashKeys"/>), then inserted in that order, the order of the filter's blocks. Either way the filter is the
 /// same (a set of hashes, bits or-ed in). Large chunks finish on helper threads the writer's budget lends: bucket
-/// ranges are independent, and ranges of whole blocks fill apart.
+/// ranges are independent, and ranges of whole blocks fill apart. Hashes, buckets and the bitsets are in native memory
+/// (each bitset handed to its chunk, the rest freed by <see cref="Dispose"/>).
 /// </summary>
-internal sealed class BloomBuilder(ParquetBloomFilterOptions options, WorkBudget? budget = null)
+internal sealed class BloomBuilder(ParquetBloomFilterOptions options, WorkBudget? budget = null) : IDisposable
 {
     /// <summary>The distinct hashes counted in a table (beyond, appended and sorted at the end).</summary>
     internal const int TableLimit = 1 << 16;
@@ -28,9 +32,8 @@ internal sealed class BloomBuilder(ParquetBloomFilterOptions options, WorkBudget
     private const int Parts = 16;
 
     private readonly FixedValueDictionary<ulong> _table = new();
-    private ulong[] _hashes = [];
-    private ulong[] _bucketed = [];
-    private int[]? _starts, _distinct;
+    private readonly NativeArray<ulong> _hashes = new(), _bucketed = new();
+    private readonly NativeArray<int> _starts = new(), _distinct = new();
     private int _count;
     private bool _appending; // past the table's limit: hashes appended
 
@@ -55,51 +58,73 @@ internal sealed class BloomBuilder(ParquetBloomFilterOptions options, WorkBudget
 
     private void Append(ulong hash)
     {
-        if (_count == _hashes.Length) Array.Resize(ref _hashes, Math.Max(2 * TableLimit, checked(_hashes.Length * 2)));
+        if (_count == _hashes.Capacity) _hashes.Grow(Math.Max(2 * TableLimit, checked(_count + 1)), _count);
         _hashes[_count++] = hash;
     }
 
-    /// <summary>The chunk's filter bitset; the builder is then ready for the next chunk.</summary>
-    public byte[] Finish()
+    /// <summary>The chunk's filter bitset (the caller owns it); the builder is then ready for the next chunk.</summary>
+    public NativeBufferWriter Finish()
     {
         if (!_appending)
         {
-            SplitBlockBloomFilter small = Empty(_table.Count);
-            foreach (ulong hash in _table.Values) small.Insert(hash);
+            NativeBufferWriter small = Empty(_table.Count);
+            Span<byte> bits = Bits(small);
+            foreach (ulong hash in _table.Values) SplitBlockBloomFilter.Insert(bits, hash);
             _table.Clear();
-            return small.Bitset.ToArray();
+            return small;
         }
-        if (_bucketed.Length < _count) _bucketed = new ulong[_hashes.Length];
-        int[] starts = _starts ??= new int[HashKeys.Buckets + 1], distinct = _distinct ??= new int[HashKeys.Buckets];
-        HashKeys.Bucket(_hashes.AsSpan(0, _count), _bucketed, starts);
+        _bucketed.Reserve(_count);
+        _starts.Reserve(HashKeys.Buckets + 1);
+        _distinct.Reserve(HashKeys.Buckets);
+        HashKeys.Bucket(_hashes.AsSpan(0, _count), _bucketed.Span, _starts.AsSpan(0, HashKeys.Buckets + 1));
         const int PerPart = HashKeys.Buckets / Parts;
         var counts = new int[Parts];
-        ulong[] bucketed = _bucketed;
-        Run(part => counts[part] = HashKeys.SortDistinct(bucketed, starts, distinct, part * PerPart, (part + 1) * PerPart));
-        SplitBlockBloomFilter filter = Empty(counts.Sum());
+        Run(part => counts[part] = HashKeys.SortDistinct(_bucketed.Span, _starts.AsSpan(0, HashKeys.Buckets + 1), _distinct.Span, part * PerPart, (part + 1) * PerPart));
+        NativeBufferWriter filter = Empty(counts.Sum());
         // A part's hashes share their top bits, which pick the block: with at least as many blocks as parts, the parts
         // fill blocks of their own.
-        if (filter.Bitset.Length / SplitBlockBloomFilter.BlockBytes >= Parts) Run(Insert);
+        if (filter.WrittenCount / SplitBlockBloomFilter.BlockBytes >= Parts) Run(Insert);
         else for (int part = 0; part < Parts; part++) Insert(part);
         _count = 0;
         _appending = false;
-        return filter.Bitset.ToArray();
+        return filter;
 
         void Insert(int part)
         {
+            Span<byte> bits = Bits(filter);
+            ReadOnlySpan<ulong> bucketed = _bucketed.Span;
+            ReadOnlySpan<int> starts = _starts.Span, distinct = _distinct.Span;
             for (int b = part * PerPart; b < (part + 1) * PerPart; b++)
             {
-                foreach (ulong hash in bucketed.AsSpan(starts[b], distinct[b])) filter.Insert(hash);
+                foreach (ulong hash in bucketed.Slice(starts[b], distinct[b])) SplitBlockBloomFilter.Insert(bits, hash);
             }
         }
     }
 
-    private SplitBlockBloomFilter Empty(long distinct)
+    /// <summary>Frees the hashes and buckets (bitsets already handed out are their owners').</summary>
+    public void Dispose()
+    {
+        _table.Dispose();
+        _hashes.Dispose();
+        _bucketed.Dispose();
+        _starts.Dispose();
+        _distinct.Dispose();
+    }
+
+    /// <summary>An empty bitset (zeroed: native memory is not) sized for <paramref name="distinct"/> values.</summary>
+    private NativeBufferWriter Empty(long distinct)
     {
         distinct = Math.Max(1, distinct);
         if (options.DistinctValues is long most) distinct = Math.Min(distinct, most);
-        return SplitBlockBloomFilter.Empty(Math.Min(SplitBlockBloomFilter.BlocksFor(distinct, options.FalsePositiveRate), MaxBlocks));
+        int bytes = Math.Min(SplitBlockBloomFilter.BlocksFor(distinct, options.FalsePositiveRate), MaxBlocks) * SplitBlockBloomFilter.BlockBytes;
+        var bitset = new NativeBufferWriter(bytes);
+        bitset.GetSpan(bytes)[..bytes].Clear();
+        bitset.Advance(bytes);
+        return bitset;
     }
+
+    /// <summary>The bits of a bitset from <see cref="Empty"/>, to set.</summary>
+    private static Span<byte> Bits(NativeBufferWriter bitset) => MemoryMarshal.AsMemory(bitset.WrittenMemory).Span;
 
     /// <summary>
     /// Runs the <see cref="Parts"/> parts of <paramref name="work"/> on this thread and on the helpers the budget lends

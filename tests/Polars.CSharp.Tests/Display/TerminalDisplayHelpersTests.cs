@@ -1,7 +1,7 @@
 using Polars.CSharp;
 using Polars.NET.Core.Helpers;
 using Xunit;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Display;
 
 namespace Polars.CSharp.Tests;
 

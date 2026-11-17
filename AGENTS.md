@@ -16,7 +16,7 @@ This is the project's highest rule. It applies to new code, to code you touch, a
 
 ### Memory and performance
 
-- Stay off the managed heap wherever you can. Data buffers (Arrow columns, pages, upload parts, scratch) live in native memory from `Sazanami/Helpers/NativeMemoryPool` (`NativeColumnBuilders`, `NativeByteBuffer`, `PointerMemory`), not in `byte[]` or `ArrayPool`. Whenever you see a `byte[]`, ask whether it can be a `Span<byte>` / `ReadOnlySpan<byte>` (or `Memory<byte>` over native memory) instead.
+- Stay off the managed heap wherever you can. Data buffers (Arrow columns, pages, upload parts, scratch) live in native memory from `Sazanami/Buffers/NativeMemoryPool` (`NativeColumnBuilders`, `NativeByteBuffer`, `NativeBufferWriter`, `NativeArray<T>`, `PointerMemory`), not in `byte[]` or `ArrayPool`. Whenever you see a `byte[]`, ask whether it can be a `Span<byte>` / `ReadOnlySpan<byte>` (or `Memory<byte>` over native memory) instead.
 - Avoid needless managed allocations: take parameters, slices and read-only views as `ReadOnlySpan<T>`; `stackalloc` is fine for small buffers.
 - Static lookup dictionaries and sets queried often must be `System.Collections.Frozen` (`FrozenDictionary`, `FrozenSet`).
 - Search for characters or patterns with `SearchValues<T>` (SIMD-accelerated).

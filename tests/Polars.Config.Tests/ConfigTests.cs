@@ -1,7 +1,7 @@
 using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Json;
 
 namespace Polars.Config.Tests;
 

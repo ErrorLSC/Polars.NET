@@ -1,7 +1,6 @@
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Helpers;
 
 namespace Kaminari.Sazanami.Arrow;
 

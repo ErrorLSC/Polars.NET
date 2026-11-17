@@ -6,7 +6,7 @@ open Kaminari.Samidare.IR
 open System
 open System.Linq.Expressions
 open System.Reflection
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 open Kaminari.Samidare
 
 /// Dedicated converter for translating in-memory .NET collections, arrays, and objects

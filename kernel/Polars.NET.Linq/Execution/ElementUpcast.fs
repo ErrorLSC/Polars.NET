@@ -3,7 +3,7 @@ namespace Polars.NET.Linq
 open System
 open System.Linq
 open System.Linq.Expressions
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 open Kaminari.Samidare
 
 /// Upcasts of a query's elements: `Select(x => (object)x)`, `Select(x => (IFoo)x)`, `Cast<object>()`.

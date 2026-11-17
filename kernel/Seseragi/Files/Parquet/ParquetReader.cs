@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Network;
 using Kaminari.Sazanami.Rows;
 using Kaminari.Seseragi.Files.IO;

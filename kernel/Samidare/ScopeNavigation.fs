@@ -3,7 +3,7 @@ namespace Kaminari.Samidare
 open System
 open System.Reflection
 open System.Linq.Expressions
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 [<AutoOpen>]
 module internal ScopeNavigation =

@@ -3,7 +3,7 @@ namespace Kaminari.Samidare.IR
 open System
 open System.ComponentModel
 open Kaminari.Sazanami.Arrow
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 
 /// SRTP carrier mechanism for statically resolved scalar literal construction

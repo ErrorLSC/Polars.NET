@@ -1,5 +1,5 @@
 using Kaminari.Seseragi.Files.IO;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Excel.Ods;
 using Kaminari.Seseragi.Files.Excel.Packaging;
 using Kaminari.Seseragi.Files.Excel.Reading;

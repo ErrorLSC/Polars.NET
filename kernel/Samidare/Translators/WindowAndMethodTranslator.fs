@@ -7,7 +7,7 @@ open System.Linq
 open System.Text.RegularExpressions
 open System.Linq.Expressions
 open System.Reflection
-open Kaminari.Sazanami.Helpers
+open Kaminari.Sazanami.Marshalling
 
 [<AutoOpen>]
 module internal WindowAndMethodTranslator =

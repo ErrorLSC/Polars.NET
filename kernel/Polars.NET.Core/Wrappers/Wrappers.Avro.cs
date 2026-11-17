@@ -1,6 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
-using Kaminari.Sazanami.Helpers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Avro;
 using Polars.NET.Core.Arrow;
