@@ -1,5 +1,5 @@
-using System.Buffers;
 using System.Globalization;
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Lakehouse.Engine;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage;
@@ -13,15 +13,15 @@ namespace Kaminari.Seseragi.Lakehouse.Storage;
 /// </summary>
 /// <remarks>
 /// Every part but the last has the same size (stores such as R2 require it). Beyond <c>maxParts</c> parts the write is
-/// refused (S3 and GCS take 10 000). Buffers come from the shared array pool; the first part's buffer grows as bytes
-/// come, so a small file holds little.
+/// refused (S3 and GCS take 10 000). Buffers are native memory from <see cref="NativeMemoryPool"/>, handed to the HTTP
+/// requests as they are; the first part's buffer grows as bytes come, so a small file holds little.
 /// </remarks>
 internal sealed class CloudWriteStream(ObjectStoreClient client, string key, bool createOnly, int partSize, int concurrency, int maxParts)
     : FileWriteStream
 {
     private const int FirstBuffer = 64 * 1024;
 
-    private byte[] _buffer = [];
+    private NativeByteBuffer? _buffer; // the part being filled
     private int _filled;
     private ObjectUpload? _upload;
     private readonly List<Task<UploadedPart>> _parts = [];
@@ -50,16 +50,11 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
     private int Copy(ReadOnlySpan<byte> source)
     {
         int count = Math.Min(source.Length, partSize - _filled);
-        if (_filled + count > _buffer.Length)
-        {
-            int size = (int)Math.Min(partSize, Math.Max(_filled + count, Math.Max(FirstBuffer, 2L * _buffer.Length)));
-            byte[] bigger = ArrayPool<byte>.Shared.Rent(size);
-            _buffer.AsSpan(0, _filled).CopyTo(bigger);
-            if (_buffer.Length > 0) ArrayPool<byte>.Shared.Return(_buffer);
-            _buffer = bigger;
-        }
-        source[..count].CopyTo(_buffer.AsSpan(_filled));
-        _filled += count;
+        int needed = _filled + count;
+        if (_buffer is null) _buffer = new NativeByteBuffer(Math.Min(partSize, Math.Max(needed, FirstBuffer)), pooled: true);
+        else if (needed > _buffer.Capacity) _buffer.EnsureCapacity(Math.Min(partSize, Math.Max(needed, 2L * _buffer.Capacity))); // keeps the bytes
+        source[..count].CopyTo(_buffer.Span[_filled..]);
+        _filled = needed;
         return count;
     }
 
@@ -91,23 +86,23 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         }
         ThrowIfAPartFailed();
 
-        Task<UploadedPart> part = PutAsync(_upload, _parts.Count, _buffer, _filled);
-        _buffer = [];
+        Task<UploadedPart> part = PutAsync(_upload, _parts.Count, _buffer!, _filled);
+        _buffer = null;
         _filled = 0;
         _parts.Add(part);
         _running.Add(part);
     }
 
     /// <summary>Uploads a part, then gives its buffer back to the pool.</summary>
-    private async Task<UploadedPart> PutAsync(ObjectUpload upload, int index, byte[] buffer, int length)
+    private async Task<UploadedPart> PutAsync(ObjectUpload upload, int index, NativeByteBuffer buffer, int length)
     {
         try
         {
-            return await upload.PutPartAsync(index, buffer.AsMemory(0, length), _abort.Token).ConfigureAwait(false);
+            return await upload.PutPartAsync(index, buffer.Memory[..length], _abort.Token).ConfigureAwait(false);
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            buffer.Release();
         }
     }
 
@@ -152,7 +147,7 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
     /// <summary>The whole file in one request.</summary>
     private bool PutWhole()
     {
-        ReadOnlyMemory<byte> content = _buffer.AsMemory(0, _filled);
+        ReadOnlyMemory<byte> content = _buffer is null ? ReadOnlyMemory<byte>.Empty : _buffer.Memory[.._filled];
         try
         {
             if (createOnly) return client.PutIfAbsent(key, content);
@@ -180,7 +175,8 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         }
         try
         {
-            return await _upload!.CompleteAsync(parts, _buffer.AsMemory(0, _filled), cancellationToken).ConfigureAwait(false);
+            ReadOnlyMemory<byte> last = _buffer is null ? ReadOnlyMemory<byte>.Empty : _buffer.Memory[.._filled];
+            return await _upload!.CompleteAsync(parts, last, cancellationToken).ConfigureAwait(false);
         }
         catch (StorageException e)
         {
@@ -220,8 +216,8 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
 
     private void ReturnBuffer()
     {
-        if (_buffer.Length > 0) ArrayPool<byte>.Shared.Return(_buffer);
-        _buffer = [];
+        _buffer?.Release();
+        _buffer = null;
         _filled = 0;
     }
 }

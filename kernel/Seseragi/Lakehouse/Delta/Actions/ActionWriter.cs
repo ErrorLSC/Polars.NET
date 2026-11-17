@@ -28,6 +28,28 @@ public static class ActionWriter
         return buffer.WrittenSpan.ToArray();
     }
 
+    /// <summary>
+    /// Writes the lines of a commit file (as <see cref="WriteCommit(IEnumerable{DeltaAction})"/>) to a stream, through a
+    /// small native buffer; returns how many actions were written.
+    /// </summary>
+    public static int WriteCommit(IEnumerable<DeltaAction> actions, Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        ArgumentNullException.ThrowIfNull(stream);
+        using var buffer = new Sazanami.Helpers.NativeStreamWriter(stream);
+        using var json = new Utf8JsonWriter(buffer, JsonOptions);
+        int count = 0;
+        foreach (DeltaAction action in actions)
+        {
+            if (count++ > 0) buffer.Write("\n"u8);
+            json.Reset(buffer);
+            Write(json, action);
+            json.Flush();
+        }
+        buffer.Flush();
+        return count;
+    }
+
     /// <summary>Writes one action as a JSON object, such as <c>{"add":{...}}</c>.</summary>
     public static void Write(Utf8JsonWriter json, DeltaAction action)
     {

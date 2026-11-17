@@ -19,7 +19,7 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// too), <c>tightBounds</c> comes with deletion vectors; an empty struct is left out. Each file's JSON statistics are
 /// read into it; a value missing there, or not readable as the column's type, is null.
 /// </remarks>
-internal sealed class CheckpointStatistics
+internal sealed partial class CheckpointStatistics
 {
     /// <summary>The table property that writes the text <c>stats</c> column (on by default).</summary>
     public const string WriteJsonKey = "delta.checkpoint.writeStatsAsJson";
@@ -118,7 +118,7 @@ internal sealed class CheckpointStatistics
             if (root.ValueKind != JsonValueKind.Object) return null;
             var value = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
-                ["numRecords"] = root.TryGetProperty("numRecords", out JsonElement n) && n.TryGetInt64(out long rows) ? rows : null,
+                ["numRecords"] = root.TryGetProperty("numRecords", out JsonElement n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt64(out long rows) ? rows : null,
             };
             if (_bounds.Length > 0)
             {
@@ -225,9 +225,22 @@ internal sealed class CheckpointStatistics
         e.ValueKind switch
         {
             JsonValueKind.Number => FromNumber(e, leaf),
-            JsonValueKind.String => FromText(e.GetString()!, leaf, partition: false),
+            JsonValueKind.String => Text(e) is { } text ? FromText(text, leaf, partition: false) : null,
             _ => null,
         };
+
+    /// <summary>A JSON string's text; null when it is not text (an escaped lone surrogate).</summary>
+    private static string? Text(JsonElement e)
+    {
+        try
+        {
+            return e.GetString();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
     private static object? FromNumber(JsonElement e, Leaf leaf) => leaf.Type switch
     {

@@ -25,7 +25,7 @@ internal sealed record PageSettings(
 /// count from the start of the data pages.
 /// </summary>
 internal readonly record struct FinishedChunk(
-    ReadOnlyMemory<byte> DictionaryPage, IReadOnlyList<ReadOnlyMemory<byte>> DataPages, long DataPagesLength, long UncompressedSize,
+    ReadOnlyMemory<byte> DictionaryPage, NativeBufferWriter? DictionaryOwner, IReadOnlyList<ReadOnlyMemory<byte>> DataPages, long DataPagesLength, long UncompressedSize,
     ParquetEncoding[] Encodings, PageEncodingStats[] EncodingStats, Statistics? Statistics, long Values, ColumnIndex? ColumnIndex,
     OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, byte[]? BloomFilter, PageJob[] Pages)
 {
@@ -35,6 +35,7 @@ internal readonly record struct FinishedChunk(
     public void Release()
     {
         foreach (PageJob page in Pages) page.Release();
+        DictionaryOwner?.Dispose();
     }
 }
 
@@ -48,7 +49,7 @@ internal readonly record struct PageRecord(int Offset, int Size, long FirstRow, 
 /// the chunk is finished at the end of the row group (the dictionary page, built meanwhile, goes first). Subclasses hold the values of the
 /// page in their physical type, map them to a dictionary, encode them and keep the chunk's statistics.
 /// </summary>
-internal abstract class ColumnWriter
+internal abstract class ColumnWriter : IDisposable
 {
     private enum DictionaryState { Off, Building, Full }
 
@@ -57,10 +58,11 @@ internal abstract class ColumnWriter
     private readonly List<PageJob> _committed = [];  // the data pages compressed, in order
     private readonly Queue<PageJob> _inFlight = new(); // encoded, compressed by now or soon
     private long _committedBytes, _inFlightBound;
-    private readonly ArrayBufferWriter<byte> _values = new(1 << 16);
-    private readonly ArrayBufferWriter<byte> _levelScratch = new(1 << 12);
-    private readonly ArrayBufferWriter<byte> _body = new(1 << 16);
-    private readonly ArrayBufferWriter<byte> _dictionaryPage = new(256);
+    // Scratch and the dictionary page in native memory (the page is handed to the finished chunk, which frees it).
+    private readonly NativeBufferWriter _values = new(1 << 16);
+    private readonly NativeBufferWriter _levelScratch = new(1 << 12);
+    private readonly NativeBufferWriter _body = new(1 << 16);
+    private NativeBufferWriter _dictionaryPage = new(256);
     private readonly ThriftCompactWriter _header = new();
     private uint[] _pageDef = new uint[1024], _pageRep = new uint[1024];
     private readonly ulong[] _validity = new ulong[16]; // the validity of the rows of a flat step (1024 at most)
@@ -244,11 +246,17 @@ internal abstract class ColumnWriter
         foreach (PageJob page in _committed)
         {
             pages.Add(page.HeaderBytes);
-            pages.Add(page.Body.AsMemory(0, page.BodyLength));
+            pages.Add(page.Body.WrittenMemory);
         }
         PageJob[] owned = [.. _committed];
         _committed.Clear(); // the chunk owns its pages now: the writer may go on while they are written
-        return new FinishedChunk(_dictionaryPage.WrittenSpan.ToArray(), pages, _committedBytes, _uncompressed, [.. encodings], [.. stats], statistics, _chunkLevels,
+        NativeBufferWriter? dictionary = null;
+        if (_dictionaryPage.WrittenCount > 0)
+        {
+            dictionary = _dictionaryPage; // the chunk owns it too; the next chunk gets a buffer of its own
+            _dictionaryPage = new NativeBufferWriter(256);
+        }
+        return new FinishedChunk(dictionary?.WrittenMemory ?? default, dictionary, pages, _committedBytes, _uncompressed, [.. encodings], [.. stats], statistics, _chunkLevels,
             BuildColumnIndex(), BuildOffsetIndex(), BuildSizeStatistics(), Bloom?.Finish(), owned);
     }
 
@@ -318,6 +326,25 @@ internal abstract class ColumnWriter
         }
     }
 
+    /// <summary>Frees the writer's native buffers (pages of an unfinished chunk included); the writer is not used after.</summary>
+    public virtual void Dispose()
+    {
+        try
+        {
+            Drain();
+        }
+        catch (Exception)
+        {
+            // A page that failed to compress: its failure was reported where the chunk was finished.
+        }
+        foreach (PageJob page in _committed) page.Release();
+        _committed.Clear();
+        _values.Dispose();
+        _levelScratch.Dispose();
+        _body.Dispose();
+        _dictionaryPage.Dispose();
+    }
+
     /// <summary>Forgets the finished chunk (its buffers are reused).</summary>
     public void Reset()
     {
@@ -381,7 +408,7 @@ internal abstract class ColumnWriter
         if (_settings.SizeStatistics) Histograms();
         bool v1 = _settings.Version == ParquetPageVersion.V1;
         var job = new PageJob(_settings) { Record = new PageRecord(0, 0, _chunkRows, _pageNulls, count == 0, pageMin, pageMax, unencoded) };
-        RentedBuffer raw = job.Raw;
+        NativeBufferWriter raw = job.Raw;
         raw.Reserve((int)Math.Min(Array.MaxLength / 2, PagePlainBytes + 2L * RleBitPackedEncoder.MaxBytes(_pageLevels, Math.Max(_defWidth, _repWidth)) + 16));
 
         // Repetition levels, then definition levels (each RLE / bit-packed; none when the maximum is 0; format 1 puts
@@ -389,7 +416,7 @@ internal abstract class ColumnWriter
         int repBytes = 0, defBytes = 0;
         if (_maxRep > 0) repBytes = Levels(_pageRep.AsSpan(0, _pageLevels), _repWidth, v1, raw);
         if (_maxDef > 0) defBytes = Levels(_pageDef.AsSpan(0, _pageLevels), _defWidth, v1, raw);
-        job.LevelsLength = raw.Length;
+        job.LevelsLength = raw.WrittenCount;
 
         ParquetEncoding encoding = ParquetEncoding.Plain;
         if (dictionaryPage)
@@ -449,7 +476,7 @@ internal abstract class ColumnWriter
     /// <summary>Queues an encoded page for compression (a helper takes it when the budget allows) and keeps the queue short.</summary>
     private void Submit(PageJob job)
     {
-        job.Bound = 64 + PageCodecs.MaxCompressedLength(_settings.Codec, job.Raw.Length);
+        job.Bound = 64 + PageCodecs.MaxCompressedLength(_settings.Codec, job.Raw.WrittenCount);
         _inFlight.Enqueue(job);
         _inFlightBound += job.Bound;
         if (_settings.Budget is { Max: > 1 } budget && budget.TryEnter())
@@ -548,7 +575,7 @@ internal abstract class ColumnWriter
     }
 
     /// <summary>Writes the header (with the body's checksum) and the body.</summary>
-    private void WritePage(PageHeader header, ArrayBufferWriter<byte> output)
+    private void WritePage(PageHeader header, NativeBufferWriter output)
     {
         if (_settings.Checksums) header = WithCrc(header, (int)Crc32.HashToUInt32(_body.WrittenSpan));
         _header.Clear();
@@ -569,7 +596,7 @@ internal abstract class ColumnWriter
         DataPageHeaderV2 = h.DataPageHeaderV2,
     };
 
-    private void Compress(ReadOnlySpan<byte> source, ArrayBufferWriter<byte> output)
+    private void Compress(ReadOnlySpan<byte> source, NativeBufferWriter output)
     {
         Span<byte> destination = output.GetSpan(PageCodecs.MaxCompressedLength(_settings.Codec, source.Length));
         output.Advance(PageCodecs.Compress(_settings.Codec, source, destination, _settings.Level));

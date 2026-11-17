@@ -11,6 +11,20 @@ namespace Polars.Integration.Tests;
 /// </summary>
 internal static class RealUploads
 {
+    /// <summary>A checkpoint of about 13 MiB written in parts to the store below <paramref name="root"/>, which is deleted after.</summary>
+    public static void LargeCheckpoint(string root, IReadOnlyDictionary<string, string> keys)
+    {
+        CloudFileSystem fs = CloudStorage.TryOpen(root, keys, null, out string? reason) ?? throw new InvalidOperationException(reason);
+        try
+        {
+            DeltaKernelLargeCheckpointTests.Check(fs);
+        }
+        finally
+        {
+            foreach (var file in fs.ListAll("")) fs.Delete(file.Path);
+        }
+    }
+
     public const int PartSize = 5 * 1024 * 1024;
 
     public static byte[] Bytes(int length, int seed)
@@ -102,6 +116,14 @@ public sealed class RealCloudAwsUploadTests
         Assert.Equal(0, RealAwsApi.OpenUploads(prefix + "/"));
     }
 
+    [AwsFact]
+    public void ALargeCheckpoint_GoesInParts()
+    {
+        string prefix = $"{RealAws.RunPrefix}/checkpoint-{Guid.NewGuid():N}";
+        RealUploads.LargeCheckpoint($"s3://{RealAws.Bucket}/{prefix}", RealAws.Keys());
+        Assert.Equal(0, RealAwsApi.OpenUploads(prefix + "/"));
+    }
+
     private static CloudFileSystem Open() =>
         CloudStorage.TryOpen($"s3://{RealAws.Bucket}", RealAws.Keys(), null, out string? reason) ?? throw new InvalidOperationException(reason);
 }
@@ -120,6 +142,12 @@ public sealed class RealCloudAzureUploadTests
         // Uncommitted blocks cannot be removed: an abort leaves them to expire.
         await RealUploads.Check(fs, $"{RealAzure.RunPrefix}/uploads-{Guid.NewGuid():N}", abortRemovesTheUpload: false);
     }
+
+    [AzureTheory]
+    [InlineData(AzureAccountKind.Blob)]
+    [InlineData(AzureAccountKind.Adls)]
+    public void ALargeCheckpoint_GoesInParts(AzureAccountKind kind) =>
+        RealUploads.LargeCheckpoint(RealAzure.Url(kind, $"{RealAzure.RunPrefix}/checkpoint-{Guid.NewGuid():N}"), RealAzure.Keys(kind, AzureSignIn.AccountKey));
 }
 
 [Trait("RealCloud", "Gcs")]
@@ -138,6 +166,10 @@ public sealed class RealCloudGcsUploadTests
             Assert.Equal("application/octet-stream", await ContentType($"{prefix}/created.bin"));
         });
     }
+
+    [GcsFact]
+    public void ALargeCheckpoint_GoesInParts() =>
+        RealUploads.LargeCheckpoint($"gs://{RealGcs.Bucket}/{RealGcs.RunPrefix}/checkpoint-{Guid.NewGuid():N}", RealGcs.Keys());
 
     private static async Task<string?> ContentType(string key)
     {

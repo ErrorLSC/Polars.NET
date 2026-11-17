@@ -57,15 +57,16 @@ public static class Checkpoints
             && !fileSystem.List(LogFile.LogDirectory, $"{snapshot.Version:D20}").Any(f => f.Path == LogFile.CommitPath(snapshot.Version)))
             throw new DeltaException($"Version {snapshot.Version} is not published yet: a checkpoint waits until it is.");
 
-        long expiredBefore = ((now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata)).ToUnixTimeMilliseconds();
-        RemoveAction[] tombstones = [.. snapshot.Tombstones.Where(r => r.DeletionTimestamp is null || r.DeletionTimestamp >= expiredBefore)];
+        RemoveAction[] tombstones = LiveTombstones(snapshot, now);
         // V2 checkpoints only under the v2 policy (Spark): a table keeping the feature with the classic policy (as while
         // the feature is being dropped) gets classic ones.
         bool v2 = (snapshot.Protocol.WriterFeatures ?? []).Contains(TableFeatures.V2Checkpoint)
             && snapshot.Metadata.Configuration.TryGetValue(PolicyKey, out string? policy) && policy == "v2";
 
+        // The file goes to the store as it is written (in parts on object stores); it appears whole at commit, and an
+        // exception on the way leaves nothing.
         string path;
-        byte[] content;
+        long sizeInBytes;
         int actionCount;
         if (v2)
         {
@@ -79,46 +80,36 @@ public static class Checkpoints
                 .. snapshot.Files.Select(WithoutDataChange),
                 .. tombstones.Select(WithoutDataChange),
             ];
-            content = ActionWriter.WriteCommit(actions);
-            actionCount = actions.Count;
             // A V2 checkpoint has a unique name, so writers checkpointing the same version never collide.
             path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.{Guid.NewGuid()}.json";
-            if (!fileSystem.TryCreate(path, content)) throw new DeltaException($"The checkpoint {path} already exists.");
+            using FileWriteStream file = fileSystem.OpenWrite(path, createOnly: true);
+            actionCount = ActionWriter.WriteCommit(actions, file);
+            sizeInBytes = file.Position;
+            if (!file.Commit()) throw new DeltaException($"The checkpoint {path} already exists.");
         }
         else
         {
-            // Statistics as JSON text and, by default, typed (stats_parsed, partitionValues_parsed), as Spark writes them.
-            bool json = CheckpointStatistics.WritesJson(snapshot.Metadata);
-            CheckpointStatistics? typed = CheckpointStatistics.For(snapshot.Metadata, snapshot.Protocol);
-            List<IReadOnlyDictionary<string, object?>> rows =
-            [
-                Row("protocol", Protocol(snapshot.Protocol)),
-                Row("metaData", Metadata(snapshot.Metadata)),
-                .. snapshot.AppTransactions.Values.Select(t => Row("txn", Txn(t))),
-                .. snapshot.DomainMetadata.Values.Select(d => Row("domainMetadata", Domain(d))),
-                .. snapshot.Files.Select(a => Row("add", Add(a, json, typed))),
-                .. tombstones.Select(r => Row("remove", Remove(r))),
-            ];
-            content = ParquetFile(Schema(json, typed), rows);
-            actionCount = rows.Count;
             path = $"{LogFile.LogDirectory}/{snapshot.Version:D20}.checkpoint.parquet";
             // The same version always gives the same checkpoint, so replacing one written concurrently is harmless.
-            fileSystem.Overwrite(path, content);
+            using FileWriteStream file = fileSystem.OpenWrite(path, createOnly: false);
+            actionCount = WriteParquet(file, snapshot, tombstones);
+            sizeInBytes = file.Position;
+            file.Commit();
         }
 
-        using var stream = new MemoryStream();
-        using (var json = new Utf8JsonWriter(stream, ActionWriter.JsonOptions))
+        var hint = new System.Buffers.ArrayBufferWriter<byte>(256); // a few hundred bytes
+        using (var json = new Utf8JsonWriter(hint, ActionWriter.JsonOptions))
         {
             json.WriteStartObject();
             json.WriteNumber("version", snapshot.Version);
             json.WriteNumber("size", actionCount);
-            json.WriteNumber("sizeInBytes", content.Length);
+            json.WriteNumber("sizeInBytes", sizeInBytes);
             json.WriteNumber("numOfAddFiles", snapshot.Files.Count);
             if (v2)
             {
                 json.WriteStartObject("v2Checkpoint");
                 json.WriteString("path", path[(LogFile.LogDirectory.Length + 1)..]);
-                json.WriteNumber("sizeInBytes", content.Length);
+                json.WriteNumber("sizeInBytes", sizeInBytes);
                 json.WriteNumber("modificationTime", (now ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds());
                 json.WriteEndObject();
             }
@@ -126,8 +117,101 @@ public static class Checkpoints
         }
         // The hint only ever moves forward; a stale or missing one costs readers a longer listing, nothing more.
         if (LastCheckpointVersion(fileSystem) < snapshot.Version)
-            fileSystem.Overwrite($"{LogFile.LogDirectory}/_last_checkpoint", stream.ToArray());
+            fileSystem.Overwrite($"{LogFile.LogDirectory}/_last_checkpoint", hint.WrittenMemory);
         return path;
+    }
+
+    /// <summary>The tombstones a checkpoint keeps: those not yet expired at <paramref name="now"/>.</summary>
+    private static RemoveAction[] LiveTombstones(Snapshot snapshot, DateTimeOffset? now)
+    {
+        long expiredBefore = ((now ?? DateTimeOffset.UtcNow) - Retention(snapshot.Metadata)).ToUnixTimeMilliseconds();
+        return [.. snapshot.Tombstones.Where(r => r.DeletionTimestamp is null || r.DeletionTimestamp >= expiredBefore)];
+    }
+
+    /// <summary>
+    /// Writes the classic checkpoint of the snapshot to a stream, its rows built straight into native Arrow batches of
+    /// <see cref="CheckpointBatches.BatchRows"/> rows, each encoded before the next is built; returns the number of
+    /// actions. Statistics as JSON text and, by default, typed (stats_parsed, partitionValues_parsed), as Spark writes them.
+    /// </summary>
+    internal static int WriteParquet(Stream stream, Snapshot snapshot, IReadOnlyList<RemoveAction> tombstones)
+    {
+        bool json = CheckpointStatistics.WritesJson(snapshot.Metadata);
+        CheckpointStatistics? typed = CheckpointStatistics.For(snapshot.Metadata, snapshot.Protocol);
+        Apache.Arrow.Schema schema = ParquetNodeArrow.ArrowSchema(Schema(json, typed));
+        using var batches = new CheckpointBatches(schema, json, typed);
+        using ParquetWriter writer = ParquetWriter.Create(stream, schema, FileOptions);
+        int actions = 0;
+
+        batches.AppendProtocol(snapshot.Protocol);
+        batches.AppendMetadata(snapshot.Metadata);
+        actions += 2;
+        foreach (TxnAction t in snapshot.AppTransactions.Values)
+        {
+            batches.AppendTxn(t);
+            Flush(full: true);
+            actions++;
+        }
+        foreach (DomainMetadataAction d in snapshot.DomainMetadata.Values)
+        {
+            batches.AppendDomain(d);
+            Flush(full: true);
+            actions++;
+        }
+        foreach (AddAction a in snapshot.Files)
+        {
+            batches.AppendAdd(a);
+            Flush(full: true);
+            actions++;
+        }
+        foreach (RemoveAction r in tombstones)
+        {
+            batches.AppendRemove(r);
+            Flush(full: true);
+            actions++;
+        }
+        Flush(full: false);
+        writer.Complete();
+        return actions;
+
+        // Encodes the rows built so far: once a batch is full, or at the end.
+        void Flush(bool full)
+        {
+            if (batches.Rows == 0 || (full && batches.Rows < CheckpointBatches.BatchRows)) return;
+            using RecordBatch batch = batches.Export();
+            writer.Write(batch);
+        }
+    }
+
+    /// <summary>
+    /// The classic checkpoint written the reference way (rows as dictionaries, batches through
+    /// <see cref="ParquetNodeArrow"/>, the same batch boundaries): what <see cref="WriteParquet"/> must reproduce byte for
+    /// byte. For tests.
+    /// </summary>
+    internal static byte[] ReferenceParquet(Snapshot snapshot, DateTimeOffset? now)
+    {
+        bool json = CheckpointStatistics.WritesJson(snapshot.Metadata);
+        CheckpointStatistics? typed = CheckpointStatistics.For(snapshot.Metadata, snapshot.Protocol);
+        List<IReadOnlyDictionary<string, object?>> rows =
+        [
+            Row("protocol", Protocol(snapshot.Protocol)),
+            Row("metaData", Metadata(snapshot.Metadata)),
+            .. snapshot.AppTransactions.Values.Select(t => Row("txn", Txn(t))),
+            .. snapshot.DomainMetadata.Values.Select(d => Row("domainMetadata", Domain(d))),
+            .. snapshot.Files.Select(a => Row("add", Add(a, json, typed))),
+            .. LiveTombstones(snapshot, now).Select(r => Row("remove", Remove(r))),
+        ];
+        IReadOnlyList<ParquetNode> schema = Schema(json, typed);
+        using var stream = new MemoryStream();
+        using (ParquetWriter writer = ParquetWriter.Create(stream, ParquetNodeArrow.ArrowSchema(schema), FileOptions))
+        {
+            foreach (var chunk in rows.Chunk(CheckpointBatches.BatchRows))
+            {
+                using RecordBatch batch = ParquetNodeArrow.ToArrow(schema, chunk);
+                writer.Write(batch);
+            }
+            writer.Complete();
+        }
+        return stream.ToArray();
     }
 
     /// <summary>Files in a checkpoint do not change data; they are the table as it is.</summary>
@@ -192,15 +276,6 @@ public static class Checkpoints
     /// checkpoint written concurrently for the same version may be replaced).
     /// </summary>
     private static readonly ParquetWriteOptions FileOptions = new() { RowGroupRows = int.MaxValue, StoreArrowSchema = false, LeaveOpen = true };
-
-    /// <summary>The checkpoint file of the rows.</summary>
-    private static byte[] ParquetFile(IReadOnlyList<ParquetNode> schema, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
-    {
-        using RecordBatch batch = ParquetNodeArrow.ToArrow(schema, rows);
-        using var stream = new MemoryStream();
-        ParquetWriter.Write(stream, batch.Schema, [batch], FileOptions);
-        return stream.ToArray();
-    }
 
     private static IReadOnlyList<ParquetNode> Schema(bool json, CheckpointStatistics? typed) =>
     [

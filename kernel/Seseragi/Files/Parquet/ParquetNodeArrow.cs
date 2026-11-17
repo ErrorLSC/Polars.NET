@@ -20,8 +20,11 @@ internal static class ParquetNodeArrow
     public static RecordBatch ToArrow(IReadOnlyList<ParquetNode> schema, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
     {
         IArrowArray[] columns = [.. schema.Select(node => ArrowArrayFactory.BuildArray(Build(node, [.. rows.Select(row => Get(row, node.Name))])))];
-        return new RecordBatch(new Apache.Arrow.Schema([.. schema.Select(FieldOf)], null), columns, rows.Count);
+        return new RecordBatch(ArrowSchema(schema), columns, rows.Count);
     }
+
+    /// <summary>The Arrow schema of batches of rows of these nodes (the types <see cref="ToArrow"/> builds).</summary>
+    public static Apache.Arrow.Schema ArrowSchema(IReadOnlyList<ParquetNode> schema) => new([.. schema.Select(FieldOf)], null);
 
     private static object? Get(IReadOnlyDictionary<string, object?> fields, string name) => fields.TryGetValue(name, out object? value) ? value : null;
 

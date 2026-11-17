@@ -47,7 +47,7 @@ internal sealed class PageJob(PageSettings settings)
     private ManualResetEventSlim? _done;
     private Exception? _error;
 
-    public RentedBuffer Raw { get; } = new();
+    public NativeBufferWriter Raw { get; } = new(1 << 16);
     public int LevelsLength { get; set; }
     /// <summary>The page's header without sizes and checksum (set once its values are encoded).</summary>
     public PageHeader Header { get; set; } = null!;
@@ -57,8 +57,11 @@ internal sealed class PageJob(PageSettings settings)
     public long Bound { get; set; }
 
     public byte[] HeaderBytes { get; private set; } = [];
-    public byte[] Body { get; private set; } = [];
-    public int BodyLength { get; private set; }
+
+    /// <summary>The compressed page (levels first in format 2), in native memory until <see cref="Release"/>.</summary>
+    public NativeBufferWriter Body { get; } = new(1 << 16);
+
+    public int BodyLength => Body.WrittenCount;
     public int Uncompressed { get; private set; }
 
     public bool TryClaim() => Interlocked.CompareExchange(ref _state, 1, 0) == 0;
@@ -103,30 +106,29 @@ internal sealed class PageJob(PageSettings settings)
 
     private void Compress()
     {
-        ReadOnlySpan<byte> raw = Raw.Written;
+        ReadOnlySpan<byte> raw = Raw.WrittenSpan;
         bool v1 = Header.Type == PageType.DataPage;
         int levels = v1 ? 0 : LevelsLength;
         // Format 1 compresses levels and values together (an uncompressed codec copies them); format 2 only the
         // values, and only with a codec.
         bool compressed = v1 || settings.Codec != CompressionCodec.Uncompressed;
         ReadOnlySpan<byte> values = raw[levels..];
-        byte[] body = ArrayPool<byte>.Shared.Rent(levels + (compressed ? PageCodecs.MaxCompressedLength(settings.Codec, values.Length) : values.Length));
+        Span<byte> body = Body.GetSpan(levels + (compressed ? PageCodecs.MaxCompressedLength(settings.Codec, values.Length) : values.Length));
         raw[..levels].CopyTo(body);
-        int length = levels + (compressed ? PageCodecs.Compress(settings.Codec, values, body.AsSpan(levels), settings.Level) : Copy(values, body.AsSpan(levels)));
+        int length = levels + (compressed ? PageCodecs.Compress(settings.Codec, values, body[levels..], settings.Level) : Copy(values, body[levels..]));
+        Body.Advance(length);
         PageHeader header = new()
         {
             Type = Header.Type,
             UncompressedPageSize = raw.Length,
             CompressedPageSize = length,
-            Crc = settings.Checksums ? (int)Crc32.HashToUInt32(body.AsSpan(0, length)) : null,
+            Crc = settings.Checksums ? (int)Crc32.HashToUInt32(body[..length]) : null,
             DataPageHeader = Header.DataPageHeader,
             DataPageHeaderV2 = Header.DataPageHeaderV2,
         };
         var thrift = new ThriftCompactWriter();
         header.Write(thrift);
         HeaderBytes = thrift.ToArray();
-        Body = body;
-        BodyLength = length;
         Uncompressed = raw.Length;
         Raw.Dispose();
 
@@ -140,8 +142,7 @@ internal sealed class PageJob(PageSettings settings)
     /// <summary>Returns the compressed body to the pool (after the page is in the file).</summary>
     public void Release()
     {
-        if (Body.Length > 0) ArrayPool<byte>.Shared.Return(Body);
-        Body = [];
+        Body.Dispose();
         Raw.Dispose();
     }
 }

@@ -420,6 +420,18 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
         MarkValid();
     }
 
+    /// <summary>Appends text, encoded as UTF-8 straight into the value buffer (lone surrogates become U+FFFD).</summary>
+    public void AppendUtf8(ReadOnlySpan<char> text)
+    {
+        long start = _data.Length;
+        int most = System.Text.Encoding.UTF8.GetMaxByteCount(text.Length);
+        byte* at = _data.Reserve(most);
+        int written = System.Text.Encoding.UTF8.GetBytes(text, new Span<byte>(at, most));
+        _data.SetLength(start + written);
+        AppendOffset();
+        MarkValid();
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void AppendOffset()
     {

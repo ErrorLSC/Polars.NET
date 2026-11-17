@@ -6,6 +6,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Helpers;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Files.Parquet.Writing;
@@ -82,8 +83,25 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>A set of column writers (and the shredders of nested columns): one row group being encoded.</summary>
-    private (ColumnWriter[] Columns, Shredder?[] Shredders) NewColumns() =>
-        ([.. _plans.Select((p, c) => p.Leaf.CreateWriter(_columnSettings[c]))], [.. _plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))]);
+    private (ColumnWriter[] Columns, Shredder?[] Shredders) NewColumns()
+    {
+        ColumnWriter[] columns = [.. _plans.Select((p, c) => p.Leaf.CreateWriter(_columnSettings[c]))];
+        lock (_allColumns) _allColumns.AddRange(columns);
+        return (columns, [.. _plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))]);
+    }
+
+    /// <summary>Every column writer made (their native buffers are freed when the writer is disposed).</summary>
+    private readonly List<ColumnWriter> _allColumns = [];
+
+    /// <summary>Frees the column writers' native buffers, once nothing encodes or writes any more.</summary>
+    private void FreeColumns()
+    {
+        lock (_allColumns)
+        {
+            foreach (ColumnWriter column in _allColumns) column.Dispose();
+            _allColumns.Clear();
+        }
+    }
 
     /// <summary>The Arrow schema the batches must have.</summary>
     public Apache.Arrow.Schema Schema { get; }
@@ -808,7 +826,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private async Task WritePiecesAsync(IReadOnlyList<ReadOnlyMemory<byte>> pieces, bool useAsync, CancellationToken ct)
     {
         const int Gather = 1 << 16;
-        byte[] staging = ArrayPool<byte>.Shared.Rent(Gather);
+        var staging = new NativeByteBuffer(Gather, pooled: true);
         try
         {
             int staged = 0;
@@ -816,21 +834,21 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             {
                 if (staged + piece.Length > Gather && staged > 0)
                 {
-                    await RawWriteAsync(staging.AsMemory(0, staged), useAsync, ct).ConfigureAwait(false);
+                    await RawWriteAsync(staging.Memory[..staged], useAsync, ct).ConfigureAwait(false);
                     staged = 0;
                 }
                 if (piece.Length >= Gather) await RawWriteAsync(piece, useAsync, ct).ConfigureAwait(false);
                 else
                 {
-                    piece.Span.CopyTo(staging.AsSpan(staged));
+                    piece.Span.CopyTo(staging.Span[staged..]);
                     staged += piece.Length;
                 }
             }
-            if (staged > 0) await RawWriteAsync(staging.AsMemory(0, staged), useAsync, ct).ConfigureAwait(false);
+            if (staged > 0) await RawWriteAsync(staging.Memory[..staged], useAsync, ct).ConfigureAwait(false);
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(staging);
+            staging.Release();
         }
     }
 
@@ -925,6 +943,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             _disposed = true;
             Abandon();
             WaitForWrites();
+            FreeColumns();
             if (!_options.LeaveOpen) _stream.Dispose();
         }
     }
@@ -942,6 +961,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             _disposed = true;
             Abandon();
             WaitForWrites();
+            FreeColumns();
             if (!_options.LeaveOpen) await _stream.DisposeAsync().ConfigureAwait(false);
         }
     }
