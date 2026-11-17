@@ -831,7 +831,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             // Inferred strings are kept as plain strings and repeated in the reader's layout.
             if (type is StringViewType && values is StringArray strings)
                 return strings.IsNull(file)
-                    ? ConstantArrays.Repeat(new StringViewArray.Builder().AppendNull().Build(), 0, length)
+                    ? ConstantArrays.Repeat(new StringViewArray.Builder().AppendNull().Build(PooledArrowAllocator.Instance), 0, length)
                     : ConstantArrays.String(strings.GetString(file), length, view: true);
             return ConstantArrays.Repeat(values, file, length);
         }

@@ -54,7 +54,7 @@ public static class ArrowColumnBufferFactory
                     if (value is null) names.AppendNull();
                     else names.Append(EnumCategories.GetCategory(_enumType, value));
                 }
-                return names.Build();
+                return names.Build(PooledArrowAllocator.Instance);
             }
 
             var underlying = Enum.GetUnderlyingType(_enumType);

@@ -51,7 +51,7 @@ public static class ArrowFfiBridge
             try
             {
                 CArrowSchemaExporter.ExportType(arrowArray.Data.DataType, cSchema);
-                CArrowArrayExporter.ExportArray(arrowArray, cArray);
+                ArrowCExport.ExportArray(arrowArray, cArray);
                 return PolarsWrapper.SeriesFromArrow(name, cArray, cSchema);
             }
             finally
@@ -74,7 +74,7 @@ public static class ArrowFfiBridge
         {
             // 1. C# -> C Structs
             CArrowSchemaExporter.ExportSchema(batch.Schema, cSchema);
-            CArrowArrayExporter.ExportRecordBatch(batch, cArray);
+            ArrowCExport.ExportRecordBatch(batch, cArray);
 
             // 2. C Structs -> Rust DataFrame
             var handle = NativeBindings.pl_dataframe_from_arrow_record_batch(cArray, cSchema);
@@ -148,7 +148,7 @@ public static class ArrowFfiBridge
         try
         {
             CArrowSchemaExporter.ExportSchema(batch.Schema, cSchema);
-            CArrowArrayExporter.ExportRecordBatch(batch, cArray);
+            ArrowCExport.ExportRecordBatch(batch, cArray);
 
             return ErrorHelper.Check(NativeBindings.pl_arrow_to_series(
                 "data",

@@ -33,12 +33,16 @@ public readonly partial struct PolarsWrapper
         return Kaminari.Sazanami.Arrow.ArrowCImport.ImportArray(arr, field.DataType);
     }
 
+    /// <summary>
+    /// Exports a function's result to the engine, which takes it: the export retains its buffers, and the result is
+    /// disposed here (as Apache.Arrow's exporter consumed it before), so its memory goes with the engine's release.
+    /// </summary>
     private static unsafe void ExportResult(IArrowArray result, CArrowArray* outArr, CArrowSchema* outSch)
     {
         *outArr = default;
         *outSch = default;
-        CArrowArrayExporter.ExportArray(result, outArr);
         var outField = new Field("result", result.Data.DataType, true);
+        using (result) Kaminari.Sazanami.Arrow.ArrowCExport.ExportArray(result, outArr);
         CArrowSchemaExporter.ExportField(outField, outSch);
     }
 
@@ -244,7 +248,7 @@ public readonly partial struct PolarsWrapper
                 }
             }
 
-            return builder.Build();
+            return builder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance);
         }, boolDtype);
     }
     public static ExprHandle MapStringTransform(ExprHandle expr, Func<string?, string?> transform)
@@ -271,7 +275,7 @@ public readonly partial struct PolarsWrapper
                 }
             }
 
-            return builder.Build();
+            return builder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance);
         }, strDtype);
     }
     public static ExprHandle MapStringToList(ExprHandle expr, Func<string?, IEnumerable<string>?> func)
@@ -322,7 +326,7 @@ public readonly partial struct PolarsWrapper
                 }
             }
 
-            return listBuilder.Build();
+            return listBuilder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance);
         }, listDtype);
     }
 }

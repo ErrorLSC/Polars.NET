@@ -72,8 +72,9 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
 
             if (exporter._enumerator.MoveNext())
             {
-                var batch = exporter._enumerator.Current;
-                CArrowArrayExporter.ExportRecordBatch(batch, outArray);
+                // The stream consumes its batches: the export retains the buffers it hands on.
+                using var batch = exporter._enumerator.Current;
+                ArrowCExport.ExportRecordBatch(batch, outArray);
             }
             else
             {

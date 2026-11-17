@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Arrow;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Numerics;
@@ -240,11 +241,11 @@ internal sealed class Partitions
             {
                 var builder = new StringArray.Builder();
                 foreach (string? s in strings) builder.Append(s);
-                return builder.Build();
+                return builder.Build(PooledArrowAllocator.Instance);
             }
             var views = new StringViewArray.Builder();
             foreach (string? s in strings) views.Append(s);
-            return views.Build();
+            return views.Build(PooledArrowAllocator.Instance);
         }
         return ArrowArrayFactory.BuildArray(new ArrayData(type, values.Count, nulls, 0, [new ArrowBuffer(valid), new ArrowBuffer(data)]));
     }

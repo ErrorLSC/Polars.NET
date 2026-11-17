@@ -148,8 +148,8 @@ public sealed record ParquetWriteOptions
     internal long InFlightBytes { get; init; } = 512L << 20;
 
     /// <summary>
-    /// Columns that are lists of key/value structs (the shape engines without a map type hold maps in, Polars among
-    /// them) to be written as Parquet MAP groups, keys required: their paths as the writer names columns in its
+    /// Columns that are lists of key/value structs (the shape engines without a map type hold maps
+    /// in) to be written as Parquet MAP groups, keys required: their paths as the writer names columns in its
     /// messages (struct fields joined by '.', a list's element as <c>[]</c>, a map's key and value as <c>.key</c> /
     /// <c>.value</c>), for example <c>m</c>, <c>s.m</c>, <c>a[]</c>. Null for none.
     /// </summary>

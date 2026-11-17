@@ -9,7 +9,8 @@ namespace Sazanami.Tests;
 
 /// <summary>
 /// <see cref="ArrowCImport"/> against Apache.Arrow's importer (the oracle, allowed here only) on every layout: the
-/// same export imported both ways must give the same arrays, buffer for buffer; and the memory's lifetime.
+/// same export (by <see cref="ArrowCExport"/>) imported both ways must give the same arrays, buffer for buffer, over
+/// the exported array's own memory; and the memory's lifetime both ways.
 /// </summary>
 public unsafe class ArrowCImportTests
 {
@@ -51,7 +52,7 @@ public unsafe class ArrowCImportTests
 
     private static IArrowArray Ints(int n) => new Int32Array.Builder().AppendRange(Enumerable.Range(0, n)).Build();
 
-    // Not the null type: Apache.Arrow's exporter fails to release it (GC.RemoveMemoryPressure(0)); see NullArrays_Import.
+    // Not the null type: Apache.Arrow's importer, the oracle, fails on it (GC memory pressure of 0); see NullArrays_Import.
     public static TheoryData<string> Layouts() => [.. AllArrays().Select(a => a.Name).Where(n => n != "null")];
 
     private static IEnumerable<(string Name, Func<IArrowArray> Make)> AllArrays()
@@ -175,14 +176,15 @@ public unsafe class ArrowCImportTests
         CArrowArray* forApache = CArrowArray.Create(), forUs = CArrowArray.Create();
         try
         {
-            CArrowArrayExporter.ExportArray(array, forApache);
-            CArrowArrayExporter.ExportArray(array, forUs);
+            ArrowCExport.ExportArray(array, forApache);
+            ArrowCExport.ExportArray(array, forUs);
 #pragma warning disable RS0030 // the oracle
             using IArrowArray expected = CArrowArrayImporter.ImportArray(forApache, array.Data.DataType);
 #pragma warning restore RS0030
             using IArrowArray actual = ArrowCImport.ImportArray(forUs, array.Data.DataType);
             Assert.Equal(expected.GetType(), actual.GetType());
             AssertSame(expected.Data, actual.Data, layout);
+            AssertExported(array.Data, actual.Data, layout); // the export handed on the array's own memory
         }
         finally
         {
@@ -209,6 +211,20 @@ public unsafe class ArrowCImportTests
         if (expected.Dictionary is not null) AssertSame(expected.Dictionary, actual.Dictionary!, $"{where}.dictionary");
     }
 
+    /// <summary>The import reads the original array's memory (no copy), as much of each buffer as the layout covers.</summary>
+    private static void AssertExported(ArrayData original, ArrayData imported, string where)
+    {
+        for (int b = 0; b < imported.Buffers.Length; b++)
+        {
+            ReadOnlySpan<byte> theirs = imported.Buffers[b].Span, ours = original.Buffers[b].Span;
+            if (theirs.IsEmpty) continue;
+            Assert.True(Unsafe.AreSame(ref MemoryMarshal.GetReference(theirs), ref MemoryMarshal.GetReference(ours)), $"{where}: buffer {b} was copied");
+            Assert.True(theirs.Length <= ours.Length, $"{where}: buffer {b} goes past the original");
+        }
+        for (int c = 0; c < (imported.Children?.Length ?? 0); c++) AssertExported(original.Children![c], imported.Children![c], $"{where}.child{c}");
+        if (imported.Dictionary is not null) AssertExported(original.Dictionary!, imported.Dictionary, $"{where}.dictionary");
+    }
+
     [Fact]
     public void ARecordBatch_ImportsAsApacheArrowsImporterDoes()
     {
@@ -218,8 +234,8 @@ public unsafe class ArrowCImportTests
         CArrowArray* forApache = CArrowArray.Create(), forUs = CArrowArray.Create();
         try
         {
-            CArrowArrayExporter.ExportRecordBatch(batch, forApache);
-            CArrowArrayExporter.ExportRecordBatch(batch, forUs);
+            ArrowCExport.ExportRecordBatch(batch, forApache);
+            ArrowCExport.ExportRecordBatch(batch, forUs);
 #pragma warning disable RS0030 // the oracle
             using RecordBatch expected = CArrowArrayImporter.ImportRecordBatch(forApache, schema);
 #pragma warning restore RS0030
@@ -227,7 +243,7 @@ public unsafe class ArrowCImportTests
             Assert.Equal(expected.Length, actual.Length);
             for (int c = 0; c < names.Length; c++) AssertSame(expected.Column(c).Data, actual.Column(c).Data, names[c]);
             // A schema of another width is refused.
-            CArrowArrayExporter.ExportRecordBatch(batch, forUs);
+            ArrowCExport.ExportRecordBatch(batch, forUs);
             Assert.Throws<InvalidDataException>(() => ArrowCImport.ImportRecordBatch(forUs, new Schema([schema.FieldsList[0]], null)));
         }
         finally
@@ -360,6 +376,94 @@ public unsafe class ArrowCImportTests
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ImportAndDrop(NativeCArray* source) => _ = ArrowCImport.ImportArray((CArrowArray*)source, Int32Type.Default).Length;
 
+    // ---- export ----
+
+    [Fact]
+    public void AnExport_KeepsTheMemory_PastTheOriginalArray_UntilReleased()
+    {
+        s_releases = 0;
+        var source = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        var memory = Export(source);
+        var exported = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        try
+        {
+            IArrowArray imported = ArrowCImport.ImportArray((CArrowArray*)source, Int32Type.Default);
+            ArrowCExport.ExportArray(imported, (CArrowArray*)exported);
+            imported.Dispose();
+            Assert.Equal(0, s_releases); // the export retains the producer's memory
+            Assert.Equal(3, ((int*)exported->Buffers[1])[2]);
+            exported->Release(exported);
+            Assert.True(exported->Release == null);
+            Assert.Equal(1, s_releases);
+        }
+        finally
+        {
+            NativeMemory.Free(exported);
+            Free(memory, source);
+        }
+    }
+
+    [Fact]
+    public void AChildMovedOut_OutlivesItsParent()
+    {
+        s_releases = 0;
+        var source = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        var memory = Export(source);
+        var root = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        var moved = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        try
+        {
+            using (IArrowArray child = ArrowCImport.ImportArray((CArrowArray*)source, Int32Type.Default))
+            {
+                var type = new StructType([new Field("a", Int32Type.Default, true), new Field("b", StringType.Default, true)]);
+                using var parent = new StructArray(type, 4, [child, Strings(4)], ArrowBuffer.Empty, 0);
+                ArrowCExport.ExportArray(parent, (CArrowArray*)root);
+            }
+            Assert.Equal(2, root->ChildCount);
+            // The consumer moves the first child out, then releases the parent: the child stays.
+            *moved = *root->Children[0];
+            root->Children[0]->Release = null;
+            root->Release(root);
+            Assert.Equal(0, s_releases);
+            Assert.Equal(4, ((int*)moved->Buffers[1])[3]);
+            moved->Release(moved);
+            Assert.Equal(1, s_releases);
+        }
+        finally
+        {
+            NativeMemory.Free(root);
+            NativeMemory.Free(moved);
+            Free(memory, source);
+        }
+    }
+
+    [Fact]
+    public void Views_GoOutWithTheirBufferSizes_AndNullArraysRelease()
+    {
+        using IArrowArray views = Views(70);
+        var exported = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        try
+        {
+            ArrowCExport.ExportArray(views, (CArrowArray*)exported);
+            int variadic = views.Data.Buffers.Length - 2;
+            Assert.True(variadic > 0);
+            Assert.Equal(views.Data.Buffers.Length + 1, exported->BufferCount);
+            var sizes = (long*)exported->Buffers[exported->BufferCount - 1];
+            for (int k = 0; k < variadic; k++) Assert.Equal(views.Data.Buffers[2 + k].Length, sizes[k]);
+            exported->Release(exported);
+
+            using var nulls = new NullArray(5);
+            ArrowCExport.ExportArray(nulls, (CArrowArray*)exported); // Apache.Arrow's exporter failed to release this
+            Assert.Equal(5, exported->NullCount);
+            exported->Release(exported);
+            Assert.True(exported->Release == null);
+        }
+        finally
+        {
+            NativeMemory.Free(exported);
+        }
+    }
+
     // ---- streams ----
 
     [Fact]
@@ -367,6 +471,7 @@ public unsafe class ArrowCImportTests
     {
         var schema = new Schema([new Field("v", StringViewType.Default, true), new Field("i", Int32Type.Default, true)], null);
         RecordBatch[] batches = [.. Enumerable.Range(1, 3).Select(n => new RecordBatch(schema, [Views(n * 10), Ints(n * 10)], n * 10))];
+        string?[] expected = [.. batches.Select(b => ((StringViewArray)b.Column(0)).GetString(1))]; // the exporter consumes the batches
         bool ended = false;
         IEnumerable<RecordBatch> Batches()
         {
@@ -392,7 +497,7 @@ public unsafe class ArrowCImportTests
                 {
                     using RecordBatch batch = reader.ReadNextRecordBatchAsync().AsTask().Result!;
                     Assert.Equal(n * 10, batch.Length);
-                    Assert.Equal(((StringViewArray)batches[n - 1].Column(0)).GetString(1), ((StringViewArray)batch.Column(0)).GetString(1));
+                    Assert.Equal(expected[n - 1], ((StringViewArray)batch.Column(0)).GetString(1));
                 }
                 Assert.Null(reader.ReadNextRecordBatchAsync().AsTask().Result);
 

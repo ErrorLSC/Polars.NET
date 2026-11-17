@@ -161,6 +161,41 @@ public sealed unsafe class ArrowImportFromEngineTests
         Assert.InRange(GC.CollectionCount(2) - before, 0, 2);
     }
 
+    [Fact]
+    public void ExportsToTheEngine_RoundTrip_AndTheBatchMayGoFirst()
+    {
+        // Every type back to the engine through ArrowCExport; the batch disposed before the frame is used (the
+        // export retains its buffers).
+        using DataFrame df = EveryType(2000);
+        DataFrame back;
+        using (RecordBatch batch = ArrowFfiBridge.ExportDataFrame(Handle(df))) back = DataFrame.FromArrow(batch);
+        using (back) Assert.True(back.Equals(df));
+    }
+
+    [Fact]
+    public void BuildingFromDotNetData_ForcesNoFullCollections()
+    {
+        // .NET objects to a frame through Apache.Arrow builders: built with PooledArrowAllocator. Apache.Arrow's default
+        // allocator reported every buffer to the GC as memory pressure (a gen2 collection every few batches).
+        static IEnumerable<Point> Points(int n)
+        {
+            for (int i = 0; i < n; i++) yield return new(i, i * 0.5, i % 7 == 0 ? null : "p");
+        }
+        using (DataFrame.FromEnumerable(Points(10_000), batchSize: 2000)) { } // warm
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        int before = GC.CollectionCount(2);
+        for (int r = 0; r < 8; r++)
+        {
+            using DataFrame df = DataFrame.FromEnumerable(Points(1_000_000), batchSize: 2000);
+            Assert.Equal(1_000_000, df.Height);
+        }
+        Assert.InRange(GC.CollectionCount(2) - before, 0, 2);
+    }
+
+    private readonly record struct Point(long Id, double Value, string? Tag);
+
     private sealed record Wide(long Id, double Value, string Text);
 
     private sealed record Inner(int A, string? B);

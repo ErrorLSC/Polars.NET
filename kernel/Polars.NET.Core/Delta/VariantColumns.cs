@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Arrow;
 using System.Buffers;
 using Apache.Arrow;
 using Apache.Arrow.Types;
@@ -82,7 +83,7 @@ internal static class VariantColumns
                 VariantJson.Write(Bytes(metadata, i), Bytes(value, i), text);
                 builder.Append(text.WrittenSpan);
             }
-            return builder.Build();
+            return builder.Build(PooledArrowAllocator.Instance);
         }
 
         static ReadOnlySpan<byte> Bytes(IArrowArray binaries, int index) => binaries switch
@@ -116,7 +117,7 @@ internal static class VariantColumns
             offsets.Append(list.ValueOffsets);
             var (validity, nulls) = Validity(list);
             var listType = new LargeListType(new Field(((LargeListType)list.Data.DataType).ValueField.Name, values.Data.DataType, true));
-            return new LargeListArray(listType, list.Length, offsets.Build(), values, validity, nulls);
+            return new LargeListArray(listType, list.Length, offsets.Build(PooledArrowAllocator.Instance), values, validity, nulls);
         }
 
         // The validity bitmap of an array from its first row on (the array may be a slice), and its null count.
@@ -125,7 +126,7 @@ internal static class VariantColumns
             if (array.NullCount == 0) return (ArrowBuffer.Empty, 0);
             var bitmap = new ArrowBuffer.BitmapBuilder(array.Length);
             for (int i = 0; i < array.Length; i++) bitmap.Append(!array.IsNull(i));
-            return (bitmap.Build(), array.NullCount);
+            return (bitmap.Build(PooledArrowAllocator.Instance), array.NullCount);
         }
     }
 }

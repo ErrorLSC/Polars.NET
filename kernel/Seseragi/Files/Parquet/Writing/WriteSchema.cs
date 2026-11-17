@@ -100,7 +100,7 @@ internal static class WriteSchema
                     return;
                 case ListType or LargeListType or ListViewType or LargeListViewType when options.MapColumns?.Contains(where) == true:
                 {
-                    // A list of key/value structs written as a map (the shape Polars holds maps in).
+                    // A list of key/value structs written as a map (the shape engines without a map type hold maps in).
                     var (layout, item) = type switch
                     {
                         ListType l => (ListLayout.List, l.ValueField),

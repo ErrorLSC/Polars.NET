@@ -189,7 +189,7 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }
@@ -263,7 +263,7 @@ internal sealed class BinaryColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }
@@ -308,7 +308,7 @@ internal sealed class Int8ColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }
@@ -345,7 +345,7 @@ internal sealed class Int16ColumnBuilder : ColumnBuilder
         }
     }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToInt16(v)); }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 
@@ -361,7 +361,7 @@ internal sealed class UInt8ColumnBuilder : ColumnBuilder
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToByte(v)); }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 
@@ -397,7 +397,7 @@ internal sealed class UInt16ColumnBuilder : ColumnBuilder
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToUInt16(v)); }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class UInt32ColumnBuilder : ColumnBuilder
@@ -432,7 +432,7 @@ internal sealed class UInt32ColumnBuilder : ColumnBuilder
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToUInt32(v)); }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class UInt64ColumnBuilder : ColumnBuilder
@@ -467,7 +467,7 @@ internal sealed class UInt64ColumnBuilder : ColumnBuilder
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToUInt64(v)); }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 internal sealed class Int32ColumnBuilder : ColumnBuilder
 {
@@ -478,7 +478,7 @@ internal sealed class Int32ColumnBuilder : ColumnBuilder
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetInt32(ordinal));
     }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class Int64ColumnBuilder : ColumnBuilder
@@ -490,7 +490,7 @@ internal sealed class Int64ColumnBuilder : ColumnBuilder
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetInt64(ordinal));
     }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class DoubleColumnBuilder : ColumnBuilder
@@ -502,7 +502,7 @@ internal sealed class DoubleColumnBuilder : ColumnBuilder
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetDouble(ordinal));
     }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 internal sealed class HalfFloatColumnBuilder : ColumnBuilder
 {
@@ -561,7 +561,7 @@ internal sealed class HalfFloatColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }
@@ -575,7 +575,7 @@ internal sealed class FloatColumnBuilder : ColumnBuilder
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetFloat(ordinal));
     }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class BooleanColumnBuilder : ColumnBuilder
@@ -587,7 +587,7 @@ internal sealed class BooleanColumnBuilder : ColumnBuilder
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetBoolean(ordinal));
     }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class DecimalColumnBuilder : ColumnBuilder
@@ -614,7 +614,7 @@ internal sealed class DecimalColumnBuilder : ColumnBuilder
             _builder.Append(reader.GetDecimal(ordinal)); // Builder handles rescaling
     }
 
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class StringViewColumnBuilder : ColumnBuilder
@@ -631,7 +631,7 @@ internal sealed class StringViewColumnBuilder : ColumnBuilder
             _builder.Append(reader.GetString(ordinal));
     }
 
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 // ------------------------------------------------------------------------
@@ -707,7 +707,7 @@ internal sealed class Date32ColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }
@@ -764,7 +764,7 @@ internal sealed class TimestampColumnBuilder : ColumnBuilder
         }
     }
 
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class Time64ColumnBuilder : ColumnBuilder
@@ -799,7 +799,7 @@ internal sealed class Time64ColumnBuilder : ColumnBuilder
 
         _builder.Append(arrowTimeValue);
     }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() { var arr = _builder.Build(PooledArrowAllocator.Instance); _builder.Clear(); return arr; }
 }
 
 internal sealed class DurationColumnBuilder : ColumnBuilder
@@ -843,7 +843,7 @@ internal sealed class DurationColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }
@@ -963,7 +963,7 @@ internal sealed class FallbackColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build()
     {
-        var arr = _builder.Build();
+        var arr = _builder.Build(PooledArrowAllocator.Instance);
         _builder.Clear();
         return arr;
     }

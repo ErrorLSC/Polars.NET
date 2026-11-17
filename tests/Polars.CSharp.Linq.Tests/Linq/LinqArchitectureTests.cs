@@ -7,7 +7,7 @@ namespace Polars.CSharp.Tests;
 /// Guards the layering of the compiler: Samidare is pure symbolic code that must not reference Polars.NET.Core
 /// or the Polars backend, and Sazanami sits below it.
 /// </summary>
-public class LinqArchitectureTests
+public partial class LinqArchitectureTests
 {
     private static readonly Regex ForbiddenInFrontend = new(
         @"\bPolars\.NET\.Core\b"
@@ -77,11 +77,12 @@ public class LinqArchitectureTests
     // The object store clients stand on the BCL, the file system contracts and the shared HTTP transport
     // (Kaminari.Sazanami.Network) only, so they can leave the lakehouse project for an engine of their own without
     // being untangled first.
-    private static readonly Regex ForbiddenInStorage = new(
-        @"^\s*using\s+(?!System\b|Kaminari\.Seseragi\.Lakehouse\.(Storage|Engine)\b|Kaminari\.Sazanami\.Network\b)[\w.]+\s*;"
-        + @"|\bKaminari\.Samidare\b|\bKaminari\.Sazanami\.(?!Network\b)\w+"
-        + @"|\bKaminari\.Seseragi\.Lakehouse\.(?!Storage\b|Engine\b)\w+",
-        RegexOptions.Compiled);
+    // Sazanami.Buffers too: storage moves bytes in native memory (NativeBufferWriter, NativeByteBuffer), off the managed heap.
+    [GeneratedRegex(
+        @"^\s*using\s+(?!System\b|Kaminari\.Seseragi\.Lakehouse\.(Storage|Engine)\b|Kaminari\.Sazanami\.(Network|Buffers)\b)[\w.]+\s*;"
+        + @"|\bKaminari\.Samidare\b|\bKaminari\.Sazanami\.(?!Network\b|Buffers\b)\w+"
+        + @"|\bKaminari\.Seseragi\.Lakehouse\.(?!Storage\b|Engine\b)\w+")]
+    private static partial Regex ForbiddenInStorage();
 
     [Fact]
     [Trait("Architecture", "LinqLayering")]
@@ -90,11 +91,11 @@ public class LinqArchitectureTests
         var root = Path.Combine(FindRepoRoot(), "kernel", "Seseragi", "Lakehouse", "Storage");
         var violations = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
             .SelectMany(path => StripComments(File.ReadAllText(path)).Split('\n').Select((line, i) => (path, line, number: i + 1)))
-            .Where(x => ForbiddenInStorage.IsMatch(x.line))
+            .Where(x => ForbiddenInStorage().IsMatch(x.line))
             .Select(x => $"{Path.GetRelativePath(root, x.path)}:{x.number}: {x.line.Trim()}")
             .ToList();
 
-        Assert.True(violations.Count == 0, "Storage may use only System.*, Lakehouse.Engine and Sazanami.Network:\n" + string.Join('\n', violations));
+        Assert.True(violations.Count == 0, "Storage may use only System.*, Lakehouse.Engine, Sazanami.Network and Sazanami.Buffers:\n" + string.Join('\n', violations));
     }
 
     [Theory]

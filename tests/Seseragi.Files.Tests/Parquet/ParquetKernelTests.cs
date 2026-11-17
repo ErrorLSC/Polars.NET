@@ -815,7 +815,7 @@ public class ParquetKernelTests
         NativeMemoryOwner owner = memory!.Owner;
 
         Apache.Arrow.C.CArrowArray* exported = Apache.Arrow.C.CArrowArray.Create();
-        Apache.Arrow.C.CArrowArrayExporter.ExportRecordBatch(batch, exported);
+        Kaminari.Sazanami.Arrow.ArrowCExport.ExportRecordBatch(batch, exported);
         batch.Dispose();
         Assert.False(owner.IsFreed); // the export's pins hold it
         Apache.Arrow.C.CArrowArray.Free(exported); // releases the export

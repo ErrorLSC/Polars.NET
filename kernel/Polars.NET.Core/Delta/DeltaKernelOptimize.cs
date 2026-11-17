@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Arrow;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
@@ -456,7 +457,7 @@ internal static class DeltaKernelOptimize
             ulong[] rowKeys = KeysOf(arrays, boundaries, arrays[0].Length);
             var ids = new UInt32Array.Builder().Reserve(rowKeys.Length);
             foreach (ulong key in rowKeys) ids.Append(ClusteringKeys.Bucket(bucketBoundaries, key));
-            return ids.Build();
+            return ids.Build(PooledArrowAllocator.Instance);
         }, PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32)), BucketColumn);
         LazyFrameHandle bucketed = PolarsWrapper.LazyWithColumns(Rows(), [bucket]);
 

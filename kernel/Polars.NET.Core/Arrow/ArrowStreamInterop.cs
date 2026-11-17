@@ -331,17 +331,22 @@ public static unsafe class ArrowStreamInterop
     /// </summary>
     private static DataFrameHandle ImportManagedStream(IArrowArrayStream stream)
     {
-        var allocatedStream = Apache.Arrow.C.CArrowArrayStream.Create();
+        // The engine reads the stream through the exporter, which disposes it (and each batch) when released.
+        var cStream = new CArrowArrayStream();
+        using var exporter = new ArrowStreamExporter(Batches(stream), stream.Schema);
+        exporter.Export(&cStream);
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type(&cStream));
 
-        try
+        static IEnumerator<RecordBatch> Batches(IArrowArrayStream stream)
         {
-            Apache.Arrow.C.CArrowArrayStreamExporter.ExportArrayStream(stream, allocatedStream);
-            return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type((CArrowArrayStream*)allocatedStream));
-        }
-        finally
-        {
-            Apache.Arrow.C.CArrowArrayStream.Free(allocatedStream);
-            GC.KeepAlive(stream);
+            try
+            {
+                while (stream.ReadNextRecordBatchAsync().AsTask().GetAwaiter().GetResult() is { } batch) yield return batch;
+            }
+            finally
+            {
+                stream.Dispose();
+            }
         }
     }
 

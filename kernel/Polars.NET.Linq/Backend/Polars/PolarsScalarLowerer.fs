@@ -139,7 +139,7 @@ module internal PolarsScalarLowerer =
                 | Some max when n > max -> raise (relayed check.TooMany)
                 | _ -> ()
                 builder.Append true |> ignore
-            builder.Build() :> Apache.Arrow.IArrowArray)
+            builder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance) :> Apache.Arrow.IArrowArray)
 
     let rec lowerSortOrder (order: SortOrder) : ExprHandle * bool * bool =
         lower order.Expr, order.Descending, order.NullsLast

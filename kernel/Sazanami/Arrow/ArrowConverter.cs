@@ -201,7 +201,7 @@ public static class ArrowConverter
                     if (item == null) stringBuilder.AppendNull();
                     else stringBuilder.Append(item.ToString());
                 }
-                return stringBuilder.Build();
+                return stringBuilder.Build(PooledArrowAllocator.Instance);
             }
 
             // Normal Struct Path
@@ -292,8 +292,8 @@ public static class ArrowConverter
         // Recursive Call!
         IArrowArray valuesArray = Build(flattenedData);
 
-        var offsetsArray = offsetsBuilder.Build();
-        var validityArray = validityBuilder.Build();
+        var offsetsArray = offsetsBuilder.Build(PooledArrowAllocator.Instance);
+        var validityArray = validityBuilder.Build(PooledArrowAllocator.Instance);
 
         var itemField = new Field("item", valuesArray.Data.DataType, true, EnumCategories.TryGetArrowFieldMetadata(typeof(U)));
         var listType = new LargeListType(itemField);
@@ -345,21 +345,21 @@ public static class ArrowConverter
         }
 
         var dictionaryType = new DictionaryType(UInt32Type.Default, StringViewType.Default, false);
-        return new DictionaryArray(dictionaryType, keys.Build(), dictionary.Build());
+        return new DictionaryArray(dictionaryType, keys.Build(PooledArrowAllocator.Instance), dictionary.Build(PooledArrowAllocator.Instance));
     }
 
     private static HalfFloatArray BuildFloat16(IEnumerable<Half?> data)
     {
         var b = new HalfFloatArray.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static FloatArray BuildFloat32(IEnumerable<float?> data)
     {
         var b = new FloatArray.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static Decimal128Array BuildDecimal(IEnumerable<decimal?> data)
@@ -371,81 +371,81 @@ public static class ArrowConverter
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     private static Int8Array BuildInt8(IEnumerable<sbyte?> data)
     {
         var b = new Int8Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static UInt8Array BuildUInt8(IEnumerable<byte?> data)
     {
         var b = new UInt8Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static Int16Array BuildInt16(IEnumerable<short?> data)
     {
         var b = new Int16Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static UInt16Array BuildUInt16(IEnumerable<ushort?> data)
     {
         var b = new UInt16Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static Int32Array BuildInt32(IEnumerable<int?> data)
     {
         var b = new Int32Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static Int64Array BuildInt64(IEnumerable<long?> data)
     {
         var b = new Int64Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     private static UInt32Array BuildUInt32(IEnumerable<uint?> data)
     {
         var b = new UInt32Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static UInt64Array BuildUInt64(IEnumerable<ulong?> data)
     {
         var b = new UInt64Array.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     private static DoubleArray BuildDouble(IEnumerable<double?> data)
     {
         var b = new DoubleArray.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static BooleanArray BuildBoolean(IEnumerable<bool?> data)
     {
         var b = new BooleanArray.Builder();
         foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static StringViewArray BuildString(IEnumerable<string?> data)
     {
         var b = new StringViewArray.Builder();
         foreach (var v in data) b.Append(v);
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     // DateOnly -> Date32 (Days since epoch)
     private static Date32Array BuildDate32(IEnumerable<DateOnly?> data)
@@ -456,7 +456,7 @@ public static class ArrowConverter
             if (v.HasValue) b.Append(v.Value.ToDateTime(TimeOnly.MinValue));
             else b.AppendNull();
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     // TimeOnly -> Time64 (Nanoseconds)
     private static Time64Array BuildTime64(IEnumerable<TimeOnly?> data)
@@ -474,7 +474,7 @@ public static class ArrowConverter
                 b.AppendNull();
             }
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     // DateTime -> Timestamp (Microsecond)
@@ -498,7 +498,7 @@ public static class ArrowConverter
                 b.AppendNull();
             }
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     private static TimestampArray BuildDateTimeOffset(IEnumerable<DateTimeOffset?> data)
     {
@@ -515,7 +515,7 @@ public static class ArrowConverter
                 b.AppendNull();
             }
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     private static DurationArray BuildDuration(IEnumerable<TimeSpan?> data)
     {
@@ -533,7 +533,7 @@ public static class ArrowConverter
                 b.AppendNull();
             }
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
     private static BinaryViewArray BuildGuid(IEnumerable<Guid?> data)
     {
@@ -551,7 +551,7 @@ public static class ArrowConverter
                 b.AppendNull();
             }
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     private static BinaryViewArray BuildBinary(IEnumerable<byte[]?> data)
@@ -562,7 +562,7 @@ public static class ArrowConverter
             if (v != null) b.Append(v);
             else b.AppendNull();
         }
-        return b.Build();
+        return b.Build(PooledArrowAllocator.Instance);
     }
 
     public static Schema GetSchemaFromType<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>()
@@ -641,7 +641,7 @@ public static class ArrowConverter
             }
 
             // [FIX] Removed .ValueBuffer
-            var validityBuffer = validityBuilder.Build();
+            var validityBuffer = validityBuilder.Build(PooledArrowAllocator.Instance);
 
             var structType = new StructType(fields);
 

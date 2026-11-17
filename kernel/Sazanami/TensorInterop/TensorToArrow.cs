@@ -30,7 +30,7 @@ public static partial class ArrowTensorInterop
             // memcpy 2
             dataBuffer = new ArrowBuffer.Builder<byte>(byteLength)
                             .Append(MemoryMarshal.AsBytes(flatSpan))
-                            .Build();
+                            .Build(PooledArrowAllocator.Instance);
         }
         finally
         {
@@ -79,7 +79,7 @@ public static partial class ArrowTensorInterop
 
         ArrowBuffer dataBuffer = new ArrowBuffer.Builder<byte>(byteLength)
                                     .Append(MemoryMarshal.AsBytes(span))
-                                    .Build();
+                                    .Build(PooledArrowAllocator.Instance);
 
         var arrayData = new ArrayData(
             dataType: arrowType,

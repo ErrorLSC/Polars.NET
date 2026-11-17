@@ -234,9 +234,9 @@ public class EnumColumnTests
             var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
             try
             {
-                Apache.Arrow.C.CArrowArrayStreamExporter.ExportArrayStream(reader, cStream);
-                // A third party's consumer of the stream (banned in the library, see BannedSymbols.txt).
+                // A third party's producer and consumer of the stream (banned in the library, see BannedSymbols.txt).
 #pragma warning disable RS0030
+                Apache.Arrow.C.CArrowArrayStreamExporter.ExportArrayStream(reader, cStream);
                 using var foreign = Apache.Arrow.C.CArrowArrayStreamImporter.ImportArrayStream(cStream);
 #pragma warning restore RS0030
                 using var back = DataFrame.FromArrowStream(foreign);

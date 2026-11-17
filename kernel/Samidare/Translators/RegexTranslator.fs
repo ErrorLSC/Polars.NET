@@ -439,7 +439,7 @@ module internal RegexTranslator =
                                         builder.AppendNull() |> ignore
                                     else
                                         builder.Append(rx.Matches(strViewArr.GetString(i)).Count) |> ignore
-                                builder.Build() :> Apache.Arrow.IArrowArray)
+                                builder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance) :> Apache.Arrow.IArrowArray)
                         let invoker = UdfInvoker.SingleBatch(box cb, typeof<int>)
                         Some(ScalarExpr.Udf("Regex.MatchesCount", [ t ], LogicalTypes.Int32, invoker)))
 
