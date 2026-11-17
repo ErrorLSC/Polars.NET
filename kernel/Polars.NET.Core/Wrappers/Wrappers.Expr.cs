@@ -44,7 +44,12 @@ public readonly partial struct PolarsWrapper
     }
     // --- Expr Ops ---
     // Leaf Nodes
-    public static ExprHandle Col(string name) => ErrorHelper.Check(NativeBindings.pl_expr_col(name));
+    public static ExprHandle Col(string name)
+    {
+        // A null name would reach the engine as a null pointer (a panic there).
+        ArgumentNullException.ThrowIfNull(name);
+        return ErrorHelper.Check(NativeBindings.pl_expr_col(name));
+    }
     public static ExprHandle Lit(sbyte val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_i8(val));
     public static ExprHandle Lit(byte val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_u8(val));
     public static ExprHandle Lit(short val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_i16(val));

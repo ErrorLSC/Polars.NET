@@ -220,7 +220,11 @@ DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLI
 off, and a Bloom filter (split blocks of XXH64 hashes, sized for each chunk's distinct values, at most `DistinctValues`,
 cut to `MaxBytes`); settings a leaf's type cannot take are refused. Bloom filters, then column and offset indexes, follow
 the row groups. The footer stores the Arrow schema (`ARROW:schema`, `StoreArrowSchema`) and extra key-value metadata; `Metadata` is the
-footer written, `BytesWritten` and `PendingBytes` what is in the stream and in the open row group.
+footer written, `BytesWritten` and `PendingBytes` what is in the stream and what the row groups not there yet will take
+(with the writer owning batches on several threads, those still being encoded too: exactly once encoded, else
+estimated from the compression of those laid out), so that their sum can drive splitting files by size. View columns
+(`string_view`, `binary_view`, as Polars exports strings) are copied from their views and data buffers in runs, like
+plain and large strings.
 
 Everything the writer holds per page and per chunk lives in native memory (`NativeMemoryPool`, through
 `NativeBufferWriter` and `NativeArray<T>`): page values, levels and dictionary indices, shredded levels, string arenas,

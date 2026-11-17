@@ -44,6 +44,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly ConcurrentStack<(ColumnWriter[] Columns, Shredder?[] Shredders)> _spares = new();
     private readonly Queue<(Task<FinishedChunk[]> Encoding, long Rows, long Bytes)> _encoding = new();
     private long _encodingBytes; // the Arrow bytes of the row groups being encoded
+    private long _laidOutArrowBytes, _laidOutChunkBytes; // of the row groups encoded from batches and laid out: their compression ratio
     private readonly List<Segment> _open = []; // the open row group's rows
     private long _openBytes;                   // their batches' Arrow bytes
     private long _rowGroupRows, _totalRows, _position;
@@ -130,10 +131,26 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     public long BytesWritten => _position;
 
     /// <summary>
-    /// About how many bytes the open row group will take (its pages so far, the open ones as plainly encoded; with
-    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, its batches' Arrow bytes).
+    /// About how many bytes the row groups not in <see cref="BytesWritten"/> yet will take: the open one (its pages so
+    /// far, the open ones as plainly encoded). With <see cref="ParquetBatchOwnership.Writer"/> and more than one thread,
+    /// also those still being encoded: exactly once encoded, else (and the open one) their batches' Arrow bytes scaled by
+    /// the ratio the row groups laid out so far compressed to (unscaled before the first). So BytesWritten +
+    /// PendingBytes is what the file would take now, which a caller splitting files by size can go by.
     /// </summary>
-    public long PendingBytes => _columnWork is null ? _columns.Sum(c => c.BufferedBytes) : _openBytes;
+    public long PendingBytes
+    {
+        get
+        {
+            if (_columnWork is null) return _columns.Sum(c => c.BufferedBytes);
+            double ratio = _laidOutArrowBytes > 0 ? (double)_laidOutChunkBytes / _laidOutArrowBytes : 1;
+            double pending = _openBytes * ratio;
+            foreach (var (encoding, _, bytes) in _encoding)
+            {
+                pending += encoding.IsCompletedSuccessfully ? encoding.Result.Sum(c => c.CompressedSize) : bytes * ratio;
+            }
+            return (long)pending;
+        }
+    }
 
     /// <summary>
     /// The rows of a batch the columns take at once, in parallel; the row group's size is checked after each segment
@@ -577,6 +594,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         var (encoding, rows, bytes) = _encoding.Dequeue();
         _encodingBytes -= bytes;
         FinishedChunk[] finished = await encoding.ConfigureAwait(false);
+        _laidOutArrowBytes += bytes;
+        _laidOutChunkBytes += finished.Sum(c => c.CompressedSize);
         await LayOutAsync(finished, rows, useAsync, ct).ConfigureAwait(false);
     }
 

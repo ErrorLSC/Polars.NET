@@ -16,7 +16,11 @@ public readonly struct IntoExprColumn
 
     public static implicit operator IntoExprColumn(Expr expr) => new(expr, ownsExpr: false);
     public static implicit operator IntoExprColumn(Selector selector) => new(selector.ToExpr(), ownsExpr: true);
-    public static implicit operator IntoExprColumn(string name) => new(Pl.Col(name), ownsExpr: true);
+    public static implicit operator IntoExprColumn(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return new(Pl.Col(name), ownsExpr: true);
+    }
     public static implicit operator IntoExprColumn(Series series) => new(Pl.Lit(series), ownsExpr: true);
     public static implicit operator IntoExprColumn(DataType dtype) => new(Cs.ByDtype(dtype).ToExpr(), ownsExpr: true);
     public static implicit operator IntoExprColumn([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) => new(Cs.ByDtype(type).ToExpr(), ownsExpr: true);
@@ -127,7 +131,12 @@ public readonly struct IntoSelector
 
     public static implicit operator IntoSelector(Selector selector) => new(selector, ownsSelector: false);
 
-    public static implicit operator IntoSelector(string name) => new(Cs.ByName(name), ownsSelector: true);
+    public static implicit operator IntoSelector(string name)
+    {
+        // A null string is no column; for "no selector" pass null to the parameter itself, not a null string.
+        ArgumentNullException.ThrowIfNull(name);
+        return new(Cs.ByName(name), ownsSelector: true);
+    }
     public static implicit operator IntoSelector(DataType dtype) => new(Cs.ByDtype(dtype), ownsSelector: true);
     public static implicit operator IntoSelector([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type) => new(Cs.ByDtype(type), ownsSelector: true);
     public static implicit operator IntoSelector(Expr expr)

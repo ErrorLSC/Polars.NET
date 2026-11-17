@@ -14,10 +14,17 @@ public readonly partial struct PolarsWrapper
     /// Select columns by name.
     /// </summary>
     public static SelectorHandle SelectorCols(string[] names)
-        => ErrorHelper.Check(NativeBindings.pl_selector_cols(names, (nuint)names.Length));
+    {
+        // Null names would reach the engine as null pointers (a panic there).
+        ArgumentNullException.ThrowIfNull(names);
+        if (Array.IndexOf(names, null) >= 0) throw new ArgumentException("A column name is null.", nameof(names));
+        return ErrorHelper.Check(NativeBindings.pl_selector_cols(names, (nuint)names.Length));
+    }
 
     public static SelectorHandle SelectorExclude(SelectorHandle sel, string[] names)
     {
+        ArgumentNullException.ThrowIfNull(names);
+        if (Array.IndexOf(names, null) >= 0) throw new ArgumentException("A column name is null.", nameof(names));
         var h = NativeBindings.pl_selector_exclude(sel, names, (nuint)names.Length);
         sel.TransferOwnership();
         return ErrorHelper.Check(h);

@@ -315,4 +315,53 @@ public sealed class ParquetWriterOwnershipTests
         Assert.ThrowsAny<Exception>(() => writer.Dispose());
         tracker.AssertEachDisposedOnce();
     }
+
+    [Fact]
+    public async Task BytesWrittenAndPending_CountTheRowGroupsStillBeingEncoded()
+    {
+        // Ten row groups at 16 threads: eight may be encoded side by side, not in BytesWritten yet. A caller splitting
+        // files by size goes by BytesWritten + PendingBytes: it must count them (exactly once encoded, else estimated
+        // from the ratio of those laid out), close to what the row groups take in the file.
+        using var stream = new MemoryStream();
+        RecordBatch first = ParquetWriteData.Wide(95, 1000);
+        var writer = ParquetWriter.Create(stream, first.Schema, new ParquetWriteOptions
+        {
+            LeaveOpen = true, MaxDegreeOfParallelism = 16, BatchOwnership = ParquetBatchOwnership.Writer, RowGroupRows = 1000,
+        });
+        await writer.WriteAsync(first);
+        for (int k = 1; k < 10; k++) await writer.WriteAsync(ParquetWriteData.Wide(95 + k, 1000));
+        long estimate = writer.BytesWritten + writer.PendingBytes;
+        await writer.CompleteAsync();
+        await writer.DisposeAsync();
+
+        stream.Position = 0;
+        using var file = ParquetFile.Open(stream);
+        long rowGroups = 4 + file.Metadata.Thrift!.RowGroups.Sum(g => g.TotalCompressedSize!.Value);
+        Assert.InRange(estimate, rowGroups * 7 / 10, rowGroups * 13 / 10);
+    }
+
+    [Fact]
+    public async Task PendingBytes_ScaleTheOpenRowGroup_ByTheRatioOfThoseLaidOut()
+    {
+        // At 2 threads row groups are laid out as they go (two in flight at most): their compressed size against their
+        // Arrow bytes scales the open row group's Arrow bytes, close to what it then takes in the file.
+        using var stream = new MemoryStream();
+        RecordBatch first = ParquetWriteData.Wide(96, 4000);
+        var writer = ParquetWriter.Create(stream, first.Schema, new ParquetWriteOptions
+        {
+            LeaveOpen = true, MaxDegreeOfParallelism = 2, BatchOwnership = ParquetBatchOwnership.Writer, RowGroupRows = 4000,
+        });
+        await writer.WriteAsync(first);
+        for (int k = 1; k < 6; k++) await writer.WriteAsync(ParquetWriteData.Wide(96 + k, 4000));
+        await writer.EndRowGroupAsync(); // all six laid out
+        await writer.WriteAsync(ParquetWriteData.Wide(110, 3999)); // open, not encoded yet
+        long estimate = writer.PendingBytes;
+        await writer.CompleteAsync();
+        await writer.DisposeAsync();
+
+        stream.Position = 0;
+        using var file = ParquetFile.Open(stream);
+        long last = file.Metadata.Thrift!.RowGroups[^1].TotalCompressedSize!.Value;
+        Assert.InRange(estimate, last * 8 / 10, last * 12 / 10);
+    }
 }

@@ -7,7 +7,9 @@ using System.Text;
 using Apache.Arrow;
 using Array = System.Array;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Marshalling;
 using Kaminari.Sazanami.Kernels;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
@@ -412,8 +414,9 @@ internal sealed class ByteBounds
 
 /// <summary>
 /// A column of BYTE_ARRAY (<paramref name="fixedLength"/> 0) or FIXED_LEN_BYTE_ARRAY values. With
-/// <paramref name="direct"/> the values are the bytes of a (large) binary or string array as they are: runs of them are
-/// copied at once, their offsets shifted, instead of value by value through <paramref name="source"/>.
+/// <paramref name="direct"/> the values are the bytes of a binary or string array (plain, large or view) as they are:
+/// runs of them are copied at once (offsets shifted; views gathered into the arena in one pass) instead of value by
+/// value through <paramref name="source"/>.
 /// </summary>
 internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int maxRep, BytesSource source, int fixedLength, BytesOrder order, bool utf8, string column,
     bool direct = false)
@@ -497,6 +500,10 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
             Span<int> into = _offsets.AsSpan(_count + 1, count);
             for (int k = 0; k < count; k++) into[k] = offsets[k + 1] + shift;
         }
+        else if (array is BinaryViewArray views)
+        {
+            AppendViews(views, start, count);
+        }
         else
         {
             var large = (LargeBinaryArray)array;
@@ -517,6 +524,40 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         {
             _arena.Grow(checked(_arenaLength + bytes.Length), _arenaLength);
             bytes.CopyTo(_arena.AsSpan(_arenaLength));
+        }
+    }
+
+    /// <summary>
+    /// Gathers the values of view rows <paramref name="start"/> .. +<paramref name="count"/> (all valid) into the arena:
+    /// their lengths summed first (one growth), then each copied from the view itself (up to 12 bytes inline) or from
+    /// its data buffer (the last one looked up kept: values mostly share a buffer). Offsets are written as they go.
+    /// </summary>
+    private void AppendViews(BinaryViewArray array, int start, int count)
+    {
+        ReadOnlySpan<ArrowStringView> views = MemoryMarshal.Cast<byte, ArrowStringView>(array.ViewsBuffer.Span).Slice(array.Offset + start, count);
+        long total = 0;
+        foreach (ref readonly ArrowStringView view in views) total += view.Length;
+        _arena.Grow(checked((int)(_arenaLength + total)), _arenaLength);
+        Span<byte> arena = _arena.Span;
+        Span<int> into = _offsets.AsSpan(_count + 1, count);
+        int at = _arenaLength, current = -1;
+        ReadOnlySpan<byte> data = default;
+        for (int k = 0; k < views.Length; k++)
+        {
+            ref readonly ArrowStringView view = ref views[k];
+            int length = view.Length;
+            if (length <= NativeBinaryViewBuilder.MaxInline) MemoryMarshal.AsBytes(views.Slice(k, 1)).Slice(4, length).CopyTo(arena[at..]);
+            else
+            {
+                if (view.BufferIndex != current)
+                {
+                    current = view.BufferIndex;
+                    data = array.DataBuffer(current).Span;
+                }
+                data.Slice(view.Offset, length).CopyTo(arena[at..]);
+            }
+            at += length;
+            into[k] = at;
         }
     }
 
