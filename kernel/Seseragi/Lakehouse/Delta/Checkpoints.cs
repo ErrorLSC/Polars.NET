@@ -142,36 +142,46 @@ public static class Checkpoints
         using ParquetWriter writer = ParquetWriter.Create(stream, schema, FileOptions);
         int actions = 0;
 
-        batches.AppendProtocol(snapshot.Protocol);
-        batches.AppendMetadata(snapshot.Metadata);
-        actions += 2;
-        foreach (TxnAction t in snapshot.AppTransactions.Values)
+        // A failure on the way (a row the batches refuse, the stream, a cancellation) gives the file up: disposing the
+        // writer must not encode and send the buffered row group (a checkpoint is one) for nothing.
+        try
         {
-            batches.AppendTxn(t);
-            Flush(full: true);
-            actions++;
+            batches.AppendProtocol(snapshot.Protocol);
+            batches.AppendMetadata(snapshot.Metadata);
+            actions += 2;
+            foreach (TxnAction t in snapshot.AppTransactions.Values)
+            {
+                batches.AppendTxn(t);
+                Flush(full: true);
+                actions++;
+            }
+            foreach (DomainMetadataAction d in snapshot.DomainMetadata.Values)
+            {
+                batches.AppendDomain(d);
+                Flush(full: true);
+                actions++;
+            }
+            foreach (AddAction a in snapshot.Files)
+            {
+                batches.AppendAdd(a);
+                Flush(full: true);
+                actions++;
+            }
+            foreach (RemoveAction r in tombstones)
+            {
+                batches.AppendRemove(r);
+                Flush(full: true);
+                actions++;
+            }
+            Flush(full: false);
+            writer.Complete();
+            return actions;
         }
-        foreach (DomainMetadataAction d in snapshot.DomainMetadata.Values)
+        catch
         {
-            batches.AppendDomain(d);
-            Flush(full: true);
-            actions++;
+            writer.Abort();
+            throw;
         }
-        foreach (AddAction a in snapshot.Files)
-        {
-            batches.AppendAdd(a);
-            Flush(full: true);
-            actions++;
-        }
-        foreach (RemoveAction r in tombstones)
-        {
-            batches.AppendRemove(r);
-            Flush(full: true);
-            actions++;
-        }
-        Flush(full: false);
-        writer.Complete();
-        return actions;
 
         // Encodes the rows built so far: once a batch is full, or at the end.
         void Flush(bool full)

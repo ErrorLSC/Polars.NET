@@ -47,7 +47,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly List<Segment> _open = []; // the open row group's rows
     private long _openBytes;                   // their batches' Arrow bytes
     private long _rowGroupRows, _totalRows, _position;
-    private bool _started, _completed, _faulted, _disposed;
+    private bool _started, _completed, _faulted, _aborted, _disposed;
     private ParquetMetadata? _metadata;
 
     private ParquetWriter(Stream stream, Apache.Arrow.Schema schema, ParquetWriteOptions options)
@@ -271,7 +271,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
         catch
         {
-            _faulted = true;
+            Abort();
             throw;
         }
         Complete();
@@ -286,7 +286,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
         catch
         {
-            _faulted = true;
+            Abort();
             throw;
         }
         await CompleteAsync(ct).ConfigureAwait(false);
@@ -317,10 +317,23 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <inheritdoc cref="Complete"/>
     public ValueTask CompleteAsync(CancellationToken cancellationToken = default) => CompleteCoreAsync(true, cancellationToken);
 
+    /// <summary>
+    /// Gives the file up: <see cref="Dispose"/> then frees the writer without completing it (no last row group, no
+    /// footer: the stream keeps what was written so far, and is closed unless <see cref="ParquetWriteOptions.LeaveOpen"/>).
+    /// For a failure outside the writer, which it cannot see:
+    /// <c>try { …; writer.Complete(); } catch { writer.Abort(); throw; }</c>. Writing or completing afterwards throws.
+    /// Does no I/O and waits for nothing; repeating it, or calling it on a completed or disposed writer, does nothing.
+    /// </summary>
+    public void Abort()
+    {
+        if (!_completed && !_disposed) _aborted = true;
+    }
+
     private void CheckWritable()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_completed) throw new InvalidOperationException("The Parquet writer has been completed.");
+        if (_aborted) throw new InvalidOperationException("The Parquet writer was aborted; the file cannot be completed.");
         if (_faulted) throw new InvalidOperationException("The Parquet writer failed earlier; the file cannot be completed.");
     }
 
@@ -454,9 +467,10 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
         static long Of(ArrayData data)
         {
+            // Arrays built without children or buffers (the null type, some builders) leave them null.
             long bytes = 0;
-            foreach (ArrowBuffer buffer in data.Buffers) bytes += buffer.Length;
-            foreach (ArrayData child in data.Children) bytes += Of(child);
+            foreach (ArrowBuffer buffer in data.Buffers ?? []) bytes += buffer.Length;
+            foreach (ArrayData child in data.Children ?? []) bytes += Of(child);
             return data.Dictionary is { } dictionary ? bytes + Of(dictionary) : bytes;
         }
     }
@@ -885,6 +899,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_completed) return;
+        if (_aborted) throw new InvalidOperationException("The Parquet writer was aborted; the file cannot be completed.");
         if (_faulted) throw new InvalidOperationException("The Parquet writer failed earlier; the file cannot be completed.");
         try
         {
@@ -946,13 +961,16 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
     }
 
-    /// <summary>Completes the file unless writing failed (then the stream keeps what was written, without a footer), and closes the stream unless asked not to.</summary>
+    /// <summary>
+    /// Completes the file unless writing failed or the writer was aborted (<see cref="Abort"/>; then the stream keeps
+    /// what was written, without a footer), and closes the stream unless asked not to.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         try
         {
-            if (!_completed && !_faulted) Complete();
+            if (!_completed && !_faulted && !_aborted) Complete();
         }
         finally
         {
@@ -970,7 +988,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         if (_disposed) return;
         try
         {
-            if (!_completed && !_faulted) await CompleteAsync().ConfigureAwait(false);
+            if (!_completed && !_faulted && !_aborted) await CompleteAsync().ConfigureAwait(false);
         }
         finally
         {

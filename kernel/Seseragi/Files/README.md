@@ -176,7 +176,9 @@ a starts-with call as the operator, an IN over a collection as an IN over litera
 
 **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches as a Parquet file, to a stream or a path
 (`Create`, then `Write` / `WriteAsync` batch by batch and `Complete`; or the static `Write` / `WriteAsync` of a whole
-sequence, which delete a partial file on failure). Flat columns of every Arrow type Parquet holds: booleans, integers
+sequence, which delete a partial file on failure). Disposing an incomplete writer completes the file unless writing
+failed or the caller gave it up with `Abort` (a failure outside the writer: then nothing buffered is encoded or written,
+and the stream keeps no footer). Flat columns of every Arrow type Parquet holds: booleans, integers
 of every width and sign (annotated), half, single and double floats, dates (date64 in whole days), times, timestamps
 (seconds stored in milliseconds, a zone as UTC-adjusted; `TimestampUnit` coerces exactly, `Int96Timestamps` writes
 the legacy layout), durations, decimals of 32 to 256 bits (in INT32 up to 9 digits, INT64 up to 18, else the shortest
