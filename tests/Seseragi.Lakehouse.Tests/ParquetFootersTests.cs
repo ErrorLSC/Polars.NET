@@ -25,12 +25,12 @@ public class ParquetFootersTests
             return inner.List(directory, startFrom);
         }
 
-        public byte[]? ReadAll(string path) => inner.ReadAll(path);
+        public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into) => inner.TryReadAll(path, into);
 
-        public byte[]? ReadRange(string path, long offset, int length)
+        public int ReadRange(string path, long offset, Span<byte> destination)
         {
             Interlocked.Increment(ref Ranges);
-            return inner.ReadRange(path, offset, length);
+            return inner.ReadRange(path, offset, destination);
         }
     }
 

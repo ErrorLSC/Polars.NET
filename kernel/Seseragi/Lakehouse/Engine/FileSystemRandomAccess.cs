@@ -16,11 +16,8 @@ internal sealed class FileSystemRandomAccess(IFileSystem fileSystem, string path
     public int ReadAt(long offset, Span<byte> destination)
     {
         if (destination.IsEmpty || offset >= length) return 0;
-        byte[] bytes = fileSystem.ReadRange(path, offset, destination.Length)
-            ?? throw new FileNotFoundException($"{path} disappeared while it was read.", path);
-        int count = Math.Min(bytes.Length, destination.Length);
-        bytes.AsSpan(0, count).CopyTo(destination);
-        return count;
+        int read = fileSystem.ReadRange(path, offset, destination);
+        return read >= 0 ? read : throw new FileNotFoundException($"{path} disappeared while it was read.", path);
     }
 
     /// <inheritdoc/>

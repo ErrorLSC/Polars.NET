@@ -161,5 +161,5 @@ public static class Vacuum
         return false;
     }
 
-    private static bool Exists(IFileSystem fileSystem, string path) => fileSystem.ReadRange(path, 0, 1) is not null;
+    private static bool Exists(IFileSystem fileSystem, string path) => fileSystem.Exists(path);
 }

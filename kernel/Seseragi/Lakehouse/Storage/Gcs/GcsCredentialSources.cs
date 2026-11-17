@@ -42,6 +42,7 @@ internal static class GcsCredentialSources
                     }, retry, metadata: true, http: http);
                     if (answer.IsSuccess) break;
                     failure = new StorageException($"The metadata server {server} answered HTTP {(int)answer.Status}.", answer.Status);
+                    answer.Dispose();
                     answer = null;
                 }
                 catch (StorageException e)
@@ -55,7 +56,7 @@ internal static class GcsCredentialSources
                     $"No Google Cloud credentials are configured, and the metadata server ({host}, {ip}) gives no token " +
                     $"(not on Google Cloud?): {failure?.Message}", failure?.Status, inner: failure);
             }
-            return Token(answer.Body, "the metadata server", clock);
+            using (answer) return Token(answer.BodyMemory, "the metadata server", clock);
         }, MinTtl, clock)
         {
             Origin = $"metadata server {host} / {ip}",
@@ -74,7 +75,7 @@ internal static class GcsCredentialSources
         Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
-            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, tokenUri ?? DefaultTokenUri)
+            using StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, tokenUri ?? DefaultTokenUri)
             {
                 Content = new FormUrlEncodedContent(
                 [
@@ -86,13 +87,13 @@ internal static class GcsCredentialSources
             }, retry, http: http);
             if (!response.IsSuccess)
                 throw new StorageException($"Failed to refresh the gcloud user's token: HTTP {(int)response.Status}.", response.Status);
-            return Token(response.Body, "Google's token endpoint", clock);
+            return Token(response.BodyMemory, "Google's token endpoint", clock);
         }, MinTtl, clock)
         {
             Origin = $"gcloud user of client {clientId}",
         };
 
-    private static Temporary<string> Token(byte[] body, string source, Func<DateTimeOffset>? clock)
+    private static Temporary<string> Token(ReadOnlyMemory<byte> body, string source, Func<DateTimeOffset>? clock)
     {
         try
         {

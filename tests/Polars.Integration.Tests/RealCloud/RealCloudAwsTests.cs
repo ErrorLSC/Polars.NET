@@ -147,7 +147,7 @@ public static class RealAwsApi
             new("RoleSessionName", "seseragi-test"),
         ]);
         var temporary = Kaminari.Seseragi.Lakehouse.Storage.S3.AwsCredentialSources.FromStsXml(
-            System.Text.Encoding.UTF8.GetBytes(answer.ToString()));
+            new MemoryStream(System.Text.Encoding.UTF8.GetBytes(answer.ToString())));
         Assert.NotNull(temporary.Value.Token);
         return (temporary.Value.KeyId, temporary.Value.Secret, temporary.Value.Token!);
     }

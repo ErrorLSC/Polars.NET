@@ -1,16 +1,22 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
+using Kaminari.Sazanami.Buffers;
 
 namespace Kaminari.Sazanami.Network;
 
-/// <summary>An answer, its body read completely.</summary>
-internal sealed class HttpAnswer(HttpStatusCode status, HttpResponseHeaders headers, HttpContentHeaders contentHeaders, byte[] body, bool retried)
+/// <summary>An answer, its body read completely into native memory: dispose it to give the memory back.</summary>
+internal sealed class HttpAnswer(HttpStatusCode status, HttpResponseHeaders headers, HttpContentHeaders contentHeaders, NativeBufferWriter? body, bool retried)
+    : IDisposable
 {
+    private NativeBufferWriter? _body = body;
+
     public HttpStatusCode Status { get; } = status;
     public HttpResponseHeaders Headers { get; } = headers;
     public HttpContentHeaders ContentHeaders { get; } = contentHeaders;
-    public byte[] Body { get; } = body;
+
+    /// <summary>The body (valid until disposed).</summary>
+    public ReadOnlySpan<byte> Body => _body is null ? [] : _body.WrittenSpan;
 
     /// <summary>Whether an earlier attempt of the request was made: a "precondition failed" may then be our own write.</summary>
     public bool Retried { get; } = retried;
@@ -19,6 +25,11 @@ internal sealed class HttpAnswer(HttpStatusCode status, HttpResponseHeaders head
 
     public string? Header(string name) =>
         Headers.TryGetValues(name, out IEnumerable<string>? values) ? values.FirstOrDefault() : null;
+
+    /// <summary>Hands the body over (the answer no longer frees it).</summary>
+    public NativeBufferWriter? TakeBody() => Interlocked.Exchange(ref _body, null);
+
+    public void Dispose() => TakeBody()?.Dispose();
 }
 
 /// <summary>The retries of a request ran out on network failures: the last failure is the inner exception.</summary>
@@ -193,48 +204,56 @@ internal sealed class HttpSender(HttpClient client, RetrySettings retry)
         _ => null,
     };
 
-    private static HttpAnswer Buffer(HttpResponseMessage response, bool retried)
-    {
-        byte[] body = response.RequestMessage?.Method == HttpMethod.Head ? [] : ReadBody(response);
-        return new HttpAnswer(response.StatusCode, response.Headers, response.Content.Headers, body, retried);
-    }
+    private static HttpAnswer Buffer(HttpResponseMessage response, bool retried) =>
+        new(response.StatusCode, response.Headers, response.Content.Headers, ReadBody(response), retried);
 
-    private static async Task<HttpAnswer> BufferAsync(HttpResponseMessage response, bool retried, CancellationToken cancellationToken)
-    {
-        byte[] body = response.RequestMessage?.Method == HttpMethod.Head ? [] : await ReadBodyAsync(response, cancellationToken).ConfigureAwait(false);
-        return new HttpAnswer(response.StatusCode, response.Headers, response.Content.Headers, body, retried);
-    }
+    private static async Task<HttpAnswer> BufferAsync(HttpResponseMessage response, bool retried, CancellationToken cancellationToken) =>
+        new(response.StatusCode, response.Headers, response.Content.Headers, await ReadBodyAsync(response, cancellationToken).ConfigureAwait(false), retried);
 
-    private static byte[] ReadBody(HttpResponseMessage response)
+    /// <summary>An answer's whole body in native memory (none for a HEAD, or an empty body); the caller disposes it.</summary>
+    internal static NativeBufferWriter? ReadBody(HttpResponseMessage response)
     {
+        if (response.RequestMessage?.Method == HttpMethod.Head) return null;
         using Stream stream = response.Content.ReadAsStream();
-        long? length = response.Content.Headers.ContentLength;
-        if (length is { } exact and <= int.MaxValue)
+        var body = new NativeBufferWriter(InitialBody(response));
+        try
         {
-            var buffer = new byte[exact];
-            stream.ReadExactly(buffer);
-            return buffer;
+            body.ReadFrom(stream);
         }
-        using var copy = new MemoryStream();
-        stream.CopyTo(copy);
-        return copy.ToArray();
+        catch
+        {
+            body.Dispose();
+            throw;
+        }
+        return Empty(body);
     }
 
-    private static async Task<byte[]> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    /// <inheritdoc cref="ReadBody"/>
+    internal static async Task<NativeBufferWriter?> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
+        if (response.RequestMessage?.Method == HttpMethod.Head) return null;
         Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        await using (stream.ConfigureAwait(false))
+        var body = new NativeBufferWriter(InitialBody(response));
+        try
         {
-            long? length = response.Content.Headers.ContentLength;
-            if (length is { } exact and <= int.MaxValue)
-            {
-                var buffer = new byte[exact];
-                await stream.ReadExactlyAsync(buffer, cancellationToken).ConfigureAwait(false);
-                return buffer;
-            }
-            using var copy = new MemoryStream();
-            await stream.CopyToAsync(copy, cancellationToken).ConfigureAwait(false);
-            return copy.ToArray();
+            await using (stream.ConfigureAwait(false)) await body.ReadFromAsync(stream, cancellationToken).ConfigureAwait(false);
         }
+        catch
+        {
+            body.Dispose();
+            throw;
+        }
+        return Empty(body);
+    }
+
+    /// <summary>The buffer to start with: the announced length (then read without growing), else 4 KiB.</summary>
+    private static int InitialBody(HttpResponseMessage response) =>
+        response.Content.Headers.ContentLength is { } length and > 0 and <= int.MaxValue ? (int)length : 4096;
+
+    private static NativeBufferWriter? Empty(NativeBufferWriter body)
+    {
+        if (body.WrittenCount > 0) return body;
+        body.Dispose();
+        return null;
     }
 }

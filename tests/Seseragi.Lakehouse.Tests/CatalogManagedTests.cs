@@ -325,7 +325,7 @@ public class CatalogManagedTests
         public bool Delete(string path) => inner.Delete(path);
         public IReadOnlyList<FileEntry> ListAll(string directory) => inner.ListAll(directory);
         public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null) => inner.List(directory, startFrom);
-        public byte[]? ReadAll(string path) => inner.ReadAll(path);
-        public byte[]? ReadRange(string path, long offset, int length) => inner.ReadRange(path, offset, length);
+        public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into) => inner.TryReadAll(path, into);
+        public int ReadRange(string path, long offset, Span<byte> destination) => inner.ReadRange(path, offset, destination);
     }
 }

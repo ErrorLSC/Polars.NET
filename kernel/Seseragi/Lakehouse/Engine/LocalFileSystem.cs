@@ -1,3 +1,6 @@
+using System.Buffers;
+using Microsoft.Win32.SafeHandles;
+
 namespace Kaminari.Seseragi.Lakehouse.Engine;
 
 /// <summary>A table on the local disk.</summary>
@@ -52,19 +55,32 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadAll(string path)
+    public bool TryReadAll(string path, IBufferWriter<byte> into)
     {
+        ArgumentNullException.ThrowIfNull(into);
+        SafeFileHandle file;
         try
         {
-            return File.ReadAllBytes(Resolve(path));
+            file = File.OpenHandle(Resolve(path));
         }
-        catch (FileNotFoundException)
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
         {
-            return null;
+            return false;
         }
-        catch (DirectoryNotFoundException)
+        using (file)
         {
-            return null;
+            // Straight into the caller's buffer, as much as the file holds (it may grow while read).
+            long offset = 0;
+            int hint = (int)Math.Clamp(RandomAccess.GetLength(file), 1, 1 << 20);
+            while (true)
+            {
+                Span<byte> span = into.GetSpan(hint);
+                int read = RandomAccess.Read(file, span, offset);
+                if (read == 0) return true;
+                into.Advance(read);
+                offset += read;
+                hint = 1 << 16;
+            }
         }
     }
 
@@ -96,25 +112,31 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadRange(string path, long offset, int length)
+    public int ReadRange(string path, long offset, Span<byte> destination)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        SafeFileHandle file;
         try
         {
-            using FileStream stream = File.OpenRead(Resolve(path));
-            stream.Seek(offset, SeekOrigin.Begin);
-            var buffer = new byte[length];
-            int read = stream.ReadAtLeast(buffer, length, throwOnEndOfStream: false);
-            return read == length ? buffer : buffer[..read];
+            file = File.OpenHandle(Resolve(path));
         }
-        catch (FileNotFoundException)
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
         {
-            return null;
+            return -1;
         }
-        catch (DirectoryNotFoundException)
+        using (file)
         {
-            return null;
+            int total = 0;
+            while (total < destination.Length)
+            {
+                int read = RandomAccess.Read(file, destination[total..], offset + total);
+                if (read == 0) break;
+                total += read;
+            }
+            return total;
         }
     }
+
 
     /// <inheritdoc/>
     public bool TryCreate(string path, ReadOnlyMemory<byte> content)

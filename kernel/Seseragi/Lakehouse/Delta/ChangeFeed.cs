@@ -156,9 +156,8 @@ public static class ChangeFeed
         List<ChangeFile> result = [];
         for (long version = startVersion; version <= end; version++)
         {
-            byte[] content = fileSystem.ReadAll(LogFile.CommitPath(version))
+            List<DeltaAction> actions = ActionParser.ParseFile(fileSystem, LogFile.CommitPath(version))
                 ?? throw new DeltaException($"The commit of version {version} disappeared while reading the log.");
-            List<DeltaAction> actions = ActionParser.ParseCommit(content);
 
             bool metadataChanged = false;
             foreach (DeltaAction action in actions)

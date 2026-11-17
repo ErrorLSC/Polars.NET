@@ -1,3 +1,4 @@
+using Kaminari.Seseragi.Lakehouse.Engine;
 using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 
@@ -6,6 +7,17 @@ namespace Kaminari.Seseragi.Lakehouse.Delta.Actions;
 /// <summary>Reads the actions of a JSON commit file: one action per line.</summary>
 public static class ActionParser
 {
+    /// <summary>
+    /// Reads all actions of a commit file of the storage (read into native memory, freed once parsed), or null when it
+    /// does not exist.
+    /// </summary>
+    /// <exception cref="DeltaException">A line is not valid JSON or an action lacks a required field.</exception>
+    public static List<DeltaAction>? ParseFile(IFileSystem fileSystem, string path)
+    {
+        using FileBytes? content = fileSystem.ReadFile(path);
+        return content is null ? null : ParseCommit(content.Memory);
+    }
+
     /// <summary>Reads all actions of a commit file. Lines holding an action this kernel does not know are skipped.</summary>
     /// <exception cref="DeltaException">A line is not valid JSON or an action lacks a required field.</exception>
     public static List<DeltaAction> ParseCommit(ReadOnlyMemory<byte> content)

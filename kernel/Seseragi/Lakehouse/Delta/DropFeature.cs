@@ -321,8 +321,7 @@ public static class DropFeature
         if (feature == TableFeatures.V2Checkpoint && files.Any(f => f.Kind == LogFileKind.V2Checkpoint && f.Version == earliest)) return true;
         foreach (LogFile commit in files.Where(f => f.Kind == LogFileKind.Commit && f.Version <= toVersion))
         {
-            byte[]? content = fileSystem.ReadAll(commit.Entry.Path);
-            if (content is not null && ActionParser.ParseCommit(content).Any(a => Uses(feature, a))) return true;
+            if (ActionParser.ParseFile(fileSystem, commit.Entry.Path) is { } actions && actions.Any(a => Uses(feature, a))) return true;
         }
         return false;
     }

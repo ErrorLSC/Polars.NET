@@ -153,10 +153,8 @@ public sealed class FileSystemStore : IFileStore
                     if (read.Version is not null) Interlocked.CompareExchange(ref _version, read.Version, null); // required from now on
                     return read.Count;
                 }
-                byte[] bytes = await Task.Run(() => store._fileSystem.ReadRange(relative, offset, destination.Length), cancellationToken).ConfigureAwait(false)
-                    ?? throw new FileNotFoundException($"'{path}' no longer exists.", path);
-                bytes.CopyTo(destination);
-                return bytes.Length;
+                int count = await Task.Run(() => store._fileSystem.ReadRange(relative, offset, destination.Span), cancellationToken).ConfigureAwait(false);
+                return count >= 0 ? count : throw new FileNotFoundException($"'{path}' no longer exists.", path);
             }
             catch (Exception e) when (e is not (IOException or OperationCanceledException))
             {

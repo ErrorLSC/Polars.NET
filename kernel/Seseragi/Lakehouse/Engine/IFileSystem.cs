@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Kaminari.Seseragi.Lakehouse.Engine;
 
 /// <summary>A file as a listing reports it.</summary>
@@ -11,7 +13,7 @@ public readonly record struct FileEntry(string Path, long Size, DateTimeOffset L
 /// <c>/</c> separators. This is what an engine implements to let the kernel read a table.
 /// </summary>
 /// <remarks>
-/// A path given to <see cref="ReadAll"/> or <see cref="ReadRange"/> may also be an absolute URI (such as
+/// A path given to <see cref="TryReadAll"/> or <see cref="ReadRange"/> may also be an absolute URI (such as
 /// <c>s3://bucket/dir/file</c> or <c>file:///dir/file</c>), because the log may point outside the table: data files
 /// of a shallow clone, deletion vectors of storage type <c>p</c>, sidecars of a V2 checkpoint. A file system reads
 /// such a file when it can reach it and throws otherwise.
@@ -25,12 +27,15 @@ public interface IFileSystem
     /// </summary>
     IReadOnlyList<FileEntry> List(string directory, string? startFrom = null);
 
-    /// <summary>Reads a whole file, or returns null when it does not exist.</summary>
-    byte[]? ReadAll(string path);
+    /// <summary>
+    /// Appends a whole file to <paramref name="into"/> (the caller's buffer: native memory, as a rule); false, nothing
+    /// written, when it does not exist. <see cref="FileSystemReads.ReadFile"/> reads into a buffer of its own.
+    /// </summary>
+    bool TryReadAll(string path, IBufferWriter<byte> into);
 
     /// <summary>
-    /// Reads <paramref name="length"/> bytes of a file starting at <paramref name="offset"/>, or returns null when
-    /// the file does not exist. Fewer bytes are returned only when the file ends first.
+    /// Reads the bytes of a file from <paramref name="offset"/> into <paramref name="destination"/>: all it holds, fewer
+    /// only when the file ends first. Returns the bytes read, or -1 when the file does not exist.
     /// </summary>
-    byte[]? ReadRange(string path, long offset, int length);
+    int ReadRange(string path, long offset, Span<byte> destination);
 }

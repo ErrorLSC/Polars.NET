@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Buffers;
 using System.Buffers;
 using System.Buffers.Binary;
 using Kaminari.Seseragi.Lakehouse.Engine;
@@ -24,35 +25,37 @@ public sealed class DeletionVector
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(descriptor);
-        byte[] data = descriptor.StorageType switch
+        long[] rows = descriptor.StorageType switch
         {
-            "i" => descriptor.InlineBytes(),
-            "u" or "p" => ReadFromFile(fileSystem, descriptor),
+            "i" => Decode(descriptor.InlineBytes()),
+            "u" or "p" => DecodeFromFile(fileSystem, descriptor),
             _ => throw new DeltaException($"Unknown deletion vector storage type '{descriptor.StorageType}'."),
         };
-        long[] rows = Decode(data);
         if (rows.LongLength != descriptor.Cardinality)
             throw new DeltaException(
                 $"The deletion vector holds {rows.LongLength} rows but its descriptor says {descriptor.Cardinality}.");
         return new DeletionVector { DeletedRows = rows };
     }
 
-    private static byte[] ReadFromFile(IFileSystem fileSystem, DeletionVectorDescriptor descriptor)
+    /// <summary>The rows of a vector stored in a file: its block read into native memory, checked and decoded.</summary>
+    private static long[] DecodeFromFile(IFileSystem fileSystem, DeletionVectorDescriptor descriptor)
     {
         string path = descriptor.FilePath();
         int offset = descriptor.Offset ?? 0;
         int size = descriptor.SizeInBytes;
 
         // At the offset: the size (4 bytes, big-endian), the vector, then its CRC-32 (4 bytes, big-endian).
-        byte[]? block = fileSystem.ReadRange(path, offset, size + 8);
-        if (block is null || block.Length < size + 8 || BinaryPrimitives.ReadInt32BigEndian(block) != size)
-            throw NotConformant(path, block is null ? "the file is not at the path the protocol derives" : "the size field does not match");
+        using var buffer = new NativeBufferWriter(size + 8);
+        Span<byte> block = buffer.GetSpan(size + 8)[..(size + 8)];
+        int read = fileSystem.ReadRange(path, offset, block);
+        if (read < size + 8 || BinaryPrimitives.ReadInt32BigEndian(block) != size)
+            throw NotConformant(path, read < 0 ? "the file is not at the path the protocol derives" : "the size field does not match");
 
-        ReadOnlySpan<byte> data = block.AsSpan(4, size);
-        uint expected = BinaryPrimitives.ReadUInt32BigEndian(block.AsSpan(4 + size));
+        ReadOnlySpan<byte> data = block.Slice(4, size);
+        uint expected = BinaryPrimitives.ReadUInt32BigEndian(block[(4 + size)..]);
         if (Crc32(data) != expected)
             throw new DeltaException($"The deletion vector in {path} at offset {offset} fails its checksum.");
-        return data.ToArray();
+        return Decode(data);
     }
 
     private static DeltaException NotConformant(string path, string detail) => new(

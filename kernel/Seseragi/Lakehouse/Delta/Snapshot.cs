@@ -136,9 +136,8 @@ public sealed class Snapshot
         for (int i = segment.Commits.Count - 1; i >= 0; i--)
         {
             LogFile commit = segment.Commits[i];
-            byte[] bytes = fileSystem.ReadAll(commit.Entry.Path)
-                ?? throw new DeltaException($"The commit of version {commit.Version} disappeared while reading the log.");
-            replay.Apply(ActionParser.ParseCommit(bytes));
+            replay.Apply(ActionParser.ParseFile(fileSystem, commit.Entry.Path)
+                ?? throw new DeltaException($"The commit of version {commit.Version} disappeared while reading the log."));
         }
         foreach (LogFile file in segment.Checkpoint)
         {
@@ -198,9 +197,8 @@ public sealed class Snapshot
         List<DeltaAction> actions;
         if (path.EndsWith(".json", StringComparison.Ordinal))
         {
-            byte[] bytes = fileSystem.ReadAll(path)
+            actions = ActionParser.ParseFile(fileSystem, path)
                 ?? throw new DeltaException($"The checkpoint {path} disappeared while reading the log.");
-            actions = ActionParser.ParseCommit(bytes);
         }
         else
         {

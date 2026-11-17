@@ -119,9 +119,9 @@ public sealed class FileSystemStoreTests : IDisposable
     {
         public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null) => inner.List(directory, startFrom);
 
-        public byte[]? ReadAll(string path) => inner.ReadAll(path);
+        public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into) => inner.TryReadAll(path, into);
 
-        public byte[]? ReadRange(string path, long offset, int length) => inner.ReadRange(path, offset, length);
+        public int ReadRange(string path, long offset, Span<byte> destination) => inner.ReadRange(path, offset, destination);
     }
 
     /// <summary>A local file system with versions (a counter per write), read asynchronously, conditions checked.</summary>
@@ -143,9 +143,9 @@ public sealed class FileSystemStoreTests : IDisposable
 
         public IReadOnlyList<FileEntry> ListAll(string directory) => inner.ListAll(directory);
 
-        public byte[]? ReadAll(string path) => inner.ReadAll(path);
+        public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into) => inner.TryReadAll(path, into);
 
-        public byte[]? ReadRange(string path, long offset, int length) => inner.ReadRange(path, offset, length);
+        public int ReadRange(string path, long offset, Span<byte> destination) => inner.ReadRange(path, offset, destination);
 
         public bool TryCreate(string path, ReadOnlyMemory<byte> content) => inner.TryCreate(path, content);
 

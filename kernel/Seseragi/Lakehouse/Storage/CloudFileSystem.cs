@@ -1,3 +1,4 @@
+using System.Buffers;
 using Kaminari.Seseragi.Lakehouse.Engine;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage;
@@ -122,20 +123,20 @@ public sealed class CloudFileSystem : IWritableFileSystem, ITailReadable, IAsync
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadAll(string path)
+    public bool TryReadAll(string path, IBufferWriter<byte> into)
     {
+        ArgumentNullException.ThrowIfNull(into);
         var (client, key) = Resolve(path);
-        return client.Get(key);
+        return client.Get(key, into);
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadRange(string path, long offset, int length)
+    public int ReadRange(string path, long offset, Span<byte> destination)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
-        ArgumentOutOfRangeException.ThrowIfNegative(length);
         var (client, key) = Resolve(path);
-        if (length == 0) return client.Head(key) is null ? null : [];
-        return client.GetRange(key, offset, length);
+        if (destination.IsEmpty) return client.Head(key) is null ? -1 : 0;
+        return client.GetRange(key, offset, destination);
     }
 
     /// <inheritdoc/>

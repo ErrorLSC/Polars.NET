@@ -108,13 +108,13 @@ public class S3ClientTests
               <NextContinuationToken>abc==</NextContinuationToken>
             </ListBucketResult>
             """;
-        var (objects, next) = S3Client.ParseListing(Encoding.UTF8.GetBytes(xml));
+        var (objects, next) = S3Client.ParseListing(new MemoryStream(Encoding.UTF8.GetBytes(xml)));
         Assert.Equal(["t/a&b.json", "t/p=東京 50%/c.json"], objects.Select(o => o.Key));
         Assert.Equal([12L, 0L], objects.Select(o => o.Size));
         Assert.Equal(new DateTimeOffset(2026, 11, 11, 10, 0, 1, 500, TimeSpan.Zero), objects[1].LastModified);
         Assert.Equal("abc==", next);
 
-        var (_, last) = S3Client.ParseListing(Encoding.UTF8.GetBytes(xml.Replace("<IsTruncated>true", "<IsTruncated>false")));
+        var (_, last) = S3Client.ParseListing(new MemoryStream(Encoding.UTF8.GetBytes(xml.Replace("<IsTruncated>true", "<IsTruncated>false"))));
         Assert.Null(last);
     }
 

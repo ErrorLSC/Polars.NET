@@ -1,3 +1,4 @@
+using System.Buffers;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
 using Kaminari.Seseragi.Lakehouse.Engine;
@@ -115,9 +116,9 @@ public sealed class CatalogManagedFileSystem(IWritableFileSystem inner, ICatalog
     /// <inheritdoc/>
     public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null) => Inner.List(directory, startFrom);
     /// <inheritdoc/>
-    public byte[]? ReadAll(string path) => Inner.ReadAll(path);
+    public bool TryReadAll(string path, IBufferWriter<byte> into) => Inner.TryReadAll(path, into);
     /// <inheritdoc/>
-    public byte[]? ReadRange(string path, long offset, int length) => Inner.ReadRange(path, offset, length);
+    public int ReadRange(string path, long offset, Span<byte> destination) => Inner.ReadRange(path, offset, destination);
     /// <inheritdoc/>
     public bool CanReadTails => Inner is ITailReadable { CanReadTails: true };
     /// <inheritdoc/>
@@ -168,16 +169,16 @@ public static class CatalogManaged
     /// The content of the commit of <paramref name="version"/>: the catalog's staged file when it holds the version,
     /// else the published file; null when neither exists.
     /// </summary>
-    internal static byte[]? ReadCommit(IFileSystem fileSystem, CatalogLog? log, long version)
+    internal static List<DeltaAction>? ReadCommit(IFileSystem fileSystem, CatalogLog? log, long version)
     {
         if (log is not null)
         {
             if (version > log.LatestVersion) return null;
             foreach (RatifiedCommit commit in log.Commits)
             {
-                if (commit.Version == version) return fileSystem.ReadAll(StagedPath(commit.FileName));
+                if (commit.Version == version) return ActionParser.ParseFile(fileSystem, StagedPath(commit.FileName));
             }
         }
-        return fileSystem.ReadAll(LogFile.CommitPath(version));
+        return ActionParser.ParseFile(fileSystem, LogFile.CommitPath(version));
     }
 }

@@ -24,6 +24,39 @@ internal sealed class NativeBufferWriter(int initialCapacity = 4096) : IBufferWr
 
     public ReadOnlyMemory<byte> WrittenMemory => _buffer is null ? default : _buffer.Memory[.._length];
 
+    /// <summary>
+    /// A read-only stream over the bytes written, in place (no copy): valid while nothing more is written and the
+    /// writer is not disposed (for readers that take a stream, such as XML).
+    /// </summary>
+    public unsafe Stream OpenRead()
+    {
+        if (_buffer is null || _length == 0) return Stream.Null;
+        using MemoryHandle pin = _buffer.Memory.Pin(); // native memory: the address stays
+        return new UnmanagedMemoryStream((byte*)pin.Pointer, _length);
+    }
+
+    /// <summary>Appends what <paramref name="stream"/> holds from its position to its end.</summary>
+    public void ReadFrom(Stream stream, int sizeHint = 1 << 16)
+    {
+        while (true)
+        {
+            int read = stream.Read(GetSpan(Capacity > _length ? 1 : sizeHint)); // the room left first (a body of announced length fills it exactly)
+            if (read == 0) return;
+            Advance(read);
+        }
+    }
+
+    /// <inheritdoc cref="ReadFrom"/>
+    public async Task ReadFromAsync(Stream stream, CancellationToken cancellationToken, int sizeHint = 1 << 16)
+    {
+        while (true)
+        {
+            int read = await stream.ReadAsync(GetMemory(Capacity > _length ? 1 : sizeHint), cancellationToken).ConfigureAwait(false);
+            if (read == 0) return;
+            Advance(read);
+        }
+    }
+
     /// <summary>Forgets what was written, keeping the memory for the next writes.</summary>
     public void ResetWrittenCount() => _length = 0;
 

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Reflection;
 using System.Text;
 using Kaminari.Sazanami.Network;
@@ -160,6 +161,54 @@ public abstract class FileSystemContract
         Assert.Null(fs.ReadAll("missing.bin"));
         Assert.Null(fs.ReadRange("missing.bin", 0, 4));
         Assert.Null(fs.ReadAll("missing_dir/missing.bin"));
+    });
+
+    [Fact]
+    public void Reads_GoIntoTheCallersMemory_AsTheContractSays() => With((fs, _) =>
+    {
+        byte[] content = [.. Enumerable.Range(0, 300).Select(i => (byte)(i * 7))];
+        Assert.True(fs.TryCreate("data.bin", content));
+        Assert.True(fs.TryCreate("empty.bin", ReadOnlyMemory<byte>.Empty));
+
+        // A whole file is appended to what the caller's buffer holds; a missing one writes nothing.
+        var into = new ArrayBufferWriter<byte>();
+        into.Write("head"u8);
+        Assert.True(fs.TryReadAll("data.bin", into));
+        Assert.Equal([.. "head"u8, .. content], into.WrittenSpan.ToArray());
+        Assert.False(fs.TryReadAll("missing.bin", into));
+        Assert.True(fs.TryReadAll("empty.bin", into));
+        Assert.Equal(4 + content.Length, into.WrittenCount);
+
+        // A range lands in the span given (here on the stack), nothing past what it read; the count tells how much.
+        Span<byte> guarded = stackalloc byte[64];
+        guarded.Fill(0xEE);
+        Span<byte> destination = guarded.Slice(8, 40);
+        Assert.Equal(40, fs.ReadRange("data.bin", 100, destination));
+        Assert.True(destination.SequenceEqual(content.AsSpan(100, 40)));
+        guarded.Fill(0xEE);
+        Assert.Equal(20, fs.ReadRange("data.bin", 280, destination)); // cut where the file ends
+        Assert.True(destination[..20].SequenceEqual(content.AsSpan(280)));
+        Assert.True(guarded[..8].IndexOfAnyExcept((byte)0xEE) < 0 && guarded[28..].IndexOfAnyExcept((byte)0xEE) < 0, "a read wrote past its bytes");
+        Assert.Equal(0, fs.ReadRange("data.bin", 300, destination));   // at the end
+        Assert.Equal(0, fs.ReadRange("data.bin", 5000, destination));  // past it
+        Assert.Equal(-1, fs.ReadRange("missing.bin", 0, destination));
+
+        // An empty destination asks whether the file exists.
+        Assert.Equal(0, fs.ReadRange("data.bin", 0, Span<byte>.Empty));
+        Assert.Equal(0, fs.ReadRange("empty.bin", 0, Span<byte>.Empty));
+        Assert.Equal(-1, fs.ReadRange("missing.bin", 0, Span<byte>.Empty));
+        Assert.True(fs.Exists("data.bin"));
+        Assert.True(fs.Exists("empty.bin"));
+        Assert.False(fs.Exists("missing.bin"));
+
+        // A whole file in native memory, until disposed.
+        FileBytes bytes = fs.ReadFile("data.bin")!;
+        Assert.Equal(content.Length, bytes.Length);
+        Assert.True(bytes.Span.SequenceEqual(content));
+        bytes.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => bytes.Span.Length);
+        Assert.Null(fs.ReadFile("missing.bin"));
+        using (FileBytes empty = fs.ReadFile("empty.bin")!) Assert.Equal(0, empty.Length);
     });
 
     [Fact]

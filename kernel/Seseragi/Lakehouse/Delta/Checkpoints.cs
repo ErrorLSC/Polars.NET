@@ -211,9 +211,9 @@ public static class Checkpoints
     {
         try
         {
-            byte[]? bytes = fileSystem.ReadAll($"{LogFile.LogDirectory}/_last_checkpoint");
+            using FileBytes? bytes = fileSystem.ReadFile($"{LogFile.LogDirectory}/_last_checkpoint");
             if (bytes is null) return -1;
-            using JsonDocument doc = JsonDocument.Parse(bytes);
+            using JsonDocument doc = JsonDocument.Parse(bytes.Memory);
             return doc.RootElement.TryGetProperty("version", out JsonElement v) && v.TryGetInt64(out long version) ? version : -1;
         }
         catch (JsonException)

@@ -69,8 +69,8 @@ internal static class CheckpointReader
         if (size > 0) return ParquetFile.Open(new FileSystemRandomAccess(fileSystem, path, size));
 
         // No size to go by (a sidecar the log gives none for, on a store that cannot read tails): the whole file.
-        byte[] bytes = fileSystem.ReadAll(path) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        return ParquetFile.Open(bytes.AsMemory());
+        FileBytes bytes = fileSystem.ReadFile(path) ?? throw new FileNotFoundException($"{path} does not exist.", path);
+        return ParquetFile.Open(bytes.Memory, owner: bytes); // the file frees the bytes
     }
 
     /// <summary>The column paths to read: the action columns the file has, whole, except the typed copies in <c>add</c>.</summary>

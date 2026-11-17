@@ -73,11 +73,11 @@ internal sealed class LogSegment
 
     private static long? ReadLastCheckpointHint(IFileSystem fileSystem)
     {
-        byte[]? bytes = fileSystem.ReadAll($"{LogFile.LogDirectory}/_last_checkpoint");
+        using FileBytes? bytes = fileSystem.ReadFile($"{LogFile.LogDirectory}/_last_checkpoint");
         if (bytes is null) return null;
         try
         {
-            using JsonDocument doc = JsonDocument.Parse(bytes);
+            using JsonDocument doc = JsonDocument.Parse(bytes.Memory);
             return doc.RootElement.ValueKind == JsonValueKind.Object
                 && doc.RootElement.TryGetProperty("version", out JsonElement v) && v.TryGetInt64(out long version)
                 ? version

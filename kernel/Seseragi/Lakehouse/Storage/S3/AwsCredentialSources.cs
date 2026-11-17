@@ -52,6 +52,7 @@ internal static class AwsCredentialSources
                     $"No AWS credentials are configured, and the instance metadata service at {endpoint} cannot be reached " +
                     $"(not on EC2?): {e.Message}", inner: e);
             }
+            using StoreResponse tokenAnswer = tokenResponse;
             string? token = null;
             if (tokenResponse.IsSuccess) token = Encoding.UTF8.GetString(tokenResponse.Body);
             else if (!(imdsv1Fallback && tokenResponse.Status == HttpStatusCode.Forbidden))
@@ -63,12 +64,12 @@ internal static class AwsCredentialSources
                 if (token is not null) request.Headers.TryAddWithoutValidation("X-aws-ec2-metadata-token", token);
                 return request;
             }
-            StoreResponse roleResponse = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/"), retry, metadata: true, http: http);
+            using StoreResponse roleResponse = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/"), retry, metadata: true, http: http);
             if (!roleResponse.IsSuccess) throw Failure(roleResponse, "find the instance's role in the instance metadata service");
             string role = Encoding.UTF8.GetString(roleResponse.Body);
-            StoreResponse credentials = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/{role}"), retry, metadata: true, http: http);
+            using StoreResponse credentials = HttpTransport.Send(() => Get($"{endpoint}/{CredentialsPath}/{role}"), retry, metadata: true, http: http);
             if (!credentials.IsSuccess) throw Failure(credentials, "get the instance role's credentials");
-            return FromJson(credentials.Body, "the instance metadata service");
+            return FromJson(credentials.BodyMemory, "the instance metadata service");
         }, clock: clock) { Origin = $"instance metadata {endpoint}" + (imdsv1Fallback ? " (IMDSv1 fallback)" : "") };
     }
 
@@ -76,9 +77,9 @@ internal static class AwsCredentialSources
     public static CachedCredential<AwsCredential> Task(string url, RetrySettings retry, Func<DateTimeOffset>? clock = null, HttpOptions? http = null) =>
         new(() =>
         {
-            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Get, url), retry, http: http);
+            using StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Get, url), retry, http: http);
             if (!response.IsSuccess) throw Failure(response, "get the task role's credentials");
-            return FromJson(response.Body, "the container credentials endpoint");
+            return FromJson(response.BodyMemory, "the container credentials endpoint");
         }, clock: clock) { Origin = $"task role {url}" };
 
     /// <summary>EKS Pod Identity: the full URI, authorized with the token the file holds (read for every fetch).</summary>
@@ -86,14 +87,14 @@ internal static class AwsCredentialSources
         new(() =>
         {
             string token = ReadTokenFile(tokenFile, "EKS Pod Identity token").TrimEnd('\r', '\n');
-            StoreResponse response = HttpTransport.Send(() =>
+            using StoreResponse response = HttpTransport.Send(() =>
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.TryAddWithoutValidation("Authorization", token);
                 return request;
             }, retry, http: http);
             if (!response.IsSuccess) throw Failure(response, "get the pod's credentials");
-            return FromJson(response.Body, "the container credentials endpoint");
+            return FromJson(response.BodyMemory, "the container credentials endpoint");
         }, clock: clock) { Origin = $"pod identity {url}" };
 
     /// <summary>
@@ -126,9 +127,9 @@ internal static class AwsCredentialSources
             };
             string url = endpoint + (endpoint.Contains('?') ? "&" : "?") + string.Join('&', query.Select(p =>
                 PercentEncoding.Encode(p.Key, encodeSlash: true) + "=" + PercentEncoding.Encode(p.Value, encodeSlash: true)));
-            StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, url), retry, http: http);
+            using StoreResponse response = HttpTransport.Send(() => new HttpRequestMessage(HttpMethod.Post, url), retry, http: http);
             if (!response.IsSuccess) throw Failure(response, "assume the role with the web identity token");
-            return FromStsXml(response.Body);
+            return FromStsXml(response.OpenBody());
         }, clock: clock) { Origin = $"web identity {roleArn} at {endpoint}" };
 
     private static string ReadTokenFile(string path, string what)
@@ -147,7 +148,7 @@ internal static class AwsCredentialSources
         new($"Failed to {what}: HTTP {(int)response.Status}.", response.Status);
 
     /// <summary>The credentials of an instance metadata or container credentials answer.</summary>
-    internal static Temporary<AwsCredential> FromJson(byte[] body, string source)
+    internal static Temporary<AwsCredential> FromJson(ReadOnlyMemory<byte> body, string source)
     {
         try
         {
@@ -166,12 +167,12 @@ internal static class AwsCredentialSources
     }
 
     /// <summary>The credentials of an <c>AssumeRoleWithWebIdentity</c> answer.</summary>
-    internal static Temporary<AwsCredential> FromStsXml(byte[] body)
+    internal static Temporary<AwsCredential> FromStsXml(Stream xml)
     {
         string? keyId = null, secret = null, token = null, expiration = null;
         try
         {
-            using var reader = XmlReader.Create(new MemoryStream(body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
             while (!reader.EOF)
             {
                 if (reader.NodeType != XmlNodeType.Element)

@@ -24,9 +24,8 @@ public static class History
         for (long version = timeline.LatestVersion; version >= timeline.EarliestVersion; version--)
         {
             if (limit > 0 && entries.Count == limit) break;
-            byte[]? commit = fileSystem.ReadAll(LogFile.CommitPath(version));
-            if (commit is null) continue; // only a checkpoint left for it
-            CommitInfoAction? info = ActionParser.ParseCommit(commit).OfType<CommitInfoAction>().FirstOrDefault();
+            if (ActionParser.ParseFile(fileSystem, LogFile.CommitPath(version)) is not { } actions) continue; // only a checkpoint left for it
+            CommitInfoAction? info = actions.OfType<CommitInfoAction>().FirstOrDefault();
             entries.Add(new HistoryEntry(version, timeline.TimestampOf(version), info));
         }
         return entries;

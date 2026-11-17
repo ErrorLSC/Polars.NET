@@ -68,8 +68,8 @@ internal static class DeltaKernelCreate
         IWritableFileSystem store = TableStorage.Open(location, cloud).Store;
         try
         {
-            byte[] commit = store.ReadAll(LogFile.CommitPath(0)) ?? throw new PolarsException($"Version 0 of the table at {location} was not written.");
-            IReadOnlyList<DeltaAction> actions = ActionParser.ParseCommit(commit);
+            IReadOnlyList<DeltaAction> actions = ActionParser.ParseFile(store, LogFile.CommitPath(0))
+                ?? throw new PolarsException($"Version 0 of the table at {location} was not written.");
             CommitInfoAction info = actions.OfType<CommitInfoAction>().Single();
             return new CreatedTable(
                 actions.OfType<MetadataAction>().Single(),

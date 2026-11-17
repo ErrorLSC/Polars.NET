@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
@@ -105,7 +106,7 @@ internal sealed class GcsClient : ObjectStoreClient
             // JSON from the JSON API; some answers (ranges) come as XML.
             try
             {
-                using var document = JsonDocument.Parse(response.Body);
+                using var document = JsonDocument.Parse(response.BodyMemory);
                 if (document.RootElement.ValueKind == JsonValueKind.Object
                     && document.RootElement.TryGetProperty("error", out JsonElement error) && error.ValueKind == JsonValueKind.Object)
                 {
@@ -120,7 +121,7 @@ internal sealed class GcsClient : ObjectStoreClient
             {
                 try
                 {
-                    using var reader = XmlReader.Create(new MemoryStream(response.Body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+                    using var reader = XmlReader.Create(response.OpenBody(), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
                     while (!reader.EOF)
                     {
                         if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "Code") reason = reader.ReadElementContentAsString();
@@ -141,20 +142,21 @@ internal sealed class GcsClient : ObjectStoreClient
     /// <inheritdoc/>
     public override ObjectInfo? Head(string key)
     {
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key));
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key));
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccess) throw Failure(response, $"read the properties of '{key}'");
-        using var document = JsonDocument.Parse(response.Body);
+        using var document = JsonDocument.Parse(response.BodyMemory);
         return ReadObject(document.RootElement);
     }
 
     /// <inheritdoc/>
-    public override byte[]? Get(string key)
+    public override bool Get(string key, IBufferWriter<byte> into)
     {
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key) + "?alt=media");
-        if (response.Status == HttpStatusCode.NotFound) return null;
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key) + "?alt=media");
+        if (response.Status == HttpStatusCode.NotFound) return false;
         if (!response.IsSuccess) throw Failure(response, $"read '{key}'");
-        return response.Body;
+        into.Write(response.Body);
+        return true;
     }
 
     /// <inheritdoc/>
@@ -163,7 +165,7 @@ internal sealed class GcsClient : ObjectStoreClient
         if (length == 0) return base.GetTail(key, length);
         // A suffix range: the end of the object and, in Content-Range, its size, in one request.
         var range = new Dictionary<string, string> { ["Range"] = $"bytes=-{length}" };
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key) + "?alt=media", range);
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key) + "?alt=media", range);
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return base.GetTail(key, length); // an empty object
         if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
@@ -187,9 +189,10 @@ internal sealed class GcsClient : ObjectStoreClient
     {
         if (length == 0) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
         var range = new Dictionary<string, string> { ["Range"] = $"bytes=-{length}" };
-        var (response, generation) = await SendAsync(ObjectPath(_bucket, key) + "?alt=media", range,
-            static async (r, ct) => (new StoreResponse(r.StatusCode, r.Headers, r.Content.Headers, await r.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false), false),
+        var (answer, generation) = await SendAsync(ObjectPath(_bucket, key) + "?alt=media", range,
+            static async (r, ct) => (await HttpTransport.Buffer(r, retried: false, ct).ConfigureAwait(false),
                 Generation(r)), cancellationToken).ConfigureAwait(false);
+        using StoreResponse response = answer;
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
@@ -200,27 +203,12 @@ internal sealed class GcsClient : ObjectStoreClient
     }
 
     /// <inheritdoc/>
-    public override byte[]? GetRange(string key, long offset, int length)
+    public override int GetRange(string key, long offset, Span<byte> destination)
     {
-        var range = new Dictionary<string, string> { ["Range"] = $"bytes={offset}-{offset + length - 1}" };
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key) + "?alt=media", range);
-        switch (response.Status)
-        {
-            case HttpStatusCode.NotFound:
-                return null;
-            case HttpStatusCode.RequestedRangeNotSatisfiable:
-                return []; // the object ends before the offset
-            case HttpStatusCode.PartialContent:
-                return response.Body;
-            case HttpStatusCode.OK:
-            {
-                byte[] all = response.Body;
-                if (offset >= all.Length) return [];
-                return all.AsSpan((int)offset, (int)Math.Min(length, all.Length - offset)).ToArray();
-            }
-            default:
-                throw Failure(response, $"read '{key}'");
-        }
+        if (destination.IsEmpty) return Head(key) is null ? -1 : 0;
+        var range = new Dictionary<string, string> { ["Range"] = $"bytes={offset}-{offset + destination.Length - 1}" };
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(_bucket, key) + "?alt=media", range);
+        return RangeAnswer(response, offset, destination) ?? throw Failure(response, $"read '{key}'");
     }
 
     private string UploadPath(string key, bool ifAbsent)
@@ -233,13 +221,13 @@ internal sealed class GcsClient : ObjectStoreClient
     /// <inheritdoc/>
     public override bool PutIfAbsent(string key, ReadOnlyMemory<byte> content)
     {
-        StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: true), body: content);
+        using StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: true), body: content);
         if (response.IsSuccess) return true;
         if (response.Status == HttpStatusCode.PreconditionFailed)
         {
             // After a retry the object may be our own earlier attempt, whose answer was lost: it is ours when it
             // holds exactly what we wrote.
-            return response.Retried && Get(key) is { } stored && content.Span.SequenceEqual(stored);
+            return response.Retried && Holds(key, content.Span);
         }
         throw Failure(response, $"create '{key}'");
     }
@@ -247,7 +235,7 @@ internal sealed class GcsClient : ObjectStoreClient
     /// <inheritdoc/>
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
-        StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: false), body: content);
+        using StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: false), body: content);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 
@@ -274,7 +262,7 @@ internal sealed class GcsClient : ObjectStoreClient
         if (create)
         {
             List<KeyValuePair<string, string>> query = [new("uploadType", "resumable"), new("name", key), new("ifGenerationMatch", "0")];
-            StoreResponse started = await SendBufferedAsync(HttpMethod.Post, $"{_baseUrl}/upload/storage/v1/b/{Encode(_bucket)}/o?{Query(query)}",
+            using StoreResponse started = await SendBufferedAsync(HttpMethod.Post, $"{_baseUrl}/upload/storage/v1/b/{Encode(_bucket)}/o?{Query(query)}",
                 new() { ["Content-Type"] = "", ["X-Upload-Content-Type"] = "application/octet-stream" }, ReadOnlyMemory<byte>.Empty,
                 cancellationToken).ConfigureAwait(false);
             if (!started.IsSuccess) throw Failure(started, $"start an upload of '{key}'");
@@ -283,10 +271,10 @@ internal sealed class GcsClient : ObjectStoreClient
             return new GcsResumableUpload(this, key, session);
         }
 
-        StoreResponse response = await SendBufferedAsync(HttpMethod.Post, XmlObjectUrl(key) + "?uploads", null, ReadOnlyMemory<byte>.Empty,
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Post, XmlObjectUrl(key) + "?uploads", null, ReadOnlyMemory<byte>.Empty,
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"start an upload of '{key}'");
-        string uploadId = S3.S3Client.ElementText(response.Body, "UploadId")
+        string uploadId = S3.S3Client.ElementText(response.OpenBody(), "UploadId")
             ?? throw new StorageException($"Failed to start an upload of '{key}': the answer names no upload.", response.Status);
         return new GcsMultipartUpload(this, key, uploadId);
     }
@@ -301,7 +289,7 @@ internal sealed class GcsClient : ObjectStoreClient
         public override async Task<UploadedPart> PutPartAsync(int index, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(index);
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Url(index), null, content, cancellationToken).ConfigureAwait(false);
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Url(index), null, content, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccess) throw Failure(response, $"upload part {index + 1} of '{Key}'");
             string etag = response.Header("ETag")
                 ?? throw new StorageException($"Failed to upload part {index + 1} of '{Key}': the answer has no ETag.", response.Status);
@@ -328,7 +316,7 @@ internal sealed class GcsClient : ObjectStoreClient
             }
             body.Append("</CompleteMultipartUpload>");
             // A completion sent again after its answer was lost is answered as the first one was.
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Post, Url(), new() { ["Content-Type"] = "application/xml" },
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Post, Url(), new() { ["Content-Type"] = "application/xml" },
                 System.Text.Encoding.UTF8.GetBytes(body.ToString()), cancellationToken).ConfigureAwait(false);
             if (response.IsSuccess) return true;
             throw Failure(response, $"complete the upload of '{Key}'");
@@ -336,7 +324,7 @@ internal sealed class GcsClient : ObjectStoreClient
 
         public override async Task AbortAsync(CancellationToken cancellationToken)
         {
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, Url(), null, null, cancellationToken).ConfigureAwait(false);
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, Url(), null, null, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"abort the upload of '{Key}'");
         }
     }
@@ -381,7 +369,7 @@ internal sealed class GcsClient : ObjectStoreClient
             for (int stalls = 0; ;)
             {
                 string range = data.IsEmpty ? $"bytes */{size}" : $"bytes {_offset}-{_offset + data.Length - 1}/{size}";
-                StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, session, new() { ["Content-Range"] = range }, data,
+                using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, session, new() { ["Content-Range"] = range }, data,
                     cancellationToken).ConfigureAwait(false);
                 switch ((int)response.Status)
                 {
@@ -434,7 +422,7 @@ internal sealed class GcsClient : ObjectStoreClient
         public override async Task AbortAsync(CancellationToken cancellationToken)
         {
             // A cancelled session answers 499; one that finished or expired, 404 or 410.
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, session, null, null, cancellationToken).ConfigureAwait(false);
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, session, null, null, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccess && (int)response.Status is not (499 or 404 or 410)) throw Failure(response, $"abort the upload of '{Key}'");
         }
     }
@@ -442,7 +430,7 @@ internal sealed class GcsClient : ObjectStoreClient
     /// <inheritdoc/>
     public override void Delete(string key)
     {
-        StoreResponse response = Send(HttpMethod.Delete, ObjectPath(_bucket, key));
+        using StoreResponse response = Send(HttpMethod.Delete, ObjectPath(_bucket, key));
         if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"delete '{key}'");
     }
 
@@ -459,9 +447,13 @@ internal sealed class GcsClient : ObjectStoreClient
             if (startAfter is not null) query.Add(new("startOffset", startAfter));
             if (pageToken is not null) query.Add(new("pageToken", pageToken));
 
-            StoreResponse response = Send(HttpMethod.Get, $"/storage/v1/b/{Encode(_bucket)}/o?{Query(query)}");
-            if (!response.IsSuccess) throw Failure(response, $"list '{prefix}'");
-            var (objects, next) = ParseListing(response.Body);
+            List<ObjectInfo> objects;
+            string? next;
+            using (StoreResponse response = Send(HttpMethod.Get, $"/storage/v1/b/{Encode(_bucket)}/o?{Query(query)}"))
+            {
+                if (!response.IsSuccess) throw Failure(response, $"list '{prefix}'");
+                (objects, next) = ParseListing(response.BodyMemory);
+            }
             foreach (ObjectInfo info in objects)
                 if (startAfter is null || string.CompareOrdinal(info.Key, startAfter) > 0) yield return info;
             pageToken = next;
@@ -470,7 +462,7 @@ internal sealed class GcsClient : ObjectStoreClient
     }
 
     /// <summary>The objects of a listing page (prefixes left out) and the token of the next page, if any.</summary>
-    internal static (List<ObjectInfo> Objects, string? NextPageToken) ParseListing(byte[] json)
+    internal static (List<ObjectInfo> Objects, string? NextPageToken) ParseListing(ReadOnlyMemory<byte> json)
     {
         using var document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;

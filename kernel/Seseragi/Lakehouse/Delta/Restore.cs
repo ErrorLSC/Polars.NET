@@ -162,5 +162,5 @@ public static class Restore
         && a.Configuration.Count == b.Configuration.Count
         && a.Configuration.All(kv => b.Configuration.TryGetValue(kv.Key, out string? v) && v == kv.Value);
 
-    private static bool Exists(IFileSystem fileSystem, string path) => fileSystem.ReadRange(path, 0, 1) is not null;
+    private static bool Exists(IFileSystem fileSystem, string path) => fileSystem.Exists(path);
 }

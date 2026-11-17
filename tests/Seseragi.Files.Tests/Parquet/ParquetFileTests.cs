@@ -29,6 +29,30 @@ public class ParquetFileTests
         await using (var file = await ParquetFile.OpenAsync(new MemorySource(bytes))) Assert.Equal(expected, ParquetFooterTests.RenderView(file.Metadata));
     }
 
+    private sealed class Owner : IDisposable
+    {
+        public int Disposals;
+        public void Dispose() => Disposals++;
+    }
+
+    [Fact]
+    public void MemoryWithAnOwner_IsFreedWithTheFile_OrWhenOpeningFails()
+    {
+        // The owner (native memory, say) is disposed once, when the file is: not before, while it reads.
+        byte[] bytes = File.ReadAllBytes(ParquetFixtures.FullPath(Sample));
+        var owner = new Owner();
+        using (var file = ParquetFile.Open(bytes.AsMemory(), owner))
+        {
+            Assert.Equal(8, file.Metadata.RowCount);
+            Assert.Equal(0, owner.Disposals);
+        }
+        Assert.Equal(1, owner.Disposals);
+
+        var refused = new Owner();
+        Assert.Throws<ParquetFormatException>(() => ParquetFile.Open("not a parquet file at all"u8.ToArray().AsMemory(), refused));
+        Assert.Equal(1, refused.Disposals);
+    }
+
     [Fact]
     public void Stream_IsReadFromItsPosition_AndDisposedUnlessLeftOpen()
     {

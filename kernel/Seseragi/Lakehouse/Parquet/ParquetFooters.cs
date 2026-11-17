@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Buffers;
 using System.Runtime.ExceptionServices;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Engine;
@@ -63,8 +64,11 @@ public static class ParquetFooters
         if (size < 12) throw new ParquetFormatException($"{path} is too short to be a Parquet file.");
         // Most footers are small: one read of the last 64 KiB usually holds the whole footer.
         int guess = (int)Math.Min(size, ParquetMetadata.TailGuess);
-        byte[] tail = fileSystem.ReadRange(path, size - guess, guess) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        if (tail.Length != guess) throw new ParquetFormatException($"{path} is shorter than its listed size.");
+        // The tail stays managed: a FileTail holds it (a store keeps tails it read).
+        byte[] tail = new byte[guess];
+        int read = fileSystem.ReadRange(path, size - guess, tail);
+        if (read < 0) throw new FileNotFoundException($"{path} does not exist.", path);
+        if (read != guess) throw new ParquetFormatException($"{path} is shorter than its listed size.");
         return FooterFromTail(fileSystem, path, new FileTail(tail, size));
     }
 
@@ -80,8 +84,11 @@ public static class ParquetFooters
         var (offset, length) = ParquetMetadata.FooterRange(end.Bytes, end.Size, path);
         long tailStart = end.Size - end.Bytes.Length;
         if (offset >= tailStart) return ParquetMetadata.Parse(end.Bytes.AsSpan((int)(offset - tailStart), length));
-        byte[] footer = fileSystem.ReadRange(path, offset, length) ?? throw new FileNotFoundException($"{path} does not exist.", path);
-        return ParquetMetadata.Parse(footer);
+        using var footer = new NativeBufferWriter(length);
+        Span<byte> bytes = footer.GetSpan(length)[..length];
+        int read = fileSystem.ReadRange(path, offset, bytes);
+        if (read < 0) throw new FileNotFoundException($"{path} does not exist.", path);
+        return ParquetMetadata.Parse(bytes[..read]);
     }
 
     private static FileNotFoundException Missing(string path) =>

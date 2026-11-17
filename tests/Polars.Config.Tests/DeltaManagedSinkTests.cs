@@ -478,8 +478,8 @@ public sealed class DeltaManagedSinkTests : IDisposable
         private readonly Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem _disk = new(root);
 
         public IReadOnlyList<Kaminari.Seseragi.Lakehouse.Engine.FileEntry> List(string directory, string? startFrom = null) => _disk.List(directory, startFrom);
-        public byte[]? ReadAll(string path) => _disk.ReadAll(path);
-        public byte[]? ReadRange(string path, long offset, int length) => _disk.ReadRange(path, offset, length);
+        public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into) => _disk.TryReadAll(path, into);
+        public int ReadRange(string path, long offset, Span<byte> destination) => _disk.ReadRange(path, offset, destination);
         public bool TryCreate(string path, ReadOnlyMemory<byte> content) => _disk.TryCreate(path, content);
         public void Overwrite(string path, ReadOnlyMemory<byte> content) => _disk.Overwrite(path, content);
         public bool Delete(string path) => _disk.Delete(path);

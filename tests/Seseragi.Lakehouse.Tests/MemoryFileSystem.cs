@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
@@ -81,24 +82,28 @@ internal sealed class MemoryFileSystem : IWritableFileSystem
     /// <summary>The paths read whole, in order.</summary>
     public List<string> Reads { get; } = [];
 
-    public byte[]? ReadAll(string path)
+    public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into)
     {
         lock (_files)
         {
             Reads.Add(path);
-            return _files.TryGetValue(path, out var file) ? file.Content : null;
+            if (!_files.TryGetValue(path, out var file)) return false;
+            into.Write(file.Content);
+            return true;
         }
     }
 
     /// <summary>The ranges read, in order.</summary>
     public List<(string Path, long Offset, int Length)> RangeReads { get; } = [];
 
-    public byte[]? ReadRange(string path, long offset, int length)
+    public int ReadRange(string path, long offset, Span<byte> destination)
     {
-        lock (_files) RangeReads.Add((path, offset, length));
-        if (!_files.TryGetValue(path, out var file)) return null;
-        if (offset >= file.Content.Length) return [];
-        return file.Content.AsSpan((int)offset, (int)Math.Min(length, file.Content.Length - offset)).ToArray();
+        lock (_files) RangeReads.Add((path, offset, destination.Length));
+        if (!_files.TryGetValue(path, out var file)) return -1;
+        if (offset >= file.Content.Length) return 0;
+        int count = (int)Math.Min(destination.Length, file.Content.Length - offset);
+        file.Content.AsSpan((int)offset, count).CopyTo(destination);
+        return count;
     }
 }
 

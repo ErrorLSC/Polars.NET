@@ -62,7 +62,7 @@ internal static class AzureCredentialSources
     {
         form.Add(new("scope", StorageScope));
         form.Add(new("grant_type", "client_credentials"));
-        StoreResponse response = HttpTransport.Send(() =>
+        using StoreResponse response = HttpTransport.Send(() =>
         {
             var request = new HttpRequestMessage(HttpMethod.Post, tokenUrl) { Content = new FormUrlEncodedContent(form) };
             request.Headers.TryAddWithoutValidation("Accept", "application/json");
@@ -70,7 +70,7 @@ internal static class AzureCredentialSources
         }, retry, http: http);
         if (!response.IsSuccess) throw Failure(response, "get a token from Microsoft Entra ID");
         DateTimeOffset now = clock?.Invoke() ?? DateTimeOffset.UtcNow;
-        return Parse(response.Body, "Microsoft Entra ID", root =>
+        return Parse(response.BodyMemory, "Microsoft Entra ID", root =>
             (root.GetProperty("access_token").GetString()!, now.AddSeconds(Number(root.GetProperty("expires_in")))));
     }
 
@@ -110,8 +110,9 @@ internal static class AzureCredentialSources
                     $"No Azure credentials are configured, and the managed identity endpoint {endpoint} cannot be reached " +
                     $"(not on Azure?): {e.Message}", inner: e);
             }
+            using StoreResponse answer = response;
             if (!response.IsSuccess) throw Failure(response, "get a token for the managed identity");
-            return Parse(response.Body, "the managed identity endpoint", root =>
+            return Parse(response.BodyMemory, "the managed identity endpoint", root =>
                 (root.GetProperty("access_token").GetString()!, DateTimeOffset.FromUnixTimeSeconds(Number(root.GetProperty("expires_on")))));
         }, clock: clock)
         {
@@ -175,7 +176,7 @@ internal static class AzureCredentialSources
     private static long Number(JsonElement value) =>
         value.ValueKind == JsonValueKind.String ? long.Parse(value.GetString()!, CultureInfo.InvariantCulture) : value.GetInt64();
 
-    private static Temporary<string> Parse(byte[] body, string source, Func<JsonElement, (string Token, DateTimeOffset Expires)> read)
+    private static Temporary<string> Parse(ReadOnlyMemory<byte> body, string source, Func<JsonElement, (string Token, DateTimeOffset Expires)> read)
     {
         try
         {
@@ -194,7 +195,7 @@ internal static class AzureCredentialSources
         string? detail = null;
         try
         {
-            using var document = JsonDocument.Parse(response.Body);
+            using var document = JsonDocument.Parse(response.BodyMemory);
             if (document.RootElement.ValueKind == JsonValueKind.Object
                 && document.RootElement.TryGetProperty("error_description", out JsonElement description)
                 && description.ValueKind == JsonValueKind.String)

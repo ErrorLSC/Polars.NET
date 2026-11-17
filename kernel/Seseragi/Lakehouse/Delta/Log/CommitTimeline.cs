@@ -141,9 +141,8 @@ public sealed class CommitTimeline
         if (version < _inCommitFrom) return _fileTimes[index];
 
         if (_inCommitCache.TryGetValue(version, out long cached)) return cached;
-        byte[] content = _fileSystem.ReadAll(_commits[index].Entry.Path)
-            ?? throw new DeltaException($"The commit of version {version} disappeared while reading the log.");
-        foreach (DeltaAction action in ActionParser.ParseCommit(content))
+        foreach (DeltaAction action in ActionParser.ParseFile(_fileSystem, _commits[index].Entry.Path)
+            ?? throw new DeltaException($"The commit of version {version} disappeared while reading the log."))
         {
             if (action is CommitInfoAction { InCommitTimestamp: long time })
             {

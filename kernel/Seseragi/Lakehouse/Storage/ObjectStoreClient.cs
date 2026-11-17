@@ -1,3 +1,5 @@
+using System.Buffers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Lakehouse.Storage.Http;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage;
@@ -23,14 +25,53 @@ internal abstract class ObjectStoreClient
     /// <summary>The object's size and time, or null when there is none.</summary>
     public abstract ObjectInfo? Head(string key);
 
-    /// <summary>The whole object, or null when there is none.</summary>
-    public abstract byte[]? Get(string key);
+    /// <summary>Appends the whole object to <paramref name="into"/>; false, nothing written, when there is none.</summary>
+    public abstract bool Get(string key, IBufferWriter<byte> into);
 
     /// <summary>
-    /// <paramref name="length"/> bytes from <paramref name="offset"/> (fewer when the object ends first, none when it
-    /// ends before the offset), or null when there is no object.
+    /// Reads the bytes of the object from <paramref name="offset"/> into <paramref name="destination"/> (fewer when the
+    /// object ends first, none when it ends before the offset); the bytes read, or -1 when there is no object.
     /// </summary>
-    public abstract byte[]? GetRange(string key, long offset, int length);
+    public abstract int GetRange(string key, long offset, Span<byte> destination);
+
+    /// <summary>Whether the object holds exactly <paramref name="content"/> (read into native memory).</summary>
+    protected bool Holds(string key, ReadOnlySpan<byte> content)
+    {
+        using var stored = new NativeBufferWriter(content.Length + 1);
+        return Get(key, stored) && content.SequenceEqual(stored.WrittenSpan);
+    }
+
+    /// <summary>
+    /// A ranged answer's bytes into <paramref name="destination"/>: 206 (its bytes), 200 (the whole object sent: the
+    /// range cut from it), 416 (the object ends before the offset: none); -1 for 404; null for another answer.
+    /// </summary>
+    internal static int? RangeAnswer(StoreResponse response, long offset, Span<byte> destination)
+    {
+        switch (response.Status)
+        {
+            case System.Net.HttpStatusCode.NotFound:
+                return -1;
+            case System.Net.HttpStatusCode.RequestedRangeNotSatisfiable:
+                return 0;
+            case System.Net.HttpStatusCode.PartialContent:
+            {
+                int count = Math.Min(response.Body.Length, destination.Length);
+                response.Body[..count].CopyTo(destination);
+                return count;
+            }
+            case System.Net.HttpStatusCode.OK:
+            {
+                // The store ignored the range and sent everything.
+                ReadOnlySpan<byte> all = response.Body;
+                if (offset >= all.Length) return 0;
+                int count = (int)Math.Min(destination.Length, all.Length - offset);
+                all.Slice((int)offset, count).CopyTo(destination);
+                return count;
+            }
+            default:
+                return null;
+        }
+    }
 
     /// <summary>
     /// The last <paramref name="length"/> bytes of the object (all of it when shorter) and its size, or null when
@@ -41,24 +82,25 @@ internal abstract class ObjectStoreClient
         if (Head(key) is not { } info) return null;
         int count = (int)Math.Min(length, info.Size);
         if (count == 0) return ([], info.Size);
-        byte[]? tail = GetRange(key, info.Size - count, count);
-        return tail is null ? null : (tail, info.Size);
+        byte[] tail = new byte[count]; // a tail stays managed (a FileTail holds it)
+        int read = GetRange(key, info.Size - count, tail);
+        return read < 0 ? null : (read == count ? tail : tail[..read], info.Size);
     }
 
     /// <summary>
     /// The tail and size from an answer to a suffix range request (<c>bytes=-N</c>): 206 with
     /// <c>Content-Range: bytes first-last/size</c>, or 200 with the whole object; null when the answer is neither.
     /// </summary>
-    internal static (byte[] Tail, long Size)? SuffixAnswer(System.Net.HttpStatusCode status, string? contentRange, byte[] body, int length)
+    internal static (byte[] Tail, long Size)? SuffixAnswer(System.Net.HttpStatusCode status, string? contentRange, ReadOnlySpan<byte> body, int length)
     {
         if (status == System.Net.HttpStatusCode.OK)
-            return (body.Length <= length ? body : body[^length..], body.Length);
+            return ((body.Length <= length ? body : body[^length..]).ToArray(), body.Length);
         if (status != System.Net.HttpStatusCode.PartialContent || contentRange is null) return null;
         int slash = contentRange.LastIndexOf('/');
         if (slash < 0 || !long.TryParse(contentRange.AsSpan(slash + 1), System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture, out long size))
             return null;
-        return (body, size);
+        return (body.ToArray(), size);
     }
 
     /// <summary>
@@ -71,9 +113,8 @@ internal abstract class ObjectStoreClient
     public virtual Task<RangeRead?> ReadRangeAsync(string key, long offset, Memory<byte> destination, string? version, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (GetRange(key, offset, destination.Length) is not { } bytes) return Task.FromResult<RangeRead?>(null);
-        bytes.CopyTo(destination);
-        return Task.FromResult<RangeRead?>(new RangeRead(bytes.Length, null, null));
+        int read = GetRange(key, offset, destination.Span);
+        return Task.FromResult<RangeRead?>(read < 0 ? null : new RangeRead(read, null, null));
     }
 
     /// <summary>
@@ -117,10 +158,11 @@ internal abstract class ObjectStoreClient
                 Stream body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
                 await using (body.ConfigureAwait(false))
                 {
-                    byte[] skip = new byte[(int)Math.Min(offset, 81920)];
+                    using var scratch = new NativeBufferWriter((int)Math.Min(offset, 81920) + 1);
+                    Memory<byte> skip = scratch.GetMemory((int)Math.Min(offset, 81920) + 1);
                     for (long left = offset; left > 0;)
                     {
-                        int n = await body.ReadAsync(skip.AsMemory(0, (int)Math.Min(left, skip.Length)), ct).ConfigureAwait(false);
+                        int n = await body.ReadAsync(skip[..(int)Math.Min(left, skip.Length)], ct).ConfigureAwait(false);
                         if (n == 0) return new RangeRead(0, response.Content.Headers.ContentLength, version);
                         left -= n;
                     }
@@ -130,8 +172,8 @@ internal abstract class ObjectStoreClient
             }
             default:
             {
-                byte[] body = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                throw failure(new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, body, retried: false));
+                using StoreResponse answer = await HttpTransport.Buffer(response, retried: false, ct).ConfigureAwait(false);
+                throw failure(answer);
             }
         }
     }

@@ -152,8 +152,8 @@ public sealed class HttpSenderTests
             response.Content.Headers.ContentLength = 1234;
             return response;
         });
-        HttpAnswer answer = Sender(script).Send(() => new HttpRequestMessage(HttpMethod.Head, "http://host/x"));
-        Assert.Empty(answer.Body);
+        using HttpAnswer answer = Sender(script).Send(() => new HttpRequestMessage(HttpMethod.Head, "http://host/x"));
+        Assert.True(answer.Body.IsEmpty);
         Assert.Equal(1234, answer.ContentHeaders.ContentLength);
     }
 

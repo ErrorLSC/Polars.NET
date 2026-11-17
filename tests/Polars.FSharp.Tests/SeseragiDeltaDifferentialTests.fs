@@ -63,12 +63,23 @@ type private CheckpointCounting(inner: IFileSystem) =
 
     interface IFileSystem with
         member _.List(directory, startFrom) = inner.List(directory, startFrom)
-        member this.ReadAll path =
+        member this.TryReadAll(path, into) =
             if path.Contains ".checkpoint." || path.Contains "_sidecars/" then this.Reads.Add path
-            inner.ReadAll path
-        member this.ReadRange(path, offset, length) =
+            inner.TryReadAll(path, into)
+        member this.ReadRange(path: string, offset: int64, destination: Span<byte>) =
             if path.Contains ".checkpoint." || path.Contains "_sidecars/" then this.Reads.Add path
-            inner.ReadRange(path, offset, length)
+            inner.ReadRange(path, offset, destination)
+
+/// A whole file as an array (for assertions; the kernel reads into native memory), or null when missing.
+let private readAll (fs: IFileSystem) (path: string) : byte[] =
+    let into = System.Buffers.ArrayBufferWriter<byte>()
+    if fs.TryReadAll(path, into) then into.WrittenSpan.ToArray() else null
+
+/// Up to length bytes from offset as an array (for assertions), or null when the file is missing.
+let private readRange (fs: IFileSystem) (path: string) (offset: int64) (length: int) : byte[] =
+    let bytes = Array.zeroCreate<byte> length
+    let read = fs.ReadRange(path, offset, Span<byte>(bytes))
+    if read < 0 then null else bytes[.. read - 1]
 
 let private fileKeys (snapshot: Snapshot) =
     snapshot.Files
@@ -379,17 +390,17 @@ let ``Object store file system agrees with the local one`` (name: string) =
     Assert.Contains(fs.List("_delta_log", exactName), fun f -> f.Path = "_delta_log/" + exactName)
 
     let first = (local.List "_delta_log").[0].Path
-    let whole = local.ReadAll first
-    Assert.Equal<byte[]>(whole, fs.ReadAll first)
+    let whole = readAll local first
+    Assert.Equal<byte[]>(whole, readAll fs first)
     // An absolute URI, as the log may hold for files outside the table.
     let absolute = Uri(Path.Combine(path, first)).AbsoluteUri
-    Assert.Equal<byte[]>(whole, fs.ReadAll absolute)
-    Assert.Equal<byte[]>(whole, local.ReadAll absolute)
-    Assert.Equal<byte[]>(local.ReadRange(first, 5L, 20), fs.ReadRange(first, 5L, 20))
-    Assert.Equal<byte[]>(local.ReadRange(first, int64 whole.Length - 3L, 50), fs.ReadRange(first, int64 whole.Length - 3L, 50))
-    Assert.Empty(fs.ReadRange(first, int64 whole.Length + 10L, 5))
-    Assert.Null(fs.ReadAll "_delta_log/missing.json")
-    Assert.Null(fs.ReadRange("missing/missing.bin", 0L, 4))
+    Assert.Equal<byte[]>(whole, readAll fs absolute)
+    Assert.Equal<byte[]>(whole, readAll local absolute)
+    Assert.Equal<byte[]>(readRange local first 5L 20, readRange fs first 5L 20)
+    Assert.Equal<byte[]>(readRange local first (int64 whole.Length - 3L) 50, readRange fs first (int64 whole.Length - 3L) 50)
+    Assert.Empty(readRange fs first (int64 whole.Length + 10L) 5)
+    Assert.Null(readAll fs "_delta_log/missing.json")
+    Assert.Null(readRange fs "missing/missing.bin" 0L 4)
 
     // The same snapshot comes out, and deletion vectors read through range requests.
     let viaLocal = Snapshot.Load local

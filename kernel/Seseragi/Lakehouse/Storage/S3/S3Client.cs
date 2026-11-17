@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net;
 using System.Xml;
@@ -114,7 +115,7 @@ internal sealed class S3Client : ObjectStoreClient
         {
             try
             {
-                using var reader = XmlReader.Create(new MemoryStream(response.Body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+                using var reader = XmlReader.Create(response.OpenBody(), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
                 while (!reader.EOF)
                 {
                     if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "Code") code = reader.ReadElementContentAsString();
@@ -134,19 +135,20 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override ObjectInfo? Head(string key)
     {
-        StoreResponse response = Send(HttpMethod.Head, ObjectPath(key), extraHeaders: With(_headers.Read));
+        using StoreResponse response = Send(HttpMethod.Head, ObjectPath(key), extraHeaders: With(_headers.Read));
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccess) throw Failure(response, $"read the properties of '{key}'");
         return new ObjectInfo(key, response.ContentHeaders.ContentLength ?? 0, response.ContentHeaders.LastModified ?? DateTimeOffset.UnixEpoch);
     }
 
     /// <inheritdoc/>
-    public override byte[]? Get(string key)
+    public override bool Get(string key, IBufferWriter<byte> into)
     {
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: With(_headers.Read));
-        if (response.Status == HttpStatusCode.NotFound) return null;
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: With(_headers.Read));
+        if (response.Status == HttpStatusCode.NotFound) return false;
         if (!response.IsSuccess) throw Failure(response, $"read '{key}'");
-        return response.Body;
+        into.Write(response.Body);
+        return true;
     }
 
     /// <inheritdoc/>
@@ -154,7 +156,7 @@ internal sealed class S3Client : ObjectStoreClient
     {
         if (length == 0) return base.GetTail(key, length);
         // A suffix range: the end of the object and, in Content-Range, its size, in one request.
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: With(_headers.Read, ("range", $"bytes=-{length}")));
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: With(_headers.Read, ("range", $"bytes=-{length}")));
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return base.GetTail(key, length); // an empty object
         if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
@@ -177,9 +179,10 @@ internal sealed class S3Client : ObjectStoreClient
     public override async Task<ObjectTail?> GetTailAsync(string key, int length, CancellationToken cancellationToken)
     {
         if (length == 0) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
-        var (response, etag) = await SendAsync(HttpMethod.Get, ObjectPath(key), With(_headers.Read, ("range", $"bytes=-{length}")),
-            static async (r, ct) => (new StoreResponse(r.StatusCode, r.Headers, r.Content.Headers, await r.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false), false),
-                r.Headers.ETag?.ToString()), cancellationToken).ConfigureAwait(false);
+        var (answer, etag) = await SendAsync(HttpMethod.Get, ObjectPath(key), With(_headers.Read, ("range", $"bytes=-{length}")),
+            static async (r, ct) => (await HttpTransport.Buffer(r, retried: false, ct).ConfigureAwait(false), r.Headers.ETag?.ToString()),
+            cancellationToken).ConfigureAwait(false);
+        using StoreResponse response = answer;
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable) return await base.GetTailAsync(key, length, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"read the end of '{key}'");
@@ -190,28 +193,12 @@ internal sealed class S3Client : ObjectStoreClient
     }
 
     /// <inheritdoc/>
-    public override byte[]? GetRange(string key, long offset, int length)
+    public override int GetRange(string key, long offset, Span<byte> destination)
     {
-        var range = With(_headers.Read, ("range", $"bytes={offset}-{offset + length - 1}"));
-        StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: range);
-        switch (response.Status)
-        {
-            case HttpStatusCode.NotFound:
-                return null;
-            case HttpStatusCode.RequestedRangeNotSatisfiable:
-                return []; // the object ends before the offset
-            case HttpStatusCode.PartialContent:
-                return response.Body;
-            case HttpStatusCode.OK:
-            {
-                // The store ignored the range and sent everything.
-                byte[] all = response.Body;
-                if (offset >= all.Length) return [];
-                return all.AsSpan((int)offset, (int)Math.Min(length, all.Length - offset)).ToArray();
-            }
-            default:
-                throw Failure(response, $"read '{key}'");
-        }
+        if (destination.IsEmpty) return Head(key) is null ? -1 : 0;
+        var range = With(_headers.Read, ("range", $"bytes={offset}-{offset + destination.Length - 1}"));
+        using StoreResponse response = Send(HttpMethod.Get, ObjectPath(key), extraHeaders: range);
+        return RangeAnswer(response, offset, destination) ?? throw Failure(response, $"read '{key}'");
     }
 
     /// <inheritdoc/>
@@ -219,14 +206,14 @@ internal sealed class S3Client : ObjectStoreClient
     {
         var condition = With(_headers.Put, ("if-none-match", "*"));
         // 409: S3 is completing another conditional write of the key; asking again settles who won.
-        StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: condition, body: content,
+        using StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: condition, body: content,
             alsoRetry: static status => status == HttpStatusCode.Conflict);
         if (response.IsSuccess) return true;
         if (response.Status is HttpStatusCode.PreconditionFailed or HttpStatusCode.NotModified)
         {
             // After a retry the object may be our own earlier attempt, whose answer was lost: it is ours when it
             // holds exactly what we wrote.
-            return response.Retried && Get(key) is { } stored && content.Span.SequenceEqual(stored);
+            return response.Retried && Holds(key, content.Span);
         }
         // Still 409 when the retries ran out: another writer's write of the key is in progress and ours did not
         // land. A refused create says exactly that (a table commit then rereads the log and tries again).
@@ -241,7 +228,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
-        StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: With(_headers.Put), body: content);
+        using StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: With(_headers.Put), body: content);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 
@@ -259,18 +246,20 @@ internal sealed class S3Client : ObjectStoreClient
         {
             StoreResponse answer = await HttpTransport.Buffer(response, retried, ct).ConfigureAwait(false);
             if (retryAnswer is not null && retryAnswer(answer))
-                throw new IOException($"The store answered {(int)answer.Status} with an error: {Failure(answer, "complete the upload").Message}");
+            {
+                using (answer) throw new IOException($"The store answered {(int)answer.Status} with an error: {Failure(answer, "complete the upload").Message}");
+            }
             return answer;
         }, _retry, alsoRetry, _http, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Whether an answer's body is an S3 error document.</summary>
-    private static bool IsErrorDocument(byte[] body)
+    private static bool IsErrorDocument(StoreResponse answer)
     {
-        if (body.Length == 0) return false;
+        if (answer.Body.IsEmpty) return false;
         try
         {
-            using var reader = XmlReader.Create(new MemoryStream(body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            using var reader = XmlReader.Create(answer.OpenBody(), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
             return reader.MoveToContent() == XmlNodeType.Element && reader.LocalName == "Error";
         }
         catch (XmlException)
@@ -280,11 +269,11 @@ internal sealed class S3Client : ObjectStoreClient
     }
 
     /// <summary>The text of the first element named <paramref name="name"/> in an XML answer, or null.</summary>
-    internal static string? ElementText(byte[] xml, string name)
+    internal static string? ElementText(Stream xml, string name)
     {
         try
         {
-            using var reader = XmlReader.Create(new MemoryStream(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
             while (reader.Read())
             {
                 if (reader.NodeType == XmlNodeType.Element && reader.LocalName == name) return reader.ReadElementContentAsString();
@@ -301,10 +290,10 @@ internal sealed class S3Client : ObjectStoreClient
     public override async Task<ObjectUpload> StartUploadAsync(string key, bool create, CancellationToken cancellationToken)
     {
         // Encryption settings are given when the upload starts (customer keys again with every part).
-        StoreResponse response = await SendBufferedAsync(HttpMethod.Post, ObjectPath(key), [new("uploads", "")], With(_headers.Put),
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Post, ObjectPath(key), [new("uploads", "")], With(_headers.Put),
             ReadOnlyMemory<byte>.Empty, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"start an upload of '{key}'");
-        string uploadId = ElementText(response.Body, "UploadId")
+        string uploadId = ElementText(response.OpenBody(), "UploadId")
             ?? throw new StorageException($"Failed to start an upload of '{key}': the answer names no upload.", response.Status);
         return new S3Upload(this, key, create, uploadId);
     }
@@ -324,7 +313,7 @@ internal sealed class S3Client : ObjectStoreClient
         public override async Task<UploadedPart> PutPartAsync(int index, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(index);
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, Query(index), With(client._headers.Read), content,
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, Query(index), With(client._headers.Read), content,
                 cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccess) throw Failure(response, $"upload part {index + 1} of '{Key}'");
             string etag = response.Header("ETag")
@@ -350,10 +339,10 @@ internal sealed class S3Client : ObjectStoreClient
             var headers = new Dictionary<string, string>(StringComparer.Ordinal);
             if (Create) headers["if-none-match"] = "*";
             // 409: S3 is completing another conditional write of the key; asking again settles who won.
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Post, Path, Query(), headers,
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Post, Path, Query(), headers,
                 System.Text.Encoding.UTF8.GetBytes(body.ToString()), cancellationToken,
                 alsoRetry: Create ? static status => status == HttpStatusCode.Conflict : null,
-                retryAnswer: static answer => answer.Status == HttpStatusCode.OK && IsErrorDocument(answer.Body)).ConfigureAwait(false);
+                retryAnswer: static answer => answer.Status == HttpStatusCode.OK && IsErrorDocument(answer)).ConfigureAwait(false);
             if (response.IsSuccess) return true;
 
             // After a retry, the first attempt may have landed with its answer lost: the store then refuses the
@@ -382,7 +371,7 @@ internal sealed class S3Client : ObjectStoreClient
         /// <summary>Whether the store no longer knows the upload (completed or aborted).</summary>
         private async Task<bool> GoneAsync(CancellationToken cancellationToken)
         {
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Get, Path, [.. Query(), new("max-parts", "1")], With(client._headers.Read),
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Get, Path, [.. Query(), new("max-parts", "1")], With(client._headers.Read),
                 null, cancellationToken).ConfigureAwait(false);
             if (response.Status == HttpStatusCode.NotFound) return true;
             if (response.IsSuccess) return false;
@@ -391,7 +380,7 @@ internal sealed class S3Client : ObjectStoreClient
 
         public override async Task AbortAsync(CancellationToken cancellationToken)
         {
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, Path, Query(), null, null, cancellationToken).ConfigureAwait(false);
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Delete, Path, Query(), null, null, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"abort the upload of '{Key}'");
         }
     }
@@ -399,7 +388,7 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override void Delete(string key)
     {
-        StoreResponse response = Send(HttpMethod.Delete, ObjectPath(key));
+        using StoreResponse response = Send(HttpMethod.Delete, ObjectPath(key));
         if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"delete '{key}'");
     }
 
@@ -419,9 +408,13 @@ internal sealed class S3Client : ObjectStoreClient
             if (startAfter is not null) query.Add(new("start-after", startAfter));
             if (token is not null) query.Add(new("continuation-token", token));
 
-            StoreResponse response = Send(HttpMethod.Get, _basePath.Length == 0 ? "/" : _basePath, query);
-            if (!response.IsSuccess) throw Failure(response, $"list '{prefix}'");
-            var (objects, next) = ParseListing(response.Body);
+            List<ObjectInfo> objects;
+            string? next;
+            using (StoreResponse response = Send(HttpMethod.Get, _basePath.Length == 0 ? "/" : _basePath, query))
+            {
+                if (!response.IsSuccess) throw Failure(response, $"list '{prefix}'");
+                (objects, next) = ParseListing(response.OpenBody());
+            }
             foreach (ObjectInfo info in objects) yield return info;
             token = next;
         }
@@ -429,12 +422,12 @@ internal sealed class S3Client : ObjectStoreClient
     }
 
     /// <summary>The objects of a ListObjectsV2 page and the token of the next page, if any.</summary>
-    internal static (List<ObjectInfo> Objects, string? NextToken) ParseListing(byte[] xml)
+    internal static (List<ObjectInfo> Objects, string? NextToken) ParseListing(Stream xml)
     {
         var objects = new List<ObjectInfo>();
         bool truncated = false;
         string? next = null;
-        using var reader = XmlReader.Create(new MemoryStream(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreWhitespace = true });
+        using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreWhitespace = true });
         reader.MoveToContent();
         reader.Read();
         while (!reader.EOF)

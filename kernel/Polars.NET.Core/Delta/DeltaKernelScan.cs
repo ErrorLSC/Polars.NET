@@ -711,7 +711,9 @@ public static class DeltaKernelScan
                 return File.Exists(path) ? File.ReadAllBytes(path) : throw new PolarsException($"The data file {path} does not exist.");
             int slash = path.LastIndexOf('/');
             using var store = new ObjectStoreFileSystem(path[..slash], cloud);
-            return store.ReadAll(path[(slash + 1)..]) ?? throw new PolarsException($"The data file {path} does not exist.");
+            // Managed, as the engine reads it in place (this temporary path, see VariantFooter).
+            using FileBytes bytes = store.ReadFile(path[(slash + 1)..]) ?? throw new PolarsException($"The data file {path} does not exist.");
+            return bytes.Span.ToArray();
         }
     }
 

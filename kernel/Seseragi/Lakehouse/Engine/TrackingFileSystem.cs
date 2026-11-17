@@ -1,3 +1,4 @@
+using System.Buffers;
 using Kaminari.Seseragi.Lakehouse.Delta;
 
 namespace Kaminari.Seseragi.Lakehouse.Engine;
@@ -210,9 +211,9 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
     /// <inheritdoc/>
     public IReadOnlyList<FileEntry> List(string directory, string? startFrom = null) => Inner.List(directory, startFrom);
     /// <inheritdoc/>
-    public byte[]? ReadAll(string path) => Inner.ReadAll(path);
+    public bool TryReadAll(string path, IBufferWriter<byte> into) => Inner.TryReadAll(path, into);
     /// <inheritdoc/>
-    public byte[]? ReadRange(string path, long offset, int length) => Inner.ReadRange(path, offset, length);
+    public int ReadRange(string path, long offset, Span<byte> destination) => Inner.ReadRange(path, offset, destination);
     /// <inheritdoc/>
     public bool CanReadTails => Inner is ITailReadable { CanReadTails: true };
     /// <inheritdoc/>

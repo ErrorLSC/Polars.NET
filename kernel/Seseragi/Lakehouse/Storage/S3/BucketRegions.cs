@@ -18,7 +18,7 @@ internal static class BucketRegions
         if (Known.TryGetValue(bucket, out string? region)) return region;
         try
         {
-            StoreResponse response = HttpTransport.Send(
+            using StoreResponse response = HttpTransport.Send(
                 () => new HttpRequestMessage(HttpMethod.Head, $"https://{bucket}.s3.amazonaws.com"), retry, http: http);
             region = response.Header("x-amz-bucket-region");
         }

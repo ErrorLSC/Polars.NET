@@ -273,9 +273,9 @@ public sealed class Transaction
 
             // Check every commit made since the last attempt, then try after the newest of them.
             if (catalog is not null) _catalogLog = catalog.GetLog();
-            while (ReadCommit(version) is byte[] winner)
+            while (ReadCommit(version) is { } winner)
             {
-                CheckConflicts(version, ActionParser.ParseCommit(winner));
+                CheckConflicts(version, winner);
                 version++;
             }
         }
@@ -301,7 +301,7 @@ public sealed class Transaction
     }
 
     /// <summary>The commit of <paramref name="version"/> (for a catalog-managed table, as its catalog has it), or null.</summary>
-    private byte[]? ReadCommit(long version) => CatalogManaged.ReadCommit(_fileSystem, _catalogLog, version);
+    private List<DeltaAction>? ReadCommit(long version) => CatalogManaged.ReadCommit(_fileSystem, _catalogLog, version);
 
     /// <summary>
     /// Offers the commit to the catalog: publishes what others ratified before it, writes it as a staged file, has
@@ -335,8 +335,8 @@ public sealed class Transaction
         foreach (RatifiedCommit commit in (_catalogLog?.Commits ?? []).Where(c => c.Version < version).OrderBy(c => c.Version))
         {
             if (_fileSystem.List(LogFile.LogDirectory, $"{commit.Version:D20}").Any(f => f.Path == LogFile.CommitPath(commit.Version))) continue;
-            if (_fileSystem.ReadAll(CatalogManaged.StagedPath(commit.FileName)) is not byte[] content || !TryPublish(commit.Version, content))
-                return commit.Version - 1;
+            using FileBytes? content = _fileSystem.ReadFile(CatalogManaged.StagedPath(commit.FileName));
+            if (content is null || !TryPublish(commit.Version, content.Memory)) return commit.Version - 1;
         }
         return version - 1;
     }
@@ -345,7 +345,7 @@ public sealed class Transaction
     /// Copies a ratified commit to <c>_delta_log</c>. Best effort: false when it could not be written (an existing
     /// file holds the same ratified commit, which counts as published).
     /// </summary>
-    private bool TryPublish(long version, byte[] content)
+    private bool TryPublish(long version, ReadOnlyMemory<byte> content)
     {
         try
         {
@@ -447,9 +447,9 @@ public sealed class Transaction
         }
 
         // Strictly after the previous commit's own in-commit timestamp, whatever the clock says.
-        byte[] previous = ReadCommit(previousVersion)
+        List<DeltaAction> previous = ReadCommit(previousVersion)
             ?? throw new DeltaException($"The commit of version {previousVersion} is missing.");
-        long? last = (ActionParser.ParseCommit(previous).OfType<CommitInfoAction>().FirstOrDefault()?.InCommitTimestamp) ?? throw new DeltaException($"The commit of version {previousVersion} has no in-commit timestamp.");
+        long? last = (previous.OfType<CommitInfoAction>().FirstOrDefault()?.InCommitTimestamp) ?? throw new DeltaException($"The commit of version {previousVersion} has no in-commit timestamp.");
         return Math.Max(now, last.Value + 1);
     }
 

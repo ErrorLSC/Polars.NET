@@ -1,16 +1,34 @@
 using System.Net;
 using System.Net.Http.Headers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Network;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage.Http;
 
-/// <summary>A store's answer, its body read completely.</summary>
-internal sealed class StoreResponse(HttpStatusCode status, HttpResponseHeaders headers, HttpContentHeaders contentHeaders, byte[] body, bool retried)
+/// <summary>A store's answer, its body read completely into native memory: dispose it to give the memory back.</summary>
+internal sealed class StoreResponse(HttpStatusCode status, HttpResponseHeaders headers, HttpContentHeaders contentHeaders, NativeBufferWriter? body, bool retried)
+    : IDisposable
 {
+    private NativeBufferWriter? _body = body;
+
     public HttpStatusCode Status { get; } = status;
     public HttpResponseHeaders Headers { get; } = headers;
     public HttpContentHeaders ContentHeaders { get; } = contentHeaders;
-    public byte[] Body { get; } = body;
+
+    /// <summary>The body (valid until disposed).</summary>
+    public ReadOnlySpan<byte> Body => _body is null ? [] : _body.WrittenSpan;
+
+    /// <summary>The body as memory, for parsers that keep it while they read (valid until disposed).</summary>
+    public ReadOnlyMemory<byte> BodyMemory => _body is null ? default : _body.WrittenMemory;
+
+    /// <summary>The body as a read-only stream, in place (valid until disposed).</summary>
+    public Stream OpenBody() => _body?.OpenRead() ?? Stream.Null;
+
+    public void Dispose() => Interlocked.Exchange(ref _body, null)?.Dispose();
+
+    /// <summary>The answer of a sender, its body taken over.</summary>
+    internal static StoreResponse From(HttpAnswer answer) =>
+        new(answer.Status, answer.Headers, answer.ContentHeaders, answer.TakeBody(), answer.Retried);
 
     /// <summary>Whether an earlier attempt of the request was made: a "precondition failed" may then be our own write.</summary>
     public bool Retried { get; } = retried;
@@ -59,8 +77,8 @@ internal static class HttpTransport
         var (store, metadataClient) = ClientsFor(http ?? HttpOptions.Default);
         try
         {
-            HttpAnswer answer = new HttpSender(metadata ? metadataClient : store, retry).Send(build, alsoRetry);
-            return new StoreResponse(answer.Status, answer.Headers, answer.ContentHeaders, answer.Body, answer.Retried);
+            using HttpAnswer answer = new HttpSender(metadata ? metadataClient : store, retry).Send(build, alsoRetry);
+            return StoreResponse.From(answer);
         }
         catch (HttpRetriesExhaustedException e)
         {
@@ -76,8 +94,8 @@ internal static class HttpTransport
         var (store, _) = ClientsFor(http ?? HttpOptions.Default);
         try
         {
-            HttpAnswer answer = await new HttpSender(store, retry).SendAsync(build, alsoRetry, cancellationToken).ConfigureAwait(false);
-            return new StoreResponse(answer.Status, answer.Headers, answer.ContentHeaders, answer.Body, answer.Retried);
+            using HttpAnswer answer = await new HttpSender(store, retry).SendAsync(build, alsoRetry, cancellationToken).ConfigureAwait(false);
+            return StoreResponse.From(answer);
         }
         catch (HttpRetriesExhaustedException e)
         {
@@ -116,11 +134,7 @@ internal static class HttpTransport
     }
 
     /// <summary>Reads an answer's whole body (none for a HEAD) into a <see cref="StoreResponse"/>.</summary>
-    public static async Task<StoreResponse> Buffer(HttpResponseMessage response, bool retried, CancellationToken cancellationToken)
-    {
-        byte[] body = response.RequestMessage?.Method == HttpMethod.Head
-            ? []
-            : await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        return new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, body, retried);
-    }
+    public static async Task<StoreResponse> Buffer(HttpResponseMessage response, bool retried, CancellationToken cancellationToken) =>
+        new(response.StatusCode, response.Headers, response.Content.Headers,
+            await HttpSender.ReadBodyAsync(response, cancellationToken).ConfigureAwait(false), retried);
 }

@@ -133,6 +133,23 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(ReadOnlyMemory<byte> bytes) => Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), null, useAsync: false, default));
 
+    /// <summary>
+    /// Opens a file held in memory that <paramref name="owner"/> owns (native memory, say): the file disposes the owner
+    /// when it is disposed (or when opening fails).
+    /// </summary>
+    internal static ParquetFile Open(ReadOnlyMemory<byte> bytes, IDisposable owner)
+    {
+        try
+        {
+            return Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), owner, useAsync: false, default));
+        }
+        catch
+        {
+            owner.Dispose();
+            throw;
+        }
+    }
+
     /// <summary>Opens data read at offsets (say, an object in a store); the caller keeps ownership of the source.</summary>
     /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
     public static ParquetFile Open(IRandomAccess source) => Sync(OpenCoreAsync(source, null, useAsync: false, default));

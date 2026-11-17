@@ -217,14 +217,14 @@ public class AzureClientTests
               <NextMarker>2!abc</NextMarker>
             </EnumerationResults>
             """;
-        var (blobs, next) = AzureClient.ParseListing(Encoding.UTF8.GetBytes(xml));
+        var (blobs, next) = AzureClient.ParseListing(new MemoryStream(Encoding.UTF8.GetBytes(xml)));
         Assert.Equal(["t/a.json", "t/￾x"], blobs.Select(b => b.Key));
         Assert.Equal(12, blobs[0].Size);
         Assert.Equal(new DateTimeOffset(2026, 11, 11, 9, 0, 0, TimeSpan.Zero), blobs[0].LastModified);
         Assert.Equal("2!abc", next);
 
-        var (none, last) = AzureClient.ParseListing(Encoding.UTF8.GetBytes(
-            "<EnumerationResults><Blobs><BlobPrefix><Name>p/</Name></BlobPrefix></Blobs><NextMarker /></EnumerationResults>"));
+        var (none, last) = AzureClient.ParseListing(new MemoryStream(Encoding.UTF8.GetBytes(
+            "<EnumerationResults><Blobs><BlobPrefix><Name>p/</Name></BlobPrefix></Blobs><NextMarker /></EnumerationResults>")));
         Assert.Empty(none);
         Assert.Null(last);
     }

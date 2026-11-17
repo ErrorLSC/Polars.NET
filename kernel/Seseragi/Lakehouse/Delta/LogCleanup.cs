@@ -146,9 +146,8 @@ public static class LogCleanup
         foreach (LogFile checkpoint in remaining)
         {
             if (!checkpoint.Entry.Path.EndsWith(".json", StringComparison.Ordinal)) return deleted;
-            byte[]? content = fileSystem.ReadAll(checkpoint.Entry.Path);
-            if (content is null) return deleted;
-            foreach (SidecarAction sidecar in ActionParser.ParseCommit(content).OfType<SidecarAction>())
+            if (ActionParser.ParseFile(fileSystem, checkpoint.Entry.Path) is not { } actions) return deleted;
+            foreach (SidecarAction sidecar in actions.OfType<SidecarAction>())
                 referenced.Add(sidecar.Path);
         }
         foreach (FileEntry entry in fileSystem.List($"{LogFile.LogDirectory}/_sidecars"))

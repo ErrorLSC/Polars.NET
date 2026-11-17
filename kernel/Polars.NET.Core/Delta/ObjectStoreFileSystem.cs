@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 using Kaminari.Sazanami.Network;
@@ -193,7 +194,16 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadAll(string path) => _managed is not null ? _managed.ReadAll(path) : Read(path, 0, -1);
+    public bool TryReadAll(string path, IBufferWriter<byte> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+        if (_managed is not null) return _managed.TryReadAll(path, into);
+        return Read(path, 0, -1, (bytes, writer) =>
+        {
+            writer.Write(bytes);
+            return bytes.Length;
+        }, into) >= 0;
+    }
 
     /// <inheritdoc/>
     public bool CanReadTails => true;
@@ -235,19 +245,39 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
     }
 
     /// <inheritdoc/>
-    public byte[]? ReadRange(string path, long offset, int length) =>
-        _managed is not null ? _managed.ReadRange(path, offset, length) : Read(path, (ulong)offset, length);
+    public unsafe int ReadRange(string path, long offset, Span<byte> destination)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        if (_managed is not null) return _managed.ReadRange(path, offset, destination);
+        fixed (byte* into = destination)
+        {
+            // The span cannot cross into the callback: its fixed address and length can.
+            var target = (Pointer: (nint)into, Length: destination.Length);
+            return Read(path, (ulong)offset, destination.Length, static (bytes, t) =>
+            {
+                int count = Math.Min(bytes.Length, t.Length);
+                bytes[..count].CopyTo(new Span<byte>((void*)t.Pointer, t.Length));
+                return count;
+            }, target);
+        }
+    }
 
-    private byte[]? Read(string path, ulong offset, long length)
+    /// <summary>
+    /// Reads through the engine's store: its native buffer handed to <paramref name="take"/> (which copies what it
+    /// needs), then freed. Returns what <paramref name="take"/> returns, or -1 when the file does not exist.
+    /// </summary>
+    private int Read<TState>(string path, ulong offset, long length, ReadOnlySpanFunc<byte, TState, int> take, TState state)
     {
         // An absolute URI: inside the table it is read as a relative path; elsewhere through its own store.
-        if (Outside(ref path) is { } store) return store.Read(path, offset, length);
+        if (Outside(ref path) is { } store) return store.Read(path, offset, length, take, state);
 
         NativeBindings.pl_storage_read(_handle!, path, offset, length, out FfiBuffer raw, out bool found);
-        byte[] bytes = NativeBuffer.TakeToArray(raw);
+        using NativeBuffer bytes = NativeBuffer.Take(raw);
         ErrorHelper.CheckVoid();
-        return found ? bytes : null;
+        return found ? take(bytes.GetSpan(), state) : -1;
     }
+
+    private delegate TResult ReadOnlySpanFunc<T, in TState, out TResult>(ReadOnlySpan<T> span, TState state);
 
     /// <inheritdoc/>
     /// <remarks>Only local storage reached by a <c>file://</c> URL has directories.</remarks>

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net;
 using System.Xml;
@@ -116,7 +117,7 @@ internal sealed class AzureClient : ObjectStoreClient
         {
             try
             {
-                using var reader = XmlReader.Create(new MemoryStream(response.Body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+                using var reader = XmlReader.Create(response.OpenBody(), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
                 while (!reader.EOF)
                 {
                     if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "Code")
@@ -144,7 +145,7 @@ internal sealed class AzureClient : ObjectStoreClient
     /// <inheritdoc/>
     public override ObjectInfo? Head(string key)
     {
-        StoreResponse response = Send(HttpMethod.Head, BlobPath(key));
+        using StoreResponse response = Send(HttpMethod.Head, BlobPath(key));
         if (response.Status == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccess) throw Failure(response, $"read the properties of '{key}'");
         if (IsDirectory(response)) return null;
@@ -152,12 +153,14 @@ internal sealed class AzureClient : ObjectStoreClient
     }
 
     /// <inheritdoc/>
-    public override byte[]? Get(string key)
+    public override bool Get(string key, IBufferWriter<byte> into)
     {
-        StoreResponse response = Send(HttpMethod.Get, BlobPath(key));
-        if (response.Status == HttpStatusCode.NotFound) return null;
+        using StoreResponse response = Send(HttpMethod.Get, BlobPath(key));
+        if (response.Status == HttpStatusCode.NotFound) return false;
         if (!response.IsSuccess) throw Failure(response, $"read '{key}'");
-        return IsDirectory(response) ? null : response.Body;
+        if (IsDirectory(response)) return false;
+        into.Write(response.Body);
+        return true;
     }
 
     /// <inheritdoc/>
@@ -185,7 +188,7 @@ internal sealed class AzureClient : ObjectStoreClient
         ObjectInfo? info = null;
         string? etag = await SendAsync(HttpMethod.Head, BlobPath(key), null, (response, _) =>
         {
-            var answer = new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, [], retried: false);
+            using var answer = new StoreResponse(response.StatusCode, response.Headers, response.Content.Headers, null, retried: false);
             if (answer.Status == HttpStatusCode.NotFound || answer.IsSuccess && IsDirectory(answer)) return Task.FromResult<string?>(null);
             if (!answer.IsSuccess) throw Failure(answer, $"read the properties of '{key}'");
             info = new ObjectInfo(key, response.Content.Headers.ContentLength ?? 0, response.Content.Headers.LastModified ?? DateTimeOffset.UnixEpoch);
@@ -204,44 +207,33 @@ internal sealed class AzureClient : ObjectStoreClient
     }
 
     /// <inheritdoc/>
-    public override byte[]? GetRange(string key, long offset, int length)
+    public override int GetRange(string key, long offset, Span<byte> destination)
     {
-        var range = new Dictionary<string, string> { ["range"] = $"bytes={offset}-{offset + length - 1}" };
-        StoreResponse response = Send(HttpMethod.Get, BlobPath(key), extraHeaders: range);
-        switch (response.Status)
+        if (destination.IsEmpty) return Head(key) is null ? -1 : 0;
+        var range = new Dictionary<string, string> { ["range"] = $"bytes={offset}-{offset + destination.Length - 1}" };
+        using StoreResponse response = Send(HttpMethod.Get, BlobPath(key), extraHeaders: range);
+        if (response.Status == HttpStatusCode.RequestedRangeNotSatisfiable)
         {
-            case HttpStatusCode.NotFound:
-                return null;
-            case HttpStatusCode.RequestedRangeNotSatisfiable:
-                // The blob ends before the offset, or (hierarchical namespace) it is a directory: Azure answers a
-                // range of a directory with 416 and no x-ms-resource-type, so only a HEAD tells them apart.
-                return Head(key) is null ? null : [];
-            case HttpStatusCode.PartialContent:
-                return IsDirectory(response) ? null : response.Body;
-            case HttpStatusCode.OK:
-            {
-                if (IsDirectory(response)) return null;
-                byte[] all = response.Body;
-                if (offset >= all.Length) return [];
-                return all.AsSpan((int)offset, (int)Math.Min(length, all.Length - offset)).ToArray();
-            }
-            default:
-                throw Failure(response, $"read '{key}'");
+            // The blob ends before the offset, or (hierarchical namespace) it is a directory: Azure answers a range of
+            // a directory with 416 and no x-ms-resource-type, so only a HEAD tells them apart.
+            return Head(key) is null ? -1 : 0;
         }
+        if (response.Status is HttpStatusCode.PartialContent or HttpStatusCode.OK && IsDirectory(response)) return -1;
+        return RangeAnswer(response, offset, destination) ?? throw Failure(response, $"read '{key}'");
     }
 
     /// <inheritdoc/>
     public override bool PutIfAbsent(string key, ReadOnlyMemory<byte> content)
     {
         var headers = new Dictionary<string, string> { ["if-none-match"] = "*", ["x-ms-blob-type"] = "BlockBlob" };
-        StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: headers, body: content);
+        using StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: headers, body: content);
         if (response.IsSuccess) return true;
         // 409 (BlobAlreadyExists) and 412 both mean the blob is there, as the engine's object store reads them.
         if (response.Status is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed)
         {
             // After a retry the blob may be our own earlier attempt, whose answer was lost: it is ours when it holds
             // exactly what we wrote.
-            return response.Retried && Get(key) is { } stored && content.Span.SequenceEqual(stored);
+            return response.Retried && Holds(key, content.Span);
         }
         throw Failure(response, $"create '{key}'");
     }
@@ -250,7 +242,7 @@ internal sealed class AzureClient : ObjectStoreClient
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
         var headers = new Dictionary<string, string> { ["x-ms-blob-type"] = "BlockBlob" };
-        StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: headers, body: content);
+        using StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: headers, body: content);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 
@@ -288,7 +280,7 @@ internal sealed class AzureClient : ObjectStoreClient
         {
             ArgumentOutOfRangeException.ThrowIfNegative(index);
             string id = NewBlockId(); // one id for every attempt: a retry rewrites the same block
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, [new("comp", "block"), new("blockid", id)], null, content,
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, [new("comp", "block"), new("blockid", id)], null, content,
                 cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccess) throw Failure(response, $"upload block {index} of '{Key}'");
             return new UploadedPart(index, id);
@@ -305,7 +297,7 @@ internal sealed class AzureClient : ObjectStoreClient
             foreach (UploadedPart part in parts) body.Append("<Latest>").Append(part.Id).Append("</Latest>");
             body.Append("</BlockList>");
             Dictionary<string, string>? headers = Create ? new() { ["if-none-match"] = "*" } : null;
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, [new("comp", "blocklist")], headers,
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Put, Path, [new("comp", "blocklist")], headers,
                 System.Text.Encoding.UTF8.GetBytes(body.ToString()), cancellationToken).ConfigureAwait(false);
             if (response.IsSuccess) return true;
 
@@ -328,12 +320,12 @@ internal sealed class AzureClient : ObjectStoreClient
         /// <summary>The ids of the blob's committed blocks, or null when there is no blob.</summary>
         private async Task<List<string>?> CommittedAsync(CancellationToken cancellationToken)
         {
-            StoreResponse response = await client.SendBufferedAsync(HttpMethod.Get, Path, [new("comp", "blocklist"), new("blocklisttype", "committed")],
+            using StoreResponse response = await client.SendBufferedAsync(HttpMethod.Get, Path, [new("comp", "blocklist"), new("blocklisttype", "committed")],
                 null, null, cancellationToken).ConfigureAwait(false);
             if (response.Status == HttpStatusCode.NotFound) return null;
             if (!response.IsSuccess) throw Failure(response, $"read the blocks of '{Key}'");
             List<string> ids = [];
-            using var reader = XmlReader.Create(new MemoryStream(response.Body), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
+            using var reader = XmlReader.Create(response.OpenBody(), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit });
             while (!reader.EOF)
             {
                 if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "Name") ids.Add(reader.ReadElementContentAsString());
@@ -349,7 +341,7 @@ internal sealed class AzureClient : ObjectStoreClient
     /// <summary>Whether a blob exists at the key.</summary>
     private async Task<bool> HeadAsync(string key, CancellationToken cancellationToken)
     {
-        StoreResponse response = await SendBufferedAsync(HttpMethod.Head, BlobPath(key), [], null, null, cancellationToken).ConfigureAwait(false);
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Head, BlobPath(key), [], null, null, cancellationToken).ConfigureAwait(false);
         if (response.Status == HttpStatusCode.NotFound) return false;
         if (!response.IsSuccess) throw Failure(response, $"read the properties of '{key}'");
         return true;
@@ -358,7 +350,7 @@ internal sealed class AzureClient : ObjectStoreClient
     /// <inheritdoc/>
     public override void Delete(string key)
     {
-        StoreResponse response = Send(HttpMethod.Delete, BlobPath(key));
+        using StoreResponse response = Send(HttpMethod.Delete, BlobPath(key));
         if (!response.IsSuccess && response.Status != HttpStatusCode.NotFound) throw Failure(response, $"delete '{key}'");
     }
 
@@ -381,9 +373,13 @@ internal sealed class AzureClient : ObjectStoreClient
             // offset are dropped below either way.
             else if (startAfter is not null) query.Add(new("startFrom", startAfter));
 
-            StoreResponse response = Send(HttpMethod.Get, _containerPath, query);
-            if (!response.IsSuccess) throw Failure(response, $"list '{prefix}'");
-            var (blobs, next) = ParseListing(response.Body);
+            List<ObjectInfo> blobs;
+            string? next;
+            using (StoreResponse response = Send(HttpMethod.Get, _containerPath, query))
+            {
+                if (!response.IsSuccess) throw Failure(response, $"list '{prefix}'");
+                (blobs, next) = ParseListing(response.OpenBody());
+            }
             foreach (ObjectInfo info in blobs)
                 if (startAfter is null || string.CompareOrdinal(info.Key, startAfter) > 0) yield return info;
             marker = next;
@@ -392,11 +388,11 @@ internal sealed class AzureClient : ObjectStoreClient
     }
 
     /// <summary>The files of a List Blobs page (directories left out) and the marker of the next page, if any.</summary>
-    internal static (List<ObjectInfo> Blobs, string? NextMarker) ParseListing(byte[] xml)
+    internal static (List<ObjectInfo> Blobs, string? NextMarker) ParseListing(Stream xml)
     {
         var blobs = new List<ObjectInfo>();
         string? next = null;
-        using var reader = XmlReader.Create(new MemoryStream(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreWhitespace = true });
+        using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreWhitespace = true });
         reader.MoveToContent();
         while (!reader.EOF)
         {
