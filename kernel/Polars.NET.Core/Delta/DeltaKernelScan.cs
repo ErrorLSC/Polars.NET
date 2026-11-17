@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using Kaminari.Sazanami.Bitmaps;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Engine;
@@ -216,10 +218,11 @@ public static class DeltaKernelScan
                     case ChangeFileKind.Insert or ChangeFileKind.Delete:
                     {
                         // Rows the deletion vector marks were not live: not inserted by an add, already gone at a remove.
-                        long[] dead = change.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, change.DeletionVector).DeletedRows;
+                        using DeletionVector? dead = change.DeletionVector is null ? null : DeletionVector.Read(fileSystem, change.DeletionVector);
+                        bool anyDead = dead is { Cardinality: > 0 };
                         using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
-                        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, dead.Length > 0 ? RowIndexColumn : null, variantTable: variants);
-                        if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
+                        LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, anyDead ? RowIndexColumn : null, variantTable: variants);
+                        if (anyDead) lf = FilterRows(lf, dead!.Rows, keep: false);
                         frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, change.Kind == ChangeFileKind.Insert ? "insert" : "delete", oldTypes));
                         break;
                     }
@@ -227,10 +230,11 @@ public static class DeltaKernelScan
                     case ChangeFileKind.DeletionVectorChange:
                     {
                         var (deleted, restored) = change.ChangedRows(fileSystem);
-                        (long[], string)[] items = [(deleted, "delete"), (restored, "insert")];
+                        using RoaringBitmap64 deletedRows = deleted, restoredRows = restored;
+                        (RoaringBitmap64, string)[] items = [(deleted, "delete"), (restored, "insert")];
                         foreach (var (rows, changeType) in items)
                         {
-                            if (rows.Length == 0) continue;
+                            if (rows.IsEmpty) continue;
                             using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
                             LazyFrameHandle lf = FilterRows(ScanFiles([path], cloud, fileSchema, RowIndexColumn, variantTable: variants), rows, keep: true);
                             frames.Add(ProjectChange(lf, snapshot, change, partitionColumns, changeType, oldTypes));
@@ -427,13 +431,15 @@ public static class DeltaKernelScan
     /// <exception cref="DeltaException">Row ids are asked for but the file has no base row id.</exception>
     internal static LazyFrameHandle ScanFile(
         IFileSystem fileSystem, string tableRoot, Snapshot snapshot, AddAction file, CloudArgs cloud,
-        long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false, KernelScanOptions? options = null,
+        RoaringBitmap64? dropRows = null, RoaringBitmap64? onlyRows = null, bool withRowIndex = false, KernelScanOptions? options = null,
         (string RowId, string CommitVersion)? rowTracking = null, string? rowIdAs = RowIdColumn, string? rowCommitVersionAs = RowCommitVersionColumn)
     {
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
-        long[] dead = file.DeletionVector is null ? [] : DeletionVector.Read(fileSystem, file.DeletionVector).DeletedRows;
-        if (dropRows is { Length: > 0 }) dead = DeletionVector.FromRows(dead.Concat(dropRows)).DeletedRows;
-        bool needIndex = withRowIndex || dead.Length > 0 || onlyRows is not null || rowTracking is not null;
+        using DeletionVector? vector = file.DeletionVector is null ? null : DeletionVector.Read(fileSystem, file.DeletionVector);
+        using RoaringBitmap64? merged = vector is not null && dropRows is { IsEmpty: false } ? vector.Rows.Union(dropRows) : null;
+        RoaringBitmap64? dead = merged ?? (dropRows is { IsEmpty: false } ? dropRows : vector?.Rows);
+        bool anyDead = dead is { IsEmpty: false };
+        bool needIndex = withRowIndex || anyDead || onlyRows is not null || rowTracking is not null;
         if (rowTracking is not null && (file.BaseRowId is null || file.DefaultRowCommitVersion is null))
             throw new DeltaException($"The file {file.Path} of a table with row tracking has no base row id or default row commit version.");
 
@@ -443,7 +449,7 @@ public static class DeltaKernelScan
         string[] materialized = rowTracking is var (idName, versionName) ? [idName, versionName] : [];
         using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns, oldTypes: oldTypes, int64Columns: materialized);
         LazyFrameHandle lf = ScanFiles([path], cloud, fileSchema, needIndex ? RowIndexColumn : null, options, variants);
-        if (dead.Length > 0) lf = FilterRows(lf, dead, keep: false);
+        if (anyDead) lf = FilterRows(lf, dead!, keep: false);
         if (onlyRows is not null) lf = FilterRows(lf, onlyRows, keep: true);
         string? pathColumn = options?.IncludePathColumn;
 
@@ -788,14 +794,48 @@ public static class DeltaKernelScan
     private static readonly IReadOnlyDictionary<string, string?> EmptyValues = new Dictionary<string, string?>();
 
     /// <summary>Keeps, or drops, the rows of a frame at the given positions. The frame must carry the row index column.</summary>
-    private static LazyFrameHandle FilterRows(LazyFrameHandle lf, long[] rows, bool keep)
+    private static LazyFrameHandle FilterRows(LazyFrameHandle lf, RoaringBitmap64 rows, bool keep)
+    {
+        ExprHandle isListed = RowIsListed(rows);
+        return PolarsWrapper.LazyFilter(lf, keep ? isListed : PolarsWrapper.Not(isListed));
+    }
+
+    /// <summary>The most ranges a row set is matched by as range tests; more go into one set membership test.</summary>
+    private const int MaxRangeTests = 8;
+
+    /// <summary>
+    /// A boolean expression: whether the row (by <see cref="RowIndexColumn"/>) is one of <paramref name="rows"/>. A set
+    /// of a few ranges (a deleted block of rows) becomes range tests; any other set a membership test against its
+    /// rows, copied into the engine from native memory.
+    /// </summary>
+    internal static ExprHandle RowIsListed(RoaringBitmap64 rows)
     {
         using DataTypeHandle int64 = PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64);
-        ExprHandle row = PolarsWrapper.ExprCast(
+        ExprHandle Row() => PolarsWrapper.ExprCast(
             PolarsWrapper.Col(RowIndexColumn), PolarsWrapper.DataTypeExprFromDataType(int64), strict: true, wrapNumerical: false);
-        ExprHandle isListed = PolarsWrapper.IsIn(
-            row, PolarsWrapper.Implode(PolarsWrapper.Lit(PolarsWrapper.SeriesNew("rows", rows)), maintainOrder: false), nullsEqual: false);
-        return PolarsWrapper.LazyFilter(lf, keep ? isListed : PolarsWrapper.Not(isListed));
+
+        int ranges = 0;
+        foreach (var _ in rows.Ranges)
+        {
+            if (++ranges > MaxRangeTests) break;
+        }
+        if (ranges == 0) return PolarsWrapper.Lit(false);
+        if (ranges <= MaxRangeTests && rows.Cardinality > 2L * ranges)
+        {
+            ExprHandle? any = null;
+            foreach (var (start, count) in rows.Ranges)
+            {
+                ExprHandle test = PolarsWrapper.IsBetween(Row(), PolarsWrapper.Lit(start), PolarsWrapper.Lit(start + count - 1), PlClosedInterval.Both);
+                any = any is null ? test : PolarsWrapper.Or(any, test);
+            }
+            return any!;
+        }
+
+        using var values = new NativeArray<long>(checked((int)rows.Cardinality));
+        Span<long> span = values.AsSpan(0, (int)rows.Cardinality);
+        rows.CopyTo(span);
+        return PolarsWrapper.IsIn(
+            Row(), PolarsWrapper.Implode(PolarsWrapper.Lit(PolarsWrapper.SeriesNew("rows", span)), maintainOrder: false), nullsEqual: false);
     }
 
     /// <summary>A partition value as a literal; the log keeps it as text. The caller casts it to the column type.</summary>

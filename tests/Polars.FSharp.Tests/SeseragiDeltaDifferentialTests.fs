@@ -191,7 +191,9 @@ let private liveRowsFromFiles (path: string) (fs: IFileSystem) (snapshot: Snapsh
         let rows = Convert.ToInt64(df.Row(0).[0])
         let deleted =
             if isNull f.DeletionVector then 0L
-            else Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, f.DeletionVector).Cardinality
+            else
+                use vector = Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, f.DeletionVector)
+                vector.Cardinality
         rows - deleted)
 
 /// Tables written by Spark or Databricks, read through their checkpoints.
@@ -411,9 +413,9 @@ let ``Object store file system agrees with the local one`` (name: string) =
         viaStore.Files |> Seq.map (fun f -> f.Path) |> Seq.sort |> List.ofSeq)
     for file in viaStore.Files do
         if not (isNull file.DeletionVector) then
-            Assert.Equal<int64[]>(
-                Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(local, file.DeletionVector).DeletedRows,
-                Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, file.DeletionVector).DeletedRows)
+            use viaLocalRows = Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(local, file.DeletionVector)
+            use viaStoreRows = Kaminari.Seseragi.Lakehouse.Delta.Actions.DeletionVector.Read(fs, file.DeletionVector)
+            Assert.True(viaLocalRows.Rows.SetEquals(viaStoreRows.Rows))
 
 /// A table given as a URL takes the object-store road end to end: log, checkpoint, deletion vectors and data.
 [<Theory>]

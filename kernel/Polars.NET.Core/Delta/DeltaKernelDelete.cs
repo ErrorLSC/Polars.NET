@@ -1,7 +1,7 @@
+using Kaminari.Sazanami.Bitmaps;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Skipping;
-using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Wrappers;
 
@@ -75,9 +75,9 @@ internal static class DeltaKernelDelete
             }
             else
             {
-                Dictionary<int, long[]> hits = table.MatchingRows(candidates, predicate);
+                using RowsByFile hits = table.MatchingRows(candidates, predicate);
                 predicate = null; // consumed
-                deleted = hits.Values.Sum(r => (long)r.Length);
+                deleted = hits.TotalRows;
                 PlanFiles(table, candidates, hits, plan);
             }
 
@@ -100,11 +100,11 @@ internal static class DeltaKernelDelete
         }
     }
 
-    private static void PlanFiles(DmlTable table, IReadOnlyList<AddAction> candidates, Dictionary<int, long[]> hits, DmlPlan plan)
+    private static void PlanFiles(DmlTable table, IReadOnlyList<AddAction> candidates, RowsByFile hits, DmlPlan plan)
     {
         Snapshot snapshot = table.Snapshot;
         bool useVectors = table.DeletionVectorsEnabled;
-        var marked = new List<(AddAction File, long[] Rows)>();
+        var marked = new List<(AddAction File, RoaringBitmap64 Rows)>();
         var keptFrames = new List<LazyFrameHandle>();    // live rows of rewritten files
         var deletedFrames = new List<LazyFrameHandle>();
         try
@@ -115,7 +115,7 @@ internal static class DeltaKernelDelete
                 if (table.ChangeFeedEnabled) deletedFrames.Add(table.ScanFile(file, onlyRows: rows));
 
                 long live = table.LiveRows(file);
-                if (rows.Length >= live)
+                if (rows.Cardinality >= live)
                 {
                     plan.Remove(file);
                 }
@@ -126,7 +126,7 @@ internal static class DeltaKernelDelete
                 else
                 {
                     keptFrames.Add(table.ScanFile(file, dropRows: rows));
-                    plan.CopiedRows += live - rows.Length;
+                    plan.CopiedRows += live - rows.Cardinality;
                     plan.Remove(file);
                     plan.Rewritten++;
                 }

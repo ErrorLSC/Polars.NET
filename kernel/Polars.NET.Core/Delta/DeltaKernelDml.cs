@@ -1,7 +1,7 @@
 using Apache.Arrow;
+using Kaminari.Sazanami.Bitmaps;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
-using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
@@ -144,7 +144,7 @@ internal sealed class DmlTable : IDisposable
     /// Scans one data file as table rows; see <see cref="DeltaKernelScan.ScanFile"/>. Under row tracking the rows
     /// carry their ids and commit versions (<see cref="RowIdColumns"/>).
     /// </summary>
-    public LazyFrameHandle ScanFile(AddAction file, long[]? dropRows = null, long[]? onlyRows = null, bool withRowIndex = false) =>
+    public LazyFrameHandle ScanFile(AddAction file, RoaringBitmap64? dropRows = null, RoaringBitmap64? onlyRows = null, bool withRowIndex = false) =>
         DeltaKernelScan.ScanFile(FileSystem, Root, Snapshot, file, EngineCloud, dropRows, onlyRows, withRowIndex, rowTracking: MaterializedRowColumns);
 
     /// <summary>Rows that are changed: under row tracking their commit version is cleared (the commit's version applies).</summary>
@@ -162,11 +162,11 @@ internal sealed class DmlTable : IDisposable
     /// <summary>
     /// The live rows of each candidate file that match the predicate, as ascending row positions in the file, keyed
     /// by the candidate's index; files without a match are absent. One engine query over all candidates. A row for
-    /// which the predicate is null does not match. Consumes <paramref name="predicate"/>.
+    /// which the predicate is null does not match. Consumes <paramref name="predicate"/>; the caller disposes the result.
     /// </summary>
-    public Dictionary<int, long[]> MatchingRows(IReadOnlyList<AddAction> candidates, ExprHandle predicate)
+    public RowsByFile MatchingRows(IReadOnlyList<AddAction> candidates, ExprHandle predicate)
     {
-        var result = new Dictionary<int, long[]>();
+        var result = new RowsByFile();
         if (candidates.Count == 0)
         {
             predicate.Dispose();
@@ -193,15 +193,13 @@ internal sealed class DmlTable : IDisposable
             if (PolarsWrapper.DataFrameHeight(df) == 0) return result;
             int[] files = Int32Column(df, FileColumn);
             long[] rows = Int64Column(df, DeltaKernelScan.RowIndexColumn);
-
-            var byFile = new Dictionary<int, List<long>>();
-            for (int k = 0; k < files.Length; k++)
-            {
-                if (!byFile.TryGetValue(files[k], out List<long>? list)) byFile[files[k]] = list = [];
-                list.Add(rows[k]);
-            }
-            foreach (var (file, list) in byFile) result[file] = DeletionVector.FromRows(list).DeletedRows;
+            result.Collect(files, rows);
             return result;
+        }
+        catch
+        {
+            result.Dispose();
+            throw;
         }
         finally
         {
@@ -223,11 +221,7 @@ internal sealed class DmlTable : IDisposable
     }
 
     /// <summary>A boolean expression: whether the row (by <see cref="DeltaKernelScan.RowIndexColumn"/>) is one of <paramref name="rows"/>.</summary>
-    public static ExprHandle RowIsListed(long[] rows) =>
-        PolarsWrapper.IsIn(
-            PolarsWrapper.Col(DeltaKernelScan.RowIndexColumn),
-            PolarsWrapper.Implode(PolarsWrapper.Lit(PolarsWrapper.SeriesNew("rows", rows)), maintainOrder: false),
-            nullsEqual: false);
+    public static ExprHandle RowIsListed(RoaringBitmap64 rows) => DeltaKernelScan.RowIsListed(rows);
 
     /// <summary>Concatenates frames in order (taking them), or null for none.</summary>
     public static LazyFrameHandle? Concat(List<LazyFrameHandle> frames)
@@ -270,6 +264,52 @@ internal sealed class DmlTable : IDisposable
 }
 
 /// <summary>The actions a row-level operation commits, collected file by file.</summary>
+/// <summary>
+/// The rows of each candidate file an operation touches, keyed by the candidate's index, as native bitmaps; disposing
+/// it disposes them.
+/// </summary>
+internal sealed class RowsByFile : Dictionary<int, RoaringBitmap64>, IDisposable
+{
+    /// <summary>The rows touched in all files.</summary>
+    public long TotalRows => Values.Sum(r => r.Cardinality);
+
+    /// <summary>
+    /// Adds the rows of (file, row) pairs, grouped by file; returns false when a row of a file came more than once
+    /// (it is counted once).
+    /// </summary>
+    public bool Collect(ReadOnlySpan<int> files, ReadOnlySpan<long> rows)
+    {
+        var builders = new Dictionary<int, RoaringBitmap64.Builder>();
+        bool distinct = true;
+        try
+        {
+            for (int k = 0; k < files.Length; k++)
+            {
+                if (!builders.TryGetValue(files[k], out RoaringBitmap64.Builder? builder)) builders[files[k]] = builder = new();
+                builder.Add(rows[k]);
+            }
+            foreach (var (file, builder) in builders)
+            {
+                int added = builder.Count;
+                RoaringBitmap64 bitmap = builder.Build();
+                Add(file, bitmap);
+                distinct &= bitmap.Cardinality == added;
+            }
+            return distinct;
+        }
+        finally
+        {
+            foreach (RoaringBitmap64.Builder builder in builders.Values) builder.Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (RoaringBitmap64 rows in Values) rows.Dispose();
+        Clear();
+    }
+}
+
 internal sealed class DmlPlan(long now)
 {
     public long Now => now;
@@ -302,16 +342,30 @@ internal sealed class DmlPlan(long now)
     /// Marks rows of files deleted with deletion vectors, merged with the vectors they have: writes one vector file,
     /// then removes each file and adds it back with its new vector.
     /// </summary>
-    public void MarkDeleted(DmlTable table, List<(AddAction File, long[] Rows)> files)
+    public void MarkDeleted(DmlTable table, List<(AddAction File, RoaringBitmap64 Rows)> files)
     {
         if (files.Count == 0) return;
-        var vectors = files.Select(f =>
+        var vectors = new List<DeletionVector>(files.Count);
+        IReadOnlyList<DeletionVectorDescriptor> descriptors;
+        try
         {
-            DeletionVector fresh = DeletionVector.FromRows(f.Rows);
-            return f.File.DeletionVector is null ? fresh : DeletionVector.Read(table.FileSystem, f.File.DeletionVector).Union(fresh);
-        }).ToList();
-        IReadOnlyList<DeletionVectorDescriptor> descriptors = DeletionVector.WriteFile(
-            table.FileSystem, vectors, FilePrefixes.ForDeletionVectors(table.Snapshot.Metadata.Configuration));
+            foreach (var (file, rows) in files)
+            {
+                if (file.DeletionVector is null)
+                {
+                    vectors.Add(new DeletionVector(rows.Clone()));
+                    continue;
+                }
+                using DeletionVector old = DeletionVector.Read(table.FileSystem, file.DeletionVector);
+                vectors.Add(new DeletionVector(old.Rows.Union(rows)));
+            }
+            descriptors = DeletionVector.WriteFile(
+                table.FileSystem, vectors, FilePrefixes.ForDeletionVectors(table.Snapshot.Metadata.Configuration));
+        }
+        finally
+        {
+            foreach (DeletionVector vector in vectors) vector.Dispose();
+        }
         for (int i = 0; i < files.Count; i++)
         {
             AddAction file = files[i].File;

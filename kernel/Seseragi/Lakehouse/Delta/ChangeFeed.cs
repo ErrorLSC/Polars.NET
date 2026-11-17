@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Bitmaps;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
@@ -46,29 +47,28 @@ public sealed class ChangeFile
     public string DecodedPath => Uri.UnescapeDataString(Path);
 
     /// <summary>
-    /// For a deletion vector change, the row positions that the commit deleted and those it brought back.
+    /// For a deletion vector change, the row positions that the commit deleted and those it brought back; the
+    /// caller disposes both.
     /// </summary>
-    public (long[] Deleted, long[] Restored) ChangedRows(IFileSystem fileSystem)
+    public (RoaringBitmap64 Deleted, RoaringBitmap64 Restored) ChangedRows(IFileSystem fileSystem)
     {
         if (Kind != ChangeFileKind.DeletionVectorChange)
             throw new InvalidOperationException("Only a deletion vector change has changed rows.");
 
-        long[] before = PreviousDeletionVector is null ? [] : Actions.DeletionVector.Read(fileSystem, PreviousDeletionVector).DeletedRows;
-        long[] after = DeletionVector is null ? [] : Actions.DeletionVector.Read(fileSystem, DeletionVector).DeletedRows;
-        return (Except(after, before), Except(before, after));
-    }
-
-    // Both inputs ascend, so one pass finds the values of the first that the second lacks.
-    private static long[] Except(long[] values, long[] without)
-    {
-        List<long> result = [];
-        int j = 0;
-        foreach (long value in values)
+        using DeletionVector? before = PreviousDeletionVector is null ? null : Actions.DeletionVector.Read(fileSystem, PreviousDeletionVector);
+        using DeletionVector? after = DeletionVector is null ? null : Actions.DeletionVector.Read(fileSystem, DeletionVector);
+        using RoaringBitmap64 none = RoaringBitmap64.Empty();
+        RoaringBitmap64 b = before?.Rows ?? none, a = after?.Rows ?? none;
+        RoaringBitmap64 deleted = a.Except(b);
+        try
         {
-            while (j < without.Length && without[j] < value) j++;
-            if (j >= without.Length || without[j] != value) result.Add(value);
+            return (deleted, b.Except(a));
         }
-        return [.. result];
+        catch
+        {
+            deleted.Dispose();
+            throw;
+        }
     }
 }
 

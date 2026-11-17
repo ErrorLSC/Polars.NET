@@ -19,7 +19,7 @@ public class DeletionVectorTests
         DeletionVector dv = DeletionVector.Read(fs, file.DeletionVector!);
 
         Assert.Equal("deletion_vector_61d16c75-6994-46b7-a15b-8b538852e50e.bin", file.DeletionVector!.FilePath());
-        Assert.Equal([0L, 9L], dv.DeletedRows);
+        Assert.Equal([0L, 9L], dv.DeletedRows());
         Assert.True(dv.Contains(9));
         Assert.False(dv.Contains(5));
 
@@ -46,7 +46,7 @@ public class DeletionVectorTests
             Le32(0), Le32(0),
             Le16(1), Le16(2), Le16(7));
 
-        long[] rows = DeletionVector.Decode(Array64((0, bitmap), (1, bitmap)));
+        long[] rows = DeletionVectorRows.Decode(Array64((0, bitmap), (1, bitmap)));
 
         Assert.Equal([1L, 2L, 65536L + 7, (1L << 32) + 1, (1L << 32) + 2, (1L << 32) + 65536 + 7], rows);
     }
@@ -60,7 +60,7 @@ public class DeletionVectorTests
             Le16(0), Le16(5),
             Le16(2), Le16(10), Le16(2), Le16(20), Le16(2));
 
-        Assert.Equal([10L, 11L, 12L, 20L, 21L, 22L], DeletionVector.Decode(Array64((0, bitmap))));
+        Assert.Equal([10L, 11L, 12L, 20L, 21L, 22L], DeletionVectorRows.Decode(Array64((0, bitmap))));
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public class DeletionVectorTests
         for (int v = 0; v < 10000; v += 2) bits[v / 8] |= (byte)(1 << (v % 8));
         byte[] bitmap = Cat(Le32(12346), Le32(1), Le16(0), Le16(4999), Le32(0), bits);
 
-        long[] rows = DeletionVector.Decode(Array64((0, bitmap)));
+        long[] rows = DeletionVectorRows.Decode(Array64((0, bitmap)));
 
         Assert.Equal(5000, rows.Length);
         Assert.Equal(Enumerable.Range(0, 5000).Select(i => (long)i * 2), rows);
@@ -82,7 +82,7 @@ public class DeletionVectorTests
         var size = new byte[4];
         BinaryPrimitives.WriteInt32BigEndian(size, data.Length);
         var crc = new byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(crc, DeletionVector.Crc32(data));
+        BinaryPrimitives.WriteUInt32BigEndian(crc, System.IO.Hashing.Crc32.HashToUInt32(data));
         return Cat([1], size, data, crc);
     }
 
@@ -95,10 +95,10 @@ public class DeletionVectorTests
     {
         var fs = new MemoryFileSystem().PutBytes("ab/" + UuidFile, Framed(s_oneRow));
         var descriptor = new DeletionVectorDescriptor { StorageType = "u", PathOrInlineDv = "ab" + Uuid85, Offset = 1, SizeInBytes = s_oneRow.Length, Cardinality = 1 };
-        Assert.Equal([3L], DeletionVector.Read(fs, descriptor).DeletedRows);
+        Assert.Equal([3L], DeletionVector.Read(fs, descriptor).DeletedRows());
 
         var inline = new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = Z85.Encode(Cat(s_oneRow, new byte[(4 - s_oneRow.Length % 4) % 4])), SizeInBytes = s_oneRow.Length, Cardinality = 1 };
-        Assert.Equal([3L], DeletionVector.Read(fs, inline).DeletedRows);
+        Assert.Equal([3L], DeletionVector.Read(fs, inline).DeletedRows());
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class DeletionVectorTests
             // The log stores an absolute URI, percent-encoded (the directory name has spaces).
             var descriptor = new DeletionVectorDescriptor { StorageType = "p", PathOrInlineDv = new Uri(file).AbsoluteUri, Offset = 1, SizeInBytes = s_oneRow.Length, Cardinality = 1 };
             Assert.Contains("%20", descriptor.PathOrInlineDv);
-            Assert.Equal([3L], DeletionVector.Read(table, descriptor).DeletedRows);
+            Assert.Equal([3L], DeletionVector.Read(table, descriptor).DeletedRows());
         }
         finally
         {
@@ -135,7 +135,7 @@ public class DeletionVectorTests
         var wrongCount = new DeletionVectorDescriptor { StorageType = "u", PathOrInlineDv = Uuid85, Offset = 1, SizeInBytes = s_oneRow.Length, Cardinality = 2 };
         Assert.Contains("descriptor says 2", Assert.Throws<DeltaException>(() => DeletionVector.Read(good, wrongCount)).Message);
 
-        Assert.Contains("truncated", Assert.Throws<DeltaException>(() => DeletionVector.Decode(s_oneRow.AsSpan(0, s_oneRow.Length - 1))).Message);
+        Assert.Contains("truncated", Assert.Throws<DeltaException>(() => DeletionVectorRows.Decode(s_oneRow.AsSpan(0, s_oneRow.Length - 1))).Message);
     }
 
     [Fact]
@@ -175,28 +175,28 @@ public class DeletionVectorTests
         _ = shape;
         DeletionVector vector = DeletionVector.FromRows(rows);
         long[] expected = [.. rows.Distinct().Order()];
-        Assert.Equal(expected, DeletionVector.Decode(vector.Serialize()));
+        Assert.Equal(expected, DeletionVectorRows.Decode(vector.Serialized()));
 
         // Inline and file storage both read back.
         var fs = new MemoryFileSystem();
         DeletionVectorDescriptor inline = vector.ToInlineDescriptor();
-        Assert.Equal(expected, DeletionVector.Read(fs, inline).DeletedRows);
+        Assert.Equal(expected, DeletionVector.Read(fs, inline).DeletedRows());
 
         DeletionVectorDescriptor inFile = Assert.Single(DeletionVector.WriteFile(fs, [vector]));
         Assert.Equal("u", inFile.StorageType);
         Assert.Equal(1, inFile.Offset);
-        Assert.Equal(expected, DeletionVector.Read(fs, inFile).DeletedRows);
+        Assert.Equal(expected, DeletionVector.Read(fs, inFile).DeletedRows());
     }
 
     [Fact]
     public void Serialize_PicksTheSmallestContainer()
     {
         // 50 000 contiguous rows: one run per container instead of a bitset or array.
-        byte[] run = DeletionVector.FromRows(Enumerable.Range(0, 50_000).Select(i => (long)i)).Serialize();
+        byte[] run = DeletionVector.FromRows([.. Enumerable.Range(0, 50_000).Select(i => (long)i)]).Serialized();
         Assert.True(run.Length < 64, $"{run.Length} bytes");
 
         // Every other row of a full container: a bitset (8 KiB) beats an array (64 KiB would not fit 4096 values).
-        byte[] bitset = DeletionVector.FromRows(Enumerable.Range(0, 32_768).Select(i => (long)i * 2)).Serialize();
+        byte[] bitset = DeletionVector.FromRows([.. Enumerable.Range(0, 32_768).Select(i => (long)i * 2)]).Serialized();
         Assert.InRange(bitset.Length, 8192, 8192 + 64);
     }
 
@@ -209,7 +209,7 @@ public class DeletionVectorTests
         DeletionVectorDescriptor d = file.DeletionVector!;
         byte[] block = fs.ReadRange(d.FilePath(), d.Offset ?? 0, d.SizeInBytes + 8)!;
 
-        Assert.Equal(block.AsSpan(4, d.SizeInBytes).ToArray(), DeletionVector.FromRows([9, 0]).Serialize());
+        Assert.Equal(block.AsSpan(4, d.SizeInBytes).ToArray(), DeletionVector.FromRows([9, 0]).Serialized());
     }
 
     [Fact]
@@ -218,16 +218,16 @@ public class DeletionVectorTests
         var fs = new MemoryFileSystem();
         DeletionVector a = DeletionVector.FromRows([1, 2]);
         DeletionVector b = DeletionVector.FromRows([7]).Union(DeletionVector.FromRows([2, 7, 3]));
-        Assert.Equal([2L, 3L, 7L], b.DeletedRows);
+        Assert.Equal([2L, 3L, 7L], b.DeletedRows());
 
         var descriptors = DeletionVector.WriteFile(fs, [a, b]);
 
         Assert.Equal(2, descriptors.Count);
         Assert.Equal(descriptors[0].PathOrInlineDv, descriptors[1].PathOrInlineDv);
         Assert.Equal(1 + 4 + descriptors[0].SizeInBytes + 4, descriptors[1].Offset);
-        Assert.Equal([1L, 2L], DeletionVector.Read(fs, descriptors[0]).DeletedRows);
-        Assert.Equal([2L, 3L, 7L], DeletionVector.Read(fs, descriptors[1]).DeletedRows);
+        Assert.Equal([1L, 2L], DeletionVector.Read(fs, descriptors[0]).DeletedRows());
+        Assert.Equal([2L, 3L, 7L], DeletionVector.Read(fs, descriptors[1]).DeletedRows());
         Assert.Equal(3, descriptors[1].Cardinality);
-        Assert.Throws<ArgumentOutOfRangeException>(() => DeletionVector.FromRows([-1]));
+        Assert.Throws<ArgumentException>(() => DeletionVector.FromRows([-1]));
     }
 }

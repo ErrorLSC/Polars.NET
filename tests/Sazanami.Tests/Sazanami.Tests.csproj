@@ -23,6 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Spark's deletion vectors, for the roaring bitmap tests -->
+    <None Include="..\Seseragi.Lakehouse.Tests\TestData\table-with-dv-small\*.bin" Link="TestData\table-with-dv-small\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Seseragi.Lakehouse.Tests\TestData\with-short-dv\*.bin" Link="TestData\with-short-dv\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\kernel\Sazanami\Sazanami.csproj" />
   </ItemGroup>
 

@@ -129,7 +129,10 @@ let ``Delete marks rows in deletion vectors, merging with earlier ones`` () =
         let file = Assert.Single(Snapshot.Load(fs).Files)
         Assert.Equal(original.Path, file.Path)
         Assert.Equal(5L, file.DeletionVector.Cardinality)
-        Assert.Equal<int64[]>([| 0L; 1L; 2L; 8L; 9L |], DeletionVector.Read(fs, file.DeletionVector).DeletedRows)
+        use vector = DeletionVector.Read(fs, file.DeletionVector)
+        let deleted = Array.zeroCreate<int64> (int vector.Cardinality)
+        vector.Rows.CopyTo(System.Span<int64>(deleted))
+        Assert.Equal<int64[]>([| 0L; 1L; 2L; 8L; 9L |], deleted)
         Assert.False(file.ParsedStats.TightBounds)
         Assert.Equal(Nullable 10L, file.ParsedStats.NumRecords)
         // The second delete removed the file with the first vector and added it back with the merged one.
@@ -141,6 +144,20 @@ let ``Delete marks rows in deletion vectors, merging with earlier ones`` () =
         let r3 = delete path (pl.col "id" .< pl.lit 100)
         Assert.Equal((5L, 1, 0), (r3.DeletedRows, r3.RemovedFiles, r3.DeletionVectorsAdded))
         Assert.Empty(Snapshot.Load(fs).Files))
+
+[<Fact>]
+let ``Delete rewriting a file that has a deletion vector keeps its deleted rows out`` () =
+    withTable "delete_rewrite_dv" (fun path ->
+        use df = frame [ 1 .. 10 ] "east"
+        create path df [||] dvOn
+        delete path (pl.col "id" .< pl.lit 4) |> ignore // rows 1-3 go into a deletion vector
+        DeltaKernelAlter.SetTableProperties(path, config [ (TableFeatures.EnableDeletionVectorsKey, "false") ]) |> ignore
+
+        // Now the file is rewritten: both its vector's rows and the new matches stay out.
+        let result = delete path (pl.col "id" .> pl.lit 8)
+        Assert.Equal((2L, 1, 0), (result.DeletedRows, result.RewrittenFiles, result.DeletionVectorsAdded))
+        Assert.Equal<int list>([ 4 .. 8 ], ids path)
+        Assert.Null(Assert.Single(Snapshot.Load(LocalFileSystem path).Files).DeletionVector))
 
 [<Fact>]
 let ``Delete keeps rows where the predicate is null`` () =

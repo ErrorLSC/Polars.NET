@@ -1,23 +1,30 @@
-using Kaminari.Sazanami.Buffers;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.IO.Hashing;
+using Kaminari.Sazanami.Bitmaps;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Lakehouse.Engine;
 
 namespace Kaminari.Seseragi.Lakehouse.Delta.Actions;
 
-/// <summary>The rows of one data file that have been deleted, as zero-based row positions.</summary>
-public sealed class DeletionVector
+/// <summary>
+/// The rows of one data file that have been deleted, as zero-based row positions in a native roaring bitmap
+/// (<see cref="RoaringBitmap64"/>, which the vector owns: dispose it).
+/// </summary>
+public sealed class DeletionVector(RoaringBitmap64 rows) : IDisposable
 {
     private const int Magic = 1681511377;
 
-    /// <summary>The deleted row positions in ascending order.</summary>
-    public required long[] DeletedRows { get; init; }
+    /// <summary>The deleted row positions.</summary>
+    public RoaringBitmap64 Rows { get; } = rows ?? throw new ArgumentNullException(nameof(rows));
 
     /// <summary>The number of deleted rows.</summary>
-    public long Cardinality => DeletedRows.LongLength;
+    public long Cardinality => Rows.Cardinality;
 
     /// <summary>Whether a row position is deleted.</summary>
-    public bool Contains(long row) => Array.BinarySearch(DeletedRows, row) >= 0;
+    public bool Contains(long row) => Rows.Contains(row);
+
+    public void Dispose() => Rows.Dispose();
 
     /// <summary>Reads the deletion vector a descriptor points at.</summary>
     /// <exception cref="DeltaException">The vector is missing, damaged, or not in the format of the protocol.</exception>
@@ -25,20 +32,23 @@ public sealed class DeletionVector
     {
         ArgumentNullException.ThrowIfNull(fileSystem);
         ArgumentNullException.ThrowIfNull(descriptor);
-        long[] rows = descriptor.StorageType switch
+        RoaringBitmap64 rows = descriptor.StorageType switch
         {
             "i" => Decode(descriptor.InlineBytes()),
             "u" or "p" => DecodeFromFile(fileSystem, descriptor),
             _ => throw new DeltaException($"Unknown deletion vector storage type '{descriptor.StorageType}'."),
         };
-        if (rows.LongLength != descriptor.Cardinality)
-            throw new DeltaException(
-                $"The deletion vector holds {rows.LongLength} rows but its descriptor says {descriptor.Cardinality}.");
-        return new DeletionVector { DeletedRows = rows };
+        if (rows.Cardinality != descriptor.Cardinality)
+        {
+            long held = rows.Cardinality;
+            rows.Dispose();
+            throw new DeltaException($"The deletion vector holds {held} rows but its descriptor says {descriptor.Cardinality}.");
+        }
+        return new DeletionVector(rows);
     }
 
     /// <summary>The rows of a vector stored in a file: its block read into native memory, checked and decoded.</summary>
-    private static long[] DecodeFromFile(IFileSystem fileSystem, DeletionVectorDescriptor descriptor)
+    private static RoaringBitmap64 DecodeFromFile(IFileSystem fileSystem, DeletionVectorDescriptor descriptor)
     {
         string path = descriptor.FilePath();
         int offset = descriptor.Offset ?? 0;
@@ -53,9 +63,9 @@ public sealed class DeletionVector
 
         ReadOnlySpan<byte> data = block.Slice(4, size);
         uint expected = BinaryPrimitives.ReadUInt32BigEndian(block[(4 + size)..]);
-        if (Crc32(data) != expected)
+        if (Crc32.HashToUInt32(data) != expected)
             throw new DeltaException($"The deletion vector in {path} at offset {offset} fails its checksum.");
-        return Decode(data);
+        return Decode(data); // copies into the bitmap: the block goes back to the pool here
     }
 
     private static DeltaException NotConformant(string path, string detail) => new(
@@ -63,300 +73,61 @@ public sealed class DeletionVector
         "Tables whose deletion vectors were written by an early version of this library do not follow the Delta protocol. " +
         "Run optimize on the table with the version that wrote it, so that no file carries a deletion vector, then read it again.");
 
-    /// <summary>Decodes a serialized 64-bit roaring bitmap array into ascending row positions.</summary>
-    internal static long[] Decode(ReadOnlySpan<byte> data)
+    /// <summary>Decodes a serialized deletion vector: the magic number, then a portable 64-bit roaring bitmap.</summary>
+    internal static RoaringBitmap64 Decode(ReadOnlySpan<byte> data)
     {
+        if (data.Length < 4 || BinaryPrimitives.ReadInt32LittleEndian(data) != Magic)
+            throw new DeltaException(
+                "The deletion vector does not start with the magic number of the protocol; it was not written in the Delta format.");
         try
         {
-            if (data.Length < 12 || BinaryPrimitives.ReadInt32LittleEndian(data) != Magic)
-                throw new DeltaException(
-                    "The deletion vector does not start with the magic number of the protocol; it was not written in the Delta format.");
-
-            long bitmaps = BinaryPrimitives.ReadInt64LittleEndian(data[4..]);
-            int pos = 12;
-            var rows = new List<long>();
-            for (long i = 0; i < bitmaps; i++)
-            {
-                long high = (long)BinaryPrimitives.ReadUInt32LittleEndian(data[pos..]) << 32;
-                pos += 4;
-                pos += DecodeRoaring32(data[pos..], high, rows);
-            }
-            long[] result = [.. rows];
-            // Bitmaps and containers are stored in ascending key order, so this is a check, not a sort.
-            for (int i = 1; i < result.Length; i++)
-            {
-                if (result[i] <= result[i - 1]) throw new DeltaException("The deletion vector is not in ascending order.");
-            }
-            return result;
+            return RoaringBitmap64.Deserialize(data[4..]);
         }
-        catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException)
+        catch (InvalidDataException e)
         {
-            throw new DeltaException("The deletion vector is truncated.", e);
+            throw new DeltaException($"The deletion vector cannot be decoded: {e.Message}", e);
         }
-    }
-
-    /// <summary>Decodes one 32-bit roaring bitmap in the portable format; returns the number of bytes it takes.</summary>
-    private static int DecodeRoaring32(ReadOnlySpan<byte> data, long high, List<long> rows)
-    {
-        const int CookieNoRuns = 12346;
-        const int CookieRuns = 12347;
-        const int NoOffsetThreshold = 4;
-
-        uint cookie = BinaryPrimitives.ReadUInt32LittleEndian(data);
-        int pos = 4;
-        int containers;
-        ReadOnlySpan<byte> runFlags = default;
-        bool hasRuns = (cookie & 0xFFFF) == CookieRuns;
-        if (hasRuns)
-        {
-            containers = (int)(cookie >> 16) + 1;
-            int flagBytes = (containers + 7) / 8;
-            runFlags = data.Slice(pos, flagBytes);
-            pos += flagBytes;
-        }
-        else if (cookie == CookieNoRuns)
-        {
-            containers = BinaryPrimitives.ReadInt32LittleEndian(data[pos..]);
-            pos += 4;
-        }
-        else
-        {
-            throw new DeltaException($"Unknown roaring bitmap cookie {cookie}.");
-        }
-
-        ReadOnlySpan<byte> header = data.Slice(pos, containers * 4);
-        pos += containers * 4;
-        if (!hasRuns || containers >= NoOffsetThreshold) pos += containers * 4; // container offsets, not needed for a sequential read
-
-        for (int c = 0; c < containers; c++)
-        {
-            long key = high | ((long)BinaryPrimitives.ReadUInt16LittleEndian(header[(c * 4)..]) << 16);
-            int cardinality = BinaryPrimitives.ReadUInt16LittleEndian(header[(c * 4 + 2)..]) + 1;
-            bool isRun = hasRuns && (runFlags[c / 8] & (1 << (c % 8))) != 0;
-
-            if (isRun)
-            {
-                int runs = BinaryPrimitives.ReadUInt16LittleEndian(data[pos..]);
-                pos += 2;
-                for (int r = 0; r < runs; r++)
-                {
-                    int start = BinaryPrimitives.ReadUInt16LittleEndian(data[pos..]);
-                    int length = BinaryPrimitives.ReadUInt16LittleEndian(data[(pos + 2)..]);
-                    pos += 4;
-                    for (int v = start; v <= start + length; v++) rows.Add(key | (uint)v);
-                }
-            }
-            else if (cardinality <= 4096)
-            {
-                for (int k = 0; k < cardinality; k++)
-                {
-                    rows.Add(key | BinaryPrimitives.ReadUInt16LittleEndian(data[pos..]));
-                    pos += 2;
-                }
-            }
-            else
-            {
-                ReadOnlySpan<byte> bits = data.Slice(pos, 8192);
-                pos += 8192;
-                for (int word = 0; word < 1024; word++)
-                {
-                    ulong w = BinaryPrimitives.ReadUInt64LittleEndian(bits[(word * 8)..]);
-                    while (w != 0)
-                    {
-                        int bit = System.Numerics.BitOperations.TrailingZeroCount(w);
-                        rows.Add(key | (uint)(word * 64 + bit));
-                        w &= w - 1;
-                    }
-                }
-            }
-        }
-        return pos;
     }
 
     // ------------------------------------------------------------------
     // Writing
     // ------------------------------------------------------------------
 
-    /// <summary>A vector of the given row positions, in any order, duplicates allowed.</summary>
-    public static DeletionVector FromRows(IEnumerable<long> rows)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        long[] sorted = [.. rows];
-        Array.Sort(sorted);
-        int n = 0;
-        for (int i = 0; i < sorted.Length; i++)
-        {
-            if (sorted[i] < 0) throw new ArgumentOutOfRangeException(nameof(rows), "Row positions are not negative.");
-            if (n == 0 || sorted[i] != sorted[n - 1]) sorted[n++] = sorted[i];
-        }
-        return new DeletionVector { DeletedRows = n == sorted.Length ? sorted : sorted[..n] };
-    }
+    /// <summary>A vector of the given row positions, in any order, repeats allowed.</summary>
+    /// <exception cref="ArgumentException">A row position is negative.</exception>
+    public static DeletionVector FromRows(ReadOnlySpan<long> rows) => new(RoaringBitmap64.FromRows(rows));
 
-    /// <summary>The rows deleted by this vector or by <paramref name="other"/>.</summary>
-    public DeletionVector Union(DeletionVector? other) =>
-        other is null || other.Cardinality == 0 ? this : FromRows(DeletedRows.Concat(other.DeletedRows));
+    /// <summary>A new vector of the rows deleted by this vector or by <paramref name="other"/>.</summary>
+    public DeletionVector Union(DeletionVector? other) => new(other is null ? Rows.Clone() : Rows.Union(other.Rows));
+
+    /// <summary>The number of bytes <see cref="Serialize"/> writes.</summary>
+    public int SerializedSize => checked(4 + (int)Rows.SerializedSize);
 
     /// <summary>
-    /// The vector as the protocol serializes it: a 64-bit roaring bitmap array in the portable format, preceded by
-    /// the magic number. Each container takes the smallest of its array, bitset and run forms.
+    /// Writes the vector as the protocol serializes it: the magic number, then a 64-bit roaring bitmap array in the
+    /// portable format. Each container takes the smallest of its array, bitset and run forms.
     /// </summary>
-    public byte[] Serialize()
+    public void Serialize(IBufferWriter<byte> output)
     {
-        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
-        Span<byte> scratch = stackalloc byte[8];
-        BinaryPrimitives.WriteInt32LittleEndian(scratch, Magic);
-        buffer.Write(scratch[..4]);
-
-        // One 32-bit bitmap per distinct high word, in ascending order.
-        var bitmaps = new List<(uint High, int Start, int End)>();
-        for (int i = 0; i < DeletedRows.Length;)
-        {
-            uint high = (uint)(DeletedRows[i] >> 32);
-            int start = i;
-            while (i < DeletedRows.Length && (uint)(DeletedRows[i] >> 32) == high) i++;
-            bitmaps.Add((high, start, i));
-        }
-        BinaryPrimitives.WriteInt64LittleEndian(scratch, bitmaps.Count);
-        buffer.Write(scratch);
-        foreach (var (high, start, end) in bitmaps)
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(scratch, high);
-            buffer.Write(scratch[..4]);
-            EncodeRoaring32(DeletedRows.AsSpan(start, end - start), buffer);
-        }
-        return buffer.WrittenSpan.ToArray();
-    }
-
-    private enum ContainerKind { Array, Bitset, Run }
-
-    /// <summary>Encodes one 32-bit roaring bitmap (the low words of <paramref name="rows"/>) in the portable format.</summary>
-    private static void EncodeRoaring32(ReadOnlySpan<long> rows, System.Buffers.ArrayBufferWriter<byte> output)
-    {
-        const int CookieNoRuns = 12346;
-        const int CookieRuns = 12347;
-        const int NoOffsetThreshold = 4;
-
-        // Containers: rows sharing the high 16 bits of the low word.
-        var containers = new List<(ushort Key, int Start, int End, int Runs, ContainerKind Kind)>();
-        for (int i = 0; i < rows.Length;)
-        {
-            ushort key = (ushort)((uint)rows[i] >> 16);
-            int start = i, runs = 0;
-            long previous = -2;
-            while (i < rows.Length && (ushort)((uint)rows[i] >> 16) == key)
-            {
-                if (rows[i] != previous + 1) runs++;
-                previous = rows[i];
-                i++;
-            }
-            int cardinality = i - start;
-            int plainSize = cardinality <= 4096 ? 2 * cardinality : 8192;
-            ContainerKind kind = 2 + 4 * runs < plainSize ? ContainerKind.Run
-                : cardinality <= 4096 ? ContainerKind.Array : ContainerKind.Bitset;
-            containers.Add((key, start, i, runs, kind));
-        }
-
-        int count = containers.Count;
-        bool hasRuns = containers.Any(c => c.Kind == ContainerKind.Run);
-        bool withOffsets = !hasRuns || count >= NoOffsetThreshold;
-
-        var header = new byte[hasRuns ? 4 + (count + 7) / 8 : 8];
-        if (hasRuns)
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(header, (uint)CookieRuns | (uint)(count - 1) << 16);
-            for (int c = 0; c < count; c++)
-            {
-                if (containers[c].Kind == ContainerKind.Run) header[4 + c / 8] |= (byte)(1 << (c % 8));
-            }
-        }
-        else
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(header, CookieNoRuns);
-            BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), count);
-        }
-        output.Write(header);
-
-        Span<byte> pair = stackalloc byte[4];
-        foreach (var c in containers)
-        {
-            BinaryPrimitives.WriteUInt16LittleEndian(pair, c.Key);
-            BinaryPrimitives.WriteUInt16LittleEndian(pair[2..], (ushort)(c.End - c.Start - 1));
-            output.Write(pair);
-        }
-
-        if (withOffsets)
-        {
-            // Offsets count from the start of this bitmap.
-            int offset = header.Length + count * 4 + count * 4;
-            foreach (var c in containers)
-            {
-                BinaryPrimitives.WriteInt32LittleEndian(pair, offset);
-                output.Write(pair);
-                offset += c.Kind switch
-                {
-                    ContainerKind.Run => 2 + 4 * c.Runs,
-                    ContainerKind.Array => 2 * (c.End - c.Start),
-                    _ => 8192,
-                };
-            }
-        }
-
-        foreach (var c in containers)
-        {
-            ReadOnlySpan<long> values = rows[c.Start..c.End];
-            switch (c.Kind)
-            {
-                case ContainerKind.Run:
-                {
-                    var data = new byte[2 + 4 * c.Runs];
-                    BinaryPrimitives.WriteUInt16LittleEndian(data, (ushort)c.Runs);
-                    int pos = 2;
-                    for (int i = 0; i < values.Length;)
-                    {
-                        int start = i;
-                        while (i + 1 < values.Length && values[i + 1] == values[i] + 1) i++;
-                        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(pos), (ushort)values[start]);
-                        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(pos + 2), (ushort)(i - start));
-                        pos += 4;
-                        i++;
-                    }
-                    output.Write(data);
-                    break;
-                }
-                case ContainerKind.Array:
-                {
-                    var data = new byte[2 * values.Length];
-                    for (int i = 0; i < values.Length; i++) BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(2 * i), (ushort)values[i]);
-                    output.Write(data);
-                    break;
-                }
-                default:
-                {
-                    var words = new ulong[1024];
-                    foreach (long v in values)
-                    {
-                        int low = (ushort)v;
-                        words[low >> 6] |= 1UL << (low & 63);
-                    }
-                    var data = new byte[8192];
-                    for (int w = 0; w < 1024; w++) BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(8 * w), words[w]);
-                    output.Write(data);
-                    break;
-                }
-            }
-        }
+        ArgumentNullException.ThrowIfNull(output);
+        BinaryPrimitives.WriteInt32LittleEndian(output.GetSpan(4), Magic);
+        output.Advance(4);
+        Rows.Serialize(output);
     }
 
     /// <summary>A descriptor holding this vector inline (storage type <c>i</c>); meant for small vectors.</summary>
     public DeletionVectorDescriptor ToInlineDescriptor()
     {
-        byte[] data = Serialize();
-        byte[] padded = data.Length % 4 == 0 ? data : [.. data, .. new byte[4 - data.Length % 4]];
+        int size = SerializedSize;
+        using var buffer = new NativeBufferWriter(size + 3);
+        Serialize(buffer);
+        buffer.GetSpan(3)[..((4 - size % 4) % 4)].Clear(); // Z85 takes whole 4-byte groups: pad with zeros
+        buffer.Advance((4 - size % 4) % 4);
         return new DeletionVectorDescriptor
         {
             StorageType = "i",
-            PathOrInlineDv = Z85.Encode(padded),
-            SizeInBytes = data.Length,
+            PathOrInlineDv = Z85.Encode(buffer.WrittenSpan),
+            SizeInBytes = size,
             Cardinality = Cardinality,
         };
     }
@@ -378,26 +149,27 @@ public sealed class DeletionVector
         ArgumentNullException.ThrowIfNull(vectors);
         if (vectors.Count == 0) return [];
 
-        var file = new System.Buffers.ArrayBufferWriter<byte>();
-        file.Write<byte>([1]); // the format version
-        var placed = new List<(int Offset, int Size, long Cardinality)>(vectors.Count);
-        Span<byte> number = stackalloc byte[4];
-        foreach (DeletionVector vector in vectors)
+        using var file = new NativeBufferWriter();
+        file.GetSpan(1)[0] = 1; // the format version
+        file.Advance(1);
+        var placed = new (int Offset, int Size, long Cardinality)[vectors.Count];
+        for (int i = 0; i < vectors.Count; i++)
         {
-            byte[] data = vector.Serialize();
-            placed.Add((file.WrittenCount, data.Length, vector.Cardinality));
-            BinaryPrimitives.WriteInt32BigEndian(number, data.Length);
-            file.Write(number);
-            file.Write(data);
-            BinaryPrimitives.WriteUInt32BigEndian(number, Crc32(data));
-            file.Write(number);
+            DeletionVector vector = vectors[i];
+            int offset = file.WrittenCount, size = vector.SerializedSize;
+            placed[i] = (offset, size, vector.Cardinality);
+            BinaryPrimitives.WriteInt32BigEndian(file.GetSpan(4), size);
+            file.Advance(4);
+            vector.Serialize(file);
+            BinaryPrimitives.WriteUInt32BigEndian(file.GetSpan(4), Crc32.HashToUInt32(file.WrittenSpan.Slice(offset + 4, size)));
+            file.Advance(4);
         }
 
         Guid id = Guid.NewGuid();
         string prefix = FilePrefixes.New(prefixLength);
         string encodedId = prefix + Z85.Encode(id.ToByteArray(bigEndian: true));
         string path = prefix.Length == 0 ? $"deletion_vector_{id:D}.bin" : $"{prefix}/deletion_vector_{id:D}.bin";
-        if (!fileSystem.TryCreate(path, file.WrittenSpan.ToArray()))
+        if (!fileSystem.TryCreate(path, file.WrittenMemory))
             throw new DeltaException($"The deletion vector file {path} already exists.");
 
         return [.. placed.Select(p => new DeletionVectorDescriptor
@@ -408,26 +180,5 @@ public sealed class DeletionVector
             SizeInBytes = p.Size,
             Cardinality = p.Cardinality,
         })];
-    }
-
-    private static readonly uint[] s_crcTable = BuildCrcTable();
-
-    private static uint[] BuildCrcTable()
-    {
-        var table = new uint[256];
-        for (uint i = 0; i < 256; i++)
-        {
-            uint c = i;
-            for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            table[i] = c;
-        }
-        return table;
-    }
-
-    internal static uint Crc32(ReadOnlySpan<byte> data)
-    {
-        uint crc = 0xFFFFFFFFu;
-        foreach (byte b in data) crc = s_crcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
-        return ~crc;
     }
 }

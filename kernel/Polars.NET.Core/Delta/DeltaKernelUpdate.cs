@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Bitmaps;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
@@ -87,8 +88,8 @@ internal static class DeltaKernelUpdate
             // Every live row matches without a predicate.
             ExprHandle matchAll = predicate ?? PolarsWrapper.Lit(true);
             predicate = null;
-            Dictionary<int, long[]> hits = table.MatchingRows(candidates, matchAll);
-            long updated = hits.Values.Sum(r => (long)r.Length);
+            using RowsByFile hits = table.MatchingRows(candidates, matchAll);
+            long updated = hits.TotalRows;
             if (updated == 0) return new DeltaUpdateResult(null, 0, 0, 0, 0, 0, 0, 0);
 
             var plan = new DmlPlan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
@@ -113,12 +114,12 @@ internal static class DeltaKernelUpdate
     }
 
     private static void Apply(
-        DmlTable table, IReadOnlyList<AddAction> candidates, Dictionary<int, long[]> hits,
+        DmlTable table, IReadOnlyList<AddAction> candidates, RowsByFile hits,
         IReadOnlyList<(string Column, ExprHandle Value)> assignments, DmlPlan plan)
     {
         Snapshot snapshot = table.Snapshot;
         bool useVectors = table.DeletionVectorsEnabled;
-        var marked = new List<(AddAction File, long[] Rows)>();
+        var marked = new List<(AddAction File, RoaringBitmap64 Rows)>();
         var written = new List<LazyFrameHandle>();   // rows of new data files
         var preimages = new List<LazyFrameHandle>();
         var postimages = new List<LazyFrameHandle>();
@@ -133,7 +134,7 @@ internal static class DeltaKernelUpdate
                     postimages.Add(Assign(table, table.ScanFile(file, onlyRows: rows), assignments, onlyListed: null));
                 }
 
-                if (useVectors && rows.Length < table.LiveRows(file))
+                if (useVectors && rows.Cardinality < table.LiveRows(file))
                 {
                     // The old rows are deleted; the updated ones go to a new file.
                     marked.Add((file, rows));
@@ -143,7 +144,7 @@ internal static class DeltaKernelUpdate
                 {
                     // The whole file again, the matching rows updated in place.
                     long live = table.LiveRows(file);
-                    plan.CopiedRows += live - rows.Length;
+                    plan.CopiedRows += live - rows.Cardinality;
                     LazyFrameHandle all = table.ScanFile(file, withRowIndex: true);
                     written.Add(Assign(table, all, assignments, onlyListed: rows));
                     plan.Remove(file);
@@ -180,7 +181,7 @@ internal static class DeltaKernelUpdate
     /// their commit version (the commit's applies).
     /// </summary>
     private static LazyFrameHandle Assign(
-        DmlTable table, LazyFrameHandle rows, IReadOnlyList<(string Column, ExprHandle Value)> assignments, long[]? onlyListed)
+        DmlTable table, LazyFrameHandle rows, IReadOnlyList<(string Column, ExprHandle Value)> assignments, RoaringBitmap64? onlyListed)
     {
         StructType schema = table.Snapshot.Schema;
         string[] extra = table.RowIdColumns;

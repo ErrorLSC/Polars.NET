@@ -217,12 +217,12 @@ public class ChangeFeedTests
 
         Assert.Equal(["1:DeletionVectorChange:a.parquet", "2:DeletionVectorChange:a.parquet", "3:Delete:a.parquet"], Describe(changes));
         var (deleted1, restored1) = changes[0].ChangedRows(fs);
-        Assert.Equal([2L, 5L], deleted1);
-        Assert.Empty(restored1);
+        Assert.Equal([2L, 5L], deleted1.ToArray());
+        Assert.True(restored1.IsEmpty);
         var (deleted2, restored2) = changes[1].ChangedRows(fs);
-        Assert.Equal([7L, 9L], deleted2);
-        Assert.Equal([2L], restored2);
-        Assert.Equal([5L, 7L, 9L], DeletionVector.Read(fs, changes[2].DeletionVector!).DeletedRows);
+        Assert.Equal([7L, 9L], deleted2.ToArray());
+        Assert.Equal([2L], restored2.ToArray());
+        Assert.Equal([5L, 7L, 9L], DeletionVector.Read(fs, changes[2].DeletionVector!).DeletedRows());
         Assert.Throws<InvalidOperationException>(() => changes[2].ChangedRows(fs));
     }
 }

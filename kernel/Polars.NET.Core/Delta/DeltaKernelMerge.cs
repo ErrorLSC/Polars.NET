@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Kaminari.Sazanami.Bitmaps;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
@@ -353,13 +354,13 @@ internal static class DeltaKernelMerge
         ExprHandle Is(params int[] kinds) => PolarsWrapper.IsIn(PolarsWrapper.Col(ActionColumn), Ints(kinds), nullsEqual: false);
 
         // Target rows replaced or deleted, per candidate file.
-        Dictionary<int, long[]> hits = TouchedRows(
+        using RowsByFile hits = TouchedRows(
             PolarsWrapper.LazyFilter(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(actions)), Is(Update, Delete)));
         long updated = Count(actions, Update), deleted = Count(actions, Delete), inserted = Count(actions, Insert);
 
         var written = new List<LazyFrameHandle>();
         var changes = new List<LazyFrameHandle>();
-        var marked = new List<(AddAction File, long[] Rows)>();
+        var marked = new List<(AddAction File, RoaringBitmap64 Rows)>();
         try
         {
             // Updated and inserted rows: the source's values, the target's for columns the source lacks.
@@ -383,7 +384,7 @@ internal static class DeltaKernelMerge
             {
                 AddAction file = candidates[index];
                 long live = table.LiveRows(file);
-                if (touched.Length >= live)
+                if (touched.Cardinality >= live)
                 {
                     plan.Remove(file);
                 }
@@ -395,7 +396,7 @@ internal static class DeltaKernelMerge
                 {
                     LazyFrameHandle kept = table.ScanFile(file, dropRows: touched);
                     written.Add(Conform(kept, schema, snapshot.Schema, rowIds));
-                    plan.CopiedRows += live - touched.Length;
+                    plan.CopiedRows += live - touched.Cardinality;
                     plan.Remove(file);
                     plan.Rewritten++;
                 }
@@ -418,28 +419,30 @@ internal static class DeltaKernelMerge
     }
 
     /// <summary>The touched target rows per file; fails when a target row is matched by more than one source row.</summary>
-    private static Dictionary<int, long[]> TouchedRows(LazyFrameHandle rows)
+    private static RowsByFile TouchedRows(LazyFrameHandle rows)
     {
         using DataFrameHandle df = PolarsWrapper.LazyCollect(
             PolarsWrapper.LazySelect(rows, [PolarsWrapper.Col(FileColumn), PolarsWrapper.Col(DeltaKernelScan.RowIndexColumn)]), PlEngine.Auto);
-        var result = new Dictionary<int, long[]>();
+        var result = new RowsByFile();
         if (PolarsWrapper.DataFrameHeight(df) == 0) return result;
         int[] files = DmlTable.Int32Column(df, FileColumn);
         long[] positions = DmlTable.Int64Column(df, DeltaKernelScan.RowIndexColumn);
-        var byFile = new Dictionary<int, List<long>>();
-        for (int k = 0; k < files.Length; k++)
+        bool distinct;
+        try
         {
-            if (!byFile.TryGetValue(files[k], out List<long>? list)) byFile[files[k]] = list = [];
-            list.Add(positions[k]);
+            distinct = result.Collect(files, positions);
         }
-        foreach (var (file, list) in byFile)
+        catch
         {
-            DeletionVector distinct = DeletionVector.FromRows(list);
-            if (distinct.Cardinality != list.Count)
-                throw new PolarsException(
-                    "The merge matched a target row with more than one source row and would update or delete it more than once. " +
-                    "Make the source's merge keys unique among the rows that match.");
-            result[file] = distinct.DeletedRows;
+            result.Dispose();
+            throw;
+        }
+        if (!distinct)
+        {
+            result.Dispose();
+            throw new PolarsException(
+                "The merge matched a target row with more than one source row and would update or delete it more than once. " +
+                "Make the source's merge keys unique among the rows that match.");
         }
         return result;
     }
