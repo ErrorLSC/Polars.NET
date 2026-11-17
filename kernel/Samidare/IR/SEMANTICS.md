@@ -61,7 +61,9 @@ A floating sort key sorts by `ScalarFunction.FloatOrderKey`, an Int64 whose orde
 This is a single key, as `Comparer<T>.Default` orders.
 
 **Aggregates.** `Min` is .NET `Min`: NaN as soon as one value is NaN. `Max` skips NaN unless every value is
-NaN. Grouping and `Distinct` treat NaN as one value (.NET `Equals`).
+NaN.
+
+**Grouping.** Floating grouping keys follow .NET `Equals` (see Grouping keys).
 
 **Literals.** `LiteralValue.Float16` holds a `Half`.
 
@@ -220,6 +222,19 @@ which it is true, before anything above the GroupBy runs.
     grand-total row.
   - Keys outside the subset are null.
   - Each level's own literals set their columns.
+
+## Grouping keys
+
+`GroupBy` and `Distinct` decide which rows share a key with one equality, the one LINQ's `GroupBy`
+uses (`EqualityComparer<T>.Default`, anonymous-type keys component by component):
+
+- **Null is one key value.** Rows whose key is null form one group. A composite key matches component by component,
+  a null component matching a null component.
+- **Floating keys** follow .NET `Equals`: every NaN is one value, whatever its payload or sign, and -0.0 equals 0.0.
+- **Strings** are equal when their bytes are (ordinal); **decimals** by value; **date and time values** by the
+  instant or count they store.
+
+Joins differ: there the join's `nullsEqual` decides whether null keys match (see Joins and keys).
 
 ## Joins and keys
 

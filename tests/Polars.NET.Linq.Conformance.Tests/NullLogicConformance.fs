@@ -1,6 +1,7 @@
 /// Contract: three-valued (Kleene) logic. A comparison with a null operand is null, except EqMissing /
 /// NotEqMissing, which are two-valued. Filter keeps only the rows whose predicate is true. A conditional whose
-/// test is null takes its else branch.
+/// test is null takes its else branch. Grouping and Distinct take null as one key value: rows with a null key form one
+/// group, and a composite key matches a null component with a null component.
 module Polars.NET.Linq.Conformance.Tests.NullLogicConformance
 
 open System
@@ -97,3 +98,31 @@ let ``Modulo and TruncatedDivide truncate toward zero`` () =
     let rows: IJ array = [| { Id = 1L; I = -7L; J = 2L }; { Id = 2L; I = 7L; J = -2L }; { Id = 3L; I = -8L; J = -3L }; { Id = 4L; I = 7L; J = 0L } |]
     let plan = project (t.Scan rows) [ "div", bin BinaryOp.TruncatedDivide (col "I") (col "J"); "rem", bin BinaryOp.Modulo (col "I") (col "J") ]
     Conformance.rowsInOrder t plan [ [ -3L; -1L ]; [ -3L; 1L ]; [ 2L; -2L ]; [ null; null ] ]
+
+type GK = { Id: int64; A: Nullable<int64>; B: string }
+
+let private nullKeys: GK array =
+    [|
+        { Id = 1L; A = nul; B = "x" }
+        { Id = 2L; A = n 1L; B = null }
+        { Id = 3L; A = nul; B = "x" }
+        { Id = 4L; A = nul; B = null }
+        { Id = 5L; A = n 1L; B = null }
+        { Id = 6L; A = nul; B = null }
+        { Id = 7L; A = n 1L; B = "x" }
+    |]
+
+[<Fact>]
+let ``Null keys group together`` () =
+    let t = Tables()
+    let byA = LogicalPlan.GroupBy(t.Scan nullKeys, [ col "A" ], [ "n", len; "first", agg AggKind.First (col "Id") ], None, true)
+    Conformance.rowsInOrder t byA [ [ null; 4L; 1L ]; [ 1L; 3L; 2L ] ]
+    let t2 = Tables()
+    let byAB = LogicalPlan.GroupBy(t2.Scan nullKeys, [ col "A"; col "B" ], [ "n", len; "first", agg AggKind.First (col "Id") ], None, true)
+    Conformance.rowsInOrder t2 byAB [ [ null; "x"; 2L; 1L ]; [ 1L; null; 2L; 2L ]; [ null; null; 2L; 4L ]; [ 1L; "x"; 1L; 7L ] ]
+
+[<Fact>]
+let ``Distinct takes null as one key value`` () =
+    let t = Tables()
+    let plan = project (LogicalPlan.Distinct(t.Scan nullKeys, Some [ "A"; "B" ], DistinctKeep.First, true)) [ "Id", col "Id" ]
+    Conformance.rowsInOrder t plan [ [ 1L ]; [ 2L ]; [ 4L ]; [ 7L ] ]

@@ -1,7 +1,8 @@
 /// Contract: aggregates skip nulls. Sum over no values is 0; Mean, Min, Max, First and Std over no values are
 /// null; Count counts the non-null values and Len the rows. Std / Var are null with no more than ddof values.
 /// GroupBy with maintainOrder lists groups in the order their keys first appear; `having` keeps the groups
-/// whose aggregate predicate is true.
+/// whose aggregate predicate is true. Grouping compares strings by their bytes (ordinal, case-sensitive), decimals by
+/// value and date-times by the instant they store.
 module Polars.NET.Linq.Conformance.Tests.AggregationConformance
 
 open System
@@ -93,3 +94,25 @@ let ``CheckedSum fails with Overflow when the total leaves the range`` () =
     Conformance.raises<OverflowException> t (project (t.Scan longs) [ "s", agg AggKind.CheckedSum (col "V") ]) "Arithmetic operation resulted in an overflow."
     let ints = [| { K = 1L; I = Nullable Int32.MinValue }; { K = 1L; I = Nullable -1 } |]
     Conformance.raises<OverflowException> t (project (t.Scan ints) [ "s", agg AggKind.CheckedSum (col "I") ]) "Arithmetic operation resulted in an overflow."
+
+type GV = { Id: int64; S: string; D: decimal; T: DateTimeOffset }
+
+let private keyed: GV array =
+    [|
+        { Id = 1L; S = "a"; D = 1.50m; T = DateTimeOffset(2024, 1, 1, 1, 0, 0, TimeSpan.FromHours 1.0) }
+        { Id = 2L; S = "A"; D = 1.5m; T = DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero) } // the same instant as row 1
+        { Id = 3L; S = "a"; D = 2.00m; T = DateTimeOffset(2024, 1, 2, 0, 0, 0, TimeSpan.Zero) }
+    |]
+
+[<Fact>]
+let ``Grouping compares strings ordinally, decimals by value, date-times by instant`` () =
+    let groupsBy key =
+        let t = Tables()
+        let grouped = LogicalPlan.GroupBy(t.Scan keyed, [ col key ], [ "n", len; "first", agg AggKind.First (col "Id") ], None, true)
+        t, project grouped [ "n", col "n"; "first", col "first" ]
+    let t, byS = groupsBy "S"
+    Conformance.rowsInOrder t byS [ [ 2L; 1L ]; [ 1L; 2L ] ]
+    let t, byD = groupsBy "D"
+    Conformance.rowsInOrder t byD [ [ 2L; 1L ]; [ 1L; 3L ] ]
+    let t, byT = groupsBy "T"
+    Conformance.rowsInOrder t byT [ [ 2L; 1L ]; [ 1L; 3L ] ]

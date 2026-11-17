@@ -896,7 +896,8 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | JoinAsOf of left: LogicalPlan * right: LogicalPlan * spec: LogicalAsOfJoinSpec
     /// One row per distinct key; `having` (an aggregate predicate over a group's rows) keeps the groups for
     /// which it is true. With `maintainOrder` groups appear in the order their keys first appear, otherwise
-    /// in no order.
+    /// in no order. Keys are equal as LINQ's GroupBy takes them: null equals null (component by component),
+    /// every NaN is one value and -0.0 equals 0.0 (SEMANTICS.md, Grouping keys).
     | GroupBy of
         input: LogicalPlan *
         keys: ScalarExpr list *
@@ -910,7 +911,7 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     /// `count` rows after skipping `offset`.
     | Limit of input: LogicalPlan * offset: int64 * count: uint32
     /// One row per distinct value of `subset` (all columns when None), the one `keep` names; in input order
-    /// with `maintainOrder`, otherwise in no order.
+    /// with `maintainOrder`, otherwise in no order. Values are equal as GroupBy's keys are.
     | Distinct of input: LogicalPlan * subset: string list option * keep: DistinctKeep * maintainOrder: bool
     | Explode of input: LogicalPlan * columns: string list * emptyAsNull: bool * keepNulls: bool
     | Unpivot of

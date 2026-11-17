@@ -1,7 +1,8 @@
 /// Contract: IR comparisons over floating values follow the engine's total order, in which NaN equals NaN and is
 /// greater than every number; the frontend compensates for .NET semantics (see NaNSemantics). IsNan is true for
 /// NaN, false for a number, null for null. Min is .NET Min (NaN as soon as one value is NaN); Max skips NaN unless
-/// every value is NaN. Float16 literals compare with Half columns exactly.
+/// every value is NaN. Float16 literals compare with Half columns exactly. Grouping and Distinct compare floating keys
+/// as .NET Equals does: every NaN is one value (whatever its payload or sign) and -0.0 equals 0.0.
 module Polars.NET.Linq.Conformance.Tests.FloatConformance
 
 open System
@@ -54,3 +55,32 @@ let ``Float16 literals compare with Half values exactly`` () =
     let hs: HX array = [| { Id = 1L; H = Nullable(Half.op_Explicit 0.5) }; { Id = 2L; H = Nullable(Half.op_Explicit 2.0) }; { Id = 3L; H = Nullable() } |]
     let plan = project (t.Scan hs) [ ("gt", bin BinaryOp.Gt (col "H") (ScalarExpr.Literal(LiteralValue.Float16(Half.op_Explicit 1.0)))) ]
     Conformance.rowsInOrder t plan [ [ false ]; [ true ]; [ null ] ]
+
+type GF = { Id: int64; X: Nullable<float> }
+
+/// NaNs of other payloads and signs than Double.NaN's.
+let private otherNaN = BitConverter.Int64BitsToDouble 0x7FF8000000000001L
+let private negativeNaN = BitConverter.Int64BitsToDouble 0xFFF8000000000000L
+
+let private floatKeys: GF array =
+    [|
+        { Id = 1L; X = Nullable 0.0 }
+        { Id = 2L; X = Nullable -0.0 }
+        { Id = 3L; X = Nullable nan }
+        { Id = 4L; X = Nullable otherNaN }
+        { Id = 5L; X = Nullable 1.0 }
+        { Id = 6L; X = Nullable negativeNaN }
+        { Id = 7L; X = Nullable -0.0 }
+    |]
+
+[<Fact>]
+let ``Grouping takes -0.0 as 0.0 and every NaN as one value`` () =
+    let t = Tables()
+    let plan = LogicalPlan.GroupBy(t.Scan floatKeys, [ col "X" ], [ "n", len; "first", agg AggKind.First (col "Id") ], None, true)
+    Conformance.rowsInOrder t plan [ [ 0.0; 3L; 1L ]; [ nan; 3L; 3L ]; [ 1.0; 1L; 5L ] ]
+
+[<Fact>]
+let ``Distinct takes -0.0 as 0.0 and every NaN as one value`` () =
+    let t = Tables()
+    let plan = project (LogicalPlan.Distinct(t.Scan floatKeys, Some [ "X" ], DistinctKeep.First, true)) [ "Id", col "Id" ]
+    Conformance.rowsInOrder t plan [ [ 1L ]; [ 3L ]; [ 5L ] ]
