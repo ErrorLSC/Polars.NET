@@ -268,6 +268,9 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
         else Put(path, content, createOnly: false);
     }
 
+    /// <summary>Whether <see cref="OpenWrite"/> streams the file to the store (the managed clients, in parts) rather than holding it whole in memory.</summary>
+    internal bool StreamsWrites => _managed is not null;
+
     /// <inheritdoc/>
     /// <remarks>The managed store writes in parts; the native one holds the bytes and writes them at commit.</remarks>
     public FileWriteStream OpenWrite(string path, bool createOnly) =>

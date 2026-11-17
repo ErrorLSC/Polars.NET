@@ -18,6 +18,14 @@ public abstract class FileWriteStream : Stream
     private int _disposed;
     private long _written;
 
+    /// <summary>
+    /// Whether <see cref="Commit"/> first makes the bytes durable where the storage would otherwise only buffer them (a
+    /// local file synced to disk before it is renamed into place). True by default (log commits, checkpoints); data
+    /// files written without a sync request turn it off, as the engine's own sink writes them. Stores whose commit is
+    /// durable anyway (cloud uploads) ignore it.
+    /// </summary>
+    public virtual bool SyncOnCommit { get; set; } = true;
+
     /// <summary>Opens a stream that holds the bytes in memory and writes them with one call at commit.</summary>
     /// <param name="fileSystem">The file system written to: <see cref="IWritableFileSystem.TryCreate"/> or <see cref="IWritableFileSystem.Overwrite"/>.</param>
     /// <param name="path">The file's path.</param>

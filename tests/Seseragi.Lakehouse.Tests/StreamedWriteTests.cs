@@ -392,4 +392,30 @@ public class StreamedWriteTests
         }
         Assert.Empty(tracking.Rollback());
     }
+
+    [Fact]
+    public void SyncOnCommit_ReachesTheStoresStream_ThroughTheTrackingWrapper()
+    {
+        // Data files written without a sync request turn it off on the stream they get: the tracking wrapper must pass
+        // it on to the store's stream, which syncs (or not) at commit. A local file commits either way.
+        string dir = Path.Combine(Path.GetTempPath(), $"sync_{Guid.NewGuid():N}");
+        try
+        {
+            var local = new LocalFileSystem(dir);
+            var tracking = new TrackingFileSystem(local);
+            using (FileWriteStream stream = tracking.OpenWrite("a.bin", createOnly: true))
+            {
+                Assert.True(stream.SyncOnCommit);
+                stream.SyncOnCommit = false;
+                Assert.False(stream.SyncOnCommit);
+                stream.Write("abc"u8);
+                Assert.True(stream.Commit());
+            }
+            Assert.Equal("abc"u8.ToArray(), local.ReadAll("a.bin"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
 }

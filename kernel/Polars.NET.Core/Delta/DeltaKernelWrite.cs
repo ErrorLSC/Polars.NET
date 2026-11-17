@@ -642,29 +642,14 @@ internal static class DeltaKernelWrite
         string suffix = CodecSuffix(options.Compression);
         string[] notNullPartitions = [.. partitions.Where(p => !schema.Field(p)!.Nullable)];
         string[] sinkKeys = bucketColumn is null ? partitions : [.. partitions, bucketColumn];
+        if (ManagedSink.Applies(fileSystem, sinkKeys.Length))
+        {
+            // The managed writer (no sink keys: every file in the table's directory, or _change_data, or a prefix).
+            List<ManagedSink.Written> files = ManagedSink.Sink(fileSystem, shaped, dataFields, index => Place(null, index), options, approxBytesPerFile);
+            return [.. files.Select((f, i) => new SunkFile(f.Relative, written[i].Values, f.Size, f.Footer))];
+        }
         HostPathSink.Sink(
-            shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile,
-            (keys, index) =>
-            {
-                Dictionary<string, string?> values = PartitionValues(keys, schema, partitions);
-                foreach (string p in notNullPartitions)
-                {
-                    if (values[p] is null)
-                        throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {p}.");
-                }
-                string directory = prefixLength > 0
-                    ? FilePrefixes.New(prefixLength) + "/"
-                    : (changeData ? "_change_data/" : "") + string.Concat(partitions.Select(p =>
-                        $"{EscapePartitionName(schema.Field(p)!.PhysicalName)}={EscapePartitionName(values[p] ?? HiveDefaultPartition)}/"));
-                // Spark's names: part-00000-UUID-c000.snappy.parquet, in a partitioned table (Spark's dynamic
-                // partition writer) part-00000-UUID.c000.snappy.parquet, and cdc-00000-UUID.c000.snappy.parquet.
-                string relative = changeData
-                    ? $"{directory}cdc-{index:D5}-{Guid.NewGuid()}.c000{suffix}"
-                    : $"{directory}part-{index:D5}-{Guid.NewGuid()}{(partitions.Length > 0 ? '.' : '-')}c000{suffix}";
-                fileSystem.Track(relative); // deleted again if the operation fails
-                written.Add((relative, values));
-                return relative;
-            },
+            shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile, Place,
             options.Compression, options.CompressionLevel, options.RowGroupSize, options.DataPageSize, options.MaintainOrder,
             options.SyncOnClose, cloud, FieldIds(dataFields));
 
@@ -679,6 +664,30 @@ internal static class DeltaKernelWrite
             throw new PolarsException(e.Message);
         }
         return [.. written.Select((w, i) => new SunkFile(w.Relative, w.Values, footers[i].Size, footers[i].Footer))];
+
+        // Names file `index` of the partition whose key values are the one row of `keys` (none without sink keys),
+        // tracked before it is written (deleted again if the operation fails).
+        string Place(DataFrameHandle? keys, long index)
+        {
+            Dictionary<string, string?> values = PartitionValues(keys, schema, partitions);
+            foreach (string p in notNullPartitions)
+            {
+                if (values[p] is null)
+                    throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {p}.");
+            }
+            string directory = prefixLength > 0
+                ? FilePrefixes.New(prefixLength) + "/"
+                : (changeData ? "_change_data/" : "") + string.Concat(partitions.Select(p =>
+                    $"{EscapePartitionName(schema.Field(p)!.PhysicalName)}={EscapePartitionName(values[p] ?? HiveDefaultPartition)}/"));
+            // Spark's names: part-00000-UUID-c000.snappy.parquet, in a partitioned table (Spark's dynamic
+            // partition writer) part-00000-UUID.c000.snappy.parquet, and cdc-00000-UUID.c000.snappy.parquet.
+            string relative = changeData
+                ? $"{directory}cdc-{index:D5}-{Guid.NewGuid()}.c000{suffix}"
+                : $"{directory}part-{index:D5}-{Guid.NewGuid()}{(partitions.Length > 0 ? '.' : '-')}c000{suffix}";
+            fileSystem.Track(relative);
+            written.Add((relative, values));
+            return relative;
+        }
     }
 
     /// <summary>
@@ -834,10 +843,10 @@ internal static class DeltaKernelWrite
         string.Join('/', relative.Split('/').Select(segment => Uri.EscapeDataString(segment).Replace("%3D", "=")));
 
     /// <summary>The partition values of one group in the text form of the log; null for a null value.</summary>
-    private static Dictionary<string, string?> PartitionValues(DataFrameHandle group, StructType schema, string[] partitions)
+    private static Dictionary<string, string?> PartitionValues(DataFrameHandle? group, StructType schema, string[] partitions)
     {
         var values = new Dictionary<string, string?>(StringComparer.Ordinal);
-        if (partitions.Length == 0) return values;
+        if (partitions.Length == 0 || group is null) return values;
 
         var exprs = partitions.Select(p => PolarsWrapper.Alias(PolarsWrapper.First(Comparable(p, schema.Field(p)!.Type), ignoreNulls: false), p)).ToArray();
         using JsonDocument row = OneRow(group, exprs);

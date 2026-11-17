@@ -175,7 +175,7 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
 
         protected override bool CommitCore()
         {
-            file.Flush(flushToDisk: true);
+            file.Flush(flushToDisk: SyncOnCommit);
             file.Dispose();
             return Publish(temp, target, createOnly);
         }
@@ -183,7 +183,7 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
         protected override async ValueTask<bool> CommitCoreAsync(CancellationToken cancellationToken)
         {
             await file.FlushAsync(cancellationToken).ConfigureAwait(false);
-            file.Flush(flushToDisk: true);
+            if (SyncOnCommit) file.Flush(flushToDisk: true);
             await file.DisposeAsync().ConfigureAwait(false);
             return Publish(temp, target, createOnly);
         }

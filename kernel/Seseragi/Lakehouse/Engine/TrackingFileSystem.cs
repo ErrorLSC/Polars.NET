@@ -142,6 +142,12 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
     /// <summary>A stream that reports how its commit ended.</summary>
     private sealed class ObservedWriteStream(FileWriteStream inner, Action<bool> committed, Action? failed) : FileWriteStream
     {
+        public override bool SyncOnCommit
+        {
+            get => inner.SyncOnCommit;
+            set => inner.SyncOnCommit = value;
+        }
+
         protected override void WriteCore(ReadOnlySpan<byte> buffer) => inner.Write(buffer);
 
         protected override ValueTask WriteCoreAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>

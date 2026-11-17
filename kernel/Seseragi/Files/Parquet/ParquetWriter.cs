@@ -476,7 +476,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>The bytes of a batch's Arrow buffers (children and dictionaries included).</summary>
-    private static long ArrowBytes(RecordBatch batch)
+    internal static long ArrowBytes(RecordBatch batch)
     {
         long bytes = 0;
         for (int c = 0; c < batch.ColumnCount; c++) bytes += Of(batch.Column(c).Data);

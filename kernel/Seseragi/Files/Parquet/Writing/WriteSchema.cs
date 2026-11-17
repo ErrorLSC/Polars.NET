@@ -98,6 +98,21 @@ internal static class WriteSchema
                             [.. steps, new StructStep(c, optional, where)], $"{where}.{child.Name}");
                     }
                     return;
+                case ListType or LargeListType or ListViewType or LargeListViewType when options.MapColumns?.Contains(where) == true:
+                {
+                    // A list of key/value structs written as a map (the shape Polars holds maps in).
+                    var (layout, item) = type switch
+                    {
+                        ListType l => (ListLayout.List, l.ValueField),
+                        LargeListType l => (ListLayout.LargeList, l.ValueField),
+                        ListViewType l => (ListLayout.View, l.ValueField),
+                        _ => (ListLayout.LargeView, ((LargeListViewType)type).ValueField),
+                    };
+                    if (item.DataType is not StructType { Fields.Count: 2 } entry)
+                        throw new ArgumentException($"Column '{where}' is written as a map but is not a list of key/value structs.", nameof(options));
+                    Map(entry.Fields[0], entry.Fields[1], layout);
+                    return;
+                }
                 case ListType or LargeListType or FixedSizeListType or ListViewType or LargeListViewType:
                 {
                     var (layout, size, item) = type switch
@@ -119,20 +134,8 @@ internal static class WriteSchema
                     return;
                 }
                 case MapType map:
-                {
-                    elements.Add(new SchemaElement
-                    {
-                        Name = name, Repetition = repetition, NumChildren = 1, FieldId = id,
-                        LogicalType = new LogicalType(LogicalTypeKind.Map), ConvertedType = ConvertedType.Map,
-                    });
-                    elements.Add(new SchemaElement { Name = "key_value", Repetition = FieldRepetition.Repeated, NumChildren = 2 });
-                    var entries = new ListStep(ListLayout.List, 0, rep + 1, optional, where);
-                    Node(top, map.KeyField, map.KeyField.DataType, "key", false, ArrowFieldIds.Of(map.KeyField), below + 1, rep + 1, [.. path, "key_value", "key"],
-                        [.. steps, entries, new StructStep(0, false, where)], where + ".key");
-                    Node(top, map.ValueField, map.ValueField.DataType, "value", map.ValueField.IsNullable, ArrowFieldIds.Of(map.ValueField), below + 1, rep + 1,
-                        [.. path, "key_value", "value"], [.. steps, entries, new StructStep(1, false, where)], where + ".value");
+                    Map(map.KeyField, map.ValueField, ListLayout.List);
                     return;
-                }
                 case DictionaryType { ValueType: NestedType } dictionary:
                     Node(top, field, dictionary.ValueType, name, optional, id, def, rep, path, [.. steps, new RemapStep(optional, where)], where);
                     return;
@@ -148,6 +151,22 @@ internal static class WriteSchema
                     columns.Add(new ColumnPlan(top, path, steps.Length == 0 ? null : [.. steps, new LeafStep(optional, where)], leaf));
                     return;
                 }
+            }
+
+            // A MAP group: entries repeated, each a key (required) and a value; the entries laid out as a list's items.
+            void Map(Field key, Field value, ListLayout layout)
+            {
+                elements.Add(new SchemaElement
+                {
+                    Name = name, Repetition = repetition, NumChildren = 1, FieldId = id,
+                    LogicalType = new LogicalType(LogicalTypeKind.Map), ConvertedType = ConvertedType.Map,
+                });
+                elements.Add(new SchemaElement { Name = "key_value", Repetition = FieldRepetition.Repeated, NumChildren = 2 });
+                var entries = new ListStep(layout, 0, rep + 1, optional, where);
+                Node(top, key, key.DataType, "key", false, ArrowFieldIds.Of(key), below + 1, rep + 1, [.. path, "key_value", "key"],
+                    [.. steps, entries, new StructStep(0, false, where)], where + ".key");
+                Node(top, value, value.DataType, "value", value.IsNullable, ArrowFieldIds.Of(value), below + 1, rep + 1,
+                    [.. path, "key_value", "value"], [.. steps, entries, new StructStep(1, false, where)], where + ".value");
             }
         }
     }
