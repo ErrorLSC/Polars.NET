@@ -11,7 +11,7 @@ namespace Seseragi.Files.Tests.Parquet;
 /// <summary>
 /// <see cref="ParquetWriter"/> owning its batches (<see cref="ParquetBatchOwnership.Writer"/>): the file is the one
 /// the caller's batches give, whatever the threads (row groups encoded side by side); every batch is disposed once,
-/// after its rows are encoded, also when writing fails; row groups by bytes count the batches' Arrow bytes.
+/// after its rows are encoded, also when writing fails; row groups by bytes count the rows' logical Arrow bytes.
 /// </summary>
 public sealed class ParquetWriterOwnershipTests
 {
@@ -161,7 +161,7 @@ public sealed class ParquetWriterOwnershipTests
     }
 
     [Fact]
-    public void RowGroupsByBytes_CountTheBatchesArrowBytes_TheSameWhateverTheThreads()
+    public void RowGroupsByBytes_TheSameWhateverTheThreads()
     {
         RecordBatch wide = ParquetWriteData.Wide(84, 24_000);
         var options = new ParquetWriteOptions { RowGroupBytes = 300_000, BatchOwnership = ParquetBatchOwnership.Writer };
@@ -177,6 +177,33 @@ public sealed class ParquetWriterOwnershipTests
         using var file = ParquetFile.Open(new MemoryStream(first!));
         Assert.True(file.Metadata.RowGroups.Count > 3, $"{file.Metadata.RowGroups.Count} row groups");
         Assert.Equal(24_000, file.Metadata.RowGroups.Sum(g => g.RowCount));
+    }
+
+    [Fact]
+    public void RowGroupsByBytes_CountTheRowsOwnBytes_SlicesAsTheirCopies()
+    {
+        // Batches sliced out of one (each holding the whole batch's buffers) close row groups where compact copies of
+        // the same rows do: by the rows' logical bytes, never by the buffers they share.
+        RecordBatch wide = ParquetWriteData.Wide(85, 24_000);
+        var options = new ParquetWriteOptions { RowGroupBytes = 3_000_000, BatchOwnership = ParquetBatchOwnership.Writer, MaxDegreeOfParallelism = 4 };
+        RecordBatch[] slices = Uneven(wide);
+        var tracker = new Tracker();
+        byte[] sliced = Written([.. slices.Select(tracker.Copy)], wide.Schema, options);
+        tracker.AssertEachDisposedOnce();
+        byte[] copied = Written([.. slices.Select(Compact)], wide.Schema, options);
+        Assert.True(copied.AsSpan().SequenceEqual(sliced), "slices and their copies write other files");
+        using var file = ParquetFile.Open(new MemoryStream(sliced));
+        Assert.InRange(file.Metadata.RowGroups.Count, 2, slices.Length / 2);
+
+        // A compact copy: the rows alone, through Arrow IPC.
+        static RecordBatch Compact(RecordBatch slice)
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Apache.Arrow.Ipc.ArrowStreamWriter(stream, slice.Schema, leaveOpen: true)) writer.WriteRecordBatch(slice);
+            stream.Position = 0;
+            using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(stream);
+            return reader.ReadNextRecordBatch();
+        }
     }
 
     [Theory]

@@ -45,10 +45,10 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly ConcurrentExclusiveSchedulerPair? _columnWork; // the column work of every row group, MaxDegreeOfParallelism at once
     private readonly ConcurrentStack<(ColumnWriter[] Columns, Shredder?[] Shredders)> _spares = new();
     private readonly Queue<(Task<FinishedChunk[]> Encoding, long Rows, long Bytes)> _encoding = new();
-    private long _encodingBytes; // the Arrow bytes of the row groups being encoded
-    private long _laidOutArrowBytes, _laidOutChunkBytes; // of the row groups encoded from batches and laid out: their compression ratio
+    private long _encodingBytes; // the logical Arrow bytes of the row groups being encoded
+    private long _laidOutLogicalBytes, _laidOutChunkBytes; // of the row groups encoded from batches and laid out: their compression ratio
     private readonly List<Segment> _open = []; // the open row group's rows
-    private long _openBytes;                   // their batches' Arrow bytes
+    private long _openBytes;                   // their batches' logical Arrow bytes
     private long _rowGroupRows, _totalRows, _position;
     private bool _started, _completed, _faulted, _aborted, _disposed;
     private ParquetMetadata? _metadata;
@@ -136,7 +136,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// About how many bytes the row groups not in <see cref="BytesWritten"/> yet will take: the open one (its pages so
     /// far, the open ones as plainly encoded) and, with more than one thread, those closed and still being finished
     /// (exactly: waits for them). With <see cref="ParquetBatchOwnership.Writer"/> and more than one thread,
-    /// also those still being encoded: exactly once encoded, else (and the open one) their batches' Arrow bytes scaled by
+    /// also those still being encoded: exactly once encoded, else (and the open one) their batches' logical Arrow bytes scaled by
     /// the ratio the row groups laid out so far compressed to (unscaled before the first). So BytesWritten +
     /// PendingBytes is what the file would take now, which a caller splitting files by size can go by.
     /// </summary>
@@ -150,7 +150,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 foreach (var (sealing, _, _) in _encoding) sealedBytes += sealing.GetAwaiter().GetResult().Sum(c => c.CompressedSize);
                 return sealedBytes + _columns.Sum(c => c.BufferedBytes);
             }
-            double ratio = _laidOutArrowBytes > 0 ? (double)_laidOutChunkBytes / _laidOutArrowBytes : 1;
+            double ratio = _laidOutLogicalBytes > 0 ? (double)_laidOutChunkBytes / _laidOutLogicalBytes : 1;
             double pending = _openBytes * ratio;
             foreach (var (encoding, _, bytes) in _encoding)
             {
@@ -457,7 +457,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Adds a batch the writer owns to the open row group, as segments; a row group full (by rows, or by its batches'
-    /// Arrow bytes: known before encoding) goes to be encoded while the next one fills.
+    /// logical Arrow bytes: known before encoding) goes to be encoded while the next one fills.
     /// </summary>
     private async ValueTask WriteTakenAsync(Taken taken, bool useAsync, CancellationToken ct)
     {
@@ -466,7 +466,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         CheckBatch(batch);
         try
         {
-            long bytes = ArrowBytes(batch);
+            long bytes = ArrowSizes.LogicalBytes(batch);
             int offset = 0;
             while (offset < batch.Length)
             {
@@ -484,23 +484,6 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         {
             _faulted = true;
             throw;
-        }
-    }
-
-    /// <summary>The bytes of a batch's Arrow buffers (children and dictionaries included).</summary>
-    internal static long ArrowBytes(RecordBatch batch)
-    {
-        long bytes = 0;
-        for (int c = 0; c < batch.ColumnCount; c++) bytes += Of(batch.Column(c).Data);
-        return bytes;
-
-        static long Of(ArrayData data)
-        {
-            // Arrays built without children or buffers (the null type, some builders) leave them null.
-            long bytes = 0;
-            foreach (ArrowBuffer buffer in data.Buffers ?? []) bytes += buffer.Length;
-            foreach (ArrayData child in data.Children ?? []) bytes += Of(child);
-            return data.Dictionary is { } dictionary ? bytes + Of(dictionary) : bytes;
         }
     }
 
@@ -606,7 +589,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         var (encoding, rows, bytes) = _encoding.Dequeue();
         _encodingBytes -= bytes;
         FinishedChunk[] finished = await encoding.ConfigureAwait(false);
-        _laidOutArrowBytes += bytes;
+        _laidOutLogicalBytes += bytes;
         _laidOutChunkBytes += finished.Sum(c => c.CompressedSize);
         await LayOutAsync(finished, rows, useAsync, ct).ConfigureAwait(false);
     }

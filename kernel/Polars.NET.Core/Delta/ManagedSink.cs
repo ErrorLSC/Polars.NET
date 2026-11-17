@@ -93,13 +93,13 @@ internal static class ManagedSink
                             if (schema is null) (schema, maps) = WriterSchema(part.Schema, dataFields);
                             open ??= File.Open(fileSystem, pathFor(written.Count), schema, WriterOptions(options, rowGroupRows, maps), options.SyncOnClose != PlSyncOnClose.None);
                             // As many rows as the file takes: up to its row limit, and up to its size, a row's bytes on
-                            // disk as the file shows them so far (before its first rows, the Arrow bytes of the chunk's
-                            // buffers: no fewer than on disk; the file goes on filling after them).
+                            // disk as the file shows them so far (before its first rows, their logical Arrow bytes:
+                            // mostly no fewer than on disk; the file goes on filling after them).
                             int take = part.Length;
                             if (maxRows > 0) take = (int)Math.Min(take, maxRows - open.Rows);
                             if (target > 0)
                             {
-                                double perRow = open.PerRow ?? (double)ParquetWriter.ArrowBytes(part) / part.Length;
+                                double perRow = open.PerRow ?? (double)ArrowSizes.LogicalBytes(part) / part.Length;
                                 take = (int)Math.Min(take, Math.Max(1, (long)((target - open.Bytes(target)) / perRow)));
                             }
                             open.Write(take < part.Length ? part.Slice(0, take) : part); // encoded at once

@@ -46,8 +46,9 @@ public sealed record ParquetWriteOptions
 
     /// <summary>
     /// A row group is closed once its encoded pages reach about this many bytes (128 MiB by default); with
-    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, once the batches' Arrow buffers for its rows
-    /// do (row groups are then laid out before they are encoded).
+    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, once its rows' logical Arrow bytes do (what
+    /// a compact copy of them would take, however their buffers are shared; row groups are then laid out before they
+    /// are encoded).
     /// </summary>
     public long RowGroupBytes { get; init; } = 128L << 20;
 
@@ -137,7 +138,7 @@ public sealed record ParquetWriteOptions
     public ParquetBatchOwnership BatchOwnership { get; init; } = ParquetBatchOwnership.Caller;
 
     /// <summary>
-    /// With <see cref="ParquetBatchOwnership.Writer"/>, the batches' Arrow bytes of the row groups encoded at once, at
+    /// With <see cref="ParquetBatchOwnership.Writer"/>, the logical Arrow bytes of the row groups encoded at once, at
     /// most (a row group goes beyond alone). Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested table)
     /// wrote fastest eight at a time, of 210 MB (1 Mi rows of eight flat columns) two at a time; more held memory and
     /// slowed the writes. Tests set less.

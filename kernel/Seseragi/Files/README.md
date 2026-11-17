@@ -202,7 +202,8 @@ fills another set of column writers, and goes to the stream while the next one i
 for byte, whatever the degree. With `BatchOwnership = Writer` the writer takes the batches (reading them after `Write` returns,
 disposing each once its rows are encoded, also on failure) and, on several threads, encodes several row groups at once
 straight from them (each by column writers of its own, within a bound on their batches' bytes), writing them in order;
-row groups are then closed on rows or on the batches' Arrow bytes, and the file is the one the caller's batches give
+row groups are then closed on rows or on the rows' logical Arrow bytes (what a compact copy of them takes, however
+their buffers are shared), and the file is the one the caller's batches give
 whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once its row group is in the stream. Pages
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
