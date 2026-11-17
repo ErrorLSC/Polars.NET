@@ -35,8 +35,9 @@ internal sealed partial class CheckpointStatistics
 
     /// <summary>
     /// Appends the typed columns of add actions straight into native Arrow builders (the <c>partitionValues_parsed</c>
-    /// and <c>stats_parsed</c> builders of a checkpoint batch), with the values <see cref="PartitionValue"/> and
-    /// <see cref="StatsValue"/> give: the statistics are read with a <see cref="Utf8JsonReader"/>, text is parsed as
+    /// and <c>stats_parsed</c> builders of a checkpoint batch): partition values typed, and each file's JSON statistics
+    /// read into the struct as Spark's <c>from_json</c> reads them (a value missing, or not readable as the column's
+    /// type, is null; a struct the JSON lacks is null as a whole). The statistics are read with a <see cref="Utf8JsonReader"/>, text is parsed as
     /// spans, nothing is boxed.
     /// </summary>
     /// <param name="statistics">The table's typed columns.</param>
@@ -86,7 +87,7 @@ internal sealed partial class CheckpointStatistics
             _unescaped?.Release();
         }
 
-        /// <summary>The struct nodes of leaves at their paths, nested in first-seen order (as <c>Nest</c> builds the schema).</summary>
+        /// <summary>The struct nodes of leaves at their paths, nested in first-seen order (as <see cref="StatsNode"/> nests them).</summary>
         private static Node Tree((string[] Path, ValueKind Kind, bool NullCount, DecimalType? Decimal)[] leaves)
         {
             List<Node> children = [];
@@ -116,7 +117,7 @@ internal sealed partial class CheckpointStatistics
             partitions.EndStruct();
         }
 
-        /// <summary>A partition value typed (as <c>FromPartitionText</c>); false when it does not read as the column's type.</summary>
+        /// <summary>A partition value typed (as the log's partition text writes it); false when it does not read as the column's type.</summary>
         private static bool AppendPartitionText(NativeColumnBuilder builder, string text, Leaf leaf)
         {
             ValueKind kind = KindOf(leaf.Type);
@@ -149,7 +150,7 @@ internal sealed partial class CheckpointStatistics
             }
         }
 
-        /// <summary>Text as the column's value (as <c>FromText</c>): strings, decimals, dates, timestamps; false when it does not read.</summary>
+        /// <summary>Text as the column's value (as the log and partition paths write it): strings, decimals, dates, timestamps; false when it does not read.</summary>
         private static bool AppendText(NativeColumnBuilder builder, ReadOnlySpan<char> text, ValueKind kind, DecimalType? decimalType, bool partition)
         {
             switch (kind)
@@ -434,7 +435,7 @@ internal sealed partial class CheckpointStatistics
             builder.EndStruct();
         }
 
-        /// <summary>A statistic as the column's value (as <c>FromStat</c>); false (nothing appended) when it is not one.</summary>
+        /// <summary>A statistic as the column's value (a number, or text for decimals, dates, timestamps, strings); false (nothing appended) when it is not one.</summary>
         private bool AppendStat(ref Utf8JsonReader reader, NativeColumnBuilder builder, Node leaf)
         {
             if (leaf.NullCount)
@@ -510,7 +511,7 @@ internal sealed partial class CheckpointStatistics
         }
 
         /// <summary>
-        /// The unscaled value of decimal text (as <c>Unscaled</c>: <c>-12.5</c> at scale 2 is -1250); null when it has
+        /// The unscaled value of decimal text (<c>-12.5</c> at scale 2 is -1250); null when it has
         /// more fraction digits than the scale, more digits than the precision, or is not a number.
         /// </summary>
         private static Int128? Unscaled(ReadOnlySpan<char> text, DecimalType type)

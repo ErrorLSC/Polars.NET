@@ -51,41 +51,48 @@ public class CheckpointStatisticsTests
             new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 }));
     }
 
+    /// <summary>A checkpoint of one file per statistics text / partition value set, read back: the typed columns of each file.</summary>
+    private static (List<string?> Stats, List<string?> Partitions) Typed(params (string? Stats, Dictionary<string, string?> Partitions)[] files)
+    {
+        var fs = new MemoryFileSystem();
+        var protocol = new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 };
+        Transaction transaction = Transaction.Create(fs, protocol, new MetadataAction { Id = "t", SchemaString = Schema, PartitionColumns = ["pd"] });
+        int n = 0;
+        foreach (var (stats, partitions) in files) transaction.Add(new AddAction { Path = $"f{n++}.parquet", Stats = stats, PartitionValues = partitions });
+        transaction.Commit();
+        byte[] file = fs.ReadAll(Checkpoints.Write(fs, Snapshot.Load(fs)))!;
+        return ([.. CheckpointRead.Column(file, "add", "stats_parsed").Skip(2)], [.. CheckpointRead.Column(file, "add", "partitionValues_parsed").Skip(2)]);
+    }
+
     [Fact]
     public void Values_AreTheStatisticsInTheColumnsTypes()
     {
-        var value = Statistics().StatsValue(
-            """
-            {"numRecords":3,
-             "minValues":{"i":-1,"big":-0.001,"small":"12.5","tn":"2024-01-02T03:04:05.123","ts":"1960-06-01T00:00:00.000Z","dbl":-0.0},
-             "maxValues":{"i":7,"big":1234567890123456789012.345,"small":999.999},
-             "nullCount":{"i":0,"b":3,"st":{"x":1},"arr":2}}
-            """)!;
-        var min = (Dictionary<string, object?>)value["minValues"]!;
-        var max = (Dictionary<string, object?>)value["maxValues"]!;
-        Assert.Equal(3L, value["numRecords"]);
-        Assert.Equal(-1, min["i"]);
-        byte[] minusOne = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]; // -1 unscaled, 11 bytes
-        Assert.Equal(minusOne, min["big"]);
-        Assert.Equal(1250, min["small"]);
-        Assert.Equal(1704164645123000L, min["tn"]);   // the local date-time as microseconds since the epoch
-        Assert.Equal(-302486400000000L, min["ts"]);   // before the epoch
-        Assert.Equal(0d, min["dbl"]);
-        Assert.False(double.IsNegative((double)min["dbl"]!)); // negative zero as zero, as Spark
-        Assert.Null(min["st"]);                          // not in the JSON: null as a whole
-        Assert.Null(max["small"]);                       // more fraction digits than the scale: not the column's value
-        var nulls = (Dictionary<string, object?>)value["nullCount"]!;
-        Assert.Equal((3L, 2L, 1L), ((long)nulls["b"]!, (long)nulls["arr"]!, (long)((Dictionary<string, object?>)nulls["st"]!)["x"]!));
-        Assert.Null(Statistics().StatsValue(null));
-        Assert.Null(Statistics().StatsValue("not json"));
+        var (stats, _) = Typed(
+            ("""
+             {"numRecords":3,
+              "minValues":{"i":-1,"big":-0.001,"small":"12.5","tn":"2024-01-02T03:04:05.123","ts":"1960-06-01T00:00:00.000Z","dbl":-0.0},
+              "maxValues":{"i":7,"big":1234567890123456789012.345,"small":999.999},
+              "nullCount":{"i":0,"b":3,"st":{"x":1},"arr":2}}
+             """, []),
+            (null, []),
+            ("not json", []));
+        // big: -1 unscaled (11 bytes); tn: the local date-time as microseconds since the epoch; ts: before the epoch;
+        // dbl: negative zero as zero, as Spark; st not in the JSON: null as a whole; max small: more fraction digits
+        // than the scale, not the column's value.
+        Assert.Equal(
+            "{numRecords:3," +
+            "minValues:{i:-1,big:-0.001,small:12.50,tn:1704164645123000us,ts:-302486400000000us,dbl:0}," +
+            "maxValues:{i:7,big:1234567890123456789012.345}," +
+            "nullCount:{i:0,b:3,st:{x:1},arr:2}}",
+            stats[0]);
+        Assert.Null(stats[1]);
+        Assert.Null(stats[2]);
     }
 
     [Fact]
     public void PartitionValues_AreTyped_EmptyOrMissingIsNull()
     {
-        CheckpointStatistics statistics = Statistics();
-        Assert.Equal(18294, statistics.PartitionValue(new AddAction { Path = "a", PartitionValues = new Dictionary<string, string?> { ["pd"] = "2020-02-02" } })!["pd"]);
-        Assert.Null(statistics.PartitionValue(new AddAction { Path = "a", PartitionValues = new Dictionary<string, string?> { ["pd"] = null } })!["pd"]);
-        Assert.Null(statistics.PartitionValue(new AddAction { Path = "a", PartitionValues = new Dictionary<string, string?>() })!["pd"]);
+        var (_, partitions) = Typed((null, new() { ["pd"] = "2020-02-02" }), (null, new() { ["pd"] = null }), (null, []));
+        Assert.Equal(["{pd:18294d}", "{}", "{}"], partitions);
     }
 }

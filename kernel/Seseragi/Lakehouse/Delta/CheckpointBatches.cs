@@ -7,7 +7,7 @@ namespace Kaminari.Seseragi.Lakehouse.Delta;
 /// <summary>
 /// The rows of a classic checkpoint appended action by action straight into native Arrow builders (one row per
 /// action, its own column set, the others null), exported as batches of at most <see cref="BatchRows"/> rows: no row
-/// dictionaries, no boxed values, no managed buffers. The values are those <c>Checkpoints</c>' reference rows hold.
+/// dictionaries, no boxed values, no managed buffers.
 /// </summary>
 internal sealed class CheckpointBatches : IDisposable
 {

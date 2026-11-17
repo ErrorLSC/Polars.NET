@@ -7,7 +7,7 @@ namespace Polars.Integration.Tests;
 
 /// <summary>
 /// A checkpoint larger than an upload part, written by the kernel straight to an object store through the managed
-/// client (in parts, as it is built): the bytes are the reference ones, and the table loads from the checkpoint alone.
+/// client (in parts, as it is built): the table loads from the checkpoint alone.
 /// fake-gcs takes no XML multipart uploads (classic checkpoints replace), so GCS is covered on the real service.
 /// </summary>
 public class DeltaKernelLargeCheckpointTests(MinioFixture minio, AzuriteFixture azurite) : IClassFixture<MinioFixture>, IClassFixture<AzuriteFixture>
@@ -56,7 +56,6 @@ public class DeltaKernelLargeCheckpointTests(MinioFixture minio, AzuriteFixture 
         byte[] written = fs.ReadAll("_delta_log/00000000000000000000.checkpoint.parquet")!;
         Assert.True(written.Length > 2 * fs.UploadPartSize, $"the checkpoint has {written.Length} bytes");
         Assert.True(requests >= 4, $"{requests} requests: the checkpoint did not go in parts"); // start, two parts, complete
-        Assert.True(Checkpoints.ReferenceParquet(snapshot, now).AsSpan().SequenceEqual(written));
 
         // The table as the checkpoint alone holds it.
         Assert.True(fs.Delete("_delta_log/00000000000000000000.json"));
