@@ -104,14 +104,22 @@ public class DeletionVectorDescriptorTests
         Assert.Equal("u^-aqEH.-t@S}K{vb[*k^", bare.UniqueId);
     }
 
+    private static byte[] Decoded(string text)
+    {
+        var bytes = new byte[Z85.DecodedLength(text.Length)];
+        Assert.Equal(bytes.Length, Z85.Decode(text, bytes));
+        return bytes;
+    }
+
     [Fact]
     public void Z85_RoundTrips_AndMatchesTheReferenceVector()
     {
         byte[] reference = [0x86, 0x4F, 0xD2, 0x6F, 0xB5, 0x59, 0xF7, 0x5B];
         Assert.Equal("HelloWorld", Z85.Encode(reference));
-        Assert.Equal(reference, Z85.Decode("HelloWorld"));
-        Assert.Throws<DeltaException>(() => Z85.Decode("abc"));
-        Assert.Throws<DeltaException>(() => Z85.Decode("ab\"cd"));
+        Assert.Equal(reference, Decoded("HelloWorld"));
+        Assert.Throws<DeltaException>(() => Decoded("abc"));
+        Assert.Throws<DeltaException>(() => Decoded("ab\"cd"));
+        Assert.Throws<ArgumentException>(() => Z85.Decode("HelloWorld", new byte[7]));
     }
 
     [Fact]
@@ -120,15 +128,18 @@ public class DeletionVectorDescriptorTests
         // "#####" is 85^5 - 1, above 2^32 - 1. Delta's Base85Codec keeps the low 32 bits.
         uint low = unchecked((uint)(85L * 85 * 85 * 85 * 85 - 1));
         byte[] expected = [(byte)(low >> 24), (byte)(low >> 16), (byte)(low >> 8), (byte)low];
-        Assert.Equal(expected, Z85.Decode("#####"));
+        Assert.Equal(expected, Decoded("#####"));
     }
 
     [Fact]
     public void Inline_And_AbsolutePath()
     {
         var inline = new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 8, Cardinality = 1 };
-        Assert.Equal(8, inline.InlineBytes().Length);
-        Assert.Equal(6, new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 6, Cardinality = 1 }.InlineBytes().Length);
+        Assert.Equal(8, inline.InlineBufferLength);
+        Assert.Equal([0x86, 0x4F, 0xD2, 0x6F, 0xB5, 0x59, 0xF7, 0x5B], inline.InlineBytes(new byte[8]).ToArray());
+        Assert.Equal(6, new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 6, Cardinality = 1 }.InlineBytes(new byte[8]).Length);
+        Assert.Throws<ArgumentException>(() => inline.InlineBytes(new byte[7]));
+        Assert.Contains("says 9", Assert.Throws<DeltaException>(() => new DeletionVectorDescriptor { StorageType = "i", PathOrInlineDv = "HelloWorld", SizeInBytes = 9, Cardinality = 1 }.InlineBytes(new byte[8])).Message);
         Assert.Throws<DeltaException>(inline.FilePath);
 
         var absolute = new DeletionVectorDescriptor { StorageType = "p", PathOrInlineDv = "s3://b/dv.bin", SizeInBytes = 8, Cardinality = 1 };

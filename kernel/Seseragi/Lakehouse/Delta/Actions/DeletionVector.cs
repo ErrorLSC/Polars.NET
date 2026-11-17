@@ -34,7 +34,7 @@ public sealed class DeletionVector(RoaringBitmap64 rows) : IDisposable
         ArgumentNullException.ThrowIfNull(descriptor);
         RoaringBitmap64 rows = descriptor.StorageType switch
         {
-            "i" => Decode(descriptor.InlineBytes()),
+            "i" => DecodeInline(descriptor),
             "u" or "p" => DecodeFromFile(fileSystem, descriptor),
             _ => throw new DeltaException($"Unknown deletion vector storage type '{descriptor.StorageType}'."),
         };
@@ -45,6 +45,20 @@ public sealed class DeletionVector(RoaringBitmap64 rows) : IDisposable
             throw new DeltaException($"The deletion vector holds {held} rows but its descriptor says {descriptor.Cardinality}.");
         }
         return new DeletionVector(rows);
+    }
+
+    /// <summary>The rows of an inline vector: its Z85 text decoded on the stack (native memory when large).</summary>
+    private static RoaringBitmap64 DecodeInline(DeletionVectorDescriptor descriptor)
+    {
+        const int StackBytes = 1024;
+        int length = descriptor.InlineBufferLength;
+        if (length <= StackBytes)
+        {
+            Span<byte> buffer = stackalloc byte[StackBytes];
+            return Decode(descriptor.InlineBytes(buffer[..length]));
+        }
+        using var native = new NativeBufferWriter(length);
+        return Decode(descriptor.InlineBytes(native.GetSpan(length)[..length]));
     }
 
     /// <summary>The rows of a vector stored in a file: its block read into native memory, checked and decoded.</summary>
@@ -167,7 +181,9 @@ public sealed class DeletionVector(RoaringBitmap64 rows) : IDisposable
 
         Guid id = Guid.NewGuid();
         string prefix = FilePrefixes.New(prefixLength);
-        string encodedId = prefix + Z85.Encode(id.ToByteArray(bigEndian: true));
+        Span<byte> uuid = stackalloc byte[16];
+        id.TryWriteBytes(uuid, bigEndian: true, out _);
+        string encodedId = prefix + Z85.Encode(uuid);
         string path = prefix.Length == 0 ? $"deletion_vector_{id:D}.bin" : $"{prefix}/deletion_vector_{id:D}.bin";
         if (!fileSystem.TryCreate(path, file.WrittenMemory))
             throw new DeltaException($"The deletion vector file {path} already exists.");

@@ -1,3 +1,5 @@
+using Kaminari.Sazanami.Buffers;
+
 namespace Kaminari.Seseragi.Lakehouse.Delta.Actions;
 
 /// <summary>Points at the deletion vector of a data file: the rows of the file that no longer exist.</summary>
@@ -38,7 +40,8 @@ public sealed class DeletionVectorDescriptor
                 if (PathOrInlineDv.Length < 20)
                     throw new DeltaException($"Malformed deletion vector descriptor: '{PathOrInlineDv}'.");
                 string prefix = PathOrInlineDv[..^20];
-                byte[] bytes = Z85.Decode(PathOrInlineDv.AsSpan(PathOrInlineDv.Length - 20));
+                Span<byte> bytes = stackalloc byte[16];
+                Z85.Decode(PathOrInlineDv.AsSpan(PathOrInlineDv.Length - 20), bytes);
                 // The 16 bytes are the UUID in big-endian order.
                 var uuid = new Guid(bytes, bigEndian: true);
                 string name = $"deletion_vector_{uuid:D}.bin";
@@ -49,15 +52,31 @@ public sealed class DeletionVectorDescriptor
         }
     }
 
-    /// <summary>For storage type <c>i</c>, the serialized vector.</summary>
-    public byte[] InlineBytes()
+    /// <summary>For storage type <c>i</c>, the bytes <see cref="InlineBytes"/> decodes into (the vector padded to whole 4-byte groups).</summary>
+    /// <exception cref="DeltaException">The vector is not inline, or its text is not Z85.</exception>
+    public int InlineBufferLength
     {
-        if (!IsInline) throw new DeltaException($"Deletion vector of storage type '{StorageType}' is not inline.");
+        get
+        {
+            if (!IsInline) throw new DeltaException($"Deletion vector of storage type '{StorageType}' is not inline.");
+            return Z85.DecodedLength(PathOrInlineDv.Length);
+        }
+    }
+
+    /// <summary>
+    /// For storage type <c>i</c>, decodes the serialized vector into <paramref name="buffer"/> (at least
+    /// <see cref="InlineBufferLength"/> bytes: stack or native memory) and returns it, without the padding.
+    /// </summary>
+    /// <exception cref="DeltaException">The vector is not inline, its text is not Z85, or it is shorter than its size.</exception>
+    public ReadOnlySpan<byte> InlineBytes(Span<byte> buffer)
+    {
+        int padded = InlineBufferLength;
+        if (buffer.Length < padded) throw new ArgumentException($"The buffer holds {buffer.Length} bytes, the vector needs {padded}.", nameof(buffer));
         // The encoder pads the vector to a multiple of four bytes; the descriptor carries the true size.
-        byte[] padded = Z85.Decode(PathOrInlineDv);
-        if (SizeInBytes > padded.Length)
-            throw new DeltaException($"The inline deletion vector holds {padded.Length} bytes but its descriptor says {SizeInBytes}.");
-        return padded.Length == SizeInBytes ? padded : padded[..SizeInBytes];
+        if (SizeInBytes > padded)
+            throw new DeltaException($"The inline deletion vector holds {padded} bytes but its descriptor says {SizeInBytes}.");
+        Z85.Decode(PathOrInlineDv, buffer);
+        return buffer[..SizeInBytes];
     }
 }
 
@@ -75,10 +94,16 @@ internal static class Z85
         return table;
     }
 
-    public static byte[] Decode(ReadOnlySpan<char> text)
+    /// <summary>The bytes <paramref name="textLength"/> characters decode into.</summary>
+    /// <exception cref="DeltaException">The length is not a multiple of 5.</exception>
+    public static int DecodedLength(int textLength) =>
+        textLength % 5 == 0 ? textLength / 5 * 4 : throw new DeltaException("Z85 text length is not a multiple of 5.");
+
+    /// <summary>Decodes <paramref name="text"/> into the start of <paramref name="bytes"/>; returns the bytes written.</summary>
+    public static int Decode(ReadOnlySpan<char> text, Span<byte> bytes)
     {
-        if (text.Length % 5 != 0) throw new DeltaException("Z85 text length is not a multiple of 5.");
-        var bytes = new byte[text.Length / 5 * 4];
+        int length = DecodedLength(text.Length);
+        if (bytes.Length < length) throw new ArgumentException($"Z85 text of {text.Length} characters needs {length} bytes.", nameof(bytes));
         for (int i = 0, o = 0; i < text.Length; i += 5, o += 4)
         {
             ulong value = 0;
@@ -97,13 +122,17 @@ internal static class Z85
             bytes[o + 2] = (byte)(value >> 8);
             bytes[o + 3] = (byte)value;
         }
-        return bytes;
+        return length;
     }
 
     public static string Encode(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length % 4 != 0) throw new DeltaException("Z85 input length is not a multiple of 4.");
-        var chars = new char[bytes.Length / 4 * 5];
+        int length = bytes.Length / 4 * 5;
+        // The text is the only managed allocation: the characters are built on the stack or in native memory.
+        using NativeArray<char>? native = length > StackChars ? new NativeArray<char>(length) : null;
+        Span<char> chars = native is null ? stackalloc char[StackChars] : native.AsSpan(0, length);
+        chars = chars[..length];
         for (int i = 0, o = 0; i < bytes.Length; i += 4, o += 5)
         {
             uint value = (uint)(bytes[i] << 24 | bytes[i + 1] << 16 | bytes[i + 2] << 8 | bytes[i + 3]);
@@ -115,4 +144,6 @@ internal static class Z85
         }
         return new string(chars);
     }
+
+    private const int StackChars = 1024;
 }
