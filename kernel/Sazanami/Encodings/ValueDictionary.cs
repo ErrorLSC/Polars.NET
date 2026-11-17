@@ -51,6 +51,18 @@ internal sealed class FixedValueDictionary<T> : IDisposable where T : unmanaged
         _slots.AsSpan(0, _slotCount).Clear();
     }
 
+    /// <summary>The native bytes it holds (values and table).</summary>
+    public long ScratchBytes => (long)_values.Capacity * Unsafe.SizeOf<T>() + (long)_slots.Capacity * sizeof(int);
+
+    /// <summary>Empties it and returns its memory but a small table (grown again as values come).</summary>
+    public void Trim()
+    {
+        _values.Dispose();
+        _count = 0;
+        _slots.Dispose();
+        DictionarySlots.Empty(_slots, ref _slotCount, 128);
+    }
+
     public void Dispose()
     {
         _values.Dispose();
@@ -146,6 +158,21 @@ internal sealed class ByteArrayDictionary : IDisposable
         _count = 0;
         _arenaLength = 0;
         _slots.AsSpan(0, _slotCount).Clear();
+    }
+
+    /// <summary>The native bytes it holds (values, offsets, hashes and table).</summary>
+    public long ScratchBytes => _arena.Capacity + 4L * _offsets.Capacity + 4L * _hashes.Capacity + 4L * _slots.Capacity;
+
+    /// <summary>Empties it and returns its memory but a small table (grown again as values come).</summary>
+    public void Trim()
+    {
+        _arena.Dispose();
+        _hashes.Dispose();
+        _offsets.Dispose();
+        _offsets.Reserve(1); // the first offset is kept as values are added
+        _slots.Dispose();
+        DictionarySlots.Empty(_slots, ref _slotCount, 128);
+        _count = _arenaLength = 0;
     }
 
     public void Dispose()

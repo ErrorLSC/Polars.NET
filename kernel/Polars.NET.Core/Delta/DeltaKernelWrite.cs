@@ -642,14 +642,18 @@ internal static class DeltaKernelWrite
         string suffix = CodecSuffix(options.Compression);
         string[] notNullPartitions = [.. partitions.Where(p => !schema.Field(p)!.Nullable)];
         string[] sinkKeys = bucketColumn is null ? partitions : [.. partitions, bucketColumn];
-        if (ManagedSink.Applies(fileSystem, sinkKeys.Length))
+        if (ManagedSink.Applies(fileSystem))
         {
-            // The managed writer (no sink keys: every file in the table's directory, or _change_data, or a prefix).
-            List<ManagedSink.Written> files = ManagedSink.Sink(fileSystem, shaped, dataFields, index => Place(null, index), options, approxBytesPerFile);
-            return [.. files.Select((f, i) => new SunkFile(f.Relative, written[i].Values, f.Size, f.Footer))];
+            // The managed writer: files paired with their partition values by path (in the order it gives them).
+            ManagedSink.SinkResult sunk = ManagedSink.Sink(
+                fileSystem, shaped, sinkKeys, options.KeysPreGrouped, dataFields, Describe, PathFor, options, approxBytesPerFile);
+            if (sunk.ClosedForMemory > 0)
+                System.Diagnostics.Trace.TraceInformation($"{sunk.ClosedForMemory} data files were closed before their target size to hold the memory the open files take.");
+            Dictionary<string, Dictionary<string, string?>> valuesOf = written.ToDictionary(w => w.Relative, w => w.Values, StringComparer.Ordinal);
+            return [.. sunk.Files.Select(f => new SunkFile(f.Relative, valuesOf[f.Relative], f.Size, f.Footer))];
         }
         HostPathSink.Sink(
-            shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile, Place,
+            shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile, (keys, index) => PathFor(Describe(keys), index),
             options.Compression, options.CompressionLevel, options.RowGroupSize, options.DataPageSize, options.MaintainOrder,
             options.SyncOnClose, cloud, FieldIds(dataFields));
 
@@ -665,9 +669,9 @@ internal static class DeltaKernelWrite
         }
         return [.. written.Select((w, i) => new SunkFile(w.Relative, w.Values, footers[i].Size, footers[i].Footer))];
 
-        // Names file `index` of the partition whose key values are the one row of `keys` (none without sink keys),
-        // tracked before it is written (deleted again if the operation fails).
-        string Place(DataFrameHandle? keys, long index)
+        // The partition values of the rows whose key values are the one row of `keys` (none without sink keys),
+        // checked against the table's NOT NULL partition columns.
+        Dictionary<string, string?> Describe(DataFrameHandle? keys)
         {
             Dictionary<string, string?> values = PartitionValues(keys, schema, partitions);
             foreach (string p in notNullPartitions)
@@ -675,6 +679,13 @@ internal static class DeltaKernelWrite
                 if (values[p] is null)
                     throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {p}.");
             }
+            return values;
+        }
+
+        // Names file `index` of the partition of these values, tracked before it is written (deleted again if the
+        // operation fails).
+        string PathFor(Dictionary<string, string?> values, long index)
+        {
             string directory = prefixLength > 0
                 ? FilePrefixes.New(prefixLength) + "/"
                 : (changeData ? "_change_data/" : "") + string.Concat(partitions.Select(p =>

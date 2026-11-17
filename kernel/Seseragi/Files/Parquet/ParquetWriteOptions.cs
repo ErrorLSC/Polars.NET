@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using Apache.Arrow.Types;
 
+using Kaminari.Seseragi.Files.Parquet.Writing;
+
 namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>The layout of data pages.</summary>
@@ -152,6 +154,13 @@ public sealed record ParquetWriteOptions
     /// <c>.value</c>), for example <c>m</c>, <c>s.m</c>, <c>a[]</c>. Null for none.
     /// </summary>
     internal IReadOnlySet<string>? MapColumns { get; init; }
+
+    /// <summary>
+    /// The threads the writer keeps busy, shared with other writers (files written side by side, such as one per
+    /// partition: together they keep its <see cref="WorkBudget.Max"/> busy at most); null for a budget of
+    /// <see cref="MaxDegreeOfParallelism"/> of its own. Its maximum should be <see cref="MaxDegreeOfParallelism"/>.
+    /// </summary>
+    internal WorkBudget? SharedBudget { get; init; }
 
     /// <summary>Leave the stream open when the writer is disposed.</summary>
     public bool LeaveOpen { get; init; }

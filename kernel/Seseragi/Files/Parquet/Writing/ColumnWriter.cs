@@ -377,6 +377,39 @@ internal abstract class ColumnWriter : IDisposable
         Bloom?.Dispose();
     }
 
+    /// <summary>
+    /// The native bytes its scratch holds (page values, levels, dictionary indices, encoding buffers, the dictionary):
+    /// what it keeps between row groups for reuse.
+    /// </summary>
+    internal long ScratchBytes =>
+        _values.Capacity + _levelScratch.Capacity + _body.Capacity + _dictionaryPage.Capacity
+        + 4L * (_pageDef.Capacity + _pageRep.Capacity + _indices.Capacity) + ValueScratchBytes;
+
+    /// <summary>The native bytes of a subclass's scratch (its page values, dictionary).</summary>
+    protected virtual long ValueScratchBytes => 0;
+
+    /// <summary>
+    /// Returns its scratch memory to the pool between row groups (after <see cref="Reset"/>; grown again as rows come):
+    /// for writers that stay open long with little to write (one per partition).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The writer holds rows or pages.</exception>
+    internal void Trim()
+    {
+        if (_pageRows != 0 || _inFlight.Count != 0 || _committed.Count != 0)
+            throw new InvalidOperationException("Only a column writer between row groups is trimmed.");
+        _values.Dispose();
+        _levelScratch.Dispose();
+        _body.Dispose();
+        _dictionaryPage.Dispose();
+        _pageDef.Dispose();
+        _pageRep.Dispose();
+        _indices.Dispose();
+        TrimValues();
+    }
+
+    /// <summary>Returns a subclass's scratch memory (see <see cref="Trim"/>).</summary>
+    protected virtual void TrimValues() { }
+
     /// <summary>Forgets the finished chunk (its buffers are reused).</summary>
     public void Reset()
     {

@@ -365,6 +365,16 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
         _chunkBounds = default;
     }
 
+    protected override long ValueScratchBytes =>
+        (long)(_page.Capacity + _scratch.Capacity) * Unsafe.SizeOf<T>() + _dictionary.ScratchBytes;
+
+    protected override void TrimValues()
+    {
+        _page.Dispose();
+        _scratch.Dispose();
+        _dictionary.Trim();
+    }
+
     public override void Dispose()
     {
         base.Dispose();
@@ -822,6 +832,20 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
 
     protected override long PageUnencodedBytes => _arenaLength;
 
+    protected override long ValueScratchBytes =>
+        _arena.Capacity + 4L * (_offsets.Capacity + _lengths.Capacity + _seen.Capacity) + _dictionary.ScratchBytes;
+
+    protected override void TrimValues()
+    {
+        _arena.Dispose();
+        _offsets.Dispose();
+        _offsets.Reserve(1);
+        _offsets[0] = 0; // the first offset of every page
+        _lengths.Dispose();
+        _seen.Dispose();
+        _dictionary.Trim();
+    }
+
     public override void Dispose()
     {
         base.Dispose();
@@ -937,6 +961,15 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
     {
         _any = _max = _pageAny = _pageMax = false;
         _min = _pageMin = true;
+    }
+
+    protected override long ValueScratchBytes => _page.Capacity + _rle.Capacity + 4L * _bits.Capacity;
+
+    protected override void TrimValues()
+    {
+        _page.Dispose();
+        _rle.Dispose();
+        _bits.Dispose();
     }
 
     public override void Dispose()

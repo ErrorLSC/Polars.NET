@@ -1074,7 +1074,7 @@ public class SparkInteropTests
                 versions = DmlTable.Int64Column(df, DeltaKernelScan.RowCommitVersionColumn);
             for (int i = 0; i < ids.Length; i++) result.Add((ids[i], rowIds[i], versions[i]));
         }
-        return [.. result.OrderBy(r => r.Item1)];
+        return [.. result.OrderBy(r => r.Item1).ThenBy(r => r.Item2)];
     }
 
     /// <summary>Spark's _metadata.row_id and row_commit_version equal the kernel's, and the ids are unique.</summary>
@@ -1083,7 +1083,7 @@ public class SparkInteropTests
         JsonDocument spark = LocalSpark.Run("row_ids", table)[0];
         var expected = spark.RootElement.GetProperty("rows").EnumerateArray()
             .Select(r => (r.GetProperty("id").GetInt64(), r.GetProperty("row_id").GetInt64(), r.GetProperty("row_commit_version").GetInt64()))
-            .ToList();
+            .OrderBy(r => r.Item1).ThenBy(r => r.Item2).ToList(); // rows of one id in row id order (files come in any order)
         var actual = KernelRowIds(table);
         Assert.True(expected.SequenceEqual(actual), $"{step}: Spark {string.Join(" ", expected)} / kernel {string.Join(" ", actual)}");
         Assert.Equal(actual.Count, actual.Select(r => r.RowId).Distinct().Count());

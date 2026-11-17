@@ -151,6 +151,38 @@ public sealed class ParquetWriterParallelTests
         Assert.Equal(totals[0], totals[1]);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public void TrimmedScratch_WritesTheSameFile(int threads)
+    {
+        // Column writers giving their scratch back between row groups (as a writer per partition does) and growing it
+        // again: the same bytes as writers keeping it, flat (dictionaries, strings, booleans) and nested.
+        RecordBatch wide = ParquetWriteData.Wide(77, 12_000);
+        var (nested, _) = ParquetNestedData.Batch(78, 6_000);
+        foreach (RecordBatch batch in (RecordBatch[])[wide, nested])
+        {
+            var options = new ParquetWriteOptions { MaxDegreeOfParallelism = threads, DataPageRows = 700, LeaveOpen = true };
+            byte[] Write(bool trim)
+            {
+                using var stream = new MemoryStream();
+                using (var writer = ParquetWriter.Create(stream, batch.Schema, options))
+                {
+                    for (int at = 0; at < batch.Length; at += 1500)
+                    {
+                        writer.Write(batch.Slice(at, Math.Min(1500, batch.Length - at)));
+                        writer.EndRowGroup();
+                        long held = writer.ScratchBytes;
+                        if (trim) writer.TrimScratch();
+                        if (trim) Assert.True(writer.ScratchBytes < held);
+                    }
+                }
+                return stream.ToArray();
+            }
+            Assert.True(Write(trim: false).AsSpan().SequenceEqual(Write(trim: true)), $"{batch.Schema.FieldsList[0].Name}...: trimmed scratch writes another file");
+        }
+    }
+
     /// <summary>A stream whose writes take a while (a row group written behind is then still on its way).</summary>
     private sealed class SlowStream : MemoryStream
     {

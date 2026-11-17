@@ -66,7 +66,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         var settings = new PageSettings(options.Compression.ParquetCodec, options.Compression.ParquetLevel, options.DataPageVersion,
             options.DataPageBytes, options.DataPageRows, options.Dictionary, options.DictionaryPageBytes, options.Statistics,
             options.StatisticsTruncateLength, options.WriteChecksums, options.PageIndex, options.SizeStatistics,
-            Budget: _budget = new WorkBudget(options.MaxDegreeOfParallelism));
+            Budget: _budget = options.SharedBudget ?? new WorkBudget(options.MaxDegreeOfParallelism));
         _elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
         _plans = plans;
         ParquetColumnOptions?[] columns = ColumnSettings.Resolve(plans, options.Columns);
@@ -158,6 +158,36 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             }
             return (long)pending;
         }
+    }
+
+    /// <summary>
+    /// At least what the row groups not in <see cref="BytesWritten"/> yet take, with the caller owning the batches,
+    /// known without waiting for pages being compressed (those count at their largest compressed size): for holding
+    /// many writers' buffered bytes under a budget.
+    /// </summary>
+    internal long PendingBytesBound
+    {
+        get
+        {
+            long bytes = _columns.Sum(c => c.BufferedBytesBound);
+            foreach (var (sealing, _, bound) in _encoding)
+                bytes += sealing.IsCompletedSuccessfully ? sealing.Result.Sum(c => c.CompressedSize) : bound;
+            return bytes;
+        }
+    }
+
+    /// <summary>The native bytes the open row group's column writers keep as scratch (see <see cref="TrimScratch"/>).</summary>
+    internal long ScratchBytes => _columns.Sum(c => c.ScratchBytes);
+
+    /// <summary>
+    /// Returns the column writers' scratch memory to the pool, between row groups (after <see cref="EndRowGroup"/>):
+    /// for a writer that stays open long with little to write (one per partition), at the cost of growing it again.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A row group is open.</exception>
+    internal void TrimScratch()
+    {
+        if (_rowGroupRows != 0) throw new InvalidOperationException("A row group is open.");
+        foreach (ColumnWriter column in _columns) column.Trim();
     }
 
     /// <summary>
@@ -587,10 +617,15 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private async ValueTask WriteEncodedAsync(bool useAsync, CancellationToken ct)
     {
         var (encoding, rows, bytes) = _encoding.Dequeue();
-        _encodingBytes -= bytes;
-        FinishedChunk[] finished = await encoding.ConfigureAwait(false);
-        _laidOutLogicalBytes += bytes;
-        _laidOutChunkBytes += finished.Sum(c => c.CompressedSize);
+        FinishedChunk[] finished;
+        if (_columnWork is null) finished = await encoding.ConfigureAwait(false); // a sealed row group (its bytes a bound)
+        else
+        {
+            _encodingBytes -= bytes;
+            finished = await encoding.ConfigureAwait(false);
+            _laidOutLogicalBytes += bytes;
+            _laidOutChunkBytes += finished.Sum(c => c.CompressedSize);
+        }
         await LayOutAsync(finished, rows, useAsync, ct).ConfigureAwait(false);
     }
 
@@ -711,7 +746,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         if (_rowGroupRows == 0) return;
         long rows = _rowGroupRows;
-        if (_budget.Max > 1)
+        // Writers sharing a budget (one per partition, many open) do not seal: a second set of column writers each would
+        // double what they hold.
+        if (_budget.Max > 1 && _options.SharedBudget is null)
         {
             // Sealed: its column writers finish it on a task (the oldest sealed laid out first when too many are),
             // the next row group fills a spare set.
@@ -719,7 +756,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             var set = (_columns, _shredders);
             (_columns, _shredders) = _spares.TryPop(out var spare) ? spare : NewColumns();
             _rowGroupRows = 0;
-            _encoding.Enqueue((Task.Run(() => Finish(set, spare: true)), rows, 0));
+            // Its bytes as far as known without waiting (the pages in flight at their largest), for PendingBytesBound.
+            _encoding.Enqueue((Task.Run(() => Finish(set, spare: true)), rows, set.Item1.Sum(c => c.BufferedBytesBound)));
             PeakRowGroupsInFlight = Math.Max(PeakRowGroupsInFlight, _encoding.Count);
             return;
         }

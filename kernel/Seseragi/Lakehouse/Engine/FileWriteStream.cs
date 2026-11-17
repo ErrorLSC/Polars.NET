@@ -1,3 +1,6 @@
+using System.Buffers;
+using Kaminari.Sazanami.Buffers;
+
 namespace Kaminari.Seseragi.Lakehouse.Engine;
 
 /// <summary>
@@ -25,6 +28,13 @@ public abstract class FileWriteStream : Stream
     /// durable anyway (cloud uploads) ignore it.
     /// </summary>
     public virtual bool SyncOnCommit { get; set; } = true;
+
+    /// <summary>
+    /// The bytes written that the stream holds in memory on their way to the storage (a cloud upload's part being
+    /// filled and the parts in flight; nothing for a local file, which the system buffers): for holding many open
+    /// files under one budget. May be read while another thread writes (then about right).
+    /// </summary>
+    public virtual long BufferedBytes => 0;
 
     /// <summary>Opens a stream that holds the bytes in memory and writes them with one call at commit.</summary>
     /// <param name="fileSystem">The file system written to: <see cref="IWritableFileSystem.TryCreate"/> or <see cref="IWritableFileSystem.Overwrite"/>.</param>
@@ -226,22 +236,32 @@ public abstract class FileWriteStream : Stream
         System.Diagnostics.Trace.TraceWarning($"Could not remove what an uncommitted file left: {e.Message}");
 }
 
-/// <summary>Holds the bytes in memory; at commit, one <see cref="IWritableFileSystem.TryCreate"/> or <see cref="IWritableFileSystem.Overwrite"/>.</summary>
+/// <summary>
+/// Holds the bytes in native memory (<see cref="NativeBufferWriter"/>); at commit, one
+/// <see cref="IWritableFileSystem.TryCreate"/> or <see cref="IWritableFileSystem.Overwrite"/>.
+/// </summary>
 internal sealed class BufferedFileWriteStream(IWritableFileSystem fileSystem, string path, bool createOnly) : FileWriteStream
 {
-    private MemoryStream? _bytes = new();
+    private NativeBufferWriter? _bytes = new();
+
+    public override long BufferedBytes => Volatile.Read(ref _bytes)?.WrittenCount ?? 0;
 
     protected override void WriteCore(ReadOnlySpan<byte> buffer) => _bytes!.Write(buffer);
 
     protected override bool CommitCore()
     {
-        var content = new ReadOnlyMemory<byte>(_bytes!.GetBuffer(), 0, (int)_bytes.Length);
+        ReadOnlyMemory<byte> content = _bytes!.WrittenMemory;
         if (createOnly) return fileSystem.TryCreate(path, content);
         fileSystem.Overwrite(path, content);
         return true;
     }
 
-    protected override void Abort() => _bytes = null;
+    protected override void Abort() => Free();
 
-    protected override void Release() => _bytes = null;
+    protected override void Release() => Free();
+
+    private void Free()
+    {
+        Interlocked.Exchange(ref _bytes, null)?.Dispose();
+    }
 }

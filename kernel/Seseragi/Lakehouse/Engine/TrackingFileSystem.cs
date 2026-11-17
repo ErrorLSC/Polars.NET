@@ -148,6 +148,8 @@ public sealed class TrackingFileSystem(IWritableFileSystem inner) : IWritableFil
             set => inner.SyncOnCommit = value;
         }
 
+        public override long BufferedBytes => inner.BufferedBytes;
+
         protected override void WriteCore(ReadOnlySpan<byte> buffer) => inner.Write(buffer);
 
         protected override ValueTask WriteCoreAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>

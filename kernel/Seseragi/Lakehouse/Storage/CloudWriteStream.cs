@@ -27,6 +27,9 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
     private readonly List<Task<UploadedPart>> _parts = [];
     private readonly List<Task<UploadedPart>> _running = [];
     private readonly CancellationTokenSource _abort = new();
+    private long _bufferBytes, _inFlightBytes; // the part being filled (its buffer), the parts being sent (BufferedBytes)
+
+    public override long BufferedBytes => Volatile.Read(ref _bufferBytes) + Interlocked.Read(ref _inFlightBytes);
 
     protected override void WriteCore(ReadOnlySpan<byte> buffer)
     {
@@ -53,6 +56,7 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         int needed = _filled + count;
         if (_buffer is null) _buffer = new NativeByteBuffer(Math.Min(partSize, Math.Max(needed, FirstBuffer)), pooled: true);
         else if (needed > _buffer.Capacity) _buffer.EnsureCapacity(Math.Min(partSize, Math.Max(needed, 2L * _buffer.Capacity))); // keeps the bytes
+        Volatile.Write(ref _bufferBytes, _buffer.Capacity);
         source[..count].CopyTo(_buffer.Span[_filled..]);
         _filled = needed;
         return count;
@@ -86,7 +90,9 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         }
         ThrowIfAPartFailed();
 
-        Task<UploadedPart> part = PutAsync(_upload, _parts.Count, _buffer!, _filled);
+        Interlocked.Add(ref _inFlightBytes, _buffer!.Capacity);
+        Volatile.Write(ref _bufferBytes, 0);
+        Task<UploadedPart> part = PutAsync(_upload, _parts.Count, _buffer, _filled);
         _buffer = null;
         _filled = 0;
         _parts.Add(part);
@@ -102,6 +108,7 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         }
         finally
         {
+            Interlocked.Add(ref _inFlightBytes, -buffer.Capacity);
             buffer.Release();
         }
     }
@@ -219,5 +226,6 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         _buffer?.Release();
         _buffer = null;
         _filled = 0;
+        Volatile.Write(ref _bufferBytes, 0);
     }
 }

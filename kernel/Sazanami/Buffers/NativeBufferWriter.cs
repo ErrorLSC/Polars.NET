@@ -17,6 +17,9 @@ internal sealed class NativeBufferWriter(int initialCapacity = 4096) : IBufferWr
     /// <summary>The bytes written.</summary>
     public int WrittenCount => _length;
 
+    /// <summary>The native bytes it holds (none before the first write and after <see cref="Dispose"/>, which it may follow).</summary>
+    public long Capacity => _buffer?.Capacity ?? 0;
+
     public ReadOnlySpan<byte> WrittenSpan => _buffer is null ? [] : _buffer.Span[.._length];
 
     public ReadOnlyMemory<byte> WrittenMemory => _buffer is null ? default : _buffer.Memory[.._length];

@@ -1,8 +1,12 @@
+using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Encodings;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
+using Kaminari.Seseragi.Files.Parquet.Writing;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.NET.Core.Arrow;
@@ -39,14 +43,24 @@ internal static class ManagedSink
     public readonly record struct Written(string Relative, long Size, ParquetMetadata Footer);
 
     /// <summary>
-    /// Whether the managed writer writes these files: asked for, without sink keys (partitions and buckets still go
-    /// through the engine's sink), into a store that streams (a local disk, or a cloud store served by the managed
-    /// clients: the native store would hold every file whole in memory).
+    /// The files written, partition by partition in the order the partitions first came (each partition's in order),
+    /// and how many of them were closed before their size to keep the buffered bytes under <see cref="MemoryBudget"/>.
     /// </summary>
-    public static bool Applies(IWritableFileSystem fileSystem, int sinkKeys) =>
-        sinkKeys == 0
-        && Environment.GetEnvironmentVariable(Variable)?.Trim().ToLowerInvariant() == "managed"
-        && Streams(fileSystem);
+    public sealed record SinkResult(List<Written> Files, int ClosedForMemory);
+
+    /// <summary>
+    /// The bytes the open files may hold in memory together (their pages not written yet, their writers' scratch, and
+    /// what their streams buffer: a cloud upload's parts); beyond, the largest row groups are ended early, then the largest files closed early.
+    /// The fixed buffers of each open writer come on top. Internal knob (tests set it).
+    /// </summary>
+    internal static long MemoryBudget { get; set; } = 1L << 30;
+
+    /// <summary>
+    /// Whether the managed writer writes these files: asked for, into a store that streams (a local disk, or a cloud
+    /// store served by the managed clients: the native store would hold every file whole in memory).
+    /// </summary>
+    public static bool Applies(IWritableFileSystem fileSystem) =>
+        Environment.GetEnvironmentVariable(Variable)?.Trim().ToLowerInvariant() == "managed" && Streams(fileSystem);
 
     private static bool Streams(IWritableFileSystem fileSystem) => fileSystem switch
     {
@@ -58,73 +72,310 @@ internal static class ManagedSink
     };
 
     /// <summary>
-    /// Sinks <paramref name="rows"/> (consumed: the data columns under their physical names, in
-    /// <paramref name="dataFields"/>' order, then any extra columns) as files at the paths <paramref name="pathFor"/>
-    /// names (by file index), each committed before the next is opened. No rows, no file. On a failure the open file is
-    /// given up (nothing of it stays) and the error rethrown; files committed before stay for the caller to remove.
+    /// Sinks <paramref name="rows"/> (consumed: the <paramref name="keys"/> columns, then the data columns under their
+    /// physical names in <paramref name="dataFields"/>' order, then any extra columns) as files, split by the keys'
+    /// values (each value a partition: rows of one partition only in a file, the key columns left out), by size on disk
+    /// and by rows. <paramref name="describe"/> describes a partition from a one-row frame of its rows (null without
+    /// keys), once, when its first rows come; <paramref name="pathFor"/> names its file of an index (0, 1, …), when the
+    /// file opens (calls are serialized). A file is committed when it is full, or at the end. No rows, no file. On a
+    /// failure every open file is given up (nothing of it stays) and the first error, in the order of the rows,
+    /// rethrown; files committed before stay for the caller to remove.
     /// </summary>
-    /// <param name="approxBytesPerFile">The size a file closes at on disk (the last batch cut to fit); 0 for no limit.</param>
-    public static List<Written> Sink(
-        IWritableFileSystem fileSystem, LazyFrameHandle rows, StructField[] dataFields, Func<long, string> pathFor,
-        KernelWriteOptions options, ulong approxBytesPerFile)
+    /// <param name="keysPreGrouped">Whether the rows come grouped by their keys (each partition's rows together): then
+    /// not sorted, and a partition's file is closed once the next partition's rows come.</param>
+    /// <param name="approxBytesPerFile">The size a file closes at on disk (the last rows cut to fit); 0 for no limit.</param>
+    public static SinkResult Sink<TPartition>(
+        IWritableFileSystem fileSystem, LazyFrameHandle rows, string[] keys, bool keysPreGrouped, StructField[] dataFields,
+        Func<DataFrameHandle?, TPartition> describe, Func<TPartition, long, string> pathFor, KernelWriteOptions options, ulong approxBytesPerFile)
     {
-        int rowGroupRows = options.RowGroupSize > 0 ? options.RowGroupSize : DefaultRowGroupRows;
-        long target = (long)Math.Min(approxBytesPerFile, long.MaxValue);
-        long maxRows = (long)Math.Min(options.MaxRowsPerFile, long.MaxValue);
-        List<Written> written = [];
-        File? open = null;
+        using var sink = new Sinking<TPartition>(fileSystem, keys, dataFields, describe, pathFor, options, approxBytesPerFile);
         try
         {
-            using CollectBatchesHandle batches = PolarsWrapper.LazyCollectBatches(rows, PlEngine.Streaming, options.MaintainOrder, (nuint)rowGroupRows);
-            Schema? schema = null;
-            IReadOnlySet<string>? maps = null;
+            using CollectBatchesHandle batches = PolarsWrapper.LazyCollectBatches(rows, PlEngine.Streaming, options.MaintainOrder, (nuint)sink.RowGroupRows);
             while (true)
             {
                 using DataFrameHandle frame = PolarsWrapper.CollectBatchesNext(batches, out bool done);
                 if (done) break;
-                foreach (RecordBatch chunk in Chunks(frame))
+                if (keys.Length == 0)
                 {
-                    using (chunk)
+                    foreach (RecordBatch chunk in Chunks(frame))
                     {
-                        for (int at = 0; at < chunk.Length;)
-                        {
-                            // The chunk's rows from at: a slice shares the chunk's memory (never disposed; the chunk is).
-                            RecordBatch part = at == 0 ? chunk : chunk.Slice(at, chunk.Length - at);
-                            if (schema is null) (schema, maps) = WriterSchema(part.Schema, dataFields);
-                            open ??= File.Open(fileSystem, pathFor(written.Count), schema, WriterOptions(options, rowGroupRows, maps), options.SyncOnClose != PlSyncOnClose.None);
-                            // As many rows as the file takes: up to its row limit, and up to its size, a row's bytes on
-                            // disk as the file shows them so far (before its first rows, their logical Arrow bytes:
-                            // mostly no fewer than on disk; the file goes on filling after them).
-                            int take = part.Length;
-                            if (maxRows > 0) take = (int)Math.Min(take, maxRows - open.Rows);
-                            if (target > 0)
-                            {
-                                double perRow = open.PerRow ?? (double)ArrowSizes.LogicalBytes(part) / part.Length;
-                                take = (int)Math.Min(take, Math.Max(1, (long)((target - open.Bytes(target)) / perRow)));
-                            }
-                            open.Write(take < part.Length ? part.Slice(0, take) : part); // encoded at once
-                            at += take;
-                            // Closed at its row limit, or when not one more row fits.
-                            if ((maxRows > 0 && open.Rows >= maxRows) || (target > 0 && target - open.Bytes(target) < open.PerRow))
-                            {
-                                written.Add(open.Close());
-                                open = null;
-                            }
-                        }
+                        using (chunk) sink.WriteUnkeyed(chunk);
                     }
                 }
+                else sink.WriteKeyed(frame, keysPreGrouped);
+                sink.HoldMemory();
             }
-            if (open is not null)
-            {
-                written.Add(open.Close());
-                open = null;
-            }
-            return written;
+            return sink.Finish();
         }
         catch
         {
-            open?.GiveUp();
+            sink.GiveUp();
             throw;
+        }
+    }
+
+    /// <summary>The column the engine numbers the runs of equal keys in (rows sorted by their keys).</summary>
+    private const string RunColumn = "__polars_net_sink_run";
+
+    /// <summary>A partition: its description, its open file and the files it closed.</summary>
+    private sealed class Partition<TPartition>(TPartition description)
+    {
+        public TPartition Description { get; } = description;
+        public File? Open { get; set; }
+        public long NextIndex { get; set; }
+        public List<Written> Closed { get; } = [];
+
+        // Of the batch being written: its number when the partition has rows in it, those rows' runs, the error met.
+        public long Batch { get; set; }
+        public List<(int Start, int Length)> Runs { get; } = [];
+        public Exception? Error { get; set; }
+    }
+
+    /// <summary>The state of one sink: the writer schema, the partitions, the shared threads, the memory held.</summary>
+    private sealed class Sinking<TPartition>(
+        IWritableFileSystem fileSystem, string[] keys, StructField[] dataFields, Func<DataFrameHandle?, TPartition> describe,
+        Func<TPartition, long, string> pathFor, KernelWriteOptions options, ulong approxBytesPerFile) : IDisposable
+    {
+        private readonly long _target = (long)Math.Min(approxBytesPerFile, long.MaxValue);
+        private readonly long _maxRows = (long)Math.Min(options.MaxRowsPerFile, long.MaxValue);
+        private readonly bool _sync = options.SyncOnClose != PlSyncOnClose.None;
+        // The partitions in the order they first came, numbered by their key bytes (in native memory; a run's key is
+        // written to the scratch buffer and looked up as a span).
+        private readonly List<Partition<TPartition>> _partitions = [];
+        private readonly ByteArrayDictionary _keys = new();
+        private readonly NativeBufferWriter _key = new(64);
+        // Kept from batch to batch: the key columns, the partitions a batch touches (in order), the batch's number.
+        private readonly IArrowArray[] _keyColumns = new IArrowArray[keys.Length];
+        private readonly List<Partition<TPartition>> _touched = [];
+        private long _batch;
+        private Schema? _dataSchema;
+        private readonly object _naming = new();
+        // Files written side by side (one per partition) keep the processors busy together, not each of them.
+        private readonly WorkBudget? _threads = keys.Length > 0 ? new WorkBudget(Environment.ProcessorCount) : null;
+        private ParquetWriteOptions? _writerOptions;
+        private Schema? _schema;
+        private int _closedForMemory;
+
+        public int RowGroupRows { get; } = options.RowGroupSize > 0 ? options.RowGroupSize : DefaultRowGroupRows;
+
+        /// <summary>Rows of the one partition there is without keys.</summary>
+        public void WriteUnkeyed(RecordBatch chunk)
+        {
+            Prepare(chunk.Schema, 0, chunk.ColumnCount);
+            if (_partitions.Count == 0) _partitions.Add(new Partition<TPartition>(describe(null)));
+            WriteRows(_partitions[0], chunk);
+        }
+
+        /// <summary>
+        /// Rows split by their keys: sorted by them (unless grouped already), exported once, cut into runs of equal keys;
+        /// the runs of each partition written by its file, the partitions side by side.
+        /// </summary>
+        public void WriteKeyed(DataFrameHandle frame, bool preGrouped)
+        {
+            using DataFrameHandle grouped = Grouped(frame, preGrouped);
+            using RecordBatch whole = ArrowFfiBridge.ExportDataFrame(grouped);
+            int runColumn = whole.ColumnCount - 1;
+            Prepare(whole.Schema, keys.Length, runColumn);
+            _dataSchema ??= new Schema([.. whole.Schema.FieldsList.Take(runColumn).Skip(keys.Length)], null);
+            // The data columns (sharing the batch's arrays: never disposed apart; slices of it neither).
+            var data = new RecordBatch(_dataSchema, [.. Enumerable.Range(keys.Length, runColumn - keys.Length).Select(whole.Column)], whole.Length);
+            for (int k = 0; k < keys.Length; k++) _keyColumns[k] = whole.Column(k);
+            ReadOnlySpan<uint> runs = ((UInt32Array)whole.Column(runColumn)).Values;
+
+            // The runs of each partition (one partition may take several: an empty string and a null are one), the
+            // partitions in the order of their first run.
+            _batch++;
+            _touched.Clear();
+            for (int start = 0; start < runs.Length;)
+            {
+                int end = start + 1;
+                while (end < runs.Length && runs[end] == runs[start]) end++;
+                _key.ResetWrittenCount();
+                ArrowRowKeys.Append(_keyColumns, start, _key, emptyIsNull: true);
+                int index = _keys.GetOrAdd(_key.WrittenSpan);
+                if (index == _partitions.Count)
+                {
+                    using DataFrameHandle first = PolarsWrapper.Slice(grouped, start, 1);
+                    _partitions.Add(new Partition<TPartition>(describe(first)));
+                }
+                Partition<TPartition> partition = _partitions[index];
+                if (partition.Batch != _batch)
+                {
+                    partition.Batch = _batch;
+                    partition.Runs.Clear();
+                    partition.Error = null;
+                    _touched.Add(partition);
+                }
+                partition.Runs.Add((start, end - start));
+                start = end;
+            }
+
+            ForEachPartition(_touched, partition =>
+            {
+                foreach (var (start, length) in partition.Runs) WriteRows(partition, data.Slice(start, length));
+            });
+
+            // Grouped rows: a partition before the last one of this batch has no rows to come.
+            if (preGrouped && _touched.Count > 0)
+            {
+                Partition<TPartition> last = _touched[^1];
+                foreach (Partition<TPartition> partition in _partitions)
+                {
+                    if (partition != last && partition.Open is not null) Close(partition);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs <paramref name="work"/> for each partition, side by side (each partition on one thread at a time); once
+        /// all are done, the first failure in the partitions' order is rethrown.
+        /// </summary>
+        private static void ForEachPartition(List<Partition<TPartition>> partitions, Action<Partition<TPartition>> work)
+        {
+            foreach (Partition<TPartition> partition in partitions) partition.Error = null;
+            void Run(int i)
+            {
+                try
+                {
+                    work(partitions[i]);
+                }
+                catch (Exception e)
+                {
+                    partitions[i].Error = e;
+                }
+            }
+            if (partitions.Count == 1) Run(0);
+            else if (partitions.Count > 1) Parallel.For(0, partitions.Count, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, Run);
+            foreach (Partition<TPartition> partition in partitions)
+            {
+                if (partition.Error is { } error) ExceptionDispatchInfo.Throw(error);
+            }
+        }
+
+        /// <summary>The engine batch with its run ids last: sorted by the keys first unless grouped already.</summary>
+        private DataFrameHandle Grouped(DataFrameHandle frame, bool preGrouped)
+        {
+            LazyFrameHandle lazy = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(frame));
+            if (!preGrouped)
+                lazy = PolarsWrapper.LazyFrameSort(lazy, [.. keys.Select(PolarsWrapper.Col)], [false], [false], maintainOrder: true);
+            ExprHandle run = PolarsWrapper.RleId(keys.Length == 1 ? PolarsWrapper.Col(keys[0]) : PolarsWrapper.AsStruct([.. keys.Select(PolarsWrapper.Col)]));
+            lazy = PolarsWrapper.LazyWithColumns(lazy, [PolarsWrapper.Alias(run, RunColumn)]);
+            return PolarsWrapper.LazyCollect(lazy, PlEngine.Auto);
+        }
+
+        /// <summary>The writer schema and options, from the first batch: its fields first .. end.</summary>
+        private void Prepare(Schema exported, int first, int end)
+        {
+            if (_schema is not null) return;
+            (_schema, IReadOnlySet<string>? maps) = WriterSchema(new Schema([.. exported.FieldsList.Take(end).Skip(first)], null), dataFields);
+            _writerOptions = WriterOptions(options, RowGroupRows, maps) with
+            {
+                SharedBudget = _threads,
+                MaxDegreeOfParallelism = _threads?.Max ?? Environment.ProcessorCount,
+            };
+        }
+
+        /// <summary>
+        /// Rows of a partition into its files: as many as the open file takes (up to its row limit, and up to its size,
+        /// a row's bytes on disk as the file shows them so far; before its first rows, their logical Arrow bytes: mostly
+        /// no fewer than on disk), a full file closed and the next one opened. One thread at a time per partition.
+        /// </summary>
+        private void WriteRows(Partition<TPartition> partition, RecordBatch rows)
+        {
+            for (int at = 0; at < rows.Length;)
+            {
+                // The rows from at: a slice shares the batch's memory (never disposed; the batch is).
+                RecordBatch part = at == 0 ? rows : rows.Slice(at, rows.Length - at);
+                File open = partition.Open ??= OpenFile(partition);
+                int take = part.Length;
+                if (_maxRows > 0) take = (int)Math.Min(take, _maxRows - open.Rows);
+                if (_target > 0)
+                {
+                    double perRow = open.PerRow ?? (double)ArrowSizes.LogicalBytes(part) / part.Length;
+                    take = (int)Math.Min(take, Math.Max(1, (long)((_target - open.Bytes(_target)) / perRow)));
+                }
+                open.Write(take < part.Length ? part.Slice(0, take) : part); // encoded at once
+                at += take;
+                // Closed at its row limit, or when not one more row fits.
+                if ((_maxRows > 0 && open.Rows >= _maxRows) || (_target > 0 && _target - open.Bytes(_target) < open.PerRow)) Close(partition);
+            }
+        }
+
+        private File OpenFile(Partition<TPartition> partition)
+        {
+            string relative;
+            lock (_naming) relative = pathFor(partition.Description, partition.NextIndex++);
+            return File.Open(fileSystem, relative, _schema!, _writerOptions!, _sync);
+        }
+
+        private static void Close(Partition<TPartition> partition)
+        {
+            File file = partition.Open!;
+            partition.Open = null;
+            partition.Closed.Add(file.Close());
+        }
+
+        /// <summary>
+        /// Keeps the bytes the open files hold in memory under <see cref="MemoryBudget"/>: the row groups of the largest
+        /// files ended early (their pages go to the streams), as many as it takes; then, still beyond (streams holding
+        /// their bytes), the largest files closed early. Side by side.
+        /// </summary>
+        public void HoldMemory()
+        {
+            List<Partition<TPartition>> open = [.. _partitions.Where(p => p.Open is not null)];
+            long held = open.Sum(p => p.Open!.HeldBytes);
+            if (held <= MemoryBudget) return;
+            List<Partition<TPartition>> ending = [];
+            foreach (Partition<TPartition> partition in open.OrderByDescending(p => p.Open!.HeldBytes))
+            {
+                if (held <= MemoryBudget) break;
+                ending.Add(partition);
+                held -= partition.Open!.HeldBytes - partition.Open.BufferedBytes;
+            }
+            ForEachPartition(ending, p => p.Open!.EndRowGroup());
+            held = open.Sum(p => p.Open!.HeldBytes);
+            if (held <= MemoryBudget) return;
+            List<Partition<TPartition>> closing = [];
+            foreach (Partition<TPartition> partition in open.OrderByDescending(p => p.Open!.HeldBytes))
+            {
+                if (held <= MemoryBudget) break;
+                closing.Add(partition);
+                held -= partition.Open!.HeldBytes;
+            }
+            ForEachPartition(closing, Close);
+            _closedForMemory += closing.Count;
+        }
+
+        /// <summary>Closes the files still open, side by side; every file written, partition by partition.</summary>
+        public SinkResult Finish()
+        {
+            ForEachPartition([.. _partitions.Where(p => p.Open is not null)], Close);
+            return new SinkResult([.. _partitions.SelectMany(p => p.Closed)], _closedForMemory);
+        }
+
+        /// <summary>Frees the keys' native memory.</summary>
+        public void Dispose()
+        {
+            _keys.Dispose();
+            _key.Dispose();
+        }
+
+        /// <summary>Gives up every open file (nothing of them stays).</summary>
+        public void GiveUp()
+        {
+            foreach (Partition<TPartition> partition in _partitions)
+            {
+                try
+                {
+                    partition.Open?.GiveUp();
+                }
+                catch (Exception)
+                {
+                    // The first failure is the one reported; the other files are given up anyway.
+                }
+                partition.Open = null;
+            }
         }
     }
 
@@ -243,6 +494,25 @@ internal static class ManagedSink
                 stream.Dispose();
                 throw;
             }
+        }
+
+        /// <summary>
+        /// What the file holds in memory (at least): its pages not written yet, its column writers' scratch and what its
+        /// stream buffers.
+        /// </summary>
+        public long HeldBytes => writer.PendingBytesBound + writer.ScratchBytes + stream.BufferedBytes;
+
+        /// <summary>What its stream buffers.</summary>
+        public long BufferedBytes => stream.BufferedBytes;
+
+        /// <summary>
+        /// Ends the open row group (its pages, and the row groups before it, go to the stream) and returns the column
+        /// writers' scratch to the pool.
+        /// </summary>
+        public void EndRowGroup()
+        {
+            writer.EndRowGroup();
+            writer.TrimScratch();
         }
 
         /// <summary>Encodes a batch (the caller keeps it, and may let it go once this returns).</summary>
