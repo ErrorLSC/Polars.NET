@@ -274,6 +274,40 @@ public class StreamedWriteTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Local_SmallWritesGathered_AndLargeOnesStraightThrough_KeepTheirOrder(bool async)
+    {
+        string root = Directory.CreateTempSubdirectory("seseragi-stream").FullName;
+        try
+        {
+            var fs = new LocalFileSystem(root);
+            byte[] content = Bytes(400_000, 21);
+            int[] pieces = [3, 16_383, 16_384, 5, 40_000, 9_000, 9_000, 1, 70_000, 16_385, 12];
+            await using (FileWriteStream stream = fs.OpenWrite("f.bin", createOnly: true))
+            {
+                for (int offset = 0, i = 0; offset < content.Length; i++)
+                {
+                    int count = Math.Min(pieces[i % pieces.Length], content.Length - offset);
+                    if (async) await stream.WriteAsync(content.AsMemory(offset, count));
+                    else stream.Write(content.AsSpan(offset, count));
+                    offset += count;
+                }
+                Assert.True(async ? await stream.CommitAsync() : stream.Commit());
+            }
+            Assert.Equal(content, fs.ReadAll("f.bin"));
+
+            // Given up: nothing stays (the gathered bytes neither).
+            await using (FileWriteStream dropped = fs.OpenWrite("g.bin", createOnly: true)) dropped.Write([1, 2, 3]);
+            Assert.Equal(["f.bin"], fs.ListAll("").Select(e => e.Path));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Local_AStream_IsAHiddenFileUntilCommitted(bool async)
     {
         string root = Directory.CreateTempSubdirectory("seseragi-stream").FullName;

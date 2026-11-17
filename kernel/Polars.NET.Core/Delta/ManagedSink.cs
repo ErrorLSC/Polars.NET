@@ -164,7 +164,7 @@ internal static class ManagedSink
         {
             Prepare(chunk.Schema, 0, chunk.ColumnCount);
             if (_partitions.Count == 0) _partitions.Add(new Partition<TPartition>(describe(null)));
-            WriteRows(_partitions[0], chunk);
+            WriteRows(_partitions[0], chunk, 0, chunk.Length);
         }
 
         /// <summary>
@@ -213,7 +213,7 @@ internal static class ManagedSink
 
             ForEachPartition(_touched, partition =>
             {
-                foreach (var (start, length) in partition.Runs) WriteRows(partition, data.Slice(start, length));
+                foreach (var (start, length) in partition.Runs) WriteRows(partition, data, start, length);
             });
 
             // Grouped rows: a partition before the last one of this batch has no rows to come.
@@ -277,25 +277,25 @@ internal static class ManagedSink
         }
 
         /// <summary>
-        /// Rows of a partition into its files: as many as the open file takes (up to its row limit, and up to its size,
-        /// a row's bytes on disk as the file shows them so far; before its first rows, their logical Arrow bytes: mostly
-        /// no fewer than on disk), a full file closed and the next one opened. One thread at a time per partition.
+        /// Rows <paramref name="start"/> .. +<paramref name="count"/> of a batch into a partition's files: as many as the
+        /// open file takes (up to its row limit, and up to its size, a row's bytes on disk as the file shows them so
+        /// far; before its first rows, their logical Arrow bytes: mostly no fewer than on disk), a full file closed and
+        /// the next one opened. Rows are passed as ranges, never sliced (a slice is an array object per column). One
+        /// thread at a time per partition.
         /// </summary>
-        private void WriteRows(Partition<TPartition> partition, RecordBatch rows)
+        private void WriteRows(Partition<TPartition> partition, RecordBatch rows, int start, int count)
         {
-            for (int at = 0; at < rows.Length;)
+            for (int at = start, end = start + count; at < end;)
             {
-                // The rows from at: a slice shares the batch's memory (never disposed; the batch is).
-                RecordBatch part = at == 0 ? rows : rows.Slice(at, rows.Length - at);
                 File open = partition.Open ??= OpenFile(partition);
-                int take = part.Length;
+                int take = end - at;
                 if (_maxRows > 0) take = (int)Math.Min(take, _maxRows - open.Rows);
                 if (_target > 0)
                 {
-                    double perRow = open.PerRow ?? (double)ArrowSizes.LogicalBytes(part) / part.Length;
+                    double perRow = open.PerRow ?? (double)ArrowSizes.LogicalBytes(rows, at, end - at) / (end - at);
                     take = (int)Math.Min(take, Math.Max(1, (long)((_target - open.Bytes(_target)) / perRow)));
                 }
-                open.Write(take < part.Length ? part.Slice(0, take) : part); // encoded at once
+                open.Write(rows, at, take); // encoded at once
                 at += take;
                 // Closed at its row limit, or when not one more row fits.
                 if ((_maxRows > 0 && open.Rows >= _maxRows) || (_target > 0 && _target - open.Bytes(_target) < open.PerRow)) Close(partition);
@@ -515,11 +515,11 @@ internal static class ManagedSink
             writer.TrimScratch();
         }
 
-        /// <summary>Encodes a batch (the caller keeps it, and may let it go once this returns).</summary>
-        public void Write(RecordBatch batch)
+        /// <summary>Encodes rows of a batch (the caller keeps it, and may let it go once this returns).</summary>
+        public void Write(RecordBatch batch, int start, int count)
         {
-            writer.Write(batch);
-            Rows += batch.Length;
+            writer.Write(batch, start, count);
+            Rows += count;
         }
 
         /// <summary>Completes and publishes the file.</summary>

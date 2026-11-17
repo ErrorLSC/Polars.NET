@@ -80,6 +80,59 @@ public sealed unsafe class NativeMemoryPoolTests : IDisposable
     }
 
     [Fact]
+    public void ABlockFreedOnAnotherThread_IsHandedOutHere()
+    {
+        nint freed = 0;
+        var other = new Thread(() =>
+        {
+            byte* p = NativeMemoryPool.Alloc(200_000);
+            freed = (nint)p;
+            NativeMemoryPool.Free(p);
+        });
+        other.Start();
+        other.Join();
+        Assert.Equal(NativeMemoryPool.ClassSize(NativeMemoryPool.ClassOf(200_000)), NativeMemoryPool.RetainedBytes);
+        byte* here = NativeMemoryPool.Alloc(200_000); // this thread's shard is empty: taken from the other's
+        Assert.Equal(freed, (nint)here);
+        Assert.Equal(0, NativeMemoryPool.RetainedBytes);
+        NativeMemoryPool.Free(here);
+    }
+
+    [Fact]
+    public void ManyThreads_AllocatingAndFreeing_KeepTheCountsRight()
+    {
+        long[] sizes = [64 * 1024, 100_000, 256 * 1024, 1 << 20];
+        Parallel.For(0, 64, new ParallelOptions { MaxDegreeOfParallelism = 16 }, t =>
+        {
+            var random = new Random(t);
+            var held = new List<nint>();
+            for (int i = 0; i < 2000; i++)
+            {
+                if (held.Count > 0 && random.Next(2) == 0)
+                {
+                    int k = random.Next(held.Count);
+                    NativeMemoryPool.Free((void*)held[k]);
+                    held.RemoveAt(k);
+                }
+                else
+                {
+                    byte* p = NativeMemoryPool.Alloc(sizes[random.Next(sizes.Length)]);
+                    *p = 1;
+                    held.Add((nint)p);
+                }
+            }
+            foreach (nint p in held) NativeMemoryPool.Free((void*)p);
+        });
+        Assert.InRange(NativeMemoryPool.RetainedBytes, 1, NativeMemoryPool.RetainLimit);
+        NativeMemoryPool.Trim();
+        Assert.Equal(0, NativeMemoryPool.RetainedBytes);
+        // Every class is empty again: a fresh allocation comes from the system, then is kept once freed.
+        byte* fresh = NativeMemoryPool.Alloc(64 * 1024);
+        NativeMemoryPool.Free(fresh);
+        Assert.Equal(NativeMemoryPool.ClassSize(NativeMemoryPool.ClassOf(64 * 1024)), NativeMemoryPool.RetainedBytes);
+    }
+
+    [Fact]
     public void PooledByteBuffer_GrowsKeepingItsContents_AndCannotBeDetached()
     {
         var buffer = new NativeByteBuffer(70_000, pooled: true);

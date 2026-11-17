@@ -83,6 +83,42 @@ public sealed class ParquetWriterOwnershipTests
         return [batch.Slice(0, 777), .. Enumerable.Range(0, (n - 777 + 3000) / 3001).Select(k => batch.Slice(777 + k * 3001, Math.Min(3001, n - 777 - k * 3001)))];
     }
 
+    [Theory]
+    [MemberData(nameof(Layouts))]
+    public void RowsOfABatch_WriteTheFileTheirSlicesWrite(string layout)
+    {
+        RecordBatch batch = layout.StartsWith("flat") ? ParquetWriteData.Wide(81, 24_000) : ParquetNestedData.Batch(82, 12_000).Batch;
+        var options = new ParquetWriteOptions { RowGroupRows = 4000, DataPageRows = 1500, MaxDegreeOfParallelism = 4, BatchOwnership = ParquetBatchOwnership.Caller, LeaveOpen = true };
+        (int Start, int Count)[] ranges = [(0, 777), (777, 3001), (3778, 1), (3779, 0), (3779, batch.Length - 3779)];
+
+        using var sliced = new MemoryStream();
+        using (ParquetWriter writer = ParquetWriter.Create(sliced, batch.Schema, options))
+        {
+            foreach (var (start, count) in ranges) writer.Write(batch.Slice(start, count));
+            writer.Complete();
+        }
+        using var ranged = new MemoryStream();
+        using (ParquetWriter writer = ParquetWriter.Create(ranged, batch.Schema, options))
+        {
+            foreach (var (start, count) in ranges) writer.Write(batch, start, count);
+            writer.Complete();
+        }
+        Assert.Equal(sliced.ToArray(), ranged.ToArray());
+    }
+
+    [Fact]
+    public void RowsOfABatch_AreCheckedForNulls_OnlyThemselves()
+    {
+        var schema = new Apache.Arrow.Schema([new Field("v", Int32Type.Default, nullable: false)], null);
+        var values = new Int32Array.Builder().Append(1).AppendNull().Append(3).Append(4).Build();
+        using var batch = new RecordBatch(schema, [values], 4);
+        using var stream = new MemoryStream();
+        using ParquetWriter writer = ParquetWriter.Create(stream, schema, new ParquetWriteOptions { BatchOwnership = ParquetBatchOwnership.Caller, LeaveOpen = true });
+        writer.Write(batch, 2, 2); // row 1 (null) is not among them
+        Assert.Contains("row 1", Assert.Throws<ArgumentException>(() => writer.Write(batch, 0, 3)).Message);
+        Assert.Throws<ArgumentOutOfRangeException>(() => writer.Write(batch, 3, 2));
+    }
+
     public static TheoryData<string> Layouts() => ["flat_v1", "flat_v2_zstd", "flat_columns", "nested", "nested_v2_small", "nested_many_groups"];
 
     [Theory]

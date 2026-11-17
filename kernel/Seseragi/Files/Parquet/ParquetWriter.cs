@@ -169,15 +169,31 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         get
         {
-            long bytes = _columns.Sum(c => c.BufferedBytesBound);
+            long bytes = 0;
+            foreach (ColumnWriter column in _columns) bytes += column.BufferedBytesBound;
             foreach (var (sealing, _, bound) in _encoding)
-                bytes += sealing.IsCompletedSuccessfully ? sealing.Result.Sum(c => c.CompressedSize) : bound;
+            {
+                if (!sealing.IsCompletedSuccessfully)
+                {
+                    bytes += bound;
+                    continue;
+                }
+                foreach (FinishedChunk chunk in sealing.Result) bytes += chunk.CompressedSize;
+            }
             return bytes;
         }
     }
 
     /// <summary>The native bytes the open row group's column writers keep as scratch (see <see cref="TrimScratch"/>).</summary>
-    internal long ScratchBytes => _columns.Sum(c => c.ScratchBytes);
+    internal long ScratchBytes
+    {
+        get
+        {
+            long bytes = 0;
+            foreach (ColumnWriter column in _columns) bytes += column.ScratchBytes;
+            return bytes;
+        }
+    }
 
     /// <summary>
     /// Returns the column writers' scratch memory to the pool, between row groups (after <see cref="EndRowGroup"/>):
@@ -354,6 +370,22 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// </summary>
     public void Write(RecordBatch batch) => WriteCoreAsync(batch, false, default).AsTask().GetAwaiter().GetResult();
 
+    /// <summary>
+    /// Writes rows <paramref name="start"/> .. +<paramref name="count"/> of a batch, as <see cref="Write(RecordBatch)"/>
+    /// writes a slice of it, without slicing (a slice is an array object per column: a sink cutting batches into runs
+    /// of many partitions made them by the hundred thousand). The caller owns the batch.
+    /// </summary>
+    internal void Write(RecordBatch batch, int start, int count)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (_options.BatchOwnership != ParquetBatchOwnership.Caller)
+            throw new InvalidOperationException("Rows of a batch are written only when the caller owns the batches.");
+        ArgumentOutOfRangeException.ThrowIfNegative(start);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(count, batch.Length - start);
+        WriteNowAsync(batch, start, count, false, default).AsTask().GetAwaiter().GetResult();
+    }
+
     /// <inheritdoc cref="Write(RecordBatch)"/>
     public ValueTask WriteAsync(RecordBatch batch, CancellationToken cancellationToken = default) => WriteCoreAsync(batch, true, cancellationToken);
 
@@ -397,13 +429,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         ArgumentNullException.ThrowIfNull(batch);
         if (_options.BatchOwnership == ParquetBatchOwnership.Caller)
         {
-            await WriteNowAsync(batch, useAsync, ct).ConfigureAwait(false);
+            await WriteNowAsync(batch, 0, batch.Length, useAsync, ct).ConfigureAwait(false);
             return;
         }
         var taken = new Taken(batch);
         try
         {
-            if (_columnWork is null) await WriteNowAsync(batch, useAsync, ct).ConfigureAwait(false);
+            if (_columnWork is null) await WriteNowAsync(batch, 0, batch.Length, useAsync, ct).ConfigureAwait(false);
             else await WriteTakenAsync(taken, useAsync, ct).ConfigureAwait(false);
         }
         finally
@@ -412,17 +444,20 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
     }
 
-    /// <summary>Encodes a batch's rows before returning, segment by segment, each segment's columns side by side.</summary>
-    private async ValueTask WriteNowAsync(RecordBatch batch, bool useAsync, CancellationToken ct)
+    /// <summary>
+    /// Encodes rows <paramref name="start"/> .. +<paramref name="count"/> of a batch before returning, segment by
+    /// segment, each segment's columns side by side.
+    /// </summary>
+    private async ValueTask WriteNowAsync(RecordBatch batch, int start, int count, bool useAsync, CancellationToken ct)
     {
         CheckWritable();
-        CheckBatch(batch);
+        CheckBatch(batch, start, count);
         try
         {
-            int offset = 0;
-            while (offset < batch.Length)
+            int offset = start, end = start + count;
+            while (offset < end)
             {
-                int take = (int)Math.Min(batch.Length - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, SegmentRows));
+                int take = (int)Math.Min(end - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, SegmentRows));
                 int at = offset;
                 ForEachColumn(c => WriteColumn(_columns[c], _shredders[c], batch.Column(_plans[c].Field), at, take),
                     parallel: (long)take * _columns.Length >= 4096);
@@ -493,7 +528,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         RecordBatch batch = taken.Batch;
         CheckWritable();
-        CheckBatch(batch);
+        CheckBatch(batch, 0, batch.Length);
         try
         {
             long bytes = ArrowSizes.LogicalBytes(batch);
@@ -659,7 +694,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// The batch's columns have the writer's types and lengths, and no null where the schema says non-nullable, at
     /// any depth (checked before anything is written).
     /// </summary>
-    private void CheckBatch(RecordBatch batch)
+    /// <summary>The batch fits the writer schema, and rows <paramref name="start"/> .. +<paramref name="count"/> its nullability.</summary>
+    private void CheckBatch(RecordBatch batch, int start, int count)
     {
         int fields = Schema.FieldsList.Count;
         if (batch.ColumnCount != fields)
@@ -691,7 +727,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             }
             else if (_plans[c].Leaf.Element.Repetition == FieldRepetition.Required && ArrowValues.NullCount(column) > 0)
             {
-                for (int i = 0; i < column.Length; i++)
+                for (int i = start; i < start + count; i++)
                 {
                     if (ArrowValues.IsNull(column, i))
                         throw new ArgumentException($"Column '{_plans[c].Path[0]}' is not nullable but row {i} of the batch is null.", nameof(batch));
@@ -710,7 +746,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         return declared switch
         {
             StructType st when data.Children.Length != st.Fields.Count => $"'{where}' has {data.Children.Length} child arrays for {st.Fields.Count} fields",
-            StructType st => st.Fields.Select((f, k) => Mismatch(f.DataType, data.Children[k], $"{where}.{f.Name}")).FirstOrDefault(m => m is not null),
+            StructType st => FieldsMismatch(st, data, where),
             ListType or LargeListType or FixedSizeListType or ListViewType or LargeListViewType when data.Children.Length != 1 => $"'{where}' has no item array",
             ListType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
             LargeListType l => Mismatch(l.ValueDataType, data.Children[0], where + "[]"),
@@ -725,6 +761,20 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             DictionaryType d => Mismatch(d.ValueType, data.Dictionary, where + ".dictionary"),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// The first mismatch among a struct's fields (a loop of its own: a lambda in <see cref="Mismatch"/> would make it
+    /// allocate a closure on every call, every type).
+    /// </summary>
+    private static string? FieldsMismatch(StructType type, ArrayData data, string where)
+    {
+        for (int k = 0; k < type.Fields.Count; k++)
+        {
+            Field field = type.Fields[k];
+            if (Mismatch(field.DataType, data.Children[k], $"{where}.{field.Name}") is { } mismatch) return mismatch;
+        }
+        return null;
     }
 
     private async ValueTask EndRowGroupCoreAsync(bool useAsync, CancellationToken ct)

@@ -10,7 +10,8 @@ namespace Seseragi.Files.Tests.Parquet;
 /// View columns (string_view, binary_view: what Polars exports) are copied straight from their views and data buffers
 /// (read as Sazanami's <c>ArrowStringView</c>):
 /// the file is the one their values write as plain strings or binary, byte for byte, with values inline (up to 12 bytes)
-/// and in several data buffers, nulls, slices of the array and views under a list.
+/// and in several data buffers, nulls, slices of the array and views under a list. Inline values find their dictionary
+/// entries by their views: the dictionary (its entries and their order) must stay the one their bytes give.
 /// </summary>
 public sealed class ParquetWriterViewTests
 {
@@ -83,7 +84,7 @@ public sealed class ParquetWriterViewTests
     {
         TheoryData<bool, string> data = [];
         foreach (bool binary in (bool[])[false, true])
-            foreach (string layout in (string[])["dictionary", "plain", "delta", "small_pages"])
+            foreach (string layout in (string[])["dictionary", "plain", "delta", "small_pages", "dictionary_overflow", "row_groups"])
                 data.Add(binary, layout);
         return data;
     }
@@ -93,6 +94,10 @@ public sealed class ParquetWriterViewTests
         "plain" => new() { Dictionary = false },
         "delta" => new() { Columns = new Dictionary<string, ParquetColumnOptions> { ["s"] = new() { Encoding = ParquetValueEncoding.DeltaByteArray, Dictionary = false } } },
         "small_pages" => new() { DataPageRows = 333, DataPageBytes = 4000, MaxDegreeOfParallelism = 4 },
+        // The dictionary outgrows its page mid-chunk: the rest of the chunk goes plain.
+        "dictionary_overflow" => new() { DictionaryPageBytes = 3000, DataPageRows = 500 },
+        // A dictionary per row group: the views' entries start over with each.
+        "row_groups" => new() { RowGroupRows = 1700, DataPageRows = 400 },
         _ => new(),
     };
 

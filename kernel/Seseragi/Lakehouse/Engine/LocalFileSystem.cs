@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Buffers;
 using System.Buffers;
 using Microsoft.Win32.SafeHandles;
 
@@ -185,18 +186,64 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
     {
         string target = Resolve(path);
         string temp = TempPath(target);
-        return new LocalWriteStream(new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16), temp, target, createOnly);
+        // Unbuffered: the stream gathers small writes in native memory itself (a FileStream buffer is a managed array
+        // per open file, which hundreds of files written side by side carry into the old generation).
+        return new LocalWriteStream(new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 0), temp, target, createOnly);
     }
 
+    /// <summary>
+    /// A file being written to its temporary path: writes of <see cref="Gather"/> bytes and more go straight to the
+    /// file, smaller ones are gathered in a native buffer first (written out when it fills, and at commit).
+    /// </summary>
     private sealed class LocalWriteStream(FileStream file, string temp, string target, bool createOnly) : FileWriteStream
     {
-        protected override void WriteCore(ReadOnlySpan<byte> buffer) => file.Write(buffer);
+        private const int Gather = 16 * 1024;
+        private NativeBufferWriter? _small;
 
-        protected override ValueTask WriteCoreAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>
-            file.WriteAsync(buffer, cancellationToken);
+        protected override void WriteCore(ReadOnlySpan<byte> buffer)
+        {
+            if (buffer.Length >= Gather)
+            {
+                WriteGathered();
+                file.Write(buffer);
+                return;
+            }
+            _small ??= new NativeBufferWriter(Gather);
+            if (_small.WrittenCount + buffer.Length > Gather) WriteGathered();
+            _small.Write(buffer);
+        }
+
+        protected override async ValueTask WriteCoreAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        {
+            if (buffer.Length >= Gather)
+            {
+                await WriteGatheredAsync(cancellationToken).ConfigureAwait(false);
+                await file.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            _small ??= new NativeBufferWriter(Gather);
+            if (_small.WrittenCount + buffer.Length > Gather) await WriteGatheredAsync(cancellationToken).ConfigureAwait(false);
+            _small.Write(buffer.Span);
+        }
+
+        private void WriteGathered()
+        {
+            if (_small is not { WrittenCount: > 0 } small) return;
+            file.Write(small.WrittenSpan);
+            small.ResetWrittenCount();
+        }
+
+        private async ValueTask WriteGatheredAsync(CancellationToken cancellationToken)
+        {
+            if (_small is not { WrittenCount: > 0 } small) return;
+            await file.WriteAsync(small.WrittenMemory, cancellationToken).ConfigureAwait(false);
+            small.ResetWrittenCount();
+        }
 
         protected override bool CommitCore()
         {
+            WriteGathered();
+            FreeGathered();
             file.Flush(flushToDisk: SyncOnCommit);
             file.Dispose();
             return Publish(temp, target, createOnly);
@@ -204,6 +251,8 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
 
         protected override async ValueTask<bool> CommitCoreAsync(CancellationToken cancellationToken)
         {
+            await WriteGatheredAsync(cancellationToken).ConfigureAwait(false);
+            FreeGathered();
             await file.FlushAsync(cancellationToken).ConfigureAwait(false);
             if (SyncOnCommit) file.Flush(flushToDisk: true);
             await file.DisposeAsync().ConfigureAwait(false);
@@ -212,8 +261,17 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
 
         protected override void Abort()
         {
+            FreeGathered();
             file.Dispose();
             File.Delete(temp);
+        }
+
+        protected override void Release() => FreeGathered();
+
+        private void FreeGathered()
+        {
+            _small?.Dispose();
+            _small = null;
         }
     }
 
