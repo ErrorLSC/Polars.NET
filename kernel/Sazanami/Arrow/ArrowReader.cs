@@ -59,7 +59,7 @@ public static class ArrowReader
 
             if (col == null)
             {
-                setters[i] = (ref T __, int _) => { };
+                setters[i] = (ref __, _) => { };
                 continue;
             }
 
@@ -815,7 +815,7 @@ internal static class FastAccessorBuilder
             {
                 if (array.IsNull(idx)) return null;
                 if (array is BinaryViewArray bv) return new Guid(bv.GetBytes(idx));
-                if (array is FixedSizeBinaryArray fb) return new Guid(fb.GetBytes(idx));
+                if (array is FixedSizeBinaryArray fb) return new Guid(fb.GetBytes(idx), bigEndian: true); // a uuid: RFC 4122 order
                 if (array is BinaryArray ba) return new Guid(ba.GetBytes(idx));
                 if (array is LargeBinaryArray lba) return new Guid(lba.GetBytes(idx));
                 return null;

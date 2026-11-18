@@ -221,6 +221,7 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
         DictionaryType d => new NativeDictionaryBuilder(d),
         MapType m => new NativeListBuilder(m, Create(m.KeyValueType)),
         ListType l => new NativeListBuilder(l, Create(l.ValueDataType)),
+        LargeListType l => new NativeLargeListBuilder(l, Create(l.ValueDataType)),
         FixedSizeListType f => new NativeFixedSizeListBuilder(f, Create(f.ValueDataType)),
         StructType s => new NativeStructBuilder(s, [.. s.Fields.Select(f => Create(f.DataType))]),
         _ => throw new NotSupportedException($"No native builder for Arrow type {type}."),
@@ -560,6 +561,45 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         MarkValid();
     }
 
+    /// <summary>Appends text, encoded as UTF-8 straight into the view or the data buffer (lone surrogates become U+FFFD).</summary>
+    public void AppendUtf8(ReadOnlySpan<char> text)
+    {
+        if (text.Length <= MaxInline)
+        {
+            // Short ASCII text (the common case) goes straight into its view.
+            Int128 inline = default;
+            byte* v = (byte*)&inline;
+            if (System.Text.Ascii.FromUtf16(text, new Span<byte>(v + 4, MaxInline), out int length) == System.Buffers.OperationStatus.Done)
+            {
+                *(int*)v = length;
+                *(Int128*)_views.Reserve(sizeof(Int128)) = inline;
+                MarkValid();
+                return;
+            }
+        }
+        int most = Encoding.UTF8.GetMaxByteCount(text.Length);
+        if (_dataIndex < 0 || _data.Length + most > int.MaxValue) NewDataBuffer();
+        long start = _data.Length;
+        byte* at = _data.Reserve(most);
+        var target = new Span<byte>(at, most);
+        int written = System.Text.Ascii.FromUtf16(text, target, out int ascii) == System.Buffers.OperationStatus.Done
+            ? ascii
+            : Encoding.UTF8.GetBytes(text, target);
+        var value = new ReadOnlySpan<byte>(at, written);
+        Int128* view = (Int128*)_views.Reserve(sizeof(Int128));
+        if (written <= MaxInline)
+        {
+            *view = View(value, 0, 0);
+            _data.SetLength(start);
+        }
+        else
+        {
+            *view = View(value, _dataIndex, (int)start);
+            _data.SetLength(start + written);
+        }
+        MarkValid();
+    }
+
     private void NewDataBuffer()
     {
         if (_dataIndex >= 0) _buffers[_dataIndex] = ((nint)_data.Detach(out long length), length);
@@ -825,20 +865,21 @@ internal sealed unsafe class NativeFixedSizeBinaryBuilder(FixedSizeBinaryType ty
 }
 
 /// <summary>
-/// Dictionary-encoded strings or binaries with Int32 indices. The dictionary is either fixed up front
-/// (<see cref="Symbols"/>: an Avro enum's symbols, re-emitted with every batch) or built per batch in
-/// <see cref="Entries"/> (exported with the batch and then emptied).
+/// Dictionary-encoded strings or binaries with Int32 (or UInt32) indices. The dictionary is either fixed up front
+/// (<see cref="Symbols"/>: an Avro enum's symbols or a .NET enum's member names, re-emitted with every batch) or built
+/// per batch in <see cref="Entries"/> (exported with the batch and then emptied; Utf8 or Binary values only).
 /// </summary>
 internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
 {
     private NativeGrowBuffer _indices;
     private byte[][] _symbols = [];
+    private readonly NativeBinaryBuilder? _entries;
 
     public NativeDictionaryBuilder(DictionaryType type) : base(type)
     {
-        if (type.IndexType is not Int32Type || type.ValueType is not (StringType or BinaryType))
-            throw new NotSupportedException("Native dictionary builders produce Int32 indices over Utf8 or Binary values.");
-        Entries = new NativeBinaryBuilder(type.ValueType);
+        if (type.IndexType is not (Int32Type or UInt32Type) || type.ValueType is not (StringType or BinaryType or StringViewType or BinaryViewType))
+            throw new NotSupportedException("Native dictionary builders produce Int32 or UInt32 indices over Utf8, Binary or view values.");
+        if (type.ValueType is StringType or BinaryType) _entries = new NativeBinaryBuilder(type.ValueType);
     }
 
     public IReadOnlyList<string> Symbols
@@ -846,8 +887,8 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
         set => _symbols = [.. value.Select(Encoding.UTF8.GetBytes)];
     }
 
-    /// <summary>The dictionary of the current batch, when no <see cref="Symbols"/> are set.</summary>
-    public NativeBinaryBuilder Entries { get; }
+    /// <summary>The dictionary of the current batch, when no <see cref="Symbols"/> are set (Utf8 or Binary values).</summary>
+    public NativeBinaryBuilder Entries => _entries ?? throw new NotSupportedException("A dictionary of view values takes fixed symbols only.");
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Append(int index)
@@ -882,13 +923,23 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
     public override NativeCArray* Export(NativeBatchExport export)
     {
         NativeCArray* dictionary;
-        if (_symbols.Length > 0)
+        IArrowType valueType = ((DictionaryType)Type).ValueType;
+        if (_symbols.Length > 0 || _entries is null)
         {
-            using var dict = new NativeBinaryBuilder(((DictionaryType)Type).ValueType);
-            foreach (var s in _symbols) dict.Append(s);
-            dictionary = dict.Export(export);
+            if (valueType is StringViewType or BinaryViewType)
+            {
+                using var views = new NativeBinaryViewBuilder(valueType);
+                foreach (var s in _symbols) views.Append(s);
+                dictionary = views.Export(export);
+            }
+            else
+            {
+                using var dict = new NativeBinaryBuilder(valueType);
+                foreach (var s in _symbols) dict.Append(s);
+                dictionary = dict.Export(export);
+            }
         }
-        else dictionary = Entries.Export(export);
+        else dictionary = _entries.Export(export);
         long nulls = NullCount;
         nint validity = Validity.Detach(export);
         var a = export.NewArray(Length, nulls, [validity, export.Ptr(ref _indices)], [], dictionary);
@@ -899,7 +950,7 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
     protected override void FreeBuffers()
     {
         _indices.Free();
-        Entries.Dispose();
+        _entries?.Dispose();
     }
 }
 
@@ -979,6 +1030,60 @@ internal sealed unsafe class NativeListBuilder : NativeColumnBuilder
         Length = 0;
         _offsets.Append(0);
         _end = 0;
+        return a;
+    }
+
+    protected override void FreeBuffers()
+    {
+        _offsets.Free();
+        Values.Dispose();
+    }
+}
+
+/// <summary>LargeList with 64-bit offsets: the items of each list appended to <see cref="Values"/>, then <see cref="EndList"/>.</summary>
+internal sealed unsafe class NativeLargeListBuilder : NativeColumnBuilder
+{
+    private NativeGrowBuffer _offsets;
+
+    public NativeLargeListBuilder(LargeListType type, NativeColumnBuilder values) : base(type)
+    {
+        Values = values;
+        _offsets.Append(0L);
+    }
+
+    public NativeColumnBuilder Values { get; }
+
+    protected override void ReserveValues(long slots, long dataBytes) => _offsets.EnsureAdditional(slots * sizeof(long));
+
+    /// <summary>Closes a list whose items were appended to <see cref="Values"/> since the previous one.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void EndList()
+    {
+        _offsets.Append(Values.Length);
+        MarkValid();
+    }
+
+    public override void AppendNull()
+    {
+        _offsets.Append(Values.Length);
+        MarkNull();
+    }
+
+    public override void AppendDefault()
+    {
+        _offsets.Append(Values.Length);
+        MarkValid();
+    }
+
+    public override NativeCArray* Export(NativeBatchExport export)
+    {
+        long nulls = NullCount;
+        nint validity = Validity.Detach(export);
+        nint offsets = export.Ptr(ref _offsets);
+        var child = Values.Export(export);
+        var a = export.NewArray(Length, nulls, [validity, offsets], [(nint)child]);
+        Length = 0;
+        _offsets.Append(0L);
         return a;
     }
 

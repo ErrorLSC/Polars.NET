@@ -228,6 +228,22 @@ estimated from the compression of those laid out), so that their sum can drive s
 (`string_view`, `binary_view`, as Polars exports strings) are copied from their views and data buffers in runs, like
 plain and large strings.
 
+**Rows as objects, written**: `ParquetWriter<T>.Create(path | stream, options)` writes rows of `T` (`WriteRow`,
+`WriteRows` / `WriteRowsAsync` of a sequence or an async sequence, `EndRowGroup`, `Complete`, `Abort`);
+`ParquetWriter.WriteRows<T>(path | stream, rows)` / `WriteRowsAsync` write a whole sequence (a partial file deleted on
+failure). One column per public readable property, laid out as `DataFrame.From<T>` lays them out (Sazanami's
+`ArrowRowBuilder<T>`: strings as string views, collections as large lists, nested records as structs, enums as
+dictionaries of their member names carrying the engine's Enum metadata, decimals as decimal(38, 18), `Guid` as 16 bytes,
+value types non-nullable); any other `T` is one column named `value`. Rows are gathered into batches of 16 384 in native
+memory, each written and then freed (the caller owning the batches: measured faster and lighter than the writer owning
+them): the file depends on the rows alone, not on how they were passed nor on the threads. The batches of an array or a list are made on up to `MaxDegreeOfParallelism` threads at once and handed
+over in order (rows passed one by one or by a lazy sequence are read as they come, on the caller's thread: a producer
+may reuse one object for every row). A null
+row is refused (the writer goes on); a value the layout refuses (a decimal that does not fit exactly, an undefined enum
+value) aborts the file. `ParquetReader<T>` reads the rows back. UUID columns (FIXED_LEN_BYTE_ARRAY(16) annotated UUID,
+as DuckDB and pyarrow write them) are read as the `Guid` those engines show (RFC 4122 byte order); an Arrow
+`arrow.uuid` field is written annotated UUID.
+
 Everything the writer holds per page and per chunk lives in native memory (`NativeMemoryPool`, through
 `NativeBufferWriter` and `NativeArray<T>`): page values, levels and dictionary indices, shredded levels, string arenas,
 dictionaries and their hash tables, Bloom hashes and bitsets, page bytes, compressed bodies and dictionary pages. The
@@ -447,6 +463,7 @@ written synchronously on completion.
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>`): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
+| `Parquet/ParquetWriterOfT.cs` | `ParquetWriter<T>`: rows gathered into native batches by Sazanami's `ArrowRowBuilder<T>` (an array's or a list's whole batches made in parallel by a pool of builders, up to its first null row, written in order and freed); a refused value aborts the file. |
 | `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded (with several threads sealed: finished by a task on a second set of column writers); with the writer owning the batches, row groups encoded side by side (sets of column writers, one column scheduler, reference-counted batches, laid out and written in order); Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
 | `Parquet/ParquetColumnOptions.cs` | Settings by column (`ParquetWriteOptions.Columns`): the encoding of pages written without the dictionary (`ParquetValueEncoding`), the dictionary on or off, Bloom filters (`ParquetBloomFilterOptions`: false positive rate, a cap on the distinct values sized for, the largest size). |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
@@ -492,6 +509,7 @@ In Sazanami (generic, reusable by other formats):
 | `Buffers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
 | `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order, native memory) for dictionary encoding. |
+| `Data/ArrowRowBuilder.cs` | Rows of `T` as Arrow batches in native memory (the mirror of `ArrowRowMapper<T>`): the engine's layout per .NET type, appended by code compiled once per type (sealed writers, struct converters, no boxing); records refused when null; a value the layout refuses faults the builder. |
 | `Data/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 
@@ -602,6 +620,9 @@ what its predicate cannot match, and gives the rows of one thread on several). S
   disposed once after its rows are encoded — watched memory poisoned on disposal — also on failures and abandoned
   writers; row groups in flight bounded by count and bytes; row groups by the batches' bytes), `ParquetNodeArrowTests`
   (checkpoint-shaped rows through Arrow and the writer: the minimal writer's schema and values),
+  `ParquetWriterOfTTests` (typed rows back through `ParquetReader<T>`; the same file whatever the way rows are passed
+  or the threads; row groups, null rows, refused values, failing sources), `ParquetGuidTests` (UUID columns of pyarrow
+  and DuckDB read as their Guids; `arrow.uuid` fields written annotated),
   `ParquetWriterInteropTests` (opt-in, `Category=Interop`: pyarrow, DuckDB, Python Polars and Spark — vectorized and
   not — read our files, `TestData/parquet/writer_interop.py` and `writer_spark.py`, each also filtering at the bounds
   with statistics and without; the readers' own limits are listed there); `ParquetNestedWriterTests` (random nested columns —

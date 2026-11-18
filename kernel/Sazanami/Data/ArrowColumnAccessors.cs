@@ -316,7 +316,7 @@ internal sealed class FixedSizeBinaryToGuidAccessor : TypedColumnAccessor<Guid>,
     public ReadOnlySpan<byte> GetBytesSpan(int index) => _array!.GetBytes(index);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override Guid GetTypedValue(int index) => new(_array!.GetBytes(index));
+    public override Guid GetTypedValue(int index) => new(_array!.GetBytes(index), bigEndian: true);
 
     Guid ITypedAccessor<Guid>.GetTypedValue(int index) => GetTypedValue(index);
     Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index);
@@ -335,8 +335,8 @@ internal sealed class FixedSizeBinaryAccessor : TypedColumnAccessor<byte[]>,
     public override bool IsNull(int index) => _array!.IsNull(index);
     public override byte[] GetTypedValue(int index) => _array!.GetBytes(index).ToArray();
 
-    Guid ITypedAccessor<Guid>.GetTypedValue(int index) => new(_array!.GetBytes(index));
-    Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => IsNull(index) ? null : new Guid(_array!.GetBytes(index));
+    Guid ITypedAccessor<Guid>.GetTypedValue(int index) => new(_array!.GetBytes(index), bigEndian: true);
+    Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => IsNull(index) ? null : new Guid(_array!.GetBytes(index), bigEndian: true);
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<byte> GetBytesSpan(int index) => _array!.GetBytes(index);
     byte[] ITypedAccessor<byte[]>.GetTypedValue(int index) => GetTypedValue(index);

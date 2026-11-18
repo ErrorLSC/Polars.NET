@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
@@ -407,6 +408,90 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         await writer.DisposeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Writes rows of <typeparamref name="T"/> to a file and completes it (<see cref="ParquetWriter{T}"/>). If writing
+    /// fails, the partial file is deleted.
+    /// </summary>
+    public static void WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, IEnumerable<T> rows,
+        ParquetWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var writer = ParquetWriter<T>.Create(path, options);
+        try
+        {
+            writer.WriteRows(rows);
+            writer.Complete();
+        }
+        catch
+        {
+            writer.Abort();
+            writer.Dispose();
+            File.Delete(path);
+            throw;
+        }
+        writer.Dispose();
+    }
+
+    /// <summary>
+    /// Writes rows of <typeparamref name="T"/> to a stream and completes the file (<see cref="ParquetWriter{T}"/>). If
+    /// writing fails, the stream holds a file without its footer.
+    /// </summary>
+    public static void WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Stream stream, IEnumerable<T> rows,
+        ParquetWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        using var writer = ParquetWriter<T>.Create(stream, options);
+        try
+        {
+            writer.WriteRows(rows);
+            writer.Complete();
+        }
+        catch
+        {
+            writer.Abort();
+            throw;
+        }
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, ParquetWriteOptions?)"/>
+    public static async Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, IAsyncEnumerable<T> rows,
+        ParquetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var writer = ParquetWriter<T>.Create(path, options);
+        try
+        {
+            await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            writer.Abort();
+            await writer.DisposeAsync().ConfigureAwait(false);
+            File.Delete(path);
+            throw;
+        }
+        await writer.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(Stream, IEnumerable{T}, ParquetWriteOptions?)"/>
+    public static async Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Stream stream, IAsyncEnumerable<T> rows,
+        ParquetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using var writer = ParquetWriter<T>.Create(stream, options);
+        try
+        {
+            await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            writer.Abort();
+            throw;
+        }
+    }
+
     private void WriteAll(IEnumerable<RecordBatch> batches)
     {
         try
@@ -488,6 +573,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         if (!_completed && !_disposed) _aborted = true;
     }
+
+    /// <summary>Whether rows can still be written (not completed, aborted, failed or disposed).</summary>
+    internal bool IsWritable => !_completed && !_aborted && !_faulted && !_disposed;
 
     private void CheckWritable()
     {

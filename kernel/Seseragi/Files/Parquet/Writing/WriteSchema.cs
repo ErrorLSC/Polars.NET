@@ -146,7 +146,9 @@ internal static class WriteSchema
                     throw new NotSupportedException($"Column '{where}' is a union, which Parquet cannot hold.");
                 default:
                 {
-                    LeafPlan leaf = Leaf(name, type, optional, id, below, rep, options, where);
+                    bool uuid = type is FixedSizeBinaryType { ByteWidth: 16 }
+                        && field.Metadata?.GetValueOrDefault("ARROW:extension:name") == "arrow.uuid";
+                    LeafPlan leaf = Leaf(name, type, optional, id, below, rep, options, where, uuid);
                     elements.Add(leaf.Element);
                     columns.Add(new ColumnPlan(top, path, steps.Length == 0 ? null : [.. steps, new LeafStep(optional, where)], leaf));
                     return;
@@ -172,7 +174,8 @@ internal static class WriteSchema
     }
 
     /// <summary>A leaf of <paramref name="fieldType"/> (a dictionary column by its values), at levels <paramref name="maxDef"/> / <paramref name="maxRep"/>.</summary>
-    private static LeafPlan Leaf(string name, IArrowType fieldType, bool optional, int? id, int maxDef, int maxRep, ParquetWriteOptions options, string where)
+    private static LeafPlan Leaf(string name, IArrowType fieldType, bool optional, int? id, int maxDef, int maxRep, ParquetWriteOptions options, string where,
+        bool uuid = false)
     {
         bool dictionary = fieldType is DictionaryType;
         IArrowType type = fieldType is DictionaryType d ? d.ValueType : fieldType;
@@ -231,7 +234,8 @@ internal static class WriteSchema
             TimestampType t => TimestampPlan(t),
             DurationType => Int64(Copy<long>, Element(ParquetType.Int64)),
             Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type => DecimalPlan(),
-            FixedSizeBinaryType f => Bytes((a, i, _) => ArrowValues.Raw(a, i, f.ByteWidth), Element(ParquetType.FixedLenByteArray, length: f.ByteWidth), f.ByteWidth, BytesOrder.Unsigned),
+            FixedSizeBinaryType f => Bytes((a, i, _) => ArrowValues.Raw(a, i, f.ByteWidth),
+                Element(ParquetType.FixedLenByteArray, uuid ? new LogicalType(LogicalTypeKind.Uuid) : null, length: f.ByteWidth), f.ByteWidth, BytesOrder.Unsigned),
             StringType => Bytes(static (a, i, _) => ((BinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray, new LogicalType(LogicalTypeKind.String), ConvertedType.Utf8),
                 0, BytesOrder.Unsigned, utf8: true, direct: true),
             LargeStringType => Bytes(static (a, i, _) => ((LargeBinaryArray)a).GetBytes(i), Element(ParquetType.ByteArray, new LogicalType(LogicalTypeKind.String), ConvertedType.Utf8),
