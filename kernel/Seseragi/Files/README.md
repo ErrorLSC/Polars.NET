@@ -314,6 +314,7 @@ first (read even when not selected), the other selected columns only for batches
 selected with `FilterRows` (refused on open).
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
+`IpcStreamReader<T>.Open(stream, where)`: a stream's rows, read once, its columns chosen once its schema is read;
 `IpcWriter<T>`, `IpcWriter.WriteRows<T>` / `WriteRowsAsync`): as Parquet's typed API: members mapped by name over
 Sazanami's `ArrowRowMapper<T>` / `ArrowRowBuilder<T>`, the `where` predicate translated by Samidare and evaluated by
 the reader (the rest on the rows, as the client evaluation policy allows), batches turned into rows in parallel; rows
@@ -346,9 +347,12 @@ argument, `Complete`, `Abort`, `BytesWritten`; `IpcWriter.Write(path | stream, s
 call; disposing completes unless aborted or failed, `LeaveOpen`). Metadata V5, little-endian; schema, field, message and
 footer (`FileMetadata`) metadata; extension types written as their storage with the `ARROW:extension:*` keys. Buffers
 64-byte aligned (bodies too, from where writing began); compression `NoCompression` (default), `Lz4FrameCompression`
-(independent 64 KiB blocks, no checksums, as Arrow C++ writes) or `ZstandardCompression(level)`, each buffer on its own,
-up to `MaxDegreeOfParallelism` at once with the same bytes for any degree; a buffer that does not shrink is stored as it
-is (`-1`). Arrays are written from where they are: a slice as its own rows (offsets rebased, bitmaps shifted, run ends
+(independent 64 KiB blocks, no checksums, as Arrow C++ writes) or `ZstandardCompression(level)`, each buffer on its own;
+the work runs on up to `MaxDegreeOfParallelism` threads in units (an LZ4 buffer's 64 KiB blocks, a Zstandard buffer's
+frames of 32 MiB: a larger buffer is several frames one after the other, which every reader decompresses whole) with
+the same bytes for any degree; a buffer that does not shrink is stored as it is (`-1`). With compression a batch is
+compressed before `Write` returns and written to the stream while the next one is compressed (a failure of the stream
+then surfaces from the next call). Arrays are written from where they are: a slice as its own rows (offsets rebased, bitmaps shifted, run ends
 cut; view data buffers and list-view children whole). Dictionaries: each written with the first batch that uses it
 (after the dictionaries its values use), then compared with the last one written: the same is not written again, one
 whose first values are the last one's is written as a delta, another is a replacement in the stream format and refused
@@ -547,7 +551,7 @@ written synchronously on completion.
 | `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
 | `Ipc/IpcWriter.cs`, `IpcWriteOptions.cs` | Public IPC writer and its options (`IpcFormat`); messages written with their bodies' padding, the footer's blocks. The codec's writing half is Sazanami's `Arrow/Ipc`: `FlatBufferWriter` (front to back), `IpcMetadataWriter` (schema, messages, footer), `IpcBatchEncoder` (arrays to nodes and buffers, compression, layout), `IpcMessageEncoder` (batches to messages, dictionaries as written, framing), `IpcSchemaMessage` (Parquet's `ARROW:schema`). |
 | `Ipc/IpcDecoding.cs` | What a reader decodes from each batch: the selection, the row filter lowered by Samidare (its columns decoded first, the others when it keeps a row, then filtered), the dictionaries reached; shared by both readers and immutable (batches decode on several threads). |
-| `Ipc/IpcReaderOfT.cs`, `IpcWriterOfT.cs` | `IpcReader<T>` and `IpcWriter<T>`: typed rows over the shared `TypedRows` and `RowBatcher`. |
+| `Ipc/IpcReaderOfT.cs`, `IpcStreamReaderOfT.cs`, `IpcWriterOfT.cs` | `IpcReader<T>`, `IpcStreamReader<T>` and `IpcWriter<T>`: typed rows over the shared `TypedRows` and `RowBatcher`. |
 | `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`: compressed buffers of a large batch decompressed side by side before the walk), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`, with snapshots for batches decoded ahead), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs`, `Parquet/TypedRows.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>` and `IpcReader<T>`; `ParquetTypedRows` maps Parquet's options onto it): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
@@ -602,6 +606,7 @@ In Sazanami (generic, reusable by other formats):
 | `Data/Mapping/` accessors (`NestedAccessors.cs`: `MapAccessor`; `ScalarAccessors.cs`: `WideIntegerAccessor`) | Decimal(p, 0) columns into `Int128` / `UInt128` members (a column marked unsigned by its bits). Map columns (Arrow maps, lists of two-field structs: key / value by name, else by position) read into `Dictionary`, `IDictionary`, `IReadOnlyDictionary` and F# `Map` members; null keys refused, a repeated key keeps its last value. |
 | `Concurrency/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Concurrency/OrderedWindow.cs` | Numbered work items run ahead of a consumer taking them in order, a window opening 1, 2, 4 … at a time within a size budget; results that own resources disposed when never taken. |
+| `Compression/Lz4Block.cs`, `Lz4Frame.cs`, `ZstdBlock.cs`, `SnappyBlock.cs` | Block codecs shared by Parquet, Arrow IPC and Avro. LZ4: the decoder copies 16 bytes at a time where the output leaves room (each sequence checked whole first, exact copies near the end, runs and short periods expanded); the encoder is LZ4's fast compressor (8192-entry table reused across calls without clearing, the step growing over data without matches, matches extended backward and compared 8 bytes at a time), its output depending on the input alone; frames of independent 64 KiB blocks, which writers compress side by side. |
 | `Arrow/RowViews/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 
 In Polars.NET (the engine integration):

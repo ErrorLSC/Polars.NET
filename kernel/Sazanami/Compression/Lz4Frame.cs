@@ -128,31 +128,63 @@ internal static class Lz4Frame
     public static int Compress(ReadOnlySpan<byte> source, Span<byte> destination)
     {
         if (destination.Length < MaxCompressedLength(source.Length)) throw new ArgumentException("The destination is too small.", nameof(destination));
+        int op = WriteHeader(destination);
+        for (int at = 0; at < source.Length; at += BlockSize)
+        {
+            ReadOnlySpan<byte> block = source.Slice(at, Math.Min(BlockSize, source.Length - at));
+            op = Block(block, destination, op);
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], 0); // end mark
+        return op + 4;
+    }
+
+    /// <summary>The bytes of a frame's header: magic number and descriptor.</summary>
+    internal const int HeaderLength = 7;
+
+    /// <summary>The bytes of a frame's end mark.</summary>
+    internal const int EndLength = 4;
+
+    /// <summary>The uncompressed bytes of a block (64 KiB, as Arrow C++ writes).</summary>
+    internal const int BlockBytes = BlockSize;
+
+    /// <summary>Writes the header of a frame as <see cref="Compress"/> writes it; returns its length.</summary>
+    internal static int WriteHeader(Span<byte> destination)
+    {
         BinaryPrimitives.WriteUInt32LittleEndian(destination, Magic);
         destination[4] = 0x60; // version 01, independent blocks
         destination[5] = 0x40; // blocks of up to 64 KiB
         destination[6] = (byte)(XxHash32.HashToUInt32(destination.Slice(4, 2)) >> 8);
-        int op = 7;
-        Span<byte> scratch = t_scratch ??= new byte[Lz4Block.MaxCompressedLength(BlockSize)];
-        for (int at = 0; at < source.Length; at += BlockSize)
+        return HeaderLength;
+    }
+
+    /// <summary>
+    /// Writes one block at <paramref name="op"/> (its size word, then the data compressed, or stored when it does not
+    /// shrink); returns the position after it. Compressed straight into the destination when it has room for the
+    /// block's bound, else through a thread's scratch.
+    /// </summary>
+    internal static int Block(ReadOnlySpan<byte> block, Span<byte> destination, int op)
+    {
+        int bound = Lz4Block.MaxCompressedLength(block.Length);
+        int n;
+        if (destination.Length - op - 4 >= bound)
         {
-            ReadOnlySpan<byte> block = source.Slice(at, Math.Min(BlockSize, source.Length - at));
-            int n = Lz4Block.Compress(block, scratch);
-            if (n < block.Length)
-            {
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)n);
-                scratch[..n].CopyTo(destination[(op + 4)..]);
-                op += 4 + n;
-            }
-            else
-            {
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)block.Length | 0x80000000u); // stored
-                block.CopyTo(destination[(op + 4)..]);
-                op += 4 + block.Length;
-            }
+            n = Lz4Block.Compress(block, destination.Slice(op + 4, bound));
+            if (n >= block.Length) block.CopyTo(destination[(op + 4)..]);
         }
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], 0); // end mark
-        return op + 4;
+        else
+        {
+            Span<byte> scratch = t_scratch ??= new byte[Lz4Block.MaxCompressedLength(BlockSize)];
+            n = Lz4Block.Compress(block, scratch);
+            if (n < block.Length) scratch[..n].CopyTo(destination[(op + 4)..]);
+            else block.CopyTo(destination[(op + 4)..]);
+        }
+        if (n < block.Length)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)n);
+            return op + 4 + n;
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)block.Length | 0x80000000u); // stored
+        return op + 4 + block.Length;
     }
 
     [ThreadStatic]

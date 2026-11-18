@@ -29,7 +29,8 @@ internal sealed class IpcOutgoingMessage(byte[] metadata, IpcEncodedBody? body, 
 /// longer with the same first values (a delta), or other (a replacement; refused in the file format, which allows
 /// none). Not thread-safe; compression runs in parallel inside one batch.
 /// </summary>
-internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression compression, int level, int parallelism, bool fileFormat) : IDisposable
+internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression compression, int level, int parallelism, bool fileFormat,
+    int zstdFrameBytes = IpcBatchEncoder.ZstdFrameBytes) : IDisposable
 {
     /// <summary>The schema in its IPC form (extension types as storage, dictionary ids).</summary>
     public IpcSchema Schema { get; } = IpcMetadataWriter.Schema(schema);
@@ -56,7 +57,7 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         {
             IpcBatchEncoder.Encode(body, Schema.Fields, [.. Enumerable.Range(0, batch.ColumnCount).Select(c => batch.Column(c).Data)], 0, batch.Length);
             foreach (var (id, field, dictionary) in body.Dictionaries) Dictionary(id, field, dictionary, messages, ref position);
-            IpcBatchEncoder.Compress(body, compression, level, parallelism);
+            IpcBatchEncoder.Compress(body, compression, level, parallelism, zstdFrameBytes);
             (IpcBuffer[] layout, long length) = IpcBatchEncoder.Layout(body.Buffers);
             var header = new IpcRecordBatch(batch.Length, [.. body.Nodes], layout, compression, [.. body.VariadicCounts]);
             messages.Add(new IpcOutgoingMessage(Frame(IpcMetadataWriter.RecordBatchMessage(header, length, metadata), position), body, layout, length, false));
@@ -100,7 +101,7 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
             IpcBatchEncoder.Encode(body, [values], [dictionary], first, length - first);
             foreach (var (inner, innerField, innerDictionary) in body.Dictionaries) Dictionary(inner, innerField, innerDictionary, messages, ref position);
             Remember(id, values, dictionary);
-            IpcBatchEncoder.Compress(body, compression, level, parallelism);
+            IpcBatchEncoder.Compress(body, compression, level, parallelism, zstdFrameBytes);
             (IpcBuffer[] layout, long bodyLength) = IpcBatchEncoder.Layout(body.Buffers);
             var header = new IpcRecordBatch(length - first, [.. body.Nodes], layout, compression, [.. body.VariadicCounts]);
             byte[] metadata = Frame(IpcMetadataWriter.DictionaryBatchMessage(new IpcDictionaryBatch(id, header, delta), bodyLength), position);

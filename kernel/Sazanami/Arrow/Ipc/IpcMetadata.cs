@@ -240,7 +240,7 @@ internal static class IpcMetadata
         int featureCount = s.Vector(3, 8, out int featuresAt);
         var features = new long[featureCount];
         for (int i = 0; i < featureCount; i++) features[i] = BinaryPrimitives.ReadInt64LittleEndian(s.Bytes(featuresAt + 8 * i, 8));
-        var schema = new Schema(fields.Select(f => f.Field), KeyValues(s, 2));
+        var schema = new Schema(fields.Select(f => f.Field), LastOfEachKey(KeyValues(s, 2)));
         return new IpcSchema(schema, fields, dictionaries, features);
     }
 
@@ -260,7 +260,7 @@ internal static class IpcMetadata
         string name = f.String(0) ?? "";
         bool nullable = f.Bool(1);
         IpcField[] children = Fields(f, 5, depth + 1, dictionaries);
-        var metadata = KeyValues(f, 6);
+        var metadata = LastOfEachKey(KeyValues(f, 6));
         byte typeTag = f.UInt8(2);
         f.TryTable(3, out FlatBufferTable typeTable); // absent: every parameter takes its default
         IArrowType type;
@@ -481,6 +481,27 @@ internal static class IpcMetadata
         ArrowTimeUnit.Microsecond => Apache.Arrow.Types.DurationType.Microsecond,
         _ => Apache.Arrow.Types.DurationType.Nanosecond,
     };
+
+    /// <summary>
+    /// Metadata as Apache.Arrow's schemas and fields hold it (a dictionary): a key the data repeats takes its last value,
+    /// as the footer's and messages' metadata read (the format does not forbid repeats; Apache.Arrow throws on them).
+    /// </summary>
+    private static List<KeyValuePair<string, string>>? LastOfEachKey(List<KeyValuePair<string, string>>? pairs)
+    {
+        if (pairs is null || pairs.Count < 2) return pairs;
+        Dictionary<string, int> at = [];
+        List<KeyValuePair<string, string>> unique = new(pairs.Count);
+        foreach (var pair in pairs)
+        {
+            if (at.TryGetValue(pair.Key, out int i)) unique[i] = pair;
+            else
+            {
+                at[pair.Key] = unique.Count;
+                unique.Add(pair);
+            }
+        }
+        return unique;
+    }
 
     private static List<KeyValuePair<string, string>>? KeyValues(FlatBufferTable table, int slot)
     {

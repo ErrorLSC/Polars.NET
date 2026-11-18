@@ -53,6 +53,25 @@ internal sealed unsafe class IpcEncodedBody : IDisposable
     /// <summary>Takes a <see cref="NativeMemoryPool"/> block made elsewhere, freed with this body.</summary>
     public void Adopt(nint p) => _made.Add(p);
 
+    /// <summary>
+    /// Copies the buffers still read from the caller's arrays (those stored as they are) into memory of this body and
+    /// lets the caller's go: the body then outlives the arrays it was made from.
+    /// </summary>
+    public void Own()
+    {
+        HashSet<nint> made = [.. _made];
+        for (int i = 0; i < Buffers.Count; i++)
+        {
+            IpcPiece piece = Buffers[i];
+            if (piece.Length == 0 || made.Contains(piece.Pointer)) continue; // a block of this body (anything else is copied)
+            byte* copy = Make(piece.Length);
+            Buffer.MemoryCopy((void*)piece.Pointer, copy, piece.Length, piece.Length);
+            Buffers[i] = piece with { Pointer = (nint)copy };
+        }
+        foreach (MemoryHandle pin in _pins) pin.Dispose();
+        _pins.Clear();
+    }
+
     /// <summary>Where an Arrow buffer's bytes are (pinned until this is disposed).</summary>
     public byte* Pin(ArrowBuffer buffer)
     {
@@ -302,40 +321,107 @@ internal static unsafe class IpcBatchEncoder
         _ => BinaryPrimitives.ReadInt64LittleEndian(raw[(8 * k)..]),
     };
 
+    /// <summary>The uncompressed bytes of an LZ4 buffer compressed as one unit of work: one block (measured best: 16 Ki-row batches have buffers of a few blocks).</summary>
+    internal const int Lz4UnitBytes = Lz4Frame.BlockBytes;
+
     /// <summary>
-    /// Compresses each buffer with <paramref name="codec"/> (up to <paramref name="parallelism"/> at once; the bytes
-    /// are the same whatever the number): the uncompressed length first, or -1 and the bytes as they are when
-    /// compression does not make them smaller. Empty buffers stay empty.
+    /// The uncompressed bytes of a Zstandard frame: a larger buffer is compressed as several frames one after the other
+    /// (a valid Zstandard stream, which every reader decompresses whole), side by side.
     /// </summary>
-    public static void Compress(IpcEncodedBody body, IpcCompression codec, int level, int parallelism)
+    internal const int ZstdFrameBytes = 32 << 20; // measured (10M rows, one batch, 16 threads): 8 MiB +3.7 % bytes, 32 MiB +0.8 % at the same speed
+
+    /// <summary>
+    /// Compresses each buffer with <paramref name="codec"/>: the uncompressed length first, or -1 and the bytes as they
+    /// are when compression does not make them smaller. Empty buffers stay empty. The work runs on up to
+    /// <paramref name="parallelism"/> threads in units: a buffer each, or for LZ4 its independent 64 KiB blocks
+    /// (<see cref="Lz4UnitBytes"/>), for Zstandard frames of <paramref name="zstdFrameBytes"/>, each written into its
+    /// slot of the buffer's output, the slots then closed up. The bytes are the same whatever the number of threads.
+    /// </summary>
+    public static void Compress(IpcEncodedBody body, IpcCompression codec, int level, int parallelism, int zstdFrameBytes = ZstdFrameBytes)
     {
         if (codec == IpcCompression.None) return;
         var pieces = body.Buffers;
-        var outputs = new IpcPiece[pieces.Count];
-        var made = new nint[pieces.Count];
-        Parallel.For(0, pieces.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, parallelism) }, i =>
+        bool lz4 = codec == IpcCompression.Lz4Frame;
+        int unitBytes = lz4 ? Lz4UnitBytes : zstdFrameBytes;
+        long slot = lz4 ? 4L + Lz4Block.MaxCompressedLength(Lz4Frame.BlockBytes) : ZstdBlock.MaxCompressedLength(unitBytes); // a unit's bound
+        int header = lz4 ? Lz4Frame.HeaderLength : 0, end = lz4 ? Lz4Frame.EndLength : 0;
+        // Per buffer: its output (a frame, or slots for the units of a split one), allocated before the work starts.
+        var outputs = new nint[pieces.Count];
+        List<(int Piece, int Unit, long Start, int Length)> units = [];
+        try
         {
-            IpcPiece piece = pieces[i];
-            if (piece.Length == 0)
+            for (int i = 0; i < pieces.Count; i++)
             {
-                outputs[i] = default;
-                return;
+                long length = pieces[i].Length;
+                if (length == 0) continue;
+                if (length > unitBytes)
+                {
+                    int count = 0;
+                    for (long at = 0; at < length; at += unitBytes) units.Add((i, count++, at, (int)Math.Min(unitBytes, length - at)));
+                    outputs[i] = (nint)NativeMemoryPool.Alloc(header + count * slot + end);
+                }
+                else
+                {
+                    units.Add((i, -1, 0, checked((int)length)));
+                    long bound = codec == IpcCompression.Zstd ? ZstdBlock.MaxCompressedLength((int)length) : Lz4Frame.MaxCompressedLength(length);
+                    outputs[i] = (nint)NativeMemoryPool.Alloc(bound);
+                }
             }
-            long bound = codec == IpcCompression.Lz4Frame ? Lz4Frame.MaxCompressedLength(piece.Length) : ZstdBlock.MaxCompressedLength(checked((int)piece.Length));
-            byte* p = NativeMemoryPool.Alloc(bound);
-            made[i] = (nint)p;
-            var target = new Span<byte>(p, checked((int)bound));
-            int n = codec == IpcCompression.Lz4Frame ? Lz4Frame.Compress(piece.Span, target) : ZstdBlock.Compress(piece.Span, target, level);
-            outputs[i] = n < piece.Length
-                ? new IpcPiece((nint)p, n, piece.Length, true)
-                : piece with { Prefix = -1, Prefixed = true }; // stored as is
-        });
-        foreach (nint p in made)
-        {
-            if (p != 0) body.Adopt(p);
+            var sizes = new int[units.Count];
+            Parallel.For(0, units.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, parallelism) }, u =>
+            {
+                var (i, unit, start, length) = units[u];
+                ReadOnlySpan<byte> source = pieces[i].Span.Slice((int)start, length);
+                if (unit < 0)
+                {
+                    var target = new Span<byte>((void*)outputs[i], checked((int)(codec == IpcCompression.Zstd
+                        ? ZstdBlock.MaxCompressedLength(length) : Lz4Frame.MaxCompressedLength(length))));
+                    sizes[u] = codec == IpcCompression.Zstd ? ZstdBlock.Compress(source, target, level) : Lz4Frame.Compress(source, target);
+                    return;
+                }
+                // Into the unit's slot: LZ4 blocks (the frame's header and end mark are written when the slots are closed
+                // up), or a Zstandard frame.
+                var into = new Span<byte>((byte*)outputs[i] + header + unit * slot, checked((int)slot));
+                sizes[u] = lz4 ? Lz4Frame.Block(source, into, 0) : ZstdBlock.Compress(source, into, level);
+            });
+            var result = new IpcPiece[pieces.Count];
+            for (int u = 0; u < units.Count;)
+            {
+                int i = units[u].Piece;
+                IpcPiece piece = pieces[i];
+                byte* frame = (byte*)outputs[i];
+                long size;
+                int next = u + 1;
+                if (units[u].Unit < 0) size = sizes[u];
+                else
+                {
+                    // Close up the slots (each moves down, never past the next).
+                    long op = lz4 ? Lz4Frame.WriteHeader(new Span<byte>(frame, Lz4Frame.HeaderLength)) : 0;
+                    for (; ; next++)
+                    {
+                        int k = next - 1;
+                        Buffer.MemoryCopy(frame + header + units[k].Unit * slot, frame + op, sizes[k], sizes[k]);
+                        op += sizes[k];
+                        if (next == units.Count || units[next].Piece != i) break;
+                    }
+                    if (lz4) BinaryPrimitives.WriteUInt32LittleEndian(new Span<byte>(frame + op, 4), 0); // end mark
+                    size = op + end;
+                }
+                body.Adopt(outputs[i]);
+                outputs[i] = 0;
+                result[i] = size < piece.Length ? new IpcPiece((nint)frame, size, piece.Length, true) : piece with { Prefix = -1, Prefixed = true };
+                u = next;
+            }
+            pieces.Clear();
+            pieces.AddRange(result);
         }
-        pieces.Clear();
-        pieces.AddRange(outputs);
+        finally
+        {
+            foreach (nint p in outputs)
+            {
+                if (p != 0) NativeMemoryPool.Free((void*)p);
+            }
+        }
     }
 
     /// <summary>Where each buffer goes in the body (64-byte aligned), and the body's length.</summary>

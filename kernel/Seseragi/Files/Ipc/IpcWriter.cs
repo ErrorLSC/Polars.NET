@@ -11,7 +11,10 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// little-endian, buffers 64-byte aligned, optional LZ4 frame or Zstandard compression of each buffer. Arrays are
 /// written from where they are: sliced arrays as their own rows. Dictionary-encoded columns write their dictionary
 /// once, then only what changes: a delta when a batch's dictionary extends the last one, else (the stream format only)
-/// a replacement. Not thread-safe.
+/// a replacement. With compression, each batch is compressed before <see cref="Write(RecordBatch)"/> returns, then
+/// written to the stream while the next one is compressed (a cancellation token then covers the compression, not that
+/// write): a failure of the stream then surfaces from the next call (<see cref="Write(RecordBatch)"/>,
+/// <see cref="Complete"/>). Not thread-safe.
 /// </summary>
 public sealed class IpcWriter : IDisposable, IAsyncDisposable
 {
@@ -23,7 +26,9 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     private readonly List<IpcBlock> _dictionaryBlocks = [];
     private readonly List<IpcBlock> _batchBlocks = [];
     private readonly byte[] _prefix = new byte[8]; // a compressed buffer's length, written before it
-    private long _position;
+    private long _position;  // bytes written to the stream
+    private long _planned;   // where the messages handed over so far end (ahead of _position while one is written behind)
+    private Task? _pending;  // the messages of the last batch being written behind (with compression)
     private bool _started, _completed, _aborted, _faulted, _disposed;
 
     private IpcWriter(Stream stream, Schema schema, IpcWriteOptions options)
@@ -33,11 +38,11 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         _stream = stream;
         _options = options;
         _encoder = new IpcMessageEncoder(schema, options.Compression.IpcCodec, options.Compression.IpcLevel, options.MaxDegreeOfParallelism,
-            options.Format == IpcFormat.File);
+            options.Format == IpcFormat.File, options.ZstdFrameBytes);
     }
 
-    /// <summary>The bytes written to the stream so far.</summary>
-    public long BytesWritten => _position;
+    /// <summary>The bytes written to the stream so far (with compression, the last batch may still be on its way).</summary>
+    public long BytesWritten => Interlocked.Read(ref _position);
 
     /// <summary>The schema the batches are written with.</summary>
     public Schema Schema { get; }
@@ -261,15 +266,40 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         CheckWritable();
         await StartAsync(useAsync, ct).ConfigureAwait(false);
         // Encoding refuses a batch that does not fit before anything is written: the output stays valid.
-        List<IpcOutgoingMessage> messages = _encoder.Batch(batch, metadata?.ToList(), _position);
+        List<IpcOutgoingMessage> messages = _encoder.Batch(batch, metadata?.ToList(), _planned);
+        bool handed = false;
         try
         {
+            bool behind = _options.Compression.IpcCodec != IpcCompression.None;
+            if (behind)
+            {
+                // The messages own their bytes from here: the caller may dispose the batch once this returns.
+                foreach (IpcOutgoingMessage message in messages) message.Body?.Own();
+            }
             foreach (IpcOutgoingMessage message in messages)
             {
-                long at = _position;
-                await WriteMessageAsync(message, useAsync, ct).ConfigureAwait(false);
-                (message.IsDictionary ? _dictionaryBlocks : _batchBlocks).Add(new IpcBlock(at, message.Metadata.Length, message.BodyLength));
+                (message.IsDictionary ? _dictionaryBlocks : _batchBlocks).Add(new IpcBlock(_planned, message.Metadata.Length, message.BodyLength));
+                _planned += message.Metadata.Length + message.BodyLength;
             }
+            await WaitBehindAsync(useAsync).ConfigureAwait(false);
+            if (behind)
+            {
+                _pending = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Not the caller's token: that call has returned; the batch is the writer's to write now.
+                        foreach (IpcOutgoingMessage message in messages) await WriteMessageAsync(message, useAsync, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        foreach (IpcOutgoingMessage message in messages) message.Dispose();
+                    }
+                }, CancellationToken.None);
+                handed = true;
+                return;
+            }
+            foreach (IpcOutgoingMessage message in messages) await WriteMessageAsync(message, useAsync, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -278,8 +308,36 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         }
         finally
         {
-            foreach (IpcOutgoingMessage message in messages) message.Dispose();
+            if (!handed)
+            {
+                foreach (IpcOutgoingMessage message in messages) message.Dispose();
+            }
         }
+    }
+
+    /// <summary>Waits for the batch being written behind; its failure faults the writer and is thrown here.</summary>
+    private async ValueTask WaitBehindAsync(bool useAsync)
+    {
+        if (_pending is not { } pending) return;
+        _pending = null;
+        try
+        {
+            if (useAsync) await pending.ConfigureAwait(false);
+            else pending.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+    }
+
+    /// <summary>Waits for the batch being written behind, whatever it ends with (the writer is closing without completing).</summary>
+    private void WaitBehindQuietly()
+    {
+        if (_pending is not { } pending) return;
+        _pending = null;
+        ((Task)pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
     }
 
     /// <summary>The file's magic and the schema message, once.</summary>
@@ -292,6 +350,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
             if (_options.Format == IpcFormat.File) await WriteBytesAsync("ARROW1\0\0"u8.ToArray(), useAsync, ct).ConfigureAwait(false);
             using IpcOutgoingMessage schema = _encoder.SchemaMessage(_position, null);
             await WriteMessageAsync(schema, useAsync, ct).ConfigureAwait(false);
+            _planned = _position;
         }
         catch
         {
@@ -338,7 +397,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     {
         if (useAsync) await _stream.WriteAsync(bytes, ct).ConfigureAwait(false);
         else _stream.Write(bytes.Span);
-        _position += bytes.Length;
+        Interlocked.Add(ref _position, bytes.Length);
     }
 
     private async ValueTask WriteNativeAsync(nint pointer, long length, bool useAsync, CancellationToken ct)
@@ -359,6 +418,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         try
         {
             await StartAsync(useAsync, ct).ConfigureAwait(false);
+            await WaitBehindAsync(useAsync).ConfigureAwait(false);
             await WriteBytesAsync(EndOfStream.ToArray(), useAsync, ct).ConfigureAwait(false);
             if (_options.Format == IpcFormat.File)
             {
@@ -391,6 +451,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         finally
         {
             _disposed = true;
+            WaitBehindQuietly(); // aborted or failed: the batch on its way still finishes before the stream closes
             _encoder.Dispose();
             if (!_options.LeaveOpen) _stream.Dispose();
         }
@@ -407,6 +468,11 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         finally
         {
             _disposed = true;
+            if (_pending is { } pending)
+            {
+                _pending = null;
+                await ((Task)pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
             _encoder.Dispose();
             if (!_options.LeaveOpen) await _stream.DisposeAsync().ConfigureAwait(false);
         }

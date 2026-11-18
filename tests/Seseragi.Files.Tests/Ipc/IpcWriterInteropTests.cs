@@ -6,7 +6,8 @@ using Kaminari.Seseragi.Files.Ipc;
 namespace Seseragi.Files.Tests.Ipc;
 
 /// <summary>
-/// Every corpus file written again by our writer (file and stream formats, uncompressed, LZ4 frame and Zstandard) and
+/// Every corpus file written again by our writer (file and stream formats, uncompressed, LZ4 frame and Zstandard, also
+/// with buffers split into several Zstandard frames, as large buffers are) and
 /// read by pyarrow (fully validated) and Python Polars: they read what they read from the original
 /// (TestData/ipc/writer_interop.py against values.json). Opt-in: SESERAGI_IPC_PYTHON (pyarrow 26 and Polars 2.1, e.g.
 /// ~/.cache/seseragi/avro-venv/bin/python); without it the files are only written.
@@ -25,10 +26,11 @@ public sealed class IpcWriterInteropTests : IDisposable
     public void OracleReaders_ReadOurFiles_AsTheyReadTheOriginals()
     {
         Directory.CreateDirectory(_dir);
-        (IpcFormat Format, IIpcCompression Codec, string Tag)[] ways =
+        (IpcFormat Format, IIpcCompression Codec, string Tag, int Frames)[] ways =
         [
-            (IpcFormat.File, NoCompression.Instance, "none.arrow"), (IpcFormat.File, Lz4FrameCompression.Instance, "lz4.arrow"),
-            (IpcFormat.Stream, new ZstandardCompression(), "zstd.arrows"),
+            (IpcFormat.File, NoCompression.Instance, "none.arrow", 32 << 20), (IpcFormat.File, Lz4FrameCompression.Instance, "lz4.arrow", 32 << 20),
+            (IpcFormat.Stream, new ZstandardCompression(), "zstd.arrows", 32 << 20),
+            (IpcFormat.File, new ZstandardCompression(), "zstd-frames.arrow", 4096), // every buffer over 4 KiB several frames
         ];
         Dictionary<string, string> manifest = [];
         int n = 0;
@@ -38,11 +40,11 @@ public sealed class IpcWriterInteropTests : IDisposable
             // Year-month and day-time intervals: pyarrow cannot hand their arrays out (the corpus oracle reads golden JSON);
             // our reader compares them in IpcWriterTests.
             if (name.EndsWith("generated_interval.arrow_file") || name.EndsWith("generated_interval.stream")) continue;
-            foreach (var (format, codec, tag) in ways)
+            foreach (var (format, codec, tag, frames) in ways)
             {
                 if (name == "pyarrow/dictionary_replacement.arrows" && format == IpcFormat.File) continue; // refused by the file format
                 string path = Path.Combine(_dir, $"{n++:D4}.{tag}");
-                File.WriteAllBytes(path, IpcWriterTests.Rewrite(name, new IpcWriteOptions { Format = format, Compression = codec }));
+                File.WriteAllBytes(path, IpcWriterTests.Rewrite(name, new IpcWriteOptions { Format = format, Compression = codec, ZstdFrameBytes = frames }));
                 manifest[path] = name;
             }
         }

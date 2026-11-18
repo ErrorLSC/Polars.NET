@@ -195,6 +195,56 @@ public sealed class IpcTypedTests : IDisposable
         }
     }
 
+    /// <summary><see cref="IpcStreamReader{T}"/>: rows of a stream, a predicate evaluated by the reader, once only; sync and async, seekable or not.</summary>
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(false, 8)]
+    [InlineData(true, 8)]
+    public async Task StreamRows_ComeBackThroughTheTypedStreamReader(bool async, int parallelism)
+    {
+        Trade[] rows = ParquetWriterOfTTests.Trades(40_000);
+        using var memory = new MemoryStream();
+        IpcWriter.WriteRows(memory, rows, new IpcWriteOptions { Format = IpcFormat.Stream, Compression = Lz4FrameCompression.Instance, LeaveOpen = true });
+        byte[] bytes = memory.ToArray();
+        var options = new IpcReadOptions { MaxDegreeOfParallelism = parallelism };
+
+        using (var reader = async
+                   ? await IpcStreamReader<Trade>.OpenAsync(new IpcValueTests.NonSeekable(new MemoryStream(bytes)), options: options)
+                   : IpcStreamReader<Trade>.Open(new MemoryStream(bytes), options: options))
+        {
+            List<Trade> read = async ? await reader.ReadListAsync() : reader.ReadList();
+            Assert.Equal(rows.Length, read.Count);
+            for (int i = 0; i < rows.Length; i++) Assert.True(ParquetWriterOfTTests.Same(rows[i], read[i]), $"row {i}");
+            Assert.Throws<InvalidOperationException>(() => reader.ReadRows());
+        }
+
+        using (var reader = IpcStreamReader<Trade>.Open(new MemoryStream(bytes), t => t.Symbol == "SYM5" && t.Fee > 100, options))
+        {
+            Assert.True(reader.FiltersExactly);
+            Assert.True(reader.Inner.FiltersExactly);
+            List<long> ids = [];
+            if (async)
+                await foreach (Trade t in reader.ReadRowsAsync()) ids.Add(t.Id);
+            else
+                ids.AddRange(reader.ReadRows().Select(t => t.Id));
+            Assert.Equal(rows.Where(t => t.Symbol == "SYM5" && t.Fee > 100).Select(t => t.Id), ids);
+        }
+
+        // Only the members' columns are read; a limit counts the rows delivered.
+        using (var reader = IpcStreamReader<Narrow>.Open(new MemoryStream(bytes), t => t.Id >= 100, options with { MaxRows = 5 }))
+        {
+            Assert.Equal(["Id", "Symbol"], reader.Schema.FieldsList.Select(f => f.Name));
+            Assert.Equal([100L, 101, 102, 103, 104], reader.ReadRows().Select(r => r.Id));
+        }
+
+        // A stream without the members' columns is refused on open (and disposed).
+        var refused = new MemoryStream(bytes);
+        Assert.Throws<ArgumentException>(() => IpcStreamReader<Missing>.Open(refused));
+        Assert.False(refused.CanRead);
+    }
+
+    public sealed record Missing(long Id, string Nowhere);
+
     [Fact]
     public void AFailedWrite_DeletesThePartialFile()
     {

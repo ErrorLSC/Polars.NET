@@ -14,6 +14,29 @@ namespace Seseragi.Files.Tests.Ipc;
 /// </summary>
 public class IpcRobustnessTests
 {
+    /// <summary>
+    /// What our fuzzer found (TestData/ipc-fuzz): a field whose custom metadata repeats a key (Apache.Arrow's Field threw
+    /// ArgumentException); the key takes its last value, as footer and message metadata do. Read to the end or refused.
+    /// </summary>
+    [Fact]
+    public void OurFuzzFindings_ReadOrAreRefused()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "ipc-fuzz", "repeated-field-metadata-key.arrows");
+        foreach (int parallelism in (int[])[1, 4])
+        {
+            try
+            {
+                using IpcStreamReader reader = IpcStreamReader.Open(File.OpenRead(path), new IpcReadOptions { MaxDegreeOfParallelism = parallelism });
+                Assert.Contains(reader.Schema.FieldsList, f => f.Metadata?.ContainsKey("z") == true);
+                foreach (Apache.Arrow.RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+            }
+            catch (IpcFormatException)
+            {
+                // Refused: the contract allows it.
+            }
+        }
+    }
+
     public static TheoryData<string> FuzzFiles => [.. IpcValueTests.Oracle.Value.RootElement.GetProperty("files").EnumerateObject()
         .Select(p => p.Name).Where(n => n.StartsWith("apache/fuzz/"))];
 

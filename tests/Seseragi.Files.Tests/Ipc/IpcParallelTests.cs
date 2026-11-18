@@ -218,18 +218,114 @@ public class IpcParallelTests
     public void DisposingAReaderWhoseStreamBlocks_DoesNotWait(bool leaveOpen)
     {
         byte[] bytes = ManyBatchesStream();
-        using var blocking = new Blocking(bytes[..(bytes.Length / 2)]);
+        using var blocking = new Blocking(bytes[..(bytes.Length / 6)]); // a couple of batches, then a read that blocks
         var reader = IpcStreamReader.Open(blocking, Many, leaveOpen);
         reader.ReadNext()!.Dispose();
+        Assert.True(blocking.Blocked.Wait(TimeSpan.FromSeconds(10)), "the reader never blocked in a read");
         Assert.True(Task.Run(reader.Dispose).Wait(TimeSpan.FromSeconds(10)), "Dispose waited for a blocked read");
         blocking.Release();
     }
 
-    /// <summary>Gives its bytes, then blocks every read until released (then reports the end); ignores cancellation.</summary>
-    private sealed class Blocking(byte[] bytes) : Stream
+    /// <summary>
+    /// A stream left open is the caller's again once the reader is disposed: no read of the reader's is still going on,
+    /// however far ahead it read (reopened from the start, it gives the same first batch every time).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AStreamLeftOpen_IsTheCallersAgainAfterDispose(bool slow)
+    {
+        using var memory = new MemoryStream(ManyBatchesStream());
+        Stream stream = slow ? new Slow(memory) : memory;
+        string? first = null;
+        for (int round = 0; round < (slow ? 20 : 50); round++)
+        {
+            memory.Position = 0;
+            using (IpcStreamReader reader = IpcStreamReader.Open(stream, Many, leaveOpen: true))
+            {
+                using RecordBatch batch = reader.ReadNext()!;
+                string text = string.Join(",", Enumerable.Range(0, batch.Length).Select(i => CanonicalRender.Value(batch.Column(0), i)));
+                first ??= text;
+                Assert.Equal(first, text);
+            }
+        }
+    }
+
+    /// <summary>Reads that take a moment and ignore cancellation once started (a pipe read synchronously).</summary>
+    private sealed class Slow(Stream inner) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            Thread.Sleep(3);
+            return inner.Read(buffer);
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    /// <summary>A cancellation token covers a call's compression, not the write behind it: cancelled after the call, the output still completes.</summary>
+    [Fact]
+    public async Task ATokenCancelledAfterWriteAsync_DoesNotFaultTheWriter()
+    {
+        var schema = new Schema([new Field("n", Int64Type.Default, false)], null);
+        using var memory = new MemoryStream();
+        await using (IpcWriter writer = IpcWriter.Create(memory, schema, new IpcWriteOptions { Compression = Lz4FrameCompression.Instance, LeaveOpen = true }))
+        {
+            for (int b = 0; b < 5; b++)
+            {
+                using var cancel = new CancellationTokenSource();
+                var builder = new Int64Array.Builder();
+                for (int i = 0; i < 200_000; i++) builder.Append(i);
+                using RecordBatch batch = new(schema, [builder.Build()], 200_000);
+                await writer.WriteAsync(batch, cancel.Token);
+                cancel.Cancel();
+            }
+            await writer.CompleteAsync();
+        }
+        using IpcFile file = IpcFile.Open(memory.ToArray());
+        Assert.Equal(5, file.BatchCount);
+    }
+
+    /// <summary>
+    /// A read in progress that ends soon (within the reader's wait) is waited for: once Dispose returns, no read of the
+    /// reader's is running on the stream left open.
+    /// </summary>
+    [Fact]
+    public void DisposingAReaderWhoseReadEndsSoon_WaitsForIt()
+    {
+        byte[] bytes = ManyBatchesStream();
+        using var blocking = new Blocking(bytes[..(bytes.Length / 6)], TimeSpan.FromMilliseconds(300));
+        var reader = IpcStreamReader.Open(blocking, Many, leaveOpen: true);
+        reader.ReadNext()!.Dispose();
+        Assert.True(blocking.Blocked.Wait(TimeSpan.FromSeconds(10)), "the reader never blocked in a read");
+        reader.Dispose();
+        Assert.Equal(0, blocking.Reading);
+    }
+
+    /// <summary>
+    /// Gives its bytes, then blocks every read until released, or for <c>ending</c> when given (then reports the end);
+    /// ignores cancellation.
+    /// </summary>
+    private sealed class Blocking(byte[] bytes, TimeSpan? ending = null) : Stream
     {
         private readonly ManualResetEventSlim _released = new();
-        private int _at;
+        private int _at, _reading;
+
+        /// <summary>Reads in progress.</summary>
+        public int Reading => Volatile.Read(ref _reading);
+
+        /// <summary>Set once a read blocks.</summary>
+        public ManualResetEventSlim Blocked { get; } = new();
 
         public void Release() => _released.Set();
 
@@ -244,7 +340,11 @@ public class IpcParallelTests
         {
             if (_at == bytes.Length)
             {
-                _released.Wait();
+                Interlocked.Increment(ref _reading);
+                Blocked.Set();
+                if (ending is { } wait) _released.Wait(wait);
+                else _released.Wait();
+                Interlocked.Decrement(ref _reading);
                 return 0;
             }
             int n = Math.Min(buffer.Length, bytes.Length - _at);
@@ -261,6 +361,84 @@ public class IpcParallelTests
         protected override void Dispose(bool disposing)
         {
             _released.Set();
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>
+    /// With compression a batch is written behind, while the next is compressed: the caller's batch may go once Write
+    /// returns, and a stream that fails surfaces from the next call; the writer is then faulted and disposes cleanly.
+    /// </summary>
+    [Fact]
+    public void BatchesWrittenBehind_FailOnTheNextCall()
+    {
+        var schema = new Schema([new Field("n", Int64Type.Default, false)], null);
+        RecordBatch Make(int b)
+        {
+            var builder = new Int64Array.Builder();
+            for (int i = 0; i < 100_000; i++) builder.Append(b * 100_000L + i);
+            return new RecordBatch(schema, [builder.Build()], 100_000);
+        }
+
+        // Batches disposed as soon as Write returns: the output is still theirs.
+        using (var memory = new MemoryStream())
+        {
+            using (IpcWriter writer = IpcWriter.Create(memory, schema, new IpcWriteOptions { Compression = Lz4FrameCompression.Instance, LeaveOpen = true }))
+            {
+                for (int b = 0; b < 6; b++)
+                {
+                    using RecordBatch batch = Make(b);
+                    writer.Write(batch);
+                }
+            }
+            using IpcFile file = IpcFile.Open(memory.ToArray());
+            using IpcReader reader = file.OpenReader(OneThread);
+            Assert.Equal(Enumerable.Range(0, 600_000).Select(i => (long)i), reader.ReadBatches().SelectMany(b => { using (b) return ((Int64Array)b.Column(0)).Values.ToArray(); }));
+        }
+
+        // A stream failing during the first batch's write: the second Write (or Complete) throws, the writer is faulted.
+        var failing = new Failing(limit: 4096);
+        var w = IpcWriter.Create(failing, schema, new IpcWriteOptions { Compression = Lz4FrameCompression.Instance });
+        using (RecordBatch first = Make(0)) w.Write(first);
+        Exception e = Record.Exception(() =>
+        {
+            using RecordBatch second = Make(1);
+            w.Write(second);
+            w.Complete();
+        });
+        Assert.IsType<IOException>(e);
+        Assert.Throws<InvalidOperationException>(() => w.Complete());
+        w.Dispose();
+        Assert.True(failing.Disposed);
+    }
+
+    /// <summary>A stream that fails once more than <c>limit</c> bytes are written.</summary>
+    private sealed class Failing(int limit) : Stream
+    {
+        private long _written;
+
+        public bool Disposed { get; private set; }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            _written += buffer.Length;
+            if (_written > limit) throw new IOException("The disk is full.");
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
             base.Dispose(disposing);
         }
     }

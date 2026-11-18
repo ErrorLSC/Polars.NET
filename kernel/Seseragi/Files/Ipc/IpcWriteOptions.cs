@@ -35,6 +35,9 @@ public sealed record IpcWriteOptions
     /// <summary>Whether the stream stays open once the writer is disposed (the writer of a path always closes its file).</summary>
     public bool LeaveOpen { get; init; }
 
+    /// <summary>The uncompressed bytes of a Zstandard frame: larger buffers are compressed as several frames side by side (tests lower it).</summary>
+    internal int ZstdFrameBytes { get; init; } = Kaminari.Sazanami.Arrow.Ipc.IpcBatchEncoder.ZstdFrameBytes;
+
     internal void Validate()
     {
         ArgumentNullException.ThrowIfNull(Compression, nameof(Compression));

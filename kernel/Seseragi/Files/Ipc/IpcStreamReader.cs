@@ -20,9 +20,9 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// parallel, up to that many ahead of the consumer. A batch is delivered as soon as it is decoded: the reader never
 /// waits for later messages. Until the stream ends, its position is therefore past the batches delivered; with
 /// <see cref="IpcReadOptions.FilterRows"/> and a row limit, the reader may read past the batch that reaches the limit.
-/// Disposing the reader does not wait for a read in progress (cancelled through its token; a stream the reader owns is
-/// closed first): a stream that ignores cancellation finishes that read in the background, the batches read ahead and
-/// the dictionaries released after it. Read-ahead holds up to that many batches, while their bodies stay within 512 MiB.
+/// Disposing the reader cancels a read in progress (a stream the reader owns is closed first) and waits for it to end,
+/// up to a second: a stream whose reads ignore cancellation and block finishes that read in the background, the
+/// batches read ahead and the dictionaries released after it (a stream left open must then not be read meanwhile). Read-ahead holds up to that many batches, while their bodies stay within 512 MiB.
 /// </remarks>
 public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
 {
@@ -74,24 +74,50 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     /// </summary>
     /// <exception cref="IpcFormatException">The data is not an Arrow IPC stream, or its schema is damaged.</exception>
     /// <exception cref="ArgumentException">A column named in the options is not in the stream.</exception>
-    public static IpcStreamReader Open(Stream stream, IpcReadOptions? options = null, bool leaveOpen = false) =>
-        IpcIO.Sync(OpenCoreAsync(stream, options, leaveOpen, false, default));
+    public static IpcStreamReader Open(Stream stream, IpcReadOptions? options = null, bool leaveOpen = false)
+    {
+        options = Validated(stream, options, leaveOpen);
+        return IpcIO.Sync(OpenCoreAsync(stream, _ => options, leaveOpen, false, default));
+    }
 
-    /// <inheritdoc cref="Open"/>
-    public static ValueTask<IpcStreamReader> OpenAsync(Stream stream, IpcReadOptions? options = null, bool leaveOpen = false,
-        CancellationToken cancellationToken = default) => OpenCoreAsync(stream, options, leaveOpen, true, cancellationToken);
-
-    private static async ValueTask<IpcStreamReader> OpenCoreAsync(Stream stream, IpcReadOptions? options, bool leaveOpen, bool useAsync, CancellationToken ct)
+    /// <summary>The options checked before anything is read (a stream the reader would own is disposed when they are out of range).</summary>
+    internal static IpcReadOptions Validated(Stream stream, IpcReadOptions? options, bool leaveOpen)
     {
         ArgumentNullException.ThrowIfNull(stream);
         options ??= new IpcReadOptions();
         try
         {
             options.Validate();
+        }
+        catch when (!leaveOpen)
+        {
+            stream.Dispose();
+            throw;
+        }
+        return options;
+    }
+
+    /// <inheritdoc cref="Open"/>
+    public static ValueTask<IpcStreamReader> OpenAsync(Stream stream, IpcReadOptions? options = null, bool leaveOpen = false,
+        CancellationToken cancellationToken = default)
+    {
+        options = Validated(stream, options, leaveOpen);
+        return OpenCoreAsync(stream, _ => options, leaveOpen, true, cancellationToken);
+    }
+
+    /// <summary>Opens a stream, its options chosen once its schema is read (<see cref="IpcStreamReader{T}"/> selects its members' columns).</summary>
+    internal static async ValueTask<IpcStreamReader> OpenCoreAsync(Stream stream, Func<Schema, IpcReadOptions> choose, bool leaveOpen, bool useAsync,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        try
+        {
             (IpcMessage? message, _) = await ReadMessageAsync(stream, first: true, useAsync, ct).ConfigureAwait(false);
             if (message is null) throw new IpcFormatException("The Arrow IPC stream is empty: it has no schema.");
             if (message.Kind != IpcMessageKind.Schema) throw new IpcFormatException($"The Arrow IPC stream starts with a {message.Kind} message, not its schema.");
             if (message.BodyLength != 0) await SkipAsync(stream, message.BodyLength, useAsync, ct).ConfigureAwait(false);
+            IpcReadOptions options = choose(message.Schema!.Schema);
+            options.Validate();
             return new IpcStreamReader(stream, leaveOpen, options, message.Schema!, message.Metadata);
         }
         catch when (!leaveOpen)
@@ -311,14 +337,28 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Stops reading ahead and releases the dictionaries: cancels the producer (closing the stream first when the
-    /// reader owns it) without waiting for it, since a stream may ignore cancellation and block in a read until more
-    /// data comes; once it ends, the batches it queued are freed and the dictionaries released.
+    /// reader owns it) and waits for it up to <see cref="StopWait"/>: a stream may ignore cancellation and block in a read
+    /// until more data comes, and is then left to it; once it ends, the batches it queued are freed and the dictionaries
+    /// released.
     /// </summary>
+    /// <summary>How long disposing waits for the read-ahead task to end once cancelled (it ends at once unless a read ignores cancellation).</summary>
+    private static readonly TimeSpan StopWait = TimeSpan.FromSeconds(1);
+
     private void StopAhead()
     {
         _cancel!.Cancel();
         if (!_leaveOpen) _stream.Dispose();
-        if (_producer!.IsCompleted) Release();
+        // A producer honouring cancellation ends at once: wait for it, so that a caller reusing its stream (left open)
+        // finds no read of ours in progress. One blocked in a read that ignores cancellation is left to finish.
+        try
+        {
+            _producer!.Wait(StopWait);
+        }
+        catch (AggregateException)
+        {
+            // The producer queues its failures; it does not end faulted. Nothing to report while disposing.
+        }
+        if (_producer.IsCompleted) Release();
         else _producer.ContinueWith(_ => Release(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
 
         void Release()
