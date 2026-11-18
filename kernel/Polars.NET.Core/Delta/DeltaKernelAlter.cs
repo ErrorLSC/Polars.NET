@@ -156,9 +156,10 @@ internal static class DeltaKernelAlter
         }
 
         // Refuses, before anything is committed, a drop whose data rewrite could not write the table's files (map
-        // columns; see DeltaKernelWrite.EnsureNoMaps).
+        // columns through the engine's own sink; see DeltaKernelWrite.EnsureNoMaps).
         static void EnsureRewritable(DmlTable table, string feature)
         {
+            if (ManagedSink.Applies(table.FileSystem)) return;
             Snapshot snapshot = table.Snapshot;
             if (!snapshot.Schema.Fields.Any(f => !snapshot.PartitionColumns.Contains(f.Name) && DeltaKernelWrite.HasMap(f.Type))) return;
             bool rewrites = feature.ToLowerInvariant() switch

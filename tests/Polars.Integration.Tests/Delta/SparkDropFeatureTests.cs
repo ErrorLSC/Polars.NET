@@ -174,6 +174,10 @@ public partial class SparkDropFeatureTests
         "DELETE FROM {table} WHERE id = 2",
         "DELETE FROM {table} WHERE id = 4",
         "DELETE FROM {table} WHERE id = 5")]
+    // … with map columns (rewritten as Parquet maps), at the top and inside a struct.
+    [InlineData("deletionVectors", "(id INT, m MAP<STRING, INT>, s STRUCT<n: INT, m: MAP<INT, STRING>>) USING delta", "'delta.enableDeletionVectors'='true'",
+        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, map('a', 1), named_struct('n', 1, 'm', map(1, 'x'))), (2, map('b', 2, 'c', 3), named_struct('n', 2, 'm', map(2, 'y'))) AS x(id, m, s)",
+        "DELETE FROM {table} WHERE id = 2")]
     // … with a dropped column: the purge also rewrites the file that still holds it (with and without a vector elsewhere).
     [InlineData("deletionVectors", "(id INT, v STRING, w STRING) USING delta", "'delta.enableDeletionVectors'='true', 'delta.columnMapping.mode'='name'",
         "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, 'a', 'x'), (2, 'b', 'y') AS x(id, v, w)",
@@ -699,11 +703,6 @@ public partial class SparkDropFeatureTests
     [SparkTheory]
     // Names a data file cannot hold without column mapping (Spark refuses them too).
     [InlineData("(id INT, `a b` STRING) USING delta", "'delta.columnMapping.mode'='name'", "columnMapping", "INSERT INTO {table} VALUES (1, 'x')")]
-    // A rewrite that would write map columns (which the engine cannot write yet as Spark reads them) is refused
-    // before the first commit, not after the deletion vectors were turned off.
-    [InlineData("(id INT, m MAP<STRING, INT>) USING delta", "'delta.enableDeletionVectors'='true'", "deletionVectors",
-        "INSERT INTO {table} SELECT /*+ COALESCE(1) */ * FROM VALUES (1, map('a', 1)), (2, map('b', 2)) AS x(id, m)",
-        "DELETE FROM {table} WHERE id = 2")]
     [Trait("DeltaKernel", "Spark")]
     public void DropFeature_RefusesBeforeAnyCommit(string definition, string properties, string feature, params string[] setup)
     {

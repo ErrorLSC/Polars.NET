@@ -48,28 +48,15 @@ public class SparkTypeWideningTests
             string.Join(" ", read.GetProperty("rows").EnumerateArray().Select(r => r.GetRawText())));
     }
 
-    // The same without the map columns: the kernel cannot write map columns Spark reads yet (the engine has no
-    // map type), so tables whose files the kernel rewrites leave them out.
-    private const string ColumnsWithoutMaps =
-        "id INT, s STRUCT<a: INT, d: DECIMAL(5,2), dt: DATE, f: FLOAT>, arr ARRAY<INT>, arrs ARRAY<STRUCT<x: SMALLINT>>";
-
-    private const string FirstRowWithoutMaps =
-        "(1, named_struct('a', 1, 'd', 1.25, 'dt', DATE'2024-01-02', 'f', 1.5), array(1, 2), array(named_struct('x', 3)))";
-
-    private const string SecondRowWithoutMaps =
-        "(2, named_struct('a', 10000000000, 'd', 3.1234, 'dt', TIMESTAMP_NTZ'2024-01-03 04:05:06', 'f', 2.5D), array(10000000000), " +
-        "array(named_struct('x', 70000)))";
-
     /// <summary>A table whose first file holds the older types of every nested column Spark widened afterwards.</summary>
-    private static void CreateWidened(string table, string mapping, bool maps = true)
+    private static void CreateWidened(string table, string mapping)
     {
         LocalSpark.Run("sql", table,
-            $"CREATE TABLE {{table}} ({(maps ? Columns : ColumnsWithoutMaps)}) USING delta TBLPROPERTIES ('delta.enableTypeWidening'='true', " +
+            $"CREATE TABLE {{table}} ({Columns}) USING delta TBLPROPERTIES ('delta.enableTypeWidening'='true', " +
             $"'delta.feature.timestampNtz'='supported', 'delta.columnMapping.mode'='{mapping}')");
-        LocalSpark.Run("sql", table, $"INSERT INTO {{table}} VALUES {(maps ? FirstRow : FirstRowWithoutMaps)}");
-        foreach (string widening in Widenings.Where(w => maps || !w.StartsWith('m')))
-            LocalSpark.Run("sql", table, $"ALTER TABLE {{table}} ALTER COLUMN {widening}");
-        LocalSpark.Run("sql", table, $"INSERT INTO {{table}} VALUES {(maps ? SecondRow : SecondRowWithoutMaps)}");
+        LocalSpark.Run("sql", table, $"INSERT INTO {{table}} VALUES {FirstRow}");
+        foreach (string widening in Widenings) LocalSpark.Run("sql", table, $"ALTER TABLE {{table}} ALTER COLUMN {widening}");
+        LocalSpark.Run("sql", table, $"INSERT INTO {{table}} VALUES {SecondRow}");
     }
 
     [SparkTheory]
@@ -88,10 +75,10 @@ public class SparkTypeWideningTests
             DeltaKernelWrite.Write(copy, DeltaKernelScan.Scan(withMaps), KernelWriteMode.ErrorIfExists);
             Assert.Equal(Spark(withMaps).Rows, Spark(copy).Rows);
 
-            // An update rewrites the first file (older types) in the table's types.
+            // An update rewrites the first file (older types) in the table's types, its maps as Parquet maps.
             string byKernel = Path.Combine(root, "kernel"), bySpark = Path.Combine(root, "spark");
-            CreateWidened(byKernel, mapping, maps: false);
-            CreateWidened(bySpark, mapping, maps: false);
+            CreateWidened(byKernel, mapping);
+            CreateWidened(bySpark, mapping);
             DeltaKernelUpdate.Update(byKernel, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(1)), [("id", PolarsWrapper.Lit(100))]);
             LocalSpark.Run("sql", bySpark, "UPDATE {table} SET id = 100 WHERE id = 1");
             Assert.Equal(Spark(bySpark), Spark(byKernel));

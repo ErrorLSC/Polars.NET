@@ -1,5 +1,7 @@
 # Polars.NET 1.3.0 Release Note (draft)
 
+1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel and Parquet, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro and Excel functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
+
 ## Avro: managed reader and writer
 
 Avro now runs on Seseragi.Files, a managed implementation of the Avro 1.12 object container format (new package `Kaminari.Seseragi.Files`, referenced by `Polars.NET.Core`), instead of the engine's Avro reader and writer. Files stream block by block through Arrow record batches; blocks live in native memory and decode straight into native Arrow buffers. Behaviour is checked against fastavro, Python Polars and the Apache Avro sample files. The native library drops its `avro` feature and seven crates (`avro-schema`, `libflate`, `libflate_lz77`, `crc`, `crc-catalog`, `adler32`, `rle-decode-fast`).
@@ -23,6 +25,61 @@ Avro now runs on Seseragi.Files, a managed implementation of the Avro 1.12 objec
 
 * `LazyFrame.ScanRecordBatches` took batches in standard Arrow layouts as the engine's own physical layouts: `Utf8` strings came out empty and `Time32` values wrong. Every column now goes through the engine's Arrow import.
 * `DataFrame.FromArrow` and `Series.FromArrow` crashed the process (access violation) when the engine refused the data, e.g. a decimal of more than 38 digits: the Arrow array was released twice. The engine now takes the array as the Arrow C data interface specifies, and the call throws. The Arrow schema and the C structs are also freed after a successful import (they leaked).
+
+## Excel: managed reader and writer
+
+`ReadExcel`, `ScanExcel`, `WriteExcel` and `SinkExcel` (C# and F#) run on Seseragi.Files instead of the engine's calamine and rust_xlsxwriter, which are gone from the native library.
+
+### New
+
+* Reads xlsx (transitional and strict), xlsb, xls (BIFF8), OpenDocument spreadsheets (ods) and flat ods (.fods); the format is found from the content, not the file name. Writes xlsx. Both directions stream: rows are read and written batch by batch, never the whole sheet in memory.
+* The package's own API: `ExcelWorkbook` (sheets of one workbook, opened once), `ExcelReader` / `ExcelReadOptions` and `ExcelWriter` / `ExcelWriteOptions`.
+
+### Changed
+
+* Values are written by value, never rounded silently: integers within ±2^53 and decimals that a double holds exactly as numbers, other values as text; `NaN` and infinities as `#NUM!`; date-times with a time zone as wall clock. Values Excel cannot hold (dates before 1900, sub-microsecond times, binary and nested columns) are refused, naming the column.
+* Encrypted workbooks are refused with an error saying so; xls files older than BIFF8 (Excel 95 and before) are refused by name.
+* Column types are inferred from the first 100 rows by default (as Python Polars); a later cell that does not fit fails, naming the cell.
+
+## Parquet: managed reader and writer (Kaminari.Seseragi.Files)
+
+A Parquet implementation of its own, for .NET code that reads or writes Parquet without the engine (`DataFrame.ReadParquet`, `ScanParquet`, `WriteParquet` and `SinkParquet` still run on the engine).
+
+### New
+
+* **Files** (`ParquetFile`): from a path, memory (read in place), a stream, or any source of ranged reads, synchronously or asynchronously; the footer as `ParquetMetadata` and the schema as Arrow's. Memory mapping is chosen automatically. Encrypted files are refused by name.
+* **Reading** (`ParquetReader`, `ParquetReadOptions`): every column, flat or nested, as Arrow record batches, on all cores by default; every encoding Parquet writers use (dictionary, DELTA_*, BYTE_STREAM_SPLIT, RLE booleans) and codecs (Snappy, GZIP, Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop LZ4; not LZO). Strings in Arrow's view layout by default. Row selection, a row index column and `MaxRows`.
+* **Pushdown**: a row filter prunes row groups by their statistics, Bloom filters and page indexes, and filters the rows read (late materialization: other columns decoded only for rows that pass).
+* **Rows as objects**: `ParquetFile.OpenReader<T>(where)` / `ReadList<T>` read rows as records or classes (F# records and tuples too), the `where` lambda pushed into the read as the LINQ provider translates it.
+* **Datasets** (`ParquetDataset`): many files as one table, from directories, globs or file lists; Hive partitions (pruned by the filter); schemas from the first file, united by name, or given, with lossless widening between files; local files, memory, HTTP and the cloud stores, read ahead and in parallel. Typed rows too (`ParquetDataset.OpenReader<T>`).
+* **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches to a stream or a path, synchronously or asynchronously; flat and nested columns of every Arrow type Parquet holds (maps as MAP), field ids, statistics, page indexes, size statistics, Bloom filters, every encoding, the codecs Snappy, Zstandard, GZIP, Brotli and LZ4_RAW, data page v1 and v2; columns encoded and pages compressed on several threads. Values Parquet cannot hold exactly are refused, never changed. Files are read by pyarrow, DuckDB, Polars and Spark (verified).
+
+## Delta Lake: managed Parquet writer
+
+Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files) instead of the engine's Parquet sink. The engine still computes the rows, batch by batch; the writer encodes them and the store takes the bytes as they come: a temporary file renamed on a local disk, parts uploaded on a cloud store.
+
+### New
+
+* **Map columns are written as Parquet maps.** Tables with map columns (made by Spark or Databricks) can be appended to, updated, merged into, optimized, and have deletion vectors, type widening or column mapping dropped; Spark reads the files back. Appends and merges take a list of two-field structs (the engine's map) as the table's map.
+* `POLARS_NET_DELTA_SINK_MEMORY` sets how much memory the files being written may hold together: a size (`2GiB`, `512MiB`) or a share of the memory the process may use (`25%`). By default an eighth of the memory available to the process (a container's limit, not the machine's), at least 256 MB.
+* `POLARS_NET_DELTA_SINK=native` writes with the engine's sink, as before. It is also used where the managed storage clients do not serve the store.
+* Checkpoints are read with the managed Parquet reader and written in native memory, streamed to the store; a large checkpoint no longer passes through the managed heap.
+* Deletion vectors are decoded into native bitmaps (roaring), off the managed heap.
+* On S3, Azure and Google Cloud Storage, data files and checkpoints are uploaded in parts while they are written (S3 multipart uploads, Azure blocks, GCS multipart and resumable uploads), never held whole; a write that fails or is given up aborts its upload.
+* S3: the `aws_unsigned_payload` setting is honoured. By default, uploads over HTTPS no longer hash their data into the request signature (TLS keeps it whole), as the AWS SDKs do; `false` signs it.
+
+### Changed
+
+* `approxBytesPerFile` and `delta.targetFileSize` are sizes on disk: a file closes when one more row would take it past the target, as far as its compressed bytes so far tell. They were the rows' size in memory, and files split only between row groups, so tables of wide rows got files far beyond the target.
+* Partitioned writes group rows by their partition values without sorting each batch in the engine. A partition column of floats takes -0.0 and 0.0 as one partition, and every NaN as one, also with several partition columns.
+
+### Fixed
+
+* Float and double partition values `NaN`, `Infinity` and `-Infinity` were logged as null, and read back as null. They are now written as Spark writes them.
+
+## Arrow interop
+
+* Arrow data handed between the engine and .NET (exports to Arrow, record-batch scans) no longer reports its native memory to the .NET garbage collector as memory pressure. Apache.Arrow's importer did so for every buffer, which forced a full (gen2) collection for nearly every batch.
 
 ---
 

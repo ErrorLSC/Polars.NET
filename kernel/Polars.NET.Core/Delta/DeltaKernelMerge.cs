@@ -100,7 +100,7 @@ internal static class DeltaKernelMerge
 
             using DataFrameHandle sourceRows = PolarsWrapper.LazyCollect(source, PlEngine.Auto);
             source = null!;
-            StructType sourceSchema = DeltaKernelWrite.SchemaOf(sourceRows);
+            StructType sourceSchema = DeltaKernelWrite.WithTableMaps(DeltaKernelWrite.SchemaOf(sourceRows), snapshot.Schema);
             StructType schema = Evolve(snapshot, sourceSchema, keys, canEvolve, out MetadataAction? newMetadata);
 
             // Files that can hold a matching key; all of them when rows without a source match may be deleted.

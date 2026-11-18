@@ -35,8 +35,9 @@ namespace Polars.NET.Core.Delta;
 internal static class ManagedSink
 {
     /// <summary>
-    /// The environment variable choosing the sink of data files: <c>managed</c>, <c>native</c> (the engine's), or
-    /// <c>auto</c> (default: the engine's for now).
+    /// The environment variable choosing the sink of data files: <c>managed</c> (the default: this one, where the store
+    /// streams) or <c>native</c> (the engine's own sink, which writes maps as lists and splits files by their size in
+    /// memory).
     /// </summary>
     public const string Variable = "POLARS_NET_DELTA_SINK";
 
@@ -93,11 +94,20 @@ internal static class ManagedSink
     private const int MaxPublishing = 64;
 
     /// <summary>
-    /// Whether the managed writer writes these files: asked for, into a store that streams (a local disk, or a cloud
-    /// store served by the managed clients: the native store would hold every file whole in memory).
+    /// Whether the managed writer writes these files: unless <see cref="Variable"/> asks for the engine's sink, into a
+    /// store that streams (a local disk, or a cloud store served by the managed clients: the native store would hold
+    /// every file whole in memory).
     /// </summary>
-    public static bool Applies(IWritableFileSystem fileSystem) =>
-        Environment.GetEnvironmentVariable(Variable)?.Trim().ToLowerInvariant() == "managed" && Streams(fileSystem);
+    /// <exception cref="ArgumentException"><see cref="Variable"/> names neither sink.</exception>
+    public static bool Applies(IWritableFileSystem fileSystem) => Chosen(Environment.GetEnvironmentVariable(Variable)) && Streams(fileSystem);
+
+    /// <summary>Whether a <see cref="Variable"/> setting (null: not set) leaves the files to the managed writer.</summary>
+    internal static bool Chosen(string? setting) => setting?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "managed" => true,
+        "native" => false,
+        _ => throw new ArgumentException($"{Variable} is '{setting}': 'managed' (the default) or 'native' (the engine's own sink)."),
+    };
 
     private static bool Streams(IWritableFileSystem fileSystem) => fileSystem switch
     {

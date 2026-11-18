@@ -106,6 +106,7 @@ internal static class DeltaKernelWrite
                 : DeltaKernelIdentity.Fill(PolarsWrapper.LazyClone(data), identity, SchemaOf(data), out generated);
             LazyFrameHandle rows = withIdentity ?? data;
             StructType incoming = SchemaOf(rows);
+            if (existing is not null) incoming = WithTableMaps(incoming, existing.Schema);
 
             StructType schema;
             string[] partitions;
@@ -621,7 +622,8 @@ internal static class DeltaKernelWrite
         CloudArgs? cloud, string? bucketColumn = null)
     {
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
-        EnsureNoMaps(dataFields);
+        bool managed = ManagedSink.Applies(fileSystem);
+        if (!managed) EnsureNoMaps(dataFields);
         // Partition columns under their names (the sink keys on them and leaves them out of the files), data
         // columns under their physical names, then the materialized row tracking columns, then the change type.
         ExprHandle[] columns =
@@ -642,7 +644,7 @@ internal static class DeltaKernelWrite
         string suffix = CodecSuffix(options.Compression);
         string[] notNullPartitions = [.. partitions.Where(p => !schema.Field(p)!.Nullable)];
         string[] sinkKeys = bucketColumn is null ? partitions : [.. partitions, bucketColumn];
-        if (ManagedSink.Applies(fileSystem))
+        if (managed)
         {
             // The managed writer: files paired with their partition values by path (in the order it gives them).
             ManagedSink.SinkResult sunk = ManagedSink.Sink(
@@ -741,20 +743,39 @@ internal static class DeltaKernelWrite
     private const char PathSeparator = '\u001f';
 
     /// <summary>
-    /// Refuses writing files with map columns (at any depth). The engine has no map type: it holds a map as a list
-    /// of key/value structs and would write it as a Parquet LIST, which Spark and other readers then refuse to read
-    /// as the table's map, so a rewrite would leave the table unreadable to them.
-    /// TEMPORARY: remove once the engine writes Parquet MAP columns (an upstream Polars release with a map type).
+    /// Refuses writing files with map columns (at any depth) through the engine's own sink: the engine has no map type,
+    /// holds a map as a list of key/value structs and would write it as a Parquet LIST, which Spark and other readers
+    /// then refuse to read as the table's map. The managed sink writes Parquet maps.
     /// </summary>
     internal static void EnsureNoMaps(IEnumerable<StructField> dataFields)
     {
         string[] maps = [.. dataFields.Where(f => HasMap(f.Type)).Select(f => f.Name)];
         if (maps.Length > 0)
             throw new PolarsException(
-                $"The table has map columns ({string.Join(", ", maps)}), which cannot be written yet in a form other readers " +
-                "(Spark, Databricks) read, so data files of this table are not written. Deletes on a table with deletion " +
-                "vectors (delta.enableDeletionVectors) need no rewrite and are not affected.");
+                $"The table has map columns ({string.Join(", ", maps)}), which the engine's own sink cannot write in a form " +
+                $"other readers (Spark, Databricks) read, so data files of this table are not written. The managed sink " +
+                $"writes them: unset {ManagedSink.Variable}=native, on a local disk or a store the managed clients serve. " +
+                "Deletes on a table with deletion vectors (delta.enableDeletionVectors) need no rewrite and are not affected.");
     }
+
+    /// <summary>
+    /// The data's schema with maps where the table has them: the engine has no map type and holds a map as a list of
+    /// key/value structs, so where the table has a map (at any depth) and the data a list of two-field structs, the
+    /// data's is taken as a map of the fields' types (by position, whatever their names). Other types are left as they
+    /// are, for the schema check to judge.
+    /// </summary>
+    internal static StructType WithTableMaps(StructType data, StructType table) => (StructType)Shaped(data, table);
+
+    private static DeltaType Shaped(DeltaType data, DeltaType table) => (data, table) switch
+    {
+        (ArrayType { ElementType: StructType { Fields.Count: 2 } entry }, MapType map) =>
+            new MapType(Shaped(entry.Fields[0].Type, map.KeyType), Shaped(entry.Fields[1].Type, map.ValueType), map.ValueContainsNull),
+        (ArrayType array, ArrayType tableArray) => new ArrayType(Shaped(array.ElementType, tableArray.ElementType), array.ContainsNull),
+        (StructType fields, StructType tableFields) => new StructType([.. fields.Fields.Select(f => tableFields.Field(f.Name) is { } t
+            ? new StructField { Name = f.Name, Type = Shaped(f.Type, t.Type), Nullable = f.Nullable, Metadata = f.Metadata, JsonMetadataKeys = f.JsonMetadataKeys }
+            : f)]),
+        _ => data,
+    };
 
     /// <summary>Whether the type holds a map at any depth (see <see cref="EnsureNoMaps"/>).</summary>
     internal static bool HasMap(DeltaType type) => type switch

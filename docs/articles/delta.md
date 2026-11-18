@@ -10,10 +10,14 @@ Traditional .NET applications accessing Delta Lake often rely on external JVM br
 
 Polars.NET supports both Eager (`DataFrame`) and Lazy (`LazyFrame`) modes for Delta Lake tables:
 * **Reading**: Resolves the table from the `_delta_log` (checkpoints, deletion vectors, column mapping, type widening) and scans its files; LINQ queries also skip files by their statistics.
-* **Writing**: Streams the rows into Parquet files (nothing is collected in memory), split by partition and by size, and commits them as one ACID transaction. Statistics for data skipping come from the files' footers.
+* **Writing**: Streams the rows into Parquet files with Polars.NET's own Parquet writer (nothing is collected in memory; on a cloud store the bytes go up in parts as they are written), split by partition and by size, and commits them as one ACID transaction. Map columns are written as Parquet maps. Statistics for data skipping come from the files' footers.
 
 > [!NOTE] File sizes
-> `approxBytesPerFile` and the table's `delta.targetFileSize` (128 MB when unset) are measured the way the engine estimates rows **in memory**. Files on disk are smaller, being compressed: often several times smaller.
+> `approxBytesPerFile` and the table's `delta.targetFileSize` (128 MB when unset) are sizes **on disk**: a file closes when one more row would take it past the target, as far as its compressed bytes so far tell (files come close to it).
+
+> [!NOTE] Writer settings (environment variables)
+> * `POLARS_NET_DELTA_SINK_MEMORY` caps the memory the files being written hold together (pages not written yet, upload buffers, files still being published): a size (`2GiB`, `512MiB`) or a share of the memory the process may use (`25%`; a container's limit, not the machine's). By default an eighth of it, at least 256 MB. Beyond it, the largest files end their row groups early, then close early (smaller files): a partitioned write into many partitions may need more.
+> * `POLARS_NET_DELTA_SINK=native` writes the data files with the engine's own Parquet sink instead, as before 1.3.0: files are then sized by their rows' size in memory, split only between row groups (122,880 rows unless `rowGroupSize` says otherwise), and files of tables with map columns cannot be written. The engine's sink is also used where Polars.NET's own storage clients do not serve the store (`https://` and SOCKS proxies, S3 Express, checksums, Microsoft Fabric, or `POLARS_NET_OBJECT_STORE=native`).
 
 > [!TIP] File layout on object stores
 > With `DeltaTableProperties.RandomizeFilePrefixes` set to `true`, new files go into directories of random letters and digits (`Ab/part-…`, length `DeltaTableProperties.RandomPrefixLength`, 2 by default) instead of partition directories, spreading the requests over the store's prefixes, as Spark does. The partition values stay in the log, so partition filters skip files as before. Tables with column mapping always place files this way.

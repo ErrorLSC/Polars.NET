@@ -652,6 +652,63 @@ public sealed class DeltaManagedSinkTests : IDisposable
         }
     }
 
+    [Fact]
+    public void TheSinkVariable_ChoosesTheManagedSink_UnlessItSaysNative()
+    {
+        foreach (string? setting in (string?[])[null, "", " ", "managed", " Managed "]) Assert.True(ManagedSink.Chosen(setting), setting);
+        Assert.False(ManagedSink.Chosen("native"));
+        Assert.False(ManagedSink.Chosen("NATIVE "));
+        Assert.Contains(ManagedSink.Variable, Assert.Throws<ArgumentException>(() => ManagedSink.Chosen("auto")).Message);
+
+        // By default on a local disk; the engine's sink when asked, which refuses maps and says how to write them.
+        string root = Table("choice");
+        Directory.CreateDirectory(root);
+        var disk = new Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem(root);
+        Assert.True(ManagedSink.Applies(disk));
+        Sink("native", () => Assert.False(ManagedSink.Applies(disk)));
+        DeltaSchema.StructField[] fields =
+        [
+            new() { Name = "id", Type = new DeltaSchema.PrimitiveType("long") },
+            new() { Name = "tags", Type = new DeltaSchema.MapType(new DeltaSchema.PrimitiveType("string"), new DeltaSchema.PrimitiveType("long"), true) },
+        ];
+        string message = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(() => DeltaKernelWrite.EnsureNoMaps(fields)).Message;
+        Assert.Contains("(tags)", message);
+        Assert.Contains($"{ManagedSink.Variable}=native", message);
+    }
+
+    [Fact]
+    public void DataMaps_AreListsOfTwoFieldStructs_WhereTheTableHasMaps()
+    {
+        static DeltaSchema.PrimitiveType P(string name) => new(name);
+        static DeltaSchema.StructField F(string name, DeltaSchema.DeltaType type) => new() { Name = name, Type = type };
+        static DeltaSchema.ArrayType Entries(DeltaSchema.DeltaType key, DeltaSchema.DeltaType value) =>
+            new(new DeltaSchema.StructType([F("key", key), F("value", value)]), true);
+        var table = new DeltaSchema.StructType(
+        [
+            F("m", new DeltaSchema.MapType(P("string"), P("long"), true)),
+            F("s", new DeltaSchema.StructType([F("inner", new DeltaSchema.MapType(P("integer"), P("string"), false))])),
+            F("a", new DeltaSchema.ArrayType(new DeltaSchema.MapType(P("string"), new DeltaSchema.MapType(P("string"), P("double"), true), true), true)),
+            F("pairs", new DeltaSchema.ArrayType(new DeltaSchema.StructType([F("x", P("long")), F("y", P("long"))]), true)),
+        ]);
+        var data = new DeltaSchema.StructType(
+        [
+            F("m", new DeltaSchema.ArrayType(new DeltaSchema.StructType([F("k", P("string")), F("v", P("integer"))]), true)), // names by position
+            F("s", new DeltaSchema.StructType([F("inner", Entries(P("integer"), P("string")))])),
+            F("a", new DeltaSchema.ArrayType(Entries(P("string"), Entries(P("string"), P("double"))), true)),
+            F("pairs", new DeltaSchema.ArrayType(new DeltaSchema.StructType([F("x", P("long")), F("y", P("long"))]), true)),
+            F("extra", Entries(P("string"), P("long"))), // not in the table: left as it is
+        ]);
+        DeltaSchema.StructType shaped = DeltaKernelWrite.WithTableMaps(data, table);
+        Assert.Equal("map<string,integer>", shaped.Field("m")!.Type.ToString());
+        Assert.Equal("struct<inner:map<integer,string>>", shaped.Field("s")!.Type.ToString());
+        Assert.Equal("array<map<string,map<string,double>>>", shaped.Field("a")!.Type.ToString());
+        Assert.Equal("array<struct<x:long,y:long>>", shaped.Field("pairs")!.Type.ToString());
+        Assert.Equal("array<struct<key:string,value:long>>", shaped.Field("extra")!.Type.ToString());
+        // A list of structs of other widths stays a list: the schema check refuses it against the map.
+        var wide = new DeltaSchema.StructType([F("m", new DeltaSchema.ArrayType(new DeltaSchema.StructType([F("k", P("string")), F("v", P("long")), F("w", P("long"))]), true))]);
+        Assert.IsType<DeltaSchema.ArrayType>(DeltaKernelWrite.WithTableMaps(wide, table).Field("m")!.Type);
+    }
+
     private static int KeyOf(DataFrameHandle keys)
     {
         using Apache.Arrow.RecordBatch batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame(keys);
