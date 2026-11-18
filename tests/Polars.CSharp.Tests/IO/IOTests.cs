@@ -707,7 +707,7 @@ public class IoTests
                 }
             }
 
-            // ToArrowBatches -> ArrowConverter
+            // ToArrowBatches -> ArrowRowBuilder
             var lf = LazyFrame.ScanEnumerable(GenerateData(),null, batchSize);
 
             var q = lf.Filter(Col("Id") % Lit(2) == Lit(0));

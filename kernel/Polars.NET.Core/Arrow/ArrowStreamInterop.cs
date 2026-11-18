@@ -79,7 +79,7 @@ public static unsafe class ArrowStreamInterop
             }
 
             // Init Exporter and export
-            var exporter = new ArrowStreamExporter(safeEnumerator, context.Schema);
+            var exporter = new ArrowStreamExporter(safeEnumerator, context.Schema) { SchemaExported = PatchWideIntegers };
             exporter.Export(ptr);
 
             return ptr;
@@ -132,6 +132,9 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Eager Mode: Alloc C struct at current stack frame and call Rust to consume
     /// </summary>
+    /// <summary>The engine's names for 128-bit integer columns in a stream's schema, which the engine takes.</summary>
+    private static void PatchWideIntegers(Schema schema, nint exported) => WideIntegerFormats.PatchOwnedSchema(schema, (CArrowSchema*)exported);
+
     public static DataFrameHandle ImportEager(IEnumerable<RecordBatch> stream, Schema schema)
     {
         // Alloc Struct at Stack
@@ -139,7 +142,7 @@ public static unsafe class ArrowStreamInterop
 
         // Init Exporter
         using var enumerator = stream.GetEnumerator();
-        using var exporter = new ArrowStreamExporter(enumerator, schema);
+        using var exporter = new ArrowStreamExporter(enumerator, schema) { SchemaExported = PatchWideIntegers };
 
         exporter.Export(&cStream);
 
@@ -155,7 +158,7 @@ public static unsafe class ArrowStreamInterop
     {
         var cStream = new CArrowArrayStream();
         using var enumerator = stream.GetEnumerator();
-        using var exporter = new ArrowStreamExporter(enumerator, schema);
+        using var exporter = new ArrowStreamExporter(enumerator, schema) { SchemaExported = PatchWideIntegers };
         exporter.Export(&cStream);
         return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type(&cStream));
     }
@@ -180,7 +183,7 @@ public static unsafe class ArrowStreamInterop
     /// <param name="streamFactory">Opens the stream each time the plan runs.</param>
     /// <param name="schema">The stream's schema.</param>
     /// <param name="strict">True when the batches may use any standard Arrow layout (foreign data): every column is
-    /// converted by the engine. False only for batches already in the engine's physical layout (ArrowConverter).</param>
+    /// converted by the engine. False only for batches already in the engine's physical layout (Sazanami's ArrowRowBuilder).</param>
     public static LazyFrameHandle ScanStream(
         Func<IEnumerable<RecordBatch>> streamFactory,
         Schema schema,
@@ -333,7 +336,7 @@ public static unsafe class ArrowStreamInterop
     {
         // The engine reads the stream through the exporter, which disposes it (and each batch) when released.
         var cStream = new CArrowArrayStream();
-        using var exporter = new ArrowStreamExporter(Batches(stream), stream.Schema);
+        using var exporter = new ArrowStreamExporter(Batches(stream), stream.Schema) { SchemaExported = PatchWideIntegers };
         exporter.Export(&cStream);
         return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type(&cStream));
 
@@ -504,7 +507,7 @@ public static unsafe class ArrowStreamInterop
         {
             try
             {
-                var schema = CArrowSchemaImporter.ImportSchema(schemaPtr);
+                var schema = WideIntegerFormats.ImportSchema(schemaPtr);
                 var batch = ArrowCImport.ImportRecordBatch(arrPtr, schema);
                 ctx.UserAction(batch);
                 return 0; // Success

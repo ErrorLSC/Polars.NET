@@ -14,6 +14,21 @@ public class GuidRowsTests
         Assert.Equal(rows, df.Rows<GuidRow>().ToArray());
     }
 
+    [Fact]
+    public void FromThenRows_KeepsDictionaries()
+    {
+        DictRow[] rows = [new(1, new() { ["a"] = 1, ["b"] = 2 }, null), new(2, [], new Dictionary<int, string> { [5] = "five" })];
+        using var df = DataFrame.From(rows);
+        DictRow[] read = df.Rows<DictRow>().ToArray();
+        for (int i = 0; i < rows.Length; i++)
+        {
+            Assert.Equal(rows[i].Map, read[i].Map);
+            Assert.Equal(rows[i].Maybe, read[i].Maybe);
+        }
+    }
+
+    public sealed record DictRow(int Id, Dictionary<string, int> Map, IReadOnlyDictionary<int, string>? Maybe);
+
     public sealed record GuidHolder(Guid Inner);
 
     public sealed record GuidRow(Guid Id, Guid? Maybe, GuidHolder? Nested);

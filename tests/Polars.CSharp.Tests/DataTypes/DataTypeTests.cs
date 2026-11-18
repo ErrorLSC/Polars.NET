@@ -644,7 +644,12 @@ public class DataTypeTests
         Assert.Equal(-bigVal, s.GetValue<Int128?>(1));
         Assert.Null(s.GetValue<Int128?>(2));
 
-        Assert.Throws<NotSupportedException>(s.ToArrow);
+        // Apache.Arrow has no 128-bit integers: the values come as decimal(38, 0) marked as such (the same 16 bytes).
+        using var arrow = (Apache.Arrow.Decimal128Array)s.ToArrow();
+        Assert.Equal((38, 0), (((Apache.Arrow.Types.Decimal128Type)arrow.Data.DataType).Precision, ((Apache.Arrow.Types.Decimal128Type)arrow.Data.DataType).Scale));
+        Assert.Equal(bigVal, System.Runtime.InteropServices.MemoryMarshal.Read<Int128>(arrow.ValueBuffer.Span));
+        Assert.Equal(-bigVal, System.Runtime.InteropServices.MemoryMarshal.Read<Int128>(arrow.ValueBuffer.Span[16..]));
+        Assert.True(arrow.IsNull(2));
     }
 
     [Fact]

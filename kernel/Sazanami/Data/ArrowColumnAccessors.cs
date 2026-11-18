@@ -160,6 +160,20 @@ public static class ColumnAccessorFactory
             return (ColumnAccessor)Activator.CreateInstance(enumAccessorType, field)!;
         }
 
+        if (MapAccessorTypes.TryGetKeyValue(effectiveType, out Type? keyType, out Type? valueType)
+            && MapAccessorTypes.Entries(field.DataType) is not null)
+        {
+            Type mapAccessorType = typeof(MapAccessor<,>).MakeGenericType(keyType, valueType);
+            return (ColumnAccessor)Activator.CreateInstance(mapAccessorType, effectiveType, field.DataType)!;
+        }
+
+        if (field.DataType is Decimal128Type { Scale: 0 } && (effectiveType == typeof(Int128) || effectiveType == typeof(UInt128)))
+        {
+            return effectiveType == typeof(Int128)
+                ? new WideIntegerAccessor<Int128>(WideIntegers.KindOf(field) == WideIntegers.Unsigned)
+                : new WideIntegerAccessor<UInt128>(WideIntegers.KindOf(field) == WideIntegers.Unsigned);
+        }
+
         if (field.DataType is NullType)
         {
             Type nullAccessorType = typeof(NullAccessor<>).MakeGenericType(effectiveType);
@@ -1419,8 +1433,15 @@ internal sealed class ListAccessor<[DynamicallyAccessedMembers(DynamicallyAccess
             _fixedListSize = fixedType.ListSize;
         }
 
-        var dummyField = new Field("item", innerArrowType, true);
-        _childAccessor = ColumnAccessorFactory.Create(dummyField, typeof(TElement));
+        // The item field itself: its metadata says how to read the values (an unsigned 128-bit integer's bits).
+        Field itemField = arrowType switch
+        {
+            ListType lt => lt.ValueField,
+            LargeListType llt => llt.ValueField,
+            FixedSizeListType fslt => fslt.ValueField,
+            _ => new Field("item", innerArrowType, true),
+        };
+        _childAccessor = ColumnAccessorFactory.Create(itemField, typeof(TElement));
         _typedChildAccessor = _childAccessor as ITypedAccessor<TElement>;
     }
 
@@ -1871,4 +1892,155 @@ internal sealed class JsonFallbackAccessor<[DynamicallyAccessedMembers(Dynamical
             _ => null
         };
     }
+}
+
+/// <summary>Which .NET types read maps, and the Arrow layouts holding them.</summary>
+internal static class MapAccessorTypes
+{
+    /// <summary>
+    /// The key and value types of a dictionary type <see cref="MapAccessor{TKey, TValue}"/> fills:
+    /// <see cref="Dictionary{TKey, TValue}"/>, <see cref="IDictionary{TKey, TValue}"/>,
+    /// <see cref="IReadOnlyDictionary{TKey, TValue}"/> or an F# <c>Map</c>.
+    /// </summary>
+    public static bool TryGetKeyValue(Type type, [NotNullWhen(true)] out Type? keyType, [NotNullWhen(true)] out Type? valueType)
+    {
+        keyType = valueType = null;
+        if (!type.IsGenericType) return false;
+        Type definition = type.GetGenericTypeDefinition();
+        if (definition != typeof(Dictionary<,>) && definition != typeof(IDictionary<,>)
+            && definition != typeof(IReadOnlyDictionary<,>) && definition != typeof(FSharpMap<,>))
+            return false;
+        Type[] arguments = type.GetGenericArguments();
+        (keyType, valueType) = (arguments[0], arguments[1]);
+        return true;
+    }
+
+    /// <summary>
+    /// The entries of a map layout: an Arrow map, or a list (or large list) of structs of two fields (how engines
+    /// without a map type hold one); null for any other type.
+    /// </summary>
+    public static StructType? Entries(IArrowType type) => type switch
+    {
+        MapType map => map.KeyValueType,
+        ListType { ValueDataType: StructType { Fields.Count: 2 } entries } => entries,
+        LargeListType { ValueDataType: StructType { Fields.Count: 2 } entries } => entries,
+        _ => null,
+    };
+}
+
+/// <summary>
+/// A map column (an Arrow map, or a list of key/value structs) as dictionaries: the key and value fields found by
+/// name (<c>key</c> / <c>value</c>, ignoring case), else by position. A null key is refused (a .NET dictionary has
+/// none); a key repeated keeps its last value.
+/// </summary>
+internal sealed class MapAccessor<TKey, TValue> : TypedColumnAccessor<Dictionary<TKey, TValue>>,
+    ITypedAccessor<Dictionary<TKey, TValue>>,
+    ITypedAccessor<IDictionary<TKey, TValue>>,
+    ITypedAccessor<IReadOnlyDictionary<TKey, TValue>>,
+    ITypedAccessor<FSharpMap<TKey, TValue>>
+    where TKey : notnull
+{
+    private IArrowArray? _array;
+    private readonly int _keyField, _valueField;
+    private readonly ColumnAccessor _keys, _values;
+    private readonly ITypedAccessor<TKey>? _typedKeys;
+    private readonly ITypedAccessor<TValue>? _typedValues;
+
+    public MapAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
+    {
+        TargetType = targetType;
+        StructType entries = MapAccessorTypes.Entries(arrowType) ?? throw new InvalidOperationException($"{arrowType} holds no map.");
+        static int Find(IReadOnlyList<Field> fields, string name, int fallback)
+        {
+            for (int i = 0; i < fields.Count; i++)
+            {
+                if (string.Equals(fields[i].Name, name, StringComparison.OrdinalIgnoreCase)) return i;
+            }
+            return fallback;
+        }
+        _keyField = Find(entries.Fields, "key", 0);
+        _valueField = Find(entries.Fields, "value", 1);
+        if (_keyField == _valueField) (_keyField, _valueField) = (0, 1);
+        _keys = ColumnAccessorFactory.Create(entries.Fields[_keyField], typeof(TKey));
+        _values = ColumnAccessorFactory.Create(entries.Fields[_valueField], typeof(TValue));
+        _typedKeys = _keys as ITypedAccessor<TKey>;
+        _typedValues = _values as ITypedAccessor<TValue>;
+    }
+
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+    public override Type TargetType { get; }
+
+    public override void SetBatch(IArrowArray array)
+    {
+        _array = array;
+        var entries = (StructArray)(array switch
+        {
+            ListArray list => list.Values, // a MapArray is a ListArray
+            LargeListArray largeList => largeList.Values,
+            _ => throw new InvalidDataException($"A map column cannot be {array.Data.DataType}."),
+        });
+        _keys.SetBatch(entries.Fields[_keyField]);
+        _values.SetBatch(entries.Fields[_valueField]);
+    }
+
+    public override bool IsNull(int index) => _array!.IsNull(index);
+
+    public override Dictionary<TKey, TValue> GetTypedValue(int index)
+    {
+        var (start, end) = _array switch
+        {
+            ListArray list => ((long)list.ValueOffsets[index], (long)list.ValueOffsets[index + 1]),
+            LargeListArray largeList => (largeList.ValueOffsets[index], largeList.ValueOffsets[index + 1]),
+            _ => throw new InvalidDataException("Invalid map array."),
+        };
+        var result = new Dictionary<TKey, TValue>(checked((int)(end - start)));
+        for (int i = checked((int)start); i < end; i++)
+        {
+            if (_keys.IsNull(i)) throw new InvalidDataException($"Map entry {i - start} of row {index} has a null key, which a dictionary cannot hold.");
+            TKey key = _typedKeys is not null ? _typedKeys.GetTypedValue(i) : (TKey)_keys.GetValue(i)!;
+            result[key] = _values.IsNull(i) ? default! : _typedValues is not null ? _typedValues.GetTypedValue(i) : (TValue)_values.GetValue(i)!;
+        }
+        return result;
+    }
+
+    Dictionary<TKey, TValue> ITypedAccessor<Dictionary<TKey, TValue>>.GetTypedValue(int index) => GetTypedValue(index);
+    IDictionary<TKey, TValue> ITypedAccessor<IDictionary<TKey, TValue>>.GetTypedValue(int index) => GetTypedValue(index);
+    IReadOnlyDictionary<TKey, TValue> ITypedAccessor<IReadOnlyDictionary<TKey, TValue>>.GetTypedValue(int index) => GetTypedValue(index);
+    FSharpMap<TKey, TValue> ITypedAccessor<FSharpMap<TKey, TValue>>.GetTypedValue(int index) =>
+        new(GetTypedValue(index).Select(static e => Tuple.Create(e.Key, e.Value)));
+
+    public override void Dispose()
+    {
+        _keys.Dispose();
+        _values.Dispose();
+        base.Dispose();
+    }
+}
+
+/// <summary>
+/// A decimal(p, 0) column as 128-bit integers (<see cref="WideIntegers"/>): its 16 bytes as they are. Into an unsigned
+/// integer, a column marked unsigned gives its bits; any other one its values, a negative one refused.
+/// </summary>
+internal sealed class WideIntegerAccessor<TInteger>(bool unsignedBits) : TypedColumnAccessor<TInteger>, ITypedAccessor<TInteger>, ITypedAccessor<TInteger?>
+    where TInteger : struct
+{
+    private Decimal128Array? _array;
+
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+    public override Type TargetType => typeof(TInteger);
+
+    public override void SetBatch(IArrowArray array) => _array = (Decimal128Array)array;
+
+    public override bool IsNull(int index) => _array!.IsNull(index);
+
+    public override TInteger GetTypedValue(int index)
+    {
+        Int128 value = MemoryMarshal.Read<Int128>(_array!.ValueBuffer.Span[((_array.Offset + index) * 16)..]);
+        if (typeof(TInteger) == typeof(Int128)) return (TInteger)(object)value;
+        if (value < 0 && !unsignedBits)
+            throw new OverflowException($"The decimal {value} is negative; an unsigned 128-bit integer cannot hold it.");
+        return (TInteger)(object)(UInt128)value;
+    }
+
+    TInteger? ITypedAccessor<TInteger?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index);
 }

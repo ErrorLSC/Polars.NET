@@ -1,6 +1,7 @@
 namespace Polars.FSharp
 open Kaminari.Sazanami.Arrow
 open Kaminari.Sazanami.Data
+open Polars.NET.Core.Arrow
 
 [<AutoOpen>]
 module DataReaderRead =
@@ -28,16 +29,16 @@ module DataReaderRead =
                 // =========================================================
                 if buffered then
                     // Read now into a temporary Arrow IPC file the engine owns (removed with the last frame).
-                    let schema = ArrowConverter.GetSchemaFromType<'T>()
+                    let schema = ArrowRowBuilder<'T>.Schema
                     let factory = Func<IEnumerable<RecordBatch>>(fun () ->
                         seq {
                             let mutable hasYielded = false
-                            for batch in ArrowConverter.ToArrowBatches(data, size).Prefetch() do
+                            for batch in ArrowStreamingExtensions.ToArrowBatches(data, size).Prefetch() do
                                 hasYielded <- true
                                 yield batch
                                 batch.Dispose()
                             if not hasYielded then
-                                let emptyBatch = ArrowConverter.GetEmptyBatch<'T>()
+                                let emptyBatch = ArrowStreamingExtensions.EmptyBatch<'T>()
                                 yield emptyBatch
                                 emptyBatch.Dispose()
                         })
@@ -47,13 +48,13 @@ module DataReaderRead =
                 // 2. Streaming Mode (Memory Safety & Lazy Fallback)
                 // =========================================================
                 else
-                    let schema = ArrowConverter.GetSchemaFromType<'T>()
+                    let schema = ArrowRowBuilder<'T>.Schema
 
                     let streamFactory = Func<IEnumerable<RecordBatch>>(fun () ->
                         seq {
                             let mutable hasYielded = false
                             
-                            let batches = ArrowConverter.ToArrowBatches(data, size).Prefetch()
+                            let batches = ArrowStreamingExtensions.ToArrowBatches(data, size).Prefetch()
 
                             for batch in batches do
                                 hasYielded <- true
@@ -61,7 +62,7 @@ module DataReaderRead =
                                 batch.Dispose()
                             
                             if not hasYielded then
-                                let emptyBatch = ArrowConverter.GetEmptyBatch<'T>()
+                                let emptyBatch = ArrowStreamingExtensions.EmptyBatch<'T>()
                                 yield emptyBatch
                                 emptyBatch.Dispose()
                         }

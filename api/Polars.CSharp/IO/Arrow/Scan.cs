@@ -23,14 +23,14 @@ public partial class LazyFrame : IDisposable
     /// Scan Enumberable As LazyFrame
     /// </summary>
     /// <returns></returns>
-    public static LazyFrame ScanEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(
+    public static LazyFrame ScanEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         IEnumerable<T> data, 
         Schema? schema = null, 
         int batchSize = 100_000,
         bool useBuffered = false)
     {
         // 1. Get Schema (Cached)
-        schema ??= ArrowConverter.GetSchemaFromType<T>();
+        schema ??= ArrowRowBuilder<T>.Schema;
 
         IEnumerable<RecordBatch> SafeGenerator()
         {
@@ -44,7 +44,7 @@ public partial class LazyFrame : IDisposable
 
             if (!hasYielded)
             {
-                yield return ArrowConverter.GetEmptyBatch<T>();
+                yield return ArrowStreamingExtensions.EmptyBatch<T>();
             }
         }
 

@@ -24,6 +24,12 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
 
     internal IntPtr _lastErrorPointer = IntPtr.Zero;
 
+    /// <summary>
+    /// Called with the schema and the C schema it was just exported to, before the consumer gets it (a consumer's own
+    /// type names can be put in; the C schema is the consumer's, released by it).
+    /// </summary>
+    public Action<Schema, nint>? SchemaExported { get; init; }
+
     // Export as C pointer
     public void Export(CArrowArrayStream* outStream)
     {
@@ -54,6 +60,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         {
             var exporter = GetExporter(stream);
             CArrowSchemaExporter.ExportSchema(exporter._schema, outSchema);
+            exporter.SchemaExported?.Invoke(exporter._schema, (nint)outSchema);
             return 0; // Success
         }
         catch (Exception ex)

@@ -676,14 +676,16 @@ type ``Series Tests`` () =
         )
 
     [<Fact>]
-    member _.``Test Int128 Matrix with Byte Swap``() =
+    member _.``Test Int128 Matrix with Byte Swap``() : unit =
         let val1 = Int128.MaxValue
         let val2 = Int128.One
         let data = array2D [ [ val1; val2 ] ]
 
         let s = Series.ofArray2DNamed "i128_matrix" data
         s.Show()
-        Assert.Throws<NotSupportedException>(fun () -> s.ToArray() |> ignore)
+        // Apache.Arrow has no 128-bit integers: they come as marked decimal(38, 0), read back as their 16 bytes.
+        let arr = s.ToArray<Int128[]>()
+        Assert.Equal<Int128[]>([| val1; val2 |], arr[0])
 
     [<Fact>]
     member _.``Test Decimal Matrix Overflow in FSharp``() =

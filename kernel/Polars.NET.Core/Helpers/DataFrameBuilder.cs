@@ -1,6 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using RecordBatch = Apache.Arrow.RecordBatch;
+using Kaminari.Sazanami.Data;
 using Kaminari.Sazanami.Marshalling;
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Wrappers;
 
 namespace Polars.NET.Core.Helpers;
@@ -30,8 +33,8 @@ public sealed class SeriesHandleSink : IColumnSink<SeriesHandle>
 public static class DataFrameBuilder
 {
     /// <summary>
-    /// Transposes row entities (POCOs, DTOs, Structs, or F# records) into a native DataFrameHandle.
-    /// Employs compiled batch straight-line loops for simple scalar arrays, and fallback streaming buffers for complex types.
+    /// Turns row entities (POCOs, DTOs, structs, or F# records) into a native DataFrameHandle: simple values as one
+    /// column, records through Sazanami's <see cref="ArrowRowBuilder{T}"/> (one Arrow batch in native memory).
     /// </summary>
     /// <typeparam name="T">The entity row model type.</typeparam>
     /// <param name="rows">The sequence of row models.</param>
@@ -48,15 +51,23 @@ public static class DataFrameBuilder
             return PolarsWrapper.DataFrameNew([seriesHandle]);
         }
 
-        // 2. Delegate to the pre-compiled transposer
-        SeriesHandle[] seriesHandles = ObjectSchemaTransposer<T, SeriesHandle>.Transpose(rows, SeriesHandleSink.Instance);
-        if (seriesHandles.Length == 0)
+        // 2. The rows as one Arrow batch in native memory (Sazanami's row builder), imported without copying.
+        using var builder = new ArrowRowBuilder<T>();
+        switch (rows)
         {
-            return PolarsWrapper.DataFrameNew([]);
+            case T[] array:
+                builder.AppendRange(array);
+                break;
+            case List<T> list:
+                builder.AppendRange(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list));
+                break;
+            default:
+                if (rows is ICollection<T> collection) builder.Reserve(collection.Count);
+                foreach (T row in rows) builder.Append(row);
+                break;
         }
-
-        // 3. Assemble SeriesHandles directly into DataFrameHandle
-        return PolarsWrapper.DataFrameNew(seriesHandles);
+        using RecordBatch batch = builder.ExportBatch();
+        return ArrowFfiBridge.ImportDataFrame(batch);
     }
 
     /// <summary>

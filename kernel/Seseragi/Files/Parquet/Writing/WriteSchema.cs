@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
+using Kaminari.Sazanami.Data;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
@@ -148,7 +149,7 @@ internal static class WriteSchema
                 {
                     bool uuid = type is FixedSizeBinaryType { ByteWidth: 16 }
                         && field.Metadata?.GetValueOrDefault("ARROW:extension:name") == "arrow.uuid";
-                    LeafPlan leaf = Leaf(name, type, optional, id, below, rep, options, where, uuid);
+                    LeafPlan leaf = Leaf(name, type, optional, id, below, rep, options, where, uuid, WideIntegers.KindOf(field));
                     elements.Add(leaf.Element);
                     columns.Add(new ColumnPlan(top, path, steps.Length == 0 ? null : [.. steps, new LeafStep(optional, where)], leaf));
                     return;
@@ -175,7 +176,7 @@ internal static class WriteSchema
 
     /// <summary>A leaf of <paramref name="fieldType"/> (a dictionary column by its values), at levels <paramref name="maxDef"/> / <paramref name="maxRep"/>.</summary>
     private static LeafPlan Leaf(string name, IArrowType fieldType, bool optional, int? id, int maxDef, int maxRep, ParquetWriteOptions options, string where,
-        bool uuid = false)
+        bool uuid = false, string? wideInteger = null)
     {
         bool dictionary = fieldType is DictionaryType;
         IArrowType type = fieldType is DictionaryType d ? d.ValueType : fieldType;
@@ -280,6 +281,19 @@ internal static class WriteSchema
                 return Int64((a, o, n, dest) => DecimalToInt64(a, o, n, dest, width, precision, where),
                     Element(ParquetType.Int64, logical, ConvertedType.Decimal, scale: scale, precision: precision), legacy: false);
             int bytes = DecimalBytes(precision);
+            if (wideInteger is not null)
+            {
+                // A 128-bit integer column (Sazanami's WideIntegers): its values must fit the precision (and, unsigned,
+                // be below 2^127: their bits read as a negative decimal otherwise).
+                bool unsigned = wideInteger == WideIntegers.Unsigned;
+                return Bytes((a, i, scratch) =>
+                    {
+                        ReadOnlySpan<byte> raw = ArrowValues.Raw(a, i, 16);
+                        if ((unsigned && (sbyte)raw[15] < 0) || !WithinPrecision(raw, precision)) throw WideIntegerTooWide(where, unsigned);
+                        return DecimalToBigEndian(a, i, scratch, width, bytes, precision, where);
+                    },
+                    Element(ParquetType.FixedLenByteArray, logical, ConvertedType.Decimal, bytes, scale, precision), bytes, BytesOrder.SignedDecimal);
+            }
             return Bytes((a, i, scratch) => DecimalToBigEndian(a, i, scratch, width, bytes, precision, where),
                 Element(ParquetType.FixedLenByteArray, logical, ConvertedType.Decimal, bytes, scale, precision), bytes, BytesOrder.SignedDecimal);
         }
@@ -480,6 +494,10 @@ internal static class WriteSchema
         }
         return true;
     }
+
+    private static NotSupportedException WideIntegerTooWide(string column, bool unsigned) =>
+        new($"Column '{column}' holds a 128-bit integer of more than 38 digits{(unsigned ? "" : " (beyond ±(10^38 - 1))")}, which Parquet's " +
+            "decimal(38, 0) cannot hold (Apache.Arrow has no 128-bit integer type to write instead). For bit patterns such as hashes or ids, use Guid or byte[].");
 
     private static NotSupportedException DecimalTooWide(string column) =>
         new($"Column '{column}' holds a decimal with more digits than its precision; Parquet stores it in a width the precision fixes.");

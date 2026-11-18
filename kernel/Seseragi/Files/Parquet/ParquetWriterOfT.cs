@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Data;
@@ -8,7 +9,7 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// Writes rows of <typeparamref name="T"/> (records, classes, structs, F# records) as a Parquet file: one column per
 /// public readable property, laid out as <c>DataFrame.From&lt;T&gt;</c> lays them out (<see cref="ArrowRowBuilder{T}"/>:
 /// strings as string views, collections as large lists, nested records as structs, enums as dictionaries of their
-/// member names, decimals as decimal(38, 18), ...); any other <typeparamref name="T"/> as one column named
+/// member names, decimals as decimal(38, 18), ...; dictionaries as Parquet MAP groups); any other <typeparamref name="T"/> as one column named
 /// <c>value</c>. <see cref="ParquetReader{T}"/> reads the rows back. The rows are gathered into batches of
 /// <see cref="BatchRows"/> in native memory, each written by a <see cref="ParquetWriter"/> and freed (the caller owning
 /// the batches, whatever <see cref="ParquetWriteOptions.BatchOwnership"/> says: measured faster, and lighter, than the
@@ -50,8 +51,17 @@ public sealed class ParquetWriter<[DynamicallyAccessedMembers(DynamicallyAccesse
     /// <summary>A run of the rows of an array or a list.</summary>
     private delegate ReadOnlySpan<T> RowSlice(int start, int count);
 
-    private static ParquetWriteOptions Typed(ParquetWriteOptions? options) =>
-        (options ?? new()) with { BatchOwnership = ParquetBatchOwnership.Caller };
+    private static ParquetWriteOptions Typed(ParquetWriteOptions? options)
+    {
+        options ??= new();
+        // Dictionaries as Parquet MAP groups (their entries are lists of Key / Value structs in Arrow).
+        IReadOnlySet<string> maps = ArrowRowBuilder<T>.MapColumns;
+        return options with
+        {
+            BatchOwnership = ParquetBatchOwnership.Caller,
+            MapColumns = maps.Count == 0 ? options.MapColumns : options.MapColumns is { } given ? given.Union(maps).ToFrozenSet() : maps,
+        };
+    }
 
     /// <summary>The Arrow schema the rows are written with (<see cref="ArrowRowBuilder{T}.Schema"/>).</summary>
     public Apache.Arrow.Schema Schema => _writer.Schema;

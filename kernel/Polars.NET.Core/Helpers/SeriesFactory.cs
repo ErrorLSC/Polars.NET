@@ -90,9 +90,8 @@ public static class SeriesFactory
             }
         }
 
-        // 3. Arrow
-        using var arrowArray = ArrowConverter.Build(data);
-        return ArrowFfiBridge.ImportSeries(name, arrowArray);
+        // 3. Arrow, built in native memory (Sazanami's column builder)
+        return FromColumnBuilder(name, data);
     }
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static SeriesHandle CreateSpan<T>(string name, ReadOnlySpan<T> data)
@@ -759,10 +758,49 @@ public static class SeriesFactory
                 $"Multi-dimensional arrays are only supported for numeric element types, not '{array.GetType()}'.");
         }
 
-        // ArrowConverter.Build<T> for the runtime element type (reflection; formerly a dynamic call).
-        using var arrowArray = ArrowConverter.BuildSingleColumn(array)
-            ?? throw new NotSupportedException($"Cannot convert '{array.GetType()}' to an Arrow array.");
-        return ArrowFfiBridge.ImportSeries(name, arrowArray);
+        // The column builder of the runtime element type (reflection).
+        Type elementType = array.GetType().GetElementType()!;
+        try
+        {
+            return (SeriesHandle)FromColumnBuilderDef.MakeGenericMethod(elementType).Invoke(null, [name, array])!;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            ExceptionDispatchInfo.Throw(ex.InnerException);
+            throw;
+        }
+    }
+
+    private static readonly MethodInfo FromColumnBuilderDef =
+        typeof(SeriesFactory).GetMethod(nameof(FromColumnBuilder), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static readonly MethodInfo CastDef = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!;
+
+    /// <summary>
+    /// The values as one Arrow array built in native memory (Sazanami's column builder), imported as a Series. Objects
+    /// whose first non-null value is a class (not a string) are read as that class (a struct column) when they all are;
+    /// other objects as their text.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2060", Justification = "Objects are read as their run-time class as before: reflection by design.")]
+    private static SeriesHandle FromColumnBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data)
+    {
+        if (typeof(T) == typeof(object) && data.FirstOrDefault(static v => v is not null)?.GetType() is { IsClass: true } runtime && runtime != typeof(string))
+        {
+            try
+            {
+                object typed = CastDef.MakeGenericMethod(runtime).Invoke(null, [data])!;
+                return (SeriesHandle)FromColumnBuilderDef.MakeGenericMethod(runtime).Invoke(null, [name, typed])!;
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is InvalidCastException)
+            {
+                // Objects of several classes: their text, below.
+            }
+        }
+
+        using var builder = new Kaminari.Sazanami.Data.ArrowColumnBuilder<T>();
+        foreach (T value in data) builder.Append(value);
+        using var array = builder.ExportArray();
+        return ArrowFfiBridge.ImportSeries(name, array);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

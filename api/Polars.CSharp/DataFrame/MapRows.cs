@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
-using Kaminari.Sazanami.Marshalling;
+using Kaminari.Sazanami.Data;
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 
@@ -10,8 +11,8 @@ public partial class DataFrame
     /// <summary>
     /// Transforms DataFrame rows into a new DataFrame using a strongly-typed mapping function.
     /// <para>
-    /// Operates entirely in managed memory with pre-compiled property extraction and ingestion delegates,
-    /// eliminating per-row reflection and intermediate boxing allocations.
+    /// The mapped rows are appended by code compiled once per type into native Arrow memory (Sazanami's
+    /// <c>ArrowRowBuilder</c>), without per-row reflection or boxing, and imported into the engine without copying.
     /// </para>
     /// </summary>
     /// <typeparam name="TIn">Input row DTO/POCO type.</typeparam>
@@ -28,47 +29,19 @@ public partial class DataFrame
         if (height > int.MaxValue)
             throw new OverflowException($"DataFrame height ({height}) exceeds Int32.MaxValue.");
 
-        int count = (int)height;
-        var outProps = ObjectSchemaTransposer<TOut, SeriesHandle>.ModelProperties;
+        // The mapped rows as one Arrow batch in native memory (Sazanami's row builder), imported without copying.
+        using var builder = new ArrowRowBuilder<TOut>();
+        builder.Reserve((int)height);
 
-        if (outProps.Length == 0)
-            return [];
-
-        // 1. Handle empty DataFrame edge-case (preserves column schema)
-        if (count == 0)
-        {
-            var emptyHandles = ObjectSchemaTransposer<TOut, SeriesHandle>.CreateEmptyColumns(SeriesHandleSink.Instance);
-            var emptySeries = new Series[emptyHandles.Length];
-            for (int i = 0; i < emptyHandles.Length; i++)
-            {
-                emptySeries[i] = new Series(emptyHandles[i]);
-            }
-            return [.. emptySeries];
-        }
-
-        // 2. Pre-allocate exact capacity buffers for each output column
-        var buffers = ObjectSchemaTransposer<TOut, SeriesHandle>.CreateBuffers(count);
-
-        // 3. Obtain pre-compiled non-boxing row writer for TOut
-        var writer = ObjectSchemaTransposer<TOut, SeriesHandle>.RowWriter;
-
-        // 4. Stream rows using zero-heap ref struct enumerator
+        // Stream rows using zero-heap ref struct enumerator
         var enumerator = Rows<TIn>();
         while (enumerator.MoveNext())
         {
-            TOut mappedRow = mapFunc(enumerator.Current);
-            writer(mappedRow, buffers);
+            builder.Append(mapFunc(enumerator.Current));
         }
 
-        // 5. Seal buffers into Polars Series and build final DataFrame
-        var seriesList = new Series[outProps.Length];
-        for (int i = 0; i < outProps.Length; i++)
-        {
-            var handle = buffers[i].ToColumn(outProps[i].Name, SeriesHandleSink.Instance);
-            seriesList[i] = new Series(handle);
-        }
-
-        return [.. seriesList];
+        using Apache.Arrow.RecordBatch batch = builder.ExportBatch();
+        return new DataFrame(ArrowFfiBridge.ImportDataFrame(batch));
     }
     /// <summary>
     /// Iterates over all rows in the DataFrame as strongly-typed models using a zero-allocation stack enumerator,

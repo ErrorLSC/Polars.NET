@@ -907,26 +907,20 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
         }
     }
 
-    private static Func<List<object?>, IArrowArray> CreateFastBuildDelegate([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type elementType)
+    private static Func<List<object?>, IArrowArray> CreateFastBuildDelegate([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type elementType) =>
+        typeof(ComplexTypeColumnBuilder).GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(elementType).CreateDelegate<Func<List<object?>, IArrowArray>>();
+
+    /// <summary>The values (of <typeparamref name="T"/>, or null) as one array built in native memory (Sazanami's column builder).</summary>
+    private static IArrowArray BuildColumn<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(List<object?> values)
     {
-        var castMethod = typeof(Enumerable)
-            .GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!
-            .MakeGenericMethod(elementType);
-
-        var buildMethod = typeof(ArrowConverter)
-            .GetMethod(nameof(ArrowConverter.Build), BindingFlags.Public | BindingFlags.Static)!
-            .MakeGenericMethod(elementType);
-
-        // (List<object?> buffer) => ArrowConverter.Build(Enumerable.Cast<T>(buffer))
-        var bufferParam = Expression.Parameter(typeof(List<object?>), "buffer");
-
-        var ienumerableCast = Expression.Convert(bufferParam, typeof(System.Collections.IEnumerable));
-
-        var castCall = Expression.Call(null, castMethod, ienumerableCast);
-        var buildCall = Expression.Call(null, buildMethod, castCall);
-
-        var lambda = Expression.Lambda<Func<List<object?>, IArrowArray>>(buildCall, bufferParam);
-        return lambda.Compile();
+        using var builder = new ArrowColumnBuilder<T>();
+        foreach (object? value in values)
+        {
+            if (value is null) builder.AppendNull();
+            else builder.Append((T)value);
+        }
+        return builder.ExportArray();
     }
 }
 // ------------------------------------------------------------------------

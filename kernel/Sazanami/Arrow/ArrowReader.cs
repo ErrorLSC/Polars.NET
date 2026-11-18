@@ -181,6 +181,15 @@ public static class ArrowReader
         if (type == typeof(float))  return idx => (float?)array.GetDoubleValue(idx);
         if (type == typeof(Half))   return idx => (Half?)array.GetDoubleValue(idx);
 
+        // 128-bit integers (WideIntegers): the 16 bytes of a decimal(p, 0) as they are; unsigned ones as their bits
+        if ((type == typeof(Int128) || type == typeof(UInt128)) && array is Decimal128Array { Data.DataType: Decimal128Type { Scale: 0 } } wide)
+        {
+            Int128 Raw(int idx) => System.Runtime.InteropServices.MemoryMarshal.Read<Int128>(wide.ValueBuffer.Span[((wide.Offset + idx) * 16)..]);
+            return type == typeof(Int128)
+                ? idx => wide.IsNull(idx) ? null : Raw(idx)
+                : idx => wide.IsNull(idx) ? null : (UInt128)Raw(idx);
+        }
+
         // Decimal
         if (type == typeof(decimal))
         {

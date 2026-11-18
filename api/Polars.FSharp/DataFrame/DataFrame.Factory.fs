@@ -7,6 +7,7 @@ open Polars.NET.Core.Helpers
 open Polars.NET.Core.Wrappers
 open System.Collections.Generic
 open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Data
 
 [<AutoOpen>]
 module DataFrameFactory =
@@ -30,16 +31,14 @@ module DataFrameFactory =
         static member ofSeq<'T>(data: seq<'T>, ?batchSize: int) : DataFrame =
             let size = defaultArg batchSize 100_000
 
-            let schema = ArrowConverter.GetSchemaFromType<'T>()
+            let schema = ArrowRowBuilder<'T>.Schema
 
-            let batchStream =
-                data |> Seq.chunkBySize size |> Seq.map ArrowFfiBridge.BuildRecordBatch
+            let batchStream = ArrowStreamingExtensions.ToArrowBatches(data, size)
 
             let handle = ArrowStreamInterop.ImportEager(batchStream, schema)
 
             if handle.IsInvalid then
-                use emptyBatch =
-                    new RecordBatch(schema, System.Array.Empty<Apache.Arrow.IArrowArray>(), 0)
+                use emptyBatch = ArrowStreamingExtensions.EmptyBatch<'T>()
 
                 let safeHandle = ArrowFfiBridge.ImportDataFrame emptyBatch
                 new DataFrame(safeHandle)

@@ -234,14 +234,20 @@ plain and large strings.
 failure). One column per public readable property, laid out as `DataFrame.From<T>` lays them out (Sazanami's
 `ArrowRowBuilder<T>`: strings as string views, collections as large lists, nested records as structs, enums as
 dictionaries of their member names carrying the engine's Enum metadata, decimals as decimal(38, 18), `Guid` as 16 bytes,
-value types non-nullable); any other `T` is one column named `value`. Rows are gathered into batches of 16 384 in native
+`Int128` / `UInt128` as decimal(38, 0) marked as 128-bit integers (exact everywhere; values of more than 38 digits are
+refused — for bit patterns such as hashes use `Guid` or `byte[]`; Apache.Arrow has no 128-bit integer type yet, and once
+it has one this layout will change to it),
+value-type columns non-nullable, list items and members of nested records nullable); dictionaries (`Dictionary`, `IDictionary`, `IReadOnlyDictionary`, F# `Map`, at any depth) are
+written as Parquet MAP groups, and stored as Arrow maps in `ARROW:schema` (Spark, DuckDB, pyarrow and Python Polars read
+maps); any other `T` is one column named `value`. Rows are gathered into batches of 16 384 in native
 memory, each written and then freed (the caller owning the batches: measured faster and lighter than the writer owning
 them): the file depends on the rows alone, not on how they were passed nor on the threads. The batches of an array or a list are made on up to `MaxDegreeOfParallelism` threads at once and handed
 over in order (rows passed one by one or by a lazy sequence are read as they come, on the caller's thread: a producer
 may reuse one object for every row). A null
 row is refused (the writer goes on); a value the layout refuses (a decimal that does not fit exactly, an undefined enum
 value) aborts the file. `ParquetReader<T>` reads the rows back. UUID columns (FIXED_LEN_BYTE_ARRAY(16) annotated UUID,
-as DuckDB and pyarrow write them) are read as the `Guid` those engines show (RFC 4122 byte order); an Arrow
+as DuckDB and pyarrow write them) are read as the `Guid` those engines show; maps (and lists of key / value structs) are
+read into dictionary members (RFC 4122 byte order); an Arrow
 `arrow.uuid` field is written annotated UUID.
 
 Everything the writer holds per page and per chunk lives in native memory (`NativeMemoryPool`, through
@@ -509,7 +515,8 @@ In Sazanami (generic, reusable by other formats):
 | `Buffers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
 | `Encodings/ValueDictionary.cs` | Dictionaries of fixed-width values and of byte strings (open addressing, values in first-appearance order, native memory) for dictionary encoding. |
-| `Data/ArrowRowBuilder.cs` | Rows of `T` as Arrow batches in native memory (the mirror of `ArrowRowMapper<T>`): the engine's layout per .NET type, appended by code compiled once per type (sealed writers, struct converters, no boxing); records refused when null; a value the layout refuses faults the builder. |
+| `Data/ArrowRowBuilder.cs` | Rows of `T` as Arrow batches in native memory (the mirror of `ArrowRowMapper<T>`): the engine's layout per .NET type, appended by code compiled once per type (sealed writers, struct converters, no boxing); records refused when null; a value the layout refuses faults the builder; the paths of its dictionary columns (`MapColumns`); `ArrowColumnBuilder<T>` (one array); `WideIntegers` (128-bit integers as marked decimal(38, 0) until Apache.Arrow has 128-bit integer types). |
+| `Data/ArrowColumnAccessors.cs` (`MapAccessor`, `WideIntegerAccessor`) | Decimal(p, 0) columns into `Int128` / `UInt128` members (a column marked unsigned by its bits). Map columns (Arrow maps, lists of two-field structs: key / value by name, else by position) read into `Dictionary`, `IDictionary`, `IReadOnlyDictionary` and F# `Map` members; null keys refused, a repeated key keeps its last value. |
 | `Data/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Arrow/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 

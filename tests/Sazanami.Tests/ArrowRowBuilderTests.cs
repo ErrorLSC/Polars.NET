@@ -2,6 +2,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Data;
 using Kaminari.Sazanami.Marshalling;
+using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 
 namespace Sazanami.Tests;
@@ -69,11 +70,11 @@ public sealed class ArrowRowBuilderTests
 
         var ints = Assert.IsType<LargeListType>(F("Ints").DataType);
         Assert.IsType<Int32Type>(ints.ValueDataType);
-        Assert.False(ints.ValueField.IsNullable);
+        Assert.True(ints.ValueField.IsNullable); // as the engine's lists hold them
         Assert.True(Assert.IsType<LargeListType>(F("MaybeInts").DataType).ValueField.IsNullable);
         var nested = Assert.IsType<StructType>(F("Nested").DataType);
         Assert.Equal(["A", "B"], nested.Fields.Select(f => f.Name));
-        Assert.False(nested.Fields[0].IsNullable);
+        Assert.True(nested.Fields[0].IsNullable); // a nested record's members: null when the record is
     }
 
     [Fact]
@@ -107,6 +108,57 @@ public sealed class ArrowRowBuilderTests
         var keys = (StringViewArray)entries.Fields[0];
         Assert.Equal(["a", "b"], [keys.GetString(0), keys.GetString(1)]);
         Assert.Equal([1, 2], ((Int32Array)entries.Fields[1]).Values.ToArray());
+    }
+
+    [Fact]
+    public void Dictionaries_AreReportedAsMapColumns_AndReadBackAsDictionaries()
+    {
+        Assert.True(ArrowRowBuilder<MapRow>.MapColumns.SetEquals(["Map", "Maybe", "Nested.Codes", "Many[]", "Deep", "Deep.value", "Fs"]),
+            string.Join(", ", ArrowRowBuilder<MapRow>.MapColumns));
+        Assert.Empty(ArrowRowBuilder<Pairs>.MapColumns); // a list of pairs is no dictionary
+
+        MapRow[] rows =
+        [
+            new(new() { ["a"] = 1, ["b"] = 2 }, null, new CodeHolder(new() { [1] = "x", [2] = null }), [new() { ["p"] = 1.5 }],
+                new Dictionary<string, Dictionary<string, int>> { ["o"] = new() { ["i"] = 7 } }, MapModule.OfSeq([Tuple.Create("f", 3)])),
+            new([], new Dictionary<string, int> { ["z"] = 26 }, null, null, null, MapModule.Empty<string, int>()),
+        ];
+        using var builder = new ArrowRowBuilder<MapRow>();
+        builder.AppendRange(rows);
+        using RecordBatch batch = builder.ExportBatch();
+        using ArrowBatchCursor<MapRow> cursor = ArrowRowMapper<MapRow>.CreateCursor(batch);
+        for (int i = 0; i < rows.Length; i++)
+        {
+            MapRow read = cursor.ReadRow(i);
+            Assert.Equal(rows[i].Map, read.Map);
+            Assert.Equal(rows[i].Maybe, read.Maybe);
+            Assert.Equal(rows[i].Nested?.Codes, read.Nested?.Codes);
+            Assert.Equal(rows[i].Many, read.Many);
+            Assert.Equal(rows[i].Deep?.Select(e => (e.Key, string.Join(",", e.Value))), read.Deep?.Select(e => (e.Key, string.Join(",", e.Value))));
+            Assert.Equal(rows[i].Fs, read.Fs);
+        }
+    }
+
+    [Fact]
+    public void ListsOfKeyValueStructs_ReadAsDictionaries_ByNameThenPosition()
+    {
+        using var builder = new ArrowRowBuilder<Entries>();
+        builder.Append(new Entries([new(1, "a"), new(3, "a"), new(2, "b")], [new(5, "five")]));
+        using RecordBatch batch = builder.ExportBatch();
+        using ArrowBatchCursor<AsDictionaries> cursor = ArrowRowMapper<AsDictionaries>.CreateCursor(batch);
+        AsDictionaries read = cursor.ReadRow(0);
+        Assert.Equal(new Dictionary<string, int> { ["a"] = 3, ["b"] = 2 }, read.Lower); // by name (key / value), the last a wins
+        Assert.Equal(new Dictionary<int, string> { [5] = "five" }, read.Positional);   // by position
+    }
+
+    [Fact]
+    public void NullKeys_AreRefused()
+    {
+        using var builder = new ArrowRowBuilder<NullKeyEntries>();
+        builder.Append(new NullKeyEntries([new(null, 1)]));
+        using RecordBatch batch = builder.ExportBatch();
+        using ArrowBatchCursor<NullKeyMap> cursor = ArrowRowMapper<NullKeyMap>.CreateCursor(batch);
+        Assert.Throws<InvalidDataException>(() => cursor.ReadRow(0));
     }
 
     [Theory]
@@ -198,6 +250,23 @@ public sealed class ArrowRowBuilderTests
     }
 
     [Fact]
+    public void ExportedBatches_CanBeDisposedTwice()
+    {
+        using var builder = new ArrowRowBuilder<Inner>();
+        for (int i = 0; i < 1000; i++) builder.Append(new Inner(i, $"a longer text value {i}"));
+        RecordBatch batch = builder.ExportBatch();
+        batch.Dispose();
+        batch.Dispose(); // a stream exporter and its consumer may both dispose a batch
+        builder.Append(new Inner(1, "after"));
+        using RecordBatch next = builder.ExportBatch();
+        Assert.Equal("after", ((StringViewArray)next.Column(1)).GetString(0));
+    }
+
+    [Fact]
+    public void LinqGroups_AreTheirKeys() =>
+        Assert.Equal(["Key"], ArrowRowBuilder<IGrouping<long, Inner>>.Schema.FieldsList.Select(f => f.Name));
+
+    [Fact]
     public void RecursiveTypes_AreRefused() =>
         Assert.Throws<NotSupportedException>(() => ArrowRowBuilder<Node>.Schema);
 
@@ -251,6 +320,27 @@ public enum Perm : byte { None = 0, Read = 1, Write = 2 }
 public sealed record Inner(int A, string? B);
 
 public sealed record Holder(Dictionary<string, int>? Map);
+
+public sealed record CodeHolder(Dictionary<int, string?> Codes);
+
+public sealed record MapRow(Dictionary<string, int> Map, IReadOnlyDictionary<string, int>? Maybe, CodeHolder? Nested,
+    List<Dictionary<string, double>>? Many, IDictionary<string, Dictionary<string, int>>? Deep, FSharpMap<string, int> Fs);
+
+public sealed record Pairs(List<KeyValuePair<string, int>> Items);
+
+public sealed record LowerKv(int value, string key); // value first: found by name, not position
+
+public sealed record Positional(int Code, string Name);
+
+public sealed record Entries(List<LowerKv> Lower, List<Positional> Positional);
+
+public sealed record AsDictionaries(Dictionary<string, int> Lower, Dictionary<int, string> Positional);
+
+public sealed record NullableKey(string? Key, int Value);
+
+public sealed record NullKeyEntries(List<NullableKey> Map);
+
+public sealed record NullKeyMap(Dictionary<string, int> Map);
 
 public sealed record Priced(int Id, decimal Price);
 

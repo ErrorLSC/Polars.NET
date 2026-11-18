@@ -1273,7 +1273,7 @@ public readonly partial struct PolarsWrapper
         Field importedField;
         try
         {
-            importedField = CArrowSchemaImporter.ImportField(&cSchema);
+            importedField = Polars.NET.Core.Arrow.WideIntegerFormats.ImportField(&cSchema);
         }
         catch
         {

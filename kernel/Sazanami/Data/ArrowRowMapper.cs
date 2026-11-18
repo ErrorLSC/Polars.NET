@@ -308,7 +308,7 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
             (t.IsGenericType && t.Name.StartsWith("AnonymousObject`", StringComparison.Ordinal)));
 
     private static bool IsScalarOrEnum(Type t)
-        => ClrTypeHelper.IsScalarType(t) || t == typeof(string) || t.IsEnum;
+        => ClrTypeHelper.IsScalarType(t) || t == typeof(string) || t.IsEnum || t == typeof(Int128) || t == typeof(UInt128);
 
     private static bool IsScalarLike(Type t)
     {
@@ -332,7 +332,8 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
                    gDef == typeof(IReadOnlyList<>) ||
                    gDef == typeof(IReadOnlyCollection<>) ||
                    gDef == typeof(IEnumerable<>) ||
-                   gDef == typeof(IOrderedEnumerable<>);
+                   gDef == typeof(IOrderedEnumerable<>) ||
+                   MapAccessorTypes.TryGetKeyValue(t, out _, out _);
         }
         return false;
     }

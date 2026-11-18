@@ -100,7 +100,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
                 : settings)];
             List<KeyValue> keyValues = [];
-            if (options.StoreArrowSchema) keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(schema))));
+            if (options.StoreArrowSchema)
+                keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(StoredSchema(schema, options.MapColumns)))));
             if (options.Metadata is { } metadata) keyValues.AddRange(metadata.Select(kv => new KeyValue(kv.Key, kv.Value)));
             KeyValues = keyValues.Count > 0 ? [.. keyValues] : null;
         }
@@ -1210,6 +1211,37 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>The writer's name and version, as readers parse it (<c>app version x.y.z</c>).</summary>
     private static readonly string CreatedBy = $"seseragi version {typeof(ParquetWriter).Assembly.GetName().Version?.ToString(3) ?? "0.0.0"}";
+
+    /// <summary>
+    /// The Arrow schema stored with the file: the columns written as MAP groups (<see cref="ParquetWriteOptions.MapColumns"/>,
+    /// lists of key / value structs) as Arrow maps, so the stored schema says what the file holds.
+    /// </summary>
+    private static Apache.Arrow.Schema StoredSchema(Apache.Arrow.Schema schema, IReadOnlySet<string>? maps)
+    {
+        if (maps is null || maps.Count == 0) return schema;
+        return new Apache.Arrow.Schema([.. schema.FieldsList.Select(f => Restored(f, f.Name))], schema.Metadata);
+
+        Field Restored(Field field, string path) => new(field.Name, Type(field.DataType, path), field.IsNullable, field.Metadata);
+
+        IArrowType Type(IArrowType type, string path) => type switch
+        {
+            ListType or LargeListType when maps.Contains(path) && Entries(type) is { } entries => new MapType(
+                new Field("key", Type(entries.Fields[0].DataType, path + ".key"), false, entries.Fields[0].Metadata),
+                new Field("value", Type(entries.Fields[1].DataType, path + ".value"), entries.Fields[1].IsNullable, entries.Fields[1].Metadata)),
+            ListType l => new ListType(Restored(l.ValueField, path + "[]")),
+            LargeListType l => new LargeListType(Restored(l.ValueField, path + "[]")),
+            StructType st => new StructType([.. st.Fields.Select(c => Restored(c, $"{path}.{c.Name}"))]),
+            MapType m => new MapType(Restored(m.KeyField, path + ".key"), Restored(m.ValueField, path + ".value"), m.KeySorted),
+            _ => type,
+        };
+
+        static StructType? Entries(IArrowType type) => type switch
+        {
+            ListType { ValueDataType: StructType { Fields.Count: 2 } entries } => entries,
+            LargeListType { ValueDataType: StructType { Fields.Count: 2 } entries } => entries,
+            _ => null,
+        };
+    }
 
     /// <summary>The Arrow IPC schema message, as Arrow writers store it in <c>ARROW:schema</c>.</summary>
     private static byte[] ArrowSchemaMessage(Apache.Arrow.Schema schema)

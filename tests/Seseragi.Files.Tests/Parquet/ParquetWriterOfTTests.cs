@@ -177,6 +177,68 @@ public sealed class ParquetWriterOfTTests : IDisposable
     }
 
     [Fact]
+    public void Dictionaries_AreWrittenAsMaps_AndReadBack()
+    {
+        string path = Path("maps.parquet");
+        Priced[] rows =
+        [
+            new(1, new Dictionary<string, decimal> { ["a"] = 1.5m, ["b"] = 2m }, new Venues(new() { [7] = "x", [8] = null }), [new() { ["p"] = 1 }]),
+            new(2, null, null, null),
+            new(3, new Dictionary<string, decimal>(), new Venues([]), [[]]),
+        ];
+        ParquetWriter.WriteRows(path, rows);
+
+        using (var file = ParquetFile.Open(path))
+        {
+            var thrift = file.Metadata.Thrift!.Schema;
+            Assert.Equal(["Prices", "Codes", "element"], thrift.Where(e => e.LogicalType?.Kind == Kaminari.Seseragi.Files.Parquet.Metadata.LogicalTypeKind.Map).Select(e => e.Name));
+            // The stored Arrow schema says maps too.
+            string stored = file.Metadata.Thrift!.KeyValueMetadata!.Single(kv => kv.Key == "ARROW:schema").Value!;
+            using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(new MemoryStream(Convert.FromBase64String(stored)));
+            Apache.Arrow.Schema arrow = reader.Schema;
+            Assert.IsType<Apache.Arrow.Types.MapType>(arrow.GetFieldByName("Prices").DataType);
+            var tiers = Assert.IsType<Apache.Arrow.Types.LargeListType>(arrow.GetFieldByName("Tiers").DataType);
+            Assert.IsType<Apache.Arrow.Types.MapType>(tiers.ValueDataType);
+        }
+        List<Priced> read = ParquetFile.ReadList<Priced>(path);
+        for (int i = 0; i < rows.Length; i++)
+        {
+            Assert.Equal(rows[i].Prices, read[i].Prices);
+            Assert.Equal(rows[i].Venues?.Codes, read[i].Venues?.Codes);
+            Assert.Equal(rows[i].Tiers, read[i].Tiers);
+        }
+    }
+
+    [Fact]
+    public void WideIntegers_AreDecimals_AndComeBack()
+    {
+        string path = Path("wide.parquet");
+        Int128 max = Int128.Parse("99999999999999999999999999999999999999"); // 10^38 - 1
+        Counter[] rows = [new(max, UInt128.Parse("99999999999999999999999999999999999999"), -max), new(-5, null, null)];
+        ParquetWriter.WriteRows(path, rows);
+        using (var file = ParquetFile.Open(path))
+        {
+            var big = file.Metadata.Thrift!.Schema[1];
+            Assert.Equal((38, 0, 16), (big.Precision, big.Scale, big.TypeLength));
+        }
+        List<Counter> read = ParquetFile.ReadList<Counter>(path);
+        Assert.Equal(rows, read);
+    }
+
+    [Theory]
+    [InlineData("100000000000000000000000000000000000000", false)]  // 10^38: 39 digits
+    [InlineData("-100000000000000000000000000000000000000", false)]
+    [InlineData("170141183460469231731687303715884105728", true)]   // 2^127 (unsigned)
+    [InlineData("340282366920938463463374607431768211455", true)]   // UInt128.MaxValue
+    public void WideIntegers_OfMoreThan38Digits_AreRefused(string value, bool unsigned)
+    {
+        Counter row = unsigned ? new(0, UInt128.Parse(value), null) : new(Int128.Parse(value), null, null);
+        var e = Assert.Throws<NotSupportedException>(() => ParquetWriter.WriteRows(Path("refused.parquet"), [row]));
+        Assert.Contains("Guid or byte[]", e.Message);
+        Assert.False(File.Exists(Path("refused.parquet")));
+    }
+
+    [Fact]
     public void Scalars_AreOneValueColumn()
     {
         string path = Path("scalars.parquet");
@@ -219,6 +281,12 @@ public sealed class ParquetWriterOfTTests : IDisposable
 }
 
 public enum Side { Buy, Sell, Hold }
+
+public sealed record Venues(Dictionary<int, string?> Codes);
+
+public sealed record Counter(Int128 Big, UInt128? Unsigned, Int128? Maybe);
+
+public sealed record Priced(int Id, IReadOnlyDictionary<string, decimal>? Prices, Venues? Venues, List<Dictionary<string, int>>? Tiers);
 
 public sealed record Leg(int Qty, string? Venue);
 

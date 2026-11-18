@@ -27,8 +27,8 @@ namespace Kaminari.Sazanami.Data;
 /// <see cref="Guid"/> as binary views; enums as a dictionary of their member names carrying the engine's Enum metadata
 /// ([Flags] enums as their underlying integers); collections (dictionaries included, as lists of Key/Value structs)
 /// as large lists; nested records and classes as structs. A type with nothing of that (object, a class without
-/// readable properties) is written as its <see cref="object.ToString"/>. Value types are non-nullable fields;
-/// reference types, <see cref="Nullable{T}"/> and F# options nullable ones.
+/// readable properties) is written as its <see cref="object.ToString"/>. Value types are non-nullable columns; reference
+/// types, <see cref="Nullable{T}"/>, F# options, list items and every member of a nested record nullable ones.
 /// </para>
 /// </summary>
 /// <remarks>
@@ -58,6 +58,12 @@ public sealed class ArrowRowBuilder<[DynamicallyAccessedMembers(DynamicallyAcces
 
     /// <summary>Whether <typeparamref name="T"/> is laid out as records (one column per property; a null row is refused).</summary>
     public static bool RowsAreRecords => Plan.Value.RowsAreRecords;
+
+    /// <summary>
+    /// The columns holding dictionaries (lists of Key / Value structs), by path: struct members joined by '.', a list's
+    /// item as <c>[]</c>, a map's key and value as <c>.key</c> / <c>.value</c> (as the Parquet writer names columns).
+    /// </summary>
+    public static IReadOnlySet<string> MapColumns => Plan.Value.MapColumns;
 
     /// <summary>The rows appended since the last <see cref="ExportBatch"/>.</summary>
     public int Count => (int)_root.Length;
@@ -118,6 +124,9 @@ public sealed class ArrowRowBuilder<[DynamicallyAccessedMembers(DynamicallyAcces
         public Action<T, ArrowValueWriter[]> Append { get; } = append;
         public bool RowsAreRecords { get; } = rowsAreRecords;
 
+        public IReadOnlySet<string> MapColumns { get; } =
+            columns.SelectMany((c, i) => RowLayout.MapPaths(c, schema.FieldsList[i].Name)).ToFrozenSet();
+
         public static RowPlan Create()
         {
             if (RowLayout.Members(typeof(T)) is { } members)
@@ -133,10 +142,74 @@ public sealed class ArrowRowBuilder<[DynamicallyAccessedMembers(DynamicallyAcces
     }
 }
 
+/// <summary>
+/// Builds one Arrow array of values of <typeparamref name="T"/> in native memory, laid out as
+/// <see cref="ArrowRowBuilder{T}"/> lays out a column of that type (a record as a struct).
+/// </summary>
+public sealed class ArrowColumnBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T> : IDisposable
+{
+    private readonly RowNode _node = RowLayout.Resolve(typeof(T));
+    private readonly NativeColumnBuilder _builder;
+    private readonly ArrowValueWriter<T> _writer;
+
+    public ArrowColumnBuilder()
+    {
+        _builder = NativeColumnBuilder.Create(_node.Type);
+        _writer = (ArrowValueWriter<T>)_node.CreateWriter(_builder);
+    }
+
+    /// <summary>The field of the values (its type, nullability and metadata) under <paramref name="name"/>.</summary>
+    public Field Field(string name) => _node.Field(name);
+
+    /// <summary>The values appended since the last export.</summary>
+    public long Count => _builder.Length;
+
+    /// <summary>Appends a value (null where <typeparamref name="T"/> takes one).</summary>
+    public void Append(T value) => _writer.Write(value);
+
+    /// <summary>Appends a null slot (for values given as objects, where a null stands for any type's absent value).</summary>
+    public void AppendNull() => _builder.AppendNull();
+
+    /// <summary>The values appended since the last export, as an array over native memory; the builder starts empty again.</summary>
+    public IArrowArray ExportArray() => _builder.ExportArray();
+
+    public void Dispose() => _builder.Dispose();
+}
+
+/// <summary>
+/// 128-bit integers, which Arrow (and Apache.Arrow) has no type for, as decimal(38, 0) columns marked by field metadata:
+/// a decimal128 holds the same 16 little-endian two's complement bytes, so a consumer with 128-bit integers reads them
+/// as such (the engine does), and any other one as exact decimals while they have at most 38 digits (Parquet: values of
+/// 39 digits are refused; unsigned ones above 2^127 too). Once Apache.Arrow has 128-bit integer types, this layout will
+/// change to them.
+/// </summary>
+public static class WideIntegers
+{
+    /// <summary>The Arrow type of a 128-bit integer column.</summary>
+    public static Decimal128Type Type { get; } = new(38, 0);
+
+    /// <summary>The kind (<see cref="Signed"/>, <see cref="Unsigned"/>) of a 128-bit integer field, or null.</summary>
+    public static string? KindOf(Field field) =>
+        field.DataType is Decimal128Type { Scale: 0 } ? field.Metadata?.GetValueOrDefault(MetadataKey) : null;
+
+    /// <summary>The field metadata key marking a 128-bit integer column; its value is <see cref="Signed"/> or <see cref="Unsigned"/>.</summary>
+    public const string MetadataKey = "kaminari:int128";
+
+    public const string Signed = "i128";
+
+    public const string Unsigned = "u128";
+}
+
 /// <summary>How one .NET type is laid out: its Arrow type, and how to make a writer over a builder of that type.</summary>
 internal sealed class RowNode(IArrowType type, bool nullable, Dictionary<string, string>? metadata, Type writerType,
-    Func<NativeColumnBuilder, ArrowValueWriter> createWriter)
+    Func<NativeColumnBuilder, ArrowValueWriter> createWriter, RowNode[]? children = null, bool isMap = false)
 {
+    /// <summary>The nodes inside: a struct's members, a list's item.</summary>
+    public RowNode[] Children { get; } = children ?? [];
+
+    /// <summary>Whether this list holds a dictionary's entries (a list of Key / Value structs).</summary>
+    public bool IsMap { get; } = isMap;
+
     public IArrowType Type { get; } = type;
     public bool Nullable { get; } = nullable;
     public Dictionary<string, string>? Metadata { get; } = metadata;
@@ -160,6 +233,8 @@ internal static class RowLayout
     /// <summary>The properties a record type is laid out as, or null when the type is not a record (one value column).</summary>
     public static PropertyInfo[]? Members([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
+        // A LINQ group is its key (a record of one member), not the sequence of its elements.
+        if (Grouping(type) is { } grouping) return [grouping.GetProperty(nameof(IGrouping<int, int>.Key))!];
         if (ClrTypeHelper.GetOptionalInfo(type).Kind != OptionalKind.None || Scalar(type) is not null || type == typeof(object)
             || type.IsInterface || type.IsAbstract || ElementType(type) is not null)
             return null;
@@ -193,7 +268,8 @@ internal static class RowLayout
             if (kind == OptionalKind.Nullable && Scalar(core) is { Converter: { } conv } fixedScalar)
             {
                 Type nullableFixed = typeof(NullableFixedWriter<,,>).MakeGenericType(core, fixedScalar.Stored!, conv);
-                return new RowNode(inner.Type, true, metadata, nullableFixed, b => (ArrowValueWriter)Activator.CreateInstance(nullableFixed, b)!);
+                return new RowNode(inner.Type, true, metadata, nullableFixed, b => (ArrowValueWriter)Activator.CreateInstance(nullableFixed, b)!,
+                    inner.Children, inner.IsMap);
             }
             Type wrapper = (kind switch
             {
@@ -201,7 +277,8 @@ internal static class RowLayout
                 OptionalKind.FSharpOption => typeof(OptionWriter<>),
                 _ => typeof(ValueOptionWriter<>),
             }).MakeGenericType(core);
-            return new RowNode(inner.Type, true, metadata, wrapper, b => (ArrowValueWriter)Activator.CreateInstance(wrapper, inner.CreateWriter(b))!);
+            return new RowNode(inner.Type, true, metadata, wrapper, b => (ArrowValueWriter)Activator.CreateInstance(wrapper, inner.CreateWriter(b))!,
+                inner.Children, inner.IsMap);
         }
 
         bool nullable = !type.IsValueType;
@@ -213,12 +290,15 @@ internal static class RowLayout
             return new RowNode(scalar.Type, nullable, Metadata(type), writer, b => (ArrowValueWriter)Activator.CreateInstance(writer, b)!);
         }
 
-        if (ElementType(type) is { } element)
+        if (Grouping(type) is null && ElementType(type) is { } element)
         {
             RowNode item = Resolve(element);
             Type writer = typeof(ListWriter<,>).MakeGenericType(type, element);
-            return new RowNode(new LargeListType(item.Field("item")), nullable, null, writer,
-                b => (ArrowValueWriter)Activator.CreateInstance(writer, b, item.CreateWriter(((NativeLargeListBuilder)b).Values))!);
+            // List items are nullable fields, whatever their type: the engine's list types carry the item's nullability,
+            // and its own lists' items are always nullable.
+            return new RowNode(new LargeListType(new Field("item", item.Type, true, item.Metadata)), nullable, null, writer,
+                b => (ArrowValueWriter)Activator.CreateInstance(writer, b, item.CreateWriter(((NativeLargeListBuilder)b).Values))!,
+                [item], IsDictionary(type, element));
         }
 
         if (Members(type) is { } members)
@@ -236,13 +316,14 @@ internal static class RowLayout
             }
             var (nodes, append) = compiled;
             Type writer = typeof(StructWriter<>).MakeGenericType(type);
-            var structType = new StructType([.. members.Select((m, i) => nodes[i].Field(m.Name))]);
+            // Members of a nested record are nullable fields: a null record's members are null (as the engine holds them).
+            var structType = new StructType([.. members.Select((m, i) => new Field(m.Name, nodes[i].Type, true, nodes[i].Metadata))]);
             return new RowNode(structType, nullable, null, writer, b =>
             {
                 var builder = (NativeStructBuilder)b;
                 ArrowValueWriter[] children = [.. nodes.Select((n, i) => n.CreateWriter(builder.Children[i]))];
                 return (ArrowValueWriter)Activator.CreateInstance(writer, builder, children, append)!;
-            });
+            }, nodes);
         }
 
         // Nothing to lay out: the value's text.
@@ -268,6 +349,45 @@ internal static class RowLayout
     }
 
     private static (RowNode[] Nodes, Delegate Append) CompileStruct<TStruct>(PropertyInfo[] members) => CompileMembers<TStruct>(members);
+
+    /// <summary>The <see cref="IGrouping{TKey, TElement}"/> interface <paramref name="type"/> is or implements, or null.</summary>
+    private static Type? Grouping([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type type) =>
+        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IGrouping<,>)
+            ? type
+            : type.GetInterfaces().FirstOrDefault(static i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IGrouping<,>));
+
+    /// <summary>Whether a collection of <paramref name="element"/> is a dictionary (its entries: key / value pairs).</summary>
+    private static bool IsDictionary([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type type, Type element) =>
+        element.IsGenericType && element.GetGenericTypeDefinition() == typeof(KeyValuePair<,>)
+        && (type.IsInterface ? [type, .. type.GetInterfaces()] : type.GetInterfaces()).Any(static i => i.IsGenericType
+            && (i.GetGenericTypeDefinition() == typeof(IDictionary<,>) || i.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>)));
+
+    /// <summary>
+    /// The paths of the dictionary columns under <paramref name="node"/> at <paramref name="path"/>, as the Parquet writer
+    /// names columns: struct members joined by '.', a list's item as <c>[]</c>, a map's key and value as <c>.key</c> /
+    /// <c>.value</c>.
+    /// </summary>
+    public static IEnumerable<string> MapPaths(RowNode node, string path)
+    {
+        if (node.IsMap)
+        {
+            yield return path;
+            RowNode entry = node.Children[0];
+            foreach (string inner in MapPaths(entry.Children[0], path + ".key")) yield return inner;
+            foreach (string inner in MapPaths(entry.Children[1], path + ".value")) yield return inner;
+            yield break;
+        }
+        if (node.Type is LargeListType)
+        {
+            foreach (string inner in MapPaths(node.Children[0], path + "[]")) yield return inner;
+            yield break;
+        }
+        if (node.Type is StructType structType)
+        {
+            for (int i = 0; i < node.Children.Length; i++)
+                foreach (string inner in MapPaths(node.Children[i], $"{path}.{structType.Fields[i].Name}")) yield return inner;
+        }
+    }
 
     /// <summary>The element type when <paramref name="type"/> is laid out as a list (strings and byte arrays are not).</summary>
     private static Type? ElementType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type type) =>
@@ -303,9 +423,14 @@ internal static class RowLayout
         [typeof(char)] = new(StringViewType.Default, Writer: typeof(CharWriter)),
         [typeof(byte[])] = new(BinaryViewType.Default, Writer: typeof(BinaryWriter)),
         [typeof(Guid)] = new(BinaryViewType.Default, Writer: typeof(GuidWriter)),
+        [typeof(Int128)] = new(WideIntegers.Type, typeof(Int128), typeof(Same<Int128>)),
+        [typeof(UInt128)] = new(WideIntegers.Type, typeof(Int128), typeof(UInt128Bits)),
     }.ToFrozenDictionary();
 
-    private static Dictionary<string, string>? Metadata(Type core) => EnumCategories.TryGetArrowFieldMetadata(core);
+    private static Dictionary<string, string>? Metadata(Type core) =>
+        core == typeof(Int128) ? new() { [WideIntegers.MetadataKey] = WideIntegers.Signed }
+        : core == typeof(UInt128) ? new() { [WideIntegers.MetadataKey] = WideIntegers.Unsigned }
+        : EnumCategories.TryGetArrowFieldMetadata(core);
 
     private static ScalarLayout? Scalar([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
     {
@@ -532,6 +657,11 @@ internal sealed class ToStringWriter<TValue>(NativeColumnBuilder builder) : Arro
 internal readonly struct Same<T> : IArrowValueConverter<T, T>
 {
     public static T Convert(T value) => value;
+}
+
+internal readonly struct UInt128Bits : IArrowValueConverter<UInt128, Int128>
+{
+    public static Int128 Convert(UInt128 value) => (Int128)value; // the same bits (unchecked)
 }
 
 internal readonly struct EnumToUnderlying<TEnum, TUnderlying> : IArrowValueConverter<TEnum, TUnderlying>

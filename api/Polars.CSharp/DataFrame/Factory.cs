@@ -8,6 +8,7 @@ using System.Buffers;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.CSharp;
 
@@ -214,7 +215,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     /// </summary>
     public static DataFrame FromEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data, int batchSize = 100_000, Apache.Arrow.Schema? providedSchema = null)
     {
-        var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
+        var schema = providedSchema ?? ArrowRowBuilder<T>.Schema;
         var stream = data.ToArrowBatches(batchSize);
 
         var handle = ArrowStreamInterop.ImportEager(stream, schema);

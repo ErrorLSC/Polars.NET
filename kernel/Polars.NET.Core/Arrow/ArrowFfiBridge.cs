@@ -7,6 +7,7 @@ using Polars.NET.Core.Native;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Wrappers;
 using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Data;
 
 namespace Polars.NET.Core.Arrow;
 
@@ -52,6 +53,7 @@ public static class ArrowFfiBridge
             {
                 CArrowSchemaExporter.ExportType(arrowArray.Data.DataType, cSchema);
                 ArrowCExport.ExportArray(arrowArray, cArray);
+                using var wide = WideIntegerFormats.PatchType(arrowArray.Data.DataType, cSchema);
                 return PolarsWrapper.SeriesFromArrow(name, cArray, cSchema);
             }
             finally
@@ -77,7 +79,9 @@ public static class ArrowFfiBridge
             ArrowCExport.ExportRecordBatch(batch, cArray);
 
             // 2. C Structs -> Rust DataFrame
-            var handle = NativeBindings.pl_dataframe_from_arrow_record_batch(cArray, cSchema);
+            DataFrameHandle handle;
+            using (WideIntegerFormats.PatchSchema(batch.Schema, cSchema))
+                handle = NativeBindings.pl_dataframe_from_arrow_record_batch(cArray, cSchema);
 
             return ErrorHelper.Check(handle);
         }
@@ -103,7 +107,7 @@ public static class ArrowFfiBridge
 
             ErrorHelper.CheckVoid();
 
-            var managedSchema = CArrowSchemaImporter.ImportSchema(schema);
+            var managedSchema = WideIntegerFormats.ImportSchema(schema);
             // The import moves the array out of the struct (no GC memory pressure, unlike Apache.Arrow's importer).
             return ArrowCImport.ImportRecordBatch(array, managedSchema);
         }
@@ -113,29 +117,6 @@ public static class ArrowFfiBridge
             CArrowArray.Free(array);
             CArrowSchema.Free(schema);
         }
-    }
-    /// <summary>
-    /// Helper: Convert IEnumerable<T> directly to RecordBatch
-    /// This bridges the gap between ArrowConverter (returns Array) and ImportDataFrame (needs Batch).
-    /// </summary>
-    public static RecordBatch BuildRecordBatch<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> data)
-    {
-        // Use ArrowConverter to build StructArray
-        var arrowArray = ArrowConverter.Build(data);
-
-        if (arrowArray is not StructArray structArray)
-        {
-            throw new ArgumentException($"Type {typeof(T).Name} did not result in a StructArray. Is it a primitive type? DataFrame.ofRecords expects objects/records.");
-        }
-
-        // Unbox StructArray as RecordBatch
-        var structType = (StructType)structArray.Data.DataType;
-
-        // Build Schema
-        var schema = new Schema(structType.Fields, null); // null for metadata
-
-        // Build RecordBatch
-        return new RecordBatch(schema, structArray.Fields, structArray.Length);
     }
     /// <summary>
     /// Import Arrow RecordBatch as Polars Series
@@ -184,35 +165,30 @@ public static class ArrowFfiBridge
 public static class ArrowStreamingExtensions
 {
     /// <summary>
-    /// Divide huge dataflow as multi-RecordBatch to save memory
+    /// The items as Arrow batches of <paramref name="batchSize"/> rows (the last one shorter), built in native memory by
+    /// Sazanami's <see cref="ArrowRowBuilder{T}"/>; each batch is the caller's to dispose. No batch when there are no items.
     /// </summary>
-    /// <param name="source">Source DataFlow </param>
-    /// <param name="batchSize"> the Size of each Batch </param>
-    public static IEnumerable<RecordBatch> ToArrowBatches<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(
+    /// <param name="source">The items.</param>
+    /// <param name="batchSize">The rows of each batch.</param>
+    public static IEnumerable<RecordBatch> ToArrowBatches<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this IEnumerable<T> source,
         int batchSize = 100_000)
     {
-        // Prepare buffer
-        var buffer = new List<T>(batchSize);
-
-        foreach (var item in source)
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
+        using var builder = new ArrowRowBuilder<T>();
+        foreach (T item in source)
         {
-            buffer.Add(item);
-
-            if (buffer.Count >= batchSize)
-            {
-                yield return BuildBatchFromBuffer(buffer);
-
-                buffer.Clear();
-            }
+            builder.Append(item);
+            if (builder.Count >= batchSize) yield return builder.ExportBatch();
         }
-
-        if (buffer.Count > 0)
-        {
-            yield return BuildBatchFromBuffer(buffer);
-        }
+        if (builder.Count > 0) yield return builder.ExportBatch();
     }
 
-    private static RecordBatch BuildBatchFromBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(List<T> buffer)
-        => ArrowFfiBridge.BuildRecordBatch(buffer);
+    /// <summary>A batch of no rows with <typeparamref name="T"/>'s schema (<see cref="ArrowRowBuilder{T}.Schema"/>).</summary>
+    public static RecordBatch EmptyBatch<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>()
+    {
+        using var builder = new ArrowRowBuilder<T>();
+        return builder.ExportBatch();
+    }
 }
