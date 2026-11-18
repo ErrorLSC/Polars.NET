@@ -127,6 +127,27 @@ public class ArrowTakeTests
     }
 
     [Fact]
+    public void Buffers_AreAsLongAsTheirValues()
+    {
+        // Each buffer's length is the bytes written for it (the batch's allocations keep their sizes).
+        ColumnKind i64 = Kinds.Single(k => k.Name == "i64"), utf8 = Kinds.Single(k => k.Name == "utf8");
+        using IArrowArray longs = BuildNative(i64, [.. Enumerable.Range(0, 300).Select(i => i % 7 == 0 ? null : (object)(Int128)i)]);
+        using IArrowArray taken = ArrowTake.Take(longs, [5, 7, 299, 0, 7]);
+        Assert.Equal(5 * 8, taken.Data.Buffers[1].Length);
+        Assert.Equal(8, taken.Data.Buffers[0].Length); // one word of validity
+        using IArrowArray strings = Build(new Random(2), utf8, ["ab"u8.ToArray(), "cde"u8.ToArray(), null]);
+        using IArrowArray text = ArrowTake.Take(strings, [1, 0, 1, 2]);
+        Assert.Equal(5 * 4, text.Data.Buffers[1].Length);
+        Assert.Equal(3 + 2 + 3, text.Data.Buffers[2].Length);
+        // In one batch's memory too: rows 2 (a null string) and 1 ("cde").
+        var source = new RecordBatch(new Schema([new Field("a", Int64Type.Default, true), new Field("s", StringType.Default, true)], null),
+            [ArrowArrayFactory.Slice(longs, 0, 3), strings], 3);
+        using RecordBatch batch = ArrowTake.Take(source, [2, 1]);
+        Assert.Equal(2 * 8, batch.Column(0).Data.Buffers[1].Length);
+        Assert.Equal(3, batch.Column(1).Data.Buffers[2].Length);
+    }
+
+    [Fact]
     public void Indices_OutsideTheArray_Throw()
     {
         using IArrowArray array = BuildNative(Kinds.Single(k => k.Name == "i32"), [(Int128)1, (Int128)2, (Int128)3]);
@@ -352,6 +373,85 @@ public class ArrowTakeTests
         Assert.False(owner.IsFreed);
         for (int j = 0; j < permutation.Length; j++) Assert.True(SameValue(values[permutation[j]], Read(kind, shared, j)), $"row {j}");
         shared.Dispose();
+        Assert.True(owner.IsFreed);
+    }
+
+    /// <summary>
+    /// A view array over native memory whose long values spread over <paramref name="buffers"/> data buffers: value i
+    /// (every fifth null) is "value i, a long one" in buffer i % buffers.
+    /// </summary>
+    internal static unsafe IArrowArray ManyBufferViews(int rows, int buffers)
+    {
+        var export = new NativeBatchExport();
+        var strings = new byte[buffers][];
+        var at = new int[buffers];
+        for (int b = 0; b < buffers; b++) strings[b] = new byte[rows * 32];
+        var views = (Int128*)export.Allocate(16L * rows);
+        var validity = (byte*)export.Allocate((rows + 7) / 8);
+        int nulls = 0;
+        for (int i = 0; i < rows; i++)
+        {
+            var view = new Span<byte>(views + i, 16);
+            if (i % 5 == 4)
+            {
+                nulls++;
+                MemoryMarshal.Write(view, 99); // a null view's garbage, naming a buffer that may be left out
+                MemoryMarshal.Write(view[8..], buffers - 1 - i % buffers);
+                continue;
+            }
+            validity[i >> 3] |= (byte)(1 << (i & 7));
+            byte[] value = Encoding.UTF8.GetBytes($"value {i}, a long one");
+            int b = i % buffers;
+            value.CopyTo(strings[b].AsSpan(at[b]));
+            MemoryMarshal.Write(view, value.Length);
+            value.AsSpan(0, 4).CopyTo(view[4..]);
+            MemoryMarshal.Write(view[8..], b);
+            MemoryMarshal.Write(view[12..], at[b]);
+            at[b] += value.Length;
+        }
+        var pointers = new nint[2 + buffers];
+        (pointers[0], pointers[1]) = ((nint)validity, (nint)views);
+        for (int b = 0; b < buffers; b++)
+        {
+            var bytes = (byte*)export.Allocate(Math.Max(1, at[b]));
+            strings[b].AsSpan(0, at[b]).CopyTo(new Span<byte>(bytes, at[b]));
+            pointers[2 + b] = (nint)bytes;
+        }
+        return export.ImportArray(export.NewArray(rows, nulls, pointers, []), StringViewType.Default);
+    }
+
+    [Fact]
+    public void SharedViews_KeepOnlyTheBuffersTheyName_Renumbered()
+    {
+        IArrowArray source = ManyBufferViews(500, 40);
+        var strings = (StringViewArray)source;
+        NativeMemoryOwner owner = Owner(source.Data.Buffers[2]);
+        // Rows 3, 7, 46, 8 and nulls (row 4, a null row): buffers 3, 7, 6, 8, in their order 3, 6, 7, 8.
+        int[] rows = [3, 7, 46, 4, 8, Null];
+        var few = (StringViewArray)ArrowTake.Take(source, rows, shareViewData: true);
+        Assert.Equal(2 + 4, few.Data.Buffers.Length);
+        Assert.Equal(((int[])[3, 6, 7, 8]).Select(b => Address(source.Data.Buffers[2 + b])), few.Data.Buffers.Skip(2).Select(Address));
+        for (int j = 0; j < rows.Length; j++)
+        {
+            if (rows[j] == Null || rows[j] % 5 == 4)
+            {
+                Assert.True(few.IsNull(j));
+                Assert.True(few.Data.Buffers[1].Span.Slice(j * 16, 16).IndexOfAnyExcept((byte)0) < 0, $"null view {j} cleared");
+            }
+            else Assert.Equal(strings.GetString(rows[j]), few.GetString(j));
+        }
+        // A permutation names every buffer a valid value is in (buffers b % 5 == 4 hold null rows' garbage only).
+        int[] all = [.. Enumerable.Range(0, 500).Reverse()];
+        var every = (StringViewArray)ArrowTake.Take(source, all);
+        Assert.Equal(Enumerable.Range(0, 40).Where(b => b % 5 != 4).Select(b => Address(source.Data.Buffers[2 + b])), every.Data.Buffers.Skip(2).Select(Address));
+        // The memory lives until the last array over it goes.
+        source.Dispose();
+        Assert.False(owner.IsFreed);
+        Assert.Equal("value 46, a long one", few.GetString(2));
+        Assert.Equal("value 498, a long one", every.GetString(1));
+        few.Dispose();
+        Assert.False(owner.IsFreed);
+        every.Dispose();
         Assert.True(owner.IsFreed);
     }
 

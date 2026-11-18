@@ -40,8 +40,8 @@ internal static unsafe class ArrowTake
     {
         ArgumentNullException.ThrowIfNull(array);
         bool nullRows = Check(rows, array.Length);
-        using var scratch = new NativeArray<int>();
-        return TakeArray(array.Data, rows, Safe(rows, nullRows, scratch), nullRows, shareViewData);
+        using NativeArray<int>? scratch = nullRows ? new() : null;
+        return TakeArray(array.Data, rows, Safe(rows, scratch), nullRows, shareViewData);
     }
 
     /// <summary>
@@ -54,8 +54,8 @@ internal static unsafe class ArrowTake
         ArgumentNullException.ThrowIfNull(batch);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDegreeOfParallelism, 1);
         bool nullRows = Check(rows, batch.Length);
-        using var scratch = new NativeArray<int>();
-        ReadOnlySpan<int> safe = Safe(rows, nullRows, scratch);
+        using NativeArray<int>? scratch = nullRows ? new() : null;
+        ReadOnlySpan<int> safe = Safe(rows, scratch);
         int columns = batch.ColumnCount;
         if (maxDegreeOfParallelism == 1 || columns < 2)
         {
@@ -105,10 +105,13 @@ internal static unsafe class ArrowTake
         return min == NullRow;
     }
 
-    /// <summary>The indices with null rows taking row 0 (for the gathers of values, which the validity then hides).</summary>
-    private static ReadOnlySpan<int> Safe(ReadOnlySpan<int> rows, bool nullRows, NativeArray<int> scratch)
+    /// <summary>
+    /// The indices with null rows taking row 0 (for the gathers of values, which the validity then hides), in
+    /// <paramref name="scratch"/>; the indices themselves without one (no null rows).
+    /// </summary>
+    private static ReadOnlySpan<int> Safe(ReadOnlySpan<int> rows, NativeArray<int>? scratch)
     {
-        if (!nullRows) return rows;
+        if (scratch is null) return rows;
         scratch.Reserve(rows.Length);
         Span<int> safe = scratch.AsSpan(0, rows.Length);
         for (int i = 0; i < rows.Length; i++) safe[i] = Math.Max(rows[i], 0);
@@ -239,7 +242,7 @@ internal static unsafe class ArrowTake
         long total = (long)count * size;
         if (total > int.MaxValue) throw new OverflowException($"The rows taken hold {total} list elements, more than an array takes.");
         using var scratch = new NativeArray<int>((int)total);
-        using var safeScratch = new NativeArray<int>();
+        using NativeArray<int>? safeScratch = nullRows ? new() : null;
         Span<int> elements = scratch.Span[..(int)total];
         for (int i = 0; i < count; i++)
         {
@@ -252,7 +255,7 @@ internal static unsafe class ArrowTake
             }
         }
         ArrayData child = data.Children[0].Slice(data.Offset * size, data.Length * size);
-        NativeCArray* taken = Build(export, child, elements, Safe(elements, nullRows, safeScratch), nullRows, shareViewData);
+        NativeCArray* taken = Build(export, child, elements, Safe(elements, safeScratch), nullRows, shareViewData);
         return export.NewArray(count, nulls, [validity], [(nint)taken]);
     }
 

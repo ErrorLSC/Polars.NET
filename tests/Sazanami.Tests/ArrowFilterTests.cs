@@ -128,6 +128,18 @@ public class ArrowFilterTests
     }
 
     [Fact]
+    public void SharedViews_KeepOnlyTheBuffersTheyName()
+    {
+        using IArrowArray source = ArrowTakeTests.ManyBufferViews(500, 40);
+        ulong[] mask = new ulong[Masks.Words(500)];
+        foreach (int row in (int[])[1, 2, 4, 41, 81]) mask[row >> 6] |= 1UL << (row & 63); // buffers 1, 2, 1, 1 and a null
+        using var kept = (StringViewArray)ArrowFilter.Filter(source, mask, shareViewData: true);
+        Assert.Equal(2 + 2, kept.Data.Buffers.Length);
+        Assert.Equal(["value 1, a long one", "value 2, a long one", null, "value 41, a long one", "value 81, a long one"],
+            Enumerable.Range(0, 5).Select(j => kept.IsNull(j) ? null : kept.GetString(j)));
+    }
+
+    [Fact]
     public void SharedMemory_LivesUntilTheLastArrayIsDisposed()
     {
         ColumnKind kind = Kinds.Single(k => k.Name == "view");

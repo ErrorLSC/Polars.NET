@@ -37,9 +37,8 @@ internal unsafe struct NativeCArray
 /// </remarks>
 internal sealed unsafe class NativeBatchExport
 {
-    private NativeGrowBuffer _allocations; // void* entries
-    private readonly Dictionary<nint, long> _sizes = [];
-    private readonly Dictionary<nint, (NativeMemoryOwner Owner, int Length)> _shared = []; // buffers of other batches
+    private NativeGrowBuffer _allocations; // NativeAllocation entries, in native memory (no managed lookup per buffer)
+    private Dictionary<nint, (NativeMemoryOwner Owner, int Length)>? _shared; // buffers of other batches, made when one is shared
 
     /// <summary>
     /// Puts a buffer of another imported batch into this one without copying (when it is one: a buffer over native
@@ -51,6 +50,7 @@ internal sealed unsafe class NativeBatchExport
         pointer = 0;
         if (!MemoryMarshal.TryGetMemoryManager(buffer.Memory, out NativeBufferMemory? manager, out int start, out int length)) return false;
         pointer = (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(manager.GetSpan())) + start;
+        _shared ??= [];
         if (!_shared.TryGetValue(pointer, out var known) || known.Length < length) _shared[pointer] = (manager.Owner, length);
         return true;
     }
@@ -58,8 +58,7 @@ internal sealed unsafe class NativeBatchExport
     /// <summary>Takes ownership of a pointer from <see cref="NativeGrowBuffer.Detach(out long)"/> or <see cref="Allocate"/>, with its size in bytes.</summary>
     public byte* Own(byte* pointer, long bytes)
     {
-        _allocations.Append((nint)pointer);
-        _sizes[(nint)pointer] = bytes;
+        _allocations.Append(new NativeAllocation((nint)pointer, bytes));
         return pointer;
     }
 
@@ -102,9 +101,7 @@ internal sealed unsafe class NativeBatchExport
     /// </summary>
     public RecordBatch Import(NativeCArray* root, Schema schema)
     {
-        long count = _allocations.Length / sizeof(nint);
-        var owner = new NativeBatchMemory(new ReadOnlySpan<nint>(_allocations.Pointer, (int)count));
-        _allocations.Free();
+        NativeBatchMemory owner = TakeAllocations();
         try
         {
             if (root->ChildCount != schema.FieldsList.Count)
@@ -126,9 +123,7 @@ internal sealed unsafe class NativeBatchExport
     /// </summary>
     public IArrowArray ImportArray(NativeCArray* array, IArrowType type)
     {
-        long count = _allocations.Length / sizeof(nint);
-        var owner = new NativeBatchMemory(new ReadOnlySpan<nint>(_allocations.Pointer, (int)count));
-        _allocations.Free();
+        NativeBatchMemory owner = TakeAllocations();
         try
         {
             return ArrowArrayFactory.BuildArray(Data(array, type, owner));
@@ -139,6 +134,13 @@ internal sealed unsafe class NativeBatchExport
         }
     }
 
+    /// <summary>Hands the allocations collected so far to a batch memory (sorted for lookups); this export is empty after.</summary>
+    private NativeBatchMemory TakeAllocations()
+    {
+        int count = checked((int)(_allocations.Length / sizeof(NativeAllocation)));
+        return new NativeBatchMemory((NativeAllocation*)_allocations.Detach(), count);
+    }
+
     private ArrayData Data(NativeCArray* array, IArrowType type, NativeBatchMemory owner)
     {
         var buffers = new ArrowBuffer[array->BufferCount];
@@ -146,8 +148,8 @@ internal sealed unsafe class NativeBatchExport
         {
             nint pointer = (nint)array->Buffers[b];
             buffers[b] = pointer == 0 ? ArrowBuffer.Empty
-                : _shared.TryGetValue(pointer, out var shared) ? NewBuffer(new NativeBufferMemory(shared.Owner, (byte*)pointer, shared.Length))
-                : NewBuffer(new NativeBufferMemory(owner, (byte*)pointer, checked((int)_sizes[pointer])));
+                : _shared is not null && _shared.TryGetValue(pointer, out var shared) ? NewBuffer(new NativeBufferMemory(shared.Owner, (byte*)pointer, shared.Length))
+                : NewBuffer(new NativeBufferMemory(owner, (byte*)pointer, checked((int)owner.SizeOf(pointer))));
         }
         var children = new ArrayData[array->ChildCount];
         for (int c = 0; c < children.Length; c++) children[c] = Data(array->Children[c], ChildType(type, c), owner);
@@ -172,13 +174,18 @@ internal sealed unsafe class NativeBatchExport
     /// <summary>Frees everything collected so far (used when a batch is abandoned before import).</summary>
     public void FreeAll()
     {
-        long count = _allocations.Length / sizeof(nint);
-        var items = (nint*)_allocations.Pointer;
-        for (long i = 0; i < count; i++) NativeMemoryPool.Free((void*)items[i]);
+        long count = _allocations.Length / sizeof(NativeAllocation);
+        var items = (NativeAllocation*)_allocations.Pointer;
+        for (long i = 0; i < count; i++) NativeMemoryPool.Free((void*)items[i].Pointer);
         _allocations.Free();
-        _sizes.Clear();
-        _shared.Clear();
+        _shared?.Clear();
     }
+}
+
+/// <summary>One native allocation of a batch: where it is and the bytes asked for (a buffer's length).</summary>
+internal readonly record struct NativeAllocation(nint Pointer, long Bytes) : IComparable<NativeAllocation>
+{
+    public int CompareTo(NativeAllocation other) => Pointer.CompareTo(other.Pointer);
 }
 
 /// <summary>
@@ -217,17 +224,31 @@ internal abstract class NativeMemoryOwner
     ~NativeMemoryOwner() => Free();
 }
 
-/// <summary>The native allocations of one batch built here (<see cref="NativeBatchExport"/>), freed with its last buffer.</summary>
+/// <summary>
+/// The native allocations of one batch built here (<see cref="NativeBatchExport"/>), freed with its last buffer. Their
+/// list is native too (sorted by address: a buffer's size is looked up while the batch is imported).
+/// </summary>
 internal sealed unsafe class NativeBatchMemory : NativeMemoryOwner
 {
-    private readonly nint[] _allocations;
+    private readonly NativeAllocation* _allocations;
+    private readonly int _count;
 
     private static long _live;
 
-    public NativeBatchMemory(ReadOnlySpan<nint> allocations)
+    /// <summary>Takes ownership of <paramref name="allocations"/> (a <see cref="NativeMemoryPool"/> block) and of what they point to.</summary>
+    public NativeBatchMemory(NativeAllocation* allocations, int count)
     {
-        _allocations = allocations.ToArray();
+        _allocations = allocations;
+        _count = count;
+        new Span<NativeAllocation>(allocations, count).Sort();
         Interlocked.Increment(ref _live);
+    }
+
+    /// <summary>The bytes asked for of the allocation at <paramref name="pointer"/>.</summary>
+    public long SizeOf(nint pointer)
+    {
+        int at = new ReadOnlySpan<NativeAllocation>(_allocations, _count).BinarySearch(new NativeAllocation(pointer, 0));
+        return at >= 0 ? _allocations[at].Bytes : throw new InvalidOperationException("A buffer outside the batch's allocations.");
     }
 
     /// <summary>How many batch memories are allocated and not yet freed, in the whole process (for tests).</summary>
@@ -236,7 +257,8 @@ internal sealed unsafe class NativeBatchMemory : NativeMemoryOwner
     protected override void FreeMemory()
     {
         Interlocked.Decrement(ref _live);
-        foreach (nint p in _allocations) NativeMemoryPool.Free((void*)p);
+        for (int i = 0; i < _count; i++) NativeMemoryPool.Free((void*)_allocations[i].Pointer);
+        NativeMemoryPool.Free(_allocations);
     }
 }
 

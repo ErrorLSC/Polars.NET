@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Filters;
 using Kaminari.Sazanami.Kernels;
 
@@ -291,20 +292,14 @@ internal static unsafe class ArrowFilter
     /// <summary>
     /// A view array of <paramref name="count"/> views gathered from <paramref name="data"/> (into memory of
     /// <paramref name="export"/>): its long values in the input's data buffers, shared when <paramref name="share"/>
-    /// and they are native, or else copied into buffers of their own (the views rewritten, null views cleared).
+    /// and they are native (only the buffers the views name, renumbered), or else copied into buffers of their own
+    /// (the views rewritten, null views cleared).
     /// </summary>
     internal static NativeCArray* ViewData(NativeBatchExport export, ArrayData data, Int128* views, int count, nint validity, long nulls, bool share)
     {
         int buffers = data.Buffers.Length - 2;
         if (buffers == 0) return export.NewArray(count, nulls, [validity, (nint)views], []);
-        if (share)
-        {
-            var pointers = new nint[2 + buffers];
-            (pointers[0], pointers[1]) = (validity, (nint)views);
-            bool shared = true;
-            for (int b = 0; b < buffers && shared; b++) shared = export.TryShare(data.Buffers[2 + b], out pointers[2 + b]);
-            if (shared) return export.NewArray(count, nulls, pointers, []);
-        }
+        if (share && ShareNamed(export, data, views, count, validity, nulls, buffers) is var shared && shared != null) return shared;
 
         // Copy the long values kept into buffers of their own (a new one before an offset would pass 2 GB).
         var source = new ReadOnlyMemory<byte>[buffers];
@@ -350,13 +345,65 @@ internal static unsafe class ArrowFilter
             offset += size;
         }
         return export.NewArray(count, nulls, targets, []);
+    }
 
-        // The length of a valid view's long value (0 for nulls and inline values).
-        static int LongLength(Int128* views, ulong* valid, int i)
+    /// <summary>The length of a valid view's long value (0 for nulls and inline values).</summary>
+    private static int LongLength(Int128* views, ulong* valid, int i)
+    {
+        if (valid != null && (valid[i >> 6] >> (i & 63) & 1) == 0) return 0;
+        int size = *(int*)(views + i);
+        return size > BytesTests.MaxInline ? size : 0;
+    }
+
+    /// <summary>
+    /// The view array over the input's data buffers its views name, shared, renumbered in their order (a few rows of
+    /// a batch keep only the buffers they need: fewer buffer objects, less memory held); null when one of them is not
+    /// native (then the long values are copied). Null views are cleared when buffers are left out (they may name one).
+    /// </summary>
+    private static NativeCArray* ShareNamed(NativeBatchExport export, ArrayData data, Int128* views, int count, nint validity, long nulls, int buffers)
+    {
+        var valid = (ulong*)validity;
+        NativeArray<int>? large = null;
+        Span<int> renumbered = buffers <= 512 ? stackalloc int[buffers] : (large = new NativeArray<int>(buffers)).AsSpan(0, buffers);
+        try
         {
-            if (valid != null && (valid[i >> 6] >> (i & 63) & 1) == 0) return 0;
-            int size = *(int*)(views + i);
-            return size > BytesTests.MaxInline ? size : 0;
+            // The buffers named (-1: none), then their new numbers.
+            renumbered.Fill(-1);
+            for (int i = 0; i < count; i++)
+            {
+                if (LongLength(views, valid, i) == 0) continue;
+                int buffer = *((int*)(views + i) + 2);
+                if ((uint)buffer >= (uint)buffers) throw new InvalidDataException($"A view points into data buffer {buffer} of {buffers}.");
+                renumbered[buffer] = 0;
+            }
+            int named = 0;
+            for (int b = 0; b < buffers; b++)
+            {
+                if (renumbered[b] >= 0) renumbered[b] = named++;
+            }
+            Span<nint> pointers = named <= 254 ? stackalloc nint[2 + named] : new nint[2 + named];
+            (pointers[0], pointers[1]) = (validity, (nint)views);
+            for (int b = 0; b < buffers; b++)
+            {
+                if (renumbered[b] >= 0 && !export.TryShare(data.Buffers[2 + b], out pointers[2 + renumbered[b]])) return null;
+            }
+            if (named < buffers)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    if (valid != null && (valid[i >> 6] >> (i & 63) & 1) == 0) views[i] = default;
+                    else if (LongLength(views, valid, i) > 0)
+                    {
+                        int* buffer = (int*)(views + i) + 2;
+                        *buffer = renumbered[*buffer];
+                    }
+                }
+            }
+            return export.NewArray(count, nulls, pointers, []);
+        }
+        finally
+        {
+            large?.Dispose();
         }
     }
 

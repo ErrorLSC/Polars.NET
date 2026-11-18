@@ -58,13 +58,13 @@ public sealed class ArrowTakeEngineTests
                 using DataFrame index = DataFrame.From<Index>([.. rows.Select(r => new Index(r == Null ? null : r))]);
                 using DataFrame gathered = df.Gather(index.Lazy());
                 using RecordBatch expected = ArrowFfiBridge.ExportDataFrame(Handle(gathered));
-                foreach (int parallel in (int[])[1, 4])
+                foreach ((int parallel, bool? share) in (ReadOnlySpan<(int, bool?)>)[(1, null), (4, null), (1, true), (1, false)])
                 {
-                    using RecordBatch taken = ArrowTake.Take(batch, rows, maxDegreeOfParallelism: parallel);
+                    using RecordBatch taken = ArrowTake.Take(batch, rows, share, maxDegreeOfParallelism: parallel);
                     Assert.Equal(expected.Length, taken.Length);
                     for (int c = 0; c < expected.ColumnCount; c++)
                     {
-                        string where = $"{df.Height} rows, {shape}, parallel {parallel}, column {expected.Schema.FieldsList[c].Name}";
+                        string where = $"{df.Height} rows, {shape}, parallel {parallel}, share {share}, column {expected.Schema.FieldsList[c].Name}";
                         Assert.Equal(expected.Schema.FieldsList[c].DataType.TypeId, taken.Schema.FieldsList[c].DataType.TypeId);
                         for (int i = 0; i < expected.Length; i++) AssertSameRow(expected.Column(c), i, taken.Column(c), i, $"{where}, row {i}");
                     }
