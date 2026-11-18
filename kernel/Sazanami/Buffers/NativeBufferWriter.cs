@@ -91,6 +91,17 @@ internal sealed class NativeBufferWriter(int initialCapacity = 4096) : IBufferWr
         _buffer.EnsureCapacity(Math.Max(needed, initialCapacity)); // doubles, keeping what was written
     }
 
+    /// <summary>
+    /// Returns the memory to the pool between uses, keeping the writer's objects (a writer that lives long would
+    /// otherwise point to a new one, young, at its next write). Memory taken before is invalid: only for scratch
+    /// whose bytes are never handed out.
+    /// </summary>
+    public void Trim()
+    {
+        _buffer?.Empty();
+        _length = 0;
+    }
+
     public void Dispose()
     {
         _buffer?.Release();

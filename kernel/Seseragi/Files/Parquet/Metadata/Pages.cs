@@ -346,10 +346,14 @@ internal readonly record struct PageLocation(long Offset, int CompressedPageSize
             firstRow ?? throw Missing("PageLocation.first_row_index"));
     }
 
-    public void Write(ThriftCompactWriter w)
+    public void Write(ThriftCompactWriter w) => Write(w, 0);
+
+    /// <param name="w">The writer.</param>
+    /// <param name="shift">Added to the offset (a writer's offsets count from the chunk's data pages until laid out).</param>
+    public void Write(ThriftCompactWriter w, long shift)
     {
         w.BeginStruct();
-        w.I64Field(1, Offset);
+        w.I64Field(1, Offset + shift);
         w.I32Field(2, CompressedPageSize);
         w.I64Field(3, FirstRowIndex);
         w.EndStruct();
@@ -387,11 +391,14 @@ internal sealed class OffsetIndex
         return new OffsetIndex { PageLocations = locations ?? throw Missing("OffsetIndex.page_locations"), UnencodedByteArrayDataBytes = unencoded };
     }
 
-    public void Write(ThriftCompactWriter w)
+    public void Write(ThriftCompactWriter w) => Write(w, 0);
+
+    /// <inheritdoc cref="PageLocation.Write(ThriftCompactWriter, long)"/>
+    public void Write(ThriftCompactWriter w, long shift)
     {
         w.BeginStruct();
         w.BeginListField(1, ThriftType.Struct, PageLocations.Length);
-        foreach (PageLocation location in PageLocations) location.Write(w);
+        foreach (PageLocation location in PageLocations) location.Write(w, shift);
         if (UnencodedByteArrayDataBytes is { } unencoded) SizeStatistics.WriteI64List(w, 2, unencoded);
         w.EndStruct();
     }

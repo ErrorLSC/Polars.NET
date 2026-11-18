@@ -130,8 +130,13 @@ internal static class ManagedSink
         public Exception? Error { get; set; }
     }
 
-    /// <summary>Rows of one partition in a chunk of a batch (or in the chunk gathered in group order).</summary>
-    private readonly record struct Run(RecordBatch Rows, int Start, int Count);
+    /// <summary>
+    /// Rows of one partition in a chunk of a batch (or in the chunk gathered in group order): the chunk by its number
+    /// in the batch, not by reference. Partitions live as long as the sink, in the oldest generation; a reference to
+    /// each new chunk stored in a thousand of them is a thousand old-to-young pointers the garbage collector scans
+    /// on every collection, and keeps the chunk's objects alive until the partition's next batch.
+    /// </summary>
+    private readonly record struct Run(int Chunk, int Start, int Count);
 
     /// <summary>The state of one sink: the writer schema, the partitions, the shared threads, the memory held.</summary>
     private sealed class Sinking<TPartition>(
@@ -150,12 +155,14 @@ internal static class ManagedSink
         private readonly NativeArray<int> _ids = new(), _globals = new(), _firstRows = new(), _starts = new(), _order = new();
         // Kept from batch to batch: the partitions a batch touches (in order), the batch's number.
         private readonly List<Partition<TPartition>> _touched = [];
+        private readonly List<RecordBatch> _sources = []; // the batch's chunks as the runs number them (cleared after the batch)
         private long _batch;
         private Schema? _dataSchema;
         private readonly object _naming = new();
         // Files written side by side (one per partition) keep the processors busy together, not each of them.
         private readonly WorkBudget? _threads = keys.Length > 0 ? new WorkBudget(Environment.ProcessorCount) : null;
         private ParquetWriteOptions? _writerOptions;
+        private ParquetWriter.WritePlan? _plan; // shared by the files written side by side (one per partition)
         private Schema? _schema;
         private int _closedForMemory;
 
@@ -196,11 +203,12 @@ internal static class ManagedSink
                 }
                 ForEachPartition(_touched, partition =>
                 {
-                    foreach (Run run in partition.Runs) WriteRows(partition, run.Rows, run.Start, run.Count);
+                    foreach (Run run in partition.Runs) WriteRows(partition, _sources[run.Chunk], run.Start, run.Count);
                 });
             }
             finally
             {
+                _sources.Clear();
                 foreach (RecordBatch chunk in chunks) chunk.Dispose();
             }
 
@@ -239,6 +247,8 @@ internal static class ManagedSink
                 data = ArrowTake.Take(data, _order.AsSpan(0, rows));
                 owned.Add(data);
             }
+            int source = _sources.Count;
+            _sources.Add(data);
             for (int local = 0; local < count; local++)
             {
                 int index = _globals[local];
@@ -255,7 +265,7 @@ internal static class ManagedSink
                     partition.Error = null;
                     _touched.Add(partition);
                 }
-                partition.Runs.Add(new Run(data, _starts[local], _starts[local + 1] - _starts[local]));
+                partition.Runs.Add(new Run(source, _starts[local], _starts[local + 1] - _starts[local]));
             }
         }
 
@@ -295,6 +305,7 @@ internal static class ManagedSink
                 SharedBudget = _threads,
                 MaxDegreeOfParallelism = _threads?.Max ?? Environment.ProcessorCount,
             };
+            if (_threads is not null) _plan = ParquetWriter.WritePlan.Create(_schema, _writerOptions);
         }
 
         /// <summary>
@@ -327,7 +338,7 @@ internal static class ManagedSink
         {
             string relative;
             lock (_naming) relative = pathFor(partition.Description, partition.NextIndex++);
-            return File.Open(fileSystem, relative, _schema!, _writerOptions!, _sync);
+            return File.Open(fileSystem, relative, _plan ?? ParquetWriter.WritePlan.Create(_schema!, _writerOptions!), _sync);
         }
 
         private static void Close(Partition<TPartition> partition)
@@ -502,13 +513,13 @@ internal static class ManagedSink
             return _measuredBytes;
         }
 
-        public static File Open(IWritableFileSystem fileSystem, string relative, Schema schema, ParquetWriteOptions options, bool sync)
+        public static File Open(IWritableFileSystem fileSystem, string relative, ParquetWriter.WritePlan plan, bool sync)
         {
             FileWriteStream stream = fileSystem.OpenWrite(relative, createOnly: true);
             stream.SyncOnCommit = sync;
             try
             {
-                return new File(relative, stream, ParquetWriter.Create(stream, schema, options));
+                return new File(relative, stream, ParquetWriter.Create(stream, plan));
             }
             catch
             {

@@ -80,7 +80,7 @@ public sealed class ParquetWriterBloomTests : IDisposable
     }
 
     /// <summary>Columns of every kind a filter must cover, encoded every way: many distinct values and few, dictionaries, nested values.</summary>
-    private static RecordBatch Mixed(int rows, int seed)
+    internal static RecordBatch Mixed(int rows, int seed)
     {
         var r = new Random(seed);
         int?[] Ints(int distinct) => [.. Enumerable.Range(0, rows).Select(_ => r.Next(8) == 0 ? null : (int?)r.Next(distinct))];
@@ -114,7 +114,7 @@ public sealed class ParquetWriterBloomTests : IDisposable
             ("s", Struct(structType, [structA, structB], [.. Enumerable.Range(0, rows).Select(_ => r.Next(7) != 0)]), true));
     }
 
-    private static Dictionary<string, ParquetColumnOptions> AllColumns(ParquetColumnOptions settings) =>
+    internal static Dictionary<string, ParquetColumnOptions> AllColumns(ParquetColumnOptions settings) =>
         new() { ["many"] = settings, ["few"] = settings, ["half"] = settings, ["dbl"] = settings, ["zero"] = settings, ["fsb"] = settings,
                 ["dec"] = settings, ["day"] = settings, ["ts"] = settings, ["dict"] = settings, ["l"] = settings, ["s"] = settings };
 

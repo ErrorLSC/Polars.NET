@@ -290,7 +290,7 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
         return true;
     }
 
-    protected override int CompareBounds(byte[] a, byte[] b) => order.Compare(MemoryMarshal.Read<T>(a), MemoryMarshal.Read<T>(b));
+    protected override int CompareBounds(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => order.Compare(MemoryMarshal.Read<T>(a), MemoryMarshal.Read<T>(b));
 
     protected override int PageValueCount => _count;
 
@@ -676,7 +676,7 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         return usable;
     }
 
-    protected override int CompareBounds(byte[] a, byte[] b) => Compare(a, b);
+    protected override int CompareBounds(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => Compare(a, b);
 
     /// <summary>
     /// The bounds of <paramref name="b"/> as written: half-float zeros signed as for floats, strings and binary cut to
@@ -907,7 +907,7 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
         return true;
     }
 
-    protected override int CompareBounds(byte[] a, byte[] b) => a[0].CompareTo(b[0]);
+    protected override int CompareBounds(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => a[0].CompareTo(b[0]);
 
     protected override int PageValueCount => _count;
 
@@ -968,7 +968,7 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
     protected override void TrimValues()
     {
         _page.Dispose();
-        _rle.Dispose();
+        _rle.Trim();
         _bits.Dispose();
     }
 

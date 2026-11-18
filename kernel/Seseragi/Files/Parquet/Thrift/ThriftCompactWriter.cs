@@ -74,6 +74,27 @@ internal sealed class ThriftCompactWriter
         EndStruct();
     }
 
+    // ---- fields encoded apart ----
+
+    /// <summary>The id of the field written last in the current struct (0 before its first).</summary>
+    public short LastField => _last;
+
+    /// <summary>
+    /// Goes on as if field <paramref name="id"/> of the current struct had just been written: for fields encoded apart
+    /// whose predecessors are spliced in later (field headers count from the previous field's id).
+    /// </summary>
+    public void AfterField(short id) => _last = id;
+
+    /// <summary>
+    /// Appends fields of the current struct encoded apart (from field 0 for the first fields of a struct, or after
+    /// <see cref="AfterField"/>), the last of them <paramref name="lastField"/>.
+    /// </summary>
+    public void WriteFields(ReadOnlySpan<byte> fields, short lastField)
+    {
+        _out.Write(fields);
+        _last = lastField;
+    }
+
     // ---- fields ----
 
     public void BoolField(short id, bool value) => FieldHeader(id, value ? ThriftType.BoolTrue : ThriftType.BoolFalse);

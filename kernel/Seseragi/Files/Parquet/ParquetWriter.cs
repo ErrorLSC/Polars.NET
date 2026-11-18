@@ -30,9 +30,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly ColumnPlan[] _plans;
     private ColumnWriter[] _columns;   // the open row group's column writers (with the caller owning the batches)
     private Shredder?[] _shredders;
-    private readonly List<RowGroup> _rowGroups = [];
-    private readonly List<(ColumnChunk Chunk, ColumnIndex? Columns, OffsetIndex? Offsets)> _pageIndexes = [];
-    private readonly List<(ColumnMetaData Chunk, NativeBufferWriter Bitset)> _bloomFilters = []; // native, freed once written
+    private readonly FooterBuilder _footer = new(); // the row groups laid out, as the footer and page indexes will hold them
+    private readonly List<(int Chunk, NativeBufferWriter Bitset)> _bloomFilters = []; // native, freed once written
     private readonly KeyValue[]? _keyValues;
     private readonly WorkBudget _budget;
     private readonly PageSettings[] _columnSettings;
@@ -51,38 +50,78 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private long _openBytes;                   // their batches' logical Arrow bytes
     private long _rowGroupRows, _totalRows, _position;
     private bool _started, _completed, _faulted, _aborted, _disposed;
+    private byte[]? _footerBytes; // once completed: the footer's Thrift bytes, its length and the magic
     private ParquetMetadata? _metadata;
 
-    private ParquetWriter(Stream stream, Apache.Arrow.Schema schema, ParquetWriteOptions options)
+    private ParquetWriter(Stream stream, WritePlan plan)
     {
-        options.Validate();
-        if (options.TimestampUnit == TimeUnit.Second)
-            throw new ArgumentException("Parquet stores no timestamps in seconds: TimestampUnit must be milliseconds, microseconds or nanoseconds.", nameof(options));
-        if (schema.FieldsList.Count == 0) throw new ArgumentException("A Parquet file needs at least one column.", nameof(schema));
+        ParquetWriteOptions options = plan.Options;
         _stream = stream;
         _options = options;
-        Schema = schema;
-        var (elements, plans) = WriteSchema.Plan(schema, options);
-        var settings = new PageSettings(options.Compression.ParquetCodec, options.Compression.ParquetLevel, options.DataPageVersion,
-            options.DataPageBytes, options.DataPageRows, options.Dictionary, options.DictionaryPageBytes, options.Statistics,
-            options.StatisticsTruncateLength, options.WriteChecksums, options.PageIndex, options.SizeStatistics,
-            Budget: _budget = options.SharedBudget ?? new WorkBudget(options.MaxDegreeOfParallelism));
-        _elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
-        _plans = plans;
-        ParquetColumnOptions?[] columns = ColumnSettings.Resolve(plans, options.Columns);
-        _columnSettings = [.. columns.Select(column => column is not null
-            ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
-            : settings)];
+        Schema = plan.Schema;
+        _budget = plan.Budget;
+        _elements = plan.Elements;
+        _plans = plan.Columns;
+        _columnSettings = plan.Settings;
+        _keyValues = plan.KeyValues;
         (_columns, _shredders) = NewColumns();
         if (options.BatchOwnership == ParquetBatchOwnership.Writer && options.MaxDegreeOfParallelism > 1)
         {
             _columnWork = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, options.MaxDegreeOfParallelism);
             _spares.Push((_columns, _shredders));
         }
-        List<KeyValue> keyValues = [];
-        if (options.StoreArrowSchema) keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(schema))));
-        if (options.Metadata is { } metadata) keyValues.AddRange(metadata.Select(kv => new KeyValue(kv.Key, kv.Value)));
-        _keyValues = keyValues.Count > 0 ? [.. keyValues] : null;
+    }
+
+    /// <summary>
+    /// What a writer derives from its schema and options before the first row (validated as <see cref="Create(Stream, Apache.Arrow.Schema, ParquetWriteOptions?)"/>
+    /// validates them): one plan serves every file a sink writes with that schema and options, which share their
+    /// <see cref="ParquetWriteOptions.SharedBudget"/>.
+    /// </summary>
+    internal sealed class WritePlan
+    {
+        private WritePlan(Apache.Arrow.Schema schema, ParquetWriteOptions options)
+        {
+            options.Validate();
+            if (options.TimestampUnit == TimeUnit.Second)
+                throw new ArgumentException("Parquet stores no timestamps in seconds: TimestampUnit must be milliseconds, microseconds or nanoseconds.", nameof(options));
+            if (schema.FieldsList.Count == 0) throw new ArgumentException("A Parquet file needs at least one column.", nameof(schema));
+            Schema = schema;
+            Options = options;
+            var (elements, plans) = WriteSchema.Plan(schema, options);
+            var settings = new PageSettings(options.Compression.ParquetCodec, options.Compression.ParquetLevel, options.DataPageVersion,
+                options.DataPageBytes, options.DataPageRows, options.Dictionary, options.DictionaryPageBytes, options.Statistics,
+                options.StatisticsTruncateLength, options.WriteChecksums, options.PageIndex, options.SizeStatistics,
+                Budget: Budget = options.SharedBudget ?? new WorkBudget(options.MaxDegreeOfParallelism));
+            Elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
+            Columns = plans;
+            ParquetColumnOptions?[] columns = ColumnSettings.Resolve(plans, options.Columns);
+            Settings = [.. columns.Select(column => column is not null
+                ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
+                : settings)];
+            List<KeyValue> keyValues = [];
+            if (options.StoreArrowSchema) keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(schema))));
+            if (options.Metadata is { } metadata) keyValues.AddRange(metadata.Select(kv => new KeyValue(kv.Key, kv.Value)));
+            KeyValues = keyValues.Count > 0 ? [.. keyValues] : null;
+        }
+
+        /// <summary>The plan of files of <paramref name="schema"/> written with <paramref name="options"/>.</summary>
+        public static WritePlan Create(Apache.Arrow.Schema schema, ParquetWriteOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(schema);
+            ArgumentNullException.ThrowIfNull(options);
+            return new(schema, options);
+        }
+
+        public Apache.Arrow.Schema Schema { get; }
+        public ParquetWriteOptions Options { get; }
+        /// <summary>The options' shared budget, or the plan's own (one file at a time then).</summary>
+        public WorkBudget Budget { get; }
+        /// <summary>The Parquet schema, its root first.</summary>
+        public SchemaElement[] Elements { get; }
+        public ColumnPlan[] Columns { get; }
+        /// <summary>The page settings of each leaf column.</summary>
+        public PageSettings[] Settings { get; }
+        public KeyValue[]? KeyValues { get; }
     }
 
     /// <summary>A set of column writers (and the shredders of nested columns): one row group being encoded.</summary>
@@ -113,6 +152,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             _allColumns.Clear();
         }
         FreeBloomFilters();
+        _footer.Dispose();
     }
 
     /// <summary>Frees the bitsets of the Bloom filters taken from the chunks laid out (written, or the file given up).</summary>
@@ -276,7 +316,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>The footer written, once the file is complete.</summary>
     /// <exception cref="InvalidOperationException">The file is not complete yet.</exception>
-    public ParquetMetadata Metadata => _metadata ?? throw new InvalidOperationException("The Parquet file is not complete yet: its footer is written by Complete.");
+    public ParquetMetadata Metadata => _metadata ??= _footerBytes is { } footer
+        ? ParquetMetadata.FromThrift(FileMetaData.Parse(footer.AsSpan(0, footer.Length - 8)))
+        : throw new InvalidOperationException("The Parquet file is not complete yet: its footer is written by Complete.");
 
     /// <summary>Creates a writer over a stream. Nothing is written before the first row group closes (or the file completes).</summary>
     public static ParquetWriter Create(Stream stream, Apache.Arrow.Schema schema, ParquetWriteOptions? options = null)
@@ -284,7 +326,19 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(schema);
         if (!stream.CanWrite) throw new ArgumentException("The stream is not writable.", nameof(stream));
-        return new(stream, schema, options ?? new());
+        return new(stream, WritePlan.Create(schema, options ?? new()));
+    }
+
+    /// <summary>
+    /// Creates a writer over a stream from a plan made beforehand (<see cref="WritePlan.Create"/>): the files a sink
+    /// writes side by side share one.
+    /// </summary>
+    internal static ParquetWriter Create(Stream stream, WritePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!stream.CanWrite) throw new ArgumentException("The stream is not writable.", nameof(stream));
+        return new(stream, plan);
     }
 
     /// <summary>Creates (or overwrites) a file.</summary>
@@ -294,7 +348,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1, FileOptions.Asynchronous);
         try
         {
-            return new(stream, schema, (options ?? new()) with { LeaveOpen = false });
+            return new(stream, WritePlan.Create(schema, (options ?? new()) with { LeaveOpen = false }));
         }
         catch
         {
@@ -892,7 +946,6 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         await StartAsync(useAsync, ct).ConfigureAwait(false);
         long groupStart = _position, uncompressed = 0, compressed = 0;
-        var chunks = new ColumnChunk[finished.Length];
         List<ReadOnlyMemory<byte>> pieces = [];
         for (int c = 0; c < finished.Length; c++)
         {
@@ -917,10 +970,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 EncodingStats = chunk.EncodingStats,
                 SizeStatistics = chunk.SizeStatistics,
             };
-            chunks[c] = new ColumnChunk { FileOffset = start, MetaData = meta };
-            if (chunk.BloomFilter is { } bitset) _bloomFilters.Add((meta, bitset));
-            if (chunk.ColumnIndex is not null || chunk.OffsetIndex is not null)
-                _pageIndexes.Add((chunks[c], chunk.ColumnIndex, Rebase(chunk.OffsetIndex, meta.DataPageOffset)));
+            int placed = _footer.AddChunk(start, meta, chunk.BloomFilter is not null, chunk.ColumnIndex, chunk.OffsetIndex, meta.DataPageOffset);
+            if (chunk.BloomFilter is { } bitset) _bloomFilters.Add((placed, bitset));
             uncompressed += chunk.UncompressedSize;
             compressed += chunk.CompressedSize;
         }
@@ -950,24 +1001,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 }
             }, CancellationToken.None);
         }
-        _rowGroups.Add(new RowGroup
-        {
-            Columns = chunks,
-            TotalByteSize = uncompressed,
-            NumRows = rows,
-            FileOffset = groupStart,
-            TotalCompressedSize = compressed,
-            Ordinal = (short)Math.Min(_rowGroups.Count, short.MaxValue),
-        });
+        _footer.AddGroup(uncompressed, rows, groupStart, compressed);
         _totalRows += rows;
     }
-
-    /// <summary>An offset index whose page offsets count from the chunk's data pages, with file offsets.</summary>
-    private static OffsetIndex? Rebase(OffsetIndex? index, long dataPages) => index is null ? null : new OffsetIndex
-    {
-        PageLocations = [.. index.PageLocations.Select(p => p with { Offset = p.Offset + dataPages })],
-        UnencodedByteArrayDataBytes = index.UnencodedByteArrayDataBytes,
-    };
 
     /// <summary>
     /// Writes the Bloom filters after the row groups (each a header and its bitset, as pyarrow places them: together,
@@ -981,8 +1017,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             thrift.Clear();
             // Members by field id: algorithm BLOCK = 1, hash XXHASH = 1, compression UNCOMPRESSED = 1.
             new BloomFilterHeader(bitset.WrittenCount, 1, 1, 1).Write(thrift);
-            chunk.BloomFilterOffset = _position;
-            chunk.BloomFilterLength = thrift.WrittenSpan.Length + bitset.WrittenCount;
+            _footer.PlaceBloomFilter(chunk, _position, thrift.WrittenSpan.Length + bitset.WrittenCount);
             await WriteBytesAsync(thrift.WrittenMemory, useAsync, ct).ConfigureAwait(false); // written before the next Clear
             await WriteBytesAsync(bitset.WrittenMemory, useAsync, ct).ConfigureAwait(false);
         }
@@ -995,26 +1030,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// </summary>
     private async ValueTask WritePageIndexesAsync(bool useAsync, CancellationToken ct)
     {
-        var thrift = new ThriftCompactWriter();
-        foreach (var (chunk, columns, _) in _pageIndexes)
-        {
-            if (columns is null) continue;
-            thrift.Clear();
-            columns.Write(thrift);
-            chunk.ColumnIndexOffset = _position;
-            chunk.ColumnIndexLength = thrift.WrittenSpan.Length;
-            await WriteBytesAsync(thrift.WrittenMemory, useAsync, ct).ConfigureAwait(false); // written before the next Clear
-        }
-        foreach (var (chunk, _, offsets) in _pageIndexes)
-        {
-            if (offsets is null) continue;
-            thrift.Clear();
-            offsets.Write(thrift);
-            chunk.OffsetIndexOffset = _position;
-            chunk.OffsetIndexLength = thrift.WrittenSpan.Length;
-            await WriteBytesAsync(thrift.WrittenMemory, useAsync, ct).ConfigureAwait(false); // written before the next Clear
-        }
-        _pageIndexes.Clear();
+        await WriteBytesAsync(_footer.PlaceColumnIndexes(_position), useAsync, ct).ConfigureAwait(false);
+        await WriteBytesAsync(_footer.PlaceOffsetIndexes(_position), useAsync, ct).ConfigureAwait(false);
     }
 
     private async ValueTask StartAsync(bool useAsync, CancellationToken ct)
@@ -1083,18 +1100,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             await _writing.ConfigureAwait(false);
             await WriteBloomFiltersAsync(useAsync, ct).ConfigureAwait(false);
             await WritePageIndexesAsync(useAsync, ct).ConfigureAwait(false);
-            var footer = new FileMetaData
-            {
-                Version = 2,
-                Schema = _elements,
-                NumRows = _totalRows,
-                RowGroups = [.. _rowGroups],
-                KeyValueMetadata = _keyValues,
-                CreatedBy = CreatedBy,
-                ColumnOrders = [.. _columns.Select(_ => ColumnOrder.TypeDefinedOrder)],
-            };
             var thrift = new ThriftCompactWriter();
-            footer.Write(thrift);
+            _footer.WriteFooter(thrift, _elements, _totalRows, _columns.Length, _keyValues, CreatedBy);
             byte[] tail = new byte[thrift.WrittenSpan.Length + 8];
             thrift.WrittenSpan.CopyTo(tail);
             BinaryPrimitives.WriteInt32LittleEndian(tail.AsSpan(thrift.WrittenSpan.Length), thrift.WrittenSpan.Length);
@@ -1103,7 +1110,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             if (useAsync) await _stream.FlushAsync(ct).ConfigureAwait(false);
             else _stream.Flush();
             _completed = true;
-            _metadata = ParquetMetadata.FromThrift(footer);
+            _footerBytes = tail; // parsed when Metadata is first asked for
+            _footer.Dispose();
         }
         catch
         {

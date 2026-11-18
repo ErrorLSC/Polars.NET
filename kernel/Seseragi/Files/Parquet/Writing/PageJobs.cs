@@ -51,7 +51,8 @@ internal sealed class PageJob(PageSettings settings)
     public int LevelsLength { get; set; }
     /// <summary>The page's header without sizes and checksum (set once its values are encoded).</summary>
     public PageHeader Header { get; set; } = null!;
-    public required PageRecord Record { get; init; }
+    /// <summary>The page as the page index describes it (its place in the chunk set once committed).</summary>
+    public required PageRecord Record { get; set; }
 
     /// <summary>The upper bound of the compressed page in the file (header included), before it is compressed.</summary>
     public long Bound { get; set; }

@@ -48,8 +48,11 @@ internal readonly record struct FinishedChunk(
     }
 }
 
-/// <summary>A data page of the open chunk, as the page index describes it.</summary>
-internal readonly record struct PageRecord(int Offset, int Size, long FirstRow, long Nulls, bool NullPage, byte[]? Min, byte[]? Max, long Unencoded);
+/// <summary>
+/// A data page of the open chunk, as the page index describes it; its bounds in the column writer's bounds arena from
+/// <see cref="Bounds"/>, the lower then the upper (a length of -1: none).
+/// </summary>
+internal readonly record struct PageRecord(int Offset, int Size, long FirstRow, long Nulls, bool NullPage, int Bounds, int MinLength, int MaxLength, long Unencoded);
 
 /// <summary>
 /// Writes one leaf column of a row group: definition levels and values gathered page by page, each page encoded
@@ -64,15 +67,17 @@ internal abstract class ColumnWriter : IDisposable
 
     private readonly PageSettings _settings;
     private readonly int _maxDef, _maxRep, _defWidth, _repWidth;
-    private readonly List<PageJob> _committed = [];  // the data pages compressed, in order
-    private readonly Queue<PageJob> _inFlight = new(); // encoded, compressed by now or soon
+    // The chunk's data pages in order: the first _committed compressed and counted, the rest in flight (encoded,
+    // compressed by now or soon). One list: a column writer lives as long as its file, its objects in the oldest
+    // generation, and every object it holds costs the garbage collector on each collection.
+    private readonly List<PageJob> _pages = [];
+    private int _committed;
     private long _committedBytes, _inFlightBound;
     // Scratch and the dictionary page in native memory (the page is handed to the finished chunk, which frees it).
     private readonly NativeBufferWriter _values = new(1 << 16);
     private readonly NativeBufferWriter _levelScratch = new(1 << 12);
     private readonly NativeBufferWriter _body = new(1 << 16);
     private NativeBufferWriter _dictionaryPage = new(256);
-    private readonly ThriftCompactWriter _header = new();
     // The open page's levels and dictionary indices, in native memory too.
     private readonly NativeArray<uint> _pageDef = new(InitialLevels), _pageRep; // repetition levels only below a list
     private ValidityWords _validity; // the validity of the rows of a flat step (1024 at most)
@@ -83,8 +88,12 @@ internal abstract class ColumnWriter : IDisposable
     private PagesByEncoding _pagesBy; // data pages by ParquetEncoding
     private DictionaryState _dictionary;
     private bool _dictionaryJudged;
-    private readonly List<PageRecord> _pageRecords = [];
-    private readonly List<long> _defHistograms = [], _repHistograms = []; // per page, maxDef + 1 / maxRep + 1 counts each
+    private readonly NativeArray<byte> _bounds = new(); // the pages' bounds (PageRecord), native: no array per page
+    private int _boundsLength;
+    // Per page, maxDef + 1 / maxRep + 1 counts each; only when written (size statistics, and for the definition
+    // levels only when they say more than the null counts).
+    private readonly NativeArray<long>? _defHistograms, _repHistograms;
+    private int _defHistogramLength, _repHistogramLength;
     private long _chunkRows, _chunkUnencoded;
     private bool _indexable = true; // every page so far has bounds a column index can hold
 
@@ -117,6 +126,8 @@ internal abstract class ColumnWriter : IDisposable
         _defWidth = 32 - BitOperations.LeadingZeroCount((uint)maxDef);
         _repWidth = 32 - BitOperations.LeadingZeroCount((uint)maxRep);
         _pageRep = new(maxRep > 0 ? InitialLevels : 0);
+        if (settings.SizeStatistics && (maxDef > 1 || (maxDef == 1 && !settings.Statistics))) _defHistograms = new();
+        if (settings.SizeStatistics && maxRep > 0) _repHistograms = new();
         DictionaryCapable = dictionary && settings.Dictionary;
         _dictionary = DictionaryCapable ? DictionaryState.Building : DictionaryState.Off;
         Bloom = settings.Bloom is { } bloom ? new BloomBuilder(bloom, settings.Budget) : null;
@@ -263,21 +274,26 @@ internal abstract class ColumnWriter : IDisposable
         if (dictionaryPages > 0) stats.Add(new(PageType.DictionaryPage, ParquetEncoding.Plain, 1));
         foreach (ParquetEncoding e in (ParquetEncoding[])[ParquetEncoding.RleDictionary, ParquetEncoding.Plain, FallbackEncoding])
         {
-            if (_pagesBy[(int)e] > 0 && !stats.Any(s => s.PageType == DataPageType && s.Encoding == e)) stats.Add(new(DataPageType, e, _pagesBy[(int)e]));
+            if (_pagesBy[(int)e] > 0 && !Listed(stats, DataPageType, e)) stats.Add(new(DataPageType, e, _pagesBy[(int)e]));
         }
         if (dictionaryPages > 0 || _pagesBy[(int)ParquetEncoding.Plain] > 0) encodings.Add(ParquetEncoding.Plain);
         encodings.Add(ParquetEncoding.Rle);
         if (dictionaryPages > 0) encodings.Add(ParquetEncoding.RleDictionary);
         if (FallbackEncoding is not (ParquetEncoding.Plain or ParquetEncoding.Rle) && _pagesBy[(int)FallbackEncoding] > 0) encodings.Add(FallbackEncoding);
         Statistics? statistics = _settings.Statistics ? ChunkStatistics(_chunkNulls) : null;
-        List<ReadOnlyMemory<byte>> pages = new(_committed.Count * 2);
-        foreach (PageJob page in _committed)
+
+        ColumnIndex? columnIndex = BuildColumnIndex();
+        OffsetIndex? offsetIndex = BuildOffsetIndex();
+        SizeStatistics? sizeStatistics = BuildSizeStatistics();
+        List<ReadOnlyMemory<byte>> pages = new(_pages.Count * 2);
+        foreach (PageJob page in _pages)
         {
             pages.Add(page.HeaderBytes);
             pages.Add(page.Body.WrittenMemory);
         }
-        PageJob[] owned = [.. _committed];
-        _committed.Clear(); // the chunk owns its pages now: the writer may go on while they are written
+        PageJob[] owned = [.. _pages];
+        _pages.Clear(); // the chunk owns its pages now: the writer may go on while they are written
+        _committed = 0;
         NativeBufferWriter? dictionary = null;
         if (_dictionaryPage.WrittenCount > 0)
         {
@@ -285,7 +301,16 @@ internal abstract class ColumnWriter : IDisposable
             _dictionaryPage = new NativeBufferWriter(256);
         }
         return new FinishedChunk(dictionary?.WrittenMemory ?? default, dictionary, pages, _committedBytes, _uncompressed, [.. encodings], [.. stats], statistics, _chunkLevels,
-            BuildColumnIndex(), BuildOffsetIndex(), BuildSizeStatistics(), Bloom?.Finish(), owned);
+            columnIndex, offsetIndex, sizeStatistics, Bloom?.Finish(), owned);
+
+        static bool Listed(List<PageEncodingStats> stats, PageType type, ParquetEncoding encoding)
+        {
+            foreach (PageEncodingStats s in stats)
+            {
+                if (s.PageType == type && s.Encoding == encoding) return true;
+            }
+            return false;
+        }
     }
 
     /// <summary>Whether a definition level histogram says more than the null count: deeper levels, or no statistics to hold the count.</summary>
@@ -296,11 +321,11 @@ internal abstract class ColumnWriter : IDisposable
         if (!_settings.PageIndex) return null;
         bool unencoded = _settings.SizeStatistics && IsByteArray;
         // Loops, not LINQ: an index per column chunk (a sink's thousand files hold thousands).
-        var locations = new PageLocation[_pageRecords.Count];
-        long[]? bytes = unencoded ? new long[_pageRecords.Count] : null;
+        var locations = new PageLocation[_pages.Count];
+        long[]? bytes = unencoded ? new long[_pages.Count] : null;
         for (int i = 0; i < locations.Length; i++)
         {
-            PageRecord page = _pageRecords[i];
+            PageRecord page = _pages[i].Record;
             locations[i] = new PageLocation(page.Offset, page.Size, page.FirstRow);
             if (bytes is not null) bytes[i] = page.Unencoded;
         }
@@ -313,31 +338,32 @@ internal abstract class ColumnWriter : IDisposable
     /// </summary>
     private ColumnIndex? BuildColumnIndex()
     {
-        if (!_settings.PageIndex || !_settings.Statistics || !_indexable || _pageRecords.Count == 0) return null;
+        if (!_settings.PageIndex || !_settings.Statistics || !_indexable || _pages.Count == 0) return null;
         // Ascending when no non-null page's bounds fall below the previous one's, descending when none rise; both
         // (pages alike, or fewer than two) count as ascending.
         bool ascending = true, descending = true;
         PageRecord? previous = null;
-        foreach (PageRecord page in _pageRecords)
+        foreach (PageJob job in _pages)
         {
+            PageRecord page = job.Record;
             if (page.NullPage) continue;
             if (previous is { } p)
             {
-                int min = CompareBounds(page.Min!, p.Min!), max = CompareBounds(page.Max!, p.Max!);
+                int min = CompareBounds(Min(page), Min(p)), max = CompareBounds(Max(page), Max(p));
                 if (min < 0 || max < 0) ascending = false;
                 if (min > 0 || max > 0) descending = false;
             }
             previous = page;
         }
-        int pages = _pageRecords.Count;
+        int pages = _pages.Count;
         var nullPages = new bool[pages];
         var mins = new byte[pages][];
         var maxes = new byte[pages][];
         var nullCounts = new long[pages];
         for (int i = 0; i < pages; i++)
         {
-            PageRecord page = _pageRecords[i];
-            (nullPages[i], mins[i], maxes[i], nullCounts[i]) = (page.NullPage, page.Min ?? [], page.Max ?? [], page.Nulls);
+            PageRecord page = _pages[i].Record;
+            (nullPages[i], mins[i], maxes[i], nullCounts[i]) = (page.NullPage, Min(page).ToArray(), Max(page).ToArray(), page.Nulls);
         }
         return new ColumnIndex
         {
@@ -346,25 +372,32 @@ internal abstract class ColumnWriter : IDisposable
             MaxValues = maxes,
             BoundaryOrder = ascending ? BoundaryOrder.Ascending : descending ? BoundaryOrder.Descending : BoundaryOrder.Unordered,
             NullCounts = nullCounts,
-            RepetitionLevelHistograms = _settings.SizeStatistics && _maxRep > 0 ? [.. _repHistograms] : null,
-            DefinitionLevelHistograms = _settings.SizeStatistics && _maxDef > 1 ? [.. _defHistograms] : null,
+            RepetitionLevelHistograms = _repHistograms is not null ? _repHistograms.AsSpan(0, _repHistogramLength).ToArray() : null,
+            DefinitionLevelHistograms = _defHistograms is not null && _maxDef > 1 ? _defHistograms.AsSpan(0, _defHistogramLength).ToArray() : null,
         };
     }
+
+    /// <summary>A page's lower bound (empty: none).</summary>
+    private ReadOnlySpan<byte> Min(PageRecord page) => page.MinLength < 0 ? [] : _bounds.AsSpan(page.Bounds, page.MinLength);
+
+    /// <summary>A page's upper bound (empty: none).</summary>
+    private ReadOnlySpan<byte> Max(PageRecord page) =>
+        page.MaxLength < 0 ? [] : _bounds.AsSpan(page.Bounds + Math.Max(page.MinLength, 0), page.MaxLength);
 
     private SizeStatistics? BuildSizeStatistics()
     {
         if (!_settings.SizeStatistics) return null;
-        long[]? rep = _maxRep > 0 ? Sum(_repHistograms, _maxRep + 1) : null;
-        long[]? def = DefinitionHistogramWanted ? Sum(_defHistograms, _maxDef + 1) : null;
+        long[]? rep = _repHistograms is not null ? Sum(_repHistograms.AsSpan(0, _repHistogramLength), _maxRep + 1) : null;
+        long[]? def = DefinitionHistogramWanted ? Sum(_defHistograms!.AsSpan(0, _defHistogramLength), _maxDef + 1) : null;
         long? unencoded = IsByteArray ? _chunkUnencoded : null;
         return rep is null && def is null && unencoded is null
             ? null
             : new SizeStatistics { UnencodedByteArrayDataBytes = unencoded, RepetitionLevelHistogram = rep, DefinitionLevelHistogram = def };
 
-        static long[] Sum(List<long> pages, int width)
+        static long[] Sum(ReadOnlySpan<long> pages, int width)
         {
             var total = new long[width];
-            for (int i = 0; i < pages.Count; i++) total[i % width] += pages[i];
+            for (int i = 0; i < pages.Length; i++) total[i % width] += pages[i];
             return total;
         }
     }
@@ -372,16 +405,22 @@ internal abstract class ColumnWriter : IDisposable
     /// <summary>Frees the writer's native buffers (pages of an unfinished chunk included); the writer is not used after.</summary>
     public virtual void Dispose()
     {
-        try
+        // Every page waited for, one by one past a failure (helpers may still compress the pages after it), before
+        // any page's buffers go back to the pool.
+        while (_committed < _pages.Count)
         {
-            Drain();
+            try
+            {
+                CommitOldest();
+            }
+            catch (Exception)
+            {
+                // A page that failed to compress: its failure was reported where the chunk was finished.
+            }
         }
-        catch (Exception)
-        {
-            // A page that failed to compress: its failure was reported where the chunk was finished.
-        }
-        foreach (PageJob page in _committed) page.Release();
-        _committed.Clear();
+        foreach (PageJob page in _pages) page.Release();
+        _pages.Clear();
+        _committed = 0;
         _values.Dispose();
         _levelScratch.Dispose();
         _body.Dispose();
@@ -389,6 +428,9 @@ internal abstract class ColumnWriter : IDisposable
         _pageDef.Dispose();
         _pageRep.Dispose();
         _indices.Dispose();
+        _bounds.Dispose();
+        _defHistograms?.Dispose();
+        _repHistograms?.Dispose();
         Bloom?.Dispose();
     }
 
@@ -410,15 +452,18 @@ internal abstract class ColumnWriter : IDisposable
     /// <exception cref="InvalidOperationException">The writer holds rows or pages.</exception>
     internal void Trim()
     {
-        if (_pageRows != 0 || _inFlight.Count != 0 || _committed.Count != 0)
+        if (_pageRows != 0 || _pages.Count != 0)
             throw new InvalidOperationException("Only a column writer between row groups is trimmed.");
-        _values.Dispose();
-        _levelScratch.Dispose();
-        _body.Dispose();
-        _dictionaryPage.Dispose();
+        _values.Trim();
+        _levelScratch.Trim();
+        _body.Trim();
+        _dictionaryPage.Trim(); // handed out only by Finish, which makes a new one
         _pageDef.Dispose();
         _pageRep.Dispose();
         _indices.Dispose();
+        _bounds.Dispose();
+        _defHistograms?.Dispose();
+        _repHistograms?.Dispose();
         TrimValues();
     }
 
@@ -429,13 +474,12 @@ internal abstract class ColumnWriter : IDisposable
     public void Reset()
     {
         Drain();
-        foreach (PageJob page in _committed) page.Release(); // pages of a chunk never finished
-        _committed.Clear();
+        foreach (PageJob page in _pages) page.Release(); // pages of a chunk never finished
+        _pages.Clear();
+        _committed = 0;
         _committedBytes = 0;
         _dictionaryPage.ResetWrittenCount();
-        _pageRecords.Clear();
-        _defHistograms.Clear();
-        _repHistograms.Clear();
+        _boundsLength = _defHistogramLength = _repHistogramLength = 0;
         _chunkRows = _chunkUnencoded = 0;
         _indexable = true;
         _chunkLevels = _chunkNulls = _uncompressed = 0;
@@ -496,7 +540,13 @@ internal abstract class ColumnWriter : IDisposable
         if (!ClosePageBounds(count, out pageMin, out pageMax) && _settings.Statistics) _indexable = false;
         if (_settings.SizeStatistics) Histograms();
         bool v1 = _settings.Version == ParquetPageVersion.V1;
-        var job = new PageJob(_settings) { Record = new PageRecord(0, 0, _chunkRows, _pageNulls, count == 0, pageMin, pageMax, unencoded) };
+        int bounds = _boundsLength;
+        AppendBound(pageMin);
+        AppendBound(pageMax);
+        var job = new PageJob(_settings)
+        {
+            Record = new PageRecord(0, 0, _chunkRows, _pageNulls, count == 0, bounds, pageMin?.Length ?? -1, pageMax?.Length ?? -1, unencoded),
+        };
         NativeBufferWriter raw = job.Raw;
         raw.Reserve((int)Math.Min(Array.MaxLength / 2, PagePlainBytes + 2L * RleBitPackedEncoder.MaxBytes(_pageLevels, Math.Max(_defWidth, _repWidth)) + 16));
 
@@ -566,7 +616,7 @@ internal abstract class ColumnWriter : IDisposable
     private void Submit(PageJob job)
     {
         job.Bound = 64 + PageCodecs.MaxCompressedLength(_settings.Codec, job.Raw.WrittenCount);
-        _inFlight.Enqueue(job);
+        _pages.Add(job);
         _inFlightBound += job.Bound;
         if (_settings.Budget is { Max: > 1 } budget && budget.TryEnter())
         {
@@ -583,52 +633,62 @@ internal abstract class ColumnWriter : IDisposable
             }, (Job: job, Budget: budget), preferLocal: false);
         }
         int keep = _settings.Budget is { Max: > 1 } ? MaxInFlight : 0;
-        while (_inFlight.Count > keep) CommitOldest();
+        while (_pages.Count - _committed > keep) CommitOldest();
     }
 
     /// <summary>Compresses (or waits for) the oldest page in flight and adds it to the chunk.</summary>
     private void CommitOldest()
     {
-        PageJob job = _inFlight.Dequeue();
+        PageJob job = _pages[_committed++];
         _inFlightBound -= job.Bound;
         job.Complete();
         int size = job.HeaderBytes.Length + job.BodyLength;
-        _pageRecords.Add(job.Record with { Offset = checked((int)_committedBytes), Size = size });
-        _committed.Add(job);
+        job.Record = job.Record with { Offset = checked((int)_committedBytes), Size = size };
         _committedBytes += size;
         _uncompressed += job.HeaderBytes.Length + job.Uncompressed;
+    }
+
+    /// <summary>Keeps a page bound in the bounds arena (none: nothing).</summary>
+    private void AppendBound(byte[]? bound)
+    {
+        if (bound is null) return;
+        _bounds.Grow(_boundsLength + bound.Length, _boundsLength);
+        bound.CopyTo(_bounds.AsSpan(_boundsLength, bound.Length));
+        _boundsLength += bound.Length;
     }
 
     /// <summary>Adds every page in flight to the chunk.</summary>
     private void Drain()
     {
-        while (_inFlight.Count > 0) CommitOldest();
+        while (_committed < _pages.Count) CommitOldest();
     }
 
     /// <summary>Counts the open page's levels by value (definition levels, when there are; repetition levels, when there are).</summary>
     private void Histograms()
     {
-        if (_maxDef > 0)
+        if (_defHistograms is not null)
         {
-            int start = _defHistograms.Count;
-            for (int k = 0; k <= _maxDef; k++) _defHistograms.Add(0);
+            _defHistograms.Grow(_defHistogramLength + _maxDef + 1, _defHistogramLength);
+            Span<long> counts = _defHistograms.AsSpan(_defHistogramLength, _maxDef + 1);
+            _defHistogramLength += _maxDef + 1;
             if (_maxDef == 1)
             {
-                _defHistograms[start] = _pageNulls;
-                _defHistograms[start + 1] = _pageLevels - _pageNulls;
+                counts[0] = _pageNulls;
+                counts[1] = _pageLevels - _pageNulls;
             }
             else
             {
-                Span<long> counts = stackalloc long[_maxDef + 1];
+                counts.Clear();
                 foreach (uint level in _pageDef.AsSpan(0, _pageLevels)) counts[(int)level]++;
-                for (int k = 0; k <= _maxDef; k++) _defHistograms[start + k] = counts[k];
             }
         }
-        if (_maxRep > 0)
+        if (_repHistograms is not null)
         {
-            Span<long> counts = stackalloc long[_maxRep + 1];
+            _repHistograms.Grow(_repHistogramLength + _maxRep + 1, _repHistogramLength);
+            Span<long> counts = _repHistograms.AsSpan(_repHistogramLength, _maxRep + 1);
+            _repHistogramLength += _maxRep + 1;
+            counts.Clear();
             foreach (uint level in _pageRep.AsSpan(0, _pageLevels)) counts[(int)level]++;
-            foreach (long c in counts) _repHistograms.Add(c);
         }
     }
 
@@ -667,11 +727,11 @@ internal abstract class ColumnWriter : IDisposable
     private void WritePage(PageHeader header, NativeBufferWriter output)
     {
         if (_settings.Checksums) header = WithCrc(header, (int)Crc32.HashToUInt32(_body.WrittenSpan));
-        _header.Clear();
-        header.Write(_header);
-        output.Write(_header.WrittenSpan);
+        ThriftCompactWriter thrift = ThriftCompactWriter.ThreadScratch(); // a writer of its own per column would live as long as the column
+        header.Write(thrift);
+        output.Write(thrift.WrittenSpan);
         output.Write(_body.WrittenSpan);
-        _uncompressed += _header.WrittenSpan.Length + header.UncompressedPageSize;
+        _uncompressed += thrift.WrittenSpan.Length + header.UncompressedPageSize;
     }
 
     private static PageHeader WithCrc(PageHeader h, int crc) => new()
@@ -757,7 +817,7 @@ internal abstract class ColumnWriter : IDisposable
     protected abstract bool ClosePageBounds(int values, out byte[]? min, out byte[]? max);
 
     /// <summary>Orders two bounds given by <see cref="ClosePageBounds"/>.</summary>
-    protected abstract int CompareBounds(byte[] a, byte[] b);
+    protected abstract int CompareBounds(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b);
 
     /// <summary>Whether the physical type is BYTE_ARRAY (whose value bytes size statistics count).</summary>
     protected virtual bool IsByteArray => false;

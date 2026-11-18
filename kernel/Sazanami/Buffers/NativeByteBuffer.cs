@@ -77,6 +77,12 @@ internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0, bool pool
         return p;
     }
 
+    /// <summary>
+    /// Returns the memory and stays usable: the next <see cref="EnsureCapacity"/> allocates again. Memory and spans
+    /// taken before are invalid (and would see the new allocation): only for buffers that hand none out.
+    /// </summary>
+    public void Empty() => Dispose(true);
+
     /// <summary>Frees the memory (also done by the finalizer as a fallback).</summary>
     public void Release()
     {

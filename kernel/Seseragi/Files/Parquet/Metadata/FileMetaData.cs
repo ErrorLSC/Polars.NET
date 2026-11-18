@@ -760,6 +760,15 @@ internal sealed class ColumnMetaData
     /// <summary>Writes the struct's fields (the caller opens and closes it).</summary>
     public void WriteBody(ThriftCompactWriter w)
     {
+        WriteHead(w);
+        if (BloomFilterOffset is { } bloomOffset) w.I64Field(14, bloomOffset);
+        if (BloomFilterLength is { } bloomLength) w.I32Field(15, bloomLength);
+        WriteTail(w);
+    }
+
+    /// <summary>The fields before the Bloom filter's (1 to 13): a writer encodes them before the filter is placed.</summary>
+    public void WriteHead(ThriftCompactWriter w)
+    {
         w.I32Field(1, (int)Type);
         w.BeginListField(2, ThriftType.I32, Encodings.Length);
         foreach (ParquetEncoding e in Encodings) w.WriteI32((int)e);
@@ -784,8 +793,11 @@ internal sealed class ColumnMetaData
             w.BeginListField(13, ThriftType.Struct, encodingStats.Length);
             foreach (PageEncodingStats s in encodingStats) s.Write(w);
         }
-        if (BloomFilterOffset is { } bloomOffset) w.I64Field(14, bloomOffset);
-        if (BloomFilterLength is { } bloomLength) w.I32Field(15, bloomLength);
+    }
+
+    /// <summary>The fields after the Bloom filter's (16 on).</summary>
+    public void WriteTail(ThriftCompactWriter w)
+    {
         if (SizeStatistics is { } sizes)
         {
             w.BeginStructField(16);
