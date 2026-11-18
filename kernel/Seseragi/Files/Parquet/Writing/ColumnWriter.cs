@@ -295,11 +295,16 @@ internal abstract class ColumnWriter : IDisposable
     {
         if (!_settings.PageIndex) return null;
         bool unencoded = _settings.SizeStatistics && IsByteArray;
-        return new OffsetIndex
+        // Loops, not LINQ: an index per column chunk (a sink's thousand files hold thousands).
+        var locations = new PageLocation[_pageRecords.Count];
+        long[]? bytes = unencoded ? new long[_pageRecords.Count] : null;
+        for (int i = 0; i < locations.Length; i++)
         {
-            PageLocations = [.. _pageRecords.Select(p => new PageLocation(p.Offset, p.Size, p.FirstRow))],
-            UnencodedByteArrayDataBytes = unencoded ? [.. _pageRecords.Select(p => p.Unencoded)] : null,
-        };
+            PageRecord page = _pageRecords[i];
+            locations[i] = new PageLocation(page.Offset, page.Size, page.FirstRow);
+            if (bytes is not null) bytes[i] = page.Unencoded;
+        }
+        return new OffsetIndex { PageLocations = locations, UnencodedByteArrayDataBytes = bytes };
     }
 
     /// <summary>
@@ -324,13 +329,23 @@ internal abstract class ColumnWriter : IDisposable
             }
             previous = page;
         }
+        int pages = _pageRecords.Count;
+        var nullPages = new bool[pages];
+        var mins = new byte[pages][];
+        var maxes = new byte[pages][];
+        var nullCounts = new long[pages];
+        for (int i = 0; i < pages; i++)
+        {
+            PageRecord page = _pageRecords[i];
+            (nullPages[i], mins[i], maxes[i], nullCounts[i]) = (page.NullPage, page.Min ?? [], page.Max ?? [], page.Nulls);
+        }
         return new ColumnIndex
         {
-            NullPages = [.. _pageRecords.Select(p => p.NullPage)],
-            MinValues = [.. _pageRecords.Select(p => p.Min ?? [])],
-            MaxValues = [.. _pageRecords.Select(p => p.Max ?? [])],
+            NullPages = nullPages,
+            MinValues = mins,
+            MaxValues = maxes,
             BoundaryOrder = ascending ? BoundaryOrder.Ascending : descending ? BoundaryOrder.Descending : BoundaryOrder.Unordered,
-            NullCounts = [.. _pageRecords.Select(p => p.Nulls)],
+            NullCounts = nullCounts,
             RepetitionLevelHistograms = _settings.SizeStatistics && _maxRep > 0 ? [.. _repHistograms] : null,
             DefinitionLevelHistograms = _settings.SizeStatistics && _maxDef > 1 ? [.. _defHistograms] : null,
         };

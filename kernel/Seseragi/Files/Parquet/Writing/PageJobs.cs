@@ -126,7 +126,7 @@ internal sealed class PageJob(PageSettings settings)
             DataPageHeader = Header.DataPageHeader,
             DataPageHeaderV2 = Header.DataPageHeaderV2,
         };
-        var thrift = new ThriftCompactWriter();
+        ThriftCompactWriter thrift = ThriftCompactWriter.ThreadScratch();
         header.Write(thrift);
         HeaderBytes = thrift.ToArray();
         Uncompressed = raw.Length;

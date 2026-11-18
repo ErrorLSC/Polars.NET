@@ -54,6 +54,33 @@ public sealed unsafe class NativeMemoryPoolTests : IDisposable
     }
 
     [Fact]
+    public void PooledSizes_ArePagesOfTheirOwn_GivenBackWhenReleased()
+    {
+        // Blocks of a pooled size (and larger) are mappings of the system's, not the C library's heap: released, their
+        // pages go back at once (glibc's arenas keep what is freed in them).
+        if (!OperatingSystem.IsLinux()) return;
+        NativeMemoryPool.RetainLimit = 0;
+        foreach (long size in (long[])[64 * 1024, 100_000, 3 << 20, (1L << 30) + 1])
+        {
+            byte* p = NativeMemoryPool.Alloc(size);
+            Assert.Equal(0, (long)p % NativeMemoryPool.Alignment);
+            long usable = NativeMemoryPool.UsableSize(p);
+            Assert.InRange(usable, size, long.MaxValue);
+            p[0] = 1;
+            p[usable - 1] = 2; // the last usable byte is the block's
+            Assert.True(IsMapped((nint)p), $"{size}: mapped");
+            NativeMemoryPool.Free(p);
+            Assert.False(IsMapped((nint)p), $"{size}: unmapped once released");
+        }
+
+        static bool IsMapped(nint address) => File.ReadLines("/proc/self/maps").Any(line =>
+        {
+            string[] range = line[..line.IndexOf(' ')].Split('-');
+            return Convert.ToInt64(range[0], 16) <= address && address < Convert.ToInt64(range[1], 16);
+        });
+    }
+
+    [Fact]
     public void RetainLimit_CapsTheKeptBytes()
     {
         NativeMemoryPool.RetainLimit = 200 * 1024;

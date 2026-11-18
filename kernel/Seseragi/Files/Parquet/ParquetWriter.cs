@@ -213,8 +213,15 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private const int SegmentRows = 16_384;
 
     /// <summary>Whether the open row group reached RowGroupBytes: decided on the pages' exact sizes, waited for only near the limit.</summary>
-    private bool RowGroupFull() =>
-        _columns.Sum(c => c.BufferedBytesBound) >= _options.RowGroupBytes && _columns.Sum(c => c.BufferedBytes) >= _options.RowGroupBytes;
+    private bool RowGroupFull()
+    {
+        // Loops, not LINQ: called after every write (a sink's partitions write a few rows at a time).
+        long bound = 0, buffered = 0;
+        foreach (ColumnWriter column in _columns) bound += column.BufferedBytesBound;
+        if (bound < _options.RowGroupBytes) return false;
+        foreach (ColumnWriter column in _columns) buffered += column.BufferedBytes;
+        return buffered >= _options.RowGroupBytes;
+    }
 
     /// <summary>
     /// Runs <paramref name="work"/> for every column, in parallel when the budget allows and the work is worth it; the
@@ -222,19 +229,31 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// </summary>
     private void ForEachColumn(Action<int> work, bool parallel)
     {
-        if (!parallel || _budget.Max == 1 || _columns.Length == 1)
+        if (!Serial(parallel))
         {
-            _budget.Enter();
-            try
-            {
-                for (int c = 0; c < _columns.Length; c++) work(c);
-            }
-            finally
-            {
-                _budget.Exit();
-            }
+            ForEachColumnSideBySide(work);
             return;
         }
+        _budget.Enter();
+        try
+        {
+            for (int c = 0; c < _columns.Length; c++) work(c);
+        }
+        finally
+        {
+            _budget.Exit();
+        }
+    }
+
+    /// <summary>Whether work on every column runs on this thread (not worth it in parallel, or no budget for it).</summary>
+    private bool Serial(bool parallel) => !parallel || _budget.Max == 1 || _columns.Length == 1;
+
+    /// <summary>
+    /// <see cref="ForEachColumn"/>'s parallel half, a method of its own: its closure is allocated only when it runs (the
+    /// compiler allocates a method's closure on entry).
+    /// </summary>
+    private void ForEachColumnSideBySide(Action<int> work)
+    {
         var errors = new Exception?[_columns.Length];
         Parallel.For(0, _columns.Length, new ParallelOptions { MaxDegreeOfParallelism = _budget.Max }, c =>
         {
@@ -458,9 +477,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             while (offset < end)
             {
                 int take = (int)Math.Min(end - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, SegmentRows));
-                int at = offset;
-                ForEachColumn(c => WriteColumn(_columns[c], _shredders[c], batch.Column(_plans[c].Field), at, take),
-                    parallel: (long)take * _columns.Length >= 4096);
+                WriteColumns(batch, offset, take);
                 _rowGroupRows += take;
                 offset += take;
                 if (_rowGroupRows >= _options.RowGroupRows || RowGroupFull())
@@ -473,6 +490,32 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             throw;
         }
     }
+
+    /// <summary>
+    /// Adds rows of a batch to every column's writer, side by side when the rows are many; a few rows (a sink's
+    /// partitions write some at a time) on this thread without a closure or delegate.
+    /// </summary>
+    private void WriteColumns(RecordBatch batch, int at, int take)
+    {
+        if (!Serial((long)take * _columns.Length >= 4096))
+        {
+            WriteColumnsSideBySide(batch, at, take);
+            return;
+        }
+        _budget.Enter();
+        try
+        {
+            for (int c = 0; c < _columns.Length; c++) WriteColumn(_columns[c], _shredders[c], batch.Column(_plans[c].Field), at, take);
+        }
+        finally
+        {
+            _budget.Exit();
+        }
+    }
+
+    /// <summary><see cref="WriteColumns"/>'s parallel half, apart: the closure over its arguments is allocated only here.</summary>
+    private void WriteColumnsSideBySide(RecordBatch batch, int at, int take) =>
+        ForEachColumnSideBySide(c => WriteColumn(_columns[c], _shredders[c], batch.Column(_plans[c].Field), at, take));
 
     /// <summary>Adds rows of a column to its writer; nested columns are shredded in steps, keeping the level buffers small.</summary>
     private static void WriteColumn(ColumnWriter column, Shredder? shredder, IArrowArray array, int at, int take)
@@ -940,7 +983,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             new BloomFilterHeader(bitset.WrittenCount, 1, 1, 1).Write(thrift);
             chunk.BloomFilterOffset = _position;
             chunk.BloomFilterLength = thrift.WrittenSpan.Length + bitset.WrittenCount;
-            await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
+            await WriteBytesAsync(thrift.WrittenMemory, useAsync, ct).ConfigureAwait(false); // written before the next Clear
             await WriteBytesAsync(bitset.WrittenMemory, useAsync, ct).ConfigureAwait(false);
         }
         FreeBloomFilters();
@@ -960,7 +1003,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             columns.Write(thrift);
             chunk.ColumnIndexOffset = _position;
             chunk.ColumnIndexLength = thrift.WrittenSpan.Length;
-            await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
+            await WriteBytesAsync(thrift.WrittenMemory, useAsync, ct).ConfigureAwait(false); // written before the next Clear
         }
         foreach (var (chunk, _, offsets) in _pageIndexes)
         {
@@ -969,7 +1012,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             offsets.Write(thrift);
             chunk.OffsetIndexOffset = _position;
             chunk.OffsetIndexLength = thrift.WrittenSpan.Length;
-            await WriteBytesAsync(thrift.WrittenSpan.ToArray(), useAsync, ct).ConfigureAwait(false);
+            await WriteBytesAsync(thrift.WrittenMemory, useAsync, ct).ConfigureAwait(false); // written before the next Clear
         }
         _pageIndexes.Clear();
     }

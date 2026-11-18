@@ -85,7 +85,7 @@ internal static unsafe class NativeMemoryPool
             }
         }
         long usable = c == Unpooled ? Math.Max(bytes, 8) : ClassSize(c);
-        var p = (byte*)NativeMemory.AlignedAlloc((nuint)(usable + Header), Alignment);
+        byte* p = Mapped(usable) ? OsPages.Alloc(MappedBytes(usable)) : (byte*)NativeMemory.AlignedAlloc((nuint)(usable + Header), Alignment);
         *(int*)p = c;
         *(long*)(p + 8) = usable;
         return p + Header;
@@ -129,7 +129,25 @@ internal static unsafe class NativeMemoryPool
                 }
             }
         }
-        NativeMemory.AlignedFree(block);
+        Release(block);
+    }
+
+    /// <summary>
+    /// Whether a block of <paramref name="usable"/> bytes is pages of its own (<see cref="OsPages"/>): every pooled size
+    /// (and larger) where the system gives pages, so that freeing it gives the memory back; smaller blocks come from the C
+    /// library's allocator.
+    /// </summary>
+    private static bool Mapped(long usable) => usable >= MinPooled && OsPages.Supported;
+
+    /// <summary>The pages of a mapped block: the header and its usable bytes, rounded up.</summary>
+    private static long MappedBytes(long usable) => OsPages.Round(usable + Header);
+
+    /// <summary>Gives a block (from <see cref="AllocBlock"/>, not guarded) back to the system.</summary>
+    private static void Release(byte* block)
+    {
+        long usable = *(long*)(block + 8);
+        if (Mapped(usable)) OsPages.Free(block, MappedBytes(usable));
+        else NativeMemory.AlignedFree(block);
     }
 
     /// <summary>Gives every kept block back to the system.</summary>
@@ -146,7 +164,7 @@ internal static unsafe class NativeMemoryPool
             Array.Clear(_lowWater);
             _retained = 0;
         }
-        foreach (nint block in released) NativeMemory.AlignedFree((void*)block);
+        foreach (nint block in released) Release((byte*)block);
     }
 
     /// <summary>
@@ -176,7 +194,7 @@ internal static unsafe class NativeMemoryPool
                 _timer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             }
         }
-        foreach (nint block in released) NativeMemory.AlignedFree((void*)block);
+        foreach (nint block in released) Release((byte*)block);
     }
 
     // Under the lock.

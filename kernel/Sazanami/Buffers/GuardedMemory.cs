@@ -9,7 +9,7 @@ namespace Kaminari.Sazanami.Buffers;
 /// stays inside a larger buffer otherwise goes unnoticed). One mapping per block — for fuzzing only, never on by
 /// default. Linux only.
 /// </summary>
-internal static unsafe partial class GuardedMemory
+internal static unsafe class GuardedMemory
 {
     private const int ProtNone = 0, ProtRead = 1, ProtWrite = 2;
     private const int MapPrivate = 0x02, MapAnonymous = 0x20;
@@ -99,12 +99,10 @@ internal static unsafe partial class GuardedMemory
         }
     }
 
-    [LibraryImport("libc", SetLastError = true)]
-    private static partial void* mmap(void* address, nuint length, int protection, int flags, int fd, nint offset);
+    // The system calls, shared with the pool's pages.
+    private static void* mmap(void* address, nuint length, int protection, int flags, int fd, nint offset) => OsPages.mmap(address, length, protection, flags, fd, offset);
 
-    [LibraryImport("libc", SetLastError = true)]
-    private static partial int mprotect(void* address, nuint length, int protection);
+    private static int mprotect(void* address, nuint length, int protection) => OsPages.mprotect(address, length, protection);
 
-    [LibraryImport("libc", SetLastError = true)]
-    private static partial int munmap(void* address, nuint length);
+    private static int munmap(void* address, nuint length) => OsPages.munmap(address, length);
 }

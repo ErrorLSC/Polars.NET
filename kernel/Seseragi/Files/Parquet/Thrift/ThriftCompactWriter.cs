@@ -19,6 +19,22 @@ internal sealed class ThriftCompactWriter
     /// <summary>The bytes written so far.</summary>
     public ReadOnlySpan<byte> WrittenSpan => _out.WrittenSpan;
 
+    /// <summary>The bytes written so far, valid until the writer is cleared or written to.</summary>
+    public ReadOnlyMemory<byte> WrittenMemory => _out.WrittenMemory;
+
+    [ThreadStatic] private static ThriftCompactWriter? t_scratch;
+
+    /// <summary>
+    /// This thread's scratch writer, cleared: for synchronous code that copies the bytes out before it returns (never
+    /// across an await, never while an outer caller on the thread still uses it).
+    /// </summary>
+    public static ThriftCompactWriter ThreadScratch()
+    {
+        ThriftCompactWriter writer = t_scratch ??= new();
+        writer.Clear();
+        return writer;
+    }
+
     public byte[] ToArray() => _out.WrittenSpan.ToArray();
 
     public void Clear()
