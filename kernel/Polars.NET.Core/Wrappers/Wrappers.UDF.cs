@@ -30,7 +30,7 @@ public readonly partial struct PolarsWrapper
     private static unsafe IArrowArray ImportSingle(CArrowArray* arr, CArrowSchema* sch)
     {
         var field = CArrowSchemaImporter.ImportField(sch);
-        return Kaminari.Sazanami.Arrow.ArrowCImport.ImportArray(arr, field.DataType);
+        return Kaminari.Sazanami.Arrow.Interop.ArrowCImport.ImportArray(arr, field.DataType);
     }
 
     /// <summary>
@@ -42,7 +42,7 @@ public readonly partial struct PolarsWrapper
         *outArr = default;
         *outSch = default;
         var outField = new Field("result", result.Data.DataType, true);
-        using (result) Kaminari.Sazanami.Arrow.ArrowCExport.ExportArray(result, outArr);
+        using (result) Kaminari.Sazanami.Arrow.Interop.ArrowCExport.ExportArray(result, outArr);
         CArrowSchemaExporter.ExportField(outField, outSch);
     }
 
@@ -248,7 +248,7 @@ public readonly partial struct PolarsWrapper
                 }
             }
 
-            return builder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance);
+            return builder.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance);
         }, boolDtype);
     }
     public static ExprHandle MapStringTransform(ExprHandle expr, Func<string?, string?> transform)
@@ -275,7 +275,7 @@ public readonly partial struct PolarsWrapper
                 }
             }
 
-            return builder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance);
+            return builder.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance);
         }, strDtype);
     }
     public static ExprHandle MapStringToList(ExprHandle expr, Func<string?, IEnumerable<string>?> func)
@@ -326,7 +326,7 @@ public readonly partial struct PolarsWrapper
                 }
             }
 
-            return listBuilder.Build(Kaminari.Sazanami.Arrow.PooledArrowAllocator.Instance);
+            return listBuilder.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance);
         }, listDtype);
     }
 }

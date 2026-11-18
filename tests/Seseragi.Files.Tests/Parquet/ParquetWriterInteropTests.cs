@@ -5,6 +5,7 @@ using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
+using Kaminari.Sazanami.Arrow.Interop;
 using static Seseragi.Files.Tests.Parquet.ParquetWriteData;
 using static Seseragi.Files.Tests.TestBatches;
 
@@ -224,7 +225,7 @@ public sealed class ParquetWriterInteropTests : IDisposable
     /// <summary>Field ids on every named field (writer_interop.py checks pyarrow reads them where they were put).</summary>
     private static RecordBatch FieldIdBatch()
     {
-        static Field Id(Field f, int id) => Kaminari.Sazanami.Arrow.ArrowFieldIds.With(f, id);
+        static Field Id(Field f, int id) => Kaminari.Sazanami.Arrow.TypeSystem.ArrowFieldIds.With(f, id);
         var element = Id(new Field("item", Int32Type.Default, true), 3);
         var listType = new ListType(element);
         var stType = new StructType([Id(new Field("a", Int64Type.Default, true), 5)]);

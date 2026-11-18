@@ -1,7 +1,6 @@
 using Polars.NET.Core.Enums;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Arrow;
 
 namespace Polars.NET.Core.Helpers;
 

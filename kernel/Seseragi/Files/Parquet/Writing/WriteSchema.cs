@@ -2,11 +2,11 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
 

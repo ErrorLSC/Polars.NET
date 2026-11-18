@@ -3,7 +3,8 @@ using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Concurrency;
+using Kaminari.Sazanami.Data.Database;
 
 namespace Polars.CSharp;
 

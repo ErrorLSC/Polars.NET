@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Enums;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 
 namespace Polars.CSharp;
 

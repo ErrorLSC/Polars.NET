@@ -5,7 +5,7 @@ open Kaminari.Samidare.IR
 open System
 open System.Linq.Expressions
 open System.Reflection
-open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Data.Udf
 open Kaminari.Sazanami.Marshalling
 open Kaminari.Samidare.Config
 
@@ -347,7 +347,7 @@ module internal OperatorAndUdfTranslator =
         if isNull m || isNull m.DeclaringType then false
         else
             let asm = m.DeclaringType.Assembly
-            asm = typeof<Kaminari.Sazanami.Arrow.ArrowTypeResolver>.Assembly
+            asm = typeof<Kaminari.Sazanami.Arrow.TypeSystem.ArrowTypeResolver>.Assembly
             || asm = typeof<TranslationContext>.Assembly
             || CompilationScope.Current.Backend.IsEngineAssembly asm
 

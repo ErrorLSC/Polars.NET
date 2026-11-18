@@ -1,7 +1,10 @@
 using System.Numerics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Compute;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 
 namespace Sazanami.Tests;
 

@@ -7,7 +7,7 @@ using Polars.NET.Core.Enums;
 namespace Polars.NET.Core.Native;
 
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-public unsafe delegate Kaminari.Sazanami.Arrow.CArrowArrayStream* StreamFactoryCallback(void* userData);
+public unsafe delegate Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream* StreamFactoryCallback(void* userData);
 
 unsafe internal partial class NativeBindings
 {

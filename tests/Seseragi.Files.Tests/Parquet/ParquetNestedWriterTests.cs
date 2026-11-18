@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Metadata;

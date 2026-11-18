@@ -2,7 +2,8 @@ using System.Data.SqlTypes;
 using Apache.Arrow;
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.RowViews;
 
 namespace Sazanami.Tests;
 

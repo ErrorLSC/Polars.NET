@@ -1,7 +1,8 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;

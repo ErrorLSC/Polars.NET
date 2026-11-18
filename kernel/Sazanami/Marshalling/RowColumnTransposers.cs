@@ -7,6 +7,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Kaminari.Sazanami.Data.Mapping;
 
 /// <summary>
 /// Where finished columns go. An engine implements this to receive columns in its own representation.

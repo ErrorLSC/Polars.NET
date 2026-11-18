@@ -4,7 +4,7 @@ using System.Data;
 using System.Data.Common;
 using System.Text.RegularExpressions;
 using Apache.Arrow;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Database;
 
 namespace Polars.NET.Core.Data;
 

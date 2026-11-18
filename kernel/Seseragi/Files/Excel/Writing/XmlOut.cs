@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Buffers.Text;
 using System.Globalization;
 using System.Text;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 
 namespace Kaminari.Seseragi.Files.Excel.Writing;
 

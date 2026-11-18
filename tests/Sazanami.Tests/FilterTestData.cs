@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Filters;
 
 namespace Sazanami.Tests;

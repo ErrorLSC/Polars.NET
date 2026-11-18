@@ -9,7 +9,8 @@ using Apache.Arrow;
 using Kaminari.Samidare;
 using Kaminari.Samidare.Config;
 using Kaminari.Samidare.IR;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Concurrency;
+using Kaminari.Sazanami.Data.Mapping;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 

@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Seseragi.Files.Avro;
 using static Kaminari.Seseragi.Files.Avro.AvroField;
 using S = Kaminari.Seseragi.Files.Avro.AvroSchema;

@@ -1,5 +1,5 @@
 using Apache.Arrow;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Samidare.IR;
 using Kaminari.Seseragi.Files.Parquet;
 

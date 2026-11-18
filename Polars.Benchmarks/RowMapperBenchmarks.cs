@@ -2,7 +2,7 @@ using System.Data;
 using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
 using DuckDB.NET.Data;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Mapping;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.Benchmarks.Tpcds;

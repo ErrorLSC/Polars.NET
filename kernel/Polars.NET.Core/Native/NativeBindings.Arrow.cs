@@ -21,11 +21,11 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_new_from_stream(
-        Kaminari.Sazanami.Arrow.CArrowArrayStream* stream
+        Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream* stream
     );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_new_from_stream_strict_type(
-        Kaminari.Sazanami.Arrow.CArrowArrayStream* stream
+        Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream* stream
     );
     [LibraryImport(LibName)]
     public static partial void pl_to_arrow(DataFrameHandle handle, CArrowArray* arr, CArrowSchema* schema);

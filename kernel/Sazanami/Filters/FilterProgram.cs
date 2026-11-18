@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Numerics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow.Interop;
 using static Kaminari.Sazanami.Filters.ValueTests;
 
 namespace Kaminari.Sazanami.Filters;

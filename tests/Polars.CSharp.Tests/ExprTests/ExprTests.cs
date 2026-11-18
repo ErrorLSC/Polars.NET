@@ -3,9 +3,10 @@ using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Exceptions;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
+using Kaminari.Sazanami.Data.Mapping;
 namespace Polars.CSharp.Tests;
 
 public class ExprTests

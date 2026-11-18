@@ -8,6 +8,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Reflection;
+using Kaminari.Sazanami.Data.Mapping;
 
 public enum OptionalKind
 {

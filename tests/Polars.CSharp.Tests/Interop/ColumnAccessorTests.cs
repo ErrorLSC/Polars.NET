@@ -6,7 +6,7 @@ namespace Polars.CSharp.Tests;
 
 using TimeUnit = Apache.Arrow.Types.TimeUnit;
 using Field = Apache.Arrow.Field;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Mapping;
 
 /// <summary>
 /// Checks the pointer-based column accessors against Apache.Arrow's own getters,

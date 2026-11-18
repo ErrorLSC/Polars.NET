@@ -6,7 +6,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Polars.NET.Core.Data;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.CSharp;
 

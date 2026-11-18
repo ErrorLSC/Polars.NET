@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Data.Building;
 
 namespace Polars.NET.Core.Arrow;
 

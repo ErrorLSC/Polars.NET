@@ -6,8 +6,8 @@ using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Marshalling;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.NET.Core.Helpers;
 
@@ -797,7 +797,7 @@ public static class SeriesFactory
             }
         }
 
-        using var builder = new Kaminari.Sazanami.Data.ArrowColumnBuilder<T>();
+        using var builder = new Kaminari.Sazanami.Data.Building.ArrowColumnBuilder<T>();
         foreach (T value in data) builder.Append(value);
         using var array = builder.ExportArray();
         return ArrowFfiBridge.ImportSeries(name, array);

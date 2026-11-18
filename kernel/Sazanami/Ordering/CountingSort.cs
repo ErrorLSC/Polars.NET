@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Kernels;
+using Kaminari.Sazanami.Arrow.Interop;
 
 namespace Kaminari.Sazanami.Ordering;
 

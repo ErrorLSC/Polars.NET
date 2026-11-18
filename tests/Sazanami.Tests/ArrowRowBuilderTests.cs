@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
+using Kaminari.Sazanami.Data.Mapping;
 using Kaminari.Sazanami.Marshalling;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;

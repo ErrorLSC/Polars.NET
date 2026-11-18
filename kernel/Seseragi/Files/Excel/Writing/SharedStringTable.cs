@@ -1,6 +1,6 @@
 using System.IO.Hashing;
 using System.Runtime.InteropServices;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 
 namespace Kaminari.Seseragi.Files.Excel.Writing;
 

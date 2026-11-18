@@ -1,7 +1,8 @@
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 
 namespace Kaminari.Seseragi.Files.Avro;
 

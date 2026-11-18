@@ -599,7 +599,7 @@ public class ConfigTests
             NET.Linq.PolarsRuntimeConfig.ImportLegacyEnvironment();
 
             Assert.True(global::Kaminari.Samidare.Config.SamidareConfig.UseRelationalNulls);
-            Assert.Equal(7, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
+            Assert.Equal(7, global::Kaminari.Sazanami.Concurrency.PrefetchOptions.DefaultBufferSize);
         }
 
         Assert.False(global::Kaminari.Samidare.Config.SamidareConfig.UseRelationalNulls);
@@ -609,17 +609,17 @@ public class ConfigTests
     [Trait("Config", "Scope")]
     public void Test_Config_Scope_Restores_Settings_Saved_Only_As_Environment()
     {
-        int prefetchBefore = global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize;
+        int prefetchBefore = global::Kaminari.Sazanami.Concurrency.PrefetchOptions.DefaultBufferSize;
         var cacheBefore = global::Kaminari.Samidare.Config.SamidareConfig.QueryCacheCapacity;
 
         using (var config = Pl.Config.SetQueryCacheCapacity(77).BeginScope())
         {
             Pl.Config["prefetch_buffer_size"] = "9";
-            Assert.Equal(9, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
+            Assert.Equal(9, global::Kaminari.Sazanami.Concurrency.PrefetchOptions.DefaultBufferSize);
             Assert.Equal(77, global::Kaminari.Samidare.Config.SamidareConfig.QueryCacheCapacity);
         }
 
-        Assert.Equal(prefetchBefore, global::Kaminari.Sazanami.Data.PrefetchOptions.DefaultBufferSize);
+        Assert.Equal(prefetchBefore, global::Kaminari.Sazanami.Concurrency.PrefetchOptions.DefaultBufferSize);
         Assert.Equal(cacheBefore, global::Kaminari.Samidare.Config.SamidareConfig.QueryCacheCapacity);
     }
 

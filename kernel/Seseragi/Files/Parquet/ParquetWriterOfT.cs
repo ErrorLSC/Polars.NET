@@ -1,7 +1,8 @@
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 

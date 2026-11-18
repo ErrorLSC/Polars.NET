@@ -1,6 +1,9 @@
 namespace Polars.FSharp
-open Kaminari.Sazanami.Arrow
-open Kaminari.Sazanami.Data
+open Kaminari.Sazanami.Arrow.Interop
+open Kaminari.Sazanami.Arrow.TypeSystem
+open Kaminari.Sazanami.Concurrency
+open Kaminari.Sazanami.Data.Building
+open Kaminari.Sazanami.Data.Database
 open Polars.NET.Core.Arrow
 
 [<AutoOpen>]

@@ -8,8 +8,8 @@ using Apache.Arrow.Ipc;
 using System.Reflection;
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Arrow;
-using CArrowArrayStream = Kaminari.Sazanami.Arrow.CArrowArrayStream;
+using Kaminari.Sazanami.Arrow.Interop;
+using CArrowArrayStream = Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream;
 
 namespace Polars.NET.Core.Arrow;
 /// <summary>

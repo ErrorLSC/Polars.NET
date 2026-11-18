@@ -7,8 +7,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.Buffers;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
-using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
+using Kaminari.Sazanami.Data.Database;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.CSharp;
 

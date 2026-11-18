@@ -2,7 +2,7 @@ namespace Kaminari.Samidare.IR
 
 open System
 open Apache.Arrow.Types
-open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Arrow.TypeSystem
 open Kaminari.Sazanami.Marshalling
 
 /// Structural identity of Apache Arrow types. Arrow type objects use reference equality, so two

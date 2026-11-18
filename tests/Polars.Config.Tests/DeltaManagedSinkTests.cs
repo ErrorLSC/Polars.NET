@@ -5,6 +5,8 @@ using Polars.CSharp;
 using Polars.NET.Core;
 using Polars.NET.Core.Delta;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using static Polars.CSharp.Polars;
 using ArrowField = Apache.Arrow.Field;
 using ArrowTypes = Apache.Arrow.Types;
@@ -747,9 +749,9 @@ public sealed class DeltaManagedSinkTests : IDisposable
         ];
         var (schema, maps) = ManagedSink.WriterSchema(exported, fields);
         Assert.Equal(["col-a[]", "col-m", "col-mm", "col-mm.value", "col-s.col-sm"], maps!.Order());
-        Assert.Equal([1, 2, 5, 6, null], schema.FieldsList.Select(Kaminari.Sazanami.Arrow.ArrowFieldIds.Of));
+        Assert.Equal([1, 2, 5, 6, null], schema.FieldsList.Select(Kaminari.Sazanami.Arrow.TypeSystem.ArrowFieldIds.Of));
         var nested = (ArrowTypes.StructType)schema.FieldsList[1].DataType;
-        Assert.Equal([3, 4], nested.Fields.Select(Kaminari.Sazanami.Arrow.ArrowFieldIds.Of));
+        Assert.Equal([3, 4], nested.Fields.Select(Kaminari.Sazanami.Arrow.TypeSystem.ArrowFieldIds.Of));
 
         // Written with them: maps in the file, ids on their fields.
         using var stream = new MemoryStream();

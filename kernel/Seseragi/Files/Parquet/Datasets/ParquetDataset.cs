@@ -164,12 +164,12 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                     continue;
                 }
                 IArrowType current = fields[at].DataType;
-                if (Sazanami.Arrow.ArrowWidening.Common(current, field.DataType, lossy) is not { } common)
+                if (Sazanami.Arrow.Compute.ArrowWidening.Common(current, field.DataType, lossy) is not { } common)
                 {
-                    string hint = !lossy && Sazanami.Arrow.ArrowWidening.Common(current, field.DataType, lossy: true) is not null
+                    string hint = !lossy && Sazanami.Arrow.Compute.ArrowWidening.Common(current, field.DataType, lossy: true) is not null
                         ? " without a lossy conversion (ParquetDatasetOptions.AllowLossyCasts allows them)" : "";
-                    throw new ParquetFormatException($"{files[i].Path}: column '{field.Name}' is {Sazanami.Arrow.ArrowTypes.Describe(field.DataType)} in this file but "
-                        + $"{Sazanami.Arrow.ArrowTypes.Describe(current)} in '{origins[at]}': no type holds both{hint}.");
+                    throw new ParquetFormatException($"{files[i].Path}: column '{field.Name}' is {Sazanami.Arrow.TypeSystem.ArrowTypes.Describe(field.DataType)} in this file but "
+                        + $"{Sazanami.Arrow.TypeSystem.ArrowTypes.Describe(current)} in '{origins[at]}': no type holds both{hint}.");
                 }
                 fields[at] = new Field(field.Name, common, nullable: true, fields[at].Metadata);
             }

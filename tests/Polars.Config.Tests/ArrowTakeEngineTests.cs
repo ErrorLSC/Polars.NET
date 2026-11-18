@@ -1,7 +1,8 @@
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Compute;
+using Kaminari.Sazanami.Arrow.Interop;
 using Polars.CSharp;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;

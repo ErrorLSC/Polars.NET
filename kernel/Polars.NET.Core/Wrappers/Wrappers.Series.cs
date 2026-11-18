@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.C;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Native;

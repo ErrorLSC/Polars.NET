@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Polars.NET.Core.Config;
 

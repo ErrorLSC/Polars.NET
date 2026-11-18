@@ -1,5 +1,6 @@
 using Apache.Arrow;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.RowViews;
 using Kaminari.Seseragi.Files.Avro;
 
 namespace Seseragi.Files.Tests;

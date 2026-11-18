@@ -1,4 +1,4 @@
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Sazanami.Tests;
 

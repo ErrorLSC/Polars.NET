@@ -3,6 +3,8 @@ using ArrowField = Apache.Arrow.Field;
 using ArrowSchema = Apache.Arrow.Schema;
 using ArrowTypes = Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Avro;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using static Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -38,7 +40,7 @@ public class AvroManagedTests
     {
         // Iceberg-style ids (field-id, element-id, key-id, value-id) arrive as Arrow field metadata; the engine
         // import must accept them at every level.
-        static ArrowField Id(ArrowField f, int id) => Kaminari.Sazanami.Arrow.ArrowFieldIds.With(f, id);
+        static ArrowField Id(ArrowField f, int id) => Kaminari.Sazanami.Arrow.TypeSystem.ArrowFieldIds.With(f, id);
         ArrowSchema schema = new([
             Id(new ArrowField("n", ArrowTypes.Int64Type.Default, false), 1),
             Id(new ArrowField("splits", new ArrowTypes.ListType(Id(new ArrowField("item", ArrowTypes.Int64Type.Default, true), 133)), true), 132),

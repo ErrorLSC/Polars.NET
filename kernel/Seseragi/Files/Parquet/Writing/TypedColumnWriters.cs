@@ -7,7 +7,7 @@ using System.Text;
 using Apache.Arrow;
 using Array = System.Array;
 using Kaminari.Sazanami.Encodings;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Marshalling;
 using Kaminari.Sazanami.Kernels;

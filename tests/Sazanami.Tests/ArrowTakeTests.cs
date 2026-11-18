@@ -3,8 +3,10 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Compute;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Filters;
+using Kaminari.Sazanami.Arrow.Builders;
 using static Sazanami.Tests.FilterTestData;
 
 namespace Sazanami.Tests;

@@ -1,4 +1,5 @@
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Sazanami.Encodings;
 using Kaminari.Sazanami.Buffers;
@@ -815,7 +816,7 @@ public class ParquetKernelTests
         NativeMemoryOwner owner = memory!.Owner;
 
         Apache.Arrow.C.CArrowArray* exported = Apache.Arrow.C.CArrowArray.Create();
-        Kaminari.Sazanami.Arrow.ArrowCExport.ExportRecordBatch(batch, exported);
+        Kaminari.Sazanami.Arrow.Interop.ArrowCExport.ExportRecordBatch(batch, exported);
         batch.Dispose();
         Assert.False(owner.IsFreed); // the export's pins hold it
         Apache.Arrow.C.CArrowArray.Free(exported); // releases the export

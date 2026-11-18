@@ -4,7 +4,8 @@ using System.Text;
 using Apache.Arrow;
 using Array = System.Array;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Buffers;
 
 namespace Kaminari.Seseragi.Files.Avro;
@@ -141,7 +142,7 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
 
     /// <summary>The writer schema stored in the file, parsed. Ids (<c>field-id</c>, <c>element-id</c>,
     /// <c>key-id</c>, <c>value-id</c>) also appear in <see cref="Schema"/> as
-    /// <see cref="Kaminari.Sazanami.Arrow.ArrowFieldIds.MetadataKey"/> field metadata.</summary>
+    /// <see cref="Kaminari.Sazanami.Arrow.TypeSystem.ArrowFieldIds.MetadataKey"/> field metadata.</summary>
     public AvroSchema WriterSchema { get; private set; } = null!;
 
     /// <summary>Opens an Avro file and reads its header.</summary>

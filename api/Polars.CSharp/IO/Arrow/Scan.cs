@@ -1,8 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
-using Kaminari.Sazanami.Arrow;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Concurrency;
+using Kaminari.Sazanami.Data.Building;
+using Kaminari.Sazanami.Data.Database;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.CSharp;
 

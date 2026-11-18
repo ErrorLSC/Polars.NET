@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Marshalling;
 
 namespace Polars.NET.Core.Arrow;

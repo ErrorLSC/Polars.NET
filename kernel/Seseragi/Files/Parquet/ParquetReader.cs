@@ -1,7 +1,9 @@
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Compute;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Network;
 using Kaminari.Sazanami.Rows;

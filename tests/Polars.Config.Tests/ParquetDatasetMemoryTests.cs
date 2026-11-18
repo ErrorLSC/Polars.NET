@@ -1,7 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
 using Field = Apache.Arrow.Field;

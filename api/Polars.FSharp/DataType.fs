@@ -5,7 +5,7 @@ open Polars.NET.Core.Wrappers
 open Polars.NET.Core.Arrow
 open System
 open Polars.NET.Core.Enums
-open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Arrow.TypeSystem
 open Kaminari.Sazanami.Marshalling
 
 [<RequireQualifiedAccess>]

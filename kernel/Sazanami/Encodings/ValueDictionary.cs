@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Data.Building;
 
 namespace Kaminari.Sazanami.Encodings;
 

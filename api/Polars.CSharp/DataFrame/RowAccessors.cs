@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Collections;
 using System.Runtime.CompilerServices;
 using Polars.NET.Core.Data;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.CSharp;
 

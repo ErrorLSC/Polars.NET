@@ -1,4 +1,4 @@
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 using System.Buffers;
 using Apache.Arrow;
 using Apache.Arrow.Types;

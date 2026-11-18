@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 
 namespace Kaminari.Seseragi.Files.Avro;
 

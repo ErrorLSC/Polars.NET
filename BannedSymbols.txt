@@ -1,4 +1,4 @@
-T:Apache.Arrow.C.CArrowArrayImporter;Reports every imported buffer to the GC as memory pressure, forcing a full collection per batch: use Kaminari.Sazanami.Arrow.ArrowCImport
-T:Apache.Arrow.C.CArrowArrayStreamImporter;Imports with CArrowArrayImporter (GC memory pressure per buffer): use Kaminari.Sazanami.Arrow.ArrowCStreamReader
-T:Apache.Arrow.C.CArrowArrayExporter;Reports the exported memory to the GC as memory pressure (and fails to release a null array): use Kaminari.Sazanami.Arrow.ArrowCExport
-T:Apache.Arrow.C.CArrowArrayStreamExporter;Exports with CArrowArrayExporter (GC memory pressure): use Kaminari.Sazanami.Arrow.ArrowStreamExporter
+T:Apache.Arrow.C.CArrowArrayImporter;Reports every imported buffer to the GC as memory pressure, forcing a full collection per batch: use Kaminari.Sazanami.Arrow.Interop.ArrowCImport
+T:Apache.Arrow.C.CArrowArrayStreamImporter;Imports with CArrowArrayImporter (GC memory pressure per buffer): use Kaminari.Sazanami.Arrow.Interop.ArrowCStreamReader
+T:Apache.Arrow.C.CArrowArrayExporter;Reports the exported memory to the GC as memory pressure (and fails to release a null array): use Kaminari.Sazanami.Arrow.Interop.ArrowCExport
+T:Apache.Arrow.C.CArrowArrayStreamExporter;Exports with CArrowArrayExporter (GC memory pressure): use Kaminari.Sazanami.Arrow.Interop.ArrowStreamExporter

@@ -2,7 +2,7 @@ namespace Kaminari.Samidare.IR
 
 open System
 open System.ComponentModel
-open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Arrow.TypeSystem
 open Kaminari.Sazanami.Marshalling
 
 

@@ -3,7 +3,7 @@ using Apache.Arrow.Types;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using Polars.NET.Core.Data;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.NET.ML.DataView;
 

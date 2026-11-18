@@ -3,7 +3,8 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Encodings;
 

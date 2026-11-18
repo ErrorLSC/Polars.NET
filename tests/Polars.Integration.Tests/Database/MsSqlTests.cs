@@ -3,7 +3,7 @@ using Microsoft.Data.SqlClient;
 using Polars.CSharp;
 using Polars.Integration.Tests.Fixtures;
 using Polars.NET.Core.Data;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Database;
 
 namespace Polars.Integration.Tests;
 

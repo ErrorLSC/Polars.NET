@@ -6,7 +6,7 @@ open System
 open System.Data
 open System.Diagnostics
 open System.IO
-open Kaminari.Sazanami.Data
+open Kaminari.Sazanami.Data.Database
 
 type ``Complex Query Tests`` () =
 

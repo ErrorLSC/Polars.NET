@@ -1,7 +1,7 @@
 #nullable enable
 using System.Data;
 using Apache.Arrow;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Database;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

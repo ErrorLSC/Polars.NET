@@ -9,7 +9,8 @@ using Apache.Arrow.Ipc;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Wrappers;
 using Pl = Polars.CSharp.Polars;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Database;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.CSharp;
 

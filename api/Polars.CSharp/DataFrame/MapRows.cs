@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
+using Kaminari.Sazanami.Data.Mapping;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;

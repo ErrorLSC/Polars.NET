@@ -1,7 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using RecordBatch = Apache.Arrow.RecordBatch;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
+using Kaminari.Sazanami.Data.Mapping;
 using Kaminari.Sazanami.Marshalling;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Wrappers;

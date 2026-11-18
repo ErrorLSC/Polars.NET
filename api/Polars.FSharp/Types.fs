@@ -18,7 +18,8 @@ open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
-open Kaminari.Sazanami.Arrow
+open Kaminari.Sazanami.Arrow.Interop
+open Kaminari.Sazanami.Data.Mapping
 open Kaminari.Sazanami.Display
 
 // --- Series ---

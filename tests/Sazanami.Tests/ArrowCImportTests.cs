@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Interop;
 
 namespace Sazanami.Tests;
 
@@ -485,7 +485,7 @@ public unsafe class ArrowCImportTests
             }
         }
         var exporter = new ArrowStreamExporter(Batches().GetEnumerator(), schema);
-        var stream = (Kaminari.Sazanami.Arrow.CArrowArrayStream*)NativeMemory.AllocZeroed((nuint)sizeof(Kaminari.Sazanami.Arrow.CArrowArrayStream));
+        var stream = (Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*)NativeMemory.AllocZeroed((nuint)sizeof(Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream));
         try
         {
             exporter.Export(stream);
@@ -502,7 +502,7 @@ public unsafe class ArrowCImportTests
                 Assert.Null(reader.ReadNextRecordBatchAsync().AsTask().Result);
 
                 // Moved on to another consumer: the reader has nothing left, a second move is refused.
-                var other = (Kaminari.Sazanami.Arrow.CArrowArrayStream*)NativeMemory.AllocZeroed((nuint)sizeof(Kaminari.Sazanami.Arrow.CArrowArrayStream));
+                var other = (Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*)NativeMemory.AllocZeroed((nuint)sizeof(Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream));
                 try
                 {
                     reader.MoveTo(other);

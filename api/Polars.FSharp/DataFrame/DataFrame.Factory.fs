@@ -6,8 +6,8 @@ open System
 open Polars.NET.Core.Helpers
 open Polars.NET.Core.Wrappers
 open System.Collections.Generic
-open Kaminari.Sazanami.Arrow
-open Kaminari.Sazanami.Data
+open Kaminari.Sazanami.Data.Building
+open Kaminari.Sazanami.Data.Database
 
 [<AutoOpen>]
 module DataFrameFactory =

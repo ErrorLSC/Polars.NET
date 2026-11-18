@@ -5,7 +5,9 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.TypeSystem;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Kaminari.Sazanami.TensorInterop;
 

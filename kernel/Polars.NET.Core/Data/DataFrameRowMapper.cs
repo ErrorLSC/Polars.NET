@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Wrappers;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Mapping;
 
 namespace Polars.NET.Core.Data;
 

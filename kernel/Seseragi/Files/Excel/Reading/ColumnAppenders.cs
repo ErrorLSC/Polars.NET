@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
 
 namespace Kaminari.Seseragi.Files.Excel.Reading;
 

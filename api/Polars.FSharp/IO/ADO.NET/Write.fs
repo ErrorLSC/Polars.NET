@@ -1,5 +1,5 @@
 namespace Polars.FSharp
-open Kaminari.Sazanami.Data
+open Kaminari.Sazanami.Data.Database
 
 [<AutoOpen>]
 module DataReaderWrite =

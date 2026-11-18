@@ -2,7 +2,8 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Apache.Arrow.Types;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Seseragi.Files.Parquet.Schema;
 
 namespace Kaminari.Seseragi.Files.Parquet.Reading;

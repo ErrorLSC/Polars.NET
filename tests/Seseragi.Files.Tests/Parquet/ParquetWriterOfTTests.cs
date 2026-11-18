@@ -1,5 +1,5 @@
 using System.Security.Cryptography;
-using Kaminari.Sazanami.Data;
+using Kaminari.Sazanami.Data.Building;
 using Kaminari.Seseragi.Files.Parquet;
 
 namespace Seseragi.Files.Tests.Parquet;

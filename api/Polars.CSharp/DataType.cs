@@ -7,7 +7,7 @@ using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Helpers;
 using Polars.NET.Core.Arrow;
-using Kaminari.Sazanami.Arrow;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Marshalling;
 
 namespace Polars.CSharp;
