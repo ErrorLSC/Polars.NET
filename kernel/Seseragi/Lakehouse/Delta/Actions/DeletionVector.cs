@@ -24,6 +24,7 @@ public sealed class DeletionVector(RoaringBitmap64 rows) : IDisposable
     /// <summary>Whether a row position is deleted.</summary>
     public bool Contains(long row) => Rows.Contains(row);
 
+    /// <inheritdoc/>
     public void Dispose() => Rows.Dispose();
 
     /// <summary>Reads the deletion vector a descriptor points at.</summary>
