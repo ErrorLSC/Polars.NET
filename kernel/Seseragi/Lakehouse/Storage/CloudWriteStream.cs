@@ -92,7 +92,10 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
 
         Interlocked.Add(ref _inFlightBytes, _buffer!.Capacity);
         Volatile.Write(ref _bufferBytes, 0);
-        Task<UploadedPart> part = PutAsync(_upload, _parts.Count, _buffer, _filled);
+        // On the thread pool: preparing a request (S3 signs the part's SHA-256, ~17 ms for 10 MiB without SHA
+        // instructions) would otherwise run here, on the writer's thread, before the first wait — one part at a time.
+        (ObjectUpload upload, int index, NativeByteBuffer buffer, int filled) = (_upload, _parts.Count, _buffer, _filled);
+        Task<UploadedPart> part = Task.Run(() => PutAsync(upload, index, buffer, filled));
         _buffer = null;
         _filled = 0;
         _parts.Add(part);
