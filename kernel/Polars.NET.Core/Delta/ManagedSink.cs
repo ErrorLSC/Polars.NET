@@ -3,7 +3,8 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Buffers;
-using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Grouping;
+using Kaminari.Sazanami.Ordering;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Writing;
@@ -115,9 +116,6 @@ internal static class ManagedSink
         }
     }
 
-    /// <summary>The column the engine numbers the runs of equal keys in (rows sorted by their keys).</summary>
-    private const string RunColumn = "__polars_net_sink_run";
-
     /// <summary>A partition: its description, its open file and the files it closed.</summary>
     private sealed class Partition<TPartition>(TPartition description)
     {
@@ -128,9 +126,12 @@ internal static class ManagedSink
 
         // Of the batch being written: its number when the partition has rows in it, those rows' runs, the error met.
         public long Batch { get; set; }
-        public List<(int Start, int Length)> Runs { get; } = [];
+        public List<Run> Runs { get; } = [];
         public Exception? Error { get; set; }
     }
+
+    /// <summary>Rows of one partition in a chunk of a batch (or in the chunk gathered in group order).</summary>
+    private readonly record struct Run(RecordBatch Rows, int Start, int Count);
 
     /// <summary>The state of one sink: the writer schema, the partitions, the shared threads, the memory held.</summary>
     private sealed class Sinking<TPartition>(
@@ -140,13 +141,14 @@ internal static class ManagedSink
         private readonly long _target = (long)Math.Min(approxBytesPerFile, long.MaxValue);
         private readonly long _maxRows = (long)Math.Min(options.MaxRowsPerFile, long.MaxValue);
         private readonly bool _sync = options.SyncOnClose != PlSyncOnClose.None;
-        // The partitions in the order they first came, numbered by their key bytes (in native memory; a run's key is
-        // written to the scratch buffer and looked up as a span).
+        // The partitions in the order they first came, numbered by their keys (an empty string is a null, as Hive takes
+        // it): a partition's index is its keys' global group.
         private readonly List<Partition<TPartition>> _partitions = [];
-        private readonly ByteArrayDictionary _keys = new();
-        private readonly NativeBufferWriter _key = new(64);
-        // Kept from batch to batch: the key columns, the partitions a batch touches (in order), the batch's number.
-        private readonly IArrowArray[] _keyColumns = new IArrowArray[keys.Length];
+        private readonly KeyGroups? _groups = keys.Length > 0 ? new KeyGroups(keys.Length, [.. keys.Select(_ => true)]) : null;
+        // Scratch kept from chunk to chunk (native): each row's group in its chunk, the chunk's groups (global ids, first
+        // rows, starts in group order) and its rows in group order.
+        private readonly NativeArray<int> _ids = new(), _globals = new(), _firstRows = new(), _starts = new(), _order = new();
+        // Kept from batch to batch: the partitions a batch touches (in order), the batch's number.
         private readonly List<Partition<TPartition>> _touched = [];
         private long _batch;
         private Schema? _dataSchema;
@@ -168,35 +170,81 @@ internal static class ManagedSink
         }
 
         /// <summary>
-        /// Rows split by their keys: sorted by them (unless grouped already), exported once, cut into runs of equal keys;
-        /// the runs of each partition written by its file, the partitions side by side.
+        /// Rows split by their keys: the batch exported chunk by chunk (nothing copied), each chunk's rows grouped by
+        /// their keys (<see cref="KeyGroups"/>, then <see cref="CountingSort"/>: no sort) and gathered into group order
+        /// once (unless grouped already, or of one partition: then nothing is copied); each partition's rows then
+        /// written by its file as ranges, the partitions side by side.
         /// </summary>
+        /// <remarks>
+        /// Measured (10M rows, 2026-11-18): one gather per chunk on this thread beats each partition gathering its own
+        /// rows side by side: a gather has a fixed cost (some 33 KB managed for 8 columns), which 1000 partitions paid
+        /// 81,000 times (3× slower, 6 GB allocated), and even 30 cost 200 MB and 5–8 % of the time.
+        /// </remarks>
         public void WriteKeyed(DataFrameHandle frame, bool preGrouped)
         {
-            using DataFrameHandle grouped = Grouped(frame, preGrouped);
-            using RecordBatch whole = ArrowFfiBridge.ExportDataFrame(grouped);
-            int runColumn = whole.ColumnCount - 1;
-            Prepare(whole.Schema, keys.Length, runColumn);
-            _dataSchema ??= new Schema([.. whole.Schema.FieldsList.Take(runColumn).Skip(keys.Length)], null);
-            // The data columns (sharing the batch's arrays: never disposed apart; slices of it neither).
-            var data = new RecordBatch(_dataSchema, [.. Enumerable.Range(keys.Length, runColumn - keys.Length).Select(whole.Column)], whole.Length);
-            for (int k = 0; k < keys.Length; k++) _keyColumns[k] = whole.Column(k);
-            ReadOnlySpan<uint> runs = ((UInt32Array)whole.Column(runColumn)).Values;
-
-            // The runs of each partition (one partition may take several: an empty string and a null are one), the
-            // partitions in the order of their first run.
             _batch++;
             _touched.Clear();
-            for (int start = 0; start < runs.Length;)
+            List<RecordBatch> chunks = [];
+            try
             {
-                int end = start + 1;
-                while (end < runs.Length && runs[end] == runs[start]) end++;
-                _key.ResetWrittenCount();
-                ArrowRowKeys.Append(_keyColumns, start, _key, emptyIsNull: true);
-                int index = _keys.GetOrAdd(_key.WrittenSpan);
+                int rowsBefore = 0;
+                foreach (RecordBatch chunk in Chunks(frame))
+                {
+                    chunks.Add(chunk);
+                    if (chunk.Length > 0) Group(frame, chunk, rowsBefore, chunks);
+                    rowsBefore += chunk.Length;
+                }
+                ForEachPartition(_touched, partition =>
+                {
+                    foreach (Run run in partition.Runs) WriteRows(partition, run.Rows, run.Start, run.Count);
+                });
+            }
+            finally
+            {
+                foreach (RecordBatch chunk in chunks) chunk.Dispose();
+            }
+
+            // Grouped rows: a partition before the last one of this batch has no rows to come.
+            if (preGrouped && _touched.Count > 0)
+            {
+                Partition<TPartition> last = _touched[^1];
+                foreach (Partition<TPartition> partition in _partitions)
+                {
+                    if (partition != last && partition.Open is not null) Close(partition);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The runs of a chunk (rows <paramref name="rowsBefore"/> on of the batch), each partition's added to it: ranges
+        /// of the chunk when its rows come grouped, else of the chunk gathered in group order (kept in
+        /// <paramref name="owned"/> until the batch is written).
+        /// </summary>
+        private void Group(DataFrameHandle frame, RecordBatch chunk, int rowsBefore, List<RecordBatch> owned)
+        {
+            int rows = chunk.Length;
+            Prepare(chunk.Schema, keys.Length, chunk.ColumnCount);
+            _dataSchema ??= new Schema([.. chunk.Schema.FieldsList.Skip(keys.Length)], null);
+            // The data columns (sharing the chunk's arrays: never disposed apart).
+            var data = new RecordBatch(_dataSchema, [.. Enumerable.Range(keys.Length, chunk.ColumnCount - keys.Length).Select(chunk.Column)], rows);
+            _ids.Reserve(rows);
+            _globals.Reserve(rows);
+            _firstRows.Reserve(rows);
+            int count = _groups!.Assign([.. Enumerable.Range(0, keys.Length).Select(chunk.Column)], _ids.Span, _globals.Span, _firstRows.Span);
+            _starts.Reserve(count + 1);
+            _order.Reserve(rows);
+            if (!CountingSort.Permutation(_ids.AsSpan(0, rows), _starts.AsSpan(0, count + 1), _order.AsSpan(0, rows)))
+            {
+                // A permutation of the whole chunk: the long values of views are shared, not copied.
+                data = ArrowTake.Take(data, _order.AsSpan(0, rows));
+                owned.Add(data);
+            }
+            for (int local = 0; local < count; local++)
+            {
+                int index = _globals[local];
                 if (index == _partitions.Count)
                 {
-                    using DataFrameHandle first = PolarsWrapper.Slice(grouped, start, 1);
+                    using DataFrameHandle first = PolarsWrapper.Slice(frame, rowsBefore + _firstRows[local], 1);
                     _partitions.Add(new Partition<TPartition>(describe(first)));
                 }
                 Partition<TPartition> partition = _partitions[index];
@@ -207,23 +255,7 @@ internal static class ManagedSink
                     partition.Error = null;
                     _touched.Add(partition);
                 }
-                partition.Runs.Add((start, end - start));
-                start = end;
-            }
-
-            ForEachPartition(_touched, partition =>
-            {
-                foreach (var (start, length) in partition.Runs) WriteRows(partition, data, start, length);
-            });
-
-            // Grouped rows: a partition before the last one of this batch has no rows to come.
-            if (preGrouped && _touched.Count > 0)
-            {
-                Partition<TPartition> last = _touched[^1];
-                foreach (Partition<TPartition> partition in _partitions)
-                {
-                    if (partition != last && partition.Open is not null) Close(partition);
-                }
+                partition.Runs.Add(new Run(data, _starts[local], _starts[local + 1] - _starts[local]));
             }
         }
 
@@ -251,17 +283,6 @@ internal static class ManagedSink
             {
                 if (partition.Error is { } error) ExceptionDispatchInfo.Throw(error);
             }
-        }
-
-        /// <summary>The engine batch with its run ids last: sorted by the keys first unless grouped already.</summary>
-        private DataFrameHandle Grouped(DataFrameHandle frame, bool preGrouped)
-        {
-            LazyFrameHandle lazy = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(frame));
-            if (!preGrouped)
-                lazy = PolarsWrapper.LazyFrameSort(lazy, [.. keys.Select(PolarsWrapper.Col)], [false], [false], maintainOrder: true);
-            ExprHandle run = PolarsWrapper.RleId(keys.Length == 1 ? PolarsWrapper.Col(keys[0]) : PolarsWrapper.AsStruct([.. keys.Select(PolarsWrapper.Col)]));
-            lazy = PolarsWrapper.LazyWithColumns(lazy, [PolarsWrapper.Alias(run, RunColumn)]);
-            return PolarsWrapper.LazyCollect(lazy, PlEngine.Auto);
         }
 
         /// <summary>The writer schema and options, from the first batch: its fields first .. end.</summary>
@@ -354,11 +375,11 @@ internal static class ManagedSink
             return new SinkResult([.. _partitions.SelectMany(p => p.Closed)], _closedForMemory);
         }
 
-        /// <summary>Frees the keys' native memory.</summary>
+        /// <summary>Frees the keys' and the scratch's native memory.</summary>
         public void Dispose()
         {
-            _keys.Dispose();
-            _key.Dispose();
+            _groups?.Dispose();
+            foreach (NativeArray<int> scratch in (NativeArray<int>[])[_ids, _globals, _firstRows, _starts, _order]) scratch.Dispose();
         }
 
         /// <summary>Gives up every open file (nothing of them stays).</summary>

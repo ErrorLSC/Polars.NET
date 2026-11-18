@@ -257,11 +257,14 @@ public sealed class DeltaManagedSinkTests : IDisposable
     private static DataFrame WithPartitionColumns(int rows)
     {
         string?[] strings = [" a b ", "x=y/z", "50%", "日本語", "", null, "plain", "a:b#c"];
+        // Floating keys: -0.0 is 0.0 and every NaN one value (the IR's grouping keys).
+        double?[] floats = [0.0, -0.0, double.NaN, BitConverter.Int64BitsToDouble(0x7FF8000000000001L), 1.5, null];
         using DataFrame keyed = DataFrame.From<Keys>([.. Enumerable.Range(0, rows).Select(i => new Keys(
             i, strings[i % strings.Length], i % 7 - 3, (i % 5) * 10_000_000_000L, DateOnly.FromDayNumber(738_000 + i % 4),
-            new DateTime(2024, 1, 1 + i % 3, i % 2, 30, 15, DateTimeKind.Utc), i % 3 == 0, i % 4 * 1.25m, $"value {i}"))]);
+            new DateTime(2024, 1, 1 + i % 3, i % 2, 30, 15, DateTimeKind.Utc), i % 3 == 0, i % 4 * 1.25m, $"value {i}", floats[i % floats.Length]))]);
         return keyed.Lazy().WithColumns(
             Col("PDec").Cast(DataType.Decimal(10, 2)),
+            Col("PStr").Cast(DataType.Categorical()).Alias("PCat"),
             Col("PTs").Cast(DataType.Datetime(TimeUnit.Microseconds))).Collect();
     }
 
@@ -308,12 +311,43 @@ public sealed class DeltaManagedSinkTests : IDisposable
     [InlineData("PDate")]
     [InlineData("PTs")]
     [InlineData("PDec")]
+    [InlineData("PFloat")]
+    [InlineData("PCat")]
+    [InlineData("PCat,PInt")]
     public void PartitionedWrites_WriteWhatTheEnginesSinkWrites(string partitionBy)
     {
         using DataFrame rows = WithPartitionColumns(5000);
         string name = partitionBy.Replace(',', '_');
         SamePartitionedAsTheEnginesSink(table => rows.WriteDelta(table, partitionBy: Selectors.ByName(partitionBy.Split(','))), Table($"native_{name}"), Table($"managed_{name}"));
     }
+
+    [Fact]
+    public void FloatKeys_ZeroAndNaN_AreOnePartitionEach_AmongOtherKeys()
+    {
+        // The IR's grouping keys: -0.0 is 0.0 and every NaN one value, with other key columns too (the engine's own
+        // sink keeps -0.0 and 0.0 apart when it groups by several columns).
+        using DataFrame rows = WithPartitionColumns(4200);
+        string table = Table("float_keys");
+        Sink("managed", () => rows.WriteDelta(table, partitionBy: Selectors.ByName("PFloat", "PInt")));
+        List<(string? Float, string Int, long Rows)> partitions = [.. Adds(table).Select(a => (
+            a.GetProperty("partitionValues").GetProperty("PFloat").GetString(),
+            a.GetProperty("partitionValues").GetProperty("PInt").GetString()!,
+            JsonDocument.Parse(a.GetProperty("stats").GetString()!).RootElement.GetProperty("numRecords").GetInt64()))];
+        foreach (string pInt in partitions.Select(p => p.Int).Distinct())
+        {
+            // Of every 42 rows, PInt = i % 7 - 3 and PFloat = floats[i % 6]: per PInt value 200 zeros (0.0, -0.0),
+            // 200 NaNs (two payloads) and 100 nulls.
+            var zeros = partitions.Where(p => p.Int == pInt && p.Float is "0.0" or "-0.0").ToList();
+            Assert.Single(zeros);
+            Assert.Equal(200, zeros[0].Rows);
+            // A NaN's partition value is written as null (it goes through JSON, which has no NaN: an open defect of
+            // the partition values, both sinks): its rows are the null-valued partition of 200 rows, one.
+            Assert.Equal([100, 200], partitions.Where(p => p.Int == pInt && p.Float is null).Select(p => p.Rows).Order());
+        }
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Handle")]
+    private static extern DataFrameHandle Handle(DataFrame df);
 
     [Fact]
     public void AnEmptyStringPartition_IsTheNullOne_OneFile()
@@ -422,6 +456,41 @@ public sealed class DeltaManagedSinkTests : IDisposable
             Assert.Equal(1500, a.Height);
             Assert.True(a.Equals(b), $"key {key}");
             Assert.Equal(["Value"], a.Columns);
+        }
+    }
+
+    [Fact]
+    public void BatchesOfManyChunks_GroupedOrNot_WriteEachPartitionsRows()
+    {
+        // The engine hands concatenated frames over as batches of several chunks: some chunks grouped by their key
+        // already (written as ranges), some not (gathered); one key spans chunks and batches.
+        using DataFrame grouped = DataFrame.From<Grouped>([.. Enumerable.Range(0, 3000).Select(i => new Grouped(i / 700, i))]);
+        using DataFrame mixed = DataFrame.From<Grouped>([.. Enumerable.Range(3000, 3000).Select(i => new Grouped(i * 7919 % 11, i))]);
+        using DataFrame single = DataFrame.From<Grouped>([.. Enumerable.Range(6000, 1000).Select(i => new Grouped(4, i))]);
+        using LazyFrame rows = LazyFrame.Concat([grouped.Lazy(), mixed.Lazy(), single.Lazy(), mixed.Lazy().Filter(Col("Value") % 3 != 0)]);
+        string root = Table("chunks");
+        Directory.CreateDirectory(root);
+        var fileSystem = new Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem(root);
+        DeltaSchema.StructField[] fields = [new() { Name = "Value", Type = new DeltaSchema.PrimitiveType("long") }];
+        List<int> described = [];
+        ManagedSink.SinkResult result = ManagedSink.Sink(fileSystem, PolarsWrapper.LazyClone(LazyHandle(rows)), ["Key"], false, fields,
+            keys =>
+            {
+                int key = KeyOf(keys!);
+                described.Add(key);
+                return key;
+            },
+            (key, index) => $"Key={key}/part-{index:D5}.parquet", KernelWriteOptions.Default with { RowGroupSize = 1000 }, approxBytesPerFile: 0);
+        // Each key described once, in the order the keys first came; one file each.
+        using DataFrame all = rows.Collect();
+        long[] firstCame = [.. ((Apache.Arrow.Int64Array)Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame(Handle(all)).Column(0)).Values.ToArray().Distinct()];
+        Assert.Equal(firstCame.Select(k => (int)k), described);
+        Assert.Equal(11, result.Files.Count);
+        foreach (int key in described)
+        {
+            using DataFrame written = DataFrame.ReadParquet(Path.Combine(root, $"Key={key}", "*.parquet"));
+            using DataFrame expected = all.Filter(Col("Key") == key).Select(Col("Value"));
+            Assert.True(expected.Equals(written), $"key {key}: the rows, in their order"); // a stable grouping keeps the order
         }
     }
 
@@ -560,7 +629,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
 
     private sealed record Inner(int A, string? B);
 
-    private sealed record Keys(long Id, string? PStr, int PInt, long PLong, DateOnly PDate, DateTime PTs, bool PBool, decimal PDec, string Text);
+    private sealed record Keys(long Id, string? PStr, int PInt, long PLong, DateOnly PDate, DateTime PTs, bool PBool, decimal PDec, string Text, double? PFloat);
 
     private sealed record Grouped(long Key, long Value);
 
