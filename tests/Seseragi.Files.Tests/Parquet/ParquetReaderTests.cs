@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Compression;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
@@ -203,7 +204,7 @@ public class ParquetReaderTests
             byte[] damaged = compressed[..n];
             damaged[random.Next(n)] = (byte)random.Next(256);
             Exception? e = Record.Exception(() => Lz4Block.Decompress(damaged.AsSpan(0, random.Next(n + 1)), new byte[input.Length]));
-            if (e is not null) Assert.IsType<ParquetFormatException>(e);
+            if (e is not null) Assert.IsType<InvalidDataException>(e);
         }
     }
 

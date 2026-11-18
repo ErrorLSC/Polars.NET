@@ -3,7 +3,6 @@ using System.IO.Compression;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Snappier;
-using ZstdSharp;
 
 namespace Kaminari.Seseragi.Files.Parquet.Codecs;
 
@@ -13,7 +12,6 @@ namespace Kaminari.Seseragi.Files.Parquet.Codecs;
 /// </summary>
 internal static class PageCodecs
 {
-    [ThreadStatic] private static Decompressor? t_zstdDecompressor;
 
     /// <summary>Whether this library reads pages compressed with <paramref name="codec"/>.</summary>
     public static bool CanDecompress(CompressionCodec codec) => codec is CompressionCodec.Uncompressed or CompressionCodec.Snappy
@@ -45,13 +43,13 @@ internal static class PageCodecs
                 CompressionCodec.Snappy => SnappyBlock.Decompress(source, destination),
                 CompressionCodec.Gzip => Gzip(source, destination),
                 CompressionCodec.Brotli => BrotliDecoder.TryDecompress(source, destination, out int n) ? n : throw Damaged(codec),
-                CompressionCodec.Zstd => (t_zstdDecompressor ??= new Decompressor()).Unwrap(source, destination),
+                CompressionCodec.Zstd => ZstdBlock.Decompress(source, destination),
                 CompressionCodec.Lz4Raw => Lz4Block.Decompress(source, destination),
                 CompressionCodec.Lz4 => Lz4Hadoop(source, destination),
                 _ => throw new ParquetFormatException($"Pages compressed with {Name(codec)} are not supported."),
             };
         }
-        catch (Exception e) when (e is InvalidDataException or ZstdException or ArgumentException or IndexOutOfRangeException)
+        catch (Exception e) when (e is InvalidDataException or ArgumentException or IndexOutOfRangeException)
         {
             throw new ParquetFormatException($"A {Name(codec)} page is damaged: {e.Message}", e);
         }
@@ -104,7 +102,7 @@ internal static class PageCodecs
                 {
                     if (Lz4Block.Decompress(source[..(int)compressed], destination.Slice(written, (int)expanded)) != expanded) return false;
                 }
-                catch (ParquetFormatException)
+                catch (InvalidDataException)
                 {
                     return false;
                 }
@@ -126,18 +124,12 @@ internal static class PageCodecs
     {
         CompressionCodec.Uncompressed => length,
         CompressionCodec.Snappy => Snappy.GetMaxCompressedLength(length),
-        CompressionCodec.Zstd => Compressor.GetCompressBound(length),
+        CompressionCodec.Zstd => ZstdBlock.MaxCompressedLength(length),
         CompressionCodec.Brotli => BrotliEncoder.GetMaxCompressedLength(length),
         CompressionCodec.Lz4Raw => Lz4Block.MaxCompressedLength(length),
         CompressionCodec.Gzip => length + length / 1000 + 64,
         _ => throw new NotSupportedException($"This library does not write {Name(codec)} pages."),
     };
-
-    [ThreadStatic]
-    private static Compressor? t_zstd;
-
-    [ThreadStatic]
-    private static int t_zstdLevel;
 
     /// <summary>
     /// Compresses <paramref name="source"/> into <paramref name="destination"/> (at least <see cref="MaxCompressedLength"/>
@@ -154,17 +146,7 @@ internal static class PageCodecs
             case CompressionCodec.Snappy:
                 return Snappy.Compress(source, destination);
             case CompressionCodec.Zstd:
-            {
-                // A compressor (its native context) a thread and level, kept for the thread's later pages.
-                int zstdLevel = level < 0 ? 3 : level;
-                if (t_zstd is null || t_zstdLevel != zstdLevel)
-                {
-                    t_zstd?.Dispose();
-                    t_zstd = new Compressor(zstdLevel);
-                    t_zstdLevel = zstdLevel;
-                }
-                return t_zstd.Wrap(source, destination);
-            }
+                return ZstdBlock.Compress(source, destination, level < 0 ? ZstdBlock.DefaultLevel : level);
             case CompressionCodec.Brotli:
                 return BrotliEncoder.TryCompress(source, destination, out int n, level < 0 ? 4 : level, 22) ? n : throw new ArgumentException("The destination is too small.");
             case CompressionCodec.Lz4Raw:

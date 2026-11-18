@@ -1,11 +1,12 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
-namespace Kaminari.Seseragi.Files.Parquet.Codecs;
+namespace Kaminari.Sazanami.Compression;
 
 /// <summary>
 /// The LZ4 block format (lz4_Block_format.md): sequences of a token, literals, and a match (offset, length); the
-/// last sequence has literals only. Parquet's LZ4_RAW codec is one such block per page.
+/// last sequence has literals only. Parquet's LZ4_RAW codec is one such block per page; the LZ4 frame format
+/// (<see cref="Lz4Frame"/>, Arrow IPC) holds a sequence of them.
 /// </summary>
 internal static class Lz4Block
 {
@@ -15,10 +16,19 @@ internal static class Lz4Block
     private const int HashBits = 16;
 
     /// <summary>Decompresses a block into <paramref name="destination"/>; returns the bytes written.</summary>
-    /// <exception cref="ParquetFormatException">The block is damaged or does not fit.</exception>
-    public static int Decompress(ReadOnlySpan<byte> source, Span<byte> destination)
+    /// <exception cref="InvalidDataException">The block is damaged or does not fit.</exception>
+    public static int Decompress(ReadOnlySpan<byte> source, Span<byte> destination) => Decompress(source, destination, 0);
+
+    /// <summary>
+    /// Decompresses a block into <paramref name="window"/> from position <paramref name="start"/>; matches may reach
+    /// back into the <paramref name="start"/> bytes before it (the LZ4 frame format's linked blocks). Returns the bytes
+    /// written.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The block is damaged or does not fit.</exception>
+    public static int Decompress(ReadOnlySpan<byte> source, Span<byte> window, int start)
     {
-        int ip = 0, op = 0;
+        Span<byte> destination = window;
+        int ip = 0, op = start;
         if (source.IsEmpty) return 0;
         while (true)
         {
@@ -31,7 +41,7 @@ internal static class Lz4Block
             source.Slice(ip, literals).CopyTo(destination[op..]);
             ip += literals;
             op += literals;
-            if (ip == source.Length) return op; // the last sequence ends after its literals
+            if (ip == source.Length) return op - start; // the last sequence ends after its literals
 
             if (source.Length - ip < 2) throw Damaged();
             int offset = BinaryPrimitives.ReadUInt16LittleEndian(source[ip..]);
@@ -65,7 +75,7 @@ internal static class Lz4Block
         return length;
     }
 
-    private static ParquetFormatException Damaged() => new("An LZ4 block is damaged.");
+    private static InvalidDataException Damaged() => new("An LZ4 block is damaged.");
 
     /// <summary>The largest block <paramref name="length"/> input bytes can compress to.</summary>
     public static int MaxCompressedLength(int length) => length + length / 255 + 16;

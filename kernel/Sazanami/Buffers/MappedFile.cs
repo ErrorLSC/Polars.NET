@@ -72,6 +72,13 @@ internal sealed unsafe class MappedFile
         _map.Dispose();
     }
 
+    /// <summary>Where bytes [<paramref name="offset"/>, + <paramref name="length"/>) of the file are, valid while a hold is kept.</summary>
+    public byte* At(long offset, long length)
+    {
+        if (offset < 0 || length < 0 || offset > Length - length) throw new ArgumentOutOfRangeException(nameof(offset));
+        return _pointer + offset;
+    }
+
     /// <summary>Bytes [<paramref name="offset"/>, + <paramref name="length"/>) of the file, valid while a hold is kept.</summary>
     public ReadOnlyMemory<byte> Range(long offset, int length)
     {

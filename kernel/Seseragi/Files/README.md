@@ -2,7 +2,8 @@
 
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
-**Parquet** (files and their full footer metadata read and written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+**Parquet** (files and their full footer metadata read and written) and **Arrow IPC** (the file format, Feather v2, and
+the stream format, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -11,7 +12,7 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, 
 ## Design rules
 
 * Depends on `Kaminari.Sazanami` (Arrow infrastructure) and pure managed codec packages (`ZstdSharp.Port`,
-  `Snappier`, `System.IO.Hashing`), never on Polars.NET or Seseragi.Lakehouse; the sources never mention the engine.
+  `Snappier`; Zstandard and XxHash come through Sazanami), never on Polars.NET or Seseragi.Lakehouse; the sources never mention the engine.
 * Off the managed heap where it matters: file blocks, decompression output and Arrow buffers are native memory.
 * Values a format cannot hold exactly are refused with an exception, never changed silently.
 * No reflection JSON (AOT): schemas are parsed with `JsonDocument` and written with `Utf8JsonWriter`.
@@ -284,6 +285,49 @@ expansion (`ParquetDataset`), partition values (`Partitions`: Hive paths or give
 per file) and the reader of its files (`ParquetDatasetReader`: column layout, partition pruning, filters per file,
 the window of row groups across files; `ParquetDatasetReader<T>`: typed rows).
 
+## Arrow IPC
+
+**Files** (`IpcFile`): the IPC file format (`.arrow`, Feather v2), opened from a path, memory, a stream (one that
+cannot seek is copied into native memory first) or an `IRandomAccess` source, sync or async. The footer is read and
+checked on open (every block inside the data); `Schema` (with the schema's custom metadata), `FileMetadata` (the
+footer's), `BatchCount`, `ReadBatch(index)`, `GetBatchMetadata(index)` (a batch message's custom metadata). Only the
+footer locates messages: the stream embedded after the magic is never parsed (Polars writes its schema message there
+without a prefix). Feather v1 files, IPC streams and other data are refused by name.
+
+**Reading** (`IpcFile.OpenReader`, `IpcReader`, `IpcReadOptions`): `ReadBatch(index)`, `ReadBatches` /
+`ReadBatchesAsync`, `ReadArrowStream`. `Columns` selects top-level columns (the buffers of the others are never read,
+decompressed or checked; byte gaps up to 1 MiB between the needed buffers are read rather than skipped); `MaxRows`
+cuts the rows; `MemoryMap` (`IpcMemoryMap`: `Auto` by default) reads a local file opened by path through a mapping:
+uncompressed batches point into it (`On`: compressed ones are decompressed out of it), the mapping lives while a batch
+does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
+id is refused, as the format says), only those the selected columns reach (dictionary values may themselves be
+dictionary-encoded). `ValidateUtf8` checks strings (off by default, as pyarrow and Polars read).
+
+**Streams** (`IpcStreamReader`): the stream format from any `Stream`, forward only, sync or async (`ReadNext`,
+`ReadBatches`, `ReadBatchesAsync`, `ReadArrowStream`); dictionary replacements and deltas apply from the next batch;
+the end-of-stream marker or the end of the data ends it; the buffers of unselected columns are skipped (seeked past, or
+read through a small scratch); `SchemaMessageMetadata` and `BatchMetadata`.
+
+**What is read**: metadata V4 (unions with their old validity buffer, refused when it holds nulls) and V5; the
+pre-0.15 framing (no continuation marker); every type of the columnar format 1.5: null, booleans, integers, floats
+(half to double), decimals of 32 to 256 bits, dates, times, timestamps (with zones), durations, the three interval
+kinds, binary and strings plain, large and as views (any number of variadic buffers), fixed-size binary, list, large
+list, list view, large list view, fixed-size list, struct, map, sparse and dense unions, run-end encoding, dictionaries
+of every index type (a dictionary a stream sends after an all-null batch reads as empty), extension types (as their
+storage, the extension kept in the field metadata). Polars' Int128 / UInt128 (an Arrow `Int` of 128 bits) read as
+`decimal128(38, 0)` / `decimal256(39, 0)`. Bodies compressed with LZ4 frames (linked or independent blocks, checksums
+verified) or Zstandard, buffers stored raw (`-1`) or empty without a length. Refused by name: big-endian data, metadata
+before V4, tensor messages, buffers over 2 GiB, types Apache.Arrow cannot hold (a struct without fields, fixed-size
+binary of width 0). Apache.Arrow names map fields canonically (`entries`, `key`, `value`).
+
+**Validation**: every array is checked before it is handed out, in O(n), vectorized where the data allows: buffers
+inside the body and long enough for their lengths, null counts against validity bitmaps, offsets non-decreasing and
+within their data, views (length, buffer index, offset, inline prefix), list views, union type ids and dense offsets,
+run ends increasing, dictionary indices within their dictionary, map keys not null, exactly the nodes, buffers and
+variadic counts the schema takes, decompressed sizes as declared (and declared sizes within what the codec can expand
+to, so a forged length allocates nothing). Values themselves (decimal precision, date64 whole days) are not checked.
+Damaged or invalid data fails with `IpcFormatException`.
+
 ## Avro features
 
 **Reading** (`AvroReader`, `AvroReadOptions`): from a path or a stream, synchronously or asynchronously, as record
@@ -466,6 +510,8 @@ written synchronously on completion.
 | `Excel/Ods/` | `OdsWorkbook` (detection, encryption check, the on-demand scan of the document, sheets by offset), `OdsStyles` (hidden table styles, elapsed-time cell styles through parents, the null date), `OdsValues` (xsd dates and durations to microseconds), `OdsSheetSource` (a table to rows: repeats, value types, paragraph text). |
 | `Excel/Reading/` | The format-neutral half: `SheetCells` (cell model, row buffer, `SheetSource`), `WorkbookSource`, `ChunkReader` (a part decompressed into a native buffer, refilled between complete chunks), `SharedStringStore` (native UTF-8 plus offsets), `SheetReader` (header, window, inference, projection, batches), `ColumnAppenders` (cells to native builders per Arrow type), `CellText` (cells as text). |
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
+| `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
+| `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>`): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
@@ -594,6 +640,12 @@ value against a logical type is allowed. General unions are not written against 
   (`interop_check.py`).
 * Row view: `tests/Sazanami.Tests/ArrowRowsTests.cs`, and over Avro batches `AvroRowViewTests.cs`.
 * Row predicates and filtering: `tests/Sazanami.Tests/FilterProgramTests.cs` (random programs on every column type and layout against a row-by-row model of the IR's semantics) and `ArrowFilterTests.cs` (against a model gather; shared memory and its lifetime).
+* Arrow IPC (`tests/Seseragi.Files.Tests/Ipc`): every corpus file against pyarrow and Python Polars value by value
+  and batch by batch (`IpcValueTests`, `TestData/ipc/values.json`), its structure against an independent FlatBuffer
+  reading (`IpcStructureTests`, `messages.json`; the corpus and how it is written: `TestData/ipc/README.md`), every
+  reading mode alike (mapped or not, sync or async, memory), projection and row limits, Apache.Arrow's reader on the
+  uncompressed files, the Arrow C++ fuzz reproducers, random damage, arrays breaking each checked rule
+  (`IpcRobustnessTests`, `IpcDecoderTests`), lifetimes, metadata and errors (`IpcApiTests`).
 * Parquet (`tests/Seseragi.Files.Tests/Parquet`): every corpus file against pyarrow and DuckDB oracles
   (`ParquetValueTests`, `TestData/parquet/values.json`, `footers.json`; the corpus and how it is written:
   `TestData/parquet/README.md`), readers and options (`ParquetReaderTests`), nested data, kernels against their
