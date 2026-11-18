@@ -1109,6 +1109,44 @@ public class SparkInteropTests
         note = ids.Select(i => i == 2 ? null : new string('x', i * 20)).ToArray(),
     });
 
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void NonFinitePartitionValues_RoundTripWithSpark()
+    {
+        // NaN and the infinities have no JSON number; their partition values are Java's Double.toString both ways.
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_spark_{Guid.NewGuid():N}");
+        string[] expected = ["NaN", "Infinity", "-Infinity", "1.5", ""];
+        try
+        {
+            // The kernel writes, Spark reads (the values as Spark prints them: JSON has no NaN either).
+            string ours = Path.Combine(root, "ours");
+            using (var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3, 4, 5 }, P = new double?[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity, 1.5, null } }))
+                Write(ours, df, KernelWriteMode.ErrorIfExists, ["P"]);
+            JsonElement rows = LocalSpark.Run("query", ours, "SELECT Id, CAST(P AS STRING) AS P FROM {table} ORDER BY Id")[0].RootElement.GetProperty("rows");
+            Assert.Equal(expected, rows.EnumerateArray().Select(r => r.GetProperty("P").GetString() ?? ""));
+
+            // Spark writes, the kernel reads: Spark's partition values are the same strings.
+            string theirs = Path.Combine(root, "theirs");
+            LocalSpark.Run("query", theirs, "CREATE TABLE {table} (Id INT, P DOUBLE) USING delta PARTITIONED BY (P)");
+            LocalSpark.Run("query", theirs, "INSERT INTO {table} VALUES (1, double('NaN')), (2, double('Infinity')), (3, double('-Infinity')), (4, 1.5), (5, NULL)");
+            string[] logged = [.. Directory.GetFiles(Path.Combine(theirs, "_delta_log"), "*.json")
+                .SelectMany(File.ReadLines).Select(l => JsonDocument.Parse(l).RootElement)
+                .Where(a => a.TryGetProperty("add", out _)).Select(a => a.GetProperty("add").GetProperty("partitionValues").GetProperty("P").GetString() ?? "")
+                .OrderBy(v => v, StringComparer.Ordinal)];
+            Assert.Equal(expected.OrderBy(v => v, StringComparer.Ordinal), logged);
+            using DataFrameHandle read = PolarsWrapper.LazyCollect(PolarsWrapper.LazyFrameSort(DeltaKernelScan.Scan(theirs), [PolarsWrapper.Col("Id")], [false], [false], maintainOrder: false), PlEngine.Auto);
+            using Apache.Arrow.RecordBatch batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame(read);
+            var p = (Apache.Arrow.DoubleArray)batch.Column(batch.Schema.GetFieldIndex("P"));
+            Assert.True(double.IsNaN(p.GetValue(0)!.Value));
+            Assert.Equal([double.PositiveInfinity, double.NegativeInfinity, 1.5], [p.GetValue(1)!.Value, p.GetValue(2)!.Value, p.GetValue(3)!.Value]);
+            Assert.True(p.IsNull(4));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static void Write(string path, DataFrame df, KernelWriteMode mode, string[]? partitionBy = null)
     {
         using (df)

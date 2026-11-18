@@ -340,9 +340,40 @@ public sealed class DeltaManagedSinkTests : IDisposable
             var zeros = partitions.Where(p => p.Int == pInt && p.Float is "0.0" or "-0.0").ToList();
             Assert.Single(zeros);
             Assert.Equal(200, zeros[0].Rows);
-            // A NaN's partition value is written as null (it goes through JSON, which has no NaN: an open defect of
-            // the partition values, both sinks): its rows are the null-valued partition of 200 rows, one.
-            Assert.Equal([100, 200], partitions.Where(p => p.Int == pInt && p.Float is null).Select(p => p.Rows).Order());
+            var nans = partitions.Where(p => p.Int == pInt && p.Float == "NaN").ToList();
+            Assert.Single(nans);
+            Assert.Equal(200, nans[0].Rows);
+            Assert.Equal(100, Assert.Single(partitions, p => p.Int == pInt && p.Float is null).Rows);
+        }
+    }
+
+    [Theory]
+    [InlineData("native")]
+    [InlineData("managed")]
+    public void NonFinitePartitionValues_AreWrittenAsSparkWritesThem(string sink)
+    {
+        // NaN and the infinities have no JSON number: their partition values are Java's Double.toString, as Spark's.
+        double otherNaN = BitConverter.Int64BitsToDouble(0x7FF8000000000001L);
+        double?[] doubles = [double.NaN, double.PositiveInfinity, double.NegativeInfinity, 1.5, null, otherNaN];
+        using DataFrame rows = DataFrame.From<NonFinite>([.. Enumerable.Range(0, 60).Select(i => new NonFinite(i, doubles[i % 6], (float?)doubles[i % 6]))]);
+        foreach (string column in (string[])["D", "F"])
+        {
+            string table = Table($"non_finite_{sink}_{column}");
+            Sink(sink, () => rows.WriteDelta(table, partitionBy: column));
+            string?[] values = [.. Adds(table).Select(a => a.GetProperty("partitionValues").GetProperty(column).GetString()).Distinct().OrderBy(v => v, StringComparer.Ordinal)];
+            Assert.Equal([null, "-Infinity", "1.5", "Infinity", "NaN"], values);
+            Assert.True(Directory.Exists(Path.Combine(table, $"{column}=NaN")) && Directory.Exists(Path.Combine(table, $"{column}=-Infinity")), "the directories");
+            // Read back as written: the NaNs and infinities are values again, the nulls null.
+            using DataFrame read = DataFrame.ReadDelta(table).Sort("Id");
+            using Apache.Arrow.RecordBatch batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame(Handle(read));
+            Apache.Arrow.IArrowArray got = batch.Column(batch.Schema.GetFieldIndex(column));
+            for (int i = 0; i < 60; i++)
+            {
+                double? expected = doubles[i % 6];
+                double? actual = got.IsNull(i) ? null : got is Apache.Arrow.DoubleArray d ? d.GetValue(i) : ((Apache.Arrow.FloatArray)got).GetValue(i);
+                Assert.True(expected is null ? actual is null : actual is double a && (double.IsNaN(expected.Value) ? double.IsNaN(a) : a == expected.Value),
+                    $"{sink} {column} row {i}: {actual} for {expected}");
+            }
         }
     }
 
@@ -632,6 +663,8 @@ public sealed class DeltaManagedSinkTests : IDisposable
     private sealed record Keys(long Id, string? PStr, int PInt, long PLong, DateOnly PDate, DateTime PTs, bool PBool, decimal PDec, string Text, double? PFloat);
 
     private sealed record Grouped(long Key, long Value);
+
+    private sealed record NonFinite(long Id, double? D, float? F);
 
     private sealed record Row(long Id, sbyte Tiny, short Small, int Int, float Single, double Double, decimal Money, string? Text,
         bool Flag, DateOnly Day, DateTimeOffset At, List<int>? Numbers, Inner? Nested)

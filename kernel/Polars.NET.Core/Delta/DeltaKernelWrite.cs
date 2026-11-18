@@ -859,7 +859,12 @@ internal static class DeltaKernelWrite
         var values = new Dictionary<string, string?>(StringComparer.Ordinal);
         if (partitions.Length == 0 || group is null) return values;
 
-        var exprs = partitions.Select(p => PolarsWrapper.Alias(PolarsWrapper.First(Comparable(p, schema.Field(p)!.Type), ignoreNulls: false), p)).ToArray();
+        string[] floating = [.. partitions.Where(p => schema.Field(p)!.Type is PrimitiveType { Name: PrimitiveType.Float or PrimitiveType.Double })];
+        ExprHandle[] exprs =
+        [
+            .. partitions.Select(p => PolarsWrapper.Alias(PolarsWrapper.First(Comparable(p, schema.Field(p)!.Type), ignoreNulls: false), p)),
+            .. floating.Select(p => PolarsWrapper.Alias(PolarsWrapper.First(NonFinite(p), ignoreNulls: false), NonFiniteKey(p))),
+        ];
         using JsonDocument row = OneRow(group, exprs);
         foreach (string p in partitions)
         {
@@ -867,8 +872,25 @@ internal static class DeltaKernelWrite
             values[p] = v.ValueKind == JsonValueKind.Null ? null : FormatValue(v, schema.Field(p)!.Type, forStatistics: false);
             if (values[p] is { Length: 0 }) values[p] = null; // an empty string partition is null, as Spark writes it
         }
+        // NaN and the infinities, which JSON has no number for (the engine writes them as null), as Spark writes them.
+        foreach (string p in floating)
+        {
+            if (row.RootElement.GetProperty(NonFiniteKey(p)).GetString() is { } text) values[p] = text;
+        }
         return values;
+
+        static string NonFiniteKey(string p) => "\u0001nonfinite:" + p;
     }
+
+    /// <summary>
+    /// A floating column's NaN and infinities as Spark writes them in partition values (Java's <c>Double.toString</c>:
+    /// <c>NaN</c>, <c>Infinity</c>, <c>-Infinity</c>), null for every other value.
+    /// </summary>
+    private static ExprHandle NonFinite(string column) =>
+        PolarsWrapper.IfElse(PolarsWrapper.ExprIsNan(PolarsWrapper.Col(column)), PolarsWrapper.Lit("NaN"),
+            PolarsWrapper.IfElse(PolarsWrapper.Eq(PolarsWrapper.Col(column), PolarsWrapper.Lit(double.PositiveInfinity)), PolarsWrapper.Lit("Infinity"),
+                PolarsWrapper.IfElse(PolarsWrapper.Eq(PolarsWrapper.Col(column), PolarsWrapper.Lit(double.NegativeInfinity)), PolarsWrapper.Lit("-Infinity"),
+                    PolarsWrapper.LitNull())));
 
     /// <summary>The <c>stats</c> JSON of a data file: row count, and per column minimum, maximum and null count.</summary>
     internal static string Statistics(DataFrameHandle group, StructField[] fields)
