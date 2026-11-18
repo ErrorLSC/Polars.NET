@@ -102,6 +102,36 @@ public class KeyGroupsTests
     }
 
     [Fact]
+    public void InlineViews_WithBytesPastTheString_GroupByTheString()
+    {
+        // Views of strings of 0 .. 12 bytes whose padding holds garbage (Arrow asks for zeros; a writer may not), then
+        // the same strings plainly: each plain row joins its view's group.
+        byte[][] strings = [.. Enumerable.Range(0, 13).Select(n => Enumerable.Range(0, n).Select(i => (byte)('a' + i)).ToArray())];
+        var views = new byte[strings.Length * 16];
+        new Random(7).NextBytes(views);
+        for (int i = 0; i < strings.Length; i++)
+        {
+            Span<byte> view = views.AsSpan(i * 16, 16);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(view, strings[i].Length);
+            strings[i].CopyTo(view[4..]);
+        }
+        using IArrowArray inline = ArrowArrayFactory.BuildArray(new ArrayData(StringViewType.Default, strings.Length, 0, 0,
+            [ArrowBuffer.Empty, new ArrowBuffer(views), ArrowBuffer.Empty]));
+        var plain = new StringArray.Builder();
+        foreach (byte[] s in strings.Reverse()) plain.Append(System.Text.Encoding.UTF8.GetString(s));
+        using StringArray reversed = plain.Build();
+
+        using var groups = new KeyGroups(1);
+        int n = strings.Length;
+        var ids = new int[n];
+        var batchGroups = new int[n];
+        Assert.Equal(n, groups.Assign([inline], ids, batchGroups, new int[n]));
+        Assert.Equal(n, groups.Assign([reversed], ids, batchGroups, new int[n]));
+        Assert.Equal(n, groups.Count);
+        Assert.Equal([.. Enumerable.Range(0, n).Reverse()], batchGroups);
+    }
+
+    [Fact]
     public void ManyGroups_OverSeveralBatches()
     {
         using var groups = new KeyGroups(1);
@@ -164,6 +194,29 @@ public class KeyGroupsTests
         var pairIds = new int[4];
         Assert.Equal(3, pairs.Assign([first, second], pairIds, new int[4], new int[4]));
         Assert.Equal([0, 1, 0, 2], pairIds);
+    }
+
+    [Fact]
+    public void LongStrings_OfOneImageAndHash_AreToldApart_ByTheirBytes()
+    {
+        // Strings longer than an image holds, of one length and first 12 bytes (one image), whose 32-bit byte hashes
+        // collide (found by the birthday bound): only their bytes tell them apart.
+        Dictionary<uint, int> seen = [];
+        byte[] Candidate(int i) => System.Text.Encoding.ASCII.GetBytes($"abcdefghijkl{i:D8}");
+        (int a, int b) = (-1, -1);
+        for (int i = 0; a < 0; i++)
+        {
+            uint hash = Kaminari.Sazanami.Encodings.ByteHash.Of(Candidate(i));
+            if (seen.TryGetValue(hash, out int earlier)) (a, b) = (earlier, i);
+            else seen[hash] = i;
+        }
+        var builder = new StringViewArray.Builder();
+        foreach (int i in (int[])[a, b, a, b]) builder.Append(System.Text.Encoding.ASCII.GetString(Candidate(i)));
+        using StringViewArray keys = builder.Build();
+        using var groups = new KeyGroups(1);
+        var ids = new int[4];
+        Assert.Equal(2, groups.Assign([keys], ids, new int[4], new int[4]));
+        Assert.Equal([0, 1, 0, 1], ids);
     }
 
     [Fact]

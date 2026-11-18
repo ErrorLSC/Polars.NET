@@ -45,6 +45,9 @@ internal sealed class KeyGroups : IDisposable
     private readonly NativeArray<ulong> _groupHashes = new();
     private readonly NativeArray<int> _localOf = new(); // per global group: its batch group + 1 in the batch being grouped, else 0
     private readonly NativeArray<ulong> _hashes = new();
+    // Per key column, of the batch being grouped: each row's value (-1: null) and image, read once by the hash pass.
+    private readonly NativeArray<int>[] _at;
+    private readonly NativeArray<UInt128>[] _images;
     private int _count;
 
     /// <param name="keyCount">The key columns (at least one).</param>
@@ -57,7 +60,9 @@ internal sealed class KeyGroups : IDisposable
         _emptyIsNull = emptyIsNull.IsEmpty ? new bool[keyCount] : emptyIsNull.ToArray();
         _stored = new StoredKeys[keyCount];
         _viewBuffers = new NativeArray<nint>[keyCount];
-        for (int c = 0; c < keyCount; c++) (_stored[c], _viewBuffers[c]) = (new(), new());
+        _at = new NativeArray<int>[keyCount];
+        _images = new NativeArray<UInt128>[keyCount];
+        for (int c = 0; c < keyCount; c++) (_stored[c], _viewBuffers[c], _at[c], _images[c]) = (new(), new(), new(), new());
         _batch = new BatchKey[keyCount];
         EmptyTable(1024);
     }
@@ -93,11 +98,39 @@ internal sealed class KeyGroups : IDisposable
             _hashes.Reserve(rows);
             Span<ulong> hashes = _hashes.AsSpan(0, rows);
             hashes.Fill(Seed);
-            for (int c = 0; c < keys.Count; c++) Hash(in _batch[c], hashes);
+            for (int c = 0; c < keys.Count; c++)
+            {
+                _at[c].Reserve(rows);
+                _images[c].Reserve(rows);
+                Hash(in _batch[c], hashes, _at[c].AsSpan(0, rows), _images[c].AsSpan(0, rows));
+            }
+            // The table, the groups' hashes and their batch groups held in locals: the loop runs per row, and these
+            // only change when a key is added (then read again).
+            Span<int> slots = _slots.AsSpan(0, _slotCount);
+            Span<ulong> groupHashes = _groupHashes.Span;
+            Span<int> localOf = _localOf.Span;
             for (int row = 0; row < rows; row++)
             {
-                int group = FindOrAdd(Final(hashes[row]), row);
-                ref int local = ref _localOf.At(group);
+                ulong hash = Final(hashes[row]);
+                int mask = slots.Length - 1, group;
+                for (int slot = (int)hash & mask; ; slot = (slot + 1) & mask)
+                {
+                    int entry = slots[slot];
+                    if (entry == 0)
+                    {
+                        group = Add(hash, row, slot);
+                        slots = _slots.AsSpan(0, _slotCount);
+                        groupHashes = _groupHashes.Span;
+                        localOf = _localOf.Span;
+                        break;
+                    }
+                    if (groupHashes[entry - 1] == hash && Matches(entry - 1, row))
+                    {
+                        group = entry - 1;
+                        break;
+                    }
+                }
+                ref int local = ref localOf[group];
                 if (local == 0)
                 {
                     groups[locals] = group;
@@ -132,6 +165,7 @@ internal sealed class KeyGroups : IDisposable
         {
             long bytes = 4L * _slots.Capacity + 8L * _groupHashes.Capacity + 4L * _localOf.Capacity + 8L * _hashes.Capacity;
             foreach (StoredKeys stored in _stored) bytes += stored.ScratchBytes;
+            for (int c = 0; c < _at.Length; c++) bytes += 4L * _at[c].Capacity + 16L * _images[c].Capacity;
             foreach (NativeArray<nint> buffers in _viewBuffers) bytes += 8L * buffers.Capacity;
             return bytes;
         }
@@ -141,6 +175,8 @@ internal sealed class KeyGroups : IDisposable
     {
         foreach (StoredKeys stored in _stored) stored.Dispose();
         foreach (NativeArray<nint> buffers in _viewBuffers) buffers.Dispose();
+        foreach (NativeArray<int> at in _at) at.Dispose();
+        foreach (NativeArray<UInt128> images in _images) images.Dispose();
         _slots.Dispose();
         _groupHashes.Dispose();
         _localOf.Dispose();
@@ -159,22 +195,50 @@ internal sealed class KeyGroups : IDisposable
         BatchKey.Prepare(ref _batch[c], array, kind, _emptyIsNull[c], _pins, _viewBuffers[c]);
     }
 
-    /// <summary>Folds one column's value hashes into the rows' hashes.</summary>
-    private static void Hash(in BatchKey key, Span<ulong> hashes)
+    /// <summary>
+    /// Folds one column's value hashes into the rows' hashes, keeping each row's value and image: the kind and layout
+    /// chosen once per column, the loop specialized by its reader.
+    /// </summary>
+    private static void Hash(in BatchKey key, Span<ulong> hashes, Span<int> at, Span<UInt128> images)
     {
+        switch (key.Kind)
+        {
+            case KeyKind.Null:
+                at.Fill(-1);
+                images.Clear();
+                for (int row = 0; row < hashes.Length; row++) hashes[row] = Fold(hashes[row], NullHash);
+                break;
+            case KeyKind.Fixed8: Hash<Fixed8Reader>(in key, hashes, at, images); break;
+            case KeyKind.Fixed16: Hash<Fixed16Reader>(in key, hashes, at, images); break;
+            case KeyKind.Fixed32: Hash<Fixed32Reader>(in key, hashes, at, images); break;
+            case KeyKind.Fixed64: Hash<Fixed64Reader>(in key, hashes, at, images); break;
+            case KeyKind.Fixed128: Hash<Fixed128Reader>(in key, hashes, at, images); break;
+            case KeyKind.Bytes when key.Layout == BytesLayout.Views: Hash<ViewReader>(in key, hashes, at, images); break;
+            case KeyKind.Bytes: Hash<BytesReader>(in key, hashes, at, images); break;
+            default: Hash<NormalizedReader>(in key, hashes, at, images); break; // booleans and floats
+        }
+    }
+
+    private static void Hash<TReader>(in BatchKey key, Span<ulong> hashes, Span<int> at, Span<UInt128> images) where TReader : struct, IKeyReader
+    {
+        if (key.Plain)
+        {
+            for (int row = 0; row < hashes.Length; row++)
+            {
+                images[row] = TReader.Read(in key, row, out ulong value);
+                at[row] = row;
+                hashes[row] = Fold(hashes[row], value);
+            }
+            return;
+        }
         for (int row = 0; row < hashes.Length; row++)
         {
-            int at = key.Resolve(row);
-            ulong value = at < 0 ? NullHash : key.Kind switch
-            {
-                KeyKind.Bytes => ByteHash.Of(key.Bytes(at)),
-                KeyKind.Fixed128 => WideHash(key.Wide(at)),
-                _ => key.Fixed(at),
-            };
+            int resolved = key.Resolve(row);
+            ulong value = NullHash;
+            images[row] = resolved < 0 ? default : TReader.Read(in key, resolved, out value);
+            at[row] = resolved;
             hashes[row] = Fold(hashes[row], value);
         }
-
-        static ulong WideHash(Int128 value) => (ulong)value ^ BitOperations.RotateLeft((ulong)(value >> 64) * K, 29);
     }
 
     /// <summary>A row's hash with one more column's value hash folded in (the hash before <see cref="Final"/>).</summary>
@@ -193,34 +257,27 @@ internal sealed class KeyGroups : IDisposable
         return x;
     }
 
-    /// <summary>The global group of row <paramref name="row"/> (hash <paramref name="hash"/>), added when its key is new.</summary>
-    private int FindOrAdd(ulong hash, int row)
+    /// <summary>Adds row <paramref name="row"/>'s key (hash <paramref name="hash"/>) as a new group, in empty slot <paramref name="slot"/>.</summary>
+    private int Add(ulong hash, int row, int slot)
     {
-        int mask = _slotCount - 1;
-        for (int slot = (int)hash & mask; ; slot = (slot + 1) & mask)
-        {
-            int entry = _slots.At(slot);
-            if (entry == 0)
-            {
-                int group = _count;
-                for (int c = 0; c < _stored.Length; c++) _stored[c].Append(group, in _batch[c], _batch[c].Resolve(row));
-                _groupHashes.Grow(group + 1, group);
-                _groupHashes.At(group) = hash;
-                _localOf.Grow(group + 1, group);
-                _localOf.At(group) = 0;
-                _slots.At(slot) = ++_count;
-                if (_count * 2 > _slotCount) Rehash();
-                return group;
-            }
-            if (_groupHashes.At(entry - 1) == hash && Matches(entry - 1, row)) return entry - 1;
-        }
+        int group = _count;
+        for (int c = 0; c < _stored.Length; c++) _stored[c].Append(group, in _batch[c], _at[c].At(row), _images[c].At(row));
+        _groupHashes.Grow(group + 1, group);
+        _groupHashes.At(group) = hash;
+        _localOf.Grow(group + 1, group);
+        _localOf.At(group) = 0;
+        _slots.At(slot) = ++_count;
+        if (_count * 2 > _slotCount) Rehash();
+        return group;
     }
 
+    /// <summary>Whether group <paramref name="group"/>'s key is row <paramref name="row"/>'s.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool Matches(int group, int row)
     {
         for (int c = 0; c < _stored.Length; c++)
         {
-            if (!_stored[c].Matches(group, in _batch[c], _batch[c].Resolve(row))) return false;
+            if (!_stored[c].Matches(group, in _batch[c], _at[c].At(row), _images[c].At(row))) return false;
         }
         return true;
     }

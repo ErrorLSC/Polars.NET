@@ -1,10 +1,13 @@
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Encodings;
 
 namespace Kaminari.Sazanami.Grouping;
 
@@ -88,9 +91,22 @@ internal unsafe struct BatchKey
         if (Kind == KeyKind.Null || RowValidity != null && !Bit(RowValidity, RowBit + row)) return -1;
         int at = Indices == null ? row : Index(row);
         if (ValueValidity != null && !Bit(ValueValidity, ValueBit + at)) return -1;
-        if (EmptyIsNull && Kind == KeyKind.Bytes && Bytes(at).IsEmpty) return -1;
+        if (EmptyIsNull && Kind == KeyKind.Bytes && Length(at) == 0) return -1;
         return at;
     }
+
+    /// <summary>Whether every row is its own value, never null: no validity, no dictionary, no empty taken as null.</summary>
+    public readonly bool Plain => RowValidity == null && Indices == null && ValueValidity == null && !(EmptyIsNull && Kind == KeyKind.Bytes);
+
+    /// <summary>The length of a byte-string value (without reading its bytes where the layout tells it).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly int Length(int at) => Layout switch
+    {
+        BytesLayout.Views => *(int*)(Values + 16L * at),
+        BytesLayout.Offsets32 => ((int*)Offsets)[at + 1] - ((int*)Offsets)[at],
+        BytesLayout.Offsets64 => checked((int)(((long*)Offsets)[at + 1] - ((long*)Offsets)[at])),
+        _ => Width,
+    };
 
     private readonly int Index(int row) => (IndexWidth, IndexUnsigned) switch
     {
@@ -239,12 +255,14 @@ internal unsafe struct BatchKey
     }
 }
 
-/// <summary>The keys of one column of every group seen, in native memory: by group id, normalized as read.</summary>
+/// <summary>
+/// The keys of one column of every group seen, in native memory, by group id: each as its image (see
+/// <see cref="KeyImage"/>), byte strings also by their bytes.
+/// </summary>
 internal sealed class StoredKeys : IDisposable
 {
     private readonly NativeArray<byte> _nulls = new();
-    private readonly NativeArray<ulong> _fixed = new();
-    private readonly NativeArray<Int128> _wide = new();
+    private readonly NativeArray<UInt128> _images = new();
     private readonly NativeArray<int> _offsets = new(); // _offsets[g].._offsets[g + 1]: group g's bytes
     private readonly NativeArray<byte> _arena = new();
     private int _arenaLength;
@@ -269,59 +287,154 @@ internal sealed class StoredKeys : IDisposable
         _arenaLength = 0;
     }
 
-    /// <summary>Stores group <paramref name="group"/>'s key: value <paramref name="at"/> of the batch column (-1: null).</summary>
-    public void Append(int group, in BatchKey key, int at)
+    /// <summary>
+    /// Stores group <paramref name="group"/>'s key: value <paramref name="at"/> of the batch column (-1: null), whose
+    /// image is <paramref name="image"/>.
+    /// </summary>
+    public void Append(int group, in BatchKey key, int at, UInt128 image)
     {
         _nulls.Grow(group + 1, group);
         _nulls.At(group) = at < 0 ? (byte)1 : (byte)0;
-        switch (Kind)
-        {
-            case KeyKind.Null:
-                break;
-            case KeyKind.Fixed128:
-                _wide.Grow(group + 1, group);
-                _wide.At(group) = at < 0 ? default : key.Wide(at);
-                break;
-            case KeyKind.Bytes:
-            {
-                ReadOnlySpan<byte> bytes = at < 0 ? default : key.Bytes(at);
-                int end = checked(_arenaLength + bytes.Length);
-                _arena.Grow(end, _arenaLength);
-                bytes.CopyTo(_arena.AsSpan(_arenaLength, bytes.Length));
-                _arenaLength = end;
-                _offsets.Grow(group + 2, group + 1);
-                _offsets.At(group + 1) = end;
-                break;
-            }
-            default:
-                _fixed.Grow(group + 1, group);
-                _fixed.At(group) = at < 0 ? 0 : key.Fixed(at);
-                break;
-        }
+        _images.Grow(group + 1, group);
+        _images.At(group) = image;
+        if (Kind != KeyKind.Bytes) return;
+        ReadOnlySpan<byte> bytes = at < 0 ? default : key.Bytes(at);
+        int end = checked(_arenaLength + bytes.Length);
+        _arena.Grow(end, _arenaLength);
+        bytes.CopyTo(_arena.AsSpan(_arenaLength, bytes.Length));
+        _arenaLength = end;
+        _offsets.Grow(group + 2, group + 1);
+        _offsets.At(group + 1) = end;
     }
 
-    /// <summary>Whether group <paramref name="group"/>'s key is value <paramref name="at"/> of the batch column (-1: null).</summary>
+    /// <summary>
+    /// Whether group <paramref name="group"/>'s key is value <paramref name="at"/> of the batch column (-1: null), whose
+    /// image is <paramref name="image"/>: the images decide but for byte strings longer than an image holds.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Matches(int group, in BatchKey key, int at)
+    public bool Matches(int group, in BatchKey key, int at, UInt128 image)
     {
         bool isNull = _nulls.At(group) != 0;
         if (at < 0 || isNull) return at < 0 && isNull;
-        return Kind switch
-        {
-            KeyKind.Fixed128 => _wide.At(group) == key.Wide(at),
-            KeyKind.Bytes => _arena.AsSpan(_offsets.At(group), _offsets.At(group + 1) - _offsets.At(group)).SequenceEqual(key.Bytes(at)),
-            _ => _fixed.At(group) == key.Fixed(at),
-        };
+        if (_images.At(group) != image) return false;
+        if (Kind != KeyKind.Bytes || KeyImage.Whole(image)) return true;
+        return _arena.AsSpan(_offsets.At(group), _offsets.At(group + 1) - _offsets.At(group)).SequenceEqual(key.Bytes(at));
     }
 
-    public long ScratchBytes => _nulls.Capacity + 8L * _fixed.Capacity + 16L * _wide.Capacity + 4L * _offsets.Capacity + _arena.Capacity;
+    public long ScratchBytes => _nulls.Capacity + 16L * _images.Capacity + 4L * _offsets.Capacity + _arena.Capacity;
 
     public void Dispose()
     {
         _nulls.Dispose();
-        _fixed.Dispose();
-        _wide.Dispose();
+        _images.Dispose();
         _offsets.Dispose();
         _arena.Dispose();
     }
+}
+
+/// <summary>
+/// A key value as 128 bits, read once per row, and its hash: what the rows' hashes fold and what stored keys are
+/// compared to. Values of at most 64 bits are their normalized value (<see cref="BatchKey.Fixed"/>), which is also their
+/// hash; 128-bit values themselves. A byte string's image is its length (32 bits) and its first 12 bytes, zero-padded:
+/// the layout of an inline Arrow view, read from a view without its bytes. A string of at most 12 bytes is whole in its
+/// image (equal images, equal strings) and hashed from it; a longer one is hashed from all its bytes, and compared by
+/// them once the images agree. Images and hashes do not depend on the layout (views, offsets, large offsets).
+/// </summary>
+internal static unsafe class KeyImage
+{
+    private const ulong K = 0xFF51_AFD7_ED55_8CCDUL;
+
+    /// <summary>The longest byte string an image holds whole.</summary>
+    public const int InlineBytes = 12;
+
+    /// <summary>Whether a byte string's image holds it whole.</summary>
+    public static bool Whole(UInt128 image) => (uint)(ulong)image <= InlineBytes;
+
+    /// <summary>The hash of a 128-bit value (or of a whole byte string's image).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ulong Hash128(ulong low, ulong high) => low ^ BitOperations.RotateLeft(high * K, 29);
+
+    /// <summary>The image of a byte string, and its hash.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static UInt128 OfBytes(ReadOnlySpan<byte> bytes, out ulong hash)
+    {
+        UInt128 image = 0;
+        Span<byte> parts = MemoryMarshal.AsBytes(new Span<UInt128>(ref image));
+        BinaryPrimitives.WriteInt32LittleEndian(parts, bytes.Length);
+        bytes[..Math.Min(bytes.Length, InlineBytes)].CopyTo(parts[4..]);
+        hash = bytes.Length <= InlineBytes ? Hash128((ulong)image, (ulong)(image >> 64)) : ByteHash.Of(bytes);
+        return image;
+    }
+
+    /// <summary>The image of view <paramref name="at"/>, and its hash (an inline view's from the view alone).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static UInt128 OfView(in BatchKey key, int at, out ulong hash)
+    {
+        byte* view = key.Values + 16L * at;
+        int length = *(int*)view;
+        if (length > InlineBytes) return OfBytes(key.Bytes(at), out hash);
+        ulong low = Unsafe.ReadUnaligned<ulong>(view), high = Unsafe.ReadUnaligned<ulong>(view + 8);
+        // The bytes past the string are padding: zero whatever the writer left there.
+        if (length < 4)
+        {
+            low &= (1UL << (32 + 8 * length)) - 1;
+            high = 0;
+        }
+        else if (length < InlineBytes) high &= (1UL << (8 * (length - 4))) - 1;
+        hash = Hash128(low, high);
+        return new UInt128(high, low);
+    }
+}
+
+/// <summary>Reads value <c>at</c> of a batch column of one kind and layout as its image and hash (a type per kind: loops specialized by it).</summary>
+internal interface IKeyReader
+{
+    static abstract UInt128 Read(in BatchKey key, int at, out ulong hash);
+}
+
+internal unsafe struct Fixed8Reader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => hash = key.Values[at];
+}
+
+internal unsafe struct Fixed16Reader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => hash = Unsafe.ReadUnaligned<ushort>(key.Values + 2L * at);
+}
+
+internal unsafe struct Fixed32Reader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => hash = Unsafe.ReadUnaligned<uint>(key.Values + 4L * at);
+}
+
+internal unsafe struct Fixed64Reader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => hash = Unsafe.ReadUnaligned<ulong>(key.Values + 8L * at);
+}
+
+/// <summary>Booleans and floats: <see cref="BatchKey.Fixed"/> normalizes them.</summary>
+internal struct NormalizedReader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => hash = key.Fixed(at);
+}
+
+internal struct Fixed128Reader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash)
+    {
+        var value = (UInt128)key.Wide(at);
+        hash = KeyImage.Hash128((ulong)value, (ulong)(value >> 64));
+        return value;
+    }
+}
+
+internal struct ViewReader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => KeyImage.OfView(in key, at, out hash);
+}
+
+/// <summary>Byte strings with offsets (plain, large) or of a fixed width.</summary>
+internal struct BytesReader : IKeyReader
+{
+    public static UInt128 Read(in BatchKey key, int at, out ulong hash) => KeyImage.OfBytes(key.Bytes(at), out hash);
 }
