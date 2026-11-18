@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Seseragi.Files.IO;
@@ -43,6 +45,34 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     /// <summary>Opens a reader of the batches.</summary>
     /// <exception cref="ArgumentException">A column named in the options is not in the file.</exception>
     public IpcReader OpenReader(IpcReadOptions? options = null) => new(this, options ?? new IpcReadOptions());
+
+    /// <summary>
+    /// Opens a reader of the file's rows as <typeparamref name="T"/>, of the columns its members map, filtered by
+    /// <paramref name="where"/> (see <see cref="IpcReader{T}"/>).
+    /// </summary>
+    /// <exception cref="ArgumentException">The file has no column for a member, or the options are out of range.</exception>
+    /// <exception cref="NotSupportedException">A conjunct of <paramref name="where"/> cannot be pushed down and the client evaluation policy is Strict.</exception>
+    public IpcReader<T> OpenReader<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Expression<Func<T, bool>>? where = null,
+        IpcReadOptions? options = null) => new(this, where, options);
+
+    /// <summary>Reads the rows of the file at <paramref name="path"/> as <typeparamref name="T"/> (see <see cref="IpcReader{T}"/>).</summary>
+    /// <inheritdoc cref="OpenReader{T}(Expression{Func{T, bool}}?, IpcReadOptions?)"/>
+    public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, Expression<Func<T, bool>>? where = null,
+        IpcReadOptions? options = null)
+    {
+        using IpcFile file = Open(path);
+        using IpcReader<T> reader = file.OpenReader(where, options);
+        return reader.ReadList();
+    }
+
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, IpcReadOptions?)"/>
+    public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        Expression<Func<T, bool>>? where = null, IpcReadOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        await using IpcFile file = await OpenAsync(path, cancellationToken).ConfigureAwait(false);
+        using IpcReader<T> reader = file.OpenReader(where, options);
+        return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Reads batch <paramref name="index"/> (with its dictionaries).</summary>
     /// <exception cref="IpcFormatException">The batch or a dictionary is damaged or invalid.</exception>

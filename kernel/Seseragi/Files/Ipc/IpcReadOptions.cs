@@ -1,3 +1,6 @@
+using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Arrow.Ipc;
+
 namespace Kaminari.Seseragi.Files.Ipc;
 
 /// <summary>How <see cref="IpcFile.OpenReader"/> and <see cref="IpcStreamReader"/> read Arrow IPC data.</summary>
@@ -9,7 +12,7 @@ public sealed record IpcReadOptions
     /// </summary>
     public IReadOnlyList<string>? Columns { get; init; }
 
-    /// <summary>The most rows to read, in order; null reads them all.</summary>
+    /// <summary>The most rows to read, in order (with <see cref="FilterRows"/>, the rows delivered after filtering); null reads them all.</summary>
     public long? MaxRows { get; init; }
 
     /// <summary>
@@ -24,8 +27,41 @@ public sealed record IpcReadOptions
     /// </summary>
     public bool ValidateUtf8 { get; init; }
 
+    /// <summary>
+    /// A row filter in the query compiler's IR, evaluated with <see cref="FilterRows"/> (IPC data has no statistics to
+    /// skip batches by, so without it the filter does nothing). Columns are the top-level names, struct fields are
+    /// reached with <c>StructFieldByName</c>; the semantics are the IR's (Kleene logic, NaN greater than every number).
+    /// </summary>
+    public ScalarExpr? Filter { get; init; }
+
+    /// <summary>
+    /// Whether only the rows where <see cref="Filter"/> is true are delivered (off by default). Within each batch the
+    /// columns the filter reads are decoded first, and the other columns only when it keeps a row; batches where it
+    /// keeps none are passed over. Conjuncts of the filter the reader cannot evaluate (comparisons between columns,
+    /// functions, …) are left out, so the rows delivered may still include some the filter drops:
+    /// <see cref="IpcReader.FiltersExactly"/> tells. Columns the filter reads are read even when not selected, so damage
+    /// in them fails the read. List views, unions and run-end encoded columns cannot be selected with it.
+    /// </summary>
+    public bool FilterRows { get; init; }
+
+    /// <summary>
+    /// How many threads decode at once (all cores by default; 1 reads on the calling thread). Several batches are read
+    /// and decoded side by side, ahead of the consumer, and the compressed buffers of a large batch are decompressed
+    /// side by side; batches still come in order. An <see cref="IpcStreamReader"/> above 1 reads the stream ahead on a
+    /// thread of its own (messages in order) and decodes the batches it reads in parallel.
+    /// </summary>
+    public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
+
+    /// <summary>Batches are started ahead of the consumer while their body sizes stay within this (at least one is).</summary>
+    internal long InFlightBytes { get; init; } = 512L << 20;
+
+    /// <summary>The compressed bytes of a batch from which its buffers are decompressed side by side (tests lower it).</summary>
+    internal long ParallelDecompressFrom { get; init; } = IpcBody.ParallelFrom;
+
     internal void Validate()
     {
+        if (MaxDegreeOfParallelism <= 0)
+            throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
         if (MaxRows is < 0) throw new ArgumentOutOfRangeException(nameof(MaxRows), MaxRows, "The row limit is negative.");
         if (!Enum.IsDefined(MemoryMap)) throw new ArgumentOutOfRangeException(nameof(MemoryMap), MemoryMap, "Unknown memory map mode.");
     }

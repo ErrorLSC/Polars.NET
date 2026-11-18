@@ -45,8 +45,12 @@ internal readonly record struct Outcome(bool Finding, string Signature, string D
 /// are a corpus file with a few mutations, read with random options; the fourth feeds a codec or the RLE decoder
 /// directly, its input and output ending at guard pages.
 /// </summary>
-internal sealed class Cases(IReadOnlyList<string> corpus)
+internal sealed class Cases(IReadOnlyList<string> corpus) : IFuzzCases
 {
+    public string Extension => ".parquet";
+
+    public bool HasFile(long n) => IsFileCase(n);
+
     private readonly Dictionary<string, (byte[] Bytes, long[] Hot, int Footer)> _files = [];
     private static readonly int[] BatchSizes = [1, 3, 64, 1000, 65_536];
     private static readonly int[] SplitWidths = [2, 4, 8];
@@ -86,81 +90,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
     {
         source = corpus[random.Next(corpus.Count)];
         var (original, hot, footer) = Load(source);
-        List<byte> bytes = [.. original];
-        int mutations = 1 + random.Next(random.Next(2) == 0 ? 2 : 8);
-        for (int m = 0; m < mutations && bytes.Count > 0; m++)
-        {
-            int at = Position(random, bytes.Count, hot, footer);
-            switch (random.Next(100))
-            {
-                case < 35:
-                    bytes[at] ^= (byte)(1 << random.Next(8));
-                    break;
-                case < 55:
-                    bytes[at] = Interesting8[random.Next(Interesting8.Length)];
-                    break;
-                case < 70:
-                {
-                    // A little-endian 32-bit value: a length, an offset, a count.
-                    int value = Interesting32[random.Next(Interesting32.Length)];
-                    for (int k = 0; k < 4 && at + k < bytes.Count; k++) bytes[at + k] = (byte)(value >> (8 * k));
-                    break;
-                }
-                case < 78:
-                    bytes[at] = (byte)(bytes[at] + random.Next(-3, 4)); // varints and small counts, nudged
-                    break;
-                case < 84:
-                {
-                    int length = Math.Min(random.Next(1, 64), bytes.Count - at);
-                    bytes.RemoveRange(at, length);
-                    break;
-                }
-                case < 90:
-                {
-                    int length = Math.Min(random.Next(1, 64), bytes.Count - at);
-                    bytes.InsertRange(at, bytes.GetRange(at, length));
-                    break;
-                }
-                case < 96:
-                {
-                    // Bytes of another file over these (pages and headers of other writers).
-                    byte[] other = Load(corpus[random.Next(corpus.Count)]).Bytes;
-                    int from = random.Next(other.Length), length = Math.Min(Math.Min(random.Next(1, 512), other.Length - from), bytes.Count - at);
-                    for (int k = 0; k < length; k++) bytes[at + k] = other[from + k];
-                    break;
-                }
-                default:
-                    // Cut short, the footer kept: what a torn upload looks like to the page reader.
-                    if (random.Next(2) == 0) bytes.RemoveRange(at, bytes.Count - at);
-                    else
-                    {
-                        int keep = Math.Min(bytes.Count - at, footer + 8);
-                        bytes.RemoveRange(at, Math.Max(0, bytes.Count - at - keep));
-                    }
-                    break;
-            }
-        }
-        return [.. bytes];
-    }
-
-    private static readonly byte[] Interesting8 = [0, 1, 2, 0x7F, 0x80, 0xFF, 0xFE, 0x40, 0x10, 8, 9, 0x15, 0x19, 0x1C, 0x26];
-    private static readonly int[] Interesting32 = [0, 1, -1, 2, 7, 8, 9, 63, 64, 65, 255, 256, 4096, 65535, 65536, 1 << 20, int.MaxValue, int.MinValue, int.MaxValue - 7];
-
-    /// <summary>Anywhere, near a column chunk's start (page headers, level lengths, run headers), or in the footer.</summary>
-    private static int Position(Random random, int length, long[] hot, int footer)
-    {
-        int roll = random.Next(100);
-        if (roll < 40 && hot.Length > 0)
-        {
-            long at = hot[random.Next(hot.Length)] + random.Next(random.Next(2) == 0 ? 48 : 512);
-            if (at < length) return (int)at;
-        }
-        if (roll is >= 40 and < 55 && length > 8 && footer > 0)
-        {
-            int at = length - 8 - 1 - random.Next(Math.Min(footer, length - 8));
-            if (at >= 0) return at;
-        }
-        return random.Next(length);
+        return Mutations.Apply(random, original, hot, footer, r => Load(corpus[r.Next(corpus.Count)]).Bytes);
     }
 
     private (byte[] Bytes, long[] Hot, int Footer) Load(string path)
@@ -243,7 +173,7 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
     }
 
     /// <summary>Comparisons of random top-level columns with literals of their kind, null tests, and AND / OR / NOT of them.</summary>
-    private static ScalarExpr? RandomFilter(Random random, Schema schema)
+    internal static ScalarExpr? RandomFilter(Random random, Schema schema)
     {
         if (schema.FieldsList.Count == 0) return null;
         ScalarExpr Comparison()
@@ -742,4 +672,92 @@ internal sealed class Cases(IReadOnlyList<string> corpus)
             return Outcome.Refused(e);
         }
     }
+}
+
+/// <summary>
+/// The mutations of a file case: bit flips, interesting bytes and 32-bit values, nudges, deletions, duplications,
+/// splices from other files, truncation with the footer kept; aimed in part at <c>hot</c> offsets and the footer.
+/// </summary>
+internal static class Mutations
+{
+    /// <summary>A few mutations of <paramref name="original"/>; <paramref name="another"/> gives the bytes of another corpus file.</summary>
+    public static byte[] Apply(Random random, byte[] original, long[] hot, int footer, Func<Random, byte[]> another)
+    {
+        List<byte> bytes = [.. original];
+        int mutations = 1 + random.Next(random.Next(2) == 0 ? 2 : 8);
+        for (int m = 0; m < mutations && bytes.Count > 0; m++)
+        {
+            int at = Position(random, bytes.Count, hot, footer);
+            switch (random.Next(100))
+            {
+                case < 35:
+                    bytes[at] ^= (byte)(1 << random.Next(8));
+                    break;
+                case < 55:
+                    bytes[at] = Interesting8[random.Next(Interesting8.Length)];
+                    break;
+                case < 70:
+                {
+                    // A little-endian 32-bit value: a length, an offset, a count.
+                    int value = Interesting32[random.Next(Interesting32.Length)];
+                    for (int k = 0; k < 4 && at + k < bytes.Count; k++) bytes[at + k] = (byte)(value >> (8 * k));
+                    break;
+                }
+                case < 78:
+                    bytes[at] = (byte)(bytes[at] + random.Next(-3, 4)); // varints and small counts, nudged
+                    break;
+                case < 84:
+                {
+                    int length = Math.Min(random.Next(1, 64), bytes.Count - at);
+                    bytes.RemoveRange(at, length);
+                    break;
+                }
+                case < 90:
+                {
+                    int length = Math.Min(random.Next(1, 64), bytes.Count - at);
+                    bytes.InsertRange(at, bytes.GetRange(at, length));
+                    break;
+                }
+                case < 96:
+                {
+                    // Bytes of another file over these (pages and headers of other writers).
+                    byte[] other = another(random);
+                    int from = random.Next(other.Length), length = Math.Min(Math.Min(random.Next(1, 512), other.Length - from), bytes.Count - at);
+                    for (int k = 0; k < length; k++) bytes[at + k] = other[from + k];
+                    break;
+                }
+                default:
+                    // Cut short, the footer kept: what a torn upload looks like to the page reader.
+                    if (random.Next(2) == 0) bytes.RemoveRange(at, bytes.Count - at);
+                    else
+                    {
+                        int keep = Math.Min(bytes.Count - at, footer + 8);
+                        bytes.RemoveRange(at, Math.Max(0, bytes.Count - at - keep));
+                    }
+                    break;
+            }
+        }
+        return [.. bytes];
+    }
+
+    internal static readonly byte[] Interesting8 = [0, 1, 2, 0x7F, 0x80, 0xFF, 0xFE, 0x40, 0x10, 8, 9, 0x15, 0x19, 0x1C, 0x26];
+    internal static readonly int[] Interesting32 = [0, 1, -1, 2, 7, 8, 9, 63, 64, 65, 255, 256, 4096, 65535, 65536, 1 << 20, int.MaxValue, int.MinValue, int.MaxValue - 7];
+
+    /// <summary>Anywhere, near a column chunk's start (page headers, level lengths, run headers), or in the footer.</summary>
+    internal static int Position(Random random, int length, long[] hot, int footer)
+    {
+        int roll = random.Next(100);
+        if (roll < 40 && hot.Length > 0)
+        {
+            long at = hot[random.Next(hot.Length)] + random.Next(random.Next(2) == 0 ? 48 : 512);
+            if (at < length) return (int)at;
+        }
+        if (roll is >= 40 and < 55 && length > 8 && footer > 0)
+        {
+            int at = length - 8 - 1 - random.Next(Math.Min(footer, length - 8));
+            if (at >= 0) return at;
+        }
+        return random.Next(length);
+    }
+
 }

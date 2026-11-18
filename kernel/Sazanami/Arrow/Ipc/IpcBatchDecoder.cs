@@ -108,7 +108,7 @@ internal sealed unsafe class IpcBatchDecoder(IpcRecordBatch header, IpcMetadataV
         return Decode(field, stored, (int)node.Length, (int)node.NullCount, first, own, children, where);
     }
 
-    private IpcSlice Buffer(int index, string where) => _body!.Slice(_header.Buffers[index], _header.Compression, where);
+    private IpcSlice Buffer(int index, string where) => _body!.Slice(index, _header.Buffers[index], _header.Compression, where);
 
     /// <summary>The validity bitmap: none when there are no nulls; else long enough, its unset bits counting the nulls.</summary>
     private IpcSlice Validity(int index, int length, int nulls, string where)

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Buffers;
@@ -28,6 +29,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     private IpcWriter(Stream stream, Schema schema, IpcWriteOptions options)
     {
         options.Validate();
+        Schema = schema;
         _stream = stream;
         _options = options;
         _encoder = new IpcMessageEncoder(schema, options.Compression.IpcCodec, options.Compression.IpcLevel, options.MaxDegreeOfParallelism,
@@ -36,6 +38,12 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
 
     /// <summary>The bytes written to the stream so far.</summary>
     public long BytesWritten => _position;
+
+    /// <summary>The schema the batches are written with.</summary>
+    public Schema Schema { get; }
+
+    /// <summary>Whether batches can still be written.</summary>
+    internal bool IsWritable => !_completed && !_aborted && !_faulted && !_disposed;
 
     /// <summary>Creates a writer over a stream (nothing is written before the first batch, or <see cref="Complete"/>).</summary>
     /// <exception cref="NotSupportedException">The schema has a type Arrow IPC cannot hold.</exception>
@@ -76,6 +84,90 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     {
         using IpcWriter writer = Create(path, schema, options);
         WriteAll(writer, batches);
+    }
+
+    /// <summary>
+    /// Writes rows of <typeparamref name="T"/> to a file and completes it (<see cref="IpcWriter{T}"/>). If writing
+    /// fails, the partial file is deleted.
+    /// </summary>
+    public static void WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, IEnumerable<T> rows,
+        IpcWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var writer = IpcWriter<T>.Create(path, options);
+        try
+        {
+            writer.WriteRows(rows);
+            writer.Complete();
+        }
+        catch
+        {
+            writer.Abort();
+            writer.Dispose();
+            File.Delete(path);
+            throw;
+        }
+        writer.Dispose();
+    }
+
+    /// <summary>
+    /// Writes rows of <typeparamref name="T"/> to a stream and completes the output (<see cref="IpcWriter{T}"/>). If
+    /// writing fails, the stream holds what was written so far.
+    /// </summary>
+    public static void WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Stream stream, IEnumerable<T> rows,
+        IpcWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        using var writer = IpcWriter<T>.Create(stream, options);
+        try
+        {
+            writer.WriteRows(rows);
+            writer.Complete();
+        }
+        catch
+        {
+            writer.Abort();
+            throw;
+        }
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, IpcWriteOptions?)"/>
+    public static async Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, IAsyncEnumerable<T> rows,
+        IpcWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var writer = IpcWriter<T>.Create(path, options);
+        try
+        {
+            await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            writer.Abort();
+            await writer.DisposeAsync().ConfigureAwait(false);
+            File.Delete(path);
+            throw;
+        }
+        await writer.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(Stream, IEnumerable{T}, IpcWriteOptions?)"/>
+    public static async Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Stream stream, IAsyncEnumerable<T> rows,
+        IpcWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using var writer = IpcWriter<T>.Create(stream, options);
+        try
+        {
+            await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            writer.Abort();
+            throw;
+        }
     }
 
     private static void WriteAll(IpcWriter writer, IEnumerable<RecordBatch> batches)

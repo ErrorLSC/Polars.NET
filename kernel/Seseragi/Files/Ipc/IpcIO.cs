@@ -129,25 +129,6 @@ internal static class IpcIO
         static unsafe nint Allocate(IpcBodyMemory memory, long n) => (nint)memory.Allocate(n);
     }
 
-    /// <summary>Decodes a record batch from its body (released once the batch holds what it needs) into the selected columns.</summary>
-    public static RecordBatch Batch(IpcSchema schema, Schema projected, bool[]? selected, IpcMessage message, IpcBody body,
-        IpcDictionaries dictionaries, IpcMetadataVersion version, long rows, bool validateUtf8)
-    {
-        try
-        {
-            IpcArray?[] arrays = IpcBatchDecoder.Decode(schema.Fields, selected, message.RecordBatch!, version, body, dictionaries, validateUtf8);
-            return IpcFraming.Assemble(projected, arrays, (int)Math.Min(rows, message.RecordBatch!.Length));
-        }
-        catch (InvalidDataException e)
-        {
-            throw Format(e);
-        }
-        finally
-        {
-            body.Memory.Sealed();
-        }
-    }
-
     /// <summary>Decodes a dictionary batch and applies it (a delta appends, else it replaces; files allow no replacement).</summary>
     public static void Dictionary(IpcSchema schema, IpcMessage message, IpcBody body, IpcDictionaries dictionaries, IpcMetadataVersion version,
         bool validateUtf8, bool replacements)

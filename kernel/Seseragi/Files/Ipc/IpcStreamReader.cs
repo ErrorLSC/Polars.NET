@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Buffers;
@@ -12,6 +13,17 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// end-of-stream marker or the end of the data. Only the selected columns' buffers are kept: the rest of each body is
 /// skipped. Every array is checked before it is returned. Batches own their memory: dispose them. Not thread-safe.
 /// </summary>
+/// <remarks>
+/// With <see cref="IpcReadOptions.MaxDegreeOfParallelism"/> above 1 the stream is read ahead, from the first
+/// <see cref="ReadNext"/> on, by a task of the reader's own (messages in order, never past the end-of-stream marker
+/// or the message that reaches <see cref="IpcReadOptions.MaxRows"/>), and the batches it reads are decoded in
+/// parallel, up to that many ahead of the consumer. A batch is delivered as soon as it is decoded: the reader never
+/// waits for later messages. Until the stream ends, its position is therefore past the batches delivered; with
+/// <see cref="IpcReadOptions.FilterRows"/> and a row limit, the reader may read past the batch that reaches the limit.
+/// Disposing the reader does not wait for a read in progress (cancelled through its token; a stream the reader owns is
+/// closed first): a stream that ignores cancellation finishes that read in the background, the batches read ahead and
+/// the dictionaries released after it. Read-ahead holds up to that many batches, while their bodies stay within 512 MiB.
+/// </remarks>
 public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
 {
     private const int SkipChunk = 1 << 16;
@@ -20,12 +32,18 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     private readonly bool _leaveOpen;
     private readonly IpcReadOptions _options;
     private readonly IpcSchema _schema;
-    private readonly bool[]? _selected;
-    private readonly HashSet<long> _wanted;
+    private readonly IpcDecoding _decoding;
     private readonly IpcDictionaries _dictionaries = new();
     private long _left;
     private bool _ended;
     private bool _disposed;
+
+    // Reading ahead (more than one thread): the batches being decoded in order, the task reading the stream.
+    private Channel<Ahead>? _ahead;
+    private Task? _producer;
+    private CancellationTokenSource? _cancel;
+    private long _aheadBytes; // body bytes of the batches read ahead and not yet taken
+    private readonly SemaphoreSlim _taken = new(0); // signalled whenever the consumer takes a batch
 
     private IpcStreamReader(Stream stream, bool leaveOpen, IpcReadOptions options, IpcSchema schema, IReadOnlyList<KeyValuePair<string, string>>? metadata)
     {
@@ -33,15 +51,16 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
         _leaveOpen = leaveOpen;
         _options = options;
         _schema = schema;
-        _selected = IpcFraming.Select(schema, options.Columns);
-        _wanted = IpcFraming.DictionaryIds(schema.Fields, _selected);
-        Schema = IpcFraming.Project(schema, _selected);
+        _decoding = new IpcDecoding(schema, options);
         _left = options.MaxRows ?? long.MaxValue;
         SchemaMessageMetadata = ToDictionary(metadata);
     }
 
     /// <summary>The schema of the batches (the selected columns), with the schema's custom metadata.</summary>
-    public Schema Schema { get; }
+    public Schema Schema => _decoding.Schema;
+
+    /// <inheritdoc cref="IpcReader.FiltersExactly"/>
+    public bool FiltersExactly => _decoding.FiltersExactly;
 
     /// <summary>The custom metadata of the schema message (empty when it has none).</summary>
     public IReadOnlyDictionary<string, string> SchemaMessageMetadata { get; }
@@ -107,6 +126,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     private async ValueTask<RecordBatch?> ReadNextCoreAsync(bool useAsync, CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_options.MaxDegreeOfParallelism > 1) return await TakeAheadAsync(useAsync, ct).ConfigureAwait(false);
         while (!_ended && _left > 0)
         {
             (IpcMessage? message, _) = await ReadMessageAsync(_stream, first: false, useAsync, ct).ConfigureAwait(false);
@@ -115,39 +135,199 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
                 _ended = true;
                 break;
             }
-            switch (message.Kind)
+            if (message.Kind == IpcMessageKind.DictionaryBatch)
             {
-                case IpcMessageKind.DictionaryBatch:
-                {
-                    IpcDictionaryBatch dictionary = message.DictionaryBatch!;
-                    if (!_wanted.Contains(dictionary.Id))
-                    {
-                        await SkipAsync(_stream, message.BodyLength, useAsync, ct).ConfigureAwait(false);
-                        continue;
-                    }
-                    IpcField field = _schema.Dictionaries.TryGetValue(dictionary.Id, out IpcField? f) ? f
-                        : throw new IpcFormatException($"Arrow IPC dictionary {dictionary.Id} belongs to no field.");
-                    bool[] needed = IpcIO.Plan([field.ValueField()], null, message, message.Version);
-                    IpcBody body = await ReadBodyAsync(message, needed, useAsync, ct).ConfigureAwait(false);
-                    IpcIO.Dictionary(_schema, message, body, _dictionaries, message.Version, _options.ValidateUtf8, replacements: true);
-                    continue;
-                }
-                case IpcMessageKind.RecordBatch:
-                {
-                    bool[] needed = IpcIO.Plan(_schema.Fields, _selected, message, message.Version);
-                    IpcBody body = await ReadBodyAsync(message, needed, useAsync, ct).ConfigureAwait(false);
-                    RecordBatch batch = IpcIO.Batch(_schema, Schema, _selected, message, body, _dictionaries, message.Version, _left, _options.ValidateUtf8);
-                    _left -= batch.Length;
-                    BatchMetadata = ToDictionary(message.Metadata);
-                    return batch;
-                }
-                case IpcMessageKind.Schema:
-                    throw new IpcFormatException("The Arrow IPC stream has a second schema message.");
-                default:
-                    throw new IpcFormatException($"The Arrow IPC stream has a {message.Kind} message, which is not supported.");
+                await ApplyDictionaryAsync(message, useAsync, ct).ConfigureAwait(false);
+                continue;
             }
+            CheckRecordBatch(message);
+            IpcBody body = await ReadBodyAsync(message, _decoding.Plan(message), useAsync, ct).ConfigureAwait(false);
+            RecordBatch batch = _decoding.Decode(message, body, _dictionaries, _left);
+            if (batch.Length == 0 && _decoding.Filters)
+            {
+                batch.Dispose();
+                continue;
+            }
+            _left -= batch.Length;
+            BatchMetadata = ToDictionary(message.Metadata);
+            return batch;
         }
         return null;
+    }
+
+    /// <summary>A record batch, or the error for a message that is neither it nor a dictionary batch.</summary>
+    private static void CheckRecordBatch(IpcMessage message)
+    {
+        if (message.Kind == IpcMessageKind.RecordBatch) return;
+        throw message.Kind == IpcMessageKind.Schema
+            ? new IpcFormatException("The Arrow IPC stream has a second schema message.")
+            : new IpcFormatException($"The Arrow IPC stream has a {message.Kind} message, which is not supported.");
+    }
+
+    /// <summary>Applies a dictionary batch (one no selected column uses is skipped).</summary>
+    private async ValueTask ApplyDictionaryAsync(IpcMessage message, bool useAsync, CancellationToken ct)
+    {
+        IpcDictionaryBatch dictionary = message.DictionaryBatch!;
+        if (!_decoding.DictionaryIds.Contains(dictionary.Id))
+        {
+            await SkipAsync(_stream, message.BodyLength, useAsync, ct).ConfigureAwait(false);
+            return;
+        }
+        IpcField field = _schema.Dictionaries.TryGetValue(dictionary.Id, out IpcField? f) ? f
+            : throw new IpcFormatException($"Arrow IPC dictionary {dictionary.Id} belongs to no field.");
+        bool[] needed = IpcIO.Plan([field.ValueField()], null, message, message.Version);
+        IpcBody body = await ReadBodyAsync(message, needed, useAsync, ct).ConfigureAwait(false);
+        IpcIO.Dictionary(_schema, message, body, _dictionaries, message.Version, _options.ValidateUtf8, replacements: true);
+    }
+
+    /// <summary>A decoded batch and the custom metadata of its message.</summary>
+    private sealed record Delivered(RecordBatch Batch, IReadOnlyDictionary<string, string> Metadata);
+
+    /// <summary>A batch read ahead: its decoding, and the body bytes it counts against <see cref="IpcReadOptions.InFlightBytes"/>.</summary>
+    private readonly record struct Ahead(Task<Delivered> Decoding, long Bytes);
+
+    /// <summary>The next batch the reading-ahead task decoded (starting it on the first call); null at the end.</summary>
+    private async ValueTask<RecordBatch?> TakeAheadAsync(bool useAsync, CancellationToken ct)
+    {
+        if (_ahead is null)
+        {
+            _ahead = Channel.CreateBounded<Ahead>(new BoundedChannelOptions(_options.MaxDegreeOfParallelism)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+            });
+            _cancel = new CancellationTokenSource();
+            CancellationToken token = _cancel.Token;
+            _producer = Task.Run(() => ProduceAsync(token));
+        }
+        ChannelReader<Ahead> reader = _ahead.Reader;
+        while (_left > 0)
+        {
+            if (!reader.TryRead(out Ahead next))
+            {
+                bool more = useAsync
+                    ? await reader.WaitToReadAsync(ct).ConfigureAwait(false)
+                    : reader.WaitToReadAsync(ct).AsTask().GetAwaiter().GetResult();
+                if (!more) break;
+                continue;
+            }
+            Interlocked.Add(ref _aheadBytes, -next.Bytes);
+            _taken.Release();
+            Delivered delivered = useAsync ? await next.Decoding.ConfigureAwait(false) : next.Decoding.GetAwaiter().GetResult();
+            RecordBatch batch = delivered.Batch;
+            if (batch.Length == 0 && _decoding.Filters)
+            {
+                batch.Dispose();
+                continue;
+            }
+            BatchMetadata = delivered.Metadata;
+            if (batch.Length >= _left) _cancel!.Cancel(); // the last batch wanted: stop reading (a filter cannot tell the producer)
+            if (batch.Length <= _left)
+            {
+                _left -= batch.Length;
+                return batch;
+            }
+            int rows = (int)_left;
+            _left = 0;
+            return new RecordBatch(batch.Schema, [.. batch.Arrays.Select(a => ArrowArrayFactory.Slice(a, 0, rows))], rows);
+        }
+        _ended = true;
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the stream ahead (messages in order): dictionary batches applied here, record batches handed to the thread
+    /// pool to decode against a snapshot of the dictionaries, their tasks queued in order (up to
+    /// <see cref="IpcReadOptions.MaxDegreeOfParallelism"/> of them, and while their bodies stay within
+    /// <see cref="IpcReadOptions.InFlightBytes"/>: at least one). A failure is queued after the batches before it, for
+    /// the consumer to meet in its place.
+    /// </summary>
+    private async Task ProduceAsync(CancellationToken ct)
+    {
+        ChannelWriter<Ahead> writer = _ahead!.Writer;
+        long left = _decoding.Filters ? long.MaxValue : _left; // the rows the batches read hold (unknown with a filter)
+        try
+        {
+            while (left > 0)
+            {
+                (IpcMessage? message, _) = await ReadMessageAsync(_stream, first: false, true, ct).ConfigureAwait(false);
+                if (message is null) break;
+                if (message.Kind == IpcMessageKind.DictionaryBatch)
+                {
+                    await ApplyDictionaryAsync(message, true, ct).ConfigureAwait(false);
+                    continue;
+                }
+                CheckRecordBatch(message);
+                while (Volatile.Read(ref _aheadBytes) > 0 && Volatile.Read(ref _aheadBytes) + message.BodyLength > _options.InFlightBytes)
+                    await _taken.WaitAsync(ct).ConfigureAwait(false);
+                IpcBody body = await ReadBodyAsync(message, _decoding.Plan(message), true, ct).ConfigureAwait(false);
+                Interlocked.Add(ref _aheadBytes, message.BodyLength);
+                long rows = left;
+                if (!_decoding.Filters) left -= Math.Min(left, message.RecordBatch!.Length);
+                IpcDictionaries snapshot = _dictionaries.Snapshot();
+                IReadOnlyDictionary<string, string> metadata = ToDictionary(message.Metadata);
+                Task<Delivered> task = Task.Run(() =>
+                {
+                    using (snapshot) return new Delivered(_decoding.Decode(message, body, snapshot, rows), metadata);
+                });
+                try
+                {
+                    await writer.WriteAsync(new Ahead(task, message.BodyLength), ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await Drop(task).ConfigureAwait(false);
+                    throw;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Disposed, or the consumer has its rows.
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                await writer.WriteAsync(new Ahead(Task.FromException<Delivered>(e), 0), ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Disposed while the queue was full: nobody will take the error.
+            }
+        }
+        finally
+        {
+            writer.TryComplete();
+        }
+    }
+
+    /// <summary>Waits for a decode nobody will take and frees its batch.</summary>
+    private static async Task Drop(Task<Delivered> task)
+    {
+        await ((Task)task).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (task.IsCompletedSuccessfully) task.Result.Batch.Dispose();
+    }
+
+    /// <summary>
+    /// Stops reading ahead and releases the dictionaries: cancels the producer (closing the stream first when the
+    /// reader owns it) without waiting for it, since a stream may ignore cancellation and block in a read until more
+    /// data comes; once it ends, the batches it queued are freed and the dictionaries released.
+    /// </summary>
+    private void StopAhead()
+    {
+        _cancel!.Cancel();
+        if (!_leaveOpen) _stream.Dispose();
+        if (_producer!.IsCompleted) Release();
+        else _producer.ContinueWith(_ => Release(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+
+        void Release()
+        {
+            while (_ahead!.Reader.TryRead(out Ahead ahead)) Drop(ahead.Decoding).GetAwaiter().GetResult();
+            _dictionaries.Dispose();
+            _cancel.Dispose();
+            _taken.Dispose();
+        }
     }
 
     /// <summary>
@@ -344,7 +524,8 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _dictionaries.Dispose();
+        if (_ahead is not null) StopAhead();
+        else _dictionaries.Dispose();
         if (!_leaveOpen) _stream.Dispose();
     }
 
@@ -353,7 +534,8 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _dictionaries.Dispose();
+        if (_ahead is not null) StopAhead();
+        else _dictionaries.Dispose();
         if (!_leaveOpen) await _stream.DisposeAsync().ConfigureAwait(false);
     }
 }

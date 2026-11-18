@@ -21,7 +21,7 @@ public sealed class ParquetDatasetReader<[DynamicallyAccessedMembers(Dynamically
     {
         options ??= new ParquetReadOptions();
         string? path = dataset.Options.FilePathColumn;
-        TypedRead<T> read = TypedRows.Plan(where, [.. dataset.Schema.FieldsList.Select(f => f.Name)], dataset.FilterSchema, options, "dataset");
+        TypedRead<T> read = ParquetTypedRows.Plan(where, [.. dataset.Schema.FieldsList.Select(f => f.Name)], dataset.FilterSchema, options, "dataset");
         // The file path column is not selected: every batch carries it.
         ParquetReadOptions selected = path is not null && read.Options.Columns is { } columns && columns.Contains(path)
             ? read.Options with { Columns = [.. columns.Where(c => c != path)] }

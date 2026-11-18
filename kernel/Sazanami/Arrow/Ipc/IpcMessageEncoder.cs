@@ -147,7 +147,8 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         {
             // Views point anywhere in their data buffers: compare the values themselves.
             var a = (BinaryViewArray)old;
-            using var b = (BinaryViewArray)ArrowArrayFactory.BuildArray(dictionary);
+            // Not disposed: it wraps the caller's buffers, which stay the caller's.
+            var b = (BinaryViewArray)ArrowArrayFactory.BuildArray(dictionary);
             for (int i = 0; i < a.Length; i++)
             {
                 if (a.IsNull(i) != b.IsNull(i) || !a.IsNull(i) && !a.GetBytes(i).SequenceEqual(b.GetBytes(i))) return false;

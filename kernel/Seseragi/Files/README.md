@@ -302,11 +302,31 @@ uncompressed batches point into it (`On`: compressed ones are decompressed out o
 does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
 id is refused, as the format says), only those the selected columns reach (dictionary values may themselves be
 dictionary-encoded). `ValidateUtf8` checks strings (off by default, as pyarrow and Polars read).
+`MaxDegreeOfParallelism` (all cores by default): batches read and decoded side by side ahead of the consumer, in order
+(bounded by their body sizes; a consumer that stops early frees what was decoded ahead), and the compressed buffers of
+a large batch decompressed side by side.
+
+**Row filters** (`Filter`, `FilterRows`): a filter in Samidare's IR (as Parquet's), evaluated within each batch (IPC
+data has no statistics to skip batches by, so without `FilterRows` it does nothing): the columns it reads are decoded
+first (read even when not selected), the other selected columns only for batches where it keeps a row, then filtered
+(Sazanami's `ArrowFilter`); batches keeping no row are passed over, `MaxRows` counts the rows delivered.
+`FiltersExactly` tells whether every conjunct was evaluated. List views, unions and run-end encoded columns cannot be
+selected with `FilterRows` (refused on open).
+
+**Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
+`IpcWriter<T>`, `IpcWriter.WriteRows<T>` / `WriteRowsAsync`): as Parquet's typed API: members mapped by name over
+Sazanami's `ArrowRowMapper<T>` / `ArrowRowBuilder<T>`, the `where` predicate translated by Samidare and evaluated by
+the reader (the rest on the rows, as the client evaluation policy allows), batches turned into rows in parallel; rows
+written in record batches of 16 Ki rows (an array's or a list's batches made in parallel), the output depending on the
+rows alone; a failed write to a path deletes the file.
 
 **Streams** (`IpcStreamReader`): the stream format from any `Stream`, forward only, sync or async (`ReadNext`,
 `ReadBatches`, `ReadBatchesAsync`, `ReadArrowStream`); dictionary replacements and deltas apply from the next batch;
 the end-of-stream marker or the end of the data ends it; the buffers of unselected columns are skipped (seeked past, or
-read through a small scratch); `SchemaMessageMetadata` and `BatchMetadata`.
+read through a small scratch); `SchemaMessageMetadata` and `BatchMetadata`. Above one thread the stream is read ahead
+by a task of the reader's own (messages in order; dictionary batches applied there, each record batch decoded on the
+thread pool against a snapshot of the dictionaries): a batch is delivered as soon as it is decoded, never waiting for
+later messages, so the stream's position runs ahead of the batches delivered.
 
 **What is read**: metadata V4 (unions with their old validity buffer, refused when it holds nulls) and V5; the
 pre-0.15 framing (no continuation marker); every type of the columnar format 1.5: null, booleans, integers, floats
@@ -526,11 +546,13 @@ written synchronously on completion.
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
 | `Ipc/IpcWriter.cs`, `IpcWriteOptions.cs` | Public IPC writer and its options (`IpcFormat`); messages written with their bodies' padding, the footer's blocks. The codec's writing half is Sazanami's `Arrow/Ipc`: `FlatBufferWriter` (front to back), `IpcMetadataWriter` (schema, messages, footer), `IpcBatchEncoder` (arrays to nodes and buffers, compression, layout), `IpcMessageEncoder` (batches to messages, dictionaries as written, framing), `IpcSchemaMessage` (Parquet's `ARROW:schema`). |
-| `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
+| `Ipc/IpcDecoding.cs` | What a reader decodes from each batch: the selection, the row filter lowered by Samidare (its columns decoded first, the others when it keeps a row, then filtered), the dictionaries reached; shared by both readers and immutable (batches decode on several threads). |
+| `Ipc/IpcReaderOfT.cs`, `IpcWriterOfT.cs` | `IpcReader<T>` and `IpcWriter<T>`: typed rows over the shared `TypedRows` and `RowBatcher`. |
+| `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`: compressed buffers of a large batch decompressed side by side before the walk), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`, with snapshots for batches decoded ahead), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
-| `Parquet/ParquetReaderOfT.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>`): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
+| `Parquet/ParquetReaderOfT.cs`, `Parquet/TypedRows.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>` and `IpcReader<T>`; `ParquetTypedRows` maps Parquet's options onto it): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
-| `Parquet/ParquetWriterOfT.cs` | `ParquetWriter<T>`: rows gathered into native batches by Sazanami's `ArrowRowBuilder<T>` (an array's or a list's whole batches made in parallel by a pool of builders, up to its first null row, written in order and freed); a refused value aborts the file. |
+| `Parquet/ParquetWriterOfT.cs`, `RowBatcher.cs` | `ParquetWriter<T>` over `RowBatcher<T>` (shared with `IpcWriter<T>`): rows gathered into native batches by Sazanami's `ArrowRowBuilder<T>` (an array's or a list's whole batches made in parallel by a pool of builders, up to its first null row, written in order and freed); a refused value aborts the output. |
 | `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded (with several threads sealed: finished by a task on a second set of column writers); with the writer owning the batches, row groups encoded side by side (sets of column writers, one column scheduler, reference-counted batches, laid out and written in order); Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
 | `Parquet/ParquetColumnOptions.cs` | Settings by column (`ParquetWriteOptions.Columns`): the encoding of pages written without the dictionary (`ParquetValueEncoding`), the dictionary on or off, Bloom filters (`ParquetBloomFilterOptions`: false positive rate, a cap on the distinct values sized for, the largest size). |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |
@@ -579,6 +601,7 @@ In Sazanami (generic, reusable by other formats):
 | `Data/Building/` (`ArrowRowBuilder.cs`, `RowLayout.cs`, `ValueWriters.cs`, `ValueConverters.cs`) | Rows of `T` as Arrow batches in native memory (the mirror of `ArrowRowMapper<T>`): the engine's layout per .NET type, appended by code compiled once per type (sealed writers, struct converters, no boxing); records refused when null; a value the layout refuses faults the builder; the paths of its dictionary columns (`MapColumns`); `ArrowColumnBuilder<T>` (one array); `WideIntegers` (128-bit integers as marked decimal(38, 0) until Apache.Arrow has 128-bit integer types). |
 | `Data/Mapping/` accessors (`NestedAccessors.cs`: `MapAccessor`; `ScalarAccessors.cs`: `WideIntegerAccessor`) | Decimal(p, 0) columns into `Int128` / `UInt128` members (a column marked unsigned by its bits). Map columns (Arrow maps, lists of two-field structs: key / value by name, else by position) read into `Dictionary`, `IDictionary`, `IReadOnlyDictionary` and F# `Map` members; null keys refused, a repeated key keeps its last value. |
 | `Concurrency/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
+| `Concurrency/OrderedWindow.cs` | Numbered work items run ahead of a consumer taking them in order, a window opening 1, 2, 4 … at a time within a size budget; results that own resources disposed when never taken. |
 | `Arrow/RowViews/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 
 In Polars.NET (the engine integration):
@@ -664,7 +687,11 @@ value against a logical type is allowed. General unions are not written against 
   writer: every corpus file written again in both formats and every codec reads back the same, slices, dictionaries,
   bytes independent of parallelism, Apache.Arrow's reader on what is written (`IpcWriterTests`); interop (opt-in:
   `SESERAGI_IPC_PYTHON=<python with pyarrow, polars> dotnet test --filter Category=Interop`): pyarrow and Python Polars
-  read our files as they read the originals (`IpcWriterInteropTests`, `TestData/ipc/writer_interop.py`).
+  read our files as they read the originals (`IpcWriterInteropTests`, `TestData/ipc/writer_interop.py`). Parallel
+  reading gives every corpus file's batches as one thread does, row limits, early stops, a live pipe never stalled,
+  failures in place, batch metadata with its batch (`IpcParallelTests`); row filters against the IR evaluator over the
+  corpus (`IpcFilterTests`); typed rows in both formats and every codec, the output independent of how rows are passed
+  (`IpcTypedTests`).
 * Parquet (`tests/Seseragi.Files.Tests/Parquet`): every corpus file against pyarrow and DuckDB oracles
   (`ParquetValueTests`, `TestData/parquet/values.json`, `footers.json`; the corpus and how it is written:
   `TestData/parquet/README.md`), readers and options (`ParquetReaderTests`), nested data, kernels against their

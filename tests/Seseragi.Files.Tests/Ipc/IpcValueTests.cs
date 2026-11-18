@@ -18,7 +18,7 @@ public class IpcValueTests
     internal static readonly Lazy<JsonDocument> Oracle = new(() => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(Root, "values.json"))));
 
     /// <summary>Files refused, with a fragment of the error each must give.</summary>
-    private static readonly Dictionary<string, string> Refused = new()
+    internal static readonly Dictionary<string, string> Refused = new()
     {
         ["apache/integration/1.0.0-bigendian/generated_dictionary.arrow_file"] = "Big-endian",
         ["apache/integration/1.0.0-bigendian/generated_dictionary.stream"] = "Big-endian",
@@ -34,7 +34,7 @@ public class IpcValueTests
     /// <summary>Files pyarrow cannot read, compared with Polars (Int128 and UInt128, which Polars alone writes).</summary>
     private static readonly string[] PolarsOnly = ["polars/int128.arrow"];
 
-    private static string[] Names => [.. Oracle.Value.RootElement.GetProperty("files").EnumerateObject().Select(p => p.Name).Where(n => !n.StartsWith("apache/fuzz/"))];
+    internal static string[] Names => [.. Oracle.Value.RootElement.GetProperty("files").EnumerateObject().Select(p => p.Name).Where(n => !n.StartsWith("apache/fuzz/"))];
 
     public static TheoryData<string> Files => [.. Names];
 

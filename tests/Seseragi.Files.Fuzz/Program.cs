@@ -58,7 +58,7 @@ static int Worker(long seed, long first, int count, string corpus)
 {
     GuardedMemory.Enabled = true;
     NativeMemoryPool.Poison = true;
-    var cases = new Cases(CorpusFiles(corpus));
+    IFuzzCases cases = Parent.CasesFor(corpus);
     for (long n = first; n < first + count; n++)
     {
         Console.WriteLine($"C {n}");
@@ -74,8 +74,8 @@ static int OneCase(long seed, long n, string corpus)
 {
     GuardedMemory.Enabled = true;
     NativeMemoryPool.Poison = true;
-    var cases = new Cases(CorpusFiles(corpus));
-    if (Cases.IsFileCase(n))
+    IFuzzCases cases = Parent.CasesFor(corpus);
+    if (cases.HasFile(n))
     {
         cases.FileOf(seed, n, out string source);
         Console.WriteLine($"file case from {source}");
@@ -88,8 +88,9 @@ static int OneCase(long seed, long n, string corpus)
 
 static int Save(long seed, long n, string file, string corpus)
 {
-    if (!Cases.IsFileCase(n)) throw new ArgumentException($"Case {n} is a kernel case: it has no file.");
-    File.WriteAllBytes(file, new Cases(CorpusFiles(corpus)).FileOf(seed, n, out string source));
+    IFuzzCases cases = Parent.CasesFor(corpus);
+    if (!cases.HasFile(n)) throw new ArgumentException($"Case {n} is a kernel case: it has no file.");
+    File.WriteAllBytes(file, cases.FileOf(seed, n, out string source));
     Console.WriteLine($"{file} (from {source})");
     return 0;
 }
@@ -136,8 +137,8 @@ internal static class Parent
                         saved++;
                         string name = Path.Combine(outDir, $"{seed}-{c}");
                         File.WriteAllText(name + ".txt", $"seed {seed} case {c}\n{signature}\n\n{detail.Replace(" ⏎ ", "\n")}\n");
-                        if (Cases.IsFileCase(c))
-                            File.WriteAllBytes(name + ".parquet", new Cases(CorpusFilesOf(corpus)).FileOf(seed, c, out _));
+                        IFuzzCases cases = CasesFor(corpus);
+                        if (cases.HasFile(c)) File.WriteAllBytes(name + cases.Extension, cases.FileOf(seed, c, out _));
                     }
                 }
             }
@@ -156,8 +157,20 @@ internal static class Parent
     // read, it only exhausts the worker's memory cap.
     private static readonly HashSet<string> Excluded = ["large_string_map.brotli.parquet"];
 
-    /// <summary>The corpus files, and those of the pushdown fixtures beside it (paged files with page indexes).</summary>
-    public static string[] CorpusFilesOf(string dir) =>
+    /// <summary>Whether a corpus directory holds Arrow IPC data (TestData/ipc) rather than Parquet files.</summary>
+    public static bool IsIpc(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "ipc";
+
+    /// <summary>The cases of the corpus's format.</summary>
+    public static IFuzzCases CasesFor(string dir) => IsIpc(dir) ? new IpcCases(CorpusFilesOf(dir)) : new Cases(CorpusFilesOf(dir));
+
+    /// <summary>
+    /// The corpus files: Arrow IPC files and streams of an ipc directory; else Parquet files, and those of the
+    /// pushdown fixtures beside it (paged files with page indexes).
+    /// </summary>
+    public static string[] CorpusFilesOf(string dir) => IsIpc(dir)
+        ? [.. Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
+            .Where(f => Path.GetExtension(f) is ".arrow" or ".arrows" or ".feather" or ".arrow_file" or ".stream").Order(StringComparer.Ordinal)]
+        :
         [.. ((string[])[dir, dir.TrimEnd(Path.DirectorySeparatorChar) + "-pushdown"]).Where(Directory.Exists)
             .SelectMany(d => Directory.EnumerateFiles(d, "*.parquet", SearchOption.AllDirectories))
             .Where(f => !Excluded.Contains(Path.GetFileName(f))).Order(StringComparer.Ordinal)];

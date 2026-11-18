@@ -259,7 +259,7 @@ public sealed class ParquetWriterOfTTests : IDisposable
         Assert.NotNull(file.Metadata.Thrift!.RowGroups[0].Columns[1].MetaData!.BloomFilterOffset);
     }
 
-    private static bool Same(Trade a, Trade b) =>
+    internal static bool Same(Trade a, Trade b) =>
         a with { Tags = null, Legs = null } == b with { Tags = null, Legs = null }
         && (a.Tags ?? []).SequenceEqual(b.Tags ?? []) && (a.Tags is null) == (b.Tags is null)
         && (a.Legs ?? []).SequenceEqual(b.Legs ?? []) && (a.Legs is null) == (b.Legs is null);

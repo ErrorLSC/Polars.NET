@@ -27,6 +27,17 @@ internal sealed class IpcDictionaries : IDisposable
         throw IpcValidation.Invalid(where, $"dictionary {id} is used before it is defined");
     }
 
+    /// <summary>
+    /// The dictionaries as they are now, held by a set of their own (dispose it): a batch decoded on another thread
+    /// reads them while later dictionary batches replace or extend the originals.
+    /// </summary>
+    public IpcDictionaries Snapshot()
+    {
+        var copy = new IpcDictionaries();
+        foreach (var (id, values) in _byId) copy.Set(id, values);
+        return copy;
+    }
+
     /// <summary>Whether dictionary <paramref name="id"/> is defined.</summary>
     public bool Contains(long id) => _byId.ContainsKey(id);
 

@@ -22,7 +22,7 @@ public sealed class ParquetReader<[DynamicallyAccessedMembers(DynamicallyAccesse
     internal ParquetReader(ParquetFile file, Expression<Func<T, bool>>? where, ParquetReadOptions? options)
     {
         options ??= new ParquetReadOptions();
-        TypedRead<T> read = TypedRows.Plan(where, [.. file.Schema.FieldsList.Select(f => f.Name)],
+        TypedRead<T> read = ParquetTypedRows.Plan(where, [.. file.Schema.FieldsList.Select(f => f.Name)],
             o => new Apache.Arrow.Schema([.. file.Mapping(o).Columns.Select(c => c.Field)], null), options, "file");
         _reader = file.OpenReader(read.Options);
         FiltersExactly = read.Exact ?? _reader.FiltersExactly;

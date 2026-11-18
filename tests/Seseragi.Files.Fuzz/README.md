@@ -37,6 +37,18 @@ every type the Parquet writer writes, flat or nested (structs, lists of every la
 dictionary-encoded nested values, nulls at every level), in random slices and with random options (pages, row groups,
 codecs, dictionaries, page versions, statistics, checksums), written and read back with every value compared.
 
+## Arrow IPC cases
+
+Passing the IPC corpus (`tests/Seseragi.Files.Tests/TestData/ipc`) as the corpus directory runs the Arrow IPC cases
+instead (`IpcCases.cs`); the contract is the same with `IpcFormatException`. Three in four take a corpus file or
+stream (pyarrow, Polars, the Arrow integration gold files and fuzz reproducers), mutate it as above (aimed in part at
+message starts and the footer) and read it with random options: threads (batches decoded ahead, buffers decompressed
+side by side, a stream read ahead), memory mapping (one case in four through a temporary file: mapped bodies are not
+guarded), columns, row limits, row filters, UTF-8 checks, batches read at random, consumers that stop early, streams
+that cannot seek. The fourth writes random columns (the Parquet writer cases' flat and nested generators) in random
+slices with random options (format, compression, threads) and reads them back, every value compared. Saved files end
+in `.arrow`.
+
 ## Running
 
 Run it inside a memory- and CPU-capped scope, so that nothing it does reaches the rest of the machine:
@@ -47,7 +59,8 @@ systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0 -p OOMPolicy=conti
   nice -n 19 dotnet tests/Seseragi.Files.Fuzz/bin/Release/net10.0/Seseragi.Files.Fuzz.dll run <seed> <minutes> <out dir>
 ```
 
-Also with `--setenv=DOTNET_EnableAVX2=0` for the scalar paths. The parent runs cases in batches in worker processes
+Also with `--setenv=DOTNET_EnableAVX2=0` for the scalar paths. For the IPC cases, pass
+`tests/Seseragi.Files.Tests/TestData/ipc` as the fourth argument (`run <seed> <minutes> <out dir> <corpus dir>`). The parent runs cases in batches in worker processes
 (core dumps off, managed heap capped at 1.5 GiB), restarts after a crash or hang, pauses while the CPU package is
 above 80 °C, and writes `log.txt`, `summary-<seed>.txt` and up to three cases per finding kind (`<seed>-<n>.txt`, and
 the mutated `.parquet` for file cases) to the out dir.

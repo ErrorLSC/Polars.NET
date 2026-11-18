@@ -651,7 +651,7 @@ public class ParquetPruningTests
         name => batch.Schema.GetFieldIndex(name) is >= 0 and var c ? Value(batch.Column(c), row) : IrEvaluator.Missing.Instance;
 
     /// <summary>A value read, as the IR's literal of its type would hold it; <see cref="Missing"/> for types not compared here.</summary>
-    private static object? Value(IArrowArray array, int i)
+    internal static object? Value(IArrowArray array, int i)
     {
         if (array.IsNull(i)) return null;
         return array switch
@@ -779,6 +779,9 @@ public class ParquetPruningTests
 
             static bool HoldsMissing(object? v) => v is IrEvaluator.Missing || v is IReadOnlyDictionary<string, object?> fields && fields.Values.Any(HoldsMissing);
         }
+
+        /// <summary>Rows read elsewhere (an IPC file's batches as row groups).</summary>
+        public static FileRows Of(string path, List<Dictionary<string, object?>>[] groups, Dictionary<string, IArrowType> types) => new(path, groups, types);
 
         /// <summary>Reads every row group; null when the file holds more than <paramref name="maxRows"/> rows.</summary>
         public static FileRows? Read(string path, long maxRows = long.MaxValue)
