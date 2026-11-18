@@ -572,15 +572,19 @@ public sealed class DeltaManagedSinkTests : IDisposable
         }
     }
 
-    /// <summary>A local directory whose files are held in memory until committed (as a cloud upload holds its parts).</summary>
-    private sealed class BufferingFileSystem(string root) : Kaminari.Seseragi.Lakehouse.Engine.IWritableFileSystem
+    /// <summary>
+    /// A local directory whose files are held in memory until committed (as a cloud upload holds its parts); creating a
+    /// file whose path holds <paramref name="refused"/> fails.
+    /// </summary>
+    private sealed class BufferingFileSystem(string root, string? refused = null) : Kaminari.Seseragi.Lakehouse.Engine.IWritableFileSystem
     {
         private readonly Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem _disk = new(root);
 
         public IReadOnlyList<Kaminari.Seseragi.Lakehouse.Engine.FileEntry> List(string directory, string? startFrom = null) => _disk.List(directory, startFrom);
         public bool TryReadAll(string path, System.Buffers.IBufferWriter<byte> into) => _disk.TryReadAll(path, into);
         public int ReadRange(string path, long offset, Span<byte> destination) => _disk.ReadRange(path, offset, destination);
-        public bool TryCreate(string path, ReadOnlyMemory<byte> content) => _disk.TryCreate(path, content);
+        public bool TryCreate(string path, ReadOnlyMemory<byte> content) =>
+            refused is not null && path.Contains(refused, StringComparison.Ordinal) ? throw new IOException($"Refused to create {path}.") : _disk.TryCreate(path, content);
         public void Overwrite(string path, ReadOnlyMemory<byte> content) => _disk.Overwrite(path, content);
         public bool Delete(string path) => _disk.Delete(path);
         public IReadOnlyList<Kaminari.Seseragi.Lakehouse.Engine.FileEntry> ListAll(string directory) => _disk.ListAll(directory);
@@ -604,6 +608,20 @@ public sealed class DeltaManagedSinkTests : IDisposable
         using DataFrame read = DataFrame.ReadParquet(Path.Combine(root, "**", "*.parquet"));
         Assert.Equal(100_000, read.Height);
         Assert.Equal(100_000, read["Value"].NUnique());
+    }
+
+    [Fact]
+    public void AFileThatFailsToBePublished_FailsTheSink()
+    {
+        // Files are published while the next rows are written: a failure among them is not lost.
+        using DataFrame rows = DataFrame.From<Grouped>([.. Enumerable.Range(0, 20_000).Select(i => new Grouped(i % 4, i))]);
+        string root = Table("refused");
+        Directory.CreateDirectory(root);
+        DeltaSchema.StructField[] fields = [new() { Name = "Value", Type = new DeltaSchema.PrimitiveType("long") }];
+        var e = Assert.Throws<IOException>(() => ManagedSink.Sink(new BufferingFileSystem(root, refused: "Key=2/"), PolarsWrapper.LazyClone(LazyHandle(rows.Lazy())),
+            ["Key"], false, fields, keys => KeyOf(keys!), (key, index) => $"Key={key}/part-{index:D5}.parquet", KernelWriteOptions.Default, approxBytesPerFile: 0));
+        Assert.Contains("Key=2/part-00000.parquet", e.Message);
+        Assert.False(Directory.Exists(Path.Combine(root, "Key=2")));
     }
 
     private static int KeyOf(DataFrameHandle keys)

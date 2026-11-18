@@ -222,6 +222,23 @@ internal sealed class GcsClient : ObjectStoreClient
     public override bool PutIfAbsent(string key, ReadOnlyMemory<byte> content)
     {
         using StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: true), body: content);
+        return Created(key, content, response);
+    }
+
+    /// <inheritdoc/>
+    public override async Task<bool> PutIfAbsentAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+    {
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Post, _baseUrl + UploadPath(key, ifAbsent: true), null, content, cancellationToken)
+            .ConfigureAwait(false);
+        return Created(key, content, response);
+    }
+
+    /// <summary>
+    /// The answer to a conditional create: true when the object is ours, false when another exists (after a retry, a
+    /// read tells whether the one there is our own earlier attempt: rare, done synchronously).
+    /// </summary>
+    private bool Created(string key, ReadOnlyMemory<byte> content, StoreResponse response)
+    {
         if (response.IsSuccess) return true;
         if (response.Status == HttpStatusCode.PreconditionFailed)
         {
@@ -236,6 +253,14 @@ internal sealed class GcsClient : ObjectStoreClient
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
         using StoreResponse response = Send(HttpMethod.Post, UploadPath(key, ifAbsent: false), body: content);
+        if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
+    }
+
+    /// <inheritdoc/>
+    public override async Task PutAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+    {
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Post, _baseUrl + UploadPath(key, ifAbsent: false), null, content, cancellationToken)
+            .ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 

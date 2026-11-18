@@ -145,7 +145,7 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         try
         {
             return _upload is null
-                ? await Task.Run(PutWhole, cancellationToken).ConfigureAwait(false)
+                ? await PutWholeAsync(cancellationToken).ConfigureAwait(false)
                 : await CompleteAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -162,6 +162,22 @@ internal sealed class CloudWriteStream(ObjectStoreClient client, string key, boo
         {
             if (createOnly) return client.PutIfAbsent(key, content);
             client.Put(key, content);
+            return true;
+        }
+        catch (StorageException e)
+        {
+            throw new IOException(e.Message, e);
+        }
+    }
+
+    /// <inheritdoc cref="PutWhole"/>
+    private async Task<bool> PutWholeAsync(CancellationToken cancellationToken)
+    {
+        ReadOnlyMemory<byte> content = _buffer is null ? ReadOnlyMemory<byte>.Empty : _buffer.Memory[.._filled];
+        try
+        {
+            if (createOnly) return await client.PutIfAbsentAsync(key, content, cancellationToken).ConfigureAwait(false);
+            await client.PutAsync(key, content, cancellationToken).ConfigureAwait(false);
             return true;
         }
         catch (StorageException e)

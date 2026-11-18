@@ -204,10 +204,26 @@ internal sealed class S3Client : ObjectStoreClient
     /// <inheritdoc/>
     public override bool PutIfAbsent(string key, ReadOnlyMemory<byte> content)
     {
-        var condition = With(_headers.Put, ("if-none-match", "*"));
         // 409: S3 is completing another conditional write of the key; asking again settles who won.
-        using StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: condition, body: content,
+        using StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: With(_headers.Put, ("if-none-match", "*")), body: content,
             alsoRetry: static status => status == HttpStatusCode.Conflict);
+        return Created(key, content, response);
+    }
+
+    /// <inheritdoc/>
+    public override async Task<bool> PutIfAbsentAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+    {
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Put, ObjectPath(key), null, With(_headers.Put, ("if-none-match", "*")), content,
+            cancellationToken, alsoRetry: static status => status == HttpStatusCode.Conflict).ConfigureAwait(false);
+        return Created(key, content, response);
+    }
+
+    /// <summary>
+    /// The answer to a conditional create: true when the object is ours, false when another exists (after a retry, a
+    /// read tells whether the one there is our own earlier attempt: rare, done synchronously).
+    /// </summary>
+    private bool Created(string key, ReadOnlyMemory<byte> content, StoreResponse response)
+    {
         if (response.IsSuccess) return true;
         if (response.Status is HttpStatusCode.PreconditionFailed or HttpStatusCode.NotModified)
         {
@@ -229,6 +245,14 @@ internal sealed class S3Client : ObjectStoreClient
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
         using StoreResponse response = Send(HttpMethod.Put, ObjectPath(key), extraHeaders: With(_headers.Put), body: content);
+        if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
+    }
+
+    /// <inheritdoc/>
+    public override async Task PutAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+    {
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Put, ObjectPath(key), null, With(_headers.Put), content, cancellationToken)
+            .ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 

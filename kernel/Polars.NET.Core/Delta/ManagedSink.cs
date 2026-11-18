@@ -51,11 +51,19 @@ internal static class ManagedSink
     public sealed record SinkResult(List<Written> Files, int ClosedForMemory);
 
     /// <summary>
-    /// The bytes the open files may hold in memory together (their pages not written yet, their writers' scratch, and
-    /// what their streams buffer: a cloud upload's parts); beyond, the largest row groups are ended early, then the largest files closed early.
-    /// The fixed buffers of each open writer come on top. Internal knob (tests set it).
+    /// The bytes the files may hold in memory together (the open files' pages not written yet, their writers' scratch,
+    /// and what the streams buffer: a cloud upload's parts, the files still being published); beyond, the files being
+    /// published are waited for, then the largest row groups ended early, then the largest files closed early. The
+    /// fixed buffers of each open writer come on top. An eighth of the memory the process may use (as the runtime
+    /// sees it: a container's limit, not the machine's), at least 256 MiB. Internal knob (tests set it).
     /// </summary>
-    internal static long MemoryBudget { get; set; } = 1L << 30;
+    internal static long MemoryBudget { get; set; } = Math.Max(256L << 20, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 8);
+
+    /// <summary>
+    /// The files a sink publishes at once (their streams committing: a cloud upload's last part and completion, or a
+    /// small file's one request), while the next rows are written.
+    /// </summary>
+    private const int MaxPublishing = 64;
 
     /// <summary>
     /// Whether the managed writer writes these files: asked for, into a store that streams (a local disk, or a cloud
@@ -166,6 +174,10 @@ internal static class ManagedSink
         private ParquetWriter.WritePlan? _plan; // shared by the files written side by side (one per partition)
         private Schema? _schema;
         private int _closedForMemory;
+        // The files closed whose streams are still committing, oldest first (closes come from several threads).
+        private readonly List<(File File, Task Commit)> _publishing = [];
+        private readonly object _publishingLock = new();
+        private readonly SemaphoreSlim _publishers = new(MaxPublishing);
 
         public int RowGroupRows { get; } = options.RowGroupSize > 0 ? options.RowGroupSize : DefaultRowGroupRows;
 
@@ -344,11 +356,48 @@ internal static class ManagedSink
             return File.Open(fileSystem, relative, _plan ?? ParquetWriter.WritePlan.Create(_schema!, _writerOptions!), _sync);
         }
 
-        private static void Close(Partition<TPartition> partition)
+        /// <summary>
+        /// Closes a partition's open file: its last row group and footer written here; its publication (the stream's
+        /// commit) goes on without a thread while the next rows are written, waited for by <see cref="HoldMemory"/> (for
+        /// memory) and <see cref="Finish"/>.
+        /// </summary>
+        private void Close(Partition<TPartition> partition)
         {
             File file = partition.Open!;
             partition.Open = null;
-            partition.Closed.Add(file.Close());
+            partition.Closed.Add(file.Complete());
+            Task commit = file.CommitAsync(_publishers);
+            lock (_publishingLock) _publishing.Add((file, commit));
+        }
+
+        /// <summary>
+        /// Forgets the files published (the first failure among them thrown); returns the bytes those still publishing
+        /// hold.
+        /// </summary>
+        private long Published()
+        {
+            lock (_publishingLock)
+            {
+                Task? failed = _publishing.Find(static p => p.Commit.IsFaulted || p.Commit.IsCanceled).Commit;
+                failed?.GetAwaiter().GetResult();
+                _publishing.RemoveAll(static p => p.Commit.IsCompletedSuccessfully);
+                long held = 0;
+                foreach (var (file, _) in _publishing) held += file.BufferedBytes;
+                return held;
+            }
+        }
+
+        /// <summary>Waits for the oldest file still publishing (none: returns false).</summary>
+        private bool WaitForOldest()
+        {
+            Task oldest;
+            lock (_publishingLock)
+            {
+                if (_publishing.Count == 0) return false;
+                oldest = _publishing[0].Commit;
+            }
+            ((IAsyncResult)oldest).AsyncWaitHandle.WaitOne();
+            return true;
         }
 
         /// <summary>
@@ -359,7 +408,10 @@ internal static class ManagedSink
         public void HoldMemory()
         {
             List<Partition<TPartition>> open = [.. _partitions.Where(p => p.Open is not null)];
+            long publishing = Published();
             long held = open.Sum(p => p.Open!.HeldBytes);
+            // Files being published first: their bytes leave memory without making files smaller.
+            while (held + publishing > MemoryBudget && WaitForOldest()) publishing = Published();
             if (held <= MemoryBudget) return;
             List<Partition<TPartition>> ending = [];
             foreach (Partition<TPartition> partition in open.OrderByDescending(p => p.Open!.HeldBytes))
@@ -386,6 +438,7 @@ internal static class ManagedSink
         public SinkResult Finish()
         {
             ForEachPartition([.. _partitions.Where(p => p.Open is not null)], Close);
+            while (WaitForOldest()) Published();
             return new SinkResult([.. _partitions.SelectMany(p => p.Closed)], _closedForMemory);
         }
 
@@ -393,12 +446,17 @@ internal static class ManagedSink
         public void Dispose()
         {
             _groups?.Dispose();
+            _publishers.Dispose();
             foreach (NativeArray<int> scratch in (NativeArray<int>[])[_ids, _globals, _firstRows, _starts, _order]) scratch.Dispose();
         }
 
         /// <summary>Gives up every open file (nothing of them stays).</summary>
         public void GiveUp()
         {
+            // The files being published land or not before this returns (nothing changes afterwards).
+            Task[] publishing;
+            lock (_publishingLock) publishing = [.. _publishing.Select(static p => p.Commit)];
+            foreach (Task commit in publishing) ((IAsyncResult)commit).AsyncWaitHandle.WaitOne();
             foreach (Partition<TPartition> partition in _partitions)
             {
                 try
@@ -557,14 +615,30 @@ internal static class ManagedSink
             Rows += count;
         }
 
-        /// <summary>Completes and publishes the file.</summary>
-        public Written Close()
+        /// <summary>Completes the file (its last row group and footer go to the stream); <see cref="CommitAsync"/> publishes it.</summary>
+        public Written Complete()
         {
             writer.Complete();
             writer.Dispose();
-            if (!stream.Commit()) throw new IOException($"The data file {relative} exists already.");
-            stream.Dispose();
             return new Written(relative, writer.BytesWritten, writer.Metadata);
+        }
+
+        /// <summary>
+        /// Publishes the completed file without holding a thread, one of <paramref name="publishers"/>' slots taken
+        /// meanwhile; the stream is disposed after (a failed commit leaves nothing).
+        /// </summary>
+        public async Task CommitAsync(SemaphoreSlim publishers)
+        {
+            await publishers.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!await stream.CommitAsync().ConfigureAwait(false)) throw new IOException($"The data file {relative} exists already.");
+            }
+            finally
+            {
+                publishers.Release();
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
         }
 
         /// <summary>Gives the file up: nothing buffered is written on, nothing of it stays.</summary>

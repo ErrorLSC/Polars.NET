@@ -185,6 +185,17 @@ internal abstract class ObjectStoreClient
     public abstract void Put(string key, ReadOnlyMemory<byte> content);
 
     /// <summary>
+    /// <see cref="PutIfAbsent"/> without holding a thread while the request is on its way (a store's client overrides
+    /// it; by default it runs on the thread pool).
+    /// </summary>
+    public virtual Task<bool> PutIfAbsentAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken) =>
+        Task.Run(() => PutIfAbsent(key, content), cancellationToken);
+
+    /// <summary><see cref="Put"/> without holding a thread while the request is on its way (see <see cref="PutIfAbsentAsync"/>).</summary>
+    public virtual Task PutAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken) =>
+        Task.Run(() => Put(key, content), cancellationToken);
+
+    /// <summary>
     /// Starts writing an object in parts (see <see cref="ObjectUpload"/>); with <paramref name="create"/>, completing
     /// it only creates the object when none exists.
     /// </summary>

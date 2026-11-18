@@ -225,8 +225,26 @@ internal sealed class AzureClient : ObjectStoreClient
     /// <inheritdoc/>
     public override bool PutIfAbsent(string key, ReadOnlyMemory<byte> content)
     {
-        var headers = new Dictionary<string, string> { ["if-none-match"] = "*", ["x-ms-blob-type"] = "BlockBlob" };
-        using StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: headers, body: content);
+        using StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: CreateHeaders(), body: content);
+        return Created(key, content, response);
+    }
+
+    /// <inheritdoc/>
+    public override async Task<bool> PutIfAbsentAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+    {
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Put, BlobPath(key), [], CreateHeaders(), content, cancellationToken)
+            .ConfigureAwait(false);
+        return Created(key, content, response);
+    }
+
+    private static Dictionary<string, string> CreateHeaders() => new() { ["if-none-match"] = "*", ["x-ms-blob-type"] = "BlockBlob" };
+
+    /// <summary>
+    /// The answer to a conditional create: true when the blob is ours, false when another exists (after a retry, a
+    /// read tells whether the one there is our own earlier attempt: rare, done synchronously).
+    /// </summary>
+    private bool Created(string key, ReadOnlyMemory<byte> content, StoreResponse response)
+    {
         if (response.IsSuccess) return true;
         // 409 (BlobAlreadyExists) and 412 both mean the blob is there, as the engine's object store reads them.
         if (response.Status is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed)
@@ -241,8 +259,15 @@ internal sealed class AzureClient : ObjectStoreClient
     /// <inheritdoc/>
     public override void Put(string key, ReadOnlyMemory<byte> content)
     {
-        var headers = new Dictionary<string, string> { ["x-ms-blob-type"] = "BlockBlob" };
-        using StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: headers, body: content);
+        using StoreResponse response = Send(HttpMethod.Put, BlobPath(key), extraHeaders: new() { ["x-ms-blob-type"] = "BlockBlob" }, body: content);
+        if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
+    }
+
+    /// <inheritdoc/>
+    public override async Task PutAsync(string key, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
+    {
+        using StoreResponse response = await SendBufferedAsync(HttpMethod.Put, BlobPath(key), [], new() { ["x-ms-blob-type"] = "BlockBlob" }, content,
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess) throw Failure(response, $"write '{key}'");
     }
 
