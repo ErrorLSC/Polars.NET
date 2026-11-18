@@ -3,7 +3,7 @@
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
 **Parquet** (files and their full footer metadata read and written) and **Arrow IPC** (the file format, Feather v2, and
-the stream format, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+the stream format, read and written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -320,6 +320,20 @@ verified) or Zstandard, buffers stored raw (`-1`) or empty without a length. Ref
 before V4, tensor messages, buffers over 2 GiB, types Apache.Arrow cannot hold (a struct without fields, fixed-size
 binary of width 0). Apache.Arrow names map fields canonically (`entries`, `key`, `value`).
 
+**Writing** (`IpcWriter`, `IpcWriteOptions`): record batches as the file format (default) or the stream format
+(`IpcFormat`), to a stream or a path, sync or async (`Write`, `WriteAsync`, a batch's message metadata as an extra
+argument, `Complete`, `Abort`, `BytesWritten`; `IpcWriter.Write(path | stream, schema, batches)` / `WriteAsync` in one
+call; disposing completes unless aborted or failed, `LeaveOpen`). Metadata V5, little-endian; schema, field, message and
+footer (`FileMetadata`) metadata; extension types written as their storage with the `ARROW:extension:*` keys. Buffers
+64-byte aligned (bodies too, from where writing began); compression `NoCompression` (default), `Lz4FrameCompression`
+(independent 64 KiB blocks, no checksums, as Arrow C++ writes) or `ZstandardCompression(level)`, each buffer on its own,
+up to `MaxDegreeOfParallelism` at once with the same bytes for any degree; a buffer that does not shrink is stored as it
+is (`-1`). Arrays are written from where they are: a slice as its own rows (offsets rebased, bitmaps shifted, run ends
+cut; view data buffers and list-view children whole). Dictionaries: each written with the first batch that uses it
+(after the dictionaries its values use), then compared with the last one written: the same is not written again, one
+whose first values are the last one's is written as a delta, another is a replacement in the stream format and refused
+in the file format (which allows none). A batch that does not match the schema is refused before anything is written.
+
 **Validation**: every array is checked before it is handed out, in O(n), vectorized where the data allows: buffers
 inside the body and long enough for their lengths, null counts against validity bitmaps, offsets non-decreasing and
 within their data, views (length, buffer index, offset, inline prefix), list views, union type ids and dense offsets,
@@ -511,6 +525,7 @@ written synchronously on completion.
 | `Excel/Reading/` | The format-neutral half: `SheetCells` (cell model, row buffer, `SheetSource`), `WorkbookSource`, `ChunkReader` (a part decompressed into a native buffer, refilled between complete chunks), `SharedStringStore` (native UTF-8 plus offsets), `SheetReader` (header, window, inference, projection, batches), `ColumnAppenders` (cells to native builders per Arrow type), `CellText` (cells as text). |
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
+| `Ipc/IpcWriter.cs`, `IpcWriteOptions.cs` | Public IPC writer and its options (`IpcFormat`); messages written with their bodies' padding, the footer's blocks. The codec's writing half is Sazanami's `Arrow/Ipc`: `FlatBufferWriter` (front to back), `IpcMetadataWriter` (schema, messages, footer), `IpcBatchEncoder` (arrays to nodes and buffers, compression, layout), `IpcMessageEncoder` (batches to messages, dictionaries as written, framing), `IpcSchemaMessage` (Parquet's `ARROW:schema`). |
 | `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>`): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
@@ -551,7 +566,7 @@ In Sazanami (generic, reusable by other formats):
 | `Arrow/Compute/ArrowWidening.cs`, `ArrowConversion.cs` | Conversions between Arrow types as datasets need them: which compile (lossless widenings, lossy ones on request, struct fields by name with missing ones null on request), the narrowest common type of two, and the conversions themselves into native memory (unchanged parts shared with a native source; portable vector paths for the common numeric widenings); arrays of nulls of any type. |
 | `Buffers/MemoryStreams.cs`, `PointerMemory.cs` | A memory stream's bytes read in place (its buffer visible or, for a plain `MemoryStream`, hidden: read through `UnsafeAccessor`); native bytes another owner holds (a mapping, an unmanaged memory stream) as `ReadOnlyMemory<byte>`. |
 | `Arrow/TypeSystem/ArrowFieldIds.cs` | The field-id metadata key (`PARQUET:field_id`) and helpers to read or set an Arrow field's id. |
-| `Arrow/TypeSystem/ArrowSchemaCheck.cs` | Checks an Arrow IPC schema message as a FlatBuffer (offsets, vectors, strings, nesting) before the Apache.Arrow reader trusts its lengths. |
+| `Arrow/Ipc/IpcSchemaMessage.cs` | Parquet's `ARROW:schema`: an Arrow IPC schema message written and read by the IPC codec (every FlatBuffer position checked; damaged or unknown messages read as absent). |
 | `Encodings/BitUnpacking.cs`, `BitUnpack.cs` | LSB-first bit unpacking of 0–64-bit values (above 32 into 64-bit integers): per-width group kernels and a bounds-checked path. |
 | `Encodings/ByteStreamSplit.cs` | Joins byte streams back into values (portable widening for 2-, 4- and 8-byte values). |
 | `Rows/RowRanges.cs` | Sets of row numbers as sorted, disjoint ranges: union, intersection, difference, complement, slice, take; from indices or a bitmap. |
@@ -645,7 +660,11 @@ value against a logical type is allowed. General unions are not written against 
   reading (`IpcStructureTests`, `messages.json`; the corpus and how it is written: `TestData/ipc/README.md`), every
   reading mode alike (mapped or not, sync or async, memory), projection and row limits, Apache.Arrow's reader on the
   uncompressed files, the Arrow C++ fuzz reproducers, random damage, arrays breaking each checked rule
-  (`IpcRobustnessTests`, `IpcDecoderTests`), lifetimes, metadata and errors (`IpcApiTests`).
+  (`IpcRobustnessTests`, `IpcDecoderTests`, `IpcEdgeCaseTests`), lifetimes, metadata and errors (`IpcApiTests`). The
+  writer: every corpus file written again in both formats and every codec reads back the same, slices, dictionaries,
+  bytes independent of parallelism, Apache.Arrow's reader on what is written (`IpcWriterTests`); interop (opt-in:
+  `SESERAGI_IPC_PYTHON=<python with pyarrow, polars> dotnet test --filter Category=Interop`): pyarrow and Python Polars
+  read our files as they read the originals (`IpcWriterInteropTests`, `TestData/ipc/writer_interop.py`).
 * Parquet (`tests/Seseragi.Files.Tests/Parquet`): every corpus file against pyarrow and DuckDB oracles
   (`ParquetValueTests`, `TestData/parquet/values.json`, `footers.json`; the corpus and how it is written:
   `TestData/parquet/README.md`), readers and options (`ParquetReaderTests`), nested data, kernels against their

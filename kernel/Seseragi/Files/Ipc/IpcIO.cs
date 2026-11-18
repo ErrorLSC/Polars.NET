@@ -15,6 +15,12 @@ internal static class IpcIO
 
     public static T Sync<T>(ValueTask<T> task) => task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
 
+    public static void Sync(ValueTask task)
+    {
+        if (task.IsCompletedSuccessfully) return;
+        task.AsTask().GetAwaiter().GetResult();
+    }
+
     public static IpcFormatException Format(InvalidDataException e) => new(e.Message, e);
 
     /// <summary>Reads exactly <paramref name="length"/> bytes at <paramref name="offset"/> into native memory at <paramref name="destination"/>.</summary>

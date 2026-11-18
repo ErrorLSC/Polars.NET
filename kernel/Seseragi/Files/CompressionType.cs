@@ -30,8 +30,18 @@ public interface IParquetCompression
     internal int ParquetLevel { get; }
 }
 
-/// <summary>No compression (Avro codec <c>null</c>, Parquet <c>UNCOMPRESSED</c>).</summary>
-public sealed record NoCompression : CompressionType, IAvroCompression, IParquetCompression
+/// <summary>A codec Arrow IPC bodies can use. Implemented only by this package's codecs.</summary>
+public interface IIpcCompression
+{
+    /// <summary>The IPC codec.</summary>
+    internal Kaminari.Sazanami.Arrow.Ipc.IpcCompression IpcCodec { get; }
+
+    /// <summary>The level passed to the compressor (0: the codec has none).</summary>
+    internal int IpcLevel { get; }
+}
+
+/// <summary>No compression (Avro codec <c>null</c>, Parquet <c>UNCOMPRESSED</c>, Arrow IPC uncompressed bodies).</summary>
+public sealed record NoCompression : CompressionType, IAvroCompression, IParquetCompression, IIpcCompression
 {
     /// <summary>The shared instance.</summary>
     public static NoCompression Instance { get; } = new();
@@ -40,6 +50,9 @@ public sealed record NoCompression : CompressionType, IAvroCompression, IParquet
 
     CompressionCodec IParquetCompression.ParquetCodec => CompressionCodec.Uncompressed;
     int IParquetCompression.ParquetLevel => 0;
+
+    Kaminari.Sazanami.Arrow.Ipc.IpcCompression IIpcCompression.IpcCodec => Kaminari.Sazanami.Arrow.Ipc.IpcCompression.None;
+    int IIpcCompression.IpcLevel => 0;
 }
 
 /// <summary>Raw deflate (RFC 1951; Avro codec <c>deflate</c>).</summary>
@@ -75,9 +88,9 @@ public sealed record SnappyCompression : CompressionType, IAvroCompression, IPar
     int IParquetCompression.ParquetLevel => 0;
 }
 
-/// <summary>Zstandard (Avro codec <c>zstandard</c>, Parquet <c>ZSTD</c>).</summary>
+/// <summary>Zstandard (Avro codec <c>zstandard</c>, Parquet <c>ZSTD</c>, Arrow IPC <c>ZSTD</c>).</summary>
 /// <param name="Level">1–22; 3 is the library default, higher is smaller and slower.</param>
-public sealed record ZstandardCompression(int Level = 3) : CompressionType, IAvroCompression, IParquetCompression
+public sealed record ZstandardCompression(int Level = 3) : CompressionType, IAvroCompression, IParquetCompression, IIpcCompression
 {
     /// <summary>The compression level, 1–22.</summary>
     public int Level { get; } = Level is >= 1 and <= 22
@@ -88,6 +101,9 @@ public sealed record ZstandardCompression(int Level = 3) : CompressionType, IAvr
 
     CompressionCodec IParquetCompression.ParquetCodec => CompressionCodec.Zstd;
     int IParquetCompression.ParquetLevel => Level;
+
+    Kaminari.Sazanami.Arrow.Ipc.IpcCompression IIpcCompression.IpcCodec => Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Zstd;
+    int IIpcCompression.IpcLevel => Level;
 }
 
 /// <summary>Gzip (Parquet <c>GZIP</c>: each page a gzip member).</summary>
@@ -124,4 +140,17 @@ public sealed record Lz4RawCompression : CompressionType, IParquetCompression
 
     CompressionCodec IParquetCompression.ParquetCodec => CompressionCodec.Lz4Raw;
     int IParquetCompression.ParquetLevel => 0;
+}
+
+/// <summary>
+/// The LZ4 frame format (Arrow IPC <c>LZ4_FRAME</c>; Feather v2's usual codec): each buffer one frame of independent
+/// blocks of up to 64 KiB, without checksums, as Arrow C++ writes them.
+/// </summary>
+public sealed record Lz4FrameCompression : CompressionType, IIpcCompression
+{
+    /// <summary>The shared instance.</summary>
+    public static Lz4FrameCompression Instance { get; } = new();
+
+    Kaminari.Sazanami.Arrow.Ipc.IpcCompression IIpcCompression.IpcCodec => Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Lz4Frame;
+    int IIpcCompression.IpcLevel => 0;
 }

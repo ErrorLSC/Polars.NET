@@ -138,7 +138,7 @@ def child(oracle, path, capped):
     return {"error": f"{oracle} crashed (exit {run.returncode}): {last}"[:400]}
 
 
-if len(sys.argv) == 4 and sys.argv[1] == "--one":
+if __name__ == "__main__" and len(sys.argv) == 4 and sys.argv[1] == "--one":
     try:
         result = {"pyarrow": read_pyarrow, "polars": read_polars}[sys.argv[2]](sys.argv[3])
     except Exception as e:
@@ -146,33 +146,38 @@ if len(sys.argv) == 4 and sys.argv[1] == "--one":
     print(json.dumps(result))
     sys.exit(0)
 
-import polars  # noqa: E402
-import pyarrow  # noqa: E402
+def main():
+    import polars  # noqa: E402
+    import pyarrow  # noqa: E402
 
-values = {"pyarrow": pyarrow.__version__, "polars": polars.__version__, "files": {}}
-messages = {"files": {}}
-for directory, dirs, names in os.walk(root):
-    dirs.sort()
-    for name in sorted(names):
-        full = os.path.join(directory, name)
-        key = os.path.relpath(full, root).replace(os.sep, "/")
-        fuzz = key.startswith("apache/fuzz/")
-        if not (fuzz or name.endswith(SUFFIXES)):
-            continue
-        with open(full, "rb") as f:
-            data = f.read()
-        try:
-            messages["files"][key] = ipc_meta.describe(data)
-        except Exception as e:  # damaged files: whatever the walker could not read
-            messages["files"][key] = {"error": f"{type(e).__name__}: {e}"[:400]}
-        if data[:4] == b"FEA1":
-            values["files"][key] = {"feather_v1": True}
-            continue
-        values["files"][key] = {oracle: child(oracle, full, fuzz) for oracle in ("pyarrow", "polars")}
-        print(key, file=sys.stderr)
+    values = {"pyarrow": pyarrow.__version__, "polars": polars.__version__, "files": {}}
+    messages = {"files": {}}
+    for directory, dirs, names in os.walk(root):
+        dirs.sort()
+        for name in sorted(names):
+            full = os.path.join(directory, name)
+            key = os.path.relpath(full, root).replace(os.sep, "/")
+            fuzz = key.startswith("apache/fuzz/")
+            if not (fuzz or name.endswith(SUFFIXES)):
+                continue
+            with open(full, "rb") as f:
+                data = f.read()
+            try:
+                messages["files"][key] = ipc_meta.describe(data)
+            except Exception as e:  # damaged files: whatever the walker could not read
+                messages["files"][key] = {"error": f"{type(e).__name__}: {e}"[:400]}
+            if data[:4] == b"FEA1":
+                values["files"][key] = {"feather_v1": True}
+                continue
+            values["files"][key] = {oracle: child(oracle, full, fuzz) for oracle in ("pyarrow", "polars")}
+            print(key, file=sys.stderr)
 
-for name, doc in (("values.json", values), ("messages.json", messages)):
-    with open(os.path.join(root, name), "w", encoding="utf-8") as f:
-        json.dump(doc, f, sort_keys=True, ensure_ascii=False, indent=0)
-        f.write("\n")
-print(f"{len(values['files'])} files", file=sys.stderr)
+    for name, doc in (("values.json", values), ("messages.json", messages)):
+        with open(os.path.join(root, name), "w", encoding="utf-8") as f:
+            json.dump(doc, f, sort_keys=True, ensure_ascii=False, indent=0)
+            f.write("\n")
+    print(f"{len(values['files'])} files", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

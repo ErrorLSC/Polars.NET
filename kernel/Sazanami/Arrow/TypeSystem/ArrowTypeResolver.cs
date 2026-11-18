@@ -5,8 +5,6 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.FSharp.Core;
 using Kaminari.Sazanami.Marshalling;
-using Kaminari.Sazanami.Data.Database;
-using Kaminari.Sazanami.Data.Mapping;
 
 namespace Kaminari.Sazanami.Arrow.TypeSystem;
 
@@ -24,13 +22,13 @@ public static class ArrowTypeResolver
             var name = reader.GetName(i);
             var netType = reader.GetFieldType(i);
 
-            // 1. Resolve Arrow Type 
+            // 1. Resolve Arrow Type
             var arrowType = GetArrowTypeFromNetType(netType);
 
             // 2. Create Field
             var field = new Field(name, arrowType, nullable: true);
 
-            // 3. Add 
+            // 3. Add
             fields.Add(field);
         }
 
@@ -212,7 +210,7 @@ public static class ArrowTypeResolver
                                 GetNetTypeFromArrowType(map.ValueField.DataType))
                             .MakeArrayType(),
 
-            // Structs have heterogeneous fields. Without runtime code generation, 
+            // Structs have heterogeneous fields. Without runtime code generation,
             // mapping to an array of objects or a dynamic expando is the safest fallback.
             StructType => typeof(object[]),
 

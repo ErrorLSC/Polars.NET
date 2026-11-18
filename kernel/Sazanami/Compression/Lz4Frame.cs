@@ -111,4 +111,50 @@ internal static class Lz4Frame
     }
 
     private static InvalidDataException Damaged(string what) => new($"An LZ4 frame is damaged: {what}.");
+
+    private const int BlockSize = 64 << 10;
+
+    /// <summary>The largest frame <see cref="Compress"/> makes of <paramref name="length"/> bytes.</summary>
+    public static long MaxCompressedLength(long length)
+    {
+        long blocks = Math.Max(1, (length + BlockSize - 1) / BlockSize);
+        return 7 + blocks * 4 + length + 4; // header, block sizes, data stored at worst, end mark
+    }
+
+    /// <summary>
+    /// Compresses <paramref name="source"/> into one frame as Arrow C++ (pyarrow) writes them: independent blocks of
+    /// up to 64 KiB, no checksums, no content size; a block that does not shrink is stored. Returns the frame's length.
+    /// </summary>
+    public static int Compress(ReadOnlySpan<byte> source, Span<byte> destination)
+    {
+        if (destination.Length < MaxCompressedLength(source.Length)) throw new ArgumentException("The destination is too small.", nameof(destination));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination, Magic);
+        destination[4] = 0x60; // version 01, independent blocks
+        destination[5] = 0x40; // blocks of up to 64 KiB
+        destination[6] = (byte)(XxHash32.HashToUInt32(destination.Slice(4, 2)) >> 8);
+        int op = 7;
+        Span<byte> scratch = t_scratch ??= new byte[Lz4Block.MaxCompressedLength(BlockSize)];
+        for (int at = 0; at < source.Length; at += BlockSize)
+        {
+            ReadOnlySpan<byte> block = source.Slice(at, Math.Min(BlockSize, source.Length - at));
+            int n = Lz4Block.Compress(block, scratch);
+            if (n < block.Length)
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)n);
+                scratch[..n].CopyTo(destination[(op + 4)..]);
+                op += 4 + n;
+            }
+            else
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)block.Length | 0x80000000u); // stored
+                block.CopyTo(destination[(op + 4)..]);
+                op += 4 + block.Length;
+            }
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], 0); // end mark
+        return op + 4;
+    }
+
+    [ThreadStatic]
+    private static byte[]? t_scratch;
 }

@@ -1,5 +1,5 @@
+using Kaminari.Sazanami.Arrow.Ipc;
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Rows;
@@ -115,7 +115,7 @@ public class ParquetFuzzRegressionTests
         }).Message);
     }
 
-    /// <summary>The stored Arrow schemas of the corpus (pyarrow, Polars, DuckDB, Spark writers) all pass the check.</summary>
+    /// <summary>The stored Arrow schemas of the corpus (pyarrow, Polars, DuckDB, Spark writers) are all read.</summary>
     [Fact]
     public void StoredArrowSchemas_OfTheCorpus_AreSound()
     {
@@ -124,16 +124,13 @@ public class ParquetFuzzRegressionTests
         {
             byte[]? message = StoredSchema(path);
             if (message is null) continue;
-            Assert.True(ArrowSchemaCheck.IsSound(message), path);
+            Assert.NotNull(IpcSchemaMessage.TryRead(message));
             checkedFiles.Add(path);
         }
         Assert.True(checkedFiles.Count >= 20, $"only {checkedFiles.Count} files store an Arrow schema");
     }
 
-    /// <summary>
-    /// Damaged schemas (bytes changed, cut short) never make the check throw, and the ones it passes are read by
-    /// Apache.Arrow without exhausting memory (whatever else it throws, the caller treats as unreadable).
-    /// </summary>
+    /// <summary>Damaged schemas (bytes changed, cut short) are read or refused (null), never thrown on.</summary>
     [Fact]
     public void DamagedStoredArrowSchemas_AreCheckedWithoutThrowing()
     {
@@ -150,27 +147,15 @@ public class ParquetFuzzRegressionTests
                     int at = random.Next(damaged.Length);
                     damaged[at] = random.Next(2) == 0 ? (byte)random.Next(256) : (byte)(damaged[at] ^ (1 << random.Next(8)));
                 }
-                if (!ArrowSchemaCheck.IsSound(damaged))
-                {
-                    unsound++;
-                    continue;
-                }
-                sound++;
-                try
-                {
-                    using var reader = new ArrowStreamReader(new MemoryStream(damaged));
-                    _ = reader.Schema;
-                }
-                catch (Exception e) when (e is not OutOfMemoryException)
-                {
-                }
+                if (IpcSchemaMessage.TryRead(damaged) is null) unsound++;
+                else sound++;
             }
         }
         Assert.True(sound > 0 && unsound > 0, $"{sound} sound, {unsound} unsound");
     }
 
     /// <summary>
-    /// Each kind of damage the check exists for, made at a known place of a sound schema: a vector longer than the
+    /// Each kind of damage the reader must refuse, made at a known place of a sound schema: a vector longer than the
     /// buffer (a string's bytes are not walked: only its length guards them), an offset past its end or beyond 2^31,
     /// a type tag from the future, a message that is not a schema.
     /// </summary>
@@ -179,20 +164,20 @@ public class ParquetFuzzRegressionTests
     {
         byte[] message = Directory.EnumerateFiles(Dir("parquet"), "*.parquet", SearchOption.AllDirectories).Order()
             .Select(StoredSchema).First(m => m is not null)!;
-        Assert.True(ArrowSchemaCheck.IsSound(message));
+        Assert.NotNull(IpcSchemaMessage.TryRead(message));
         int body = BitConverter.ToUInt32(message, 0) == 0xFFFFFFFF ? 8 : 4;
         int root = U32(0);
         int schema = Target(root, 2);
         int fieldsAt = Field(schema, 1), fields = Target(schema, 1);
         int first = fields + 4 + U32(fields + 4);
 
-        Assert.False(ArrowSchemaCheck.IsSound(With(fields, 0x7FFFFFFF)), "a vector longer than the buffer");
-        Assert.False(ArrowSchemaCheck.IsSound(With(fieldsAt, message.Length)), "an offset past the end");
-        Assert.False(ArrowSchemaCheck.IsSound(With(fieldsAt, int.MinValue)), "an offset beyond 2^31 (negative as an int)");
+        Assert.True(IpcSchemaMessage.TryRead(With(fields, 0x7FFFFFFF)) is null, "a vector longer than the buffer");
+        Assert.True(IpcSchemaMessage.TryRead(With(fieldsAt, message.Length)) is null, "an offset past the end");
+        Assert.True(IpcSchemaMessage.TryRead(With(fieldsAt, int.MinValue)) is null, "an offset beyond 2^31 (negative as an int)");
         int name = Target(first, 0);
-        Assert.False(ArrowSchemaCheck.IsSound(With(name, 0x7FFFFFF0)), "a string longer than the buffer");
-        Assert.False(ArrowSchemaCheck.IsSound(WithByte(Field(first, 2), 99)), "a type tag from the future");
-        Assert.False(ArrowSchemaCheck.IsSound(WithByte(Field(root, 1), 2)), "a record batch message");
+        Assert.True(IpcSchemaMessage.TryRead(With(name, 0x7FFFFFF0)) is null, "a string longer than the buffer");
+        Assert.True(IpcSchemaMessage.TryRead(WithByte(Field(first, 2), 99)) is null, "a type tag from the future");
+        Assert.True(IpcSchemaMessage.TryRead(WithByte(Field(root, 1), 2)) is null, "a record batch message");
 
         // FlatBuffer navigation over the message's buffer (positions relative to its start).
         int U32(int at) => (int)BitConverter.ToUInt32(message, body + at);

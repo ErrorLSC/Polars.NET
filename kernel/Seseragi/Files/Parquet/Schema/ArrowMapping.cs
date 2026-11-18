@@ -1,6 +1,6 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
@@ -85,23 +85,19 @@ internal static class ArrowMapping
     }
 
     /// <summary>
-    /// The Arrow schema stored by the writer, or null (absent or unreadable: it only refines the mapping). The message
-    /// is checked as a FlatBuffer first: the Apache.Arrow reader trusts its lengths (a damaged one makes it allocate
-    /// gigabytes), and whatever it throws on a sound but nonsensical schema means unreadable too.
+    /// The Arrow schema stored by the writer, or null (absent or unreadable: it only refines the mapping). The message is
+    /// read by the IPC codec, which checks every FlatBuffer position and refuses what it does not know.
     /// </summary>
     public static Apache.Arrow.Schema? StoredArrowSchema(string? encoded)
     {
         if (string.IsNullOrEmpty(encoded)) return null;
         try
         {
-            byte[] bytes = Convert.FromBase64String(encoded);
-            if (!ArrowSchemaCheck.IsSound(bytes)) return null;
-            using var reader = new ArrowStreamReader(new MemoryStream(bytes));
-            return reader.Schema;
+            return IpcSchemaMessage.TryRead(Convert.FromBase64String(encoded));
         }
-        catch (Exception e) when (e is not OutOfMemoryException)
+        catch (FormatException)
         {
-            return null;
+            return null; // not base64
         }
     }
 

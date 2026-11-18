@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Arrow.Interop;
@@ -1246,12 +1245,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>The Arrow IPC schema message, as Arrow writers store it in <c>ARROW:schema</c>.</summary>
-    private static byte[] ArrowSchemaMessage(Apache.Arrow.Schema schema)
-    {
-        using var buffer = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(buffer, schema, leaveOpen: true)) writer.WriteStart();
-        return buffer.ToArray();
-    }
+    private static byte[] ArrowSchemaMessage(Apache.Arrow.Schema schema) => Kaminari.Sazanami.Arrow.Ipc.IpcSchemaMessage.Write(schema);
 
     /// <summary>Lets a row group still on its way to the stream finish (its failure was or will be reported elsewhere).</summary>
     private void WaitForWrites()

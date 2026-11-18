@@ -17,4 +17,6 @@ Arrow IPC test files (file format, stream format, Feather v2).
 - `values.json`: every file as pyarrow (with full validation) and Python Polars read it: per column the type, counts
   and a hash of the canonical values; per batch its rows and a hash. Written by `ipc_check.py`.
 - `messages.json`: every file's framing and metadata as `ipc_meta.py` reads it. Written by `ipc_check.py`.
+- `writer_interop.py`: reads files our writer wrote with pyarrow and Polars and compares with what they read from the
+  corpus files they were written from (driven by `IpcWriterInteropTests`).
   Run `ipc_check.py` again after adding files.
