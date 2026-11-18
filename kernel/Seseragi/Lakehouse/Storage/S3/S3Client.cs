@@ -22,6 +22,10 @@ internal sealed class S3Client : ObjectStoreClient
     private readonly RetrySettings _retry;
     private readonly S3Headers _headers;
     private readonly HttpOptions? _http;
+    private readonly bool _unsignedPayload;
+
+    /// <summary>Whether uploaded data goes without its hash in the signature (see the constructor).</summary>
+    internal bool UnsignedPayload => _unsignedPayload;
 
     /// <param name="bucketEndpoint">The bucket's URL: <c>https://s3.region.amazonaws.com/bucket</c>, <c>http://localhost:9000/bucket</c> or <c>https://bucket.s3.region.amazonaws.com</c>.</param>
     /// <param name="region">The signing region.</param>
@@ -29,9 +33,14 @@ internal sealed class S3Client : ObjectStoreClient
     /// <param name="retry">Retry settings.</param>
     /// <param name="headers">Encryption and requester-pays headers.</param>
     /// <param name="http">Connection options.</param>
+    /// <param name="unsignedPayload">
+    /// Whether uploaded data (an object's or a part's bytes) is sent without its SHA-256 in the signature
+    /// (<c>UNSIGNED-PAYLOAD</c>): null for over HTTPS only, where TLS keeps the bytes whole (as the AWS SDKs do). Hashing
+    /// takes about 2 ms per MiB on processors without SHA instructions, and halves an upload's throughput.
+    /// </param>
     public S3Client(
         string bucketEndpoint, string region, CredentialSource<AwsCredential>? credential, RetrySettings retry, S3Headers? headers = null,
-        HttpOptions? http = null)
+        HttpOptions? http = null, bool? unsignedPayload = null)
     {
         _http = http;
         _headers = headers ?? S3Headers.None;
@@ -39,6 +48,7 @@ internal sealed class S3Client : ObjectStoreClient
         _origin = uri.GetLeftPart(UriPartial.Authority);
         _basePath = uri.AbsolutePath.TrimEnd('/');
         _host = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        _unsignedPayload = unsignedPayload ?? uri.Scheme == Uri.UriSchemeHttps;
         _region = region;
         _credential = credential;
         _retry = retry;
@@ -75,7 +85,11 @@ internal sealed class S3Client : ObjectStoreClient
         ReadOnlyMemory<byte>? body, AwsCredential? credential)
     {
         string canonicalQuery = query is null ? "" : SigV4.CanonicalQuery(query);
-        string payloadHash = body is { } content ? SigV4.Hash(content.Span) : SigV4.EmptyPayloadHash;
+        // Uploaded data (a PUT with a body: an object or a part) may go unsigned; other requests' bodies (a completion's
+        // list of parts, a deletion's keys) are small and always signed.
+        string payloadHash = body is not { } content ? SigV4.EmptyPayloadHash
+            : _unsignedPayload && method == HttpMethod.Put ? SigV4.UnsignedPayload
+            : SigV4.Hash(content.Span);
         string url = _origin + path + (canonicalQuery.Length == 0 ? "" : "?" + canonicalQuery);
         return () =>
         {

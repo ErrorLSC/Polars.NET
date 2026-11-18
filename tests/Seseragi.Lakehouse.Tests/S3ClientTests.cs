@@ -120,6 +120,18 @@ public class S3ClientTests
 
     private static readonly Dictionary<string, string> NoEnvironment = [];
 
+    [Fact]
+    public void UnsignedPayload_IsReadAsObjectStoreNamesIt_AndChecked()
+    {
+        Dictionary<string, string> keys = new() { ["aws_region"] = "r", ["aws_access_key_id"] = "id", ["aws_secret_access_key"] = "s" };
+        Assert.Null(Resolve(keys)!.UnsignedPayload);
+        Assert.True(Resolve(new(keys) { ["aws_unsigned_payload"] = "true" })!.UnsignedPayload);
+        Assert.False(Resolve(new(keys) { ["unsigned_payload"] = "false" })!.UnsignedPayload);
+        Assert.True(Resolve(keys, new() { ["AWS_UNSIGNED_PAYLOAD"] = "true" })!.UnsignedPayload);
+        Assert.Null(S3Settings.Resolve("bucket", new Dictionary<string, string>(keys) { ["aws_unsigned_payload"] = "maybe" }, NoEnvironment, null, out string? reason));
+        Assert.Contains("unsigned_payload", reason);
+    }
+
     private static S3Settings? Resolve(Dictionary<string, string> options, Dictionary<string, string>? environment = null, string? configFile = null) =>
         S3Settings.Resolve("bucket", options, environment ?? NoEnvironment, configFile, out _);
 

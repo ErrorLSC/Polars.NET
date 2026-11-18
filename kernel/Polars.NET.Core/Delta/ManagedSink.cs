@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
@@ -6,6 +7,7 @@ using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Grouping;
 using Kaminari.Sazanami.Ordering;
 using Kaminari.Sazanami.Platform;
+using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Writing;
@@ -51,13 +53,38 @@ internal static class ManagedSink
     public sealed record SinkResult(List<Written> Files, int ClosedForMemory);
 
     /// <summary>
-    /// The bytes the files may hold in memory together (the open files' pages not written yet, their writers' scratch,
-    /// and what the streams buffer: a cloud upload's parts, the files still being published); beyond, the files being
-    /// published are waited for, then the largest row groups ended early, then the largest files closed early. The
-    /// fixed buffers of each open writer come on top. An eighth of the memory the process may use (as the runtime
-    /// sees it: a container's limit, not the machine's), at least 256 MiB. Internal knob (tests set it).
+    /// The environment variable that sets <see cref="MemoryBudget"/>: a size (<c>2GiB</c>, <c>512MiB</c>) or a share of
+    /// the memory the process may use (<c>25%</c>).
     /// </summary>
-    internal static long MemoryBudget { get; set; } = Math.Max(256L << 20, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 8);
+    public const string MemoryVariable = "POLARS_NET_DELTA_SINK_MEMORY";
+
+    /// <summary>
+    /// The bytes the files of a sink may hold in memory together (the open files' pages not written yet, their writers'
+    /// scratch, and what the streams buffer: a cloud upload's parts, the files still being published); beyond, the
+    /// files being published are waited for, then the largest row groups ended early, then the largest files closed
+    /// early. The fixed buffers of each open writer come on top. <see cref="MemoryVariable"/> when set, else an eighth of
+    /// the memory the process may use (as the runtime sees it: a container's limit, not the machine's), at least
+    /// 256 MiB. Read when a sink starts.
+    /// </summary>
+    /// <exception cref="ArgumentException"><see cref="MemoryVariable"/> holds neither a size nor a share.</exception>
+    internal static long MemoryBudget => MemoryBudgetOverride ?? Budget(Environment.GetEnvironmentVariable(MemoryVariable), GC.GetGCMemoryInfo().TotalAvailableMemoryBytes);
+
+    /// <summary>A budget that takes the place of <see cref="MemoryBudget"/>'s (tests set it).</summary>
+    internal static long? MemoryBudgetOverride { get; set; }
+
+    /// <summary>The budget a <paramref name="setting"/> (null or blank: the default) gives with <paramref name="available"/> bytes.</summary>
+    internal static long Budget(string? setting, long available)
+    {
+        if (string.IsNullOrWhiteSpace(setting)) return Math.Max(256L << 20, available / 8);
+        ReadOnlySpan<char> text = setting.AsSpan().Trim();
+        if (text is [.., '%']
+            && double.TryParse(text[..^1].Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double percent)
+            && percent is > 0 and <= 100)
+            return Math.Max(1, (long)(available * percent / 100));
+        if (ByteSizes.TryParse(text, out long bytes) && bytes > 0) return bytes;
+        throw new ArgumentException(
+            $"{MemoryVariable} is '{setting}': neither a size (such as 2GiB or 512MiB) nor a share of the memory the process may use (such as 25%).");
+    }
 
     /// <summary>
     /// The files a sink publishes at once (their streams committing: a cloud upload's last part and completion, or a
@@ -174,6 +201,7 @@ internal static class ManagedSink
         private ParquetWriter.WritePlan? _plan; // shared by the files written side by side (one per partition)
         private Schema? _schema;
         private int _closedForMemory;
+        private readonly long _budget = MemoryBudget;
         // The files closed whose streams are still committing, oldest first (closes come from several threads).
         private readonly List<(File File, Task Commit)> _publishing = [];
         private readonly object _publishingLock = new();
@@ -411,22 +439,22 @@ internal static class ManagedSink
             long publishing = Published();
             long held = open.Sum(p => p.Open!.HeldBytes);
             // Files being published first: their bytes leave memory without making files smaller.
-            while (held + publishing > MemoryBudget && WaitForOldest()) publishing = Published();
-            if (held <= MemoryBudget) return;
+            while (held + publishing > _budget && WaitForOldest()) publishing = Published();
+            if (held <= _budget) return;
             List<Partition<TPartition>> ending = [];
             foreach (Partition<TPartition> partition in open.OrderByDescending(p => p.Open!.HeldBytes))
             {
-                if (held <= MemoryBudget) break;
+                if (held <= _budget) break;
                 ending.Add(partition);
                 held -= partition.Open!.HeldBytes - partition.Open.BufferedBytes;
             }
             ForEachPartition(ending, p => p.Open!.EndRowGroup());
             held = open.Sum(p => p.Open!.HeldBytes);
-            if (held <= MemoryBudget) return;
+            if (held <= _budget) return;
             List<Partition<TPartition>> closing = [];
             foreach (Partition<TPartition> partition in open.OrderByDescending(p => p.Open!.HeldBytes))
             {
-                if (held <= MemoryBudget) break;
+                if (held <= _budget) break;
                 closing.Add(partition);
                 held -= partition.Open!.HeldBytes;
             }

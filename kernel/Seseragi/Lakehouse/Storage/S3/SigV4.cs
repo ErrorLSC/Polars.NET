@@ -30,6 +30,9 @@ internal static class SigV4
             .ThenBy(p => p.Value, StringComparer.Ordinal)
             .Select(p => p.Key + "=" + p.Value));
 
+    /// <summary>The payload hash of a body sent unsigned.</summary>
+    public const string UnsignedPayload = "UNSIGNED-PAYLOAD";
+
     /// <summary>Lower-case hex SHA-256.</summary>
     public static string Hash(ReadOnlySpan<byte> data) => Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
 

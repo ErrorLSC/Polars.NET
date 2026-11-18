@@ -560,15 +560,14 @@ public sealed class DeltaManagedSinkTests : IDisposable
 
     private static void WithBudget(long bytes, Action write)
     {
-        long budget = ManagedSink.MemoryBudget;
-        ManagedSink.MemoryBudget = bytes;
+        ManagedSink.MemoryBudgetOverride = bytes;
         try
         {
             write();
         }
         finally
         {
-            ManagedSink.MemoryBudget = budget;
+            ManagedSink.MemoryBudgetOverride = null;
         }
     }
 
@@ -622,6 +621,35 @@ public sealed class DeltaManagedSinkTests : IDisposable
             ["Key"], false, fields, keys => KeyOf(keys!), (key, index) => $"Key={key}/part-{index:D5}.parquet", KernelWriteOptions.Default, approxBytesPerFile: 0));
         Assert.Contains("Key=2/part-00000.parquet", e.Message);
         Assert.False(Directory.Exists(Path.Combine(root, "Key=2")));
+    }
+
+    [Fact]
+    public void TheMemoryBudget_IsAnEighthOfTheMemoryAvailable_OrWhatTheVariableSays()
+    {
+        const long Available = 32L << 30;
+        Assert.Equal(4L << 30, ManagedSink.Budget(null, Available));
+        Assert.Equal(4L << 30, ManagedSink.Budget(" ", Available));
+        Assert.Equal(256L << 20, ManagedSink.Budget(null, 1L << 30)); // at least 256 MiB
+        Assert.Equal(2L << 30, ManagedSink.Budget("2GiB", Available));
+        Assert.Equal(512L << 20, ManagedSink.Budget("512 MiB", Available));
+        Assert.Equal(8L << 30, ManagedSink.Budget("25%", Available));
+        Assert.Equal(4L << 30, ManagedSink.Budget(" 12.5 % ", Available));
+        foreach (string wrong in (string[])["0", "0%", "150%", "lots", "-1GiB"])
+            Assert.Contains(ManagedSink.MemoryVariable, Assert.Throws<ArgumentException>(() => ManagedSink.Budget(wrong, Available)).Message);
+
+        // The variable, read when a sink starts (this project runs its tests one at a time: the process environment).
+        string? before = Environment.GetEnvironmentVariable(ManagedSink.MemoryVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(ManagedSink.MemoryVariable, "3GiB");
+            Assert.Equal(3L << 30, ManagedSink.MemoryBudget);
+            Environment.SetEnvironmentVariable(ManagedSink.MemoryVariable, null);
+            Assert.Equal(ManagedSink.Budget(null, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes), ManagedSink.MemoryBudget);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(ManagedSink.MemoryVariable, before);
+        }
     }
 
     private static int KeyOf(DataFrameHandle keys)

@@ -59,7 +59,7 @@ public static class CloudStorage
         {
             S3Client? Open(string bucket, out string? why) =>
                 S3Settings.Resolve(bucket, options, environment, awsConfigFile, out why, regionLookup, awsCredentialsFile, retry) is { } settings
-                    ? new S3Client(settings.BucketEndpoint, settings.Region, renewable?.ForS3() ?? settings.Credential, retry, settings.Headers, settings.Http)
+                    ? new S3Client(settings.BucketEndpoint, settings.Region, renewable?.ForS3() ?? settings.Credential, retry, settings.Headers, settings.Http, settings.UnsignedPayload)
                     : null;
 
             if (Open(authority, out reason) is not { } client) return null;

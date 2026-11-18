@@ -136,7 +136,9 @@ public sealed class FakeS3 : FakeUploadStore
     {
         var (path, query) = Split(request.PathAndQuery);
         string key = path["/bucket/".Length..];
-        if (request.Headers.TryGetValue("x-amz-content-sha256", out string? hash) && hash != Convert.ToHexStringLower(SHA256.HashData(request.Content)))
+        // A signed body's hash is checked; an unsigned one is taken (UNSIGNED-PAYLOAD, as S3 takes it).
+        if (request.Headers.TryGetValue("x-amz-content-sha256", out string? hash) && hash != "UNSIGNED-PAYLOAD"
+            && hash != Convert.ToHexStringLower(SHA256.HashData(request.Content)))
             return new FakeAnswer(400, "<Error><Code>XAmzContentSHA256Mismatch</Code></Error>");
 
         switch (request.Method)

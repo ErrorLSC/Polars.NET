@@ -11,7 +11,8 @@ namespace Kaminari.Seseragi.Lakehouse.Storage.S3;
 /// the location to another implementation (see <see cref="Resolve"/>).
 /// </summary>
 internal sealed record S3Settings(
-    string BucketEndpoint, string Region, CredentialSource<AwsCredential>? Credential, S3Headers? Headers = null, HttpOptions? Http = null)
+    string BucketEndpoint, string Region, CredentialSource<AwsCredential>? Credential, S3Headers? Headers = null, HttpOptions? Http = null,
+    bool? UnsignedPayload = null)
 {
     /// <summary>Canonical names by every spelling object_store accepts (after lower-casing).</summary>
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
@@ -19,7 +20,7 @@ internal sealed record S3Settings(
     // Keys that change nothing for the requests this client makes.
     private static readonly HashSet<string> Ignored =
     [
-.. ConfigValues.HarmlessClientKeys,         "bucket", "unsigned_payload", "copy_if_not_exists", "disable_tagging",
+.. ConfigValues.HarmlessClientKeys,         "bucket", "unsigned_payload", "copy_if_not_exists", "disable_tagging", // unsigned_payload: read below
     ];
 
     // Keys that choose and configure where credentials come from.
@@ -130,7 +131,7 @@ internal sealed record S3Settings(
                 return null;
             }
         }
-        string[] flags = ["skip_signature", "imdsv1_fallback"];
+        string[] flags = ["skip_signature", "imdsv1_fallback", "unsigned_payload"];
         foreach (string flag in flags)
         {
             if (config.TryGetValue(flag, out string? text) && ConfigValues.Bool(text) is null)
@@ -182,7 +183,10 @@ internal sealed record S3Settings(
             (null, true) => $"https://{bucket}.s3.{region}.amazonaws.com",
             (null, false) => $"https://s3.{region}.amazonaws.com/{bucket}",
         };
-        return new S3Settings(bucketEndpoint, region, credential, headers, http);
+        // Uploaded data unsigned: as the key says, else over HTTPS only (object_store's default is never; the AWS SDKs'
+        // is over HTTPS).
+        bool? unsigned = config.TryGetValue("unsigned_payload", out string? unsignedText) ? ConfigValues.Bool(unsignedText) : null;
+        return new S3Settings(bucketEndpoint, region, credential, headers, http, unsigned);
     }
 
     /// <summary>

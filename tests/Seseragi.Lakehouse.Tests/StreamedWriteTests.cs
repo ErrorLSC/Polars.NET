@@ -55,6 +55,41 @@ public class StreamedWriteTests
     // ---- object stores ----
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task S3_UploadedData_GoesUnsignedWhenAsked_TheOtherRequestsSigned(bool unsigned)
+    {
+        using var store = new FakeS3();
+        CloudFileSystem fs = Root(new S3Client(store.BucketUrl, "us-east-1", new StaticCredential<AwsCredential>(new("AKID", "secret", null)), Fast,
+            unsignedPayload: unsigned), "s3");
+        byte[] large = Bytes(3 * Part + 17, 1), small = Bytes(Part / 2, 2);
+        foreach (var (name, content) in ((string, byte[])[])[("large.bin", large), ("small.bin", small)])
+        {
+            using FileWriteStream stream = fs.OpenWrite(name, createOnly: true);
+            await Write(stream, content, async: true);
+            Assert.True(await stream.CommitAsync());
+        }
+        Assert.Equal(large, store.Objects["t/large.bin"]);
+        Assert.Equal(small, store.Objects["t/small.bin"]);
+        // Parts and the small object (PUTs with a body) unsigned when asked; starting and completing the upload signed.
+        SeenRequest[] requests = [.. store.Server.Requests];
+        Assert.True(requests.Count(r => r.Method == "PUT") >= 4);
+        Assert.All(requests.Where(r => r.Method == "PUT"),
+            r => Assert.Equal(unsigned, r.Headers["x-amz-content-sha256"] == "UNSIGNED-PAYLOAD"));
+        Assert.All(requests.Where(r => r.Method == "POST"), r => Assert.NotEqual("UNSIGNED-PAYLOAD", r.Headers["x-amz-content-sha256"]));
+    }
+
+    [Fact]
+    public void S3_SendsDataUnsigned_OverHttpsOnly_UnlessTold()
+    {
+        var credential = new StaticCredential<AwsCredential>(new("AKID", "secret", null));
+        Assert.True(new S3Client("https://s3.us-east-1.amazonaws.com/bucket", "us-east-1", credential, Fast).UnsignedPayload);
+        Assert.False(new S3Client("http://localhost:9000/bucket", "us-east-1", credential, Fast).UnsignedPayload);
+        Assert.False(new S3Client("https://s3.us-east-1.amazonaws.com/bucket", "us-east-1", credential, Fast, unsignedPayload: false).UnsignedPayload);
+        Assert.True(new S3Client("http://localhost:9000/bucket", "us-east-1", credential, Fast, unsignedPayload: true).UnsignedPayload);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
