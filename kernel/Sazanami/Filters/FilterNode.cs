@@ -1,69 +1,7 @@
-using System.Globalization;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Expressions;
 
 namespace Kaminari.Sazanami.Filters;
-
-/// <summary>How a <see cref="FilterNode.Compare"/> compares a column with a value.</summary>
-internal enum CompareOp
-{
-    Eq,
-    NotEq,
-    Lt,
-    LtEq,
-    Gt,
-    GtEq,
-}
-
-/// <summary>The domain of a <see cref="FilterScalar"/>.</summary>
-internal enum FilterScalarKind
-{
-    /// <summary>An exact integer: integers of every width, booleans (0 / 1), dates, times, timestamps and durations in the column's unit, decimals unscaled at the column's scale.</summary>
-    Integer,
-
-    /// <summary>A floating value (NaN allowed) of a Float16, Float32 or Float64 column, exactly representable in its width.</summary>
-    Float,
-
-    /// <summary>The bytes of a string (UTF-8) or binary value.</summary>
-    Bytes,
-}
-
-/// <summary>
-/// A value in a column's stored representation. Programs never convert values: whoever builds one (the query
-/// compiler's lowering) maps literals onto the column first, and <see cref="FilterProgram.Create"/> refuses values the
-/// column cannot hold exactly.
-/// </summary>
-internal readonly struct FilterScalar
-{
-    private FilterScalar(FilterScalarKind kind, Int128 integer, double floating, byte[]? bytes)
-    {
-        Kind = kind;
-        IntegerValue = integer;
-        FloatValue = floating;
-        BytesValue = bytes;
-    }
-
-    public FilterScalarKind Kind { get; }
-    public Int128 IntegerValue { get; }
-    public double FloatValue { get; }
-    public byte[]? BytesValue { get; }
-
-    public static FilterScalar Integer(Int128 value) => new(FilterScalarKind.Integer, value, 0, null);
-
-    public static FilterScalar Float(double value) => new(FilterScalarKind.Float, 0, value, null);
-
-    public static FilterScalar Bytes(byte[] value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        return new(FilterScalarKind.Bytes, 0, 0, value);
-    }
-
-    public override string ToString() => Kind switch
-    {
-        FilterScalarKind.Integer => IntegerValue.ToString(CultureInfo.InvariantCulture),
-        FilterScalarKind.Float => FloatValue.ToString("R", CultureInfo.InvariantCulture),
-        _ => "0x" + Convert.ToHexString(BytesValue!),
-    };
-}
 
 /// <summary>A column a <see cref="FilterProgram"/> reads: its path of field names from a top-level column, and its Arrow type.</summary>
 internal sealed record FilterColumn(string[] Path, IArrowType Type)
@@ -83,10 +21,10 @@ internal abstract record FilterNode
     private FilterNode() { }
 
     /// <summary><c>column op value</c>.</summary>
-    public sealed record Compare(int Column, CompareOp Op, FilterScalar Value) : FilterNode;
+    public sealed record Compare(int Column, CompareOp Op, StoredScalar Value) : FilterNode;
 
     /// <summary>Whether the column equals one of the values (null on a null value; the list holds no null).</summary>
-    public sealed record InList(int Column, FilterScalar[] Values) : FilterNode;
+    public sealed record InList(int Column, StoredScalar[] Values) : FilterNode;
 
     /// <summary>Whether the column's bytes start with the prefix.</summary>
     public sealed record StartsWith(int Column, byte[] Prefix) : FilterNode;
@@ -111,4 +49,17 @@ internal abstract record FilterNode
 
     /// <summary>The first operand that is not null on the row (null when all are).</summary>
     public sealed record Coalesce(FilterNode[] Operands) : FilterNode;
+
+    /// <summary>
+    /// <c>left op right</c> over two computed values of one type (numbers, booleans, or strings / binaries by their
+    /// bytes; at most one side a scalar): null when either is null, unless <paramref name="NullsEqual"/> (with
+    /// <see cref="CompareOp.Eq"/> only), where two nulls are equal and a null differs from every value.
+    /// </summary>
+    public sealed record CompareValues(ValueNode Left, CompareOp Op, ValueNode Right, bool NullsEqual = false) : FilterNode;
+
+    /// <summary>Whether a computed number equals one of the values (null on a null value; the list holds no null).</summary>
+    public sealed record ValueInList(ValueNode Value, StoredScalar[] Values) : FilterNode;
+
+    /// <summary>Whether a computed number is null (an operand null, or an integer division by zero); never null itself.</summary>
+    public sealed record ValueIsNull(ValueNode Value) : FilterNode;
 }

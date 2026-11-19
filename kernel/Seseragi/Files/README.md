@@ -280,10 +280,15 @@ them as PLAIN; string readers take delta byte arrays as data, starts and lengths
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
 streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
 open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`, `HttpFileStore` over Sazanami's `HttpSender`,
-`HuggingFaceFileStore`). `Parquet/Datasets/` holds the dataset: path
-expansion (`ParquetDataset`), partition values (`Partitions`: Hive paths or given values as a typed table of one row
-per file) and the reader of its files (`ParquetDatasetReader`: column layout, partition pruning, filters per file,
-the window of row groups across files; `ParquetDatasetReader<T>`: typed rows).
+`HuggingFaceFileStore`). `Datasets/` holds what datasets of every format share: their options and files
+(`DatasetOptions`, `DatasetFile`, `HivePartitioning`, `DatasetSchemaMode`), path expansion, stores, partitions and
+schemas united by name (`DatasetFiles`), partition values (`Partitions`: Hive paths or given values as a typed table of
+one row per file), the columns, filter split and batch conversion around each file's reader (`DatasetShape`), footers
+kept between reads (`KeptFooters`) and how far readers read ahead (`DatasetLimits`). `Parquet/Datasets/` holds the
+Parquet dataset (`ParquetDataset`; `ParquetDatasetReader`: shape plans per file schema, filters per file, the window
+of row groups across files; `ParquetDatasetReader<T>`: typed rows); `Ipc/Datasets/` the Arrow IPC one (`IpcDataset`;
+`IpcDatasetReader`: the window of record batches across files; `IpcDatasetReader<T>`; `IpcDatasetTypes`: layouts
+united by the first file's).
 
 ## Arrow IPC
 
@@ -312,6 +317,19 @@ first (read even when not selected), the other selected columns only for batches
 (Sazanami's `ArrowFilter`); batches keeping no row are passed over, `MaxRows` counts the rows delivered.
 `FiltersExactly` tells whether every conjunct was evaluated. List views, unions and run-end encoded columns cannot be
 selected with `FilterRows` (refused on open).
+
+**Row index** (`IpcReadOptions.RowIndexColumn`): an Int64 column put first, numbering every row in the order of the data
+before any filter, in both readers (a single batch read alone numbered after the batches before it).
+
+**Datasets** (`IpcDataset`, `IpcDatasetOptions`, `IpcDatasetReader`, `IpcDatasetFile`): many IPC files read as one
+table, as Parquet datasets are (the same `DatasetOptions`: paths, directories, globs, stores, Hive partitions pruned
+by the filter, schema modes, missing columns, lossy casts, file path column, files and requests in flight). Strings and
+binaries in another layout than the dataset's (plain, view) convert to the first file's; columns sharing a name are
+refused. Batches of several files are read and decoded side by side ahead of the consumer within a byte budget, files
+opened and their dictionaries read ahead, requests to remote stores bounded apart; on one thread from local files, file
+after file. Rows are numbered across the files (files left out by their partitions counted, their batches' messages
+read only then); on a store a file opens with one read of its tail, a large file's footer kept between reads. Typed
+rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`.
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
 `IpcStreamReader<T>.Open(stream, where)`: a stream's rows, read once, its columns chosen once its schema is read;
@@ -554,6 +572,8 @@ written synchronously on completion.
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
 | `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
 | `Ipc/IpcWriter.cs`, `IpcWriteOptions.cs` | Public IPC writer and its options (`IpcFormat`); messages written with their bodies' padding, the footer's blocks. The codec's writing half is Sazanami's `Arrow/Ipc`: `FlatBufferWriter` (front to back), `IpcMetadataWriter` (schema, messages, footer), `IpcBatchEncoder` (arrays to nodes and buffers, compression, layout), `IpcMessageEncoder` (batches to messages, dictionaries as written, framing), `IpcSchemaMessage` (Parquet's `ARROW:schema`). |
+| `Datasets/` | What datasets of every format share (see the structure above): `DatasetOptions`, `DatasetFiles`, `Partitions`, `DatasetShape`, `KeptFooters`, `DatasetLimits`. |
+| `Ipc/Datasets/` | The Arrow IPC dataset: `IpcDataset` (opening, schema modes, footers kept), `IpcDatasetReader` (sequential reading, the window of record batches across files, the row index across files), `IpcDatasetReader<T>`, `IpcDatasetTypes`, `IpcDatasetOptions` / `IpcDatasetFile`. |
 | `Ipc/IpcDecoding.cs` | What a reader decodes from each batch: the selection, the row filter lowered by Samidare (its columns decoded first, the others when it keeps a row, then filtered), the dictionaries reached; shared by both readers and immutable (batches decode on several threads). |
 | `Ipc/IpcReaderOfT.cs`, `IpcStreamReaderOfT.cs`, `IpcWriterOfT.cs` | `IpcReader<T>`, `IpcStreamReader<T>` and `IpcWriter<T>`: typed rows over the shared `TypedRows` and `RowBatcher`. |
 | `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`: compressed buffers of a large batch decompressed side by side before the walk), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`, with snapshots for batches decoded ahead), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
@@ -697,7 +717,11 @@ value against a logical type is allowed. General unions are not written against 
   writer: every corpus file written again in both formats and every codec reads back the same, slices, dictionaries,
   bytes independent of parallelism, Apache.Arrow's reader on what is written (`IpcWriterTests`); interop (opt-in:
   `SESERAGI_IPC_PYTHON=<python with pyarrow, polars> dotnet test --filter Category=Interop`): pyarrow and Python Polars
-  read our files as they read the originals (`IpcWriterInteropTests`, `TestData/ipc/writer_interop.py`). Parallel
+  read our files as they read the originals (`IpcWriterInteropTests`, `TestData/ipc/writer_interop.py`; slices of views
+  validated fully by pyarrow). Row numbers in every way of reading (`IpcRowIndexTests`); datasets: expansion, every
+  corpus file as a one-file dataset, partitions and pruning, row index across files, schema modes and layouts, errors
+  naming files, footers on stores (`IpcDatasetTests`), the window against one thread, remote stores, early stops,
+  failures in order, requests bounded, typed rows (`IpcDatasetWindowTests`), guarded memory (`GuardedMemoryTests`). Parallel
   reading gives every corpus file's batches as one thread does, row limits, early stops, a live pipe never stalled,
   failures in place, batch metadata with its batch (`IpcParallelTests`); row filters against the IR evaluator over the
   corpus (`IpcFilterTests`); typed rows in both formats and every codec, the output independent of how rows are passed

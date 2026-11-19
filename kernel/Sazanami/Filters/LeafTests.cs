@@ -3,6 +3,7 @@ using System.Collections.Frozen;
 using System.Numerics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Expressions;
 using static Kaminari.Sazanami.Filters.ValueTests;
 
 namespace Kaminari.Sazanami.Filters;
@@ -55,20 +56,57 @@ internal sealed class BooleanTest(bool onFalse, bool onTrue) : LeafTest
     }
 }
 
-/// <summary>A comparison of a fixed-width column with a scalar, by one of the <see cref="ValueTests"/>.</summary>
-internal sealed class NumericTest<T, TTest>(T scalar) : LeafTest
+/// <summary>A test of fixed-width values: a column's, or values computed from columns (see <see cref="ExpressionTest"/>).</summary>
+internal abstract class NumericLeafTest<T> : LeafTest where T : unmanaged, INumber<T>
+{
+    /// <summary>Sets bit <c>i</c> of <paramref name="mask"/> where the test holds on <paramref name="values"/>[i]; clears the bits past the last value.</summary>
+    public abstract void RunValues(ReadOnlySpan<T> values, Span<ulong> mask);
+
+    public sealed override void Run(ArrayData data, int length, ReadOnlySpan<ulong> valid, Span<ulong> mask) =>
+        RunValues(ValueTypes.Values<T>(data, length), mask);
+}
+
+/// <summary>A comparison of fixed-width values with a scalar, by one of the <see cref="ValueTests"/>.</summary>
+internal sealed class NumericTest<T, TTest>(T scalar) : NumericLeafTest<T>
     where T : unmanaged, INumber<T>
     where TTest : struct, IValueTest<T>
 {
+    public override void RunValues(ReadOnlySpan<T> values, Span<ulong> mask) => CompareKernels.Run<T, TTest>(values, scalar, mask);
+}
+
+/// <summary>A test of fixed-width values with the same outcome on every value.</summary>
+internal sealed class NumericConstantTest<T>(bool value) : NumericLeafTest<T> where T : unmanaged, INumber<T>
+{
+    public override void RunValues(ReadOnlySpan<T> values, Span<ulong> mask) => Masks.Fill(mask, values.Length, value);
+}
+
+/// <summary>
+/// A test computed on a column's values by a <see cref="ValuePredicate"/> over that one column (an expression of
+/// it compared with a scalar, or with another of it): the predicate gives its own outcomes, nulls it computes
+/// (a division by zero) included. Run on a dictionary's entries like any leaf.
+/// </summary>
+internal sealed class ExpressionTest(ValuePredicate predicate) : LeafTest
+{
+    public ValuePredicate Predicate { get; } = predicate;
+
+    public override bool NullIsTrue => Predicate.NullIsTrue;
+
     public override void Run(ArrayData data, int length, ReadOnlySpan<ulong> valid, Span<ulong> mask) =>
-        CompareKernels.Run<T, TTest>(FilterProgram.Values<T>(data, length), scalar, mask);
+        throw new InvalidOperationException("An expression test gives its outcomes itself (Outcomes).");
+
+    /// <summary>Writes the rows where the predicate is true into <paramref name="t"/>, false into <paramref name="f"/>.</summary>
+    public void Outcomes(ArrayData data, int length, Span<ulong> t, Span<ulong> f)
+    {
+        using var scratch = new ValueScratch();
+        Predicate.Evaluate(new ValueContext(data, length, scratch), t, f);
+    }
 }
 
 /// <summary>
 /// Membership of a fixed-width column in a set of values: a vector equality per value for short lists, a hash set
 /// otherwise. Floating values match by the IR's equality (NaN equals NaN, -0 equals 0).
 /// </summary>
-internal sealed class NumericInListTest<T> : LeafTest where T : unmanaged, INumber<T>
+internal sealed class NumericInListTest<T> : NumericLeafTest<T> where T : unmanaged, INumber<T>
 {
     private const int ShortList = 8;
     private readonly T[] _values;          // distinct numbers (NaN apart; -0 and 0 are one, as T's equality has it)
@@ -87,10 +125,9 @@ internal sealed class NumericInListTest<T> : LeafTest where T : unmanaged, INumb
         if (_values.Length > ShortList) _set = numbers.ToFrozenSet();
     }
 
-    public override void Run(ArrayData data, int length, ReadOnlySpan<ulong> valid, Span<ulong> mask)
+    public override void RunValues(ReadOnlySpan<T> values, Span<ulong> mask)
     {
-        ReadOnlySpan<T> values = FilterProgram.Values<T>(data, length);
-        int words = Masks.Words(length);
+        int length = values.Length, words = Masks.Words(length);
         if (_set is { } set)
         {
             for (int w = 0; w < words; w++)
@@ -162,5 +199,33 @@ internal sealed class BytesTest<TTest>(TTest test) : LeafTest where TTest : stru
             default:
                 throw new InvalidOperationException($"No byte test on a {data.DataType.Name} column.");
         }
+    }
+}
+
+/// <summary>The tests of fixed-width values against scalars, shared by column leaves and computed values.</summary>
+internal static class NumericTests
+{
+    /// <summary><c>value op scalar</c> in the IR's order (for floating values NaN is the greatest value and equals itself).</summary>
+    public static NumericLeafTest<T> Compare<T>(CompareOp op, T scalar, bool floating) where T : unmanaged, INumber<T>
+    {
+        if (floating && T.IsNaN(scalar))
+        {
+            return op switch
+            {
+                CompareOp.Eq or CompareOp.GtEq => new NumericTest<T, IsNaN<T>>(scalar),
+                CompareOp.NotEq or CompareOp.Lt => new NumericTest<T, NotNaN<T>>(scalar),
+                CompareOp.LtEq => new NumericConstantTest<T>(true),
+                _ => new NumericConstantTest<T>(false),
+            };
+        }
+        return op switch
+        {
+            CompareOp.Eq => new NumericTest<T, Eq<T>>(scalar),
+            CompareOp.NotEq => new NumericTest<T, NotEq<T>>(scalar),
+            CompareOp.Lt => new NumericTest<T, Lt<T>>(scalar),
+            CompareOp.LtEq => new NumericTest<T, LtEq<T>>(scalar),
+            CompareOp.Gt => floating ? new NumericTest<T, GtOrNaN<T>>(scalar) : new NumericTest<T, Gt<T>>(scalar),
+            _ => floating ? new NumericTest<T, GtEqOrNaN<T>>(scalar) : new NumericTest<T, GtEq<T>>(scalar),
+        };
     }
 }

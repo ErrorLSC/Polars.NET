@@ -282,7 +282,7 @@ internal sealed class LeafDomain
         }
     }
 
-    private bool TryDecodeInteger(ReadOnlySpan<byte> b, out Int128 value)
+    internal bool TryDecodeInteger(ReadOnlySpan<byte> b, out Int128 value)
     {
         value = default;
         if (BigEndianDecimal) return TryBigEndian(b, out value);
@@ -322,7 +322,7 @@ internal sealed class LeafDomain
         }
     }
 
-    private bool TryDecodeFloat(ReadOnlySpan<byte> b, out double value)
+    internal bool TryDecodeFloat(ReadOnlySpan<byte> b, out double value)
     {
         value = 0;
         if (Half16)

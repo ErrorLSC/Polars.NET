@@ -496,10 +496,72 @@ public sealed class ParquetDatasetSchemaTests
             Assert.Contains("3|null", Rows(reader.ReadBatches()));
         ScalarExpr sum = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Add, ScalarExpr.NewColumn("y"), ScalarExpr.NewColumn("x")),
             ScalarExpr.NewLiteral(LiteralValue.NewInt64(0)));
+        // y + x > 0 folds to null where y is missing (arithmetic with a null is null): exact, b's row left out.
         using (var reader = dataset.OpenReader(new ParquetReadOptions { Filter = sum, FilterRows = true }))
         {
-            Assert.False(reader.FiltersExactly);
-            Assert.Contains("1|5", Rows(reader.ReadBatches()));
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(["1|5"], Rows(reader.ReadBatches()));
+        }
+    }
+
+    /// <summary>
+    /// Arithmetic over a column a file stores narrower than the dataset is the dataset's: an Int32 file's
+    /// int.MaxValue + int.MaxValue is positive in the Int64 dataset (it would wrap in Int32), a Float32 file's x * x is
+    /// computed in Float64.
+    /// </summary>
+    [Fact]
+    public void Arithmetic_OverWidenedColumns_IsTheDatasets()
+    {
+        Put("d/a.parquet", ("a", Longs(1, -5)), ("x", Doubles(0.1, 0.2)));
+        Put("d/b.parquet", ("a", Ints(int.MaxValue, -1)), ("x", new FloatArray.Builder().Append(0.1f).Append(3f).Build()));
+        using ParquetDataset dataset = Open(new ParquetDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName });
+        Assert.IsType<Int64Type>(dataset.Schema.GetFieldByName("a").DataType);
+        Assert.IsType<DoubleType>(dataset.Schema.GetFieldByName("x").DataType);
+        ScalarExpr Col(string name) => ScalarExpr.NewColumn(name);
+        ScalarExpr sum = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Add, Col("a"), Col("a")), ScalarExpr.NewLiteral(LiteralValue.NewInt64(0)));
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { Filter = sum, FilterRows = true, Columns = ["a"] }))
+        {
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(["1", "2147483647"], Rows(reader.ReadBatches()));
+        }
+        // (double)0.1f squared differs from 0.1f squared in Float32: the dataset's Float64 product is meant.
+        double wide = (double)0.1f * (double)0.1f;
+        ScalarExpr square = ScalarExpr.NewBinary(BinaryOp.Eq, ScalarExpr.NewBinary(BinaryOp.Multiply, Col("x"), Col("x")), ScalarExpr.NewLiteral(LiteralValue.NewFloat64(wide)));
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { Filter = square, FilterRows = true, Columns = ["a"] }))
+        {
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(["2147483647"], Rows(reader.ReadBatches()));
+        }
+    }
+
+    /// <summary>
+    /// Arithmetic over a column a file holds as a type that is not cast up (a struct field, an integer of a decimal
+    /// dataset) is evaluated after conversion: no row the dataset's filter keeps is lost.
+    /// </summary>
+    [Fact]
+    public void Arithmetic_OverColumnsNotCastUp_IsEvaluatedAfterConversion()
+    {
+        Put("d/a.parquet", ("s", Struct([("a", Longs(1, -5))])));
+        Put("d/b.parquet", ("s", Struct([("a", Ints(int.MaxValue, -1))])));
+        using (ParquetDataset dataset = Open(new ParquetDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName }))
+        {
+            ScalarExpr a = ScalarExpr.NewFunction(ScalarFunction.StructFieldByName,
+                Microsoft.FSharp.Collections.ListModule.OfSeq([ScalarExpr.NewColumn("s"), ScalarExpr.NewLiteral(LiteralValue.NewString("a"))]), LogicalType.Unknown);
+            ScalarExpr sum = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Add, a, a), ScalarExpr.NewLiteral(LiteralValue.NewInt64(0)));
+            using var reader = dataset.OpenReader(new ParquetReadOptions { Filter = sum, FilterRows = true, RowIndexColumn = "n" });
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(["0", "2"], Rows(reader.ReadBatches()).Select(r => r.Split('|')[0]));
+        }
+        Put("e/a.parquet", ("x", new Decimal128Array.Builder(new Decimal128Type(20, 0)).Append(1m).Build()));
+        Put("e/b.parquet", ("x", Ints(int.MaxValue)));
+        using (ParquetDataset dataset = Open(new ParquetDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName }, "e/"))
+        {
+            Assert.IsType<Decimal128Type>(dataset.Schema.GetFieldByName("x").DataType);
+            ScalarExpr x = ScalarExpr.NewColumn("x");
+            ScalarExpr sum = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Add, x, x), ScalarExpr.NewLiteral(LiteralValue.NewInt64(0)));
+            // Decimal arithmetic is the engine's: nothing exact here, yet no row may be lost.
+            using var reader = dataset.OpenReader(new ParquetReadOptions { Filter = sum, FilterRows = true, RowIndexColumn = "n" });
+            Assert.Equal(["0", "1"], Rows(reader.ReadBatches()).Select(r => r.Split('|')[0]));
         }
     }
 

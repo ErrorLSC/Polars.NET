@@ -126,7 +126,8 @@ type BinaryOp =
     | And
     | Or
     | Xor
-    // Arithmetic
+    // Arithmetic: both operands of one type, the result's (the frontend casts; SEMANTICS.md, Arithmetic). Integers
+    // wrap; an integer division or remainder by zero is null; MinValue / -1 is MinValue and MinValue % -1 is 0.
     | Add
     | Subtract
     | Multiply

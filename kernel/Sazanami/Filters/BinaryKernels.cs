@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using Kaminari.Sazanami.Expressions;
 
 namespace Kaminari.Sazanami.Filters;
 

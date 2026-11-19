@@ -167,11 +167,51 @@ public sealed class IpcDatasetTests : IDisposable
         Assert.True(reader.FiltersExactly);
         Assert.Equal(["0|1", "1|1", "2|1", "10|2", "11|2"], Rows(reader.ReadBatches()));
 
-        // A conjunct over both a partition and a column: each file's value put in (each file then filters exactly; the
-        // dataset cannot promise it, a comparison between columns not lowering).
+        // A conjunct over both a partition and a column: each file's value put in, and the comparison between columns
+        // lowers over the dataset's types, so the dataset promises exact rows too.
         ScalarExpr mixed = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewColumn("id"), ScalarExpr.NewColumn("m"));
         using IpcDatasetReader both = dataset.OpenReader(new IpcReadOptions { Filter = mixed, FilterRows = true, Columns = ["id"] });
+        Assert.True(both.FiltersExactly);
         Assert.Equal(["2", "10", "11", "20", "21", "22", "23"], Rows(both.ReadBatches()));
+        // Arithmetic over a partition value and a column: id > m * 10 (m put in per file, folded).
+        ScalarExpr scaled = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewColumn("id"),
+            ScalarExpr.NewBinary(BinaryOp.Multiply, ScalarExpr.NewColumn("m"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(10))));
+        using IpcDatasetReader times = dataset.OpenReader(new IpcReadOptions { Filter = scaled, FilterRows = true, Columns = ["id"] });
+        Assert.True(times.FiltersExactly);
+        Assert.Equal(["20", "21", "22", "23"], Rows(times.ReadBatches()));
+        // A partition alone in arithmetic decides whole files: m * 2 = 4 reads m=2 only.
+        ScalarExpr doubled = ScalarExpr.NewBinary(BinaryOp.Eq,
+            ScalarExpr.NewBinary(BinaryOp.Multiply, ScalarExpr.NewColumn("m"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(2))), ScalarExpr.NewLiteral(LiteralValue.NewInt64(4)));
+        using IpcDatasetReader pruned = dataset.OpenReader(new IpcReadOptions { Filter = doubled, FilterRows = true, Columns = ["id"] });
+        Assert.Equal([false, true, false], pruned.FilesRead);
+        Assert.Equal(["10", "11"], Rows(pruned.ReadBatches()));
+    }
+
+    /// <summary>Arithmetic over a column a file stores narrower than the dataset is the dataset's (no Int32 wrap).</summary>
+    [Fact]
+    public void Arithmetic_OverWidenedColumns_IsTheDatasets()
+    {
+        void One(string relative, IArrowArray values)
+        {
+            string path = At(relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var schema = new Schema([new Field("a", values.Data.DataType, true)], null);
+            using IpcWriter writer = IpcWriter.Create(path, schema);
+            using (var batch = new RecordBatch(schema, [values], values.Length)) writer.Write(batch);
+            writer.Complete();
+        }
+        One("w/a.arrow", new Int64Array.Builder().Append(1).Append(-5).Build());
+        One("w/b.arrow", new Int32Array.Builder().Append(int.MaxValue).Append(-1).Build());
+        using var dataset = IpcDataset.Open(At("w"), new IpcDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName });
+        Assert.IsType<Int64Type>(dataset.Schema.GetFieldByName("a").DataType);
+        ScalarExpr sum = ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Add, ScalarExpr.NewColumn("a"), ScalarExpr.NewColumn("a")),
+            ScalarExpr.NewLiteral(LiteralValue.NewInt64(0)));
+        foreach (IpcReadOptions way in Ways)
+        {
+            using IpcDatasetReader reader = dataset.OpenReader(way with { Filter = sum, FilterRows = true });
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(["1", "2147483647"], Rows(reader.ReadBatches()));
+        }
     }
 
     /// <summary>Rows are numbered across files before any filter, files left out counted (as Polars's scan_ipc numbers them).</summary>

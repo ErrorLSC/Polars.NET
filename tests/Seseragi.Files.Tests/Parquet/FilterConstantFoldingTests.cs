@@ -101,4 +101,78 @@ public class FilterConstantFoldingTests
         Assert.Equal(Bool(true), FilterShapes.foldConstants(In(false, true, LiteralValue.NewInt64(1), LiteralValue.NewNull(LogicalType.Unknown))));
         Assert.Equal(Bool(true), FilterShapes.foldConstants(In(true, true, LiteralValue.NewInt64(1))));
     }
+
+    private static ScalarExpr Arith(BinaryOp op, LiteralValue a, LiteralValue b) => FilterShapes.foldConstants(Cmp(op, Lit(a), Lit(b)));
+
+    [Fact]
+    public void IntegerArithmetic_WrapsInItsType_AndDividesAsDotNet()
+    {
+        Assert.Equal(Lit(LiteralValue.NewInt32(int.MinValue)), Arith(BinaryOp.Add, LiteralValue.NewInt32(int.MaxValue), LiteralValue.NewInt32(1)));
+        Assert.Equal(Lit(LiteralValue.NewInt8(-128)), Arith(BinaryOp.Add, LiteralValue.NewInt8(127), LiteralValue.NewInt8(1)));
+        Assert.Equal(Lit(LiteralValue.NewUInt8(255)), Arith(BinaryOp.Subtract, LiteralValue.NewUInt8(0), LiteralValue.NewUInt8(1)));
+        Assert.Equal(Lit(LiteralValue.NewInt64(1)), Arith(BinaryOp.Multiply, LiteralValue.NewInt64(long.MaxValue), LiteralValue.NewInt64(long.MaxValue)));
+        Assert.Equal(Lit(LiteralValue.NewUInt64(1)), Arith(BinaryOp.Multiply, LiteralValue.NewUInt64(ulong.MaxValue), LiteralValue.NewUInt64(ulong.MaxValue)));
+        Assert.Equal(Lit(LiteralValue.NewInt32(-3)), Arith(BinaryOp.TruncatedDivide, LiteralValue.NewInt32(-7), LiteralValue.NewInt32(2)));
+        Assert.Equal(Lit(LiteralValue.NewInt32(-1)), Arith(BinaryOp.Modulo, LiteralValue.NewInt32(-7), LiteralValue.NewInt32(2)));
+        Assert.Equal(Lit(LiteralValue.NewInt64(long.MinValue)), Arith(BinaryOp.TruncatedDivide, LiteralValue.NewInt64(long.MinValue), LiteralValue.NewInt64(-1)));
+        Assert.Equal(Lit(LiteralValue.NewInt64(0)), Arith(BinaryOp.Modulo, LiteralValue.NewInt64(long.MinValue), LiteralValue.NewInt64(-1)));
+        Assert.Equal(Lit(LiteralValue.NewNull(LogicalTypes.Int32)), Arith(BinaryOp.TruncatedDivide, LiteralValue.NewInt32(1), LiteralValue.NewInt32(0)));
+        Assert.Equal(Lit(LiteralValue.NewNull(LogicalTypes.Int32)), Arith(BinaryOp.Modulo, LiteralValue.NewInt32(1), LiteralValue.NewInt32(0)));
+        Assert.Equal(Lit(LiteralValue.NewInt32(-5)), FilterShapes.foldConstants(ScalarExpr.NewUnary(UnaryOp.Negate, Lit(LiteralValue.NewInt32(5)))));
+        Assert.Equal(Lit(LiteralValue.NewInt32(int.MinValue)), FilterShapes.foldConstants(ScalarExpr.NewUnary(UnaryOp.Negate, Lit(LiteralValue.NewInt32(int.MinValue)))));
+        // Left as they are: two types (no promotion), the engine's integer division, powers.
+        foreach (ScalarExpr kept in (ScalarExpr[])[
+                     Cmp(BinaryOp.Add, Lit(LiteralValue.NewInt32(1)), Lit(LiteralValue.NewInt64(1))),
+                     Cmp(BinaryOp.Divide, Lit(LiteralValue.NewInt32(7)), Lit(LiteralValue.NewInt32(2))),
+                     Cmp(BinaryOp.Power, Lit(LiteralValue.NewInt32(7)), Lit(LiteralValue.NewInt32(2))),
+                     ScalarExpr.NewUnary(UnaryOp.Negate, Lit(LiteralValue.NewUInt32(5)))])
+        {
+            Assert.Equal(kept, FilterShapes.foldConstants(kept));
+        }
+    }
+
+    [Fact]
+    public void FloatingArithmetic_FollowsIeee_InItsWidth()
+    {
+        Assert.Equal(Lit(LiteralValue.NewFloat64(0.30000000000000004)), Arith(BinaryOp.Add, LiteralValue.NewFloat64(0.1), LiteralValue.NewFloat64(0.2)));
+        Assert.Equal(Lit(LiteralValue.NewFloat32(0.1f + 0.2f)), Arith(BinaryOp.Add, LiteralValue.NewFloat32(0.1f), LiteralValue.NewFloat32(0.2f)));
+        Assert.Equal(Lit(LiteralValue.NewFloat64(double.PositiveInfinity)), Arith(BinaryOp.Divide, LiteralValue.NewFloat64(1), LiteralValue.NewFloat64(0)));
+        Assert.Equal(Lit(LiteralValue.NewFloat64(-1.5)), Arith(BinaryOp.Modulo, LiteralValue.NewFloat64(-7.5), LiteralValue.NewFloat64(2)));
+        ScalarExpr negated = FilterShapes.foldConstants(ScalarExpr.NewUnary(UnaryOp.Negate, Lit(LiteralValue.NewFloat64(0.0))));
+        Assert.True(negated is ScalarExpr.Literal { value: LiteralValue.Float64 { Item: var z } } && double.IsNegative(z));
+    }
+
+    [Fact]
+    public void Casts_OfLiterals_FoldWhereTheirOutcomeIsKnown()
+    {
+        ScalarExpr Cast(LiteralValue v, Apache.Arrow.Types.IArrowType t, bool strict) =>
+            FilterShapes.foldConstants(ScalarExpr.NewCast(Lit(v), LogicalType.NewArrow(t), strict));
+        Assert.Equal(Lit(LiteralValue.NewInt64(5)), Cast(LiteralValue.NewInt32(5), Apache.Arrow.Types.Int64Type.Default, true));
+        Assert.Equal(Lit(LiteralValue.NewUInt8(44)), Cast(LiteralValue.NewInt32(300), Apache.Arrow.Types.UInt8Type.Default, false)); // wraps
+        Assert.Equal(Lit(LiteralValue.NewFloat64(9007199254740992.0)), Cast(LiteralValue.NewInt64((1L << 53) + 1), Apache.Arrow.Types.DoubleType.Default, false));
+        Assert.Equal(Lit(LiteralValue.NewFloat32(0.1f)), Cast(LiteralValue.NewFloat64(0.1), Apache.Arrow.Types.FloatType.Default, false));
+        // A strict cast out of range raises in the engine; floating to integer saturates in the frontend: both left.
+        ScalarExpr strict = ScalarExpr.NewCast(Lit(LiteralValue.NewInt32(300)), LogicalType.NewArrow(Apache.Arrow.Types.UInt8Type.Default), true);
+        Assert.Equal(strict, FilterShapes.foldConstants(strict));
+        ScalarExpr toInteger = ScalarExpr.NewCast(Lit(LiteralValue.NewFloat64(2.5)), LogicalType.NewArrow(Apache.Arrow.Types.Int32Type.Default), false);
+        Assert.Equal(toInteger, FilterShapes.foldConstants(toInteger));
+    }
+
+    [Fact]
+    public void Folding_ReachesEveryOperand()
+    {
+        // x > 1 * 10 (under an alias, in a cast, in a list target): the arithmetic folds where it stands.
+        ScalarExpr x = ScalarExpr.NewColumn("x");
+        ScalarExpr ten = Cmp(BinaryOp.Multiply, Lit(LiteralValue.NewInt64(1)), Lit(LiteralValue.NewInt64(10)));
+        Assert.Equal(Cmp(BinaryOp.Gt, x, Lit(LiteralValue.NewInt64(10))), FilterShapes.foldConstants(Cmp(BinaryOp.Gt, x, ten)));
+        Assert.Equal(ScalarExpr.NewAlias(Cmp(BinaryOp.Gt, x, Lit(LiteralValue.NewInt64(10))), "p"),
+            FilterShapes.foldConstants(ScalarExpr.NewAlias(Cmp(BinaryOp.Gt, x, ten), "p")));
+        // A partition value put in: 2 * 2 = 4 decides the conjunct.
+        Assert.Equal(Bool(true), FilterShapes.foldConstants(Cmp(BinaryOp.Eq, Cmp(BinaryOp.Multiply, Lit(LiteralValue.NewInt64(2)), Lit(LiteralValue.NewInt64(2))),
+            Lit(LiteralValue.NewInt64(4)))));
+        // Arithmetic with a null (a column the file lacks) is null, and so is its comparison.
+        ScalarExpr nul = Lit(LiteralValue.NewNull(LogicalTypes.Int64));
+        Assert.Equal(nul, FilterShapes.foldConstants(Cmp(BinaryOp.Add, x, nul)));
+        Assert.Equal(Lit(LiteralValue.NewNull(LogicalTypes.Boolean)), FilterShapes.foldConstants(Cmp(BinaryOp.Gt, Cmp(BinaryOp.Add, nul, x), Lit(LiteralValue.NewInt64(0)))));
+    }
 }

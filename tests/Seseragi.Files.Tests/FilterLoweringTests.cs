@@ -133,7 +133,13 @@ public class FilterLoweringTests
             object?[] values = [.. Enumerable.Range(0, length).Select(_ => random.Next(5) == 0 ? null : spec.Pool[random.Next(spec.Pool.Length)])];
             fields.Add(new Field(spec.Name, spec.Type, true));
             arrays.Add(Build(spec.Type, [.. values.Select(v => v is null ? null : spec.Store(v))]));
-            model[spec.Name] = values;
+            // The model holds the CLR values of the column's type (floating columns in their width: arithmetic is computed there).
+            model[spec.Name] = spec.Type switch
+            {
+                FloatType => [.. values.Select(v => v is null ? null : (object)(float)(double)v)],
+                HalfFloatType => [.. values.Select(v => v is null ? null : (object)(Half)(double)v)],
+                _ => values,
+            };
         }
         // The struct: a null struct has null fields (as the reader gives them).
         bool[] present = [.. Enumerable.Range(0, length).Select(_ => random.Next(6) != 0)];
@@ -258,7 +264,8 @@ public class FilterLoweringTests
         }
         var (operand, spec) = RandomOperand(random);
         object Literal() => spec.Literals[random.Next(spec.Literals.Length)];
-        switch (random.Next(12))
+        IArrowType type = OperandType(operand, spec);
+        switch (random.Next(16))
         {
             case 0:
                 return ScalarExpr.NewUnary(random.Next(2) == 0 ? UnaryOp.IsNull : UnaryOp.IsNotNull, operand);
@@ -284,10 +291,66 @@ public class FilterLoweringTests
                 return Bin(Comparisons[random.Next(6)], operand, ScalarExpr.NewLiteral(Lit(spec.Foreign[random.Next(spec.Foreign.Length)])));
             }
             case 7:
+                // A column against itself.
+                return Bin(Comparisons[random.Next(Comparisons.Length)], operand, operand);
+            case 8 or 9:
             {
-                // A column against a column: not lowered.
+                // A column against another: numbers of types some type holds both of, strings with strings.
+                var (other, otherSpec) = RandomOperand(random);
+                IArrowType otherType = OperandType(other, otherSpec);
+                bool comparable = Kind(type) != 0 && Kind(type) == Kind(otherType);
+                if (!comparable) return Bin(Comparisons[random.Next(Comparisons.Length)], operand, operand);
+                if (!Paired(type, otherType)) supported = false;
+                return Bin(Comparisons[random.Next(Comparisons.Length)], operand, other);
+            }
+            case 10 or 11 or 12 when IsArithmetic(type):
+            {
+                // Arithmetic over the operand (literals of its type), maybe negated or cast, compared with a literal or
+                // listed.
+                bool floating = type is FloatType or DoubleType;
+                BinaryOp[] ops = floating
+                    ? [BinaryOp.Add, BinaryOp.Subtract, BinaryOp.Multiply, BinaryOp.Divide, BinaryOp.Modulo]
+                    : [BinaryOp.Add, BinaryOp.Subtract, BinaryOp.Multiply, BinaryOp.TruncatedDivide, BinaryOp.Modulo];
+                ScalarExpr Argument() => random.Next(3) == 0 ? operand : ScalarExpr.NewLiteral(Lit(Typed(type, Arithmetic(random, spec, floating))));
+                ScalarExpr value = random.Next(4) == 0
+                    ? Bin(ops[random.Next(ops.Length)], Argument(), operand)
+                    : Bin(ops[random.Next(ops.Length)], operand, Argument());
+                IArrowType result = type;
+                switch (random.Next(5))
+                {
+                    case 0 when type is Int8Type or Int16Type or Int32Type or Int64Type or FloatType or DoubleType:
+                        value = ScalarExpr.NewUnary(UnaryOp.Negate, value);
+                        break;
+                    case 1:
+                    {
+                        // A cast: wrapping into a narrower integer, or to a floating type.
+                        IArrowType[] targets = floating ? [FloatType.Default, DoubleType.Default] : [Int8Type.Default, UInt8Type.Default, Int16Type.Default, Int32Type.Default, UInt32Type.Default, DoubleType.Default, FloatType.Default];
+                        result = targets[random.Next(targets.Length)];
+                        value = ScalarExpr.NewCast(value, Kaminari.Samidare.IR.LogicalType.NewArrow(result), false);
+                        break;
+                    }
+                }
+                object Compared() => Typed(result, Arithmetic(random, spec, floating));
+                if (random.Next(4) == 0)
+                {
+                    bool nullsEqual = random.Next(2) == 0;
+                    var items = Enumerable.Range(0, random.Next(0, 5)).Select(_ => random.Next(6) == 0 ? Lit(null) : Lit(Compared())).ToArray();
+                    if (nullsEqual && items.Any(i => i.IsNull)) supported = false; // a computed null is not tested for
+                    return ScalarExpr.NewInList(value, InListSource.NewLiterals(ListModule.OfSeq(items)), random.Next(2) == 0, nullsEqual);
+                }
+                ScalarExpr literal = ScalarExpr.NewLiteral(random.Next(12) == 0 ? Lit(null) : Lit(Compared()));
+                BinaryOp comparison = Comparisons[random.Next(Comparisons.Length)];
+                return random.Next(3) == 0 ? Bin(comparison, literal, value) : Bin(comparison, value, literal);
+            }
+            case 13 when IsArithmetic(type):
+            {
+                // Arithmetic lowering leaves to the engine: floor division, powers.
                 supported = false;
-                return Bin(Comparisons[random.Next(6)], operand, operand);
+                bool floating = type is FloatType or DoubleType;
+                ScalarExpr value = floating || random.Next(2) == 0
+                    ? Bin(BinaryOp.Power, operand, ScalarExpr.NewLiteral(Lit(Typed(type, random.Next(4)))))
+                    : Bin(BinaryOp.FloorDivide, operand, ScalarExpr.NewLiteral(Lit(Typed(type, random.Next(1, 4)))));
+                return Bin(Comparisons[random.Next(6)], value, ScalarExpr.NewLiteral(Lit(Typed(type, Arithmetic(random, spec, floating)))));
             }
             default:
             {
@@ -296,6 +359,82 @@ public class FilterLoweringTests
                 return random.Next(3) == 0 ? Bin(op, literal, operand) : Bin(op, operand, literal);
             }
         }
+    }
+
+    /// <summary>The type an operand is computed in: its cast's target, else its column's (a dictionary's values).</summary>
+    private static IArrowType OperandType(ScalarExpr operand, Spec spec) => operand switch
+    {
+        ScalarExpr.Cast { targetType: Kaminari.Samidare.IR.LogicalType.Arrow arrow } => arrow.arrowType,
+        _ => spec.Type is DictionaryType d ? d.ValueType : spec.Type,
+    };
+
+    private static bool IsArithmetic(IArrowType type) =>
+        type is Int8Type or UInt8Type or Int16Type or UInt16Type or Int32Type or UInt32Type or Int64Type or UInt64Type or FloatType or DoubleType;
+
+    /// <summary>What two columns compare as: 1 integers, 2 floating values, 3 decimals, 4 strings; 0 nothing compared column with column here.</summary>
+    private static int Kind(IArrowType type) => type switch
+    {
+        Int8Type or UInt8Type or Int16Type or UInt16Type or Int32Type or UInt32Type or Int64Type or UInt64Type => 1,
+        HalfFloatType or FloatType or DoubleType => 2,
+        Decimal128Type => 3,
+        StringType or StringViewType => 4,
+        _ => 0,
+    };
+
+    /// <summary>Whether two columns of one kind lower: integers some integer type holds both of, Float32 with Float64, one type, strings.</summary>
+    private static bool Paired(IArrowType a, IArrowType b) => Kind(a) switch
+    {
+        1 => !(a is UInt64Type && b is Int8Type or Int16Type or Int32Type or Int64Type) && !(b is UInt64Type && a is Int8Type or Int16Type or Int32Type or Int64Type),
+        2 => a.TypeId == b.TypeId || a is FloatType && b is DoubleType || a is DoubleType && b is FloatType,
+        3 => ((Decimal128Type)a).Scale == ((Decimal128Type)b).Scale,
+        _ => true,
+    };
+
+    /// <summary>An argument of arithmetic: a value of the spec's pool, or 0, 1, -1 (division edge cases).</summary>
+    private static object Arithmetic(Random random, Spec spec, bool floating) => random.Next(5) switch
+    {
+        0 => floating ? 0.0 : 0L,
+        1 => floating ? -1.0 : -1L,
+        2 => floating ? 1.0 : 1L,
+        _ => spec.Pool[random.Next(spec.Pool.Length)],
+    };
+
+    /// <summary>A number as a value of <paramref name="type"/> (integers wrapped, as unchecked .NET conversion).</summary>
+    private static object Typed(IArrowType type, object value)
+    {
+        if (value is double or float)
+        {
+            double d = Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
+            if (type is DoubleType) return d;
+            if (type is FloatType) return (float)d;
+            value = double.IsFinite(d) ? (long)d : 0L;
+        }
+        Int128 x = value switch
+        {
+            sbyte v => v,
+            byte v => v,
+            short v => v,
+            ushort v => v,
+            int v => v,
+            uint v => v,
+            long v => v,
+            ulong v => v,
+            _ => throw new NotSupportedException(value.GetType().Name),
+        };
+        return type switch
+        {
+            Int8Type => (object)sbyte.CreateTruncating(x),
+            UInt8Type => byte.CreateTruncating(x),
+            Int16Type => short.CreateTruncating(x),
+            UInt16Type => ushort.CreateTruncating(x),
+            Int32Type => int.CreateTruncating(x),
+            UInt32Type => uint.CreateTruncating(x),
+            Int64Type => long.CreateTruncating(x),
+            UInt64Type => ulong.CreateTruncating(x),
+            FloatType => value is ulong u ? (float)u : (float)(long)x,
+            DoubleType => value is ulong u ? (double)u : (double)(long)x,
+            _ => throw new NotSupportedException(type.Name),
+        };
     }
 
     private static int[] Selected(Table table, LoweredFilter lowered)
@@ -399,20 +538,21 @@ public class FilterLoweringTests
     [Fact]
     public void DroppedConjuncts_TakeTheirColumnsAlong()
     {
-        // i8 > 1 AND (f64 < f64): the second conjunct is no comparison with a literal.
-        ScalarExpr filter = Bin(BinaryOp.And, Bin(BinaryOp.Gt, Col("i8"), ScalarExpr.NewLiteral(Lit(1))), Bin(BinaryOp.Lt, Col("f64"), Col("f64")));
+        // i8 > 1 AND (f64 ** 2 < f64): the second conjunct is left to the engine (powers do not lower).
+        ScalarExpr Power(string column) => Bin(BinaryOp.Lt, Bin(BinaryOp.Power, Col(column), Col(column)), Col(column));
+        ScalarExpr filter = Bin(BinaryOp.And, Bin(BinaryOp.Gt, Col("i8"), ScalarExpr.NewLiteral(Lit(1))), Power("f64"));
         var (_, lowered) = Lower(filter);
         Assert.False(lowered.Exact);
         Assert.Equal(["i8"], lowered.Program.Value.Columns.Select(c => string.Join('.', c.Path)));
 
         // A conjunct failing after it named a column takes the column back.
         ScalarExpr late = Bin(BinaryOp.And, Bin(BinaryOp.Gt, Col("i8"), ScalarExpr.NewLiteral(Lit(1))),
-            Bin(BinaryOp.Or, Bin(BinaryOp.Eq, Col("f64"), ScalarExpr.NewLiteral(Lit(1.0))), Bin(BinaryOp.Lt, Col("f32"), Col("f32"))));
+            Bin(BinaryOp.Or, Bin(BinaryOp.Eq, Col("f64"), ScalarExpr.NewLiteral(Lit(1.0))), Power("f32")));
         var (_, trimmed) = Lower(late);
         Assert.False(trimmed.Exact);
         Assert.Equal(["i8"], trimmed.Program.Value.Columns.Select(c => string.Join('.', c.Path)));
 
-        var (_, none) = Lower(Bin(BinaryOp.Lt, Col("f64"), Col("f64")));
+        var (_, none) = Lower(Power("f64"));
         Assert.False(none.Exact);
         Assert.True(OptionModule.IsNone(none.Program));
 
@@ -431,8 +571,13 @@ public class FilterLoweringTests
         AssertDropped(Bin(BinaryOp.Eq, Col("nope"), ScalarExpr.NewLiteral(Lit(1))));
         AssertDropped(Bin(BinaryOp.Eq, Col("s"), ScalarExpr.NewLiteral(Lit(1))));                 // a struct, not a leaf
         AssertDropped(Bin(BinaryOp.Eq, Field("s", "zz"), ScalarExpr.NewLiteral(Lit(1))));
-        AssertDropped(Bin(BinaryOp.Lt, ScalarExpr.NewCast(Col("i64"), Kaminari.Samidare.IR.LogicalType.NewArrow(Int32Type.Default), false),
-            ScalarExpr.NewLiteral(Lit(1))));                                                       // narrowing
+        AssertDropped(Bin(BinaryOp.Lt, ScalarExpr.NewCast(Col("i64"), Kaminari.Samidare.IR.LogicalType.NewArrow(Int32Type.Default), true),
+            ScalarExpr.NewLiteral(Lit(1))));                                                       // narrowing, strict (the engine raises)
+        AssertDropped(Bin(BinaryOp.Lt, ScalarExpr.NewCast(Col("f64"), Kaminari.Samidare.IR.LogicalType.NewArrow(Int32Type.Default), false),
+            ScalarExpr.NewLiteral(Lit(1))));                                                       // floating to integer
+        AssertDropped(Bin(BinaryOp.Lt, Bin(BinaryOp.Add, Col("i64"), ScalarExpr.NewLiteral(Lit(1))), ScalarExpr.NewLiteral(Lit(5L)))); // Int64 + Int32: no promotion
+        AssertDropped(Bin(BinaryOp.Lt, Bin(BinaryOp.Divide, Col("i64"), ScalarExpr.NewLiteral(Lit(2L))), ScalarExpr.NewLiteral(Lit(5L)))); // the engine's integer division
+        AssertDropped(Bin(BinaryOp.Lt, Col("i64"), Col("u64")));                                  // no integer type holds both
         AssertDropped(ScalarExpr.NewUnary(UnaryOp.IsNan, Col("i32")));
         AssertDropped(Bin(BinaryOp.StartsWith, Col("i32"), ScalarExpr.NewLiteral(Lit("1"))));
         AssertDropped(Bin(BinaryOp.Eq, Col("utf8"), ScalarExpr.NewLiteral(Lit(1))));

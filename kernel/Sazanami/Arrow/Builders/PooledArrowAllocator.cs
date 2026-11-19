@@ -23,17 +23,23 @@ internal sealed class PooledArrowAllocator() : MemoryAllocator(NativeMemoryPool.
     protected override IMemoryOwner<byte> AllocateInternal(int length, out int bytesAllocated)
     {
         bytesAllocated = length;
-        return new PooledMemory(length);
+        return new PooledMemory(new Block(length), length);
     }
+
+    /// <summary>
+    /// The memory of an Arrow buffer over a block of <see cref="NativeMemoryPool"/> filled already (its
+    /// <paramref name="length"/> first bytes): the block is taken over, freed with the buffer.
+    /// </summary>
+    public static unsafe IMemoryOwner<byte> Adopt(byte* block, int length) => new PooledMemory(new Block(block), length);
 
     /// <summary>
     /// One block of the pool as the memory of an Arrow buffer. The block itself is a separate object with the
     /// finalizer (a finalizer on a MemoryManager is CA2015's trap; the same split as NativeBufferMemory and its owner):
     /// an undisposed buffer still gives its block back once collected, as Apache.Arrow's allocator does.
     /// </summary>
-    private sealed unsafe class PooledMemory(int length) : MemoryManager<byte>
+    private sealed unsafe class PooledMemory(Block block, int length) : MemoryManager<byte>
     {
-        private readonly Block _block = new(length);
+        private readonly Block _block = block;
 
         public override Span<byte> GetSpan() => new(_block.Pointer, length);
 
@@ -61,6 +67,9 @@ internal sealed class PooledArrowAllocator() : MemoryAllocator(NativeMemoryPool.
             NativeMemory.Clear(p, (nuint)length); // builders count on zeroed memory, as Apache.Arrow's allocator gives
             _pointer = (nint)p;
         }
+
+        /// <summary>Takes over a block of the pool.</summary>
+        public Block(byte* block) => _pointer = (nint)block;
 
         public byte* Pointer => _pointer != 0 ? (byte*)_pointer : throw new ObjectDisposedException(nameof(PooledMemory));
 

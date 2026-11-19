@@ -30,14 +30,30 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
 
     private static bool Odd(long value) => value % 2 == 1;
 
-    public static TheoryData<string> Cases => ["untranslatable", "mixed", "betweenColumns"];
+    public static TheoryData<string> Cases => ["untranslatable", "mixed", "power"];
 
     private static Expression<Func<Row, bool>> Where(string name) => name switch
     {
         "untranslatable" => r => Odd(r.Id),
         "mixed" => r => r.Id < 150 && Odd(r.Id),
-        _ => r => r.M > r.Id,
+        _ => r => Math.Pow(r.Id, 2) > r.M, // translated, but powers are left to the engine
     };
+
+    /// <summary>Comparisons between columns and arithmetic are evaluated by the reader: nothing is left for the rows.</summary>
+    [Fact]
+    public void Strict_TakesColumnComparisonsAndArithmetic()
+    {
+        using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Strict).BeginScope())
+        {
+            using var file = ParquetFile.Open(_path);
+            foreach (Expression<Func<Row, bool>> where in (Expression<Func<Row, bool>>[])[r => r.M > r.Id, r => r.Id % 7 == r.M + 1, r => r.Id * 2 < r.M + 10])
+            {
+                using ParquetReader<Row> reader = file.OpenReader(where);
+                Assert.True(reader.FiltersExactly, where.ToString());
+                Assert.Equal(_rows.Where(where.Compile()), reader.ReadRows());
+            }
+        }
+    }
 
     [Theory]
     [MemberData(nameof(Cases))]

@@ -84,7 +84,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             throw new ArgumentException("Row groups are numbered per file: a dataset reads them all (select rows per file with ParquetDatasetFile.Rows).", nameof(options));
         if (options.Rows is not null)
             throw new ArgumentException("Rows are numbered per file: select them with ParquetDatasetFile.Rows.", nameof(options));
-        if (options.Filter is { } given) options = options with { Filter = FilterShapes.canonical(given) };
+        if (options.Filter is { } given) options = options with { Filter = FilterShapes.normalize(given) };
         _dataset = dataset;
         _options = options;
         _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.ColumnsFor(options), dataset.Files.Count,
@@ -310,7 +310,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     {
         string path = PathOf(index);
         ShapePlan shape = ShapePlanOf(file, path);
-        var (fileFilter, complete) = _shape.FileFilter(index, shape.Missing, shape.Dropped);
+        var (fileFilter, complete) = _shape.FileFilter(index, shape.Missing, shape.Dropped, shape.Has);
 
         bool after = FiltersExactly && _shape.FiltersAfter && !complete;
         ParquetReader reader = Open(file, index, before, after ? null : remaining, shape, fileFilter, after, shared);

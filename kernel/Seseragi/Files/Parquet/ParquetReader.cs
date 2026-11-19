@@ -75,7 +75,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     {
         options.Validate();
         // The filter in the shapes pruning and lowering read (the LINQ translator gives some in others).
-        if (options.Filter is { } given) options = options with { Filter = FilterShapes.canonical(given) };
+        if (options.Filter is { } given) options = options with { Filter = FilterShapes.normalize(given) };
         _file = file;
         _options = options;
         var (_, all) = file.Mapping(options);

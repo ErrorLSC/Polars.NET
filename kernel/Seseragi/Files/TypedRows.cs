@@ -48,9 +48,40 @@ internal static class TypedRows
         List<Expression> client = [];
         // The fields as the reader reads them, for whether a pushed conjunct is evaluated exactly.
         Apache.Arrow.Schema read = lowering(columns);
+        // Arithmetic over a member is computed in the member's type: a column stored as another number (a long member
+        // over an Int32 column) is cast to it first, as the row would be.
+        // A column whose member type is not known, or another than the column's that it cannot be cast to, leaves the
+        // arithmetic over it to the rows.
+        Dictionary<string, Apache.Arrow.Types.IArrowType> memberTypes = new(StringComparer.Ordinal);
+        HashSet<string> uncast = new(StringComparer.Ordinal);
+        foreach (Apache.Arrow.Field field in read.FieldsList)
+        {
+            Type? member = MemberType(field.Name);
+            if (member is null
+                || LogicalTypes.tryOfClrType(Nullable.GetUnderlyingType(member) ?? member) is not { Value: LogicalType.Arrow { arrowType: var meant } })
+            {
+                uncast.Add(field.Name);
+                continue;
+            }
+            if (FilterArithmetic.SameValues(field.DataType, meant)) continue;
+            if (Kaminari.Sazanami.Expressions.ValueTypes.IsArithmetic(meant)
+                && Kaminari.Sazanami.Expressions.ValueTypes.IsArithmetic(Kaminari.Sazanami.Expressions.ValueTypes.ValueType(field.DataType)))
+                memberTypes[field.Name] = meant;
+            else
+                uncast.Add(field.Name);
+        }
         foreach (Expression conjunct in Conjuncts(where.Body))
         {
             FSharpOption<ScalarExpr> translated = ExprTranslator.tryTranslateToScalar(context, conjunct);
+            if (FSharpOption<ScalarExpr>.get_IsSome(translated) && uncast.Count > 0 && FilterArithmetic.Columns(translated.Value).Overlaps(uncast))
+                translated = FSharpOption<ScalarExpr>.None; // computed in a type the reader does not know: on the rows
+            if (memberTypes.Count > 0 && FSharpOption<ScalarExpr>.get_IsSome(translated))
+            {
+                HashSet<string> computed = FilterArithmetic.Columns(translated.Value);
+                translated = ScalarExprOps.substitute(FuncConvert.FromFunc((string name) => computed.Contains(name) && memberTypes.TryGetValue(name, out Apache.Arrow.Types.IArrowType? meant)
+                    ? FSharpOption<ScalarExpr>.Some(ScalarExpr.NewCast(ScalarExpr.NewColumn(name), LogicalType.NewArrow(meant), false))
+                    : FSharpOption<ScalarExpr>.None), translated.Value);
+            }
             // A conjunct over columns the reader does not filter on (a dataset's file path) is evaluated on the rows only.
             if (FSharpOption<ScalarExpr>.get_IsSome(translated)
                 && ScalarExprOps.collectColumns(translated.Value).All(c => read.GetFieldIndex(c) >= 0))
@@ -94,6 +125,20 @@ internal static class TypedRows
             readerMaxRows = null;
         }
         return new TypedPlan<T>(columns, filter, filter is not null, readerMaxRows, evaluated, clientMaxRows, exact);
+
+        // The type of the member a column binds to (by name, then ignoring case), or null.
+        static Type? MemberType(string column)
+        {
+            System.Reflection.MemberInfo[] members = [.. typeof(T).GetProperties(), .. typeof(T).GetFields()];
+            System.Reflection.MemberInfo? member = members.FirstOrDefault(m => m.Name == column)
+                ?? members.FirstOrDefault(m => string.Equals(m.Name, column, StringComparison.OrdinalIgnoreCase));
+            return member switch
+            {
+                System.Reflection.PropertyInfo p => p.PropertyType,
+                System.Reflection.FieldInfo f => f.FieldType,
+                _ => null,
+            };
+        }
 
         // The conjuncts of a predicate (its && chain, in order).
         static IEnumerable<Expression> Conjuncts(Expression body) => body is BinaryExpression { NodeType: ExpressionType.AndAlso } and

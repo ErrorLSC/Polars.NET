@@ -30,6 +30,8 @@ internal sealed class DatasetShape
     private readonly Column[] _layout;
     private readonly ScalarExpr? _fileFilter;
     private readonly ScalarExpr[] _mixed;
+    private readonly Dictionary<string, IArrowType> _types;     // the dataset's column types, by name (what the filter means)
+    private readonly string[] _filterColumns = [];              // the columns the files' conjuncts read
     private readonly ScalarExpr? _rowFilter;              // what the rows delivered must pass (the conjuncts not decided per file)
     private readonly FilterProgram? _program;             // _rowFilter as the dataset applies it after converting (exact)
 
@@ -122,8 +124,11 @@ internal sealed class DatasetShape
             }
             if (onPartitions.Count > 0) exact = Prune(partitions!, onPartitions.Aggregate(And), Read);
         }
+        _types = new(StringComparer.Ordinal);
+        foreach (Field field in columns.FieldsList) _types.TryAdd(field.Name, field.DataType);
         _fileFilter = onFiles.Count == 0 ? null : onFiles.Aggregate(And);
         _mixed = [.. mixed];
+        _filterColumns = [.. onFiles.Concat(mixed).SelectMany(ScalarExprOps.collectColumns).Distinct()];
         _rowFilter = onFiles.Count + mixed.Count == 0 ? null : onFiles.Concat(mixed).Aggregate(And);
 
         // Exact when the filter lowers exactly over the dataset's types (each file's rows are filtered again after
@@ -550,12 +555,27 @@ internal sealed class DatasetShape
     /// <summary>
     /// The filter file <paramref name="index"/> reads: the conjuncts over its columns, those over partition columns
     /// too with its values, columns it lacks (<paramref name="missing"/>) as nulls; conjuncts over
-    /// <paramref name="dropped"/> columns are left out. Whether every conjunct is in (one left out, or one with a
-    /// partition value of no literal form, makes the file's rows filtered less).
+    /// <paramref name="dropped"/> columns are left out. A column the file stores as a narrower number than the
+    /// dataset's (<paramref name="has"/>) is cast up where arithmetic reads it, so that the arithmetic is the dataset's
+    /// (an Int32 file's column of an Int64 dataset wraps where the dataset does); a conjunct with arithmetic over a column
+    /// of another type that cannot be cast up (a nested one, a decimal, …) is left out. Whether every conjunct is in (one left out, or one with a partition value of no literal
+    /// form, makes the file's rows filtered less).
     /// </summary>
-    public (ScalarExpr? Filter, bool Complete) FileFilter(int index, HashSet<string> missing, HashSet<string> dropped)
+    public (ScalarExpr? Filter, bool Complete) FileFilter(int index, HashSet<string> missing, HashSet<string> dropped, IReadOnlyDictionary<string, Field> has)
     {
-        if (_mixed.Length == 0 && missing.Count == 0 && dropped.Count == 0) return (_fileFilter, true);
+        Dictionary<string, IArrowType>? widened = null;
+        HashSet<string>? reshaped = null;
+        foreach (string name in _filterColumns)
+        {
+            if (!has.TryGetValue(name, out Field? stored) || !_types.TryGetValue(name, out IArrowType? meant)) continue;
+            if (FilterArithmetic.SameValues(stored.DataType, meant)) continue;
+            if (Kaminari.Sazanami.Expressions.ValueTypes.IsArithmetic(Kaminari.Sazanami.Expressions.ValueTypes.ValueType(stored.DataType))
+                && Kaminari.Sazanami.Expressions.ValueTypes.IsArithmetic(meant))
+                (widened ??= new(StringComparer.Ordinal))[name] = meant;
+            else
+                (reshaped ??= new(StringComparer.Ordinal)).Add(name); // no cast up: arithmetic over it is left to the rows
+        }
+        if (_mixed.Length == 0 && missing.Count == 0 && dropped.Count == 0 && widened is null && reshaped is null) return (_fileFilter, true);
         Partitions? partitions = _partitions;
         ScalarExpr? filter = null;
         bool all = true;
@@ -563,6 +583,12 @@ internal sealed class DatasetShape
         foreach (ScalarExpr conjunct in conjuncts)
         {
             bool complete = true, changed = false;
+            HashSet<string> computed = widened is null && reshaped is null ? [] : FilterArithmetic.Columns(conjunct);
+            if (reshaped is not null && computed.Overlaps(reshaped))
+            {
+                all = false; // evaluated after conversion
+                continue;
+            }
             ScalarExpr substituted = ScalarExprOps.substitute(FuncConvert.FromFunc((string name) =>
             {
                 if (dropped.Contains(name))
@@ -570,6 +596,9 @@ internal sealed class DatasetShape
                     complete = false;
                     return FSharpOption<ScalarExpr>.None;
                 }
+                // Cast up only where arithmetic reads it: a plain comparison is the same at any width (and keeps its pruning).
+                if (widened is not null && computed.Contains(name) && widened.TryGetValue(name, out IArrowType? meant))
+                    return FSharpOption<ScalarExpr>.Some(ScalarExpr.NewCast(ScalarExpr.NewColumn(name), LogicalType.NewArrow(meant), false));
                 if (missing.Contains(name))
                 {
                     changed = true;

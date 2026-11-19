@@ -34,8 +34,9 @@ public sealed record ParquetReadOptions
     /// <summary>
     /// Whether only the rows where <see cref="Filter"/> is true are delivered (off by default: the filter only prunes).
     /// The columns the filter reads are decoded first, row group by row group, and the other columns only for the rows
-    /// it keeps (late materialization). Conjuncts of the filter the reader cannot evaluate (comparisons between
-    /// columns, functions, …) are left out, so the rows delivered may still include some the filter drops:
+    /// it keeps (late materialization). Comparisons of columns with literals or with each other, integer and floating
+    /// arithmetic (operands of one type), casts between numbers and IN lists are evaluated here; conjuncts the reader
+    /// cannot evaluate (functions, powers, …) are left out, so the rows delivered may still include some the filter drops:
     /// <see cref="ParquetReader.FiltersExactly"/> tells. Columns the filter reads are read even when not selected, so
     /// damage in them fails the read. Batches may then hold fewer rows than <see cref="BatchSize"/>.
     /// </summary>

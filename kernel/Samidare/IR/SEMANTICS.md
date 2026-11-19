@@ -82,7 +82,15 @@ string form carries that scale (2.500, not 2.5), while its value is the same.
 
 **Division by zero and overflow.** Integer or decimal division and remainder by zero give null (.NET
 raises). The frontend guards a decimal divisor, because the engine raises. Integer overflow wraps, as unchecked
-.NET arithmetic does.
+.NET arithmetic does: `MinValue / -1` is `MinValue` and `MinValue % -1` is 0 (.NET raises for both).
+
+**Operands of one type.** The two operands of `Add`, `Subtract`, `Multiply`, `Divide`, `TruncatedDivide` and
+`Modulo` have one type, which is the result's: the frontend makes C#'s promotions explicit casts (`short * 2` is
+`Cast(s, Int32) * 2`, `int * 1.5` is `Cast(i, Float64) * 1.5`). Float32 arithmetic is computed in Float32. Mixed
+operand types have no rule here; readers that evaluate filters themselves (Seseragi) leave such expressions to the
+engine. A comparison between integers of two widths compares their values (as the narrowest integer type holding
+both would), and Float32 against Float64 compares the Float32 value widened; other mixes (Int64 against UInt64,
+integers against floating values) are left to the engine.
 
 **Checked sums.** .NET's `Sum` of `int` / `long`, and the `long` sum behind `Average` of `long`, are checked.
 Over all the rows, the frontend emits `AggKind.CheckedSum`: the exact total in the summed type, failing with

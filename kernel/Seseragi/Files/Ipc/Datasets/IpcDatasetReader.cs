@@ -52,7 +52,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     internal IpcDatasetReader(IpcDataset dataset, IpcReadOptions options)
     {
         options.Validate();
-        if (options.Filter is { } given) options = options with { Filter = FilterShapes.canonical(given) };
+        if (options.Filter is { } given) options = options with { Filter = FilterShapes.normalize(given) };
         _dataset = dataset;
         _options = options;
         _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files.Count,
@@ -195,7 +195,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         Dictionary<string, Field> has = new(StringComparer.Ordinal);
         foreach (Field field in file.Schema.FieldsList) has.TryAdd(field.Name, field);
         DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path);
-        var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped);
+        var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped, has);
 
         bool after = FiltersExactly && _shape.FiltersAfter && !complete;
         IpcReader reader = Open(file, index, columns, fileFilter, after);

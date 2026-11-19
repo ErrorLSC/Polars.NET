@@ -142,10 +142,30 @@ public class ParquetPruningTests
 
     internal static ScalarExpr RandomFilter(Random random, FileRows rows, ScalarExpr[] columns, int depth)
     {
-        int pick = random.Next(depth > 0 ? 10 : 6);
+        int pick = random.Next(depth > 0 ? 13 : 9);
         ScalarExpr column = columns[random.Next(columns.Length)];
         LiteralValue[] literals = rows.Literals(column);
         LiteralValue literal = literals[random.Next(literals.Length)];
+        IArrowType? type = rows.TypeOf(column);
+        if (pick is 6 or 7 or 8)
+        {
+            // Computed values: integer arithmetic against a literal or a column, a column against a column of its kind.
+            ScalarExpr other = columns[random.Next(columns.Length)];
+            IArrowType? otherType = rows.TypeOf(other);
+            BinaryOp comparison = random.Next(4) == 0 ? (random.Next(2) == 0 ? BinaryOp.EqMissing : BinaryOp.NotEqMissing) : Comparisons[random.Next(Comparisons.Length)];
+            if (pick == 6 && IsInteger(type))
+            {
+                LiteralValue[] typed = [.. literals.Where(l => l.DataType.Equals(Kaminari.Samidare.IR.LogicalType.NewArrow(type!))), Typed(type!, 0), Typed(type!, 1), Typed(type!, -1)];
+                BinaryOp[] ops = [BinaryOp.Add, BinaryOp.Subtract, BinaryOp.Multiply, BinaryOp.TruncatedDivide, BinaryOp.Modulo];
+                ScalarExpr value = Bin(ops[random.Next(ops.Length)], column, Lit(typed[random.Next(typed.Length)]));
+                if (random.Next(3) == 0) value = Bin(ops[random.Next(ops.Length)], value, IsInteger(otherType) && otherType!.TypeId == type!.TypeId ? other : column);
+                if (random.Next(4) == 0 && type is Int8Type or Int16Type or Int32Type or Int64Type) value = ScalarExpr.NewUnary(UnaryOp.Negate, value);
+                if (random.Next(4) == 0) value = ScalarExpr.NewCast(value, Kaminari.Samidare.IR.LogicalType.NewArrow(random.Next(2) == 0 ? Int64Type.Default : Int8Type.Default), false);
+                return Bin(comparison, value, Lit(literal));
+            }
+            if (Kind(type) != 0 && Kind(type) == Kind(otherType)) return Bin(comparison, column, other);
+            return Bin(comparison, column, column);
+        }
         return pick switch
         {
             0 or 1 or 2 => Bin(Comparisons[random.Next(Comparisons.Length)], column, Lit(literal)),
@@ -156,9 +176,9 @@ public class ParquetPruningTests
                     [.. Enumerable.Range(0, random.Next(4)).Select(_ => literals[random.Next(literals.Length)]),
                      .. random.Next(3) == 0 ? [LiteralValue.NewNull(Kaminari.Samidare.IR.LogicalType.Unknown)] : (LiteralValue[])[]])),
                     random.Next(2) == 0, random.Next(2) == 0),
-            6 => Bin(BinaryOp.And, RandomFilter(random, rows, columns, depth - 1), RandomFilter(random, rows, columns, depth - 1)),
-            7 => Bin(BinaryOp.Or, RandomFilter(random, rows, columns, depth - 1), RandomFilter(random, rows, columns, depth - 1)),
-            8 => Not(RandomFilter(random, rows, columns, depth - 1)),
+            9 => Bin(BinaryOp.And, RandomFilter(random, rows, columns, depth - 1), RandomFilter(random, rows, columns, depth - 1)),
+            10 => Bin(BinaryOp.Or, RandomFilter(random, rows, columns, depth - 1), RandomFilter(random, rows, columns, depth - 1)),
+            11 => Not(RandomFilter(random, rows, columns, depth - 1)),
             _ => ScalarExpr.NewCoalesce(ListModule.OfSeq<ScalarExpr>(
                     [RandomFilter(random, rows, columns, depth - 1), Lit(random.Next(3) switch
                     {
@@ -169,9 +189,68 @@ public class ParquetPruningTests
         };
     }
 
+    /// <summary>An integer literal of the type (wrapped into it).</summary>
+    private static LiteralValue Typed(IArrowType type, long v) => type switch
+    {
+        Int8Type => LiteralValue.NewInt8((sbyte)v),
+        Int16Type => LiteralValue.NewInt16((short)v),
+        Int32Type => LiteralValue.NewInt32((int)v),
+        Int64Type => LiteralValue.NewInt64(v),
+        UInt8Type => LiteralValue.NewUInt8((byte)v),
+        UInt16Type => LiteralValue.NewUInt16((ushort)v),
+        UInt32Type => LiteralValue.NewUInt32((uint)v),
+        _ => LiteralValue.NewUInt64((ulong)v),
+    };
+
+    private static bool IsInteger(IArrowType? type) => type is Int8Type or Int16Type or Int32Type or Int64Type or UInt8Type or UInt16Type or UInt32Type or UInt64Type;
+
+    /// <summary>Kinds whose columns compare with each other in the evaluator: integers, floating values, strings, decimals, one type otherwise.</summary>
+    private static int Kind(IArrowType? type) => type switch
+    {
+        DictionaryType d => Kind(d.ValueType),
+        null or StructType or ListType => 0,
+        _ when IsInteger(type) => 1,
+        HalfFloatType or FloatType or DoubleType => 2,
+        StringType or StringViewType => 3,
+        Decimal128Type => 4,
+        _ => 5 + (int)type.TypeId,
+    };
+
     // ------------------------------------------------------------------
     // Particular shapes
     // ------------------------------------------------------------------
+
+    [Fact]
+    public void Expressions_PruneByIntervalArithmetic()
+    {
+        // i8 holds -15..-12 | -5..-2 | 5..8 and i16 is 100 * i8; i32 is 1000 * i8.
+        FileRows rows = Types.Value;
+        LiteralValue I8(sbyte v) => LiteralValue.NewInt8(v);
+        Assert.Equal([0], rows.Kept(Bin(BinaryOp.Lt, Bin(BinaryOp.Multiply, Col("i8"), Lit(I8(2))), Lit(I8(-20)))));
+        Assert.Equal([2], rows.Kept(Bin(BinaryOp.Gt, Bin(BinaryOp.Add, Col("i8"), Lit(I8(1))), Lit(I8(8)))));
+        Assert.Equal([1], rows.Kept(Bin(BinaryOp.Eq, ScalarExpr.NewUnary(UnaryOp.Negate, Col("i8")), Lit(I8(3)))));
+        Assert.Empty(rows.Kept(Bin(BinaryOp.Gt, Bin(BinaryOp.Modulo, Col("i32"), Lit(LiteralValue.NewInt32(7))), Lit(LiteralValue.NewInt32(6)))));
+        Assert.Empty(rows.Kept(Bin(BinaryOp.Gt, Bin(BinaryOp.TruncatedDivide, Col("i8"), Lit(I8(0))), Lit(I8(0))))); // null on every row
+        // Two ranges: i8 + i8 reaches 16 in row group 2 (both operands at their maximum).
+        Assert.Equal([2], rows.Kept(Bin(BinaryOp.Gt, Bin(BinaryOp.Add, Col("i8"), Col("i8")), Lit(I8(14)))));
+        Assert.Equal([2], rows.Matching(Bin(BinaryOp.Gt, Bin(BinaryOp.Add, Col("i8"), Col("i8")), Lit(I8(14)))));
+        // A zero divisor gives null, which a coalesce turns true: u8 / u8 with u8 = 0 in row group 0, i8 / 0 everywhere.
+        ScalarExpr Coalesced(ScalarExpr e) => ScalarExpr.NewCoalesce(ListModule.OfSeq([e, Lit(LiteralValue.NewBool(true))]));
+        ScalarExpr byColumn = Coalesced(Bin(BinaryOp.Gt, Bin(BinaryOp.TruncatedDivide, Col("u8"), Col("u8")), Lit(LiteralValue.NewUInt8(100))));
+        Assert.Equal([0], rows.Matching(byColumn));
+        Assert.Equal([0], rows.Kept(byColumn));
+        Assert.Equal([0, 1, 2], rows.Kept(Coalesced(Bin(BinaryOp.Gt, Bin(BinaryOp.TruncatedDivide, Col("i8"), Lit(I8(0))), Lit(I8(0))))));
+        // A product that may wrap keeps every row group (each holds rows it keeps).
+        ScalarExpr wraps = Bin(BinaryOp.Gt, Bin(BinaryOp.Multiply, Col("i8"), Lit(I8(100))), Lit(I8(0)));
+        Assert.Equal([0, 1, 2], rows.Kept(wraps));
+        Assert.Equal([0, 1, 2], rows.Matching(wraps));
+        // Columns with columns: i16 > i8 only where both are positive; two columns of different types compare by value.
+        Assert.Equal([2], rows.Kept(Bin(BinaryOp.Gt, Col("i16"), Col("i8"))));
+        Assert.Equal([0, 1], rows.Kept(Bin(BinaryOp.Lt, Col("i16"), Col("i8"))));
+        Assert.Empty(rows.Kept(Bin(BinaryOp.Eq, Col("u8"), Col("i8"))));
+        Assert.Equal([0, 1, 2], rows.Kept(Bin(BinaryOp.Eq, Bin(BinaryOp.TruncatedDivide, Col("i16"), Lit(LiteralValue.NewInt16(100))),
+            ScalarExpr.NewCast(Col("i8"), LogicalTypes.Int16, false))));
+    }
 
     [Fact]
     public void FloatGreaterThan_PrunesOnlyUnderTheFrontEndsNaNGuard()
@@ -215,8 +294,9 @@ public class ParquetPruningTests
                      Bin(BinaryOp.Eq, Col("missing"), Lit(five)),                     // no such column
                      Bin(BinaryOp.Eq, Col("li"), Lit(five)),                          // a list, not a leaf
                      Bin(BinaryOp.Eq, element, Lit(five)),                            // list elements
-                     Bin(BinaryOp.Eq, Col("i8"), Col("i16")),                         // two columns
-                     Bin(BinaryOp.Lt, Bin(BinaryOp.Add, Col("i8"), Lit(five)), Lit(five)), // arithmetic
+                     Bin(BinaryOp.Eq, Col("i8"), Col("dt")),                          // an integer against a date
+                     Bin(BinaryOp.Lt, Bin(BinaryOp.Add, Col("i8"), Lit(five)), Lit(five)), // arithmetic of two types (Int8 + Int32)
+                     Bin(BinaryOp.Lt, Bin(BinaryOp.Power, Col("i8"), Lit(LiteralValue.NewInt8(2))), Lit(five)), // powers
                      Bin(BinaryOp.Eq, Col("dt"), Lit(LiteralValue.NewInt32(5))),      // a date against an integer
                  ])
         {
@@ -901,7 +981,7 @@ public class ParquetPruningTests
             return [.. literals];
         }
 
-        private IArrowType? TypeOf(ScalarExpr column) => column switch
+        public IArrowType? TypeOf(ScalarExpr column) => column switch
         {
             ScalarExpr.Column c => _types.GetValueOrDefault(c.name),
             ScalarExpr.Function f when TypeOf(f.args.Head) is StructType s

@@ -99,6 +99,41 @@ let ``Modulo and TruncatedDivide truncate toward zero`` () =
     let plan = project (t.Scan rows) [ "div", bin BinaryOp.TruncatedDivide (col "I") (col "J"); "rem", bin BinaryOp.Modulo (col "I") (col "J") ]
     Conformance.rowsInOrder t plan [ [ -3L; -1L ]; [ -3L; 1L ]; [ 2L; -2L ]; [ null; null ] ]
 
+type IJ32 = { Id: int64; I: int; J: int }
+
+/// Integer overflow wraps in the operands' type: MinValue / -1 is MinValue and MinValue % -1 is 0; Add and Multiply
+/// wrap (SEMANTICS.md, Arithmetic).
+[<Fact>]
+let ``Integer overflow wraps, MinValue over -1 too`` () =
+    let t = Tables()
+    let rows: IJ32 array = [| { Id = 1L; I = Int32.MinValue; J = -1 }; { Id = 2L; I = Int32.MaxValue; J = 2 } |]
+    let plan =
+        project (t.Scan rows)
+            [ "div", bin BinaryOp.TruncatedDivide (col "I") (col "J")
+              "rem", bin BinaryOp.Modulo (col "I") (col "J")
+              "sum", bin BinaryOp.Add (col "I") (col "I")
+              "prod", bin BinaryOp.Multiply (col "I") (col "J") ]
+    Conformance.rowsInOrder t plan
+        [ [ int64 Int32.MinValue; 0L; 0L; int64 Int32.MinValue ]
+          [ int64 (Int32.MaxValue / 2); 1L; -2L; -2L ] ]
+
+type Widths = { Id: int64; I: int; L: int64; U: uint32; F: float32; D: float }
+
+/// Numbers of two widths compare by value: Int32 with Int64, UInt32 with Int32, Float32 widened against Float64.
+[<Fact>]
+let ``Comparisons across widths compare values`` () =
+    let t = Tables()
+    let rows: Widths array =
+        [| { Id = 1L; I = -1; L = 4294967295L; U = 4294967295u; F = 0.1f; D = 0.1 }
+           { Id = 2L; I = 7; L = 7L; U = 7u; F = 0.5f; D = 0.5 } |]
+    let plan =
+        project (t.Scan rows)
+            [ "il", bin BinaryOp.Lt (col "I") (col "L")
+              "ui", bin BinaryOp.Gt (col "U") (col "I")
+              "fd", bin BinaryOp.Eq (col "F") (col "D") ]
+    // (double)0.1f is not 0.1; 0.5f is 0.5 exactly.
+    Conformance.rowsInOrder t plan [ [ true; true; false ]; [ false; false; true ] ]
+
 type GK = { Id: int64; A: Nullable<int64>; B: string }
 
 let private nullKeys: GK array =

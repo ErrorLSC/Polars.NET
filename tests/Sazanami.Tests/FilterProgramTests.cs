@@ -1,6 +1,7 @@
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Expressions;
 using Kaminari.Sazanami.Filters;
 using static Sazanami.Tests.FilterTestData;
 
@@ -14,13 +15,16 @@ public class FilterProgramTests
     // ---------------------------------------------------------------------------------------------------------------
     // The model
 
-    private static bool? Eval(FilterNode node, Func<int, object?> column) => node switch
+    private static bool? Eval(FilterNode node, Func<int, object?> column, IReadOnlyList<IArrowType> types) => node switch
     {
         FilterNode.Constant c => c.Value,
-        FilterNode.Not n => Eval(n.Operand, column) is bool b ? !b : null,
-        FilterNode.And a => a.Operands.Select(o => Eval(o, column)).Aggregate((bool?)true, (x, y) => x == false || y == false ? false : x == true && y == true ? true : null),
-        FilterNode.Or o => o.Operands.Select(x => Eval(x, column)).Aggregate((bool?)false, (x, y) => x == true || y == true ? true : x == false && y == false ? false : null),
-        FilterNode.Coalesce c => c.Operands.Select(o => Eval(o, column)).FirstOrDefault(v => v is not null),
+        FilterNode.Not n => Eval(n.Operand, column, types) is bool b ? !b : null,
+        FilterNode.And a => a.Operands.Select(o => Eval(o, column, types)).Aggregate((bool?)true, (x, y) => x == false || y == false ? false : x == true && y == true ? true : null),
+        FilterNode.Or o => o.Operands.Select(x => Eval(x, column, types)).Aggregate((bool?)false, (x, y) => x == true || y == true ? true : x == false && y == false ? false : null),
+        FilterNode.Coalesce c => c.Operands.Select(o => Eval(o, column, types)).FirstOrDefault(v => v is not null),
+        FilterNode.CompareValues c => CompareValues(c, column, types),
+        FilterNode.ValueInList v => ValueOf(v.Value, column, types) is { } x ? v.Values.Any(m => Compare(x, Model(m)) == 0) : null,
+        FilterNode.ValueIsNull n => ValueOf(n.Value, column, types) is null,
         FilterNode.IsNull n => column(n.Column) is null,
         FilterNode.IsNan n => column(n.Column) is double d ? double.IsNaN(d) : null,
         FilterNode.BooleanColumn b => column(b.Column) is Int128 v ? v == 1 : null,
@@ -30,10 +34,62 @@ public class FilterProgramTests
         _ => throw new ArgumentException($"{node}"),
     };
 
-    private static object Model(FilterScalar s) => s.Kind switch
+    private static object? ValueOf(ValueNode value, Func<int, object?> column, IReadOnlyList<IArrowType> types) =>
+        ValueModel.Value(value, column, types, ValueCompiler.TypeOf(value, types)!);
+
+    private static bool? CompareValues(FilterNode.CompareValues c, Func<int, object?> column, IReadOnlyList<IArrowType> types)
     {
-        FilterScalarKind.Integer => s.IntegerValue,
-        FilterScalarKind.Float => s.FloatValue,
+        IArrowType type = ValueCompiler.TypeOf(c.Left, types) ?? ValueCompiler.TypeOf(c.Right, types)!;
+        object? l = ValueModel.Value(c.Left, column, types, ValueCompiler.TypeOf(c.Left, types) ?? type);
+        object? r = ValueModel.Value(c.Right, column, types, ValueCompiler.TypeOf(c.Right, types) ?? type);
+        if (l is null || r is null) return c.NullsEqual ? l is null && r is null : null;
+        return Holds(c.Op, Compare(l, r));
+    }
+
+    /// <summary>A random predicate over computed values: an expression of arithmetic kinds, columns of other kinds with each other.</summary>
+    private static FilterNode RandomValueNode(Random random, ColumnKind[] kinds)
+    {
+        IArrowType[] types = [.. kinds.Select(k => k.Type)];
+        int c = random.Next(kinds.Length);
+        CompareOp op = (CompareOp)random.Next(6);
+        bool nullsEqual = op == CompareOp.Eq && random.Next(3) == 0;
+        if (!ValueModel.IsArithmetic(kinds[c].Type))
+        {
+            // A column with another of its type (bytes of any layout), or with itself.
+            int[] partners = [.. Enumerable.Range(0, kinds.Length).Where(i => kinds[i].Type.TypeId == kinds[c].Type.TypeId
+                && (kinds[c].Type is not (FixedSizeBinaryType or Decimal128Type or TimestampType) || kinds[i] == kinds[c])
+                || kinds[c].IsBytes && kinds[i].IsBytes && kinds[i].Type is not FixedSizeBinaryType && kinds[c].Type is not FixedSizeBinaryType)];
+            return new FilterNode.CompareValues(new ValueNode.Column(c), op, new ValueNode.Column(partners[random.Next(partners.Length)]), nullsEqual);
+        }
+        ValueNode left = ValueModel.RandomExpression(random, types, c, out IArrowType type);
+        switch (random.Next(5))
+        {
+            case 0:
+                return new FilterNode.ValueIsNull(left);
+            case 1:
+                return new FilterNode.ValueInList(left, [.. Enumerable.Range(0, random.Next(0, 12)).Select(_ => ValueModel.Scalar(random, type))]);
+            case 2:
+            {
+                // Against an expression of another column of the type, if any.
+                int[] same = [.. Enumerable.Range(0, kinds.Length).Where(i => kinds[i].Type.TypeId == type.TypeId)];
+                if (same.Length == 0) goto default;
+                ValueNode right = ValueModel.RandomExpression(random, types, same[random.Next(same.Length)], out IArrowType rightType);
+                if (rightType.TypeId != type.TypeId) right = new ValueNode.Cast(right, type);
+                if (ValueModel.IsArithmetic(rightType) && rightType is FloatType or DoubleType && type is not (FloatType or DoubleType)) goto default; // no floating to integer
+                return new FilterNode.CompareValues(left, op, right, nullsEqual);
+            }
+            default:
+            {
+                ValueNode scalar = new ValueNode.Scalar(ValueModel.Scalar(random, type));
+                return random.Next(3) == 0 ? new FilterNode.CompareValues(scalar, op, left, nullsEqual) : new FilterNode.CompareValues(left, op, scalar, nullsEqual);
+            }
+        }
+    }
+
+    private static object Model(StoredScalar s) => s.Kind switch
+    {
+        StoredScalarKind.Integer => s.IntegerValue,
+        StoredScalarKind.Float => s.FloatValue,
         _ => s.BytesValue!,
     };
 
@@ -65,7 +121,7 @@ public class FilterProgramTests
             };
         }
         if (pick == 5) return new FilterNode.Constant(random.Next(3) switch { 0 => true, 1 => false, _ => null });
-        return RandomLeaf(random, kinds);
+        return random.Next(3) == 0 ? RandomValueNode(random, kinds) : RandomLeaf(random, kinds);
     }
 
     private static FilterNode RandomLeaf(Random random, ColumnKind[] kinds)
@@ -134,7 +190,7 @@ public class FilterProgramTests
         int expected = 0;
         for (int i = 0; i < length; i++)
         {
-            bool want = Eval(root, c => models[c][i]) == true;
+            bool want = Eval(root, c => models[c][i], [.. columns.Select(x => x.Type)]) == true;
             bool got = (selected[i >> 6] >> (i & 63) & 1) != 0;
             if (want) expected++;
             Assert.True(want == got, $"{where}: row {i} of {length}: expected {want}, got {got}\n{root}\ncolumns: {string.Join(", ", columns.Select(c => c.Type.Name))}\nvalues: {string.Join(", ", models.Select(m => Render(m[i])))}");
@@ -174,7 +230,7 @@ public class FilterProgramTests
     {
         ColumnKind kind = Kind(name);
         object?[] values = [double.NaN, -0.0, 0.0, 1.0, double.PositiveInfinity, null];
-        FilterNode Cmp(CompareOp op, double v) => new FilterNode.Compare(0, op, FilterScalar.Float(v));
+        FilterNode Cmp(CompareOp op, double v) => new FilterNode.Compare(0, op, StoredScalar.Float(v));
         Assert.Equal([0], Selected(Cmp(CompareOp.Gt, double.PositiveInfinity), kind, values));
         Assert.Equal([0, 4], Selected(Cmp(CompareOp.GtEq, double.PositiveInfinity), kind, values));
         Assert.Equal([1, 2, 3, 4], Selected(Cmp(CompareOp.Lt, double.NaN), kind, values));
@@ -189,6 +245,33 @@ public class FilterProgramTests
         Assert.Equal([5], Selected(new FilterNode.IsNull(0), kind, values));
     }
 
+    /// <summary>Two floating columns in the total order (NaN on either side, signed zeros), in vector words and in the tail.</summary>
+    [Theory]
+    [InlineData("f64")]
+    [InlineData("f32")]
+    [InlineData("f16")]
+    public void FloatingColumns_CompareInTheTotalOrder(string name)
+    {
+        ColumnKind kind = Kind(name);
+        double[] pool = [double.NaN, double.NegativeInfinity, -1.0, -0.0, 0.0, 2.5, double.PositiveInfinity];
+        var random = new Random(name.Length);
+        foreach (int length in (int[])[5, 64, 130])
+        {
+            object?[] a = [.. Enumerable.Range(0, length).Select(_ => random.Next(8) == 0 ? null : (object)pool[random.Next(pool.Length)])];
+            object?[] b = [.. Enumerable.Range(0, length).Select(_ => random.Next(8) == 0 ? null : (object)pool[random.Next(pool.Length)])];
+            IArrowArray left = Build(random, kind, a), right = Build(random, kind, b);
+            FilterColumn[] columns = [new(["a"], kind.Type), new(["b"], kind.Type)];
+            foreach (CompareOp op in Enum.GetValues<CompareOp>())
+            {
+                foreach (bool nullsEqual in op == CompareOp.Eq ? (bool[])[false, true] : [false])
+                {
+                    AssertMatches(columns, new FilterNode.CompareValues(new ValueNode.Column(0), op, new ValueNode.Column(1), nullsEqual), [left, right], [a, b], length,
+                        $"{name} {op} {nullsEqual} ({length} rows)");
+                }
+            }
+        }
+    }
+
     [Theory]
     [InlineData("view")]
     [InlineData("utf8")]
@@ -197,7 +280,7 @@ public class FilterProgramTests
         ColumnKind kind = Kind(name);
         // Long values sharing the first four bytes, inline ones of every length, code points above ASCII.
         object?[] values = ["Banana"u8.ToArray(), "apple"u8.ToArray(), "äpfel"u8.ToArray(), "abcdXXXXXXXXXXXX1"u8.ToArray(), "abcdXXXXXXXXXXXX2"u8.ToArray(), "abcd"u8.ToArray(), "abc"u8.ToArray(), ""u8.ToArray(), null];
-        FilterNode Cmp(CompareOp op, ReadOnlySpan<byte> v) => new FilterNode.Compare(0, op, FilterScalar.Bytes(v.ToArray()));
+        FilterNode Cmp(CompareOp op, ReadOnlySpan<byte> v) => new FilterNode.Compare(0, op, StoredScalar.Bytes(v.ToArray()));
         Assert.Equal([0, 1, 3, 4, 5, 6, 7], Selected(Cmp(CompareOp.Lt, "b"u8), kind, values));
         Assert.Equal([2], Selected(Cmp(CompareOp.Gt, "apple"u8), kind, values));
         Assert.Equal([1, 2, 4], Selected(Cmp(CompareOp.Gt, "abcdXXXXXXXXXXXX1"u8), kind, values));
@@ -206,7 +289,7 @@ public class FilterProgramTests
         Assert.Equal([3, 4, 5], Selected(new FilterNode.StartsWith(0, "abcd"u8.ToArray()), kind, values));
         Assert.Equal([3, 4], Selected(new FilterNode.StartsWith(0, "abcdXXXXX"u8.ToArray()), kind, values));
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], Selected(new FilterNode.StartsWith(0, []), kind, values));
-        Assert.Equal([5, 7], Selected(new FilterNode.InList(0, [FilterScalar.Bytes("abcd"u8.ToArray()), FilterScalar.Bytes(""u8.ToArray()), FilterScalar.Bytes("zz"u8.ToArray())]), kind, values));
+        Assert.Equal([5, 7], Selected(new FilterNode.InList(0, [StoredScalar.Bytes("abcd"u8.ToArray()), StoredScalar.Bytes(""u8.ToArray()), StoredScalar.Bytes("zz"u8.ToArray())]), kind, values));
     }
 
     [Fact]
@@ -233,10 +316,10 @@ public class FilterProgramTests
             program.Evaluate([array], 3, mask);
             return [.. Enumerable.Range(0, 3).Where(i => (mask[0] >> i & 1) != 0)];
         }
-        Assert.Equal([0], Run(new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Bytes(twelve))));
-        Assert.Equal([], Run(new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Bytes("abcdXXXXXXXXXXXXXXXX"u8.ToArray()))));
-        Assert.Equal([], Run(new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Bytes("zzzzXXXXXXXXXXXXXXXXXXXXX"u8.ToArray()))));
-        Assert.Equal([0], Run(new FilterNode.Compare(0, CompareOp.Lt, FilterScalar.Bytes("b"u8.ToArray()))));
+        Assert.Equal([0], Run(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Bytes(twelve))));
+        Assert.Equal([], Run(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Bytes("abcdXXXXXXXXXXXXXXXX"u8.ToArray()))));
+        Assert.Equal([], Run(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Bytes("zzzzXXXXXXXXXXXXXXXXXXXXX"u8.ToArray()))));
+        Assert.Equal([0], Run(new FilterNode.Compare(0, CompareOp.Lt, StoredScalar.Bytes("b"u8.ToArray()))));
         Assert.Equal([0], Run(new FilterNode.StartsWith(0, "abc"u8.ToArray())));
     }
 
@@ -269,8 +352,8 @@ public class FilterProgramTests
         }
         Assert.Equal([1, 3], Run(new FilterNode.IsNull(0)));
         Assert.Equal([0, 2], Run(new FilterNode.Not(new FilterNode.IsNull(0))));
-        Assert.Equal([2], Run(new FilterNode.Not(new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Bytes("a"u8.ToArray())))));
-        Assert.Equal([1, 2, 3], Run(new FilterNode.Coalesce([new FilterNode.Compare(0, CompareOp.Gt, FilterScalar.Bytes("a"u8.ToArray())), new FilterNode.Constant(true)])));
+        Assert.Equal([2], Run(new FilterNode.Not(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Bytes("a"u8.ToArray())))));
+        Assert.Equal([1, 2, 3], Run(new FilterNode.Coalesce([new FilterNode.Compare(0, CompareOp.Gt, StoredScalar.Bytes("a"u8.ToArray())), new FilterNode.Constant(true)])));
 
         // An index past the entries is an error, not a read past them.
         indices[3] = 3;
@@ -295,7 +378,7 @@ public class FilterProgramTests
         Assert.Empty(Run(new FilterNode.Not(new FilterNode.IsNull(0))));
         Assert.Equal(70, Run(new FilterNode.Or([new FilterNode.IsNull(0), new FilterNode.Constant(false)])).Length);
         Assert.Empty(Run(new FilterNode.Coalesce([new FilterNode.Not(new FilterNode.IsNull(0)), new FilterNode.Constant(true)]))); // NOT IS NULL is false, not null
-        Assert.Throws<ArgumentException>(() => FilterProgram.Create(columns, new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Integer(1))));
+        Assert.Throws<ArgumentException>(() => FilterProgram.Create(columns, new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Integer(1))));
     }
 
     [Fact]
@@ -303,13 +386,13 @@ public class FilterProgramTests
     {
         ColumnKind kind = Kind("bool");
         object?[] values = [(Int128)0, (Int128)1, null, (Int128)1];
-        FilterNode Cmp(CompareOp op, int v) => new FilterNode.Compare(0, op, FilterScalar.Integer(v));
+        FilterNode Cmp(CompareOp op, int v) => new FilterNode.Compare(0, op, StoredScalar.Integer(v));
         Assert.Equal([1, 3], Selected(new FilterNode.BooleanColumn(0), kind, values));
         Assert.Equal([0], Selected(new FilterNode.Not(new FilterNode.BooleanColumn(0)), kind, values));
         Assert.Equal([0], Selected(Cmp(CompareOp.Lt, 1), kind, values));
         Assert.Equal([0, 1, 3], Selected(Cmp(CompareOp.GtEq, 0), kind, values));
         Assert.Equal([], Selected(Cmp(CompareOp.Gt, 1), kind, values));
-        Assert.Equal([0, 1, 3], Selected(new FilterNode.InList(0, [FilterScalar.Integer(1), FilterScalar.Integer(0)]), kind, values));
+        Assert.Equal([0, 1, 3], Selected(new FilterNode.InList(0, [StoredScalar.Integer(1), StoredScalar.Integer(0)]), kind, values));
     }
 
     [Fact]
@@ -319,8 +402,8 @@ public class FilterProgramTests
         ColumnKind kind = Kind("i64");
         object?[] values = [.. Enumerable.Range(0, 130).Select(i => (object)(Int128)i)];
         FilterNode node = new FilterNode.And([
-            new FilterNode.Compare(0, CompareOp.GtEq, FilterScalar.Integer(129)),
-            new FilterNode.Compare(0, CompareOp.Lt, FilterScalar.Integer(200))]);
+            new FilterNode.Compare(0, CompareOp.GtEq, StoredScalar.Integer(129)),
+            new FilterNode.Compare(0, CompareOp.Lt, StoredScalar.Integer(200))]);
         Assert.Equal([129], Selected(node, kind, values));
         FilterNode none = new FilterNode.And([new FilterNode.Constant(false), new FilterNode.IsNull(0)]);
         Assert.Equal([], Selected(none, kind, values));
@@ -337,21 +420,21 @@ public class FilterProgramTests
             new(["list"], new ListType(Int32Type.Default)),
         ];
         void Refused(FilterNode node) => Assert.Throws<ArgumentException>(() => FilterProgram.Create(columns, node));
-        Refused(new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Integer(128)));          // outside Int8
-        Refused(new FilterNode.Compare(0, CompareOp.Eq, FilterScalar.Float(1)));              // a float for an integer
-        Refused(new FilterNode.Compare(1, CompareOp.Eq, FilterScalar.Float(0.1)));            // not a float exactly
-        Refused(new FilterNode.Compare(1, CompareOp.Eq, FilterScalar.Integer(1)));
-        Refused(new FilterNode.Compare(2, CompareOp.Eq, FilterScalar.Integer(1)));
-        Refused(new FilterNode.Compare(3, CompareOp.Eq, FilterScalar.Integer(2)));
+        Refused(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Integer(128)));          // outside Int8
+        Refused(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Float(1)));              // a float for an integer
+        Refused(new FilterNode.Compare(1, CompareOp.Eq, StoredScalar.Float(0.1)));            // not a float exactly
+        Refused(new FilterNode.Compare(1, CompareOp.Eq, StoredScalar.Integer(1)));
+        Refused(new FilterNode.Compare(2, CompareOp.Eq, StoredScalar.Integer(1)));
+        Refused(new FilterNode.Compare(3, CompareOp.Eq, StoredScalar.Integer(2)));
         Refused(new FilterNode.IsNan(0));
         Refused(new FilterNode.StartsWith(0, [1]));
         Refused(new FilterNode.BooleanColumn(0));
         Refused(new FilterNode.IsNull(5));
         Refused(new FilterNode.IsNull(-1));
-        Refused(new FilterNode.Compare(4, CompareOp.Eq, FilterScalar.Integer(1)));
+        Refused(new FilterNode.Compare(4, CompareOp.Eq, StoredScalar.Integer(1)));
         Refused(new FilterNode.And([]));
-        Refused(new FilterNode.InList(1, [FilterScalar.Float(0.1)]));
-        FilterProgram.Create(columns, new FilterNode.Compare(1, CompareOp.Eq, FilterScalar.Float(0.5))); // exact
+        Refused(new FilterNode.InList(1, [StoredScalar.Float(0.1)]));
+        FilterProgram.Create(columns, new FilterNode.Compare(1, CompareOp.Eq, StoredScalar.Float(0.5))); // exact
         FilterProgram.Create(columns, new FilterNode.IsNull(4)); // a null test fits any column
     }
 
@@ -359,7 +442,7 @@ public class FilterProgramTests
     public void Evaluate_RefusesArraysThatDoNotMatch()
     {
         FilterProgram program = FilterProgram.Create([new FilterColumn(["x"], new TimestampType(TimeUnit.Microsecond, (string?)null))],
-            new FilterNode.Compare(0, CompareOp.Gt, FilterScalar.Integer(0)));
+            new FilterNode.Compare(0, CompareOp.Gt, StoredScalar.Integer(0)));
         IArrowArray nanos = ArrowArrayFactory.BuildArray(new ArrayData(new TimestampType(TimeUnit.Nanosecond, (string?)null), 1, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(new byte[8])]));
         Assert.Throws<ArgumentException>(() => program.Evaluate([nanos], 1, new ulong[1]));
         IArrowArray utc = ArrowArrayFactory.BuildArray(new ArrayData(new TimestampType(TimeUnit.Microsecond, "UTC"), 1, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(new byte[8])]));

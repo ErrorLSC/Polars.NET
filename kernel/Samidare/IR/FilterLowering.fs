@@ -3,6 +3,7 @@ namespace Kaminari.Samidare.IR
 open System
 open Apache.Arrow
 open Apache.Arrow.Types
+open Kaminari.Sazanami.Expressions
 open Kaminari.Sazanami.Filters
 
 /// A row filter lowered for a reader: the program to evaluate on its columns, and whether it is the whole filter.
@@ -18,7 +19,9 @@ type internal LoweredFilter =
 /// schema, for readers that filter rows themselves (late materialization). Each top-level conjunct is lowered whole or
 /// dropped (the rows then a superset: LoweredFilter.Exact is false); inside a conjunct nothing is approximated.
 /// Literals are mapped onto the columns' stored values by LiteralConversion; where a literal falls between stored
-/// values or outside a column's range, the comparison is rewritten to the same outcome on every row.
+/// values or outside a column's range, the comparison is rewritten to the same outcome on every row. Comparisons of
+/// computed values (arithmetic, casts, a column with another) lower onto the expression kernel (ValueNode): arithmetic
+/// only between operands of one type (the frontend casts; SEMANTICS.md, Arithmetic), a literal operand of that type.
 [<RequireQualifiedAccess>]
 module internal FilterLowering =
 
@@ -82,8 +85,8 @@ module internal FilterLowering =
         | _ -> direct expr
 
     // Nodes as FilterNode (F# does not upcast the nested record types by itself).
-    let private compareNode (column: int, op: CompareOp, value: FilterScalar) = FilterNode.Compare(column, op, value) :> FilterNode
-    let private inListNode (column: int, values: FilterScalar[]) = FilterNode.InList(column, values) :> FilterNode
+    let private compareNode (column: int, op: CompareOp, value: StoredScalar) = FilterNode.Compare(column, op, value) :> FilterNode
+    let private inListNode (column: int, values: StoredScalar[]) = FilterNode.InList(column, values) :> FilterNode
     let private startsWithNode (column: int, prefix: byte[]) = FilterNode.StartsWith(column, prefix) :> FilterNode
     let private isNullNode (column: int) = FilterNode.IsNull column :> FilterNode
     let private isNanNode (column: int) = FilterNode.IsNan column :> FilterNode
@@ -128,7 +131,7 @@ module internal FilterLowering =
         | _ -> None
 
     /// `column op value` where the value lies strictly between two stored values `below` and `above`.
-    let private between (column: int) (op: CompareOp) (below: FilterScalar) (above: FilterScalar) : FilterNode =
+    let private between (column: int) (op: CompareOp) (below: StoredScalar) (above: StoredScalar) : FilterNode =
         match op with
         | CompareOp.Eq -> never column
         | CompareOp.NotEq -> always column
@@ -151,13 +154,13 @@ module internal FilterLowering =
             | CompareOp.GtEq -> never column
             | _ -> always column
         else
-            compareNode(column, op, FilterScalar.Integer value)
+            compareNode(column, op, StoredScalar.Integer value)
 
     /// `column op value` for a floating value: as it is where the column's width holds it, else between its neighbours.
     let private compareFloat (column: int) (values: IArrowType) (op: CompareOp) (value: float) : FilterNode option =
-        let inline exact () = Some(compareNode(column, op, FilterScalar.Float value))
+        let inline exact () = Some(compareNode(column, op, StoredScalar.Float value))
         let inline neighbours (below: float) (above: float) =
-            Some(between column op (FilterScalar.Float below) (FilterScalar.Float above))
+            Some(between column op (StoredScalar.Float below) (StoredScalar.Float above))
         match values with
         | :? DoubleType -> exact ()
         | :? FloatType ->
@@ -179,7 +182,7 @@ module internal FilterLowering =
         | Some domain ->
             match LiteralConversion.tryConvert domain literal with
             | None -> None
-            | Some(StoredLiteral.Bytes bytes) -> Some(compareNode(columns.Index leaf, op, FilterScalar.Bytes bytes))
+            | Some(StoredLiteral.Bytes bytes) -> Some(compareNode(columns.Index leaf, op, StoredScalar.Bytes bytes))
             | Some(StoredLiteral.Floating value) -> compareFloat (columns.Index leaf) leaf.Values op value
             | Some(StoredLiteral.Integer(value, half)) ->
                 match integerRange leaf.Values with
@@ -198,12 +201,12 @@ module internal FilterLowering =
                         | _ -> Some(compareInteger column range CompareOp.GtEq (value + Int128.One))
 
     /// A list member as the column stores it, or ValueNone when no stored value equals it (it then matches nothing).
-    let private member' (leaf: Leaf) (stored: StoredLiteral) : FilterScalar voption =
+    let private member' (leaf: Leaf) (stored: StoredLiteral) : StoredScalar voption =
         match stored with
-        | StoredLiteral.Bytes bytes -> ValueSome(FilterScalar.Bytes bytes)
+        | StoredLiteral.Bytes bytes -> ValueSome(StoredScalar.Bytes bytes)
         | StoredLiteral.Integer(value, false) ->
             match integerRange leaf.Values with
-            | Some(lo, hi) when value >= lo && value <= hi -> ValueSome(FilterScalar.Integer value)
+            | Some(lo, hi) when value >= lo && value <= hi -> ValueSome(StoredScalar.Integer value)
             | _ -> ValueNone
         | StoredLiteral.Integer(_, true) -> ValueNone
         | StoredLiteral.Floating value ->
@@ -214,7 +217,7 @@ module internal FilterLowering =
                    | :? FloatType -> float (float32 value) = value
                    | :? HalfFloatType -> float (Half.op_Explicit value: Half) = value
                    | _ -> false
-            if fits then ValueSome(FilterScalar.Float value) else ValueNone
+            if fits then ValueSome(StoredScalar.Float value) else ValueNone
 
     let private compareOp (op: BinaryOp) : CompareOp voption =
         match op with
@@ -234,6 +237,171 @@ module internal FilterLowering =
         | CompareOp.GtEq -> CompareOp.LtEq
         | op -> op
 
+    /// The type a value expression is computed in: a column's value type, arithmetic's operands' (one type, or a
+    /// literal beside a typed operand), a cast's target; Untyped for a literal (it takes the type it meets); No where
+    /// the expression does not lower.
+    [<RequireQualifiedAccess>]
+    type private Typing =
+        | Of of IArrowType
+        | Untyped
+        | No
+
+    let private arithmeticOp (op: BinaryOp) : ArithmeticOp voption =
+        match op with
+        | BinaryOp.Add -> ValueSome ArithmeticOp.Add
+        | BinaryOp.Subtract -> ValueSome ArithmeticOp.Subtract
+        | BinaryOp.Multiply -> ValueSome ArithmeticOp.Multiply
+        | BinaryOp.Modulo -> ValueSome ArithmeticOp.Remainder
+        // .NET integer division (truncated) and floating division; the engine's integer Divide is not lowered.
+        | BinaryOp.TruncatedDivide
+        | BinaryOp.Divide -> ValueSome ArithmeticOp.Divide
+        | _ -> ValueNone
+
+    /// Whether a cast from `source` to `target` lowers: one type to itself, integers and Float32 / Float64 among
+    /// themselves but floating to integer (a non-strict cast wraps or rounds as .NET's unchecked conversion; a strict
+    /// one only where it keeps every value, or an integer to a floating type, which never fails).
+    let private castLowers (source: IArrowType) (target: IArrowType) (strict: bool) : bool =
+        ValueTypes.Same(source, target)
+        || ValueTypes.IsArithmetic source
+           && ValueTypes.IsArithmetic target
+           && not (ValueTypes.IsFloating source && not (ValueTypes.IsFloating target))
+           && (not strict || FilterShapes.castKeepsValues source target || not (ValueTypes.IsFloating source) && ValueTypes.IsFloating target)
+
+    let rec private typing (schema: Schema) (expr: ScalarExpr) : Typing =
+        match expr with
+        | ScalarExpr.Alias(inner, _) -> typing schema inner
+        | ScalarExpr.Literal(LiteralValue.Null _) -> Typing.No
+        | ScalarExpr.Literal _ -> Typing.Untyped
+        | ScalarExpr.Column _
+        | ScalarExpr.Function(ScalarFunction.StructFieldByName, _, _) ->
+            match field schema expr with
+            | Some(_, t) when not (valueType t :? NestedType) -> Typing.Of(valueType t)
+            | _ -> Typing.No
+        | ScalarExpr.Binary(op, left, right) when (arithmeticOp op).IsSome ->
+            match typing schema left, typing schema right with
+            | Typing.Of a, Typing.Of b when ValueTypes.Same(a, b) && ValueTypes.IsArithmetic a -> Typing.Of a
+            | Typing.Of a, Typing.Untyped
+            | Typing.Untyped, Typing.Of a when ValueTypes.IsArithmetic a -> Typing.Of a
+            | _ -> Typing.No
+        | ScalarExpr.Unary(UnaryOp.Negate, operand) ->
+            match typing schema operand with
+            | Typing.Of t when ValueTypes.IsSigned t -> Typing.Of t
+            | _ -> Typing.No
+        | ScalarExpr.Cast(operand, LogicalType.Arrow target, strict) ->
+            match typing schema operand with
+            | Typing.Of source when castLowers source target strict -> Typing.Of(valueType target)
+            | _ -> Typing.No
+        | _ -> Typing.No
+
+    /// A literal as a value of `t` exactly (the integer in range, the floating value held by the width), or None.
+    let private exactScalar (t: IArrowType) (literal: LiteralValue) : StoredScalar option =
+        match LiteralConversion.ofArrowType t with
+        | None -> None
+        | Some domain ->
+            match LiteralConversion.tryConvert domain literal with
+            | Some(StoredLiteral.Integer(value, false)) ->
+                match integerRange t with
+                | Some(lo, hi) when value >= lo && value <= hi -> Some(StoredScalar.Integer value)
+                | _ -> None
+            | Some(StoredLiteral.Floating value) ->
+                let fits =
+                    Double.IsNaN value
+                    || match t with
+                       | :? DoubleType -> true
+                       | :? FloatType -> float (float32 value) = value
+                       | _ -> false
+                if fits then Some(StoredScalar.Float value) else None
+            | _ -> None
+
+    /// A value expression computed in type `t` (its typing): columns, literals of `t` (beside an operand of `t`),
+    /// arithmetic, negation and casts.
+    let rec private lowerValue (columns: Columns) (schema: Schema) (t: IArrowType) (expr: ScalarExpr) : ValueNode option =
+        match expr with
+        | ScalarExpr.Alias(inner, _) -> lowerValue columns schema t inner
+        | ScalarExpr.Literal literal ->
+            // An operand of arithmetic is of the arithmetic's type (no promotion: the frontend casts).
+            if literal.DataType = LogicalType.Arrow t then exactScalar t literal |> Option.map (fun s -> ValueNode.Scalar s :> ValueNode) else None
+        | ScalarExpr.Column _
+        | ScalarExpr.Function(ScalarFunction.StructFieldByName, _, _) ->
+            match field schema expr with
+            | Some(path, ft) when ValueTypes.Same(ft, t) ->
+                Some(ValueNode.Column(columns.Index { Path = path; Type = ft; Values = valueType ft }) :> ValueNode)
+            | _ -> None
+        | ScalarExpr.Binary(op, left, right) ->
+            match arithmeticOp op with
+            | ValueNone -> None
+            | ValueSome arithmetic ->
+                let fits =
+                    match op with
+                    | BinaryOp.TruncatedDivide -> not (ValueTypes.IsFloating t)
+                    | BinaryOp.Divide -> ValueTypes.IsFloating t
+                    | _ -> true
+                match fits, lowerValue columns schema t left, lowerValue columns schema t right with
+                | true, Some l, Some r -> Some(ValueNode.Arithmetic(arithmetic, l, r) :> ValueNode)
+                | _ -> None
+        | ScalarExpr.Unary(UnaryOp.Negate, operand) when ValueTypes.IsSigned t ->
+            lowerValue columns schema t operand |> Option.map (fun v -> ValueNode.Negate v :> ValueNode)
+        | ScalarExpr.Cast(operand, LogicalType.Arrow target, strict) when ValueTypes.Same(target, t) ->
+            match typing schema operand with
+            | Typing.Of source when castLowers source target strict ->
+                lowerValue columns schema source operand
+                |> Option.map (fun v -> if ValueTypes.Same(source, target) then v else ValueNode.Cast(v, valueType target) :> ValueNode)
+            | _ -> None
+        | _ -> None
+
+    /// The type two typed values of different types are compared in, holding every value of both: the narrowest
+    /// integer type holding both integer types (none for Int64 against UInt64), Float64 for Float32 against Float64.
+    let private commonType (a: IArrowType) (b: IArrowType) : IArrowType option =
+        if ValueTypes.Same(a, b) then
+            Some a
+        else
+            [ Int8Type.Default :> IArrowType; UInt8Type.Default; Int16Type.Default; UInt16Type.Default; Int32Type.Default; UInt32Type.Default
+              Int64Type.Default; UInt64Type.Default; FloatType.Default; DoubleType.Default ]
+            |> List.tryFind (fun c -> FilterShapes.castKeepsValues a c && FilterShapes.castKeepsValues b c)
+
+    /// Whether two byte types compare by their bytes: strings with strings, binaries with binaries (any layout).
+    let private bytesAlike (a: IArrowType) (b: IArrowType) : bool =
+        let stringy (t: IArrowType) = t :? StringType || t :? StringViewType
+        let binary (t: IArrowType) = t :? BinaryType || t :? BinaryViewType || (t :? FixedSizeBinaryType && ValueTypes.IsBytes t)
+        stringy a && stringy b || binary a && binary b
+
+    /// `left op right` over computed values (CompareOp; `nullsEqual` with Eq), or None.
+    let private compareValues (columns: Columns) (schema: Schema) (c: CompareOp) (nullsEqual: bool) (left: ScalarExpr) (right: ScalarExpr) : FilterNode option =
+        let node (l: ValueNode) (r: ValueNode) = FilterNode.CompareValues(l, c, r, nullsEqual) :> FilterNode
+        match typing schema left, typing schema right with
+        | Typing.Of a, Typing.Of b when (a :? BooleanType && b :? BooleanType) || ValueTypes.IsBytes a && ValueTypes.IsBytes b ->
+            // Booleans and bytes: column with column.
+            if (a :? BooleanType) || bytesAlike a b then
+                match lowerValue columns schema a left, lowerValue columns schema b right with
+                | Some(:? ValueNode.Column as l), Some(:? ValueNode.Column as r) -> Some(node l r)
+                | _ -> None
+            else None
+        | Typing.Of a, Typing.Of b when ValueTypes.IsNumeric a && ValueTypes.IsNumeric b ->
+            match commonType a b with
+            | None -> None
+            | Some t ->
+                let side (own: IArrowType) (e: ScalarExpr) =
+                    lowerValue columns schema own e
+                    |> Option.map (fun v -> if ValueTypes.Same(own, t) then v else ValueNode.Cast(v, t) :> ValueNode)
+                match side a left, side b right with
+                | Some l, Some r -> Some(node l r)
+                | _ -> None
+        | Typing.Of t, Typing.Untyped when ValueTypes.IsNumeric t ->
+            match right with
+            | ScalarExpr.Literal literal ->
+                match lowerValue columns schema t left, exactScalar t literal with
+                | Some l, Some s -> Some(node l (ValueNode.Scalar s))
+                | _ -> None
+            | _ -> None
+        | Typing.Untyped, Typing.Of t when ValueTypes.IsNumeric t ->
+            match left with
+            | ScalarExpr.Literal literal ->
+                match exactScalar t literal, lowerValue columns schema t right with
+                | Some s, Some r -> Some(node (ValueNode.Scalar s) r)
+                | _ -> None
+            | _ -> None
+        | _ -> None
+
     let rec private lowerNode (columns: Columns) (schema: Schema) (expr: ScalarExpr) : FilterNode option =
         let all (exprs: ScalarExpr list) =
             let nodes = exprs |> List.map (lowerNode columns schema)
@@ -246,14 +414,28 @@ module internal FilterLowering =
         | ScalarExpr.Binary(BinaryOp.Or, _, _) -> all (FilterShapes.disjuncts expr) |> Option.map orNode
         | ScalarExpr.Coalesce exprs when not exprs.IsEmpty -> all exprs |> Option.map coalesceNode
         | ScalarExpr.Unary(UnaryOp.Not, inner) -> lowerNode columns schema inner |> Option.map notNode
-        | ScalarExpr.Unary(UnaryOp.IsNull, operand) ->
-            leaf schema operand |> Option.map (fun l -> isNullNode (columns.Index l))
-        | ScalarExpr.Unary(UnaryOp.IsNotNull, operand) ->
-            leaf schema operand |> Option.map (fun l -> notNode (isNullNode (columns.Index l)))
+        | ScalarExpr.Unary((UnaryOp.IsNull | UnaryOp.IsNotNull) as op, operand) ->
+            let test =
+                match leaf schema operand with
+                | Some l -> Some(isNullNode (columns.Index l))
+                | None ->
+                    // A computed number: null where an operand is, or an integer division by zero.
+                    match typing schema operand with
+                    | Typing.Of t when ValueTypes.IsNumeric t ->
+                        lowerValue columns schema t operand |> Option.map (fun v -> FilterNode.ValueIsNull v :> FilterNode)
+                    | _ -> None
+            if op = UnaryOp.IsNull then test else test |> Option.map notNode
         | ScalarExpr.Unary(UnaryOp.IsNan, operand) ->
             match leaf schema operand with
             | Some l when LiteralConversion.ofArrowType l.Values = Some ValueDomain.Floating -> Some(isNanNode(columns.Index l))
-            | _ -> None
+            | Some _ -> None
+            | None ->
+                // A computed floating value: NaN is the value equal to NaN in the IR's order (null stays null).
+                match typing schema operand with
+                | Typing.Of t when ValueTypes.IsFloating t ->
+                    lowerValue columns schema t operand
+                    |> Option.map (fun v -> FilterNode.CompareValues(v, CompareOp.Eq, ValueNode.Scalar(StoredScalar.Float nan), false) :> FilterNode)
+                | _ -> None
         | ScalarExpr.Column _
         | ScalarExpr.Function(ScalarFunction.StructFieldByName, _, _) ->
             match leaf schema expr with
@@ -278,7 +460,24 @@ module internal FilterLowering =
             | ScalarExpr.Literal literal, _ -> leaf schema right |> Option.map (fun l -> l, literal, true)
             | _ -> None
         match split with
-        | None -> None
+        | None ->
+            // Computed values: arithmetic, casts, a column with another.
+            let literalSide = (match left, right with ScalarExpr.Literal _, _ | _, ScalarExpr.Literal _ -> true | _ -> false)
+            match op with
+            | BinaryOp.EqMissing
+            | BinaryOp.NotEqMissing ->
+                // Two-valued; beside a (non-null) literal a null value is simply unequal.
+                let equal =
+                    if literalSide then
+                        compareValues columns schema CompareOp.Eq false left right
+                        |> Option.map (fun eq -> coalesceNode [| eq; constantNode (Nullable false) |])
+                    else
+                        compareValues columns schema CompareOp.Eq true left right
+                if op = BinaryOp.EqMissing then equal else equal |> Option.map notNode
+            | _ ->
+                match compareOp op with
+                | ValueSome c -> compareValues columns schema c false left right
+                | ValueNone -> None
         | Some(l, literal, flipped) ->
             match op with
             | BinaryOp.EqMissing
@@ -303,7 +502,23 @@ module internal FilterLowering =
     /// (.NET Contains) a null x is in a list holding null, and the outcome is never null.
     and private inList (columns: Columns) (schema: Schema) target (values: LiteralValue list) negated nullsEqual : FilterNode option =
         match leaf schema target with
-        | None -> None
+        | None ->
+            // A computed number: its members as values of its type (one that is none matches nothing).
+            let isNull v = match v with LiteralValue.Null _ -> true | _ -> false
+            let hasNull = values |> List.exists isNull
+            match typing schema target with
+            | Typing.Of t when ValueTypes.IsNumeric t && not (nullsEqual && hasNull) ->
+                lowerValue columns schema t target
+                |> Option.map (fun v ->
+                    let members = values |> List.filter (isNull >> not) |> List.choose (exactScalar t) |> Array.ofList
+                    let any = FilterNode.ValueInList(v, members) :> FilterNode
+                    let node =
+                        match nullsEqual, hasNull with
+                        | false, false -> any
+                        | false, true -> orNode [| any; nullConstant () |]
+                        | _ -> coalesceNode [| any; constantNode (Nullable false) |]
+                    if negated then notNode node else node)
+            | _ -> None
         | Some l ->
             match LiteralConversion.ofArrowType l.Values with
             | None -> None
@@ -331,7 +546,7 @@ module internal FilterLowering =
         let columns = Columns()
         let kept = ResizeArray<FilterNode>()
         let mutable exact = true
-        for conjunct in FilterShapes.conjuncts filter do
+        for conjunct in FilterShapes.conjuncts (FilterShapes.normalize filter) do
             let mark = columns.Count
             let lowered =
                 match lowerNode columns schema conjunct with

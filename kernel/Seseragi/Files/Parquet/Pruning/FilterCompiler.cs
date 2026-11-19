@@ -125,8 +125,8 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
             _ when op.IsEqMissing || op.IsNotEqMissing => LeafTest.EqMissing,
             _ => null,
         };
-        if (test is not LeafTest t || !TrySplit(left, right, out LeafDomain? domain, out LiteralValue? literal, out bool flipped))
-            return UnknownNode.Instance;
+        if (test is not LeafTest t) return UnknownNode.Instance;
+        if (!TrySplit(left, right, out LeafDomain? domain, out LiteralValue? literal, out bool flipped)) return ExpressionComparison(op, left, right, nonNaN);
         bool excludeNaN = nonNaN.Contains(domain!.Leaf);
 
         if (t == LeafTest.EqMissing)
@@ -152,6 +152,106 @@ internal sealed class FilterCompiler(ParquetSchemaTree tree, FileMetaData meta, 
         }
         if (t == LeafTest.Eq) _equalities.Add(domain.Leaf);
         return new LeafNode(domain, t, bound, excludeNaN);
+    }
+
+    /// <summary>
+    /// A comparison of computed values: integer arithmetic (interval arithmetic on the leaves' bounds, see
+    /// <see cref="IntegerRange"/>) with a literal or another such value, or two floating or string leaves.
+    /// </summary>
+    private PruneNode ExpressionComparison(BinaryOp op, ScalarExpr left, ScalarExpr right, HashSet<int> nonNaN)
+    {
+        (LeafTest test, bool nullsEqual, bool negated) = op switch
+        {
+            _ when op.IsEq => (LeafTest.Eq, false, false),
+            _ when op.IsNotEq => (LeafTest.NotEq, false, false),
+            _ when op.IsLt => (LeafTest.Lt, false, false),
+            _ when op.IsLtEq => (LeafTest.LtEq, false, false),
+            _ when op.IsGt => (LeafTest.Gt, false, false),
+            _ when op.IsGtEq => (LeafTest.GtEq, false, false),
+            _ when op.IsEqMissing => (LeafTest.Eq, true, false),
+            _ => (LeafTest.Eq, true, true), // NotEqMissing
+        };
+        PruneNode? node = null;
+        if (Leaf(left) is { Kind: DomainKind.Floating or DomainKind.Bytes } l && Leaf(right) is { } r && r.Kind == l.Kind)
+        {
+            node = new LeafPairNode(l, test, r, nullsEqual, nonNaN.Contains(l.Leaf) && nonNaN.Contains(r.Leaf));
+        }
+        else
+        {
+            IntegerRange? a = Range(left), b = Range(right);
+            if (a is null && left is ScalarExpr.Literal ll && b is { Key: "int" }) a = Compared(ll.value);
+            if (b is null && right is ScalarExpr.Literal rl && a is { Key: "int" }) b = Compared(rl.value);
+            if (a is not null && b is not null && a.Key == b.Key) node = new RangeCompareNode(a, test, b, nullsEqual);
+        }
+        return node is null ? UnknownNode.Instance : negated ? new NotNode(node) : node;
+
+        // A literal compared with an integer value, by its value.
+        static IntegerRange? Compared(LiteralValue literal) =>
+            LiteralConversion.tryConvert(ValueDomain.WideInteger, literal) is { Value: StoredLiteral.Integer { half: false } i } ? new ConstantRange(i.value, "int", null) : null;
+    }
+
+    /// <summary>The leaf an expression names directly (no cast).</summary>
+    private LeafDomain? Leaf(ScalarExpr expr) => expr is ScalarExpr.Alias a ? Leaf(a.expr) : Node(expr) is { IsLeaf: true } node ? Domain(node) : null;
+
+    /// <summary>
+    /// The range of an integer-valued expression (SEMANTICS.md, Arithmetic: operands of one type, a literal of that
+    /// type; the engine's integer Divide is not modelled), or null.
+    /// </summary>
+    private IntegerRange? Range(ScalarExpr expr)
+    {
+        switch (expr)
+        {
+            case ScalarExpr.Alias a:
+                return Range(a.expr);
+            case ScalarExpr.Literal:
+                return null;
+            case ScalarExpr.Cast c when c.targetType is Samidare.IR.LogicalType.Arrow target && IntegerRange.Limits(target.arrowType) is not null:
+                return Range(c.expr) is { Key: "int", Type: { } source } inner && (!c.isStrict || FilterShapes.castKeepsValues(source, target.arrowType))
+                    ? new CastRange(inner, target.arrowType)
+                    : null;
+            case ScalarExpr.Unary u when u.op.IsNegate:
+                return Range(u.expr) is { Key: "int", Type: Int8Type or Int16Type or Int32Type or Int64Type } negated ? new NegateRange(negated) : null;
+            case ScalarExpr.Binary b:
+            {
+                Kaminari.Sazanami.Expressions.ArithmeticOp? op = b.op switch
+                {
+                    _ when b.op.IsAdd => Kaminari.Sazanami.Expressions.ArithmeticOp.Add,
+                    _ when b.op.IsSubtract => Kaminari.Sazanami.Expressions.ArithmeticOp.Subtract,
+                    _ when b.op.IsMultiply => Kaminari.Sazanami.Expressions.ArithmeticOp.Multiply,
+                    _ when b.op.IsTruncatedDivide => Kaminari.Sazanami.Expressions.ArithmeticOp.Divide,
+                    _ when b.op.IsModulo => Kaminari.Sazanami.Expressions.ArithmeticOp.Remainder,
+                    _ => null,
+                };
+                if (op is not { } arithmetic) return null;
+                IntegerRange? l = Range(b.left), r = Range(b.right);
+                if (l is null && b.left is ScalarExpr.Literal ll && r is { Key: "int", Type: { } rt }) l = Operand(ll.value, rt);
+                if (r is null && b.right is ScalarExpr.Literal rl && l is { Key: "int", Type: { } lt }) r = Operand(rl.value, lt);
+                if (l is not { Key: "int", Type: { } type } || r is not { Key: "int", Type: { } other } || type.TypeId != other.TypeId) return null;
+                return new ArithmeticRange(arithmetic, l, r, type);
+            }
+            default:
+            {
+                if (Node(expr) is not { IsLeaf: true } node || Domain(node) is not { Kind: DomainKind.Integer } domain) return null;
+                return domain.Shape switch
+                {
+                    LiteralShape.Integer => new LeafRange(domain, "int", LeafTypeOf(node).ArrowType),
+                    LiteralShape.Boolean => new LeafRange(domain, "bool", null),
+                    LiteralShape.Date => new LeafRange(domain, "date", null),
+                    LiteralShape.Decimal => new LeafRange(domain, $"decimal:{domain.Scale}", null),
+                    LiteralShape.Time => new LeafRange(domain, $"time:{domain.Unit}", null),
+                    LiteralShape.Timestamp => new LeafRange(domain, $"timestamp:{domain.Unit}", null),
+                    LiteralShape.TimestampUtc => new LeafRange(domain, $"timestamp-utc:{domain.Unit}", null),
+                    _ => null,
+                };
+            }
+        }
+
+        // An operand literal: of the arithmetic's type exactly (no promotion).
+        static IntegerRange? Operand(LiteralValue literal, Apache.Arrow.Types.IArrowType type) =>
+            literal.DataType.Equals(Samidare.IR.LogicalType.NewArrow(type))
+            && LiteralConversion.tryConvert(ValueDomain.WideInteger, literal) is { Value: StoredLiteral.Integer { half: false } i }
+                ? new ConstantRange(i.value, "int", type)
+                : null;
     }
 
     private LeafNode EqualityNode(LeafDomain domain, LeafTest test, Bound bound, bool excludeNaN)

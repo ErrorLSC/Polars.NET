@@ -210,8 +210,10 @@ public class ParquetFilterRowsTests
     {
         using var file = ParquetFile.Open(Fixture("indexed_v1.parquet"));
         ScalarExpr key = Bin(BinaryOp.Lt, Col("key"), Lit(LiteralValue.NewInt64(100)));
-        ScalarExpr columns = Bin(BinaryOp.Lt, Col("key"), Col("nn")); // between columns: not evaluated here
+        ScalarExpr columns = Bin(BinaryOp.Lt, Bin(BinaryOp.Power, Col("key"), Col("nn")), Col("nn")); // a power: not evaluated here
         using (var reader = file.OpenReader(new ParquetReadOptions { Filter = key, FilterRows = true })) Assert.True(reader.FiltersExactly);
+        // Between columns: evaluated here.
+        using (var reader = file.OpenReader(new ParquetReadOptions { Filter = Bin(BinaryOp.Lt, Col("key"), Col("nn")), FilterRows = true })) Assert.True(reader.FiltersExactly);
         using (var reader = file.OpenReader(new ParquetReadOptions { Filter = Bin(BinaryOp.And, key, columns), FilterRows = true }))
         {
             Assert.False(reader.FiltersExactly);

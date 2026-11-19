@@ -3,6 +3,7 @@ using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Expressions;
 using Kaminari.Sazanami.Filters;
 
 namespace Sazanami.Tests;
@@ -20,11 +21,11 @@ internal sealed record ColumnKind(string Name, IArrowType Type, object[] Pool, i
     /// <summary>Whether the kind is tested as dictionary values too (booleans and fixed-size binaries are not).</summary>
     public bool Dictionaries => Type is not BooleanType && (Type is not FixedSizeBinaryType || Type is Decimal128Type);
 
-    public FilterScalar Scalar(object value) => value switch
+    public StoredScalar Scalar(object value) => value switch
     {
-        Int128 i => FilterScalar.Integer(i),
-        double d => FilterScalar.Float(d),
-        byte[] b => FilterScalar.Bytes(b),
+        Int128 i => StoredScalar.Integer(i),
+        double d => StoredScalar.Float(d),
+        byte[] b => StoredScalar.Bytes(b),
         _ => throw new ArgumentException($"{value}"),
     };
 
@@ -313,4 +314,157 @@ internal static class FilterTestData
         (byte[] x, byte[] y) => Math.Sign(x.AsSpan().SequenceCompareTo(y)),
         _ => throw new ArgumentException($"{a} vs {b}"),
     };
+}
+
+/// <summary>
+/// Value expressions (<see cref="ValueNode"/>) on model values, independently of the kernel: integers as
+/// <see cref="Int128"/> wrapped into their type, floating values as doubles (Float32 computed in Float32), the IR's
+/// arithmetic (division and remainder by zero null, MinValue / -1 wrapping, remainder truncated).
+/// </summary>
+internal static class ValueModel
+{
+    public static bool IsArithmetic(IArrowType type) =>
+        type is Int8Type or UInt8Type or Int16Type or UInt16Type or Int32Type or UInt32Type or Int64Type or UInt64Type or FloatType or DoubleType;
+
+    private static bool IsSigned(IArrowType type) => type is Int8Type or Int16Type or Int32Type or Int64Type or FloatType or DoubleType;
+
+    /// <summary>A model value of a node (null for null).</summary>
+    public static object? Value(ValueNode node, Func<int, object?> column, IReadOnlyList<IArrowType> types, IArrowType type) => node switch
+    {
+        ValueNode.Column c => column(c.Index),
+        ValueNode.Scalar s => s.Value.Kind == StoredScalarKind.Integer ? s.Value.IntegerValue : s.Value.FloatValue,
+        ValueNode.Negate n => Value(n.Operand, column, types, type) switch
+        {
+            null => null,
+            Int128 x => Wrap(-x, type),
+            double d => type is FloatType ? (double)-(float)d : -d,
+            var v => throw new ArgumentException($"-{v}"),
+        },
+        ValueNode.Cast c => Cast(Value(c.Operand, column, types, ValueCompiler.TypeOf(c.Operand, types)!), ValueCompiler.TypeOf(c.Operand, types)!, c.Type),
+        ValueNode.Arithmetic a => Arithmetic(a.Op, Value(a.Left, column, types, type), Value(a.Right, column, types, type), type),
+        _ => throw new ArgumentException($"{node}"),
+    };
+
+    public static Int128 Wrap(Int128 value, IArrowType type)
+    {
+        ulong low = (ulong)(value & ulong.MaxValue);
+        return type switch
+        {
+            Int8Type => (sbyte)low,
+            UInt8Type => (byte)low,
+            Int16Type => (short)low,
+            UInt16Type => (ushort)low,
+            Int32Type => (int)low,
+            UInt32Type => (uint)low,
+            Int64Type => (long)low,
+            _ => low,
+        };
+    }
+
+    private static object? Arithmetic(ArithmeticOp op, object? l, object? r, IArrowType type)
+    {
+        if (l is null || r is null) return null;
+        if (l is Int128 x && r is Int128 y)
+        {
+            bool signed = IsSigned(type);
+            return op switch
+            {
+                ArithmeticOp.Add => Wrap(x + y, type),
+                ArithmeticOp.Subtract => Wrap(x - y, type),
+                ArithmeticOp.Multiply => Wrap(x * y, type),
+                _ when y == 0 => null,
+                ArithmeticOp.Divide => signed && y == -1 ? Wrap(-x, type) : Wrap(x / y, type),
+                _ => signed && y == -1 ? Int128.Zero : x % y,
+            };
+        }
+        double a = (double)l, b = (double)r;
+        if (type is FloatType)
+        {
+            float fa = (float)a, fb = (float)b;
+            return (double)(op switch
+            {
+                ArithmeticOp.Add => fa + fb,
+                ArithmeticOp.Subtract => fa - fb,
+                ArithmeticOp.Multiply => fa * fb,
+                ArithmeticOp.Divide => fa / fb,
+                _ => fa % fb,
+            });
+        }
+        return op switch
+        {
+            ArithmeticOp.Add => a + b,
+            ArithmeticOp.Subtract => a - b,
+            ArithmeticOp.Multiply => a * b,
+            ArithmeticOp.Divide => a / b,
+            _ => a % b,
+        };
+    }
+
+    private static object? Cast(object? value, IArrowType from, IArrowType to) => value switch
+    {
+        null => null,
+        Int128 x when to is DoubleType => from is UInt64Type ? (double)(ulong)x : (double)(long)x,
+        Int128 x when to is FloatType => (double)(from is UInt64Type ? (float)(ulong)x : (float)(long)x),
+        Int128 x => Wrap(x, to),
+        double d => to is FloatType ? (double)(float)d : d,
+        _ => throw new ArgumentException($"cast {value}"),
+    };
+
+    /// <summary>A value of the pool of a kind of <paramref name="type"/>, as a scalar.</summary>
+    public static StoredScalar Scalar(Random random, IArrowType type)
+    {
+        ColumnKind kind = FilterTestData.Kinds.First(k => k.Type.TypeId == type.TypeId);
+        object v = random.Next(6) switch
+        {
+            0 when kind.IsFloating => 0.0,
+            0 => (Int128)0,
+            1 when kind.IsFloating => -1.0,
+            1 when IsSigned(type) => (Int128)(-1),
+            _ => kind.Pool[random.Next(kind.Pool.Length)],
+        };
+        return kind.Scalar(v);
+    }
+
+    /// <summary>
+    /// A random arithmetic expression starting from column <paramref name="c"/> (an arithmetic kind): operations with
+    /// scalars or columns of its type, negations, casts; its type out.
+    /// </summary>
+    public static ValueNode RandomExpression(Random random, IReadOnlyList<IArrowType> types, int c, out IArrowType type)
+    {
+        type = ValueTypes.ValueType(types[c]);
+        ValueNode node = new ValueNode.Column(c);
+        ArithmeticOp[] ops = [ArithmeticOp.Add, ArithmeticOp.Subtract, ArithmeticOp.Multiply, ArithmeticOp.Divide, ArithmeticOp.Remainder];
+        for (int step = random.Next(1, 4); step > 0; step--)
+        {
+            IArrowType current = type;
+            int[] partners = [.. Enumerable.Range(0, types.Count).Where(i => ValueTypes.ValueType(types[i]).TypeId == current.TypeId)];
+            switch (random.Next(6))
+            {
+                case 0 or 1:
+                {
+                    ValueNode scalar = new ValueNode.Scalar(Scalar(random, type));
+                    ArithmeticOp op = ops[random.Next(ops.Length)];
+                    node = random.Next(3) == 0 ? new ValueNode.Arithmetic(op, scalar, node) : new ValueNode.Arithmetic(op, node, scalar);
+                    break;
+                }
+                case 2 when partners.Length > 0:
+                    node = new ValueNode.Arithmetic(ops[random.Next(ops.Length)], node, new ValueNode.Column(partners[random.Next(partners.Length)]));
+                    break;
+                case 3 when IsSigned(type):
+                    node = new ValueNode.Negate(node);
+                    break;
+                case 4:
+                {
+                    IArrowType[] targets = type is FloatType or DoubleType
+                        ? [FloatType.Default, DoubleType.Default]
+                        : [Int8Type.Default, UInt8Type.Default, Int16Type.Default, UInt16Type.Default, Int32Type.Default, UInt32Type.Default, Int64Type.Default, UInt64Type.Default, FloatType.Default, DoubleType.Default];
+                    IArrowType target = targets[random.Next(targets.Length)];
+                    node = new ValueNode.Cast(node, target);
+                    type = target;
+                    break;
+                }
+            }
+        }
+        return node;
+    }
 }

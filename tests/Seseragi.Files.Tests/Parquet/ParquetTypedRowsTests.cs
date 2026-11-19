@@ -30,6 +30,99 @@ public class ParquetTypedRowsTests
         }
     }
 
+    /// <summary>
+    /// Arithmetic in a predicate is evaluated by the reader (exactly: no client evaluation, which the default Strict
+    /// policy would refuse).
+    /// </summary>
+    [Fact]
+    public void ArithmeticPredicates_ArePushedExactly()
+    {
+        using var file = ParquetFile.Open(Fixture("indexed_v1.parquet"));
+        using (ParquetReader<Row> reader = file.OpenReader<Row>(r => r.Key * 2 < 200))
+        {
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(Enumerable.Range(0, 100).Select(i => (long)i), reader.ReadRows().Select(r => r.Key));
+        }
+        using (ParquetReader<Row> reader = file.OpenReader<Row>(r => r.Key % 1000 == 0 && -r.Key > -2500))
+        {
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal([0L, 1000L, 2000L], reader.ReadRows().Select(r => r.Key));
+        }
+    }
+
+    /// <summary>
+    /// Arithmetic over a member is computed in the member's type, not the column's: a long member over an Int32 column
+    /// does not wrap at int.MaxValue (as LINQ to Objects on the rows).
+    /// </summary>
+    [Fact]
+    public void Arithmetic_IsInTheMembersType()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"typed-wide-{Guid.NewGuid():N}.parquet");
+        try
+        {
+            var schema = new Apache.Arrow.Schema([new Apache.Arrow.Field("A", Apache.Arrow.Types.Int32Type.Default, false)], null);
+            using (ParquetWriter writer = ParquetWriter.Create(path, schema))
+            {
+                using var batch = new Apache.Arrow.RecordBatch(schema, [new Apache.Arrow.Int32Array.Builder().Append(int.MaxValue).Append(-1).Append(3).Build()], 3);
+                writer.Write(batch);
+            }
+            System.Linq.Expressions.Expression<Func<Wide, bool>> where = r => r.A + r.A > 0;
+            List<Wide> all = ParquetFile.ReadList<Wide>(path);
+            using var file = ParquetFile.Open(path);
+            using ParquetReader<Wide> reader = file.OpenReader(where);
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(all.Where(where.Compile()), reader.ReadRows());
+            Assert.Equal([int.MaxValue, 3L], reader.ReadRows().Select(r => r.A));
+            // A nullable member: computed in long too.
+            using (ParquetReader<WideNullable> nullable = file.OpenReader<WideNullable>(r => r.A + r.A > 0))
+            {
+                Assert.True(nullable.FiltersExactly);
+                Assert.Equal([int.MaxValue, 3L], nullable.ReadRows().Select(r => r.A!.Value));
+            }
+            // A decimal member: decimal arithmetic is not the reader's, so the predicate is not pushed (Strict refuses).
+            Assert.Contains("could not be pushed down", Assert.Throws<NotSupportedException>(() => file.OpenReader<Precise>(r => r.A + r.A > 0)).Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>A double member over a Float32 column: the product is the double's (0.1f squared in Float64).</summary>
+    [Fact]
+    public void FloatingArithmetic_IsInTheMembersType()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"typed-float-{Guid.NewGuid():N}.parquet");
+        try
+        {
+            var schema = new Apache.Arrow.Schema([new Apache.Arrow.Field("X", Apache.Arrow.Types.FloatType.Default, false)], null);
+            using (ParquetWriter writer = ParquetWriter.Create(path, schema))
+            {
+                using var batch = new Apache.Arrow.RecordBatch(schema, [new Apache.Arrow.FloatArray.Builder().Append(0.1f).Append(3f).Build()], 2);
+                writer.Write(batch);
+            }
+            double wide = (double)0.1f * (double)0.1f;
+            System.Linq.Expressions.Expression<Func<Real, bool>> where = r => r.X * r.X == wide;
+            using var file = ParquetFile.Open(path);
+            using ParquetReader<Real> reader = file.OpenReader(where);
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(ParquetFile.ReadList<Real>(path).Where(where.Compile()), reader.ReadRows());
+            Assert.Single(reader.ReadRows());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    public sealed record Wide(long A);
+
+    public sealed record WideNullable(long? A);
+
+    public sealed record Precise(decimal A);
+
+    public sealed record Real(double X);
+
     /// <summary>A row index column put first does not shift the members: they bind by name.</summary>
     [Fact]
     public void ARowIndexColumn_DoesNotShiftTheMembers()
@@ -54,7 +147,8 @@ public class ParquetTypedRowsTests
     public void FiltersExactly_SaysWhetherTheOptionsFilterIsEvaluatedToo()
     {
         using var file = ParquetFile.Open(Fixture("indexed_v1.parquet"));
-        ScalarExpr betweenColumns = ScalarExpr.NewBinary(BinaryOp.Lt, ScalarExpr.NewColumn("key"), ScalarExpr.NewColumn("nn")); // not evaluated by the reader
+        ScalarExpr betweenColumns = ScalarExpr.NewBinary(BinaryOp.Lt, ScalarExpr.NewBinary(BinaryOp.Power, ScalarExpr.NewColumn("key"), ScalarExpr.NewColumn("nn")),
+            ScalarExpr.NewColumn("nn")); // a power: not evaluated by the reader
         ScalarExpr evaluated = ScalarExpr.NewBinary(BinaryOp.Lt, ScalarExpr.NewColumn("key"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(50)));
         foreach (var (filter, rowsFiltered, exact) in (ValueTuple<ScalarExpr, bool, bool>[])[(betweenColumns, true, false), (betweenColumns, false, false), (evaluated, false, true)])
         {

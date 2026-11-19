@@ -37,8 +37,9 @@ public sealed record IpcReadOptions
     /// <summary>
     /// Whether only the rows where <see cref="Filter"/> is true are delivered (off by default). Within each batch the
     /// columns the filter reads are decoded first, and the other columns only when it keeps a row; batches where it
-    /// keeps none are passed over. Conjuncts of the filter the reader cannot evaluate (comparisons between columns,
-    /// functions, …) are left out, so the rows delivered may still include some the filter drops:
+    /// keeps none are passed over. Comparisons of columns with literals or with each other, integer and floating
+    /// arithmetic (operands of one type), casts between numbers and IN lists are evaluated here; conjuncts the reader
+    /// cannot evaluate (functions, powers, …) are left out, so the rows delivered may still include some the filter drops:
     /// <see cref="IpcReader.FiltersExactly"/> tells. Columns the filter reads are read even when not selected, so damage
     /// in them fails the read. List views, unions and run-end encoded columns cannot be selected with it.
     /// </summary>

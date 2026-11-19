@@ -3,6 +3,7 @@ using System.Numerics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Expressions;
 using static Kaminari.Sazanami.Filters.ValueTests;
 
 namespace Kaminari.Sazanami.Filters;
@@ -85,6 +86,11 @@ internal sealed class FilterProgram
         public LeafTest Test { get; } = test;
     }
 
+    private sealed class Computed(ValuePredicate predicate) : Step
+    {
+        public ValuePredicate Predicate { get; } = predicate;
+    }
+
     private sealed class Const(bool? value) : Step
     {
         public bool? Value { get; } = value;
@@ -125,8 +131,20 @@ internal sealed class FilterProgram
             FilterNode.Compare c => new Leaf(Column(c.Column), Compare(columns[c.Column], c.Op, c.Value)),
             FilterNode.InList i => new Leaf(Column(i.Column), InList(columns[i.Column], i.Values ?? throw new ArgumentException("IN needs a list."))),
             FilterNode.StartsWith s => new Leaf(Column(s.Column), StartsWith(columns[s.Column], s.Prefix ?? throw new ArgumentException("A prefix is needed."))),
+            FilterNode.CompareValues c => Values(ValuePredicate.Compare(c, [.. columns.Select(x => x.Type)])),
+            FilterNode.ValueInList v => Values(ValuePredicate.InList(v, [.. columns.Select(x => x.Type)])),
+            FilterNode.ValueIsNull n => Values(ValuePredicate.IsNull(n, [.. columns.Select(x => x.Type)])),
             _ => throw new ArgumentException($"Unknown filter node {node}."),
         };
+
+        // A predicate of one column is a leaf of it (a dictionary's entries tested once each); one of several is
+        // evaluated on the batch (dictionaries looked up per row). Null-safe ones decide null rows themselves.
+        static Step Values(ValuePredicate predicate)
+        {
+            SortedSet<int> read = [];
+            predicate.CollectColumns(read);
+            return read.Count == 1 && !predicate.NullsEqual ? new Leaf(read.Min, new ExpressionTest(predicate)) : new Computed(predicate);
+        }
 
         int Column(int index) => (uint)index < (uint)columns.Length
             ? index
@@ -137,18 +155,17 @@ internal sealed class FilterProgram
             : throw new ArgumentException("AND, OR and COALESCE need operands.");
     }
 
-    /// <summary>The value type of a column (a dictionary's values).</summary>
-    private static IArrowType ValueType(IArrowType type) => type is DictionaryType d ? d.ValueType : type;
+    private static IArrowType ValueType(IArrowType type) => ValueTypes.ValueType(type);
 
-    private static bool IsBytes(IArrowType type) => type is StringType or BinaryType or StringViewType or BinaryViewType or FixedSizeBinaryType and not (Decimal128Type or Decimal256Type);
+    private static bool IsBytes(IArrowType type) => ValueTypes.IsBytes(type);
 
-    private static bool IsFloating(IArrowType type) => type is HalfFloatType or FloatType or DoubleType;
+    private static bool IsFloating(IArrowType type) => ValueTypes.IsFloating(type);
 
     private static LeafTest IsNan(FilterColumn column) => IsFloating(ValueType(column.Type))
         ? Numeric(column, new NaNFactory())
         : throw Unfit(column, "IS NAN");
 
-    private static LeafTest Compare(FilterColumn column, CompareOp op, FilterScalar value)
+    private static LeafTest Compare(FilterColumn column, CompareOp op, StoredScalar value)
     {
         IArrowType type = ValueType(column.Type);
         if (type is BooleanType)
@@ -168,7 +185,7 @@ internal sealed class FilterProgram
         return Numeric(column, new CompareFactory(column, op, value));
     }
 
-    private static LeafTest InList(FilterColumn column, FilterScalar[] values)
+    private static LeafTest InList(FilterColumn column, StoredScalar[] values)
     {
         IArrowType type = ValueType(column.Type);
         if (type is BooleanType)
@@ -193,98 +210,38 @@ internal sealed class FilterProgram
         ? new BooleanTest(outcome(false), outcome(true))
         : throw Unfit(column, "a boolean test");
 
-    private static int BooleanValue(FilterColumn column, FilterScalar value) =>
-        value.Kind == FilterScalarKind.Integer && (value.IntegerValue == 0 || value.IntegerValue == 1)
+    private static int BooleanValue(FilterColumn column, StoredScalar value) =>
+        value.Kind == StoredScalarKind.Integer && (value.IntegerValue == 0 || value.IntegerValue == 1)
             ? (int)value.IntegerValue
             : throw new ArgumentException($"Boolean column '{column}' compares with 0 or 1, not {value}.");
 
-    private static byte[] Bytes(FilterColumn column, FilterScalar value) => value.Kind == FilterScalarKind.Bytes
+    private static byte[] Bytes(FilterColumn column, StoredScalar value) => value.Kind == StoredScalarKind.Bytes
         ? value.BytesValue!
         : throw new ArgumentException($"Column '{column}' holds bytes; {value} is no bytes value.");
 
     private static ArgumentException Unfit(FilterColumn column, string what) =>
         new($"Column '{column}' ({column.Type.Name}) does not take {what}.");
 
-    /// <summary>Builds the test of a fixed-width column for its element type.</summary>
-    private interface INumericFactory
-    {
-        LeafTest Make<T>(bool floating) where T : unmanaged, INumber<T>;
-    }
-
-    private static LeafTest Numeric<TFactory>(FilterColumn column, TFactory factory) where TFactory : INumericFactory => ValueType(column.Type) switch
-    {
-        Int8Type => factory.Make<sbyte>(false),
-        UInt8Type => factory.Make<byte>(false),
-        Int16Type => factory.Make<short>(false),
-        UInt16Type => factory.Make<ushort>(false),
-        Int32Type or Date32Type or Time32Type => factory.Make<int>(false),
-        UInt32Type => factory.Make<uint>(false),
-        Int64Type or Date64Type or Time64Type or TimestampType or DurationType => factory.Make<long>(false),
-        UInt64Type => factory.Make<ulong>(false),
-        Decimal128Type => factory.Make<Int128>(false),
-        HalfFloatType => factory.Make<Half>(true),
-        FloatType => factory.Make<float>(true),
-        DoubleType => factory.Make<double>(true),
-        _ => throw Unfit(column, "a numeric test"),
-    };
+    private static LeafTest Numeric<TFactory>(FilterColumn column, TFactory factory) where TFactory : INumericVisitor<LeafTest> =>
+        ValueTypes.IsNumeric(column.Type) ? ValueTypes.Visit<TFactory, LeafTest>(column.Type, factory) : throw Unfit(column, "a numeric test");
 
     /// <summary>A value as the column's element type, exactly (else an error).</summary>
-    private static T Scalar<T>(FilterColumn column, FilterScalar value, bool floating) where T : unmanaged, INumber<T>
+    private static T Scalar<T>(FilterColumn column, StoredScalar value, bool floating) where T : unmanaged, INumber<T> =>
+        ValueTypes.Exact<T>(value, floating, $"column '{column}' ({column.Type.Name})");
+
+    private readonly struct NaNFactory : INumericVisitor<LeafTest>
     {
-        if (floating)
-        {
-            if (value.Kind != FilterScalarKind.Float) throw new ArgumentException($"Floating column '{column}' compares with a floating value, not {value}.");
-            T v = T.CreateSaturating(value.FloatValue);
-            if (double.IsNaN(value.FloatValue) || double.CreateSaturating(v) == value.FloatValue) return v;
-            throw new ArgumentException($"{value} is not exactly a value of column '{column}' ({column.Type.Name}).");
-        }
-        if (value.Kind != FilterScalarKind.Integer) throw new ArgumentException($"Column '{column}' compares with an integer value, not {value}.");
-        try
-        {
-            return T.CreateChecked(value.IntegerValue);
-        }
-        catch (OverflowException)
-        {
-            throw new ArgumentException($"{value} is outside the values of column '{column}' ({column.Type.Name}).");
-        }
+        public LeafTest Visit<T>(bool floating) where T : unmanaged, INumber<T> => new NumericTest<T, IsNaN<T>>(T.Zero);
     }
 
-    private readonly struct NaNFactory : INumericFactory
+    private readonly struct CompareFactory(FilterColumn column, CompareOp op, StoredScalar value) : INumericVisitor<LeafTest>
     {
-        public LeafTest Make<T>(bool floating) where T : unmanaged, INumber<T> => new NumericTest<T, IsNaN<T>>(T.Zero);
+        public LeafTest Visit<T>(bool floating) where T : unmanaged, INumber<T> => NumericTests.Compare(op, Scalar<T>(column, value, floating), floating);
     }
 
-    private readonly struct CompareFactory(FilterColumn column, CompareOp op, FilterScalar value) : INumericFactory
+    private readonly struct InListFactory(FilterColumn column, StoredScalar[] values) : INumericVisitor<LeafTest>
     {
-        public LeafTest Make<T>(bool floating) where T : unmanaged, INumber<T>
-        {
-            T s = Scalar<T>(column, value, floating);
-            if (floating && T.IsNaN(s))
-            {
-                // NaN is the greatest value and equals itself.
-                return op switch
-                {
-                    CompareOp.Eq or CompareOp.GtEq => new NumericTest<T, IsNaN<T>>(s),
-                    CompareOp.NotEq or CompareOp.Lt => new NumericTest<T, NotNaN<T>>(s),
-                    CompareOp.LtEq => new ConstantTest(true),
-                    _ => new ConstantTest(false),
-                };
-            }
-            return op switch
-            {
-                CompareOp.Eq => new NumericTest<T, Eq<T>>(s),
-                CompareOp.NotEq => new NumericTest<T, NotEq<T>>(s),
-                CompareOp.Lt => new NumericTest<T, Lt<T>>(s),
-                CompareOp.LtEq => new NumericTest<T, LtEq<T>>(s),
-                CompareOp.Gt => floating ? new NumericTest<T, GtOrNaN<T>>(s) : new NumericTest<T, Gt<T>>(s),
-                _ => floating ? new NumericTest<T, GtEqOrNaN<T>>(s) : new NumericTest<T, GtEq<T>>(s),
-            };
-        }
-    }
-
-    private readonly struct InListFactory(FilterColumn column, FilterScalar[] values) : INumericFactory
-    {
-        public LeafTest Make<T>(bool floating) where T : unmanaged, INumber<T>
+        public LeafTest Visit<T>(bool floating) where T : unmanaged, INumber<T>
         {
             T[] typed = new T[values.Length];
             for (int i = 0; i < typed.Length; i++) typed[i] = Scalar<T>(column, values[i], floating);
@@ -306,16 +263,8 @@ internal sealed class FilterProgram
     }
 
     /// <summary>Whether an array of <paramref name="actual"/> type serves a column declared <paramref name="declared"/> (dictionaries by their values).</summary>
-    private static bool Matches(IArrowType declared, IArrowType actual) => (ValueType(declared), ValueType(actual)) switch
-    {
-        (TimestampType d, TimestampType a) => d.Unit == a.Unit && d.Timezone == a.Timezone,
-        (Time32Type d, Time32Type a) => d.Unit == a.Unit,
-        (Time64Type d, Time64Type a) => d.Unit == a.Unit,
-        (DurationType d, DurationType a) => d.Unit == a.Unit,
-        (Decimal128Type d, Decimal128Type a) => d.Scale == a.Scale,
-        (FixedSizeBinaryType d, FixedSizeBinaryType a) => d.ByteWidth == a.ByteWidth,
-        var (d, a) => d.TypeId == a.TypeId,
-    } && (actual is not DictionaryType dictionary || dictionary.IndexType is IntegerType);
+    private static bool Matches(IArrowType declared, IArrowType actual) =>
+        ValueTypes.Same(declared, actual) && (actual is not DictionaryType dictionary || dictionary.IndexType is IntegerType);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Evaluation
@@ -345,6 +294,13 @@ internal sealed class FilterProgram
             case Leaf leaf:
                 EvalLeaf(leaf.Test, context.Columns[leaf.Column].Data, length, t, f);
                 return;
+
+            case Computed computed:
+            {
+                using var scratch = new ValueScratch();
+                computed.Predicate.Evaluate(new ValueContext(context.Columns, length, scratch), t, f);
+                return;
+            }
 
             case Negate n:
                 Eval(n.Operand, ref context, f, t);
@@ -496,6 +452,11 @@ internal sealed class FilterProgram
     /// <summary>A leaf on plain values: the test where valid, the null outcome elsewhere.</summary>
     private static void EvalValues(LeafTest test, ArrayData data, int length, Span<ulong> t, Span<ulong> f)
     {
+        if (test is ExpressionTest expression)
+        {
+            expression.Outcomes(data, length, t, f);
+            return;
+        }
         if (data.DataType is NullType)
         {
             // Null on every row (an Arrow null array has no buffers at all).
@@ -522,9 +483,8 @@ internal sealed class FilterProgram
         }
     }
 
-    private static bool HasNulls(ArrayData data) => data.NullCount != 0 && data.Buffers.Length > 0 && !data.Buffers[0].IsEmpty;
+    private static bool HasNulls(ArrayData data) => ValueTypes.HasNulls(data);
 
     /// <summary>The <paramref name="length"/> values of a fixed-width array from its offset.</summary>
-    internal static ReadOnlySpan<T> Values<T>(ArrayData data, int length) where T : unmanaged =>
-        data.Buffers[1].Span.CastTo<T>().Slice(data.Offset, length);
+    internal static ReadOnlySpan<T> Values<T>(ArrayData data, int length) where T : unmanaged => ValueTypes.Values<T>(data, length);
 }

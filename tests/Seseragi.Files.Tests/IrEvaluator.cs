@@ -25,7 +25,7 @@ internal static class IrEvaluator
             case ScalarExpr.Literal l:
                 return l.value.BoxedValue;
             case ScalarExpr.Cast c:
-                return Eval(c.expr, column);
+                return Cast(Eval(c.expr, column), c.targetType);
             case ScalarExpr.Alias a:
                 return Eval(a.expr, column);
             case ScalarExpr.Function f when f.func.IsStructFieldByName:
@@ -53,6 +53,37 @@ internal static class IrEvaluator
             {
                 object? l = Eval(b.left, column), r = Eval(b.right, column);
                 return l is null || r is null ? null : ((string)l).StartsWith((string)r, StringComparison.Ordinal);
+            }
+            case ScalarExpr.Unary u when u.op.IsNegate:
+                return Eval(u.expr, column) switch
+                {
+                    null => null,
+                    sbyte v => (sbyte)-v,
+                    short v => (short)-v,
+                    int v => unchecked(-v),
+                    long v => unchecked(-v),
+                    float v => -v,
+                    double v => -v,
+                    var v => throw new NotSupportedException($"-{v.GetType().Name}"),
+                };
+            case ScalarExpr.Binary b when IsArithmetic(b.op):
+            {
+                object? l = Eval(b.left, column), r = Eval(b.right, column);
+                if (l is null || r is null) return null;
+                return (l, r) switch
+                {
+                    (sbyte x, sbyte y) => Integer(b.op, x, y),
+                    (byte x, byte y) => Integer(b.op, x, y),
+                    (short x, short y) => Integer(b.op, x, y),
+                    (ushort x, ushort y) => Integer(b.op, x, y),
+                    (int x, int y) => Integer(b.op, x, y),
+                    (uint x, uint y) => Integer(b.op, x, y),
+                    (long x, long y) => Integer(b.op, x, y),
+                    (ulong x, ulong y) => Integer(b.op, x, y),
+                    (float x, float y) => Floating(b.op, x, y),
+                    (double x, double y) => Floating(b.op, x, y),
+                    _ => throw new NotSupportedException($"{l.GetType().Name} {b.op} {r.GetType().Name}"),
+                };
             }
             case ScalarExpr.Binary b when b.op.IsEqMissing || b.op.IsNotEqMissing:
             {
@@ -92,6 +123,101 @@ internal static class IrEvaluator
             default:
                 throw new NotSupportedException(e.GetType().Name);
         }
+    }
+
+    private static bool IsArithmetic(BinaryOp op) =>
+        op.IsAdd || op.IsSubtract || op.IsMultiply || op.IsDivide || op.IsTruncatedDivide || op.IsFloorDivide || op.IsModulo || op.IsPower;
+
+    /// <summary>
+    /// Integer arithmetic in the operands' type (SEMANTICS.md, Arithmetic): wrapping; truncated division and the
+    /// remainder by zero null, MinValue / -1 wrapping (remainder 0); floor division by its definition; Power by repeated
+    /// multiplication (wrapping).
+    /// </summary>
+    private static object? Integer<T>(BinaryOp op, T x, T y) where T : System.Numerics.IBinaryInteger<T>
+    {
+        T minusOne = T.Zero - T.One;
+        bool signed = T.IsNegative(minusOne);
+        if (op.IsAdd) return x + y;
+        if (op.IsSubtract) return x - y;
+        if (op.IsMultiply) return x * y;
+        if (op.IsPower)
+        {
+            T p = T.One;
+            for (T i = T.Zero; i < y; i++) p *= x;
+            return p;
+        }
+        if (y == T.Zero) return null;
+        if (signed && y == minusOne) return op.IsModulo ? T.Zero : T.Zero - x;
+        if (op.IsTruncatedDivide) return x / y;
+        if (op.IsModulo) return x % y;
+        if (op.IsFloorDivide)
+        {
+            T q = x / y;
+            return x % y != T.Zero && (T.IsNegative(x) != T.IsNegative(y)) ? q - T.One : q;
+        }
+        throw new NotSupportedException($"integer {op}");
+    }
+
+    /// <summary>Floating arithmetic in the operands' width (the remainder .NET's, truncated).</summary>
+    private static object? Floating<T>(BinaryOp op, T x, T y) where T : System.Numerics.IFloatingPointIeee754<T>
+    {
+        if (op.IsAdd) return x + y;
+        if (op.IsSubtract) return x - y;
+        if (op.IsMultiply) return x * y;
+        if (op.IsDivide) return x / y;
+        if (op.IsModulo) return x % y;
+        if (op.IsPower) return T.Pow(x, y);
+        throw new NotSupportedException($"floating {op}");
+    }
+
+    /// <summary>
+    /// A value cast as SEMANTICS.md says (Casts): numbers to integer and floating types as .NET's unchecked
+    /// conversion; anything else unchanged (casts that keep values).
+    /// </summary>
+    private static object? Cast(object? value, LogicalType target)
+    {
+        if (value is null || target is not LogicalType.Arrow { arrowType: var type }) return value;
+        if (value is not (sbyte or byte or short or ushort or int or uint or long or ulong or float or double)) return value;
+        return type switch
+        {
+            Apache.Arrow.Types.Int8Type => (object)Convert<sbyte>(value),
+            Apache.Arrow.Types.UInt8Type => Convert<byte>(value),
+            Apache.Arrow.Types.Int16Type => Convert<short>(value),
+            Apache.Arrow.Types.UInt16Type => Convert<ushort>(value),
+            Apache.Arrow.Types.Int32Type => Convert<int>(value),
+            Apache.Arrow.Types.UInt32Type => Convert<uint>(value),
+            Apache.Arrow.Types.Int64Type => Convert<long>(value),
+            Apache.Arrow.Types.UInt64Type => Convert<ulong>(value),
+            Apache.Arrow.Types.FloatType => value switch
+            {
+                long l => (float)l,
+                ulong u => (float)u,
+                double d => (float)d,
+                _ => Convert<float>(value),
+            },
+            Apache.Arrow.Types.DoubleType => value switch
+            {
+                long l => (double)l,
+                ulong u => (double)u,
+                _ => Convert<double>(value),
+            },
+            _ => value,
+        };
+
+        static T Convert<T>(object v) where T : System.Numerics.INumberBase<T> => v switch
+        {
+            sbyte x => T.CreateTruncating(x),
+            byte x => T.CreateTruncating(x),
+            short x => T.CreateTruncating(x),
+            ushort x => T.CreateTruncating(x),
+            int x => T.CreateTruncating(x),
+            uint x => T.CreateTruncating(x),
+            long x => T.CreateTruncating(x),
+            ulong x => T.CreateTruncating(x),
+            float x => T.CreateTruncating(x),
+            double x => T.CreateTruncating(x),
+            _ => throw new NotSupportedException(v.GetType().Name),
+        };
     }
 
     public static bool IsNaN(object v) => v switch

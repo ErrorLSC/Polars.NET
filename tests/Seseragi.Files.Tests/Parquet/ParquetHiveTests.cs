@@ -277,7 +277,7 @@ public sealed class ParquetHiveTests : IDisposable
         Write("y/year=2024/p.parquet", 3, 3);
         using var other = ParquetDataset.Open(At("y"));
         ScalarExpr residue = ScalarExpr.NewBinary(BinaryOp.Or, Binary(BinaryOp.Eq, "year", LiteralValue.NewInt64(2023)),
-            ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Add, ScalarExpr.NewColumn("id"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(1))),
+            ScalarExpr.NewBinary(BinaryOp.Gt, ScalarExpr.NewBinary(BinaryOp.Power, ScalarExpr.NewColumn("id"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(1))),
                 ScalarExpr.NewLiteral(LiteralValue.NewInt64(5))));
         using (var reader = other.OpenReader(new ParquetReadOptions { Filter = residue, FilterRows = true }))
             Assert.False(reader.FiltersExactly);
