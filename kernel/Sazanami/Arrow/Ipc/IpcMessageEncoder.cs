@@ -12,7 +12,9 @@ internal sealed class IpcOutgoingMessage : IDisposable
     private readonly Func<IpcRecordBatch, long, byte[]>? _describe;
     private readonly long _rows;
     private readonly IpcCompression _compression;
+    private readonly TaskCompletionSource? _compressed;
     private byte[]? _flatBuffer;
+    private byte[]? _placeholder;
 
     /// <summary>A message without a body (the schema), framed already.</summary>
     public IpcOutgoingMessage(byte[] framed)
@@ -30,6 +32,7 @@ internal sealed class IpcOutgoingMessage : IDisposable
         IsDictionary = isDictionary;
         _describe = describe;
         Layout = [];
+        _compressed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     /// <summary>The continuation marker, the metadata length and the metadata, padded so that the body starts 64-byte aligned (once framed).</summary>
@@ -46,19 +49,83 @@ internal sealed class IpcOutgoingMessage : IDisposable
     /// <summary>The bytes of the buffers before compression (what the message holds in memory until written).</summary>
     public long RawBytes => Body?.Buffers.Sum(b => b.Length) ?? 0;
 
+    /// <summary>Ends once <see cref="Compress"/> has (failed with it).</summary>
+    public Task Compressed => _compressed?.Task ?? Task.CompletedTask;
+
+    /// <summary>With <see cref="StreamBody"/>, the buffers handed over as they are compressed.</summary>
+    public IpcBodyStream? Streamed { get; private set; }
+
+    /// <summary>
+    /// Hands the buffers over one by one as <see cref="Compress"/> finishes them (<see cref="Streamed"/>), for a writer
+    /// that writes the body before its metadata is known: in its place goes <see cref="Placeholder"/>, as long as the
+    /// metadata will be (the FlatBuffer's length depends only on the counts of nodes, buffers and variadic counts).
+    /// Before <see cref="Compress"/>, with compression.
+    /// </summary>
+    public void StreamBody()
+    {
+        if (Body is null || _compression == IpcCompression.None) throw new InvalidOperationException("Only a compressed body is handed over as it is compressed.");
+        var header = new IpcRecordBatch(_rows, [.. Body.Nodes], new IpcBuffer[Body.Buffers.Count], _compression, [.. Body.VariadicCounts]);
+        _placeholder = _describe!(header, 0);
+        Streamed = new IpcBodyStream(Body.Buffers.Count);
+    }
+
+    /// <summary>The framed metadata of a message written at <paramref name="position"/> with every buffer and the body length 0 (<see cref="StreamBody"/>).</summary>
+    public byte[] Placeholder(long position) => IpcMessageEncoder.Frame(_placeholder ?? throw new InvalidOperationException("The body is not streamed."), position);
+
     /// <summary>
     /// Compresses the body (on up to <paramref name="parallelism"/> threads) and lays it out; any thread may run it,
-    /// several messages at once. The metadata is then known but for its framing.
+    /// several messages at once. The metadata is then known but for its framing. With <paramref name="detach"/>, the
+    /// body then no longer reads the arrays it was made from.
     /// </summary>
-    public void Compress(int level, int parallelism, int zstdFrameBytes)
+    public void Compress(int level, int parallelism, int zstdFrameBytes, bool detach = false, CancellationToken cancellationToken = default)
     {
         if (Body is null || _flatBuffer is not null) return;
-        IpcBatchEncoder.Compress(Body, _compression, level, parallelism, zstdFrameBytes);
-        (IpcBuffer[] layout, long length) = IpcBatchEncoder.Layout(Body.Buffers);
-        var header = new IpcRecordBatch(_rows, [.. Body.Nodes], layout, _compression, [.. Body.VariadicCounts]);
-        _flatBuffer = _describe!(header, length);
-        Layout = layout;
-        BodyLength = length;
+        try
+        {
+            IpcBatchEncoder.Compress(Body, _compression, level, parallelism, zstdFrameBytes, Streamed, detach, cancellationToken);
+            if (detach)
+            {
+                if (Streamed is null) Body.Own();
+                else Body.ReleasePins(); // every buffer stored as it is was copied
+            }
+            (IpcBuffer[] layout, long length) = IpcBatchEncoder.Layout(Body.Buffers);
+            var header = new IpcRecordBatch(_rows, [.. Body.Nodes], layout, _compression, [.. Body.VariadicCounts]);
+            byte[] flatBuffer = _describe!(header, length);
+            if (_placeholder is not null && flatBuffer.Length != _placeholder.Length)
+                throw new InvalidOperationException($"The metadata ({flatBuffer.Length} bytes) does not fit its placeholder ({_placeholder.Length} bytes).");
+            Layout = layout;
+            BodyLength = length;
+            _flatBuffer = flatBuffer;
+            _compressed!.TrySetResult();
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            throw;
+        }
+    }
+
+    /// <summary>The message will not be compressed (<paramref name="error"/>): whoever waits for it fails with it.</summary>
+    public void Fail(Exception error)
+    {
+        Streamed?.Fail(error);
+        if (_compressed?.TrySetException(error) == true) _ = _compressed.Task.Exception; // observed: a writer may have stopped earlier
+    }
+
+    /// <summary>Compresses messages one after the other; when one fails, those not compressed fail with it.</summary>
+    public static void CompressAll(IReadOnlyList<IpcOutgoingMessage> messages, (int Level, int Parallelism, int ZstdFrameBytes) settings, bool detach,
+        CancellationToken cancellationToken)
+    {
+        int k = 0;
+        try
+        {
+            for (; k < messages.Count; k++) messages[k].Compress(settings.Level, settings.Parallelism, settings.ZstdFrameBytes, detach, cancellationToken);
+        }
+        catch (Exception e)
+        {
+            for (; k < messages.Count; k++) messages[k].Fail(e);
+            throw;
+        }
     }
 
     /// <summary>Frames the metadata for a message written at <paramref name="position"/> (after <see cref="Compress"/>).</summary>
@@ -71,7 +138,12 @@ internal sealed class IpcOutgoingMessage : IDisposable
     /// <summary>The bytes the message takes in the output (once framed).</summary>
     public long Size => Metadata.Length + BodyLength;
 
-    public void Dispose() => Body?.Dispose();
+    /// <summary>Frees the body (never while it is compressed).</summary>
+    public void Dispose()
+    {
+        Body?.Dispose();
+        Streamed?.Dispose();
+    }
 }
 
 /// <summary>

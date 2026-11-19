@@ -49,14 +49,16 @@ public sealed unsafe class GuardedMemoryTests : IDisposable
     public void TypedIpcRows_WriteTheSame_WithGuardsOn()
     {
         Row[] rows = [.. Enumerable.Range(0, 60_000).Select(i => new Row(i, $"name {i % 777}", i % 3 == 0 ? null : i * 0.5))];
-        byte[] plain = Write(rows);
+        byte[] plain = Write(rows, long.MaxValue);
         GuardedMemory.Enabled = true;
-        Assert.Equal(plain, Write(rows));
+        Assert.Equal(plain, Write(rows, long.MaxValue));
+        Assert.Equal(plain, Write(rows, 0)); // every record batch written as it is compressed, each buffer freed once written
 
-        static byte[] Write(Row[] rows)
+        static byte[] Write(Row[] rows, long streamBodyFrom)
         {
             using var memory = new MemoryStream();
-            IpcWriter.WriteRows(memory, rows, new IpcWriteOptions { Compression = Lz4FrameCompression.Instance, MaxDegreeOfParallelism = 4, LeaveOpen = true });
+            IpcWriter.WriteRows(memory, rows, new IpcWriteOptions { Compression = Lz4FrameCompression.Instance, MaxDegreeOfParallelism = 4, LeaveOpen = true,
+                StreamBodyFrom = streamBodyFrom });
             return memory.ToArray();
         }
     }

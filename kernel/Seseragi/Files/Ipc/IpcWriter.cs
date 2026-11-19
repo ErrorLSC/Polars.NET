@@ -11,10 +11,11 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// little-endian, buffers 64-byte aligned, optional LZ4 frame or Zstandard compression of each buffer. Arrays are
 /// written from where they are: sliced arrays as their own rows. Dictionary-encoded columns write their dictionary
 /// once, then only what changes: a delta when a batch's dictionary extends the last one, else (the stream format only)
-/// a replacement. With compression, each batch is compressed before <see cref="Write(RecordBatch)"/> returns, then
-/// written to the stream while the next one is compressed (a cancellation token then covers the compression, not that
-/// write): a failure of the stream then surfaces from the next call (<see cref="Write(RecordBatch)"/>,
-/// <see cref="Complete"/>). Not thread-safe.
+/// a replacement. With compression, each batch is compressed before <see cref="Write(RecordBatch)"/> returns and
+/// written to the stream behind, as it is compressed (a cancellation token then covers neither): a failure of the
+/// stream then surfaces from the next call (<see cref="Write(RecordBatch)"/>, <see cref="Complete"/>). On a seekable
+/// stream, a large record batch is written buffer by buffer while the rest is compressed, its metadata last, over a
+/// placeholder. Not thread-safe.
 /// </summary>
 public sealed class IpcWriter : IDisposable, IAsyncDisposable
 {
@@ -282,41 +283,21 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         }
         CheckWritable();
         await StartAsync(useAsync, ct).ConfigureAwait(false);
+        if (_options.Compression.IpcCodec != IpcCompression.None)
+        {
+            await WriteBehindAsync(batch, metadata, useAsync).ConfigureAwait(false);
+            return;
+        }
         // Encoding refuses a batch that does not fit before anything is written: the output stays valid.
         List<IpcOutgoingMessage> messages = _encoder.Batch(batch, metadata?.ToList(), _planned);
-        bool handed = false;
         try
         {
-            bool behind = _options.Compression.IpcCodec != IpcCompression.None;
-            if (behind)
-            {
-                // The messages own their bytes from here: the caller may dispose the batch once this returns.
-                foreach (IpcOutgoingMessage message in messages) message.Body?.Own();
-            }
             foreach (IpcOutgoingMessage message in messages)
             {
                 (message.IsDictionary ? _dictionaryBlocks : _batchBlocks).Add(new IpcBlock(_planned, message.Metadata.Length, message.BodyLength));
-                _planned += message.Metadata.Length + message.BodyLength;
+                _planned += message.Size;
+                await WriteMessageAsync(message, useAsync, ct).ConfigureAwait(false);
             }
-            await WaitBehindAsync(useAsync).ConfigureAwait(false);
-            if (behind)
-            {
-                _pending = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // Not the caller's token: that call has returned; the batch is the writer's to write now.
-                        foreach (IpcOutgoingMessage message in messages) await WriteMessageAsync(message, useAsync, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        foreach (IpcOutgoingMessage message in messages) message.Dispose();
-                    }
-                }, CancellationToken.None);
-                handed = true;
-                return;
-            }
-            foreach (IpcOutgoingMessage message in messages) await WriteMessageAsync(message, useAsync, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -325,11 +306,42 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         }
         finally
         {
-            if (!handed)
-            {
-                foreach (IpcOutgoingMessage message in messages) message.Dispose();
-            }
+            foreach (IpcOutgoingMessage message in messages) message.Dispose();
         }
+    }
+
+    /// <summary>
+    /// <see cref="BatchOwnership.Caller"/> with compression: the batch's messages are compressed here (the caller's
+    /// arrays are read until this returns; what is kept of them is copied) and written behind, after the batch before,
+    /// each as soon as it is compressed (a large record batch even buffer by buffer: <see cref="Streams"/>). A failure
+    /// of the batch before is thrown here, as is a failure of this batch's writing that stops its compression; a later
+    /// one surfaces from the next call.
+    /// </summary>
+    private async ValueTask WriteBehindAsync(RecordBatch batch, IReadOnlyDictionary<string, string>? metadata, bool useAsync)
+    {
+        // Encoding refuses a batch that does not fit before anything is written: the output stays valid.
+        List<IpcOutgoingMessage> messages = _encoder.Prepare(batch, metadata?.ToList());
+        if (Streams(messages[^1])) messages[^1].StreamBody();
+        Task? previous = _pending;
+        var compressed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stop = new CancellationTokenSource();
+        CancellationToken token = stop.Token;
+        Task written = Task.Run(() => WriteMessagesAsync(previous, compressed.Task, stop, messages, null, useAsync));
+        _pending = written;
+        try
+        {
+            IpcOutgoingMessage.CompressAll(messages, _encoder.CompressionSettings, true, token);
+        }
+        catch
+        {
+            compressed.SetResult();
+            _faulted = true;
+            await ((Task)written).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (written.IsFaulted && token.IsCancellationRequested) await written.ConfigureAwait(false); // the write failed first: its failure
+            throw;
+        }
+        compressed.SetResult();
+        if (previous is not null) await WaitAsync(previous, useAsync, default).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -370,42 +382,108 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
             batch.Dispose();
             throw;
         }
-        var (level, parallelism, zstdFrames) = _encoder.CompressionSettings;
-        Task compressed = Task.Run(() =>
-        {
-            foreach (IpcOutgoingMessage message in messages) message.Compress(level, parallelism, zstdFrames);
-        });
-        _chain = WriteInOrderAsync(_chain, compressed, messages, batch, useAsync);
+        if (Streams(messages[^1])) messages[^1].StreamBody();
+        var settings = _encoder.CompressionSettings;
+        var stop = new CancellationTokenSource();
+        CancellationToken token = stop.Token;
+        Task compressed = Task.Run(() => IpcOutgoingMessage.CompressAll(messages, settings, false, token));
+        Task previous = _chain;
+        _chain = Task.Run(() => WriteMessagesAsync(previous, compressed, stop, messages, batch, useAsync));
         _ahead.Enqueue((_chain, bytes));
         _aheadBytes += bytes;
     }
 
     /// <summary>
-    /// Writes a batch's messages once it is compressed and every earlier batch written (an earlier failure fails it
-    /// too, unwritten), framing them where they land; then frees them and the batch (never under a running compression).
+    /// Whether a record batch is written as its buffers are compressed (<see cref="WriteStreamedAsync"/>): compressed,
+    /// large enough, and an output that can go back to write its metadata.
     /// </summary>
-    private async Task WriteInOrderAsync(Task previous, Task compressed, List<IpcOutgoingMessage> messages, RecordBatch batch, bool useAsync)
+    private bool Streams(IpcOutgoingMessage recordBatch) =>
+        _options.Compression.IpcCodec != IpcCompression.None && _stream.CanSeek && recordBatch.RawBytes >= _options.StreamBodyFrom;
+
+    /// <summary>
+    /// Writes a batch's messages after the batches before it (an earlier failure fails it too, unwritten), each once
+    /// compressed (a streamed one buffer by buffer), framing them where they land. A failure stops the compression.
+    /// Once the compression has ended, frees the messages and the batch (when the writer took it).
+    /// </summary>
+    private async Task WriteMessagesAsync(Task? previous, Task compressed, CancellationTokenSource stop, List<IpcOutgoingMessage> messages,
+        RecordBatch? batch, bool useAsync)
     {
         try
         {
-            await ((Task)previous).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            await compressed.ConfigureAwait(false);
-            if (previous.IsFaulted) await previous.ConfigureAwait(false); // rethrows the earlier failure
+            if (previous is not null)
+            {
+                await ((Task)previous).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                if (previous.IsFaulted) await previous.ConfigureAwait(false); // rethrows the earlier failure
+            }
             if (_stopping) return;
             foreach (IpcOutgoingMessage message in messages)
             {
+                if (message.Streamed is not null)
+                {
+                    await WriteStreamedAsync(message, useAsync).ConfigureAwait(false);
+                    continue;
+                }
+                await message.Compressed.ConfigureAwait(false);
                 message.Frame(_planned);
                 (message.IsDictionary ? _dictionaryBlocks : _batchBlocks).Add(new IpcBlock(_planned, message.Metadata.Length, message.BodyLength));
                 _planned += message.Size;
                 await WriteMessageAsync(message, useAsync, CancellationToken.None).ConfigureAwait(false);
             }
         }
+        catch
+        {
+            stop.Cancel();
+            throw;
+        }
         finally
         {
-            await ((Task)compressed).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await compressed.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             foreach (IpcOutgoingMessage message in messages) message.Dispose();
-            batch.Dispose();
+            batch?.Dispose();
+            stop.Dispose();
         }
+    }
+
+    /// <summary>
+    /// A record batch written as its buffers are compressed: a placeholder metadata (as long as the real one), then each
+    /// buffer as soon as it and those before it are compressed, freed once written; then the metadata over the
+    /// placeholder. The bytes are those written once compressed.
+    /// </summary>
+    private async ValueTask WriteStreamedAsync(IpcOutgoingMessage message, bool useAsync)
+    {
+        IpcBodyStream body = message.Streamed!;
+        long origin = _stream.Position, start = _planned;
+        byte[] placeholder = message.Placeholder(start);
+        await WriteBytesAsync(placeholder, useAsync, CancellationToken.None).ConfigureAwait(false);
+        long at = 0, next = 0; // where the bytes written end, where the next buffer goes (as IpcBatchEncoder.Layout)
+        for (int i = 0; i < body.Count; i++)
+        {
+            IpcPiece piece = await body.Ready(i).ConfigureAwait(false);
+            long offset = next;
+            next = (offset + piece.Size + IpcBatchEncoder.Alignment - 1) / IpcBatchEncoder.Alignment * IpcBatchEncoder.Alignment;
+            if (piece.Size == 0) continue;
+            await PadAsync(offset - at, useAsync, CancellationToken.None).ConfigureAwait(false);
+            if (piece.Prefixed)
+            {
+                BinaryPrimitives.WriteInt64LittleEndian(_prefix, piece.Prefix);
+                await WriteBytesAsync(_prefix, useAsync, CancellationToken.None).ConfigureAwait(false);
+            }
+            await WriteNativeAsync(piece.Pointer, piece.Length, useAsync, CancellationToken.None).ConfigureAwait(false);
+            body.Release(i);
+            at = offset + piece.Size;
+        }
+        await PadAsync(next - at, useAsync, CancellationToken.None).ConfigureAwait(false);
+        await message.Compressed.ConfigureAwait(false);
+        message.Frame(start);
+        if (message.Metadata.Length != placeholder.Length || message.BodyLength != next)
+            throw new InvalidOperationException($"The record batch was laid out otherwise than written: metadata {message.Metadata.Length} bytes for "
+                + $"{placeholder.Length}, body {message.BodyLength} bytes for {next}.");
+        long end = _stream.Position;
+        _stream.Seek(origin, SeekOrigin.Begin);
+        await WriteBytesAsync(message.Metadata, useAsync, CancellationToken.None, counted: false).ConfigureAwait(false);
+        _stream.Seek(end, SeekOrigin.Begin);
+        _batchBlocks.Add(new IpcBlock(start, message.Metadata.Length, message.BodyLength));
+        _planned += message.Size;
     }
 
     /// <summary>Waits for a batch's write; its failure faults the writer and is thrown here.</summary>
@@ -521,11 +599,12 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         }
     }
 
-    private async ValueTask WriteBytesAsync(ReadOnlyMemory<byte> bytes, bool useAsync, CancellationToken ct)
+    /// <summary>Writes bytes, counted in <see cref="BytesWritten"/> unless they overwrite bytes written before.</summary>
+    private async ValueTask WriteBytesAsync(ReadOnlyMemory<byte> bytes, bool useAsync, CancellationToken ct, bool counted = true)
     {
         if (useAsync) await _stream.WriteAsync(bytes, ct).ConfigureAwait(false);
         else _stream.Write(bytes.Span);
-        Interlocked.Add(ref _position, bytes.Length);
+        if (counted) Interlocked.Add(ref _position, bytes.Length);
     }
 
     private async ValueTask WriteNativeAsync(nint pointer, long length, bool useAsync, CancellationToken ct)

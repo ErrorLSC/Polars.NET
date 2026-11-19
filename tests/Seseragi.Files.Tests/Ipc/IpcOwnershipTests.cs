@@ -19,7 +19,7 @@ public class IpcOwnershipTests
     public static TheoryData<string> Files => [.. IpcWriterTests.Names];
 
     /// <summary>Writes a corpus file's batches again: handed over (Writer), or disposed by us after each Write (Caller).</summary>
-    private static byte[] Rewrite(string name, IpcWriteOptions options)
+    internal static byte[] Rewrite(string name, IpcWriteOptions options)
     {
         var output = new MemoryStream();
         bool owned = options.BatchOwnership == BatchOwnership.Writer;
@@ -85,7 +85,7 @@ public class IpcOwnershipTests
         }
     }
 
-    private static NativeMemoryOwner Owner(IArrowArray array)
+    internal static NativeMemoryOwner Owner(IArrowArray array)
     {
         foreach (ArrowBuffer buffer in array.Data.Buffers)
         {
@@ -95,7 +95,7 @@ public class IpcOwnershipTests
     }
 
     /// <summary>Batches of one column read into native memory of their own: what was taken is seen freed.</summary>
-    private static (Schema Schema, List<RecordBatch> Batches) Batches(int count)
+    internal static (Schema Schema, List<RecordBatch> Batches) Batches(int count)
     {
         using IpcFile file = IpcFile.Open(Path("pyarrow/many_batches.arrow"));
         using IpcReader reader = file.OpenReader(new IpcReadOptions { Columns = ["i64"], MemoryMap = IpcMemoryMap.Off, MaxDegreeOfParallelism = 1 });

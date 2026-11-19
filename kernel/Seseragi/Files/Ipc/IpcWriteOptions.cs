@@ -53,6 +53,13 @@ public sealed record IpcWriteOptions
     /// <summary>The uncompressed bytes of a Zstandard frame: larger buffers are compressed as several frames side by side (tests lower it).</summary>
     internal int ZstdFrameBytes { get; init; } = Kaminari.Sazanami.Arrow.Ipc.IpcBatchEncoder.ZstdFrameBytes;
 
+    /// <summary>
+    /// A compressed record batch of at least this many uncompressed bytes, written to a seekable output, is written as
+    /// its buffers are compressed (its metadata, which precedes the body, written over a placeholder once known); the
+    /// bytes are the same. Tests set 0 (always) or <see cref="long.MaxValue"/> (never).
+    /// </summary>
+    internal long StreamBodyFrom { get; init; } = 8L << 20;
+
     internal void Validate()
     {
         ArgumentNullException.ThrowIfNull(Compression, nameof(Compression));

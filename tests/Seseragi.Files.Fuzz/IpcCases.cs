@@ -190,6 +190,8 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
             // The writer taking the batch: it compresses several side by side (slices would share the batch's buffers: given whole).
             BatchOwnership = skip == 0 && random.Next(3) == 0 ? BatchOwnership.Writer : BatchOwnership.Caller,
             InFlightBytes = random.Next(2) == 0 ? 1 : 512L << 20,
+            // Compressed record batches written buffer by buffer as they are compressed (the output is seekable).
+            StreamBodyFrom = random.Next(2) == 0 ? 0 : long.MaxValue,
         };
         using var stream = new MemoryStream();
         using (IpcWriter writer = IpcWriter.Create(stream, batch.Schema, options))
