@@ -345,6 +345,62 @@ public sealed class IpcDatasetTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// A value that cannot be converted (milliseconds in 2300 into the dataset's nanoseconds) past the rows a limit
+    /// leaves is never met: the rows before it are read on one thread and many, numbered or not; read further, it fails
+    /// naming the file, on one thread and many alike.
+    /// </summary>
+    [Fact]
+    public async Task ARowLimit_StopsBeforeAValueThatCannotBeConverted()
+    {
+        void One(string relative, TimeUnit unit, DateTimeOffset[] values, int batchRows)
+        {
+            string path = At(relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var type = new TimestampType(unit, (string?)null);
+            var schema = new Schema([new Field("t", type, true)], null);
+            using IpcWriter writer = IpcWriter.Create(path, schema);
+            for (int at = 0; at < values.Length; at += batchRows)
+            {
+                var builder = new TimestampArray.Builder(type);
+                foreach (DateTimeOffset value in values.Skip(at).Take(batchRows)) builder.Append(value);
+                using var batch = new RecordBatch(schema, [builder.Build()], Math.Min(batchRows, values.Length - at));
+                writer.Write(batch);
+            }
+            writer.Complete();
+        }
+        DateTimeOffset day = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero), far = new(2300, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        One("lim/a.arrow", TimeUnit.Nanosecond, [day, day], 1000);
+        One("lim/b.arrow", TimeUnit.Millisecond, [.. Enumerable.Repeat(day, 5000), far, day], 10_000); // one batch, the far value at row 5000
+        One("lim/c.arrow", TimeUnit.Millisecond, [day], 1000);
+        using var dataset = IpcDataset.Open(At("lim"));
+        foreach (IpcReadOptions way in Ways)
+        {
+            foreach (string? index in (string?[])[null, "n"])
+            {
+                foreach (long limit in (long[])[10, 5002])
+                {
+                    string label = $"DOP {way.MaxDegreeOfParallelism}, {way.MemoryMap}, index {index ?? "none"}, limit {limit}";
+                    using IpcDatasetReader reader = dataset.OpenReader(way with { MaxRows = limit, RowIndexColumn = index });
+                    List<RecordBatch> batches = [];
+                    try
+                    {
+                        await foreach (RecordBatch batch in reader.ReadBatchesAsync()) batches.Add(batch);
+                    }
+                    catch (IpcFormatException e)
+                    {
+                        Assert.Fail($"{label}: {e.Message}");
+                    }
+                    Assert.Equal(limit, batches.Sum(b => (long)b.Length));
+                    foreach (RecordBatch batch in batches) batch.Dispose();
+                }
+                var error = Assert.Throws<IpcFormatException>(() => Read(dataset, way with { MaxRows = 5003, RowIndexColumn = index }));
+                Assert.StartsWith(At("lim/b.arrow"), error.Message);
+                Assert.Throws<IpcFormatException>(() => Read(dataset, way with { RowIndexColumn = index }));
+            }
+        }
+    }
+
     [Fact]
     public void Schemas_AreTheFirstFiles_UnitedByName_OrGiven()
     {

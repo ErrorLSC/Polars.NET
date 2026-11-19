@@ -135,9 +135,17 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             long? left = _options.MaxRows;
             using DictionaryUnifier? windowed = _shape.NewUnifier(); // per reading: values numbered as they come
             long next = 0; // the rows before the next unit, across the files (the row index)
-            while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } output)
+            while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } taken)
             {
-                if (Deliver(output, ref next) is { } batch) yield return _shape.Cut(batch, ref left, windowed);
+                try
+                {
+                    Output output = taken.Failure is null ? taken : await RedoAsync(taken, left, useAsync, ct).ConfigureAwait(false);
+                    if (Deliver(output, ref next, left) is { } batch) yield return _shape.Cut(batch, ref left, windowed);
+                }
+                finally
+                {
+                    if (taken.Failure is not null) taken.Dispose(); // its file's hold
+                }
             }
             yield break;
         }
@@ -163,7 +171,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 {
                     var (message, body) = await Named(i, plan.Reader.FetchAsync(b, useAsync, ct)).ConfigureAwait(false);
                     IpcDecoded decoded = Decode(plan, i, message, body, plan.FilterAfter ? long.MaxValue : remaining ?? long.MaxValue);
-                    if (Deliver(new Output(plan, i, decoded, null, 0), ref row) is { } batch) yield return _shape.Cut(batch, ref remaining, unifier);
+                    if (Deliver(new Output(plan, i, decoded, null, 0), ref row, remaining) is { } batch) yield return _shape.Cut(batch, ref remaining, unifier);
                 }
             }
             finally
@@ -258,12 +266,20 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     /// consumer) or converted already on a thread of the window (<see cref="Batch"/>; null when no row is left), or
     /// the rows of a file not read (<see cref="Rows"/>), counted for the row index.
     /// </summary>
-    private sealed record Output(FilePlan? Plan, int File, IpcDecoded? Raw, RecordBatch? Batch, long Rows) : IDisposable
+    /// <remarks>
+    /// A unit whose conversion failed on the window's thread carries the <see cref="Failure"/> instead (and its batch
+    /// number, <see cref="Unit"/>): the consumer then knows how many rows are still wanted (see <see cref="RedoAsync"/>).
+    /// </remarks>
+    private sealed record Output(FilePlan? Plan, int File, IpcDecoded? Raw, RecordBatch? Batch, long Rows, int Unit = -1, Exception? Failure = null) : IDisposable
     {
+        /// <summary>The file a failed unit keeps open for the consumer (released when the output is disposed).</summary>
+        public FileSlot? Held { get; init; }
+
         public void Dispose()
         {
             Raw?.Dispose();
             Batch?.Dispose();
+            Held?.Release();
         }
     }
 
@@ -271,7 +287,11 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     /// A unit's batch in the dataset's schema, numbered from <paramref name="next"/> (moved past the unit's rows); null
     /// when it has none (a filter kept none, or the unit is a file not read). Called in order, on the consumer.
     /// </summary>
-    private RecordBatch? Deliver(Output output, ref long next)
+    /// <remarks>
+    /// Rows past <paramref name="left"/> (those still wanted) are not converted unless the dataset filters after
+    /// converting: a value that cannot be converted beyond a row limit is never met, as on the one-thread path.
+    /// </remarks>
+    private RecordBatch? Deliver(Output output, ref long next, long? left)
     {
         if (output.Raw is not { } raw)
         {
@@ -285,11 +305,39 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             batch.Dispose();
             return null;
         }
+        if (left is long wanted && wanted < batch.Length && !plan.FilterAfter)
+        {
+            // Cut over the same memory (the slices own it from now on, as DatasetShape.Cut's do).
+            int rows = (int)wanted;
+            batch = new RecordBatch(batch.Schema, [.. batch.Arrays.Select(a => ArrowArrayFactory.Slice(a, 0, rows))], rows);
+        }
         return _shape.Convert(batch, plan.Converted, plan.FilterAfter, output.File);
     }
 
-    /// <summary>A unit decoded on a thread of the window: converted there unless rows are numbered (the consumer then does it).</summary>
-    private Output Finish(FilePlan plan, int file, IpcDecoded decoded)
+    /// <summary>
+    /// A unit whose conversion failed on a window's thread (the whole batch converted): its error, unless rows are
+    /// limited and the dataset does not filter after converting; then the unit read again for the rows still wanted
+    /// (<paramref name="left"/>) and handed over unconverted, as the one-thread path reads it (the error surfaces only
+    /// if a wanted row holds the value).
+    /// </summary>
+    private async ValueTask<Output> RedoAsync(Output failed, long? left, bool useAsync, CancellationToken ct)
+    {
+        FilePlan plan = failed.Plan!;
+        if (left is long rows && !plan.FilterAfter)
+        {
+            var (message, body) = await Named(failed.File, plan.Reader.FetchAsync(failed.Unit, useAsync, ct)).ConfigureAwait(false);
+            return new Output(plan, failed.File, Decode(plan, failed.File, message, body, rows), null, 0);
+        }
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed.Failure!);
+        return failed; // not reached
+    }
+
+    /// <summary>
+    /// A unit (record batch <paramref name="unit"/>) decoded on a thread of the window: converted there unless rows are
+    /// numbered (the consumer then does it); a conversion that fails is handed over as the unit's failure (see
+    /// <see cref="RedoAsync"/>).
+    /// </summary>
+    private Output Finish(FilePlan plan, int file, int unit, IpcDecoded decoded)
     {
         if (_indexed) return new Output(plan, file, decoded, null, 0);
         long unused = 0;
@@ -299,7 +347,14 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             batch.Dispose();
             return new Output(plan, file, null, null, 0);
         }
-        return new Output(plan, file, null, _shape.Convert(batch, plan.Converted, plan.FilterAfter, file), 0);
+        try
+        {
+            return new Output(plan, file, null, _shape.Convert(batch, plan.Converted, plan.FilterAfter, file), 0);
+        }
+        catch (IpcFormatException e)
+        {
+            return new Output(plan, file, null, null, 0, unit, e); // the batch is consumed: read again if wanted
+        }
     }
 
     /// <summary>Awaits a file's operation; its errors name the file.</summary>
@@ -332,7 +387,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>A file the window reads: its file and plan (null for a file only counted), released once its units are taken.</summary>
     private sealed class FileSlot(int index, IpcFile? file, FilePlan? plan, int units, long rows) : IDisposable
     {
-        private int _taken;
+        private int _taken, _holds;
         private bool _disposed;
 
         public int Index => index;
@@ -345,12 +400,21 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         /// <summary>The rows of a file only counted (for the row index).</summary>
         public long Rows => rows;
 
-        /// <summary>One more unit taken; true when it was the last (the slot is then disposed).</summary>
+        /// <summary>One more unit taken; true when it was the last (the slot is then disposed, once no output holds it).</summary>
         public bool Taken()
         {
             if (++_taken < Math.Max(1, units)) return false;
-            Dispose();
+            if (_holds == 0) Dispose();
             return true;
+        }
+
+        /// <summary>Keeps the file open for an output beyond its last unit taken (on the consumer, as <see cref="Taken"/>).</summary>
+        public void Hold() => _holds++;
+
+        /// <summary>An output's hold let go: the slot disposed if every unit was taken and nothing else holds it.</summary>
+        public void Release()
+        {
+            if (--_holds == 0 && _taken >= Math.Max(1, units)) Dispose();
         }
 
         public void Dispose()
@@ -432,6 +496,12 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 unit.Task = null;
                 _inFlight -= unit.Bytes;
                 _units[_head++] = null!;
+                if (output.Failure is not null)
+                {
+                    // The consumer may read the unit again: its file stays open until the output is disposed.
+                    unit.File.Hold();
+                    output = output with { Held = unit.File };
+                }
                 if (unit.File.Taken()) _live.Remove(unit.File);
             }
             return output;
@@ -487,7 +557,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             using (RequestGate.Lease lease = _gate is null ? default : await _gate.EnterAsync(slot.Index, token).ConfigureAwait(false))
                 fetched = await _owner.Named(slot.Index, plan.Reader.FetchAsync(unit.Batch, useAsync: true, token)).ConfigureAwait(false);
             IpcDecoded decoded = _owner.Decode(plan, slot.Index, fetched.Message, fetched.Body, long.MaxValue);
-            return _owner.Finish(plan, slot.Index, decoded);
+            return _owner.Finish(plan, slot.Index, unit.Batch, decoded);
         }
 
         /// <summary>Opens and plans a file on the thread pool (its dictionaries read), or counts its rows; once done, the window fills on.</summary>

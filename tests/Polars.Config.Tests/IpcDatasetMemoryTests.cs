@@ -5,6 +5,7 @@ using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Ipc;
 using Field = Apache.Arrow.Field;
+using TimeUnit = Apache.Arrow.Types.TimeUnit;
 
 namespace Polars.Config.Tests;
 
@@ -125,5 +126,60 @@ public class IpcDatasetMemoryTests
         }
         Assert.Equal(before, NativeBatchMemory.Live);
         Assert.Equal(owners, NativeMemoryOwner.Live); // file memory, unified dictionaries' blocks and the memory they remember
+    }
+
+    /// <summary>
+    /// A unit whose conversion fails on a window's thread (a value beyond the dataset's type past a row limit) is read
+    /// again by the consumer for the rows wanted, its file kept open meanwhile: nothing is left behind, whether the
+    /// rows wanted stop before the value or reach it.
+    /// </summary>
+    [Theory]
+    [InlineData(4, 10L)]
+    [InlineData(8, 5003L)]
+    [InlineData(8, null)]
+    public void AUnitReadAgainUnderARowLimit_LeavesNothingBehind(int threads, long? limit)
+    {
+        var store = new MemoryFileStore();
+        void One(string path, TimeUnit unit, DateTimeOffset[] values)
+        {
+            var type = new TimestampType(unit, (string?)null);
+            // A dictionary column too: a file's plan then holds native memory (its dictionaries) until it is freed.
+            var dictionaryType = new DictionaryType(Int32Type.Default, StringType.Default, false);
+            var schema = new Apache.Arrow.Schema([new Field("t", type, true), new Field("d", dictionaryType, true)], null);
+            var builder = new TimestampArray.Builder(type);
+            foreach (DateTimeOffset value in values) builder.Append(value);
+            var entries = new StringArray.Builder().AppendRange(["x", "y"]).Build();
+            var indices = new Int32Array.Builder().AppendRange(Enumerable.Range(0, values.Length).Select(i => i % 2)).Build();
+            using var stream = new MemoryStream();
+            using (IpcWriter writer = IpcWriter.Create(stream, schema))
+            {
+                using var batch = new RecordBatch(schema, [builder.Build(), new DictionaryArray(dictionaryType, indices, entries)], values.Length);
+                writer.Write(batch);
+                writer.Complete();
+            }
+            store.Add(path, stream.ToArray());
+        }
+        DateTimeOffset day = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero), far = new(2300, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        One("r/a.arrow", TimeUnit.Nanosecond, [day, day]);
+        for (int f = 0; f < 6; f++) One($"r/b{f}.arrow", TimeUnit.Millisecond, [.. Enumerable.Repeat(day, 5000), far, day]);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        long before = NativeBatchMemory.Live, owners = NativeMemoryOwner.Live;
+        using (var dataset = IpcDataset.Open("r/", new IpcDatasetOptions { Store = store }))
+        using (IpcDatasetReader reader = dataset.OpenReader(new IpcReadOptions { MaxDegreeOfParallelism = threads, MaxRows = limit }))
+        {
+            long rows = 0;
+            Exception? error = Record.Exception(() =>
+            {
+                foreach (RecordBatch batch in reader.ReadBatches())
+                {
+                    using (batch) rows += batch.Length;
+                }
+            });
+            if (limit is 10) Assert.Equal(10, rows);
+            else Assert.IsType<IpcFormatException>(error);
+        }
+        Assert.Equal(before, NativeBatchMemory.Live);
+        Assert.Equal(owners, NativeMemoryOwner.Live);
     }
 }
