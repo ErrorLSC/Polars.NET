@@ -13,6 +13,7 @@ public class OrderedParallelTests
     private sealed class Probe
     {
         private readonly Lock _lock = new();
+        private readonly ManualResetEventSlim _two = new();
         private int _running;
         public int MostAtOnce { get; private set; }
         public int Taken;
@@ -21,9 +22,16 @@ public class OrderedParallelTests
 
         public int Map(int item)
         {
-            lock (_lock) MostAtOnce = Math.Max(MostAtOnce, ++_running);
+            lock (_lock)
+            {
+                MostAtOnce = Math.Max(MostAtOnce, ++_running);
+                if (_running >= 2) _two.Set();
+            }
             try
             {
+                // Two maps meet here when the window lets them run at once: waited for, not left to the thread pool's
+                // timing (a busy pool may run them one after the other; a sequential map times out and fails).
+                if (item == MeetAt) _two.Wait(TimeSpan.FromSeconds(10));
                 Thread.Sleep(item % 3 == 0 ? 15 : 1); // later items finish first
                 if (item == FailAt) throw new InvalidOperationException($"map {item}");
                 return item * 10;
@@ -36,6 +44,9 @@ public class OrderedParallelTests
         }
 
         public int FailAt { get; init; } = -1;
+
+        /// <summary>The item whose map waits for a second map to run beside it (none by default).</summary>
+        public int MeetAt { get; init; } = -1;
 
         public IEnumerable<int> Source(int count, int failAfter = -1)
         {
@@ -66,7 +77,7 @@ public class OrderedParallelTests
     [InlineData(true)]
     public void Results_ComeInTheSourcesOrder_AWindowAtOnce(bool async)
     {
-        var probe = new Probe();
+        var probe = new Probe { MeetAt = 1 }; // items 1 and 2 start together once the window opens to two
         Assert.Equal(Enumerable.Range(0, 40).Select(i => i * 10), Run(async, probe.Source(40), probe.Map, 4));
         Assert.InRange(probe.MostAtOnce, 2, 4);
         Assert.Equal(40, probe.Mapped);

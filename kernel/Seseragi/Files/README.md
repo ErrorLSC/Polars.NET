@@ -303,12 +303,13 @@ checked on open (every block inside the data); `Schema` (with the schema's custo
 footer's), `BatchCount`, `ReadBatch(index)`, `GetBatchMetadata(index)` (a batch message's custom metadata). Only the
 footer locates messages: the stream embedded after the magic is never parsed (Polars writes its schema message there
 without a prefix). Data in the stream format (`.arrows`, the `.arrow` files of Hugging Face datasets) opens too
-(`IsStream`): its messages are scanned on open (their prefixes and metadata, bodies passed over by their length: in place
-in memory, through the mapping of a file opened by path — the mapping its reader then shares; a dataset reader with
-`MemoryMap.Off` does not map —, else 64 KiB reads locally, 1 MiB on a store; open a `Stream` for no mapping at all),
-giving the blocks a footer would; its batches are then read at offsets as a file's,
-each with the dictionaries the stream sent before it. A missing end-of-stream marker ends it; data ending inside a
-message is refused. Feather v1 files and other data are refused by name.
+(`IsStream`): its schema message is read on open, its other messages scanned as far as reading needs them (their
+prefixes and metadata, bodies passed over by their length: in place in memory, through the mapping of a file opened by
+path — the mapping its reader then shares; a dataset reader with `MemoryMap.Off` does not map —, else 64 KiB reads
+locally, 1 MiB on a store; open a `Stream` for no mapping at all), the whole stream when `BatchCount` is asked, giving
+the blocks a footer would; its batches are read at offsets as a file's, each with the dictionaries the stream sent
+before it. A read that stops early leaves the rest unscanned. A missing end-of-stream marker ends it; a damaged
+message, or data ending inside one, is an error once reading reaches it (the batches before it read). Feather v1 files and other data are refused by name.
 
 **Reading** (`IpcFile.OpenReader`, `IpcReader`, `IpcReadOptions`): `ReadBatch(index)`, `ReadBatches` /
 `ReadBatchesAsync`, `ReadArrowStream`. `Columns` selects top-level columns (the buffers of the others are never read,
@@ -342,8 +343,10 @@ columns sharing a name are refused. Batches of several files are read and decode
 opened and their dictionaries read ahead, requests to remote stores bounded apart; on one thread from local files, file
 after file. Rows are numbered across the files (files left out by their partitions counted, their batches' messages
 read only then); on a store a file opens with one read of its tail, a large file's footer kept between reads. Files in
-the stream format join any dataset, beside files (told apart by their content, not their extension): scanned on open,
-their scans kept on stores between reads (with their versions), counted from their scans for the row index. Typed
+the stream format join any dataset, beside files (told apart by their content, not their extension): scanned in the
+background once opened, a chunk at a time, their batches joining the read as they are found (a read that stops early
+stops their scans), their whole scans kept on stores between reads (with their versions), counted from their scans for
+the row index. Typed
 rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`.
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;

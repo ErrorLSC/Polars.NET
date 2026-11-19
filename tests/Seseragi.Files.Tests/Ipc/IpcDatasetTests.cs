@@ -427,6 +427,75 @@ public sealed class IpcDatasetTests : IDisposable
     }
 
     /// <summary>
+    /// Streams of every length around the units read ahead (no batch at all, an empty one, one, a window's worth and one
+    /// more, several windows)
+    /// read alike on every way (one file open at a time too), rows numbered and limited anywhere: their units join the
+    /// window as their scans find them, the files after a stream once its scan is over.
+    /// </summary>
+    [Fact]
+    public void StreamsOfEveryLength_ReadAlike_AsTheirScansFindTheirBatches()
+    {
+        int[] batches = [0, 1, 4, 5, 16, 17, 33, 2];
+        List<(long, int)> files = [];
+        for (int f = 0; f < batches.Length; f++)
+        {
+            Write($"len/f{f}.arrows", f * 1000L, batches[f] * 3, batchRows: 3, stream: true);
+            files.Add((f * 1000L, batches[f] * 3));
+        }
+        var schema = new Schema([new Field("id", Int64Type.Default, true), new Field("name", StringType.Default, true)], null);
+        using (IpcWriter empty = IpcWriter.Create(At("len/e.arrows"), schema, new IpcWriteOptions { Format = IpcFormat.Stream })) empty.Complete(); // no batch at all
+        using var all = IpcDataset.Open(At("len"));
+        using var oneAtATime = IpcDataset.Open(At("len"), new IpcDatasetOptions { MaxFilesInFlight = 1 }); // a file is let go before the next opens
+        List<string> expected = Expected([.. files]);
+        List<string> indexed = [.. expected.Select((row, i) => $"{i}|{row}")];
+        foreach (var (dataset, way) in (IEnumerable<(IpcDataset, IpcReadOptions)>)[.. Ways.Select(w => (all, w)), (all, new() { MaxDegreeOfParallelism = 16 }),
+            (oneAtATime, new() { MaxDegreeOfParallelism = 4 })])
+        {
+            string how = $"DOP {way.MaxDegreeOfParallelism}, map {way.MemoryMap}, {(dataset == all ? "files ahead" : "one file at a time")}";
+            // Read again and again: the window joins units while scans go on beside it (races show only now and then).
+            for (int round = 0; round < 5; round++) Assert.True(expected.SequenceEqual(Read(dataset, way)), how);
+            Assert.True(indexed.SequenceEqual(Read(dataset, way with { RowIndexColumn = "i" })), how + ", indexed");
+            foreach (int rows in (int[])[1, 13, 50, expected.Count - 1])
+                Assert.True(indexed.Take(rows).SequenceEqual(Read(dataset, way with { RowIndexColumn = "i", MaxRows = rows })), $"{how}, {rows} rows");
+        }
+    }
+
+    /// <summary>
+    /// A stream damaged midway, between good files: its rows before the damage are read on every way, then the error,
+    /// naming the file; numbered rows count up to it.
+    /// </summary>
+    [Fact]
+    public void ADamagedStream_ReadsUpToTheDamage_NamingTheFile()
+    {
+        Write("dmg/a.arrows", 0, 10, batchRows: 5, stream: true);
+        string damaged = Write("dmg/b.arrows", 100, 60, batchRows: 5, stream: true);
+        Write("dmg/c.arrows", 200, 10, batchRows: 5, stream: true);
+        long cut;
+        using (IpcFile intact = IpcFile.Open(damaged))
+        {
+            Assert.Equal(12, intact.BatchCount);
+            cut = intact.Stream!.BatchAt(7).Block.Offset + 10; // inside the metadata of the eighth batch
+        }
+        File.WriteAllBytes(damaged, File.ReadAllBytes(damaged)[..(int)cut]);
+        using var dataset = IpcDataset.Open(At("dmg"));
+        List<string> before = Expected((0, 10), (100, 35));
+        foreach (IpcReadOptions way in (IpcReadOptions[])[.. Ways, new() { MaxDegreeOfParallelism = 16 }])
+        {
+            foreach (string? index in (string?[])[null, "i"])
+            {
+                List<string> rows = [];
+                var error = Assert.Throws<IpcFormatException>(() =>
+                {
+                    using IpcDatasetReader reader = dataset.OpenReader(way with { RowIndexColumn = index });
+                    foreach (RecordBatch batch in reader.ReadBatches()) rows.AddRange(Rows([batch]));
+                });
+                Assert.StartsWith(damaged, error.Message);
+                Assert.Equal(index is null ? before : [.. before.Select((row, i) => $"{i}|{row}")], rows);
+            }
+        }
+    }
+
+    /// <summary>
     /// Stream files in Hive partitions: pruned by a filter on them, never opened unless rows are numbered (then scanned
     /// for their rows: a damaged one fails, named); rows numbered across stream and file formats alike.
     /// </summary>
@@ -601,6 +670,25 @@ public sealed class IpcDatasetTests : IDisposable
         Assert.Equal(2000, wideSet.Schema.FieldsList.Count);
         Assert.Equal(["0|1|2"], Read(wideSet, new IpcReadOptions { Columns = ["column number 0", "column number 1", "column number 2"] }));
         Assert.Equal(1, wideSet.Footers.Count);
+    }
+
+    /// <summary>
+    /// On a store, a stream's scan is kept once whole: opening the dataset reads the first stream's schema only (nothing
+    /// kept), a read to the end keeps every stream's scan, and the next read opens them from it.
+    /// </summary>
+    [Fact]
+    public void OnAStore_StreamScansAreKeptOnceWhole()
+    {
+        for (int i = 0; i < 2; i++) Write($"kept/f{i}.arrows", i * 1000L, 50, batchRows: 7, stream: true);
+        var store = new Counting(new LocalFileStore());
+        using var dataset = IpcDataset.Open(At("kept/*.arrows"), new IpcDatasetOptions { Store = store });
+        Assert.Equal(0, dataset.Footers.Count);
+        List<string> expected = Expected((0, 50), (1000, 50));
+        Assert.Equal(expected, Read(dataset));
+        Assert.Equal(2, dataset.Footers.Count);
+        int tails = store.TailReads;
+        Assert.Equal(expected, Read(dataset, new IpcReadOptions { MaxDegreeOfParallelism = 4 }));
+        Assert.Equal(tails, store.TailReads); // opened from their scans: no tail read to tell their format
     }
 
     [Fact]

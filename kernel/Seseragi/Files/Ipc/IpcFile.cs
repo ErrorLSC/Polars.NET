@@ -9,9 +9,10 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// <summary>
 /// An open Arrow IPC file (the file format: <c>.arrow</c>, Feather v2): its footer is read and checked on open. Batches
 /// are read at offsets, so a file can be shared by several readers. Data in the stream format (<c>.arrows</c>, and the
-/// <c>.arrow</c> files of Hugging Face datasets) opens too: its messages are scanned on open (their metadata only, the
-/// bodies passed over), and its batches are then read at offsets alike, each with the dictionaries the stream had sent
-/// before it (replacements and deltas included). Little-endian data only (as every current writer writes); metadata
+/// <c>.arrow</c> files of Hugging Face datasets) opens too: its schema message is read on open, its other messages are
+/// scanned as far as reading needs them (their metadata only, the bodies passed over; the whole stream when its batches
+/// are counted), and its batches are read at offsets alike, each with the dictionaries the stream had sent before it
+/// (replacements and deltas included). A damaged message of a stream is an error once reading reaches it. Little-endian data only (as every current writer writes); metadata
 /// V4 and V5; LZ4 frame and Zstandard compressed bodies.
 /// </summary>
 public sealed class IpcFile : IDisposable, IAsyncDisposable
@@ -27,28 +28,36 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
 
     private readonly IDisposable? _owned;
 
-    private IpcFile(IRandomAccess source, IDisposable? owned, IpcFooter footer, long footerStart)
+    private IpcFile(IRandomAccess source, IDisposable? owned, IpcFooter footer)
     {
         Source = source;
         _owned = owned;
         Footer = footer;
-        FooterStart = footerStart;
     }
 
-    private IpcFile(IRandomAccess source, IDisposable? owned, IpcStreamIndex stream) : this(source, owned, stream.Footer, stream.End) => Stream = stream;
+    private IpcFile(IRandomAccess source, IDisposable? owned, IpcStreamScan stream) : this(source, owned, stream.Footer) => Stream = stream;
 
     /// <summary>The scan of data in the stream format (null for the file format).</summary>
-    internal IpcStreamIndex? Stream { get; }
+    internal IpcStreamScan? Stream { get; }
 
-    /// <summary>Whether the data is in the stream format (its messages scanned on open) rather than the file format.</summary>
+    /// <summary>Whether the data is in the stream format (its messages scanned as reading needs them) rather than the file format.</summary>
     public bool IsStream => Stream is not null;
 
     internal IRandomAccess Source { get; }
 
+    /// <summary>The footer of a file; of a stream, its schema (the blocks are found by its scan: see <see cref="BatchBlock"/>).</summary>
     internal IpcFooter Footer { get; }
 
-    /// <summary>Where the footer starts: messages lie before it.</summary>
-    internal long FooterStart { get; }
+    /// <summary>Record batch <paramref name="index"/>'s block (of a stream, a batch its scan found).</summary>
+    internal IpcBlock BatchBlock(int index) => Stream is { } stream ? stream.BatchAt(index).Block : Footer.RecordBatches[index];
+
+    /// <summary>Dictionary batch <paramref name="index"/>'s block (of a stream, one its scan found).</summary>
+    internal IpcBlock DictionaryBlock(int index) => Stream is { } stream ? stream.DictionaryAt(index) : Footer.Dictionaries[index];
+
+    /// <summary>Whether record batch <paramref name="index"/> exists (a stream scanned as far as it).</summary>
+    /// <exception cref="IpcFormatException">The stream is damaged before that batch.</exception>
+    internal ValueTask<bool> HasBatchAsync(int index, bool useAsync, CancellationToken ct) =>
+        Stream is { } stream ? stream.HasBatchAsync(index, useAsync, ct) : ValueTask.FromResult(index < Footer.RecordBatches.Length);
 
     /// <summary>The schema (with the schema's custom metadata in <see cref="Schema.Metadata"/>).</summary>
     public Schema Schema => Footer.Schema.Schema;
@@ -56,8 +65,9 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     /// <summary>The custom metadata of the footer (the writer's file-level metadata); empty when it has none.</summary>
     public IReadOnlyDictionary<string, string> FileMetadata => ToDictionary(Footer.Metadata);
 
-    /// <summary>The number of record batches.</summary>
-    public int BatchCount => Footer.RecordBatches.Length;
+    /// <summary>The number of record batches (of a stream, the whole stream scanned the first time).</summary>
+    /// <exception cref="IpcFormatException">The stream is damaged.</exception>
+    public int BatchCount => Stream is { } stream ? IpcIO.Sync(stream.CountAsync(false, default)) : Footer.RecordBatches.Length;
 
     /// <summary>Opens a reader of the batches.</summary>
     /// <exception cref="ArgumentException">A column named in the options is not in the file.</exception>
@@ -111,14 +121,14 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     public IReadOnlyDictionary<string, string> GetBatchMetadata(int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, BatchCount);
-        return ToDictionary(IpcIO.Sync(IpcIO.MessageAsync(Source, Footer.RecordBatches[index], false, default)).Metadata);
+        if (!IpcIO.Sync(HasBatchAsync(index, false, default))) throw new ArgumentOutOfRangeException(nameof(index), index, "There is no such batch.");
+        return ToDictionary(IpcIO.Sync(IpcIO.MessageAsync(Source, BatchBlock(index), false, default)).Metadata);
     }
 
-    /// <summary>The rows of the file's record batches (their messages read: a request each on a store; a stream's are known from its scan).</summary>
+    /// <summary>The rows of the file's record batches (their messages read: a request each on a store; a stream's from its whole scan).</summary>
     internal async ValueTask<long> RowCountAsync(bool useAsync, CancellationToken ct)
     {
-        if (Stream is { } stream) return stream.Rows.Sum();
+        if (Stream is { } stream) return await stream.RowCountAsync(useAsync, ct).ConfigureAwait(false);
         long rows = 0;
         for (int i = 0; i < BatchCount; i++)
         {
@@ -175,7 +185,11 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         OpenCoreAsync(source, null, useAsync: true, cancellationToken);
 
     /// <inheritdoc/>
-    public void Dispose() => _owned?.Dispose();
+    public void Dispose()
+    {
+        Stream?.Dispose();
+        _owned?.Dispose();
+    }
 
     /// <inheritdoc/>
     public ValueTask DisposeAsync()
@@ -248,7 +262,7 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         long length = source.Length;
         IpcFooter parsed;
         long footerStart;
-        if (kept is { } scan && IpcStreamIndex.IsKept(scan.Span)) return new IpcFile(source, owned, IpcStreamIndex.Read(scan.Span));
+        if (kept is { } scan && IpcStreamScan.IsKept(scan.Span)) return new IpcFile(source, owned, IpcStreamScan.Read(scan.Span));
         if (kept is { } known)
         {
             footerStart = length - TailLength - known.Length;
@@ -292,7 +306,7 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
                 IpcIO.Free(head);
             }
         }
-        return new IpcFile(source, owned, parsed, footerStart);
+        return new IpcFile(source, owned, parsed);
     }
 
     private static IpcFooter Parse(ReadOnlySpan<byte> footer)
@@ -349,9 +363,10 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Data in the stream format, scanned (a continuation marker first, or a positive length before Arrow 0.15), the
-    /// scan handed as bytes to <paramref name="scanRead"/>; null when it does not start like a stream. A local file is
-    /// scanned through its mapping when <paramref name="map"/> says so (see <see cref="IpcStreamIndex.ScanAsync"/>).
+    /// Data in the stream format (a continuation marker first, or a positive length before Arrow 0.15), its schema read
+    /// and the rest scanned later, the whole scan handed as bytes to <paramref name="scanRead"/> once it reaches the end;
+    /// null when it does not start like a stream. A local file is
+    /// scanned through its mapping when <paramref name="map"/> says so (see <see cref="IpcStreamScan.OpenAsync"/>).
     /// </summary>
     private static async ValueTask<IpcFile?> TryStreamAsync(IRandomAccess source, IDisposable? owned, long length, FooterRead? scanRead, bool map,
         bool useAsync, CancellationToken ct)
@@ -370,9 +385,8 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         {
             IpcIO.Free(head);
         }
-        IpcStreamIndex index = await IpcStreamIndex.ScanAsync(source, map, useAsync, ct).ConfigureAwait(false);
-        scanRead?.Invoke(index.Write());
-        return new IpcFile(source, owned, index);
+        IpcStreamScan stream = await IpcStreamScan.OpenAsync(source, map, scanRead, useAsync, ct).ConfigureAwait(false);
+        return new IpcFile(source, owned, stream);
     }
 
     /// <summary>The error for data that does not end like an IPC file: says what it is when it can tell.</summary>

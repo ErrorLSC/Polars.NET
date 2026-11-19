@@ -212,6 +212,9 @@ public sealed class ParquetDatasetFaultTests
         /// <summary>Whether a read of a file fails (with whether it reads the file's tail: its footer).</summary>
         public Func<string, bool, bool>? FailRead { get; init; }
 
+        /// <summary>Whether a read of a file fails, by where it reads (its offset and length).</summary>
+        public Func<string, long, int, bool>? FailAt { get; init; }
+
         /// <summary>Whether a read of a file never answers (an asynchronous one until cancelled).</summary>
         public Func<string, bool, bool>? Hang { get; init; }
 
@@ -268,7 +271,7 @@ public sealed class ParquetDatasetFaultTests
             public int ReadAt(long offset, Span<byte> destination)
             {
                 bool tail = Tail(offset, destination.Length);
-                if (owner.FailRead?.Invoke(path, tail) == true) throw new IOException("connection reset");
+                if (owner.FailRead?.Invoke(path, tail) == true || owner.FailAt?.Invoke(path, offset, destination.Length) == true) throw new IOException("connection reset");
                 if (owner.Hang?.Invoke(path, tail) == true) Thread.Sleep(Timeout.Infinite); // not used: sync reads cannot be cancelled
                 if (owner.MaxDelayMs > 0) Thread.Sleep(Random.Shared.Next(owner.MaxDelayMs + 1));
                 return inner.ReadAt(offset, destination);
@@ -278,7 +281,7 @@ public sealed class ParquetDatasetFaultTests
             {
                 bool tail = Tail(offset, destination.Length);
                 await owner.Delay(cancellationToken);
-                if (owner.FailRead?.Invoke(path, tail) == true) throw new IOException("connection reset");
+                if (owner.FailRead?.Invoke(path, tail) == true || owner.FailAt?.Invoke(path, offset, destination.Length) == true) throw new IOException("connection reset");
                 if (owner.Hang?.Invoke(path, tail) == true) await Task.Delay(Timeout.Infinite, cancellationToken);
                 return await inner.ReadAtAsync(offset, destination, cancellationToken);
             }

@@ -257,37 +257,190 @@ public sealed class IpcStreamFileTests
         {
             try
             {
-                return Convert.ToHexString((await IpcStreamIndex.ScanAsync(source, map, useAsync, default)).Write());
+                using IpcStreamScan scan = await IpcStreamScan.OpenAsync(source, map, null, useAsync, default);
+                await scan.CountAsync(useAsync, default);
+                return Convert.ToHexString(scan.Write());
             }
             catch (IpcFormatException e)
             {
                 return $"refused: {e.Message}";
             }
         }
+    }
 
-        // 400 batches of 500 rows (about 3 MB: many 64 KiB and 1 MiB stretches), the dictionary replaced every 50.
-        static byte[] Generated()
+    // 400 batches of 500 rows (about 3 MB: many 64 KiB and 1 MiB stretches), the dictionary replaced every 50.
+    private static byte[] Generated()
+    {
+        var type = new DictionaryType(Int32Type.Default, StringType.Default, false);
+        var schema = new Schema([new Field("i", Int64Type.Default, true), new Field("s", StringType.Default, true), new Field("d", type, true)], null);
+        using var bytes = new MemoryStream();
+        using (IpcWriter writer = IpcWriter.Create(bytes, schema, new IpcWriteOptions { Format = IpcFormat.Stream }))
         {
-            var type = new DictionaryType(Int32Type.Default, StringType.Default, false);
-            var schema = new Schema([new Field("i", Int64Type.Default, true), new Field("s", StringType.Default, true), new Field("d", type, true)], null);
-            using var bytes = new MemoryStream();
-            using (IpcWriter writer = IpcWriter.Create(bytes, schema, new IpcWriteOptions { Format = IpcFormat.Stream }))
+            for (int b = 0; b < 400; b++)
             {
-                for (int b = 0; b < 400; b++)
-                {
-                    var entries = new StringArray.Builder().AppendRange(Enumerable.Range(0, 3).Select(i => $"e{b / 50}_{i}")).Build();
-                    using var batch = new RecordBatch(schema,
-                    [
-                        new Int64Array.Builder().AppendRange(Enumerable.Range(b * 500, 500).Select(i => (long)i)).Build(),
-                        new StringArray.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => $"row {b}:{i}")).Build(),
-                        new DictionaryArray(type, new Int32Array.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => i % 3)).Build(), entries),
-                    ], 500);
-                    writer.Write(batch);
-                }
-                writer.Complete();
+                var entries = new StringArray.Builder().AppendRange(Enumerable.Range(0, 3).Select(i => $"e{b / 50}_{i}")).Build();
+                using var batch = new RecordBatch(schema,
+                [
+                    new Int64Array.Builder().AppendRange(Enumerable.Range(b * 500, 500).Select(i => (long)i)).Build(),
+                    new StringArray.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => $"row {b}:{i}")).Build(),
+                    new DictionaryArray(type, new Int32Array.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => i % 3)).Build(), entries),
+                ], 500);
+                writer.Write(batch);
             }
-            return bytes.ToArray();
+            writer.Complete();
         }
+        return bytes.ToArray();
+    }
+
+    /// <summary>
+    /// A stream opens by its schema message and is scanned as far as reading needs (seen in the reads of a store): a
+    /// read of one row on one thread or several, and a batch read at random near the start, leave the rest unread;
+    /// counting its batches scans it whole, once; the whole scan is handed over once, when the scan reaches the end. A
+    /// local file closed before its scan is over is unmapped.
+    /// </summary>
+    [Fact]
+    public async Task AStream_IsScannedAsFarAsReadingNeeds()
+    {
+        byte[] bytes = Generated();
+        var source = new Parquet.ParquetPruningTests.RecordingSource(bytes);
+        int handed = 0;
+        await using IpcFile file = await IpcFile.OpenOwnedAsync(source, null, _ => Interlocked.Increment(ref handed), map: true, useAsync: true, default);
+        long middle = bytes.Length / 2; // past the first stretch read (1 MiB), before the tail read on open (64 KiB)
+        bool Touched()
+        {
+            lock (source.Reads) return source.Reads.Any(r => r.Offset <= middle && middle < r.Offset + r.Length);
+        }
+        foreach (int threads in (int[])[1, 4])
+        {
+            using IpcReader reader = file.OpenReader(new IpcReadOptions { MaxRows = 1, MaxDegreeOfParallelism = threads });
+            Assert.Equal(1, reader.ReadBatches().Sum(b => { using (b) return b.Length; }));
+        }
+        using (RecordBatch batch = file.ReadBatch(3)) Assert.Equal(500, batch.Length);
+        Assert.False(Touched());
+        Assert.Equal(0, handed);
+        Assert.Equal(400, file.BatchCount);
+        Assert.True(Touched());
+        Assert.Equal(1, handed);
+        Assert.Equal(400, file.BatchCount);
+        Assert.Equal(1, handed);
+
+        // A local file opened by path, read for one row: closing it unmaps it (its unfinished scan let go of the mapping).
+        string path = Path.Combine(Directory.CreateTempSubdirectory("seseragi-ipc-lazy-").FullName, "s.arrows");
+        try
+        {
+            await File.WriteAllBytesAsync(path, bytes);
+            Kaminari.Sazanami.Buffers.MappedFile? map;
+            using (IpcFile local = IpcFile.Open(path))
+            {
+                using (IpcReader reader = local.OpenReader(new IpcReadOptions { MaxRows = 1 }))
+                    Assert.Equal(1, reader.ReadBatches().Sum(b => { using (b) return b.Length; }));
+                Assert.False(local.Stream!.Complete);
+                map = ((RandomAccessSource)local.Source).Map(out _);
+            }
+            Assert.False(map!.TryAcquire());
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A stream damaged midway (cut inside a message) opens; read in order on one thread or several, synchronously or
+    /// not, it gives the batches before the damage, then the error; batches before it read at random, those past it and
+    /// counting the batches fail.
+    /// </summary>
+    [Fact]
+    public async Task ADamagedStream_ReadsUpToTheDamage()
+    {
+        byte[] whole = Generated();
+        long cut;
+        using (IpcFile intact = IpcFile.Open(whole))
+        {
+            Assert.Equal(400, intact.BatchCount);
+            cut = intact.Stream!.BatchAt(200).Block.Offset + 10;
+        }
+        using IpcFile file = IpcFile.Open(whole[..(int)cut]);
+        foreach (int threads in (int[])[1, 4])
+        {
+            foreach (bool useAsync in (bool[])[false, true])
+            {
+                using IpcReader reader = file.OpenReader(new IpcReadOptions { MaxDegreeOfParallelism = threads });
+                long rows = 0;
+                var error = await Assert.ThrowsAsync<IpcFormatException>(async () =>
+                {
+                    if (useAsync)
+                    {
+                        await foreach (RecordBatch batch in reader.ReadBatchesAsync()) using (batch) rows += batch.Length;
+                    }
+                    else
+                    {
+                        foreach (RecordBatch batch in reader.ReadBatches()) using (batch) rows += batch.Length;
+                    }
+                });
+                Assert.Equal(200 * 500, rows);
+                Assert.Contains("ends inside", error.Message);
+            }
+        }
+        using (RecordBatch batch = file.ReadBatch(199)) Assert.Equal(500, batch.Length);
+        Assert.Throws<IpcFormatException>(() => file.ReadBatch(200));
+        Assert.Throws<IpcFormatException>(() => file.BatchCount);
+    }
+
+    /// <summary>
+    /// A stream on a store whose reads past the first stretch (1 MiB) fail: read in order on one thread or several, it
+    /// gives every batch the first stretch shows (a read failing beyond the batch asked for waits until it is needed),
+    /// then the store's error.
+    /// </summary>
+    [Fact]
+    public async Task AStreamWhoseReadsFailMidway_GivesTheBatchesFoundFirst()
+    {
+        byte[] bytes = Generated();
+        int found;
+        using (IpcFile intact = IpcFile.Open(bytes))
+        {
+            Assert.Equal(400, intact.BatchCount);
+            found = Enumerable.Range(0, 400).Count(i => intact.Stream!.BatchAt(i).Block is var b && b.Offset + b.MetadataLength <= 1 << 20);
+        }
+        Assert.InRange(found, 2, 399);
+        foreach (int threads in (int[])[1, 4])
+        {
+            foreach (bool useAsync in (bool[])[false, true])
+            {
+                using IpcFile file = await IpcFile.OpenAsync(new FailingPast(bytes, 1 << 20));
+                using IpcReader reader = file.OpenReader(new IpcReadOptions { MaxDegreeOfParallelism = threads });
+                long rows = 0;
+                await Assert.ThrowsAsync<IOException>(async () =>
+                {
+                    if (useAsync)
+                    {
+                        await foreach (RecordBatch batch in reader.ReadBatchesAsync()) using (batch) rows += batch.Length;
+                    }
+                    else
+                    {
+                        foreach (RecordBatch batch in reader.ReadBatches()) using (batch) rows += batch.Length;
+                    }
+                });
+                Assert.Equal(found * 500L, rows);
+            }
+        }
+    }
+
+    /// <summary>A store's object whose stretches read past <paramref name="limit"/> (reads of a whole stretch, by the scan) fail.</summary>
+    private sealed class FailingPast(byte[] bytes, int limit) : IRandomAccess
+    {
+        public long Length => bytes.Length;
+
+        public int ReadAt(long offset, Span<byte> destination)
+        {
+            if (offset > 0 && destination.Length == limit) throw new IOException("connection reset");
+            int count = (int)Math.Clamp(bytes.Length - offset, 0, destination.Length);
+            bytes.AsSpan((int)offset, count).CopyTo(destination);
+            return count;
+        }
+
+        public ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(ReadAt(offset, destination.Span));
     }
 
     [Fact]

@@ -240,6 +240,26 @@ public sealed class IpcDatasetFaultTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// A stream file on a store whose scan fails past its first stretch (1 MiB: the scan goes on in the background while
+    /// its batches are read): the rows of the batches found before are read, in order, then the error, naming the file.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Modes))]
+    public async Task AStreamWhoseScanFailsMidway_SurfacesInOrder_NamingTheFile(int threads, bool async)
+    {
+        var memory = new MemoryFileStore();
+        memory.Add("big/f0.arrow", File(0, dictionary: false, rows: 400_000, first: 0, stream: true));
+        memory.Add("big/f1.arrow", File(1, dictionary: false, first: 400_000));
+        var store = new FaultStore(memory) { FailAt = (path, offset, length) => path == "big/f0.arrow" && offset > 0 && length == 1 << 20 };
+        var (ids, error) = await Read(store, threads, async, root: "big/");
+        Assert.IsAssignableFrom<IOException>(error);
+        Assert.Contains("big/f0.arrow", error!.Message);
+        Assert.Equal(Enumerable.Range(0, ids.Count).Select(i => (long)i), ids);
+        Assert.InRange(ids.Count, BatchRows, 400_000 - BatchRows);
+        await store.Settled();
+    }
+
     /// <summary>A read that never answers ends with the caller's cancellation, and leaves nothing open.</summary>
     [Theory]
     [InlineData(1)]

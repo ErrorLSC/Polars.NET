@@ -15,12 +15,12 @@ internal sealed class OrderedWindow<T> : IDisposable where T : class, IDisposabl
     private readonly int _window;
     private readonly long _budget;
     private readonly CancellationTokenSource _cancel;
-    private readonly Task<T>?[] _tasks;
+    private Task<T>?[] _tasks;
     private int _started, _open = 1;
     private long _inFlight;
     private bool _disposed;
 
-    /// <param name="count">The number of items.</param>
+    /// <param name="count">The number of items (more may come: see <see cref="Grow"/>).</param>
     /// <param name="start">Starts item <c>i</c> (called on the consumer's thread; the work belongs on the pool).</param>
     /// <param name="window">The most items started and not yet taken.</param>
     /// <param name="size">The size of item <c>i</c> counted against <paramref name="budget"/>.</param>
@@ -37,6 +37,13 @@ internal sealed class OrderedWindow<T> : IDisposable where T : class, IDisposabl
         _budget = budget;
         _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _tasks = new Task<T>?[count];
+    }
+
+    /// <summary>More items: <paramref name="count"/> in all (a source that finds its items as they are read); fewer change nothing.</summary>
+    public void Grow(int count)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (count > _tasks.Length) Array.Resize(ref _tasks, count);
     }
 
     /// <summary>
