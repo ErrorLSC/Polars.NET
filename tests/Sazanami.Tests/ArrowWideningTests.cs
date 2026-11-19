@@ -228,6 +228,10 @@ public class ArrowWideningTests
         // Decimal256 sources too.
         var back = (Decimal256Array)Compile(huge.Data.DataType, new Decimal256Type(50, 12)).Convert(huge);
         Assert.Equal("-9999999.990000000000", back.GetString(2));
+        // Into Decimal128 from Decimal256 whose digits fit (fuzz seed 20261127).
+        var narrow256 = new Decimal256Array.Builder(new Decimal256Type(30, 4)).Append(1.2345m).AppendNull().Append(-12345678901234567890.1234m).Build();
+        var into128 = (Decimal128Array)Compile(narrow256.Data.DataType, new Decimal128Type(38, 6)).Convert(narrow256);
+        Assert.Equal(["1.234500", null, "-12345678901234567890.123400"], Enumerable.Range(0, 3).Select(into128.GetString));
     }
 
     [Fact]
@@ -435,6 +439,9 @@ public class ArrowWideningTests
             new MapType(new Field("key", StringType.Default, false), new Field("value", Dictionary(Int8Type.Default, StringType.Default), true)),
             new FixedSizeListType(new Field("item", Dictionary(UInt8Type.Default, StringType.Default), true), 2),
             new ListViewType(new Field("item", Dictionary(Int8Type.Default, StringType.Default), true)),
+            new IntervalType(IntervalUnit.YearMonth), new IntervalType(IntervalUnit.DayTime), new IntervalType(IntervalUnit.MonthDayNanosecond),
+            new Decimal32Type(9, 2), new Decimal64Type(18, 3), new FixedSizeBinaryType(5), BooleanType.Default, DurationType.Microsecond,
+            new StructType([new Field("i", new IntervalType(IntervalUnit.MonthDayNanosecond), true)]),
         ];
         foreach (IArrowType type in counted)
         {

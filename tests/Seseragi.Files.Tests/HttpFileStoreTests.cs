@@ -35,12 +35,16 @@ public sealed class HttpFileStoreTests
     }
 
     /// <summary>An Arrow IPC file of the same columns (four batches; <paramref name="large"/>: uncompressed, beyond the first tail read).</summary>
-    private static byte[] Ipc(long first, int rows, bool large = false)
+    private static byte[] Ipc(long first, int rows, bool large = false, bool streamFormat = false)
     {
         var schema = new Apache.Arrow.Schema([new Field("id", Int64Type.Default, true), new Field("s", StringType.Default, true)], null);
         using var stream = new MemoryStream();
         using (var writer = Kaminari.Seseragi.Files.Ipc.IpcWriter.Create(stream, schema,
-            new Kaminari.Seseragi.Files.Ipc.IpcWriteOptions { Compression = large ? NoCompression.Instance : new ZstandardCompression() }))
+            new Kaminari.Seseragi.Files.Ipc.IpcWriteOptions
+            {
+                Compression = large ? NoCompression.Instance : new ZstandardCompression(),
+                Format = streamFormat ? Kaminari.Seseragi.Files.Ipc.IpcFormat.Stream : Kaminari.Seseragi.Files.Ipc.IpcFormat.File,
+            }))
         {
             int batchRows = Math.Max(1, rows / 4);
             for (long at = first; at < first + rows; at += batchRows)
@@ -60,12 +64,17 @@ public sealed class HttpFileStoreTests
         return bytes;
     }
 
-    private static byte[] File(string format, long first, int rows, bool large = false) => format == "ipc" ? Ipc(first, rows, large) : Parquet(first, rows, large);
+    private static byte[] File(string format, long first, int rows, bool large = false) => format switch
+    {
+        "ipc" => Ipc(first, rows, large),
+        "ipcstream" => Ipc(first, rows, large, streamFormat: true),
+        _ => Parquet(first, rows, large),
+    };
 
     /// <summary>A dataset of either format: its ids read at some threads, and its footers kept.</summary>
     private sealed class Opened(IDisposable dataset) : IDisposable
     {
-        public static Opened Of(string format, string[] paths, IFileStore? store = null) => format == "ipc"
+        public static Opened Of(string format, string[] paths, IFileStore? store = null) => format is "ipc" or "ipcstream"
             ? new(Kaminari.Seseragi.Files.Ipc.IpcDataset.Open(paths, new Kaminari.Seseragi.Files.Ipc.IpcDatasetOptions { Store = store }))
             : new(ParquetDataset.Open(paths, new ParquetDatasetOptions { Store = store }));
 
@@ -86,7 +95,7 @@ public sealed class HttpFileStoreTests
         public void Dispose() => dataset.Dispose();
     }
 
-    public static TheoryData<string> Formats => ["parquet", "ipc"];
+    public static TheoryData<string> Formats => ["parquet", "ipc", "ipcstream"];
 
     private static byte[] Bytes(int n) => [.. Enumerable.Range(0, n).Select(i => (byte)(i * 31 + 7))];
 
@@ -321,10 +330,22 @@ public sealed class HttpFileStoreTests
         using Opened dataset = Opened.Of(format, [$"http://h/d/a.{format}", $"http://h/d/b.{format}", $"http://h/d/c.{format}"], store);
         Assert.Equal(40_100, dataset.Ids(4).Count);
         int Tails() => server.Seen.Count(r => Range(r).StartsWith("bytes=-", StringComparison.Ordinal));
-        int tails = Tails();
+        int Heads() => server.Seen.Count(r => Range(r).StartsWith("bytes=0-", StringComparison.Ordinal));
+        int tails = Tails(), heads = Heads();
         Assert.Equal(40_100, dataset.Ids(4).Count);
-        Assert.Equal(tails + 1, Tails()); // only the small file's (whole) read
-        Assert.Equal(2, dataset.Footers);
+        if (format == "ipcstream")
+        {
+            // Every stream's scan is kept (it costs requests whatever its size): no request opens a file again, none
+            // scans it again from its start (its batches come later).
+            Assert.Equal(tails, Tails());
+            Assert.Equal(heads, Heads());
+            Assert.Equal(3, dataset.Footers);
+        }
+        else
+        {
+            Assert.Equal(tails + 1, Tails()); // only the small file's (whole) read
+            Assert.Equal(2, dataset.Footers);
+        }
 
         server.Put($"/d/b.{format}", File(format, 20_000, 20_000, large: true)); // replaced: another version
         var error = Assert.ThrowsAny<IOException>(() => dataset.Ids(4));
@@ -412,6 +433,29 @@ public sealed class HttpFileStoreTests
                 using (batch) count += batch.Length;
             }
             Assert.Equal(10_657, count);
+        }
+
+        // A dataset saved by Hugging Face `datasets` (save_to_disk): its .arrow files are Arrow IPC streams, scanned on
+        // open (one subject: 100 questions; every subject read twice, the second time from the scans kept; their
+        // 'correct_answer' columns differ in type between subjects, so the questions alone).
+        using var subject = Kaminari.Seseragi.Files.Ipc.IpcDataset.Open("hf://datasets/edinburgh-dawg/mmlu-redux-2.0/abstract_algebra/*.arrow");
+        Assert.Equal(100, Count(subject, 1));
+        using var mmlu = Kaminari.Seseragi.Files.Ipc.IpcDataset.Open("hf://datasets/edinburgh-dawg/mmlu-redux-2.0/*/data-00000-of-00001.arrow");
+        Assert.True(mmlu.Files.Count >= 50, $"{mmlu.Files.Count} subjects");
+        long all = Count(mmlu, 8);
+        Assert.True(all >= 100 * mmlu.Files.Count / 2, $"{all} questions");
+        Assert.Equal(all, Count(mmlu, 8));
+        Assert.Equal(mmlu.Files.Count, mmlu.Footers.Count);
+
+        static long Count(Kaminari.Seseragi.Files.Ipc.IpcDataset dataset, int threads)
+        {
+            using var reader = dataset.OpenReader(new Kaminari.Seseragi.Files.Ipc.IpcReadOptions { MaxDegreeOfParallelism = threads, Columns = ["question"] });
+            long rows = 0;
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch) rows += batch.Length;
+            }
+            return rows;
         }
     }
 }

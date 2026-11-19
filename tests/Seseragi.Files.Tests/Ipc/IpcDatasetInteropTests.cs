@@ -212,8 +212,63 @@ public sealed class IpcDatasetInteropTests : IDisposable
             cases.Add(new(name, [Mixed(name)], unionUnified, null));
         }
 
+        await CompareCases(python, cases, "mixed");
+    }
+
+    /// <summary>
+    /// Datasets of streams (the corpus's, and the mixed-type datasets written again as streams by pyarrow), alone or
+    /// beside files, as pyarrow and Polars read each file (neither reads datasets of streams): the rows concatenated.
+    /// </summary>
+    [Fact]
+    public async Task DatasetsOfStreams_ReadAsEachFileReads()
+    {
+        if (Python is not { } python) return;
+        static string Mixed(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", "ipc", "datasets", name);
+        string Streams(string name)
+        {
+            string target = At($"streams/{name}");
+            if (!Directory.Exists(target))
+                ParquetDatasetInteropTests.Python(python, Corpus("datasets/dataset_oracle.py"), "streams", Mixed(name), target).GetAwaiter().GetResult();
+            return target;
+        }
+        IpcDatasetOptions first = new(), unified = new() { UnifyDictionaries = true }, union = new() { SchemaMode = DatasetSchemaMode.UnionByName };
+        IpcDatasetOptions unionUnified = union with { UnifyDictionaries = true };
+        string[] frames = [Corpus("polars/frame.arrows"), Corpus("polars/frame_zstd.arrows"), Corpus("polars/frame_oldest.arrows")];
+        string[] mixed = [Corpus("polars/frame_zstd.arrow"), Corpus("polars/frame_zstd.arrows"), Corpus("polars/frame_oldest.arrows"), Corpus("polars/frame_lz4.arrow")];
+        string[] codecs = [Corpus("pyarrow/lz4.arrows"), Corpus("pyarrow/zstd.arrows"), Corpus("pyarrow/lz4.arrow")];
+        List<TypeCase> cases = [];
+        foreach (var (name, inputs) in (ValueTuple<string, string[]>[])[("stream_frames", frames), ("stream_mixed", mixed), ("stream_codecs", codecs)])
+        {
+            foreach (IpcDatasetOptions options in (IpcDatasetOptions[])[first, unified, union])
+            {
+                cases.Add(new(name, inputs, options, "pyarrow_files"));
+                cases.Add(new(name, inputs, options, "polars_files"));
+            }
+        }
+        foreach (string name in (string[])["dictionary_replacement", "dictionary_delta", "dictionary"])
+        {
+            cases.Add(new($"stream_{name}", [Corpus($"pyarrow/{name}.arrows")], first, "pyarrow_files"));
+            cases.Add(new($"stream_{name}", [Corpus($"pyarrow/{name}.arrows")], unified, "pyarrow_files"));
+        }
+        // The mixed-type datasets as streams: where the files' rules read them, each file as pyarrow reads it (lists too:
+        // no dataset cast here), refused alike.
+        foreach (string name in (string[])["strings", "lists", "dictplain", "enum_same", "enum_list"])
+        {
+            cases.Add(new($"streams_{name}", [Streams(name)], first, "pyarrow_files"));
+            cases.Add(new($"streams_{name}", [Streams(name)], unionUnified, "pyarrow_files"));
+        }
+        cases.Add(new("streams_nested", [Streams("nested")], first, null));
+        cases.Add(new("streams_nested", [Streams("nested")], unified, "pyarrow_files"));
+        cases.Add(new("streams_dicts", [Streams("dicts")], unified, "pyarrow_files"));
+        cases.Add(new("streams_enum_diff", [Streams("enum_diff")], first, null));
+        await CompareCases(python, cases, "streams");
+    }
+
+    /// <summary>The cases read by the oracles (dataset_oracle.py) and by us on every way of reading; differences listed.</summary>
+    private async Task CompareCases(string python, List<TypeCase> cases, string tag)
+    {
         Dictionary<string, string[]> inputsByName = cases.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.First().Inputs);
-        string casesPath = At("mixed_cases.json"), outPath = At("mixed.json");
+        string casesPath = At($"{tag}_cases.json"), outPath = At($"{tag}.json");
         using (var stream = File.Create(casesPath))
         using (var json = new Utf8JsonWriter(stream))
         {

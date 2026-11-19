@@ -118,7 +118,9 @@ public class IpcApiTests
     [Fact]
     public void Formats_AreToldApart()
     {
-        Assert.Contains("an Arrow IPC stream, not a file", Assert.Throws<IpcFormatException>(() => IpcFile.Open(Path("pyarrow/primitives.arrows"))).Message);
+        // Streams open as files too (their messages scanned); the file format is told by its magic.
+        using (IpcFile stream = IpcFile.Open(Path("pyarrow/primitives.arrows"))) Assert.True(stream.IsStream);
+        using (IpcFile file = IpcFile.Open(Path("pyarrow/primitives.arrow"))) Assert.False(file.IsStream);
         Assert.Contains("an Arrow IPC file, not a stream", Assert.Throws<IpcFormatException>(() => IpcStreamReader.Open(File.OpenRead(Path("pyarrow/primitives.arrow")))).Message);
         Assert.Contains("Feather v1", Assert.Throws<IpcFormatException>(() => IpcFile.Open(Path("pyarrow/feather_v1.feather"))).Message);
         Assert.Contains("Feather v1", Assert.Throws<IpcFormatException>(() => IpcStreamReader.Open(File.OpenRead(Path("pyarrow/feather_v1.feather")))).Message);

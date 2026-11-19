@@ -618,7 +618,7 @@ internal static unsafe class NullArrays
     /// <summary>
     /// The nulls built here (export memory is zeroed: no bit valid, offsets and indices 0): nested types, so that their
     /// children may be of any type, dictionaries of any index and value type (over an empty dictionary), run-end
-    /// encoded nulls (one run) and unions (nulls in their first child); leaves by their builders.
+    /// encoded nulls (one run) and unions (nulls in their first child), fixed-width values zeroed; strings and binaries by their builders.
     /// </summary>
     internal static NativeCArray* Build(NativeBatchExport export, IArrowType type, int length)
     {
@@ -689,6 +689,13 @@ internal static unsafe class NullArrays
                 for (int c = 0; c < children.Length; c++) children[c] = (nint)Build(export, u.Fields[c].DataType, c == 0 ? length : 0);
                 return export.NewArray(length, 0, [(nint)typeIds, (nint)offsets], children);
             }
+            case FixedWidthType f:
+            {
+                // Any fixed width (intervals, decimals, fixed-size binaries and the rest): zeroed values, no bit valid.
+                long bytes = ((long)length * f.BitWidth + 7) / 8;
+                nint values = (nint)export.Allocate(Math.Max(1, bytes));
+                return export.NewArray(length, length, [Validity(export, length), values], []);
+            }
             default:
             {
                 using NativeColumnBuilder builder = NativeColumnBuilder.Create(type);
@@ -716,7 +723,7 @@ internal static class Decimals
         return p;
     }
 
-    /// <summary>The unscaled value of slot <paramref name="i"/> of an integer or Decimal128 array.</summary>
+    /// <summary>The unscaled value of slot <paramref name="i"/> of an integer or decimal array (a Decimal256 one narrowed).</summary>
     public static Int128 Read(IArrowType type, ArrayData data, int i) => type switch
     {
         Int8Type => ArrowConversion.Values<sbyte>(data)[i],
@@ -728,6 +735,9 @@ internal static class Decimals
         Int64Type => ArrowConversion.Values<long>(data)[i],
         UInt64Type => ArrowConversion.Values<ulong>(data)[i],
         Decimal128Type => ArrowConversion.Values<Int128>(data)[i],
+        Decimal32Type => ArrowConversion.Values<int>(data)[i],
+        Decimal64Type => ArrowConversion.Values<long>(data)[i],
+        Decimal256Type => (Int128)ReadBig(type, data, i), // narrowed: OverflowException when the value does not fit
         _ => throw new NotSupportedException(type.Name),
     };
 

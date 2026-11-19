@@ -140,7 +140,10 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 try
                 {
                     Output output = taken.Failure is null ? taken : await RedoAsync(taken, left, useAsync, ct).ConfigureAwait(false);
-                    if (Deliver(output, ref next, left) is { } batch) yield return _shape.Cut(batch, ref left, windowed);
+                    RecordBatch? delivered = Deliver(output, ref next, left);
+                    // A stream's dictionaries no later batch of the file needs are let go (units come in order).
+                    if (taken.Unit >= 0) taken.Plan!.Reader.TrimDictionaries(taken.Unit);
+                    if (delivered is { } batch) yield return _shape.Cut(batch, ref left, windowed);
                 }
                 finally
                 {
@@ -170,8 +173,10 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 for (int b = 0; b < file.BatchCount && remaining != 0; b++)
                 {
                     var (message, body) = await Named(i, plan.Reader.FetchAsync(b, useAsync, ct)).ConfigureAwait(false);
-                    IpcDecoded decoded = Decode(plan, i, message, body, plan.FilterAfter ? long.MaxValue : remaining ?? long.MaxValue);
-                    if (Deliver(new Output(plan, i, decoded, null, 0), ref row, remaining) is { } batch) yield return _shape.Cut(batch, ref remaining, unifier);
+                    IpcDecoded decoded = Decode(plan, i, b, message, body, plan.FilterAfter ? long.MaxValue : remaining ?? long.MaxValue);
+                    RecordBatch? delivered = Deliver(new Output(plan, i, decoded, null, 0), ref row, remaining);
+                    plan.Reader.TrimDictionaries(b);
+                    if (delivered is { } batch) yield return _shape.Cut(batch, ref remaining, unifier);
                 }
             }
             finally
@@ -249,11 +254,11 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>Decodes a batch fetched (up to <paramref name="rows"/> rows); errors name the file.</summary>
-    private IpcDecoded Decode(FilePlan plan, int index, IpcMessage message, IpcBody body, long rows)
+    private IpcDecoded Decode(FilePlan plan, int index, int batch, IpcMessage message, IpcBody body, long rows)
     {
         try
         {
-            return plan.Reader.Decode(message, body, rows);
+            return plan.Reader.Decode(batch, message, body, rows);
         }
         catch (IpcFormatException e)
         {
@@ -326,7 +331,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         if (left is long rows && !plan.FilterAfter)
         {
             var (message, body) = await Named(failed.File, plan.Reader.FetchAsync(failed.Unit, useAsync, ct)).ConfigureAwait(false);
-            return new Output(plan, failed.File, Decode(plan, failed.File, message, body, rows), null, 0);
+            return new Output(plan, failed.File, Decode(plan, failed.File, failed.Unit, message, body, rows), null, 0);
         }
         System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed.Failure!);
         return failed; // not reached
@@ -339,17 +344,17 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     /// </summary>
     private Output Finish(FilePlan plan, int file, int unit, IpcDecoded decoded)
     {
-        if (_indexed) return new Output(plan, file, decoded, null, 0);
+        if (_indexed) return new Output(plan, file, decoded, null, 0, unit);
         long unused = 0;
         RecordBatch batch = plan.Reader.Deliver(decoded, ref unused);
         if (batch.Length == 0 && plan.Reader.Filters)
         {
             batch.Dispose();
-            return new Output(plan, file, null, null, 0);
+            return new Output(plan, file, null, null, 0, unit);
         }
         try
         {
-            return new Output(plan, file, null, _shape.Convert(batch, plan.Converted, plan.FilterAfter, file), 0);
+            return new Output(plan, file, null, _shape.Convert(batch, plan.Converted, plan.FilterAfter, file), 0, unit);
         }
         catch (IpcFormatException e)
         {
@@ -556,7 +561,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             (IpcMessage Message, IpcBody Body) fetched;
             using (RequestGate.Lease lease = _gate is null ? default : await _gate.EnterAsync(slot.Index, token).ConfigureAwait(false))
                 fetched = await _owner.Named(slot.Index, plan.Reader.FetchAsync(unit.Batch, useAsync: true, token)).ConfigureAwait(false);
-            IpcDecoded decoded = _owner.Decode(plan, slot.Index, fetched.Message, fetched.Body, long.MaxValue);
+            IpcDecoded decoded = _owner.Decode(plan, slot.Index, unit.Batch, fetched.Message, fetched.Body, long.MaxValue);
             return _owner.Finish(plan, slot.Index, unit.Batch, decoded);
         }
 

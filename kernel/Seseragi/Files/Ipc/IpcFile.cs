@@ -8,8 +8,11 @@ namespace Kaminari.Seseragi.Files.Ipc;
 
 /// <summary>
 /// An open Arrow IPC file (the file format: <c>.arrow</c>, Feather v2): its footer is read and checked on open. Batches
-/// are read at offsets, so a file can be shared by several readers. Little-endian data only (as every current writer
-/// writes); metadata V4 and V5; LZ4 frame and Zstandard compressed bodies.
+/// are read at offsets, so a file can be shared by several readers. Data in the stream format (<c>.arrows</c>, and the
+/// <c>.arrow</c> files of Hugging Face datasets) opens too: its messages are scanned on open (their metadata only, the
+/// bodies passed over), and its batches are then read at offsets alike, each with the dictionaries the stream had sent
+/// before it (replacements and deltas included). Little-endian data only (as every current writer writes); metadata
+/// V4 and V5; LZ4 frame and Zstandard compressed bodies.
 /// </summary>
 public sealed class IpcFile : IDisposable, IAsyncDisposable
 {
@@ -31,6 +34,14 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         Footer = footer;
         FooterStart = footerStart;
     }
+
+    private IpcFile(IRandomAccess source, IDisposable? owned, IpcStreamIndex stream) : this(source, owned, stream.Footer, stream.End) => Stream = stream;
+
+    /// <summary>The scan of data in the stream format (null for the file format).</summary>
+    internal IpcStreamIndex? Stream { get; }
+
+    /// <summary>Whether the data is in the stream format (its messages scanned on open) rather than the file format.</summary>
+    public bool IsStream => Stream is not null;
 
     internal IRandomAccess Source { get; }
 
@@ -104,9 +115,10 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         return ToDictionary(IpcIO.Sync(IpcIO.MessageAsync(Source, Footer.RecordBatches[index], false, default)).Metadata);
     }
 
-    /// <summary>The rows of the file's record batches (their messages read: a request each on a store).</summary>
+    /// <summary>The rows of the file's record batches (their messages read: a request each on a store; a stream's are known from its scan).</summary>
     internal async ValueTask<long> RowCountAsync(bool useAsync, CancellationToken ct)
     {
+        if (Stream is { } stream) return stream.Rows.Sum();
         long rows = 0;
         for (int i = 0; i < BatchCount; i++)
         {
@@ -208,8 +220,8 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Opens a file of a source it then owns (disposed with it, or here when opening fails), as a dataset does: with its
-    /// footer's bytes when they were kept from before (nothing read), else handing the bytes read to
-    /// <paramref name="footerRead"/>.
+    /// footer's bytes (or a stream's scan) when they were kept from before (nothing read), else handing the bytes read
+    /// to <paramref name="footerRead"/>: a file's footer when it took a request of its own, a stream's scan always.
     /// </summary>
     internal static async ValueTask<IpcFile> OpenOwnedAsync(IRandomAccess source, ReadOnlyMemory<byte>? footer, FooterRead? footerRead, bool useAsync,
         CancellationToken ct)
@@ -232,6 +244,7 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         long length = source.Length;
         IpcFooter parsed;
         long footerStart;
+        if (kept is { } scan && IpcStreamIndex.IsKept(scan.Span)) return new IpcFile(source, owned, IpcStreamIndex.Read(scan.Span));
         if (kept is { } known)
         {
             footerStart = length - TailLength - known.Length;
@@ -241,57 +254,19 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         }
         else
         {
-            if (length < HeadLength + TailLength) throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
-            // On a store, one request for the tail and (most often) the footer; locally, the tail then the footer.
-            int guess = source is ILocalSource ? TailLength : (int)Math.Min(length, TailGuess);
-            nint tail = IpcIO.Alloc(guess);
-            try
-            {
-                await IpcIO.ReadAsync(source, length - guess, tail, guess, useAsync, ct).ConfigureAwait(false);
-                ReadOnlySpan<byte> end = IpcIO.Bytes(tail + guess - TailLength, TailLength);
-                if (!end[4..].SequenceEqual(IpcFraming.FileMagic)) throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
-                int footerLength = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(end);
-                footerStart = length - TailLength - footerLength;
-                if (footerLength <= 0 || footerStart < HeadLength)
-                    throw new IpcFormatException($"The Arrow IPC footer length ({footerLength} bytes) does not fit the {length}-byte file.");
-                if (footerLength <= guess - TailLength)
-                {
-                    ReadOnlySpan<byte> bytes = IpcIO.Bytes(tail + guess - TailLength - footerLength, footerLength);
-                    footerRead?.Invoke(bytes);
-                    parsed = Parse(bytes);
-                }
-                else
-                {
-                    nint footer = IpcIO.Alloc(footerLength);
-                    try
-                    {
-                        await IpcIO.ReadAsync(source, footerStart, footer, footerLength, useAsync, ct).ConfigureAwait(false);
-                        footerRead?.Invoke(IpcIO.Bytes(footer, footerLength));
-                        parsed = Parse(IpcIO.Bytes(footer, footerLength));
-                    }
-                    finally
-                    {
-                        IpcIO.Free(footer);
-                    }
-                }
-            }
-            finally
-            {
-                IpcIO.Free(tail);
-            }
+            // Locally the start is read first (cheap): a stream is scanned. On a store the tail comes first (a file then
+            // costs one request); its start is read only when the tail is not a file's.
+            if (source is ILocalSource { SmallReadsAreCheap: true } && await TryStreamAsync(source, owned, length, footerRead, useAsync, ct).ConfigureAwait(false) is { } local)
+                return local;
+            // A file's footer is worth keeping when it costs a request of its own (beyond the first read of the tail).
+            FooterRead? fileFooterRead = length > TailGuess ? footerRead : null;
+            if (length >= HeadLength + TailLength && await ReadFooterAsync(source, length, fileFooterRead, useAsync, ct).ConfigureAwait(false) is { } found)
+                (parsed, footerStart) = found;
+            else
+                return await TryStreamAsync(source, owned, length, footerRead, useAsync, ct).ConfigureAwait(false)
+                    ?? throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
         }
 
-        static IpcFooter Parse(ReadOnlySpan<byte> footer)
-        {
-            try
-            {
-                return IpcMetadata.ParseFooter(footer);
-            }
-            catch (InvalidDataException e)
-            {
-                throw IpcIO.Format(e);
-            }
-        }
         foreach (IpcBlock block in (IpcBlock[])[.. parsed.Dictionaries, .. parsed.RecordBatches])
         {
             if (block.Offset < HeadLength || block.MetadataLength < 8 || block.BodyLength < 0
@@ -314,6 +289,85 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
             }
         }
         return new IpcFile(source, owned, parsed, footerStart);
+    }
+
+    private static IpcFooter Parse(ReadOnlySpan<byte> footer)
+    {
+        try
+        {
+            return IpcMetadata.ParseFooter(footer);
+        }
+        catch (InvalidDataException e)
+        {
+            throw IpcIO.Format(e);
+        }
+    }
+
+    /// <summary>
+    /// A file's footer and where it starts, read from its tail (on a store, one request for the tail and most often the
+    /// footer; locally, the tail then the footer); null when the data does not end like a file.
+    /// </summary>
+    private static async ValueTask<(IpcFooter, long)?> ReadFooterAsync(IRandomAccess source, long length, FooterRead? footerRead, bool useAsync, CancellationToken ct)
+    {
+        int guess = source is ILocalSource ? TailLength : (int)Math.Min(length, TailGuess);
+        nint tail = IpcIO.Alloc(guess);
+        try
+        {
+            await IpcIO.ReadAsync(source, length - guess, tail, guess, useAsync, ct).ConfigureAwait(false);
+            ReadOnlySpan<byte> end = IpcIO.Bytes(tail + guess - TailLength, TailLength);
+            if (!end[4..].SequenceEqual(IpcFraming.FileMagic)) return null;
+            int footerLength = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(end);
+            long footerStart = length - TailLength - footerLength;
+            if (footerLength <= 0 || footerStart < HeadLength)
+                throw new IpcFormatException($"The Arrow IPC footer length ({footerLength} bytes) does not fit the {length}-byte file.");
+            if (footerLength <= guess - TailLength)
+            {
+                ReadOnlySpan<byte> bytes = IpcIO.Bytes(tail + guess - TailLength - footerLength, footerLength);
+                footerRead?.Invoke(bytes);
+                return (Parse(bytes), footerStart);
+            }
+            nint footer = IpcIO.Alloc(footerLength);
+            try
+            {
+                await IpcIO.ReadAsync(source, footerStart, footer, footerLength, useAsync, ct).ConfigureAwait(false);
+                footerRead?.Invoke(IpcIO.Bytes(footer, footerLength));
+                return (Parse(IpcIO.Bytes(footer, footerLength)), footerStart);
+            }
+            finally
+            {
+                IpcIO.Free(footer);
+            }
+        }
+        finally
+        {
+            IpcIO.Free(tail);
+        }
+    }
+
+    /// <summary>
+    /// Data in the stream format, scanned (a continuation marker first, or a positive length before Arrow 0.15), the
+    /// scan handed as bytes to <paramref name="scanRead"/>; null when it does not start like a stream.
+    /// </summary>
+    private static async ValueTask<IpcFile?> TryStreamAsync(IRandomAccess source, IDisposable? owned, long length, FooterRead? scanRead, bool useAsync,
+        CancellationToken ct)
+    {
+        if (length < 8) return null;
+        nint head = IpcIO.Alloc(8);
+        try
+        {
+            await IpcIO.ReadAsync(source, 0, head, 8, useAsync, ct).ConfigureAwait(false);
+            ReadOnlySpan<byte> start = IpcIO.Bytes(head, 8);
+            if (start[..6].SequenceEqual(IpcFraming.FileMagic) || start[..4].SequenceEqual("FEA1"u8)) return null;
+            int legacy = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(start);
+            if (!IpcFraming.HasContinuation(start) && (legacy <= 0 || legacy > length - 4)) return null;
+        }
+        finally
+        {
+            IpcIO.Free(head);
+        }
+        IpcStreamIndex index = await IpcStreamIndex.ScanAsync(source, useAsync, ct).ConfigureAwait(false);
+        scanRead?.Invoke(index.Write());
+        return new IpcFile(source, owned, index);
     }
 
     /// <summary>The error for data that does not end like an IPC file: says what it is when it can tell.</summary>

@@ -247,7 +247,8 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
         {
             throw DatasetFiles.InFile(file.Path, e);
         }
-        FooterRead? keep = footer is null && KeptFooters.Worth(source, IpcFile.TailGuess) ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
+        // Kept from a store (not a local file or memory): a file's footer read apart, a stream's scan (IpcFile decides).
+        FooterRead? keep = footer is null && source is not ILocalSource ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
         try
         {
             return await IpcFile.OpenOwnedAsync(source, footer, keep, useAsync, ct).ConfigureAwait(false);

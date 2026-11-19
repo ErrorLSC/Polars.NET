@@ -10,7 +10,8 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// <summary>
 /// Reads the record batches of an <see cref="IpcFile"/>: the selected columns, every array checked before it is
 /// returned. Dictionaries are read once, on the first batch (the file format applies every dictionary batch, deltas
-/// in footer order, to all record batches). Batches own their memory (native, or the file mapping): dispose them.
+/// in footer order, to all record batches); of a stream, in order as far as each batch needs (a batch sees the
+/// dictionary batches sent before it: replaced or extended later for the batches after). Batches own their memory (native, or the file mapping): dispose them.
 /// With <see cref="IpcReadOptions.MaxDegreeOfParallelism"/> above 1, <see cref="ReadBatches"/> reads and decodes
 /// batches side by side ahead of the consumer, delivering them in order. Not thread-safe; open one reader per thread.
 /// </summary>
@@ -19,7 +20,7 @@ public sealed class IpcReader : IDisposable
     private readonly IpcFile _file;
     private readonly IpcReadOptions _options;
     private readonly IpcDecoding _decoding;
-    private readonly IpcDictionaries _dictionaries = new();
+    private IpcDictionaries _dictionaries = new();
     private readonly MappedFile? _map;
     private readonly long _mapStart;
     private readonly object _lock = new();
@@ -27,12 +28,21 @@ public sealed class IpcReader : IDisposable
     private bool _dictionariesRead;
     private bool _disposed;
 
+    // A stream's dictionaries: applied in order to _dictionaries as far as the batches read need, a snapshot of the
+    // dictionaries used kept after each change (a batch decodes with the latest one at or before its place).
+    private readonly SemaphoreSlim? _applying;
+    private readonly List<(int Applied, IpcDictionaries Dictionaries)> _states = [];
+    private readonly IpcDictionaries _none = new();
+    private int _applied;
+    private bool _trimmed; // snapshots no batch after the one delivered needs were let go
+
     internal IpcReader(IpcFile file, IpcReadOptions options)
     {
         options.Validate();
         _file = file;
         _options = options;
         _decoding = new IpcDecoding(file.Footer.Schema, options);
+        if (file.Stream is not null) _applying = new SemaphoreSlim(1, 1);
         // Every body is read from the mapping (On and Auto alike today): compressed ones are decompressed out of it.
         if (options.MemoryMap != IpcMemoryMap.Off && file.Source is ILocalSource local) _map = local.Map(out _mapStart);
     }
@@ -80,6 +90,12 @@ public sealed class IpcReader : IDisposable
     /// <summary>The rows of the batches before batch <paramref name="index"/> (from their messages, read once).</summary>
     private async ValueTask<long> RowsBeforeAsync(int index, bool useAsync, CancellationToken ct)
     {
+        if (_rowsBefore is null && _file.Stream is { } stream)
+        {
+            var known = new long[stream.Rows.Length];
+            for (int i = 1; i < known.Length; i++) known[i] = known[i - 1] + stream.Rows[i - 1];
+            _rowsBefore = known;
+        }
         if (_rowsBefore is null)
         {
             IpcBlock[] blocks = _file.Footer.RecordBatches;
@@ -124,6 +140,7 @@ public sealed class IpcReader : IDisposable
         for (int i = 0; i < _file.BatchCount && left > 0; i++)
         {
             RecordBatch batch = _decoding.Deliver(IpcIO.Sync(ReadBatchCoreAsync(i, left, false, default)), ref next);
+            TrimDictionaries(i);
             if (Skip(batch)) continue;
             left -= batch.Length;
             yield return batch;
@@ -136,6 +153,7 @@ public sealed class IpcReader : IDisposable
         for (int i = 0; i < _file.BatchCount && left > 0; i++)
         {
             RecordBatch batch = _decoding.Deliver(await ReadBatchCoreAsync(i, left, true, cancellationToken).ConfigureAwait(false), ref next);
+            TrimDictionaries(i);
             if (Skip(batch)) continue;
             left -= batch.Length;
             yield return batch;
@@ -159,6 +177,7 @@ public sealed class IpcReader : IDisposable
             for (int i = 0; i < _file.BatchCount && left > 0; i++)
             {
                 RecordBatch batch = _decoding.Deliver(window.Take(i).GetAwaiter().GetResult(), ref next);
+                TrimDictionaries(i);
                 if (Skip(batch)) continue;
                 yield return Limit(batch, ref left);
             }
@@ -180,6 +199,7 @@ public sealed class IpcReader : IDisposable
             for (int i = 0; i < _file.BatchCount && left > 0; i++)
             {
                 RecordBatch batch = _decoding.Deliver(await window.Take(i).ConfigureAwait(false), ref next);
+                TrimDictionaries(i);
                 if (Skip(batch)) continue;
                 yield return Limit(batch, ref left);
             }
@@ -247,7 +267,7 @@ public sealed class IpcReader : IDisposable
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _file.BatchCount);
         if (!_dictionariesRead) await ReadDictionariesAsync(useAsync, ct).ConfigureAwait(false);
         var (message, body) = await FetchAsync(index, useAsync, ct).ConfigureAwait(false);
-        return Decode(message, body, rows);
+        return Decode(index, message, body, rows);
     }
 
     // ---- for datasets: a batch's reading split into its requests and its decoding ------------------------------------
@@ -264,9 +284,13 @@ public sealed class IpcReader : IDisposable
     /// <summary>Reads the dictionaries the columns read use: before batches are decoded side by side (<see cref="FetchAsync"/>, <see cref="Decode"/>).</summary>
     internal ValueTask PrepareAsync(bool useAsync, CancellationToken ct) => ReadDictionariesAsync(useAsync, ct);
 
-    /// <summary>Reads batch <paramref name="index"/>'s message and the body buffers the columns read need (the requests).</summary>
+    /// <summary>
+    /// Reads batch <paramref name="index"/>'s message and the body buffers the columns read need (the requests); of a
+    /// stream, the dictionary batches before it are applied first.
+    /// </summary>
     internal async ValueTask<(IpcMessage Message, IpcBody Body)> FetchAsync(int index, bool useAsync, CancellationToken ct)
     {
+        if (_file.Stream is { } stream) await ApplyDictionariesAsync(stream.Epochs[index], useAsync, ct).ConfigureAwait(false);
         IpcBlock block = _file.Footer.RecordBatches[index];
         IpcMessage message = await IpcIO.MessageAsync(_file.Source, block, useAsync, ct).ConfigureAwait(false);
         if (message.Kind != IpcMessageKind.RecordBatch)
@@ -277,8 +301,103 @@ public sealed class IpcReader : IDisposable
         return (message, body);
     }
 
-    /// <summary>Decodes a batch fetched (its first <paramref name="rows"/> rows, or those the filter keeps); the dictionaries are read.</summary>
-    internal IpcDecoded Decode(IpcMessage message, IpcBody body, long rows) => _decoding.Decode(message, body, _dictionaries, rows);
+    /// <summary>
+    /// Decodes batch <paramref name="index"/> fetched (its first <paramref name="rows"/> rows, or those the filter keeps);
+    /// the dictionaries are read (<see cref="FetchAsync"/>).
+    /// </summary>
+    internal IpcDecoded Decode(int index, IpcMessage message, IpcBody body, long rows) => _decoding.Decode(message, body, DictionariesOf(index), rows);
+
+    /// <summary>Whether the snapshot a batch of <paramref name="epoch"/> needs was let go (<see cref="TrimDictionaries"/>).</summary>
+    private bool Rewound(int epoch)
+    {
+        lock (_lock) return _trimmed && (_states.Count == 0 || _states[0].Applied > epoch);
+    }
+
+    /// <summary>The dictionaries batch <paramref name="index"/> decodes with: the file's, or the stream's as sent before it.</summary>
+    private IpcDictionaries DictionariesOf(int index)
+    {
+        if (_file.Stream is not { } stream) return _dictionaries;
+        int epoch = stream.Epochs[index];
+        lock (_lock)
+        {
+            for (int i = _states.Count - 1; i >= 0; i--)
+            {
+                if (_states[i].Applied <= epoch) return _states[i].Dictionaries;
+            }
+        }
+        return _none;
+    }
+
+    /// <summary>
+    /// A stream's batches delivered in order up to <paramref name="index"/>: the snapshots no later batch needs are let
+    /// go (a stream may send a new dictionary before every batch). Batches decoding ahead come after it.
+    /// </summary>
+    internal void TrimDictionaries(int index)
+    {
+        if (_file.Stream is not { } stream) return;
+        int epoch = stream.Epochs[index];
+        lock (_lock)
+        {
+            int keep = _states.FindLastIndex(s => s.Applied <= epoch); // the one batch index uses: kept, and those after
+            for (int i = 0; i < keep; i++) _states[i].Dictionaries.Dispose();
+            if (keep > 0)
+            {
+                _states.RemoveRange(0, keep);
+                _trimmed = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies a stream's dictionary batches, in order, up to the first <paramref name="epoch"/> (those no column read
+    /// uses passed over), keeping a snapshot after each that changed one used. A batch before those whose snapshots
+    /// were let go (read at random after the batches were read in order) starts the stream's dictionaries again.
+    /// </summary>
+    private async ValueTask ApplyDictionariesAsync(int epoch, bool useAsync, CancellationToken ct)
+    {
+        if (Volatile.Read(ref _applied) >= epoch && !Rewound(epoch)) return;
+        if (useAsync) await _applying!.WaitAsync(ct).ConfigureAwait(false);
+        else _applying!.Wait(ct);
+        try
+        {
+            if (Rewound(epoch))
+            {
+                lock (_lock)
+                {
+                    foreach (var (_, state) in _states) state.Dispose();
+                    _states.Clear();
+                    _trimmed = false;
+                }
+                _dictionaries.Dispose();
+                _dictionaries = new IpcDictionaries();
+                Volatile.Write(ref _applied, 0);
+            }
+            IpcFooter footer = _file.Footer;
+            HashSet<long> wanted = _decoding.DictionaryIds;
+            while (_applied < epoch)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                IpcBlock block = footer.Dictionaries[_applied];
+                IpcMessage message = await IpcIO.MessageAsync(_file.Source, block, useAsync, ct).ConfigureAwait(false);
+                if (wanted.Contains(message.DictionaryBatch!.Id))
+                {
+                    IpcField field = footer.Schema.Dictionaries.TryGetValue(message.DictionaryBatch.Id, out IpcField? f) ? f
+                        : throw new IpcFormatException($"Arrow IPC dictionary {message.DictionaryBatch.Id} belongs to no field.");
+                    bool[] needed = IpcIO.Plan([field.ValueField()], null, message, message.Version);
+                    IpcBody body = await IpcIO.BodyAsync(_file.Source, _map, _mapStart, block.Offset + block.MetadataLength, message, needed, useAsync, ct)
+                        .ConfigureAwait(false);
+                    IpcIO.Dictionary(footer.Schema, message, body, _dictionaries, message.Version, _options.ValidateUtf8, replacements: true);
+                    IpcDictionaries snapshot = _dictionaries.Snapshot();
+                    lock (_lock) _states.Add((_applied + 1, snapshot));
+                }
+                Volatile.Write(ref _applied, _applied + 1);
+            }
+        }
+        finally
+        {
+            _applying!.Release();
+        }
+    }
 
     /// <summary>A decoded batch as delivered: the row index put first when asked (see <see cref="IpcDecoding.Deliver"/>).</summary>
     internal RecordBatch Deliver(IpcDecoded decoded, ref long next) => _decoding.Deliver(decoded, ref next);
@@ -286,7 +405,7 @@ public sealed class IpcReader : IDisposable
 
     private async ValueTask ReadDictionariesAsync(bool useAsync, CancellationToken ct)
     {
-        if (_dictionariesRead) return;
+        if (_dictionariesRead || _file.Stream is not null) return; // a stream's are applied batch by batch (FetchAsync)
         IpcFooter footer = _file.Footer;
         HashSet<long> wanted = _decoding.DictionaryIds;
         foreach (IpcBlock block in footer.Dictionaries)
@@ -317,6 +436,12 @@ public sealed class IpcReader : IDisposable
         }
         foreach (IDisposable window in windows) window.Dispose();
         _dictionaries.Dispose();
+        lock (_lock)
+        {
+            foreach (var (_, state) in _states) state.Dispose();
+            _states.Clear();
+        }
+        _none.Dispose();
     }
 
     internal sealed class OwningBatchStream(Schema schema, IEnumerable<RecordBatch> batches) : Apache.Arrow.Ipc.IArrowArrayStream

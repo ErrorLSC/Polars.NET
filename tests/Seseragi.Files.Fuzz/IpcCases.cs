@@ -92,7 +92,8 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
                 MaxRows = random.Next(8) == 0 ? random.Next(0, 5000) : null,
                 ParallelDecompressFrom = random.Next(2) == 0 ? 0 : 1 << 20,
             };
-            bool isFile = bytes.AsSpan().StartsWith("ARROW1"u8);
+            // Files, and half the streams (scanned, then read at offsets as files are), through IpcFile.
+            bool isFile = bytes.AsSpan().StartsWith("ARROW1"u8) || random.Next(2) == 0;
             if (isFile)
             {
                 IpcFile file;
@@ -256,13 +257,17 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
     private List<string[]> Families()
     {
         if (_families is not null) return _families;
-        string[] files = [.. corpus.Where(f => Path.GetExtension(f) is ".arrow" or ".feather")];
+        string[] files = [.. corpus.Where(f => Path.GetExtension(f) is ".arrow" or ".feather" or ".arrows" or ".stream" or ".arrow_file")];
         List<string[]> families = [.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(f))) == "datasets")
             .GroupBy(Path.GetDirectoryName).Select(g => g.ToArray())];
         string[] Named(string folder, params string[] names) => [.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(f)) == folder && names.Contains(Path.GetFileNameWithoutExtension(f)))];
         families.Add(Named("pyarrow", "lz4", "zstd", "zstd_level19", "many_batches", "many_batches_lz4"));
         families.Add([.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(f)) == "polars" && Path.GetFileName(f).StartsWith("frame_", StringComparison.Ordinal))]);
         families.Add([.. files.Where(f => Path.GetFileName(f) == "big_lz4.arrow")]);
+        // Streams: Polars' frames, pyarrow's codecs, and both formats of one frame side by side.
+        families.Add([.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(f)) == "polars" && Path.GetExtension(f) == ".arrows")]);
+        families.Add(Named("pyarrow", "lz4", "zstd", "many_batches").Concat(files.Where(f => Path.GetFileName(f) is "lz4.arrows" or "zstd.arrows")).ToArray());
+        families.Add([.. files.Where(f => Path.GetFileName(f).StartsWith("frame_zstd", StringComparison.Ordinal) || Path.GetFileName(f).StartsWith("frame_oldest", StringComparison.Ordinal))]);
         return _families = [.. families.Where(f => f.Length > 0)];
     }
 
@@ -279,7 +284,7 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
     private Outcome ReadDataset(Random random)
     {
         List<string[]> families = Families();
-        string[] pool = random.Next(4) == 0 ? [.. corpus.Where(f => Path.GetExtension(f) is ".arrow" or ".feather")] : families[random.Next(families.Count)];
+        string[] pool = random.Next(4) == 0 ? [.. corpus.Where(f => Path.GetExtension(f) is ".arrow" or ".feather" or ".arrows" or ".stream" or ".arrow_file")] : families[random.Next(families.Count)];
         int count = 1 + random.Next(6);
         var memory = new MemoryFileStore();
         bool hive = random.Next(2) == 0;

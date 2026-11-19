@@ -301,7 +301,11 @@ cannot seek is copied into native memory first) or an `IRandomAccess` source, sy
 checked on open (every block inside the data); `Schema` (with the schema's custom metadata), `FileMetadata` (the
 footer's), `BatchCount`, `ReadBatch(index)`, `GetBatchMetadata(index)` (a batch message's custom metadata). Only the
 footer locates messages: the stream embedded after the magic is never parsed (Polars writes its schema message there
-without a prefix). Feather v1 files, IPC streams and other data are refused by name.
+without a prefix). Data in the stream format (`.arrows`, the `.arrow` files of Hugging Face datasets) opens too
+(`IsStream`): its messages are scanned on open (their prefixes and metadata, bodies passed over by their length; 64 KiB
+reads locally, 1 MiB on a store), giving the blocks a footer would; its batches are then read at offsets as a file's,
+each with the dictionaries the stream sent before it. A missing end-of-stream marker ends it; data ending inside a
+message is refused. Feather v1 files and other data are refused by name.
 
 **Reading** (`IpcFile.OpenReader`, `IpcReader`, `IpcReadOptions`): `ReadBatch(index)`, `ReadBatches` /
 `ReadBatchesAsync`, `ReadArrowStream`. `Columns` selects top-level columns (the buffers of the others are never read,
@@ -310,7 +314,8 @@ cuts the rows; `MemoryMap` (`IpcMemoryMap`: `Auto` by default, as `On` today) re
 through a mapping: uncompressed batches point into it, compressed ones are decompressed out of it; the mapping lives
 while a batch does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
 id is refused, as the format says), only those the selected columns reach (dictionary values may themselves be
-dictionary-encoded). `ValidateUtf8` checks strings (off by default, as pyarrow and Polars read).
+dictionary-encoded); a stream's in order as far as each batch needs (replacements and deltas), the dictionaries of the
+batches delivered let go as a read goes on (read again from the stream's start for a batch read at random before them). `ValidateUtf8` checks strings (off by default, as pyarrow and Polars read).
 `MaxDegreeOfParallelism` (all cores by default): batches read and decoded side by side ahead of the consumer, in order
 (bounded by their body sizes; a consumer that stops early frees what was decoded ahead), and the compressed buffers of
 a large batch decompressed side by side.
@@ -333,7 +338,9 @@ dictionaries unite to dictionaries with indices holding both (a dictionary besid
 columns sharing a name are refused. Batches of several files are read and decoded side by side ahead of the consumer within a byte budget, files
 opened and their dictionaries read ahead, requests to remote stores bounded apart; on one thread from local files, file
 after file. Rows are numbered across the files (files left out by their partitions counted, their batches' messages
-read only then); on a store a file opens with one read of its tail, a large file's footer kept between reads. Typed
+read only then); on a store a file opens with one read of its tail, a large file's footer kept between reads. Files in
+the stream format join any dataset, beside files (told apart by their content, not their extension): scanned on open,
+their scans kept on stores between reads (with their versions), counted from their scans for the row index. Typed
 rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`.
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
@@ -575,7 +582,8 @@ written synchronously on completion.
 | `Excel/Ods/` | `OdsWorkbook` (detection, encryption check, the on-demand scan of the document, sheets by offset), `OdsStyles` (hidden table styles, elapsed-time cell styles through parents, the null date), `OdsValues` (xsd dates and durations to microseconds), `OdsSheetSource` (a table to rows: repeats, value types, paragraph text). |
 | `Excel/Reading/` | The format-neutral half: `SheetCells` (cell model, row buffer, `SheetSource`), `WorkbookSource`, `ChunkReader` (a part decompressed into a native buffer, refilled between complete chunks), `SharedStringStore` (native UTF-8 plus offsets), `SheetReader` (header, window, inference, projection, batches), `ColumnAppenders` (cells to native builders per Arrow type), `CellText` (cells as text). |
 | `Excel/Writing/` | `CellSink` (the format-neutral cell writer the encoders use) and `XlsxCellSink`, `XmlOut` (native UTF-8 output with escaping), `SharedStringTable` (open-addressing hash over native memory), `CellEncoders` (Arrow values to cells), `XlsxParts` (styles, workbook, relationships, content types). |
-| `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
+| `Ipc/IpcFile.cs`, `IpcReader.cs`, `IpcStreamReader.cs`, `IpcReadOptions.cs`, `IpcFormatException.cs` | Public Arrow IPC API: the file (footer, blocks, format detection), its reader (dictionaries, a stream's by batch, projection, mapping), the stream reader (framing, skipping unselected buffers), options, the exception. |
+| `Ipc/IpcStreamIndex.cs` | The scan of data in the stream format read at offsets: blocks, rows and dictionary batches before each record batch, kept as bytes by datasets. |
 | `Ipc/IpcWriter.cs`, `IpcWriteOptions.cs` | Public IPC writer and its options (`IpcFormat`); messages written with their bodies' padding, the footer's blocks. The codec's writing half is Sazanami's `Arrow/Ipc`: `FlatBufferWriter` (front to back), `IpcMetadataWriter` (schema, messages, footer), `IpcBatchEncoder` (arrays to nodes and buffers, compression, layout), `IpcMessageEncoder` (batches to messages, dictionaries as written, framing), `IpcSchemaMessage` (Parquet's `ARROW:schema`). |
 | `Datasets/` | What datasets of every format share (see the structure above): `DatasetOptions`, `DatasetFiles`, `Partitions`, `DatasetShape`, `KeptFooters`, `DatasetLimits`. |
 | `Ipc/Datasets/` | The Arrow IPC dataset: `IpcDataset` (opening, schema modes, footers kept), `IpcDatasetReader` (sequential reading, the window of record batches across files, the row index across files), `IpcDatasetReader<T>`, `IpcDatasetTypes`, `IpcDatasetOptions` / `IpcDatasetFile`. |

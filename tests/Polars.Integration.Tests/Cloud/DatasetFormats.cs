@@ -8,15 +8,15 @@ using Kaminari.Seseragi.Files.Parquet;
 namespace Polars.Integration.Tests.Cloud;
 
 /// <summary>
-/// The dataset formats the store tests run over (Parquet, Arrow IPC files): files of <c>id</c> and <c>s</c> written in
-/// either, and datasets of them opened and read alike.
+/// The dataset formats the store tests run over (Parquet, Arrow IPC files, Arrow IPC streams): files of <c>id</c> and
+/// <c>s</c> written in each, and datasets of them opened and read alike.
 /// </summary>
 internal static class DatasetFormats
 {
-    public static TheoryData<string> All => ["parquet", "ipc"];
+    public static TheoryData<string> All => ["parquet", "ipc", "ipcstream"];
 
     /// <summary>The files' extension.</summary>
-    public static string Extension(string format) => format == "ipc" ? "arrow" : "parquet";
+    public static string Extension(string format) => format switch { "ipc" => "arrow", "ipcstream" => "arrows", _ => "parquet" };
 
     /// <summary>
     /// A file of ids from <paramref name="first"/> and strings: <paramref name="large"/> (uncompressed) beyond the
@@ -29,9 +29,13 @@ internal static class DatasetFormats
         var s = new StringArray.Builder().AppendRange(Enumerable.Range(0, rows).Select(i => $"value {first + i}")).Build();
         using var stream = new MemoryStream();
         long tail;
-        if (format == "ipc")
+        if (format is "ipc" or "ipcstream")
         {
-            using IpcWriter writer = IpcWriter.Create(stream, schema, new IpcWriteOptions { Compression = large ? NoCompression.Instance : new ZstandardCompression() });
+            using IpcWriter writer = IpcWriter.Create(stream, schema, new IpcWriteOptions
+            {
+                Compression = large ? NoCompression.Instance : new ZstandardCompression(),
+                Format = format == "ipcstream" ? IpcFormat.Stream : IpcFormat.File,
+            });
             int batchRows = Math.Max(1, rows / 4);
             for (int at = 0; at < rows; at += batchRows)
             {
@@ -59,7 +63,7 @@ internal static class DatasetFormats
     }
 
     /// <summary>A dataset of <paramref name="paths"/> (a glob, a directory or URLs) in <paramref name="format"/>, on <paramref name="store"/> (null: by the paths' schemes).</summary>
-    public static Opened Open(string format, IReadOnlyList<string> paths, IFileStore? store = null) => format == "ipc"
+    public static Opened Open(string format, IReadOnlyList<string> paths, IFileStore? store = null) => format is "ipc" or "ipcstream"
         ? new Opened(IpcDataset.Open(paths, new IpcDatasetOptions { Store = store }))
         : new Opened(ParquetDataset.Open(paths, new ParquetDatasetOptions { Store = store }));
 

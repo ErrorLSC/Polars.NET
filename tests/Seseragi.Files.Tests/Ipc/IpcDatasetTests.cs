@@ -26,14 +26,15 @@ public sealed class IpcDatasetTests : IDisposable
     /// Writes a file of an Int64 column <c>id</c> (from <paramref name="first"/>, <paramref name="rows"/> rows) and a
     /// string column <c>name</c> (plain or as views), in batches of <paramref name="batchRows"/>.
     /// </summary>
-    private string Write(string relative, long first, int rows, int batchRows = 1000, bool views = false, IIpcCompression? codec = null, bool extra = false)
+    private string Write(string relative, long first, int rows, int batchRows = 1000, bool views = false, IIpcCompression? codec = null, bool extra = false,
+        bool stream = false)
     {
         string path = At(relative);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         List<Field> fields = [new Field("id", Int64Type.Default, true), new Field("name", views ? StringViewType.Default : StringType.Default, true)];
         if (extra) fields.Add(new Field("extra", Int32Type.Default, true));
         var schema = new Schema(fields, null);
-        using IpcWriter writer = IpcWriter.Create(path, schema, new IpcWriteOptions { Compression = codec ?? NoCompression.Instance });
+        using IpcWriter writer = IpcWriter.Create(path, schema, new IpcWriteOptions { Compression = codec ?? NoCompression.Instance, Format = stream ? IpcFormat.Stream : IpcFormat.File });
         for (int at = 0; at < rows || at == 0 && rows == 0; at += batchRows)
         {
             int n = Math.Min(batchRows, rows - at);
@@ -397,6 +398,104 @@ public sealed class IpcDatasetTests : IDisposable
                 var error = Assert.Throws<IpcFormatException>(() => Read(dataset, way with { MaxRows = 5003, RowIndexColumn = index }));
                 Assert.StartsWith(At("lim/b.arrow"), error.Message);
                 Assert.Throws<IpcFormatException>(() => Read(dataset, way with { RowIndexColumn = index }));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Files in the stream format (scanned on open, whatever their extension) read in a dataset as files do, beside
+    /// files in the file format: in path order, on one thread and many, synchronously or not.
+    /// </summary>
+    [Fact]
+    public async Task StreamFiles_ReadAsFilesDo_MixedWithFiles()
+    {
+        Write("st/a.arrow", 0, 1500, batchRows: 400, codec: Lz4FrameCompression.Instance, stream: true); // a stream named .arrow
+        Write("st/b.arrow", 2000, 30, batchRows: 7);
+        Write("st/c.arrows", 3000, 900, batchRows: 250, views: true, codec: new ZstandardCompression(), stream: true);
+        Write("st/d.arrow", 4000, 0, stream: true); // a stream of no batch
+        // A directory of mixed extensions is refused (as Polars does): a glob takes both.
+        Assert.Throws<InvalidOperationException>(() => IpcDataset.Open(At("st")));
+        using var dataset = IpcDataset.Open(At("st/*.arrow*"));
+        Assert.Equal(["st/a.arrow", "st/b.arrow", "st/c.arrows", "st/d.arrow"], Relative(dataset));
+        List<string> expected = Expected((0, 1500), (2000, 30), (3000, 900));
+        foreach (IpcReadOptions way in Ways) Assert.Equal(expected, Read(dataset, way));
+        using IpcDatasetReader reader = dataset.OpenReader(new IpcReadOptions { MaxDegreeOfParallelism = 4 });
+        List<RecordBatch> batches = [];
+        await foreach (RecordBatch batch in reader.ReadBatchesAsync()) batches.Add(batch);
+        Assert.Equal(expected, Rows(batches));
+        foreach (IpcReadOptions way in Ways) Assert.Equal(expected.Take(1601), Read(dataset, way with { MaxRows = 1601 }));
+    }
+
+    /// <summary>
+    /// Stream files in Hive partitions: pruned by a filter on them, never opened unless rows are numbered (then scanned
+    /// for their rows: a damaged one fails, named); rows numbered across stream and file formats alike.
+    /// </summary>
+    [Fact]
+    public void StreamFilesInPartitions_ArePruned_AndCountedForTheRowIndex()
+    {
+        Write("sp/p=1/f.arrows", 10, 3, stream: true);
+        Write("sp/p=2/f.arrow", 20, 3, batchRows: 2);
+        Write("sp/p=3/f.arrows", 30, 3, batchRows: 1, stream: true);
+        using var dataset = IpcDataset.Open(At("sp/**/*.arrow*"), new IpcDatasetOptions { Partitioning = HivePartitioning.On }); // a glob: partitions asked for
+        ScalarExpr p3 = ScalarExpr.NewBinary(BinaryOp.Eq, ScalarExpr.NewColumn("p"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(3)));
+        foreach (IpcReadOptions way in Ways)
+        {
+            Assert.Equal(["0|10", "1|11", "2|12", "3|20", "4|21", "5|22", "6|30", "7|31", "8|32"], Read(dataset, way with { RowIndexColumn = "idx", Columns = ["id"] }));
+            Assert.Equal(["6|30", "7|31", "8|32"], Read(dataset, way with { RowIndexColumn = "idx", Columns = ["id"], Filter = p3, FilterRows = true }));
+        }
+        File.WriteAllBytes(At("sp/p=1/f.arrows"), [.. File.ReadAllBytes(At("sp/p=1/f.arrows")).AsSpan(0, 200)]); // cut inside a message
+        Assert.Equal(["30", "31", "32"], Read(dataset, new IpcReadOptions { Columns = ["id"], Filter = p3, FilterRows = true }));
+        var error = Assert.Throws<IpcFormatException>(() => Read(dataset, new IpcReadOptions { Columns = ["id"], Filter = p3, FilterRows = true, RowIndexColumn = "i" }));
+        Assert.StartsWith(At("sp/p=1/f.arrows"), error.Message);
+    }
+
+    /// <summary>
+    /// Streams that send a new dictionary before every batch (replacements), read with unified dictionaries: one index
+    /// per value across batches and files, every value as written.
+    /// </summary>
+    [Fact]
+    public void StreamsReplacingTheirDictionaries_UnifyAcrossFiles()
+    {
+        var type = new DictionaryType(Int32Type.Default, StringType.Default, false);
+        var schema = new Schema([new Field("d", type, true)], null);
+        foreach (int f in (int[])[0, 1])
+        {
+            string path = At($"rd/f{f}.arrows");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using IpcWriter writer = IpcWriter.Create(path, schema, new IpcWriteOptions { Format = IpcFormat.Stream });
+            for (int b = 0; b < 5; b++)
+            {
+                // Each batch: a dictionary of other values (some seen before), indices into it.
+                var entries = new StringArray.Builder().AppendRange(Enumerable.Range(0, 4).Select(i => $"v{(b + f + i) % 7}")).Build();
+                using var batch = new RecordBatch(schema, [new DictionaryArray(type, new Int32Array.Builder().AppendRange([3, 1, 0]).Build(), entries)], 3);
+                writer.Write(batch);
+            }
+            writer.Complete();
+        }
+        List<string> expected = [.. ((int[])[0, 1]).SelectMany(f => Enumerable.Range(0, 5).SelectMany(b => ((int[])[3, 1, 0]).Select(i => $"v{(b + f + i) % 7}")))];
+        foreach (bool unify in (bool[])[false, true])
+        {
+            using var dataset = IpcDataset.Open(At("rd"), new IpcDatasetOptions { UnifyDictionaries = unify });
+            foreach (IpcReadOptions way in Ways)
+            {
+                using IpcDatasetReader reader = dataset.OpenReader(way);
+                List<string> values = [];
+                Dictionary<string, int> indexOf = [];
+                foreach (RecordBatch batch in reader.ReadBatches())
+                {
+                    using (batch)
+                    {
+                        var d = (DictionaryArray)batch.Column(0);
+                        for (int i = 0; i < batch.Length; i++)
+                        {
+                            int index = ((Int32Array)d.Indices).GetValue(i)!.Value;
+                            string value = ((StringArray)d.Dictionary).GetString(index);
+                            values.Add(value);
+                            if (unify) Assert.Equal(index, indexOf.TryGetValue(value, out int known) ? known : indexOf[value] = index);
+                        }
+                    }
+                }
+                Assert.Equal(expected, values);
             }
         }
     }

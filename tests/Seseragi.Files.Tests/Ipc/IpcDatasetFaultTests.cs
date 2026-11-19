@@ -30,15 +30,19 @@ public sealed class IpcDatasetFaultTests : IDisposable
     /// <paramref name="dictionary"/> a dictionary column <c>d</c> (one dictionary per file), in batches of
     /// <see cref="BatchRows"/>; LZ4 for odd files.
     /// </summary>
-    private static byte[] File(int f, bool dictionary, int rows = RowsPerFile, long first = -1)
+    private static byte[] File(int f, bool dictionary, int rows = RowsPerFile, long first = -1, bool stream = false)
     {
         first = first < 0 ? (long)f * RowsPerFile : first;
         var dictionaryType = new DictionaryType(Int32Type.Default, StringType.Default, false);
         List<Field> fields = [new Field("id", Int64Type.Default, true), new Field("s", StringType.Default, true)];
         if (dictionary) fields.Add(new Field("d", dictionaryType, true));
         var schema = new Schema(fields, null);
-        using var stream = new MemoryStream();
-        using (IpcWriter writer = IpcWriter.Create(stream, schema, new IpcWriteOptions { Compression = f % 2 == 1 ? Lz4FrameCompression.Instance : NoCompression.Instance }))
+        using var output = new MemoryStream();
+        using (IpcWriter writer = IpcWriter.Create(output, schema, new IpcWriteOptions
+        {
+            Compression = f % 2 == 1 ? Lz4FrameCompression.Instance : NoCompression.Instance,
+            Format = stream ? IpcFormat.Stream : IpcFormat.File,
+        }))
         {
             for (int at = 0; at < rows; at += BatchRows)
             {
@@ -57,16 +61,16 @@ public sealed class IpcDatasetFaultTests : IDisposable
             }
             writer.Complete();
         }
-        byte[] bytes = stream.ToArray();
+        byte[] bytes = output.ToArray();
         Assert.True(bytes.Length > IpcFile.TailGuess); // batches read apart from the footer
         return bytes;
     }
 
     /// <summary>The files, under <c>d/</c> (or, <paramref name="hive"/>, one partition each: <c>h/p={f}/</c>).</summary>
-    private static MemoryFileStore Data(bool dictionary = false, bool hive = false)
+    private static MemoryFileStore Data(bool dictionary = false, bool hive = false, bool stream = false)
     {
         var store = new MemoryFileStore();
-        for (int f = 0; f < Files; f++) store.Add(PathOf(f, hive), File(f, dictionary));
+        for (int f = 0; f < Files; f++) store.Add(PathOf(f, hive), File(f, dictionary, stream: stream && f % 2 == 0)); // streams beside files
         return store;
     }
 
@@ -209,6 +213,31 @@ public sealed class IpcDatasetFaultTests : IDisposable
         AssertPrefix(ids, 3);
         Assert.True(ids.Count <= 3 * RowsPerFile);
         await counting.Settled();
+    }
+
+    /// <summary>
+    /// A stream file (beside files) whose every read fails — opening it, telling its format, scanning it — or whose
+    /// batch reads fail after its scan: named, after every row of the files before it, in order.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Modes))]
+    public async Task AFailingStreamFile_SurfacesInOrder_NamingTheFile(int threads, bool async)
+    {
+        foreach (string how in (string[])["any", "after scan"])
+        {
+            int reads = 0;
+            var store = new FaultStore(Data(dictionary: true, stream: true))
+            {
+                // File 4 is a stream: its first reads (its tail, its start, its scan) open it; those after read batches.
+                FailRead = (path, _) => path == PathOf(4) && (how == "any" || Interlocked.Increment(ref reads) > 3),
+            };
+            var (ids, error) = await Read(store, threads, async, new IpcDatasetOptions { UnifyDictionaries = threads > 1 });
+            Assert.IsAssignableFrom<IOException>(error);
+            Assert.Contains(PathOf(4), error!.Message);
+            AssertPrefix(ids, 4);
+            Assert.True(ids.Count < 5 * RowsPerFile, $"{how}: {ids.Count} rows");
+            await store.Settled();
+        }
     }
 
     /// <summary>A read that never answers ends with the caller's cancellation, and leaves nothing open.</summary>

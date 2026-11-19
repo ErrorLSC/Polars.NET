@@ -19,7 +19,7 @@ public class IpcDatasetMemoryTests
 {
     private const int Files = 40, Rows = 30, BatchRows = 7;
 
-    private static MemoryFileStore ManyFiles(bool damagedMiddle)
+    private static MemoryFileStore ManyFiles(bool damagedMiddle, bool stream = false)
     {
         var store = new MemoryFileStore();
         var dictionaryType = new DictionaryType(Int16Type.Default, StringType.Default, false);
@@ -31,8 +31,8 @@ public class IpcDatasetMemoryTests
                 store.Add($"m/f{f:D3}.arrow", (byte[])[.. "ARROW1\0\0"u8, .. new byte[64], .. "ARROW1"u8]);
                 continue;
             }
-            using var stream = new MemoryStream();
-            using (IpcWriter writer = IpcWriter.Create(stream, schema, new IpcWriteOptions { Compression = f % 2 == 0 ? NoCompression.Instance : Lz4FrameCompression.Instance }))
+            using var output = new MemoryStream();
+            using (IpcWriter writer = IpcWriter.Create(output, schema, new IpcWriteOptions { Compression = f % 2 == 0 ? NoCompression.Instance : Lz4FrameCompression.Instance, Format = stream ? IpcFormat.Stream : IpcFormat.File }))
             {
                 for (int at = 0; at < Rows; at += BatchRows)
                 {
@@ -49,7 +49,7 @@ public class IpcDatasetMemoryTests
                 }
                 writer.Complete();
             }
-            store.Add($"m/f{f:D3}.arrow", stream.ToArray());
+            store.Add($"m/f{f:D3}.arrow", output.ToArray());
         }
         return store;
     }
@@ -67,9 +67,14 @@ public class IpcDatasetMemoryTests
     [InlineData("all", 1, true)]
     [InlineData("all", 8, false)]
     [InlineData("all", 8, true)]
-    public async Task AReading_LeavesNoBatchMemoryBehind(string how, int threads, bool unify)
+    [InlineData("stop", 8, true, true)]
+    [InlineData("error", 1, false, true)]
+    [InlineData("cancel", 8, true, true)]
+    [InlineData("all", 1, true, true)]
+    [InlineData("all", 8, false, true)]
+    public async Task AReading_LeavesNoBatchMemoryBehind(string how, int threads, bool unify, bool stream = false)
     {
-        MemoryFileStore store = ManyFiles(damagedMiddle: how == "error");
+        MemoryFileStore store = ManyFiles(damagedMiddle: how == "error", stream);
         GC.Collect();
         GC.WaitForPendingFinalizers();
         long before = NativeBatchMemory.Live, owners = NativeMemoryOwner.Live;
@@ -126,6 +131,54 @@ public class IpcDatasetMemoryTests
         }
         Assert.Equal(before, NativeBatchMemory.Live);
         Assert.Equal(owners, NativeMemoryOwner.Live); // file memory, unified dictionaries' blocks and the memory they remember
+    }
+
+    /// <summary>
+    /// A stream that sends a new dictionary (a replacement) before every batch, read in order on one thread and many: the
+    /// dictionaries of batches delivered are let go as the read goes on (memory stays flat, not one dictionary per batch).
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public void AStreamReplacingItsDictionaries_HoldsOnlyThoseStillNeeded(int threads)
+    {
+        var dictionaryType = new DictionaryType(Int32Type.Default, StringType.Default, false);
+        var schema = new Apache.Arrow.Schema([new Field("d", dictionaryType, true)], null);
+        using var stream = new MemoryStream();
+        using (IpcWriter writer = IpcWriter.Create(stream, schema, new IpcWriteOptions { Format = IpcFormat.Stream }))
+        {
+            for (int b = 0; b < 200; b++)
+            {
+                var entries = new StringArray.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => $"batch {b} value {i}")).Build();
+                var indices = new Int32Array.Builder().AppendRange(Enumerable.Range(0, 100).Select(i => i * 5)).Build();
+                using var batch = new RecordBatch(schema, [new DictionaryArray(dictionaryType, indices, entries)], 100);
+                writer.Write(batch);
+            }
+            writer.Complete();
+        }
+        using IpcFile file = IpcFile.Open(stream.ToArray());
+        Assert.True(file.IsStream);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        long owners = NativeMemoryOwner.Live;
+        List<long> live = [];
+        using (IpcReader reader = file.OpenReader(new IpcReadOptions { MaxDegreeOfParallelism = threads }))
+        {
+            int b = 0;
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch)
+                {
+                    var d = (DictionaryArray)batch.Column(0);
+                    Assert.Equal($"batch {b} value 0", ((StringArray)d.Dictionary).GetString(((Int32Array)d.Indices).GetValue(0)!.Value));
+                }
+                live.Add(NativeMemoryOwner.Live - owners);
+                b++;
+            }
+            Assert.Equal(200, b);
+        }
+        Assert.True(live[^1] - live[20] < 40, $"live owners after batch 20: {live[20]}, after 200: {live[^1]}");
+        Assert.Equal(owners, NativeMemoryOwner.Live);
     }
 
     /// <summary>
