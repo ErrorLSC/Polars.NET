@@ -269,6 +269,8 @@ public class IpcWriterTests
         string?[] inlineChangedElsewhere = ["z", "a long value, past twelve bytez", null, "another long value here", "bc"];
         string?[] extended = [.. inlineChangedElsewhere, "a new long value, a delta"];
         string?[] nullToEmpty = ["z", "a long value, past twelve bytez", "", "another long value here", "bc", "a new long value, a delta"];
+        string?[] nullAndEmpty = ["z", "a long value, past twelve bytez", null, "another long value here", "", "a new long value, a delta"];
+        string?[] swapped = ["z", "a long value, past twelve bytez", "", "another long value here", null, "a new long value, a delta"];
         (string?[] Values, bool Reversed, string Expected)[] steps =
         [
             (a, false, "Dictionary"),
@@ -279,7 +281,10 @@ public class IpcWriterTests
             (inlineChangedElsewhere, true, "Dictionary"),      // another layout, an inline value changed
             (extended, true, "Dictionary(delta)"),
             (extended, false, ""),
-            (nullToEmpty, true, "Dictionary"),                 // the layout last written, the same view bytes: only the validity differs
+            (nullToEmpty, false, "Dictionary"),                // a null made an empty string
+            (extended, false, "Dictionary"),                   // the null back, the layout last written: the same view bytes, only the validity differs
+            (nullAndEmpty, false, "Dictionary"),
+            (swapped, false, "Dictionary"),                    // the null and the empty string swapped: both with bitmaps, the same view bytes
         ];
         var type = new DictionaryType(Int32Type.Default, StringViewType.Default, false);
         var schema = new Schema([new Field("d", type, true)], null);
@@ -297,36 +302,115 @@ public class IpcWriterTests
         var (_, batches) = ReadBytes(written, IpcFormat.Stream);
         for (int b = 0; b < steps.Length; b++)
             Assert.Equal(steps[b].Values.Select(v => v is null ? "null" : CanonicalRender.Value(new StringViewArray.Builder().Append(v).Build(), 0)), batches[b][0]);
+    }
 
-        // String views over one data buffer: in order, or the long values in reverse order; 16 bytes of noise after them.
-        static StringViewArray Views(string?[] values, bool reversed)
+    /// <summary>
+    /// A dictionary that grows batch after batch (kept in segments, the later ones taken from slices, their views moved
+    /// down): each batch a delta; a value changed in the first segment or in a later one (past its 4-byte prefix, laid
+    /// out the same) a replacement, and growing again after it deltas; in the file format a change is refused.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GrowingDictionaries_AreDeltas_AndAChangeAnywhereIsSeen(bool views)
+    {
+        static string Value(int k) => k % 7 == 3 ? $"inline{k:D6}" : $"a long dictionary value, number {k:D6}"; // some of 12 bytes: inline
+        List<(string[] Values, string Expected)> steps = [];
+        int size = 0;
+        for (int b = 0; b < 64; b++)
         {
-            byte[] views = new byte[16 * values.Length];
-            List<byte> data = [];
-            byte[] validity = new byte[(values.Length + 7) / 8];
-            int[] order = [.. Enumerable.Range(0, values.Length)];
-            if (reversed) System.Array.Reverse(order);
-            foreach (int i in order)
-            {
-                if (values[i] is not { } value) continue;
-                validity[i >> 3] |= (byte)(1 << (i & 7));
-                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
-                Span<byte> view = views.AsSpan(16 * i, 16);
-                BitConverter.TryWriteBytes(view, bytes.Length);
-                if (bytes.Length <= 12)
-                {
-                    bytes.CopyTo(view[4..]);
-                    continue;
-                }
-                bytes.AsSpan(0, 4).CopyTo(view[4..]);
-                BitConverter.TryWriteBytes(view[12..], data.Count); // buffer 0
-                data.AddRange(bytes);
-            }
-            data.AddRange(Enumerable.Range(0, 16).Select(k => (byte)(reversed ? k : 255 - k))); // capacity past the values
-            byte[] bytesOfData = [.. data];
-            return new StringViewArray(new ArrayData(StringViewType.Default, values.Length, values.Count(v => v is null), 0,
-                [new ArrowBuffer(validity), new ArrowBuffer(views), new ArrowBuffer(bytesOfData)]));
+            size += 3 * (b % 5 + 1);
+            steps.Add(([.. Enumerable.Range(0, size).Select(Value)], b == 0 ? "Dictionary" : "Dictionary(delta)"));
         }
+        string[] grown = steps[^1].Values;
+        steps.Add(([.. grown.Select((v, k) => k == 1 ? v.Replace("number", "numbex") : v)], "Dictionary"));       // in the first segment
+        string[] changed = steps[^1].Values;
+        steps.Add(([.. changed, Value(900_000), Value(900_001)], "Dictionary(delta)"));
+        steps.Add(([.. changed, Value(900_000), Value(900_001)], ""));
+        for (int b = 0; b < 8; b++) steps.Add(([.. steps[^1].Values, Value(910_000 + b)], "Dictionary(delta)"));
+        string[] last = steps[^1].Values;
+        steps.Add(([.. last.Select((v, k) => k == last.Length - 3 ? v.Replace("number", "numbex") : v)], "Dictionary")); // in a later segment
+        for (int b = 0; b < 8; b++) steps.Add(([.. steps[^1].Values, Value(920_000 + b)], "Dictionary(delta)"));
+        last = steps[^1].Values;
+        int inline = System.Array.FindLastIndex(last, v => v.StartsWith("inline"));
+        steps.Add(([.. last.Select((v, k) => k == inline ? v[..^1] + "x" : v)], "Dictionary"));  // an inline value in a later segment
+        for (int b = 0; b < 8; b++) steps.Add(([.. steps[^1].Values, Value(930_000 + b)], "Dictionary(delta)"));
+        int moved = steps[^1].Values.Length - 4;
+        steps.Add(([.. steps[^1].Values.Select((v, k) => k == moved ? v.Replace("number", "numbey") : v)], "Dictionary")); // its view moved to other bytes, the old ones left
+
+        IArrowType valueType = views ? StringViewType.Default : StringType.Default;
+        var type = new DictionaryType(Int32Type.Default, valueType, false);
+        var schema = new Schema([new Field("d", type, false)], null);
+        IArrowArray Values(string[] values) => views ? Moved(values) : new StringArray.Builder().AppendRange(values).Build();
+
+        // In order; the value of the last step ("numbey") laid out as the value before it, its view pointing at a copy
+        // appended after the data: the bytes at its old place are still those of the value before.
+        StringViewArray Moved(string[] values)
+        {
+            int changed = System.Array.FindIndex(values, v => v.Contains("numbey"));
+            if (changed < 0) return Views(values, false);
+            string[] before = [.. values];
+            before[changed] = values[changed].Replace("numbey", "number");
+            StringViewArray old = Views(before, false);
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(values[changed]);
+            byte[] data = [.. old.Data.Buffers[2].Span, .. bytes];
+            byte[] viewBytes = old.Data.Buffers[1].Span.ToArray();
+            BitConverter.TryWriteBytes(viewBytes.AsSpan(16 * changed + 12), data.Length - bytes.Length);
+            return new StringViewArray(new ArrayData(StringViewType.Default, values.Length, 0, 0,
+                [ArrowBuffer.Empty, new ArrowBuffer(viewBytes), new ArrowBuffer(data)]));
+        }
+        RecordBatch Batch(string[] values)
+        {
+            var indices = new Int32Array.Builder().AppendRange(Enumerable.Range(0, values.Length).Select(i => values.Length - 1 - i)).Build();
+            return new RecordBatch(schema, [new DictionaryArray(type, indices, Values(values))], values.Length);
+        }
+
+        using var memory = new MemoryStream();
+        using (IpcWriter writer = IpcWriter.Create(memory, schema, new IpcWriteOptions { Format = IpcFormat.Stream, LeaveOpen = true }))
+        {
+            foreach (var (values, _) in steps) writer.Write(Batch(values));
+        }
+        byte[] written = memory.ToArray();
+        Assert.Equal(["Schema", .. steps.SelectMany(s => s.Expected == "" ? (string[])["Batch"] : [s.Expected, "Batch"])], Messages(written, IpcFormat.Stream));
+        var (_, batches) = ReadBytes(written, IpcFormat.Stream);
+        static string Render(string v) => CanonicalRender.Value(new StringArray.Builder().Append(v).Build(), 0);
+        for (int b = 0; b < steps.Count; b++) Assert.Equal(steps[b].Values.Reverse().Select(Render), batches[b][0]);
+
+        // The file format: the same deltas, then the change refused.
+        using var file = new MemoryStream();
+        using IpcWriter fileWriter = IpcWriter.Create(file, schema, new IpcWriteOptions { LeaveOpen = true });
+        foreach (var (values, _) in steps.Take(64)) fileWriter.Write(Batch(values));
+        Assert.Contains("allows no replacement", Assert.Throws<InvalidOperationException>(() => fileWriter.Write(Batch(steps[64].Values))).Message);
+    }
+
+    /// <summary>String views over one data buffer: in order, or the long values in reverse order; 16 bytes of noise after them.</summary>
+    private static StringViewArray Views(string?[] values, bool reversed)
+    {
+        byte[] views = new byte[16 * values.Length];
+        List<byte> data = [];
+        byte[] validity = new byte[(values.Length + 7) / 8];
+        int[] order = [.. Enumerable.Range(0, values.Length)];
+        if (reversed) System.Array.Reverse(order);
+        foreach (int i in order)
+        {
+            if (values[i] is not { } value) continue;
+            validity[i >> 3] |= (byte)(1 << (i & 7));
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+            Span<byte> view = views.AsSpan(16 * i, 16);
+            BitConverter.TryWriteBytes(view, bytes.Length);
+            if (bytes.Length <= 12)
+            {
+                bytes.CopyTo(view[4..]);
+                continue;
+            }
+            bytes.AsSpan(0, 4).CopyTo(view[4..]);
+            BitConverter.TryWriteBytes(view[12..], data.Count); // buffer 0
+            data.AddRange(bytes);
+        }
+        data.AddRange(Enumerable.Range(0, 16).Select(k => (byte)(reversed ? k : 255 - k))); // capacity past the values
+        byte[] bytesOfData = [.. data];
+        return new StringViewArray(new ArrayData(StringViewType.Default, values.Length, values.Count(v => v is null), 0,
+            [new ArrowBuffer(validity), new ArrowBuffer(views), new ArrowBuffer(bytesOfData)]));
     }
 
     [Fact]

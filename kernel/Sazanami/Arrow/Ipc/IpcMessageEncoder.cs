@@ -158,7 +158,9 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
     /// <summary>The schema in its IPC form (extension types as storage, dictionary ids).</summary>
     public IpcSchema Schema { get; } = IpcMetadataWriter.Schema(schema);
 
-    private readonly IpcDictionaries _written = new(); // each dictionary as last written, decoded into memory of its own
+    private readonly IpcDictionaries _written = new(); // dictionaries nested in others' values, as last written, whole
+    private readonly Dictionary<long, List<Segment>> _kept = []; // the others, in segments (Remember)
+    private readonly HashSet<long> _nested = NestedDictionaries(schema);
 
     /// <summary>The schema message.</summary>
     public IpcOutgoingMessage SchemaMessage(long position, IReadOnlyList<KeyValuePair<string, string>>? metadata) =>
@@ -230,14 +232,14 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         int length = dictionary.Length;
         int first = 0;
         bool delta = false;
-        if (_written.Contains(id))
+        if (Kept(id, field) is { } kept)
         {
-            IpcArray last = _written.Get(id, field, false, field.Field.Name);
-            bool extends = length >= last.Length && SamePrefix(values, last, dictionary);
-            if (extends && length == last.Length) return; // the same dictionary
+            int last = kept.Sum(k => k.Values.Length);
+            bool extends = length >= last && SamePrefix(values, kept, dictionary);
+            if (extends && length == last) return; // the same dictionary
             if (extends)
             {
-                first = last.Length;
+                first = last;
                 delta = true;
             }
             else if (fileFormat)
@@ -252,7 +254,7 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         {
             IpcBatchEncoder.Encode(body, [values], [dictionary], first, length - first);
             foreach (var (inner, innerField, innerDictionary) in body.Dictionaries) Dictionary(inner, innerField, innerDictionary, messages);
-            Remember(id, values, dictionary);
+            Remember(id, values, dictionary, first);
             messages.Add(new IpcOutgoingMessage(body, length - first, compression, true,
                 (header, bodyLength) => IpcMetadataWriter.DictionaryBatchMessage(new IpcDictionaryBatch(id, header, delta), bodyLength)));
         }
@@ -263,13 +265,73 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         }
     }
 
-    /// <summary>Keeps dictionary <paramref name="id"/> as written: encoded, then decoded into memory of its own (the caller's may go).</summary>
-    private void Remember(long id, IpcField values, ArrayData dictionary)
+    /// <summary>
+    /// Dictionary <paramref name="id"/> as last written, in segments (values and first slot), or null before it is.
+    /// One inside another dictionary's values is kept whole in <see cref="_written"/>, where decoding that other one
+    /// finds it.
+    /// </summary>
+    private List<Segment>? Kept(long id, IpcField field)
+    {
+        if (!_nested.Contains(id)) return _kept.GetValueOrDefault(id);
+        return _written.Contains(id) ? [new Segment(_written.Get(id, field, false, field.Field.Name), 0, null)] : null;
+    }
+
+    /// <summary>Values of a dictionary as written (from slot <see cref="Start"/> on), with <see cref="Spans"/> for views.</summary>
+    private sealed record Segment(IpcArray Values, int Start, ViewSpans? Spans);
+
+    /// <summary>
+    /// Where a view segment's valid views reach in each of its data buffers (<see cref="Ends"/>) and how far their
+    /// offsets were moved down from those of the dictionary they were taken from (<see cref="Shifts"/>): measured once,
+    /// for <see cref="SameViewLayout"/>.
+    /// </summary>
+    private sealed record ViewSpans(long[] Ends, long[] Shifts);
+
+    /// <summary>
+    /// Keeps dictionary <paramref name="id"/> as written, from <paramref name="from"/> on (a delta; 0: all of it), in
+    /// memory of its own (the caller's may go). A delta becomes a segment of its own; then the last segments are made
+    /// one, taken again from <paramref name="dictionary"/> (whose first values are theirs), until each segment holds
+    /// more than twice the values of all after it: O(log n) segments to compare, each value copied O(log n) times
+    /// (rather than the whole dictionary on every change). One nested in another dictionary's values is kept whole.
+    /// </summary>
+    private void Remember(long id, IpcField values, ArrayData dictionary, int from)
+    {
+        int length = dictionary.Length;
+        if (_nested.Contains(id))
+        {
+            IpcArray whole = Snapshot(values, dictionary, 0, length, out IpcBodyMemory memory);
+            _written.Set(id, whole);
+            memory.Sealed(); // the kept dictionary holds it now
+            return;
+        }
+        List<Segment> kept = _kept.GetValueOrDefault(id) ?? [];
+        int k = from == 0 ? 0 : kept.Count;
+        long after = length - from;
+        while (k > 0 && kept[k - 1].Values.Length <= 2 * after)
+        {
+            after += kept[k - 1].Values.Length;
+            k--;
+        }
+        int start = k == kept.Count ? from : kept[k].Start;
+        IpcArray segment = Snapshot(values, dictionary, start, length - start, out IpcBodyMemory segmentMemory);
+        segment.Hold();
+        segmentMemory.Sealed(); // the segment holds it now
+        ViewSpans? spans = values.Field.DataType is BinaryViewType or StringViewType ? Spans(segment, dictionary, start) : null;
+        for (int i = k; i < kept.Count; i++) kept[i].Values.Unhold();
+        kept.RemoveRange(k, kept.Count - k);
+        kept.Add(new Segment(segment, start, spans));
+        _kept[id] = kept;
+    }
+
+    /// <summary>
+    /// Values [<paramref name="start"/>, + <paramref name="count"/>) of <paramref name="dictionary"/>: encoded, then
+    /// decoded into <paramref name="memory"/> (sealed by the caller once the values hold it).
+    /// </summary>
+    private IpcArray Snapshot(IpcField values, ArrayData dictionary, int start, int count, out IpcBodyMemory memory)
     {
         using var body = new IpcEncodedBody();
-        IpcBatchEncoder.Encode(body, [values], [dictionary], 0, dictionary.Length);
+        IpcBatchEncoder.Encode(body, [values], [dictionary], start, count);
         (IpcBuffer[] layout, long length) = IpcBatchEncoder.Layout(body.Buffers);
-        var memory = new IpcBodyMemory();
+        memory = new IpcBodyMemory();
         try
         {
             byte* p = memory.Allocate(length);
@@ -277,27 +339,38 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
             {
                 if (layout[i].Length > 0) NativeMemory.Copy((void*)body.Buffers[i].Pointer, p + layout[i].Offset, (nuint)layout[i].Length);
             }
-            var header = new IpcRecordBatch(dictionary.Length, [.. body.Nodes], layout, IpcCompression.None, [.. body.VariadicCounts]);
+            var header = new IpcRecordBatch(count, [.. body.Nodes], layout, IpcCompression.None, [.. body.VariadicCounts]);
             var copy = new IpcBody(memory, length, [new IpcBodySegment(0, (nint)p, length)]);
-            IpcArray array = IpcBatchDecoder.Decode([values], null, header, IpcMetadataVersion.V5, copy, _written, false)[0]!;
-            _written.Set(id, array);
+            return IpcBatchDecoder.Decode([values], null, header, IpcMetadataVersion.V5, copy, _written, false)[0]!;
         }
-        finally
+        catch
         {
-            memory.Sealed(); // the kept dictionary holds it now
+            memory.Sealed();
+            throw;
         }
     }
 
-    /// <summary>Whether the first values of <paramref name="dictionary"/> are those of <paramref name="last"/>.</summary>
-    private bool SamePrefix(IpcField values, IpcArray last, ArrayData dictionary)
+    /// <summary>Whether the first values of <paramref name="dictionary"/> are those kept (segment by segment).</summary>
+    private static bool SamePrefix(IpcField values, List<Segment> kept, ArrayData dictionary)
     {
+        foreach (Segment segment in kept)
+        {
+            if (!SameValues(values, segment, dictionary)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>Whether the values of <paramref name="dictionary"/> from the segment's start on are the segment's.</summary>
+    private static bool SameValues(IpcField values, Segment segment, ArrayData dictionary)
+    {
+        var (last, start, spans) = segment;
         // Views point anywhere in their data buffers: compare the values themselves.
-        if (values.Field.DataType is BinaryViewType or StringViewType) return SameViews(last, dictionary);
+        if (values.Field.DataType is BinaryViewType or StringViewType) return SameViews(last, spans, dictionary, start);
         using IArrowArray old = ArrowArrayFactory.BuildArray(last.ToArrayData());
         using var x = new IpcEncodedBody();
         using var y = new IpcEncodedBody();
         IpcBatchEncoder.Encode(x, [values], [old.Data], 0, last.Length);
-        IpcBatchEncoder.Encode(y, [values], [dictionary], 0, last.Length);
+        IpcBatchEncoder.Encode(y, [values], [dictionary], start, last.Length);
         if (!x.Nodes.SequenceEqual(y.Nodes) || x.Buffers.Count != y.Buffers.Count || !x.VariadicCounts.SequenceEqual(y.VariadicCounts)) return false;
         for (int i = 0; i < x.Buffers.Count; i++)
         {
@@ -317,17 +390,18 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
     }
 
     /// <summary>
-    /// Whether the first values of view array <paramref name="dictionary"/> are those of <paramref name="last"/> (nulls
-    /// at the same slots): read from the views and data buffers in place (measured: through Apache's arrays, 7× slower,
-    /// most of the time of writing a growing string-view dictionary).
+    /// Whether the values of view array <paramref name="dictionary"/> from <paramref name="start"/> on are those of
+    /// <paramref name="last"/> (nulls at the same slots): read from the views and data buffers in place (measured:
+    /// through Apache's arrays, 7× slower, most of the time of writing a growing string-view dictionary); first as a
+    /// whole when laid out as when kept (<see cref="SameViewLayout"/>), else value by value.
     /// </summary>
-    private static bool SameViews(IpcArray last, ArrayData dictionary)
+    private static bool SameViews(IpcArray last, ViewSpans? spans, ArrayData dictionary, int start)
     {
-        if (dictionary.Buffers[1].Length < (dictionary.Offset + (long)last.Length) * 16) return false;
+        int at = dictionary.Offset + start;
+        if (dictionary.Buffers[1].Length < (at + (long)last.Length) * 16) return false;
         ReadOnlySpan<byte> aViews = last.Buffers[1].Span, aValid = last.Buffers[0].Span;
-        ReadOnlySpan<byte> bViews = dictionary.Buffers[1].Span[(dictionary.Offset * 16)..], bValid = dictionary.Buffers[0].Span;
-        int at = dictionary.Offset;
-        if (SameViewLayout(last, dictionary)) return true;
+        ReadOnlySpan<byte> bViews = dictionary.Buffers[1].Span[(at * 16)..], bValid = dictionary.Buffers[0].Span;
+        if (SameViewLayout(last, spans ?? Spans(last, null, 0), dictionary, at)) return true;
         for (int i = 0; i < last.Length; i++)
         {
             bool aValue = aValid.IsEmpty || Kernels.Bits.Get(aValid, i), bValue = bValid.IsEmpty || Kernels.Bits.Get(bValid, at + i);
@@ -352,17 +426,48 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
     }
 
     /// <summary>
-    /// Whether view array <paramref name="dictionary"/> starts with the same views, validity and data bytes as
-    /// <paramref name="last"/> (the bytes our valid views use, in place in theirs): then the same values, whatever the
-    /// views point at (a dictionary made again the same way, or the same one), told by comparisons of whole spans.
+    /// The spans of view array <paramref name="kept"/>: how far its valid views reach in each data buffer and, when it
+    /// was taken from <paramref name="source"/> at <paramref name="start"/>, how far each buffer's offsets moved down
+    /// (all a buffer's views move alike: the writer moves a slice's views by its first byte used); else 0.
     /// </summary>
-    private static bool SameViewLayout(IpcArray last, ArrayData dictionary)
+    private static ViewSpans Spans(IpcArray kept, ArrayData? source, int start)
     {
-        int n = last.Length, at = dictionary.Offset;
-        if (!last.Buffers[1].Span[..(16 * n)].SequenceEqual(dictionary.Buffers[1].Span.Slice(16 * at, 16 * n))) return false;
+        int buffers = kept.Buffers.Length - 2;
+        long[] ends = new long[buffers], shifts = new long[buffers];
+        bool[] measured = new bool[buffers];
+        ReadOnlySpan<byte> views = kept.Buffers[1].Span, valid = kept.Buffers[0].Span;
+        ReadOnlySpan<byte> theirs = source is null ? default : source.Buffers[1].Span[((source.Offset + start) * 16)..];
+        for (int i = 0; i < kept.Length; i++)
+        {
+            if (!valid.IsEmpty && !Kernels.Bits.Get(valid, i)) continue;
+            int size = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i)..]);
+            if (size <= 12) continue;
+            int b = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i + 8)..]), offset = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i + 12)..]);
+            ends[b] = Math.Max(ends[b], (long)offset + size);
+            if (source is null || measured[b]) continue;
+            shifts[b] = BinaryPrimitives.ReadInt32LittleEndian(theirs[(16 * i + 12)..]) - (long)offset;
+            measured[b] = true;
+        }
+        return new ViewSpans(ends, shifts);
+    }
+
+    /// <summary>
+    /// Whether view array <paramref name="dictionary"/> has, from physical slot <paramref name="at"/> on, the views,
+    /// validity and data bytes <paramref name="last"/> was kept from: the same views but each offset by its buffer's
+    /// shift, the bytes our valid views use found there. Then the same values, whatever the views point at (a
+    /// dictionary made again the same way, or the same one), told without looking at each value's bytes.
+    /// </summary>
+    private static bool SameViewLayout(IpcArray last, ViewSpans spans, ArrayData dictionary, int at)
+    {
+        int n = last.Length, buffers = last.Buffers.Length - 2;
+        if (buffers > dictionary.Buffers.Length - 2) return false;
         ReadOnlySpan<byte> aValid = last.Buffers[0].Span, bValid = dictionary.Buffers[0].Span;
-        if (aValid.IsEmpty != bValid.IsEmpty) return false;
-        if (!aValid.IsEmpty)
+        // No bitmap: every value valid (ours drop an all-valid bitmap; builders often keep one).
+        if (aValid.IsEmpty != bValid.IsEmpty)
+        {
+            if (aValid.IsEmpty ? Kernels.Bits.Count(bValid, at, n) != n : Kernels.Bits.Count(aValid, 0, n) != n) return false;
+        }
+        else if (!aValid.IsEmpty)
         {
             if (at % 8 != 0 || bValid.Length < (at + n + 7) / 8) return false;
             ReadOnlySpan<byte> b = bValid[(at / 8)..];
@@ -370,24 +475,31 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
             int mask = (1 << (n % 8)) - 1;
             if (n % 8 != 0 && (aValid[n / 8] & mask) != (b[n / 8] & mask)) return false;
         }
-        if (last.Buffers.Length > dictionary.Buffers.Length) return false;
-        // How far our valid views reach into each data buffer (past that, buffers may hold anything: capacity).
-        int buffers = last.Buffers.Length - 2;
-        Span<long> ends = buffers <= 64 ? stackalloc long[buffers] : new long[buffers];
-        ends.Clear();
-        ReadOnlySpan<byte> views = last.Buffers[1].Span;
-        for (int i = 0; i < n; i++)
+        ReadOnlySpan<byte> aViews = last.Buffers[1].Span[..(16 * n)], bViews = dictionary.Buffers[1].Span.Slice(16 * at, 16 * n);
+        if (spans.Shifts.AsSpan().ContainsAnyExcept(0))
         {
-            if (!aValid.IsEmpty && !Kernels.Bits.Get(aValid, i)) continue;
-            int size = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i)..]);
-            if (size <= 12) continue;
-            int b = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i + 8)..]);
-            ends[b] = Math.Max(ends[b], (long)BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i + 12)..]) + size);
+            // Views moved down: the same but for offsets that differ by their buffer's shift (null views were emptied).
+            for (int i = 0; i < n; i++)
+            {
+                if (!aValid.IsEmpty && !Kernels.Bits.Get(aValid, i)) continue;
+                ReadOnlySpan<byte> a = aViews.Slice(16 * i, 16), b = bViews.Slice(16 * i, 16);
+                if (BinaryPrimitives.ReadInt64LittleEndian(a) != BinaryPrimitives.ReadInt64LittleEndian(b)) return false; // length and prefix
+                if (BinaryPrimitives.ReadInt32LittleEndian(a) <= 12)
+                {
+                    if (BinaryPrimitives.ReadInt64LittleEndian(a[8..]) != BinaryPrimitives.ReadInt64LittleEndian(b[8..])) return false;
+                    continue;
+                }
+                int buffer = BinaryPrimitives.ReadInt32LittleEndian(a[8..]);
+                if (buffer != BinaryPrimitives.ReadInt32LittleEndian(b[8..])
+                    || BinaryPrimitives.ReadInt32LittleEndian(b[12..]) != BinaryPrimitives.ReadInt32LittleEndian(a[12..]) + spans.Shifts[buffer]) return false;
+            }
         }
+        else if (!aViews.SequenceEqual(bViews)) return false;
         for (int k = 0; k < buffers; k++)
         {
+            long shift = spans.Shifts[k], end = spans.Ends[k];
             ReadOnlySpan<byte> ours = last.Buffers[2 + k].Span, theirs = dictionary.Buffers[2 + k].Span;
-            if (theirs.Length < ends[k] || !ours[..(int)ends[k]].SequenceEqual(theirs[..(int)ends[k]])) return false;
+            if (shift < 0 || theirs.Length < shift + end || !ours[..(int)end].SequenceEqual(theirs.Slice((int)shift, (int)end))) return false;
         }
         return true;
     }
@@ -407,5 +519,32 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         return framed;
     }
 
-    public void Dispose() => _written.Dispose();
+    /// <summary>The ids of the dictionaries used inside dictionaries' values (decoding those finds them in <see cref="_written"/>).</summary>
+    private static HashSet<long> NestedDictionaries(Schema schema)
+    {
+        HashSet<long> nested = [];
+        foreach (IpcField field in IpcMetadataWriter.Schema(schema).Fields) Visit(field, false);
+        return nested;
+
+        void Visit(IpcField field, bool inside)
+        {
+            if (field.DictionaryId is long id)
+            {
+                if (inside) nested.Add(id);
+                foreach (IpcField child in field.ValueField().Children) Visit(child, true);
+                return;
+            }
+            foreach (IpcField child in field.Children) Visit(child, inside);
+        }
+    }
+
+    public void Dispose()
+    {
+        _written.Dispose();
+        foreach (List<Segment> kept in _kept.Values)
+        {
+            foreach (Segment segment in kept) segment.Values.Unhold();
+        }
+        _kept.Clear();
+    }
 }
