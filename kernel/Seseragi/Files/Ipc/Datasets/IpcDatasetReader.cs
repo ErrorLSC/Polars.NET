@@ -125,6 +125,9 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
 
     private int UnitsAhead => DatasetLimits.UnitsAhead(_options.MaxDegreeOfParallelism, Remote);
 
+    /// <summary>Whether local stream files are scanned through their mapping (not when the options turn mapping off).</summary>
+    private bool Mapped => _options.MemoryMap != IpcMemoryMap.Off;
+
     private RequestGate? NewRequestGate() => DatasetLimits.RequestsInFlight(_dataset.Options, Remote) is int requests ? new RequestGate(requests) : null;
 
     private async IAsyncEnumerable<RecordBatch> ReadCoreAsync(bool useAsync, [EnumeratorCancellation] CancellationToken ct)
@@ -160,7 +163,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
         {
             if (!_read[i] && !_indexed) continue;
-            IpcFile file = await IpcDataset.OpenFileAsync(_dataset.Store, _dataset.Files[i], _dataset.Footers, i, useAsync, ct).ConfigureAwait(false);
+            IpcFile file = await IpcDataset.OpenFileAsync(_dataset.Store, _dataset.Files[i], _dataset.Footers, i, Mapped, useAsync, ct).ConfigureAwait(false);
             try
             {
                 if (!_read[i])
@@ -582,7 +585,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 try
                 {
                     using (RequestGate.Lease lease = await entering.ConfigureAwait(false))
-                        file = await IpcDataset.OpenFileAsync(owner._dataset.Store, owner._dataset.Files[index], owner._dataset.Footers, index, useAsync: true, token)
+                        file = await IpcDataset.OpenFileAsync(owner._dataset.Store, owner._dataset.Files[index], owner._dataset.Footers, index, owner.Mapped, useAsync: true, token)
                             .ConfigureAwait(false);
                     if (!owner._read[index])
                     {

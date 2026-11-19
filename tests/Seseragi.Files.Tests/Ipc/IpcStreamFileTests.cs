@@ -1,4 +1,6 @@
 using Apache.Arrow;
+using Apache.Arrow.Types;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Ipc;
 using Seseragi.Files.Tests.Parquet;
 
@@ -199,6 +201,93 @@ public sealed class IpcStreamFileTests
             if (theirs is not null) Assert.Equal(theirs, ours);
         }
         Assert.True(boundaries >= 1 && refused > 100, $"{boundaries} cuts read, {refused} refused");
+    }
+
+    /// <summary>
+    /// A stream's scan is the same whichever way its bytes are looked at: through a local file's mapping, read a stretch
+    /// at a time (a local file not to be mapped, a store), or in place in memory; for every stream of the corpus whole
+    /// and cut (inside a message, or at a third), and a generated one many stretches long whose dictionary is replaced
+    /// as it goes; refusals say the same. Every file scanned with mapping allowed was mapped, and unmapped with its source.
+    /// </summary>
+    [Fact]
+    public async Task TheScan_IsTheSame_MappedReadOrInMemory()
+    {
+        List<byte[]> cases = [Generated()];
+        foreach (string name in StreamNames)
+        {
+            byte[] whole = File.ReadAllBytes(PathOf(name));
+            foreach (int cut in (int[])[whole.Length, whole.Length - 1, whole.Length / 3]) cases.Add(whole[..cut]);
+        }
+        string dir = Directory.CreateTempSubdirectory("seseragi-ipc-scan-").FullName;
+        try
+        {
+            int refused = 0;
+            for (int c = 0; c < cases.Count; c++)
+            {
+                byte[] bytes = cases[c];
+                bool useAsync = c % 2 == 0;
+                string path = Path.Combine(dir, $"{c}.arrows");
+                await File.WriteAllBytesAsync(path, bytes);
+                string expected = await Scan(new MemoryRandomAccess(bytes), useAsync);
+                if (expected.StartsWith("refused", StringComparison.Ordinal)) refused++;
+                Assert.Equal(expected, await Scan(new Parquet.ParquetPruningTests.RecordingSource(bytes), useAsync));
+                using (var unmapped = new RandomAccessSource(File.OpenRead(path), leaveOpen: false, copy: null, mappable: true))
+                {
+                    Assert.Equal(expected, await Scan(unmapped, useAsync, map: false));
+                    Assert.False(unmapped.IsMapped);
+                }
+                Kaminari.Sazanami.Buffers.MappedFile? map;
+                using (var mapped = new RandomAccessSource(File.OpenRead(path), leaveOpen: false, copy: null, mappable: true))
+                {
+                    Assert.Equal(expected, await Scan(mapped, useAsync));
+                    Assert.True(mapped.IsMapped);
+                    map = mapped.Map(out _);
+                }
+                Assert.False(map!.TryAcquire()); // unmapped with its source: the scan let go of its hold
+            }
+            Assert.InRange(refused, 1, cases.Count - 2);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+
+        // The scan as bytes, or the refusal's message.
+        static async Task<string> Scan(IRandomAccess source, bool useAsync, bool map = true)
+        {
+            try
+            {
+                return Convert.ToHexString((await IpcStreamIndex.ScanAsync(source, map, useAsync, default)).Write());
+            }
+            catch (IpcFormatException e)
+            {
+                return $"refused: {e.Message}";
+            }
+        }
+
+        // 400 batches of 500 rows (about 3 MB: many 64 KiB and 1 MiB stretches), the dictionary replaced every 50.
+        static byte[] Generated()
+        {
+            var type = new DictionaryType(Int32Type.Default, StringType.Default, false);
+            var schema = new Schema([new Field("i", Int64Type.Default, true), new Field("s", StringType.Default, true), new Field("d", type, true)], null);
+            using var bytes = new MemoryStream();
+            using (IpcWriter writer = IpcWriter.Create(bytes, schema, new IpcWriteOptions { Format = IpcFormat.Stream }))
+            {
+                for (int b = 0; b < 400; b++)
+                {
+                    var entries = new StringArray.Builder().AppendRange(Enumerable.Range(0, 3).Select(i => $"e{b / 50}_{i}")).Build();
+                    using var batch = new RecordBatch(schema,
+                    [
+                        new Int64Array.Builder().AppendRange(Enumerable.Range(b * 500, 500).Select(i => (long)i)).Build(),
+                        new StringArray.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => $"row {b}:{i}")).Build(),
+                        new DictionaryArray(type, new Int32Array.Builder().AppendRange(Enumerable.Range(0, 500).Select(i => i % 3)).Build(), entries),
+                    ], 500);
+                    writer.Write(batch);
+                }
+                writer.Complete();
+            }
+            return bytes.ToArray();
+        }
     }
 
     [Fact]

@@ -139,7 +139,10 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         return map;
     }
 
-    /// <summary>Opens a file.</summary>
+    /// <summary>
+    /// Opens a file. Data in the stream format is scanned through the file's mapping (shared with its readers): open a
+    /// <see cref="FileStream"/> instead (<see cref="Open(Stream, bool)"/>) for a file that may change while it is read.
+    /// </summary>
     /// <exception cref="IpcFormatException">The file is not an Arrow IPC file, or its footer is damaged.</exception>
     public static IpcFile Open(string path) => IpcIO.Sync(OpenCoreAsync(path, useAsync: false, default));
 
@@ -221,14 +224,15 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     /// <summary>
     /// Opens a file of a source it then owns (disposed with it, or here when opening fails), as a dataset does: with its
     /// footer's bytes (or a stream's scan) when they were kept from before (nothing read), else handing the bytes read
-    /// to <paramref name="footerRead"/>: a file's footer when it took a request of its own, a stream's scan always.
+    /// to <paramref name="footerRead"/>: a file's footer when it took a request of its own, a stream's scan always. A local
+    /// stream file is scanned through its mapping when <paramref name="map"/> says so (a reader's options may forbid it).
     /// </summary>
-    internal static async ValueTask<IpcFile> OpenOwnedAsync(IRandomAccess source, ReadOnlyMemory<byte>? footer, FooterRead? footerRead, bool useAsync,
-        CancellationToken ct)
+    internal static async ValueTask<IpcFile> OpenOwnedAsync(IRandomAccess source, ReadOnlyMemory<byte>? footer, FooterRead? footerRead, bool map,
+        bool useAsync, CancellationToken ct)
     {
         try
         {
-            return await OpenCoreAsync(source, source as IDisposable, useAsync, ct, footer, footerRead).ConfigureAwait(false);
+            return await OpenCoreAsync(source, source as IDisposable, useAsync, ct, footer, footerRead, map).ConfigureAwait(false);
         }
         catch
         {
@@ -238,7 +242,7 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     }
 
     private static async ValueTask<IpcFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct,
-        ReadOnlyMemory<byte>? kept = null, FooterRead? footerRead = null)
+        ReadOnlyMemory<byte>? kept = null, FooterRead? footerRead = null, bool map = true)
     {
         ArgumentNullException.ThrowIfNull(source);
         long length = source.Length;
@@ -256,14 +260,14 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         {
             // Locally the start is read first (cheap): a stream is scanned. On a store the tail comes first (a file then
             // costs one request); its start is read only when the tail is not a file's.
-            if (source is ILocalSource { SmallReadsAreCheap: true } && await TryStreamAsync(source, owned, length, footerRead, useAsync, ct).ConfigureAwait(false) is { } local)
+            if (source is ILocalSource { SmallReadsAreCheap: true } && await TryStreamAsync(source, owned, length, footerRead, map, useAsync, ct).ConfigureAwait(false) is { } local)
                 return local;
             // A file's footer is worth keeping when it costs a request of its own (beyond the first read of the tail).
             FooterRead? fileFooterRead = length > TailGuess ? footerRead : null;
             if (length >= HeadLength + TailLength && await ReadFooterAsync(source, length, fileFooterRead, useAsync, ct).ConfigureAwait(false) is { } found)
                 (parsed, footerStart) = found;
             else
-                return await TryStreamAsync(source, owned, length, footerRead, useAsync, ct).ConfigureAwait(false)
+                return await TryStreamAsync(source, owned, length, footerRead, map, useAsync, ct).ConfigureAwait(false)
                     ?? throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
         }
 
@@ -346,10 +350,11 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Data in the stream format, scanned (a continuation marker first, or a positive length before Arrow 0.15), the
-    /// scan handed as bytes to <paramref name="scanRead"/>; null when it does not start like a stream.
+    /// scan handed as bytes to <paramref name="scanRead"/>; null when it does not start like a stream. A local file is
+    /// scanned through its mapping when <paramref name="map"/> says so (see <see cref="IpcStreamIndex.ScanAsync"/>).
     /// </summary>
-    private static async ValueTask<IpcFile?> TryStreamAsync(IRandomAccess source, IDisposable? owned, long length, FooterRead? scanRead, bool useAsync,
-        CancellationToken ct)
+    private static async ValueTask<IpcFile?> TryStreamAsync(IRandomAccess source, IDisposable? owned, long length, FooterRead? scanRead, bool map,
+        bool useAsync, CancellationToken ct)
     {
         if (length < 8) return null;
         nint head = IpcIO.Alloc(8);
@@ -365,7 +370,7 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         {
             IpcIO.Free(head);
         }
-        IpcStreamIndex index = await IpcStreamIndex.ScanAsync(source, useAsync, ct).ConfigureAwait(false);
+        IpcStreamIndex index = await IpcStreamIndex.ScanAsync(source, map, useAsync, ct).ConfigureAwait(false);
         scanRead?.Invoke(index.Write());
         return new IpcFile(source, owned, index);
     }

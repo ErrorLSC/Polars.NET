@@ -303,8 +303,10 @@ checked on open (every block inside the data); `Schema` (with the schema's custo
 footer's), `BatchCount`, `ReadBatch(index)`, `GetBatchMetadata(index)` (a batch message's custom metadata). Only the
 footer locates messages: the stream embedded after the magic is never parsed (Polars writes its schema message there
 without a prefix). Data in the stream format (`.arrows`, the `.arrow` files of Hugging Face datasets) opens too
-(`IsStream`): its messages are scanned on open (their prefixes and metadata, bodies passed over by their length; 64 KiB
-reads locally, 1 MiB on a store), giving the blocks a footer would; its batches are then read at offsets as a file's,
+(`IsStream`): its messages are scanned on open (their prefixes and metadata, bodies passed over by their length: in place
+in memory, through the mapping of a file opened by path — the mapping its reader then shares; a dataset reader with
+`MemoryMap.Off` does not map —, else 64 KiB reads locally, 1 MiB on a store; open a `Stream` for no mapping at all),
+giving the blocks a footer would; its batches are then read at offsets as a file's,
 each with the dictionaries the stream sent before it. A missing end-of-stream marker ends it; data ending inside a
 message is refused. Feather v1 files and other data are refused by name.
 

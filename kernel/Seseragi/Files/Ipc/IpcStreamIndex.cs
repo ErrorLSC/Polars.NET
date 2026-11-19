@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using Kaminari.Sazanami.Arrow.Ipc;
+using System.Buffers;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Ipc;
@@ -102,16 +104,19 @@ internal sealed record IpcStreamIndex(IpcFooter Footer, long[] Rows, int[] Epoch
         }
     }
 
-    /// <summary>The bytes read at once while scanning a local source (or memory), and one on a store (fewer requests).</summary>
+    /// <summary>The bytes read at once while scanning a local source, and on a store (fewer requests).</summary>
     private const int LocalChunk = 64 << 10, RemoteChunk = 1 << 20;
 
-    /// <summary>Scans a stream from the start of <paramref name="source"/>.</summary>
+    /// <summary>
+    /// Scans a stream from the start of <paramref name="source"/>: in place when it lives in memory, through its mapping
+    /// when it is a local file opened by path and <paramref name="map"/> allows it (only the pages of the prefixes and
+    /// metadata are touched), else by reading it a stretch at a time (bodies smaller than a stretch read with it).
+    /// </summary>
     /// <exception cref="IpcFormatException">The data is not a stream, a message is damaged, or the data ends inside a message.</exception>
-    public static async ValueTask<IpcStreamIndex> ScanAsync(IRandomAccess source, bool useAsync, CancellationToken ct)
+    public static async ValueTask<IpcStreamIndex> ScanAsync(IRandomAccess source, bool map, bool useAsync, CancellationToken ct)
     {
         long length = source.Length;
-        int chunk = (int)Math.Min(source is ILocalSource ? LocalChunk : RemoteChunk, Math.Max(length, 8));
-        var window = new Window(source, chunk);
+        Window window = Window.Over(source, map);
         try
         {
             IpcSchema? schema = null;
@@ -196,19 +201,69 @@ internal sealed record IpcStreamIndex(IpcFooter Footer, long[] Rows, int[] Epoch
         static IpcFormatException Ended(long at, string what) => new($"The Arrow IPC stream ends inside {what} (the message at {at}).");
     }
 
-    /// <summary>A stretch of the source read at once (at least a chunk, or what a long metadata needs), in native memory.</summary>
-    private sealed class Window(IRandomAccess source, int chunk) : IDisposable
+    /// <summary>
+    /// The bytes of the source the scan looks at: all of them where they already are (memory, a local file's mapping),
+    /// else a stretch read at once (at least a chunk, or what a long metadata needs) into native memory.
+    /// </summary>
+    private sealed class Window : IDisposable
     {
-        private readonly int _chunk = chunk;
-        private nint _buffer = IpcIO.Alloc(chunk);
-        private int _capacity = chunk;
+        private readonly IRandomAccess _source;
+        private readonly int _chunk;
+        private nint _buffer;
+        private int _capacity;
         private long _start = -1;
-        private int _length;
+        private long _length;
+        private readonly bool _read;          // a stretch read into _buffer (else _buffer is where the whole source is)
+        private readonly MappedFile? _map;    // held while scanning
+        private MemoryHandle _pin;            // the source's memory, pinned while scanning
+
+        private Window(IRandomAccess source, int chunk)
+        {
+            _source = source;
+            _chunk = chunk;
+            _buffer = IpcIO.Alloc(chunk);
+            _capacity = chunk;
+            _read = true;
+        }
+
+        private Window(IRandomAccess source, nint whole, MappedFile? map, MemoryHandle pin)
+        {
+            _source = source;
+            (_buffer, _start, _length) = (whole, 0, source.Length);
+            _map = map;
+            _pin = pin;
+        }
+
+        /// <summary>The window for <paramref name="source"/>: over all of it when it is in memory or (<paramref name="map"/>) mapped.</summary>
+        public static unsafe Window Over(IRandomAccess source, bool map)
+        {
+            long length = source.Length;
+            if (source is ILocalSource local)
+            {
+                if (local.TryGetMemory(out ReadOnlyMemory<byte> memory))
+                {
+                    MemoryHandle pin = memory.Pin();
+                    return new Window(source, (nint)pin.Pointer, null, pin);
+                }
+                if (map && local.Map(out long start) is { } file && file.TryAcquire())
+                {
+                    try
+                    {
+                        return new Window(source, (nint)file.At(start, length), file, default);
+                    }
+                    catch (ArgumentOutOfRangeException)
+                    {
+                        file.Release(); // the file changed length since it was mapped: read it instead
+                    }
+                }
+            }
+            return new Window(source, (int)Math.Min(source is ILocalSource ? LocalChunk : RemoteChunk, Math.Max(length, 8)));
+        }
 
         public async ValueTask EnsureAsync(long at, int count, bool useAsync, CancellationToken ct)
         {
             if (_start >= 0 && at >= _start && at + count <= _start + _length) return;
-            int n = (int)Math.Min(Math.Max(_chunk, count), source.Length - at);
+            int n = (int)Math.Min(Math.Max(_chunk, count), _source.Length - at);
             if (n > _capacity)
             {
                 IpcIO.Free(_buffer);
@@ -216,7 +271,7 @@ internal sealed record IpcStreamIndex(IpcFooter Footer, long[] Rows, int[] Epoch
                 _capacity = n;
             }
             _start = -1; // invalid until the read completes
-            await IpcIO.ReadAsync(source, at, _buffer, n, useAsync, ct).ConfigureAwait(false);
+            await IpcIO.ReadAsync(_source, at, _buffer, n, useAsync, ct).ConfigureAwait(false);
             (_start, _length) = (at, n);
         }
 
@@ -224,7 +279,9 @@ internal sealed record IpcStreamIndex(IpcFooter Footer, long[] Rows, int[] Epoch
 
         public void Dispose()
         {
-            IpcIO.Free(_buffer);
+            if (_read) IpcIO.Free(_buffer);
+            _map?.Release();
+            _pin.Dispose();
             _buffer = 0;
         }
     }

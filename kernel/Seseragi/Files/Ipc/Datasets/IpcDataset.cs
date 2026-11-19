@@ -206,14 +206,14 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
             await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = FootersAtOnce, CancellationToken = ct },
                 async (i, token) =>
                 {
-                    await using IpcFile file = await OpenFileAsync(store, files[i], kept, i, useAsync: true, token).ConfigureAwait(false);
+                    await using IpcFile file = await OpenFileAsync(store, files[i], kept, i, map: true, useAsync: true, token).ConfigureAwait(false);
                     schemas[i] = file.Schema;
                 }).ConfigureAwait(false);
             schema = DatasetFiles.Union([.. files.Select((f, i) => (f.Path, schemas[i]))], options, message => new IpcFormatException(message), IpcDatasetTypes.Common);
         }
         else
         {
-            await using IpcFile first = await OpenFileAsync(store, files[0], kept, 0, useAsync, ct).ConfigureAwait(false);
+            await using IpcFile first = await OpenFileAsync(store, files[0], kept, 0, map: true, useAsync, ct).ConfigureAwait(false);
             schema = Nullable(first.Schema);
         }
         if (schema.FieldsList.GroupBy(f => f.Name, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1) is { } twice)
@@ -229,9 +229,11 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
     /// <summary>
     /// Opens file <paramref name="index"/> of the store (owned by the <see cref="IpcFile"/>); errors name the file. Its
     /// footer comes from <paramref name="kept"/> when kept there (with its size and version: no request), else it is read
-    /// and kept when that is worth it (see <see cref="KeptFooters"/>).
+    /// and kept when that is worth it (see <see cref="KeptFooters"/>). A local stream file is scanned through its mapping
+    /// when <paramref name="map"/> says so.
     /// </summary>
-    internal static async ValueTask<IpcFile> OpenFileAsync(IFileStore store, IpcDatasetFile file, KeptFooters kept, int index, bool useAsync, CancellationToken ct)
+    internal static async ValueTask<IpcFile> OpenFileAsync(IFileStore store, IpcDatasetFile file, KeptFooters kept, int index, bool map, bool useAsync,
+        CancellationToken ct)
     {
         ReadOnlyMemory<byte>? footer = kept.Get(index);
         StoredFile? known = footer is not null && kept.Version(index) is { } version ? version with { Path = file.Path }
@@ -251,7 +253,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
         FooterRead? keep = footer is null && source is not ILocalSource ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
         try
         {
-            return await IpcFile.OpenOwnedAsync(source, footer, keep, useAsync, ct).ConfigureAwait(false);
+            return await IpcFile.OpenOwnedAsync(source, footer, keep, map, useAsync, ct).ConfigureAwait(false);
         }
         catch (IpcFormatException e)
         {

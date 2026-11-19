@@ -83,7 +83,9 @@ public sealed record IpcReadOptions
 /// Batches read through a mapping point into it (no copy), so the mapping stays until the last of them is disposed.
 /// While a file is mapped, it must not be truncated by another process: touching pages that no longer exist ends the
 /// process (SIGBUS on Unix, an access violation on Windows), which no exception handler can catch. Use
-/// <see cref="Off"/> for files that may change while they are read.
+/// <see cref="Off"/> for files that may change while they are read; data in the stream format opened by path is scanned
+/// through the mapping on open (a dataset reader with <see cref="Off"/> does not map it): open such a file as a
+/// <see cref="FileStream"/> instead.
 /// </remarks>
 public enum IpcMemoryMap
 {
