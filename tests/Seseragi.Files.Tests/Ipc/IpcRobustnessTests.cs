@@ -220,6 +220,28 @@ public class IpcRobustnessTests
         Assert.Contains("past its data", e.Message);
     }
 
+    /// <summary>
+    /// A field node claiming int.MaxValue values (fuzz seed 20261123, case 7687): its offsets are measured in 64 bits
+    /// (length + 1 overflowed and let the check pass), so the batch is refused, not failed.
+    /// </summary>
+    [Fact]
+    public void ANodeOfInt32MaxValues_IsRefused()
+    {
+        var item = new Field("item", StringType.Default, true);
+        var schema = new Schema([new Field("l", new ListType(item), true)], null);
+        var strings = new StringArray.Builder().AppendRange(Enumerable.Range(0, 4321).Select(i => $"s{i}")).Build();
+        var lists = new ArrayData(new ListType(item), 1, 0, 0, [ArrowBuffer.Empty, Ints(0, 4321)], [strings.Data]);
+        using var batch = new RecordBatch(schema, [ArrowArrayFactory.BuildArray(lists)], 1);
+        var stream = new MemoryStream();
+        using (var writer = new ArrowStreamWriter(stream, schema, leaveOpen: true)) writer.WriteRecordBatch(batch);
+        byte[] bytes = stream.ToArray();
+        // The child's field node: (length 4321, null count 0) as two int64s.
+        int at = bytes.AsSpan().IndexOf((ReadOnlySpan<byte>)[0xE1, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        Assert.True(at > 0);
+        BitConverter.GetBytes((long)int.MaxValue).CopyTo(bytes, at);
+        Assert.Throws<IpcFormatException>(() => ReadAny(bytes));
+    }
+
     [Fact]
     public void StringOffsets_MustStartAtZeroOrMore()
     {

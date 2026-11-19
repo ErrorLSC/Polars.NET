@@ -263,9 +263,10 @@ public sealed class IpcDatasetInteropTests : IDisposable
                 else if (error is not null) differences.Add($"{way}: refused ({error}), {c.Oracle} reads {wanted.Length} rows");
                 else if (!rows!.SequenceEqual(wanted))
                 {
-                    int at = Enumerable.Range(0, Math.Min(rows.Count, wanted.Length)).FirstOrDefault(i => rows[i] != wanted[i], Math.Min(rows.Count, wanted.Length));
-                    differences.Add($"{way}: {rows.Count} rows, {c.Oracle} {wanted.Length}; first difference at {at}: "
-                        + $"{(at < rows.Count ? rows[at] : "-")} vs {(at < wanted.Length ? wanted[at] : "-")}");
+                    List<string> read = rows!;
+                    int at = Enumerable.Range(0, Math.Min(read.Count, wanted.Length)).FirstOrDefault(i => read[i] != wanted[i], Math.Min(read.Count, wanted.Length));
+                    differences.Add($"{way}: {read.Count} rows, {c.Oracle} {wanted.Length}; first difference at {at}: "
+                        + $"{(at < read.Count ? read[at] : "-")} vs {(at < wanted.Length ? wanted[at] : "-")}");
                 }
             }
         }

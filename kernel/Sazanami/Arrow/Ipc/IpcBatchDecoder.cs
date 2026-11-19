@@ -133,7 +133,7 @@ internal sealed unsafe class IpcBatchDecoder(IpcRecordBatch header, IpcMetadataV
     {
         IpcSlice s = Buffer(index, where);
         if (s.Length == 0 && length == 0) return new IpcSlice(IpcZeros.Instance, (nint)IpcZeros.Instance.Pointer, width);
-        if (s.Length < (long)(length + 1) * width) throw IpcValidation.Invalid(where, $"{s.Length} bytes of offsets for {length} values");
+        if (s.Length < ((long)length + 1) * width) throw IpcValidation.Invalid(where, $"{s.Length} bytes of offsets for {length} values");
         return s;
     }
 

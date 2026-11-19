@@ -93,6 +93,10 @@ public enum IpcMemoryMap
     /// <summary>Every batch read from the mapping (compressed ones decompressed out of it).</summary>
     On,
 
-    /// <summary>Uncompressed batches read from the mapping without a copy; compressed ones read and decompressed (the default).</summary>
+    /// <summary>
+    /// The reader chooses (the default): today every batch is read from the mapping, as with <see cref="On"/>
+    /// (uncompressed ones point into it; compressed ones are decompressed out of it, sparing the copy of their bodies,
+    /// which measured faster for LZ4 and Zstandard alike).
+    /// </summary>
     Auto,
 }

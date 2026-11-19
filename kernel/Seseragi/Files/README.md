@@ -306,9 +306,9 @@ without a prefix). Feather v1 files, IPC streams and other data are refused by n
 **Reading** (`IpcFile.OpenReader`, `IpcReader`, `IpcReadOptions`): `ReadBatch(index)`, `ReadBatches` /
 `ReadBatchesAsync`, `ReadArrowStream`. `Columns` selects top-level columns (the buffers of the others are never read,
 decompressed or checked; byte gaps up to 1 MiB between the needed buffers are read rather than skipped); `MaxRows`
-cuts the rows; `MemoryMap` (`IpcMemoryMap`: `Auto` by default) reads a local file opened by path through a mapping:
-uncompressed batches point into it (`On`: compressed ones are decompressed out of it), the mapping lives while a batch
-does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
+cuts the rows; `MemoryMap` (`IpcMemoryMap`: `Auto` by default, as `On` today) reads a local file opened by path
+through a mapping: uncompressed batches point into it, compressed ones are decompressed out of it; the mapping lives
+while a batch does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
 id is refused, as the format says), only those the selected columns reach (dictionary values may themselves be
 dictionary-encoded). `ValidateUtf8` checks strings (off by default, as pyarrow and Polars read).
 `MaxDegreeOfParallelism` (all cores by default): batches read and decoded side by side ahead of the consumer, in order

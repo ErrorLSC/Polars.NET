@@ -496,6 +496,9 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             CancellationToken token = _cancel.Token;
             IpcDatasetReader owner = _owner;
             RequestGate? gate = _gate;
+            // The open's place is asked for here, in file order (Fill plans files in order), not on the thread pool:
+            // the gate lets waiting requests in by order, so the file the consumer waits for opens first.
+            ValueTask<RequestGate.Lease> entering = gate is null ? default : gate.EnterAsync(index, token);
             // Started without the token: a planning cancelled before it ran would leave nothing to await.
             Task<FileSlot> planning = Task.Run(async () =>
             {
@@ -503,7 +506,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 FilePlan? plan = null;
                 try
                 {
-                    using (RequestGate.Lease lease = gate is null ? default : await gate.EnterAsync(index, token).ConfigureAwait(false))
+                    using (RequestGate.Lease lease = await entering.ConfigureAwait(false))
                         file = await IpcDataset.OpenFileAsync(owner._dataset.Store, owner._dataset.Files[index], owner._dataset.Footers, index, useAsync: true, token)
                             .ConfigureAwait(false);
                     if (!owner._read[index])

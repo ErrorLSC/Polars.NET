@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Seseragi.Files.Ipc;
 using Seseragi.Files.Tests.Parquet;
@@ -40,6 +41,23 @@ public class IpcApiTests
         Assert.Equal(expected, Enumerable.Range(0, batch.Length).Select(i => CanonicalRender.Value(batch.Column(3), i)));
         batch.Dispose();
         Assert.True(owner.IsFreed);
+    }
+
+    /// <summary>Compressed batches are decompressed out of the file's mapping by default (Auto, as On); Off reads them.</summary>
+    [Theory]
+    [InlineData("pyarrow/lz4.arrow", IpcMemoryMap.Auto, true)]
+    [InlineData("pyarrow/zstd.arrow", IpcMemoryMap.Auto, true)]
+    [InlineData("polars/frame_lz4.arrow", IpcMemoryMap.Auto, true)]
+    [InlineData("pyarrow/lz4.arrow", IpcMemoryMap.On, true)]
+    [InlineData("pyarrow/lz4.arrow", IpcMemoryMap.Off, false)]
+    [InlineData("pyarrow/primitives.arrow", IpcMemoryMap.Auto, true)]
+    public void CompressedBatches_AreReadFromTheMapping_ByDefault(string name, IpcMemoryMap map, bool mapped)
+    {
+        using IpcFile file = IpcFile.Open(Path(name));
+        using IpcReader reader = file.OpenReader(new IpcReadOptions { MemoryMap = map });
+        using RecordBatch batch = reader.ReadBatch(0);
+        int column = Enumerable.Range(0, batch.ColumnCount).First(c => batch.Column(c) is not NullArray && batch.Column(c).Data.Buffers.Any(b => !b.IsEmpty));
+        Assert.Equal(mapped, Assert.IsType<IpcBodyMemory>(Owner(batch.Column(column))).IsMapped);
     }
 
     [Fact]
@@ -239,5 +257,45 @@ public class IpcApiTests
             Exception? e = Record.Exception(() => Lz4Frame.Decompress(damaged.AsSpan(0, random.Next(4) == 0 ? random.Next(damaged.Length) : damaged.Length), new byte[expanded]));
             if (e is not null) Assert.IsType<InvalidDataException>(e);
         }
+
+        // Damage the block checksums let through (each recomputed) is caught by the content checksum, taken block by
+        // block as the frame is decoded: in the first block, a later one, and the checksum itself.
+        Assert.Equal(0x40, frame[4] & 0xC0);
+        Assert.Equal(0x10 | 0x04, frame[4] & 0x14); // block and content checksums
+        List<(int Data, int Size)> blocks = [];
+        for (int ip = 7; ;)
+        {
+            int word = BitConverter.ToInt32(frame, ip);
+            if (word == 0) break;
+            int length = word & 0x7FFFFFFF;
+            blocks.Add((ip + 4, length));
+            ip += 4 + length + 4;
+        }
+        Assert.True(blocks.Count > 2);
+        int caught = 0;
+        foreach (var (data, length) in (ValueTuple<int, int>[])[blocks[0], blocks[^2]])
+        {
+            for (int round = 0; round < 200; round++)
+            {
+                byte[] damaged = (byte[])frame.Clone();
+                damaged[data + random.Next(length)] ^= (byte)(1 << random.Next(8));
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(damaged.AsSpan(data + length),
+                    System.IO.Hashing.XxHash32.HashToUInt32(damaged.AsSpan(data, length)));
+                byte[] written = new byte[expanded];
+                Exception? e = Record.Exception(() => Lz4Frame.Decompress(damaged, written));
+                if (e is null)
+                {
+                    // Read: only when the damage left the output as it was (a match copying equal bytes, say).
+                    Assert.True(written.AsSpan().SequenceEqual(output), $"damage at {round} read as valid with other output");
+                    continue;
+                }
+                Assert.IsType<InvalidDataException>(e);
+                if (e.Message.Contains("content checksum")) caught++;
+            }
+        }
+        Assert.True(caught > 50, $"{caught} caught by the content checksum");
+        byte[] wrongSum = (byte[])frame.Clone();
+        wrongSum[^1] ^= 1;
+        Assert.Contains("content checksum", Assert.Throws<InvalidDataException>(() => Lz4Frame.Decompress(wrongSum, new byte[expanded])).Message);
     }
 }

@@ -33,6 +33,7 @@ public sealed class IpcReader : IDisposable
         _file = file;
         _options = options;
         _decoding = new IpcDecoding(file.Footer.Schema, options);
+        // Every body is read from the mapping (On and Auto alike today): compressed ones are decompressed out of it.
         if (options.MemoryMap != IpcMemoryMap.Off && file.Source is ILocalSource local) _map = local.Map(out _mapStart);
     }
 
@@ -271,7 +272,7 @@ public sealed class IpcReader : IDisposable
         if (message.Kind != IpcMessageKind.RecordBatch)
             throw new IpcFormatException($"Arrow IPC footer block {index} of the record batches holds a {message.Kind} message.");
         bool[] needed = _decoding.Plan(message);
-        IpcBody body = await IpcIO.BodyAsync(_file.Source, MapFor(message), _mapStart, block.Offset + block.MetadataLength, message, needed, useAsync, ct)
+        IpcBody body = await IpcIO.BodyAsync(_file.Source, _map, _mapStart, block.Offset + block.MetadataLength, message, needed, useAsync, ct)
             .ConfigureAwait(false);
         return (message, body);
     }
@@ -282,11 +283,6 @@ public sealed class IpcReader : IDisposable
     /// <summary>A decoded batch as delivered: the row index put first when asked (see <see cref="IpcDecoding.Deliver"/>).</summary>
     internal RecordBatch Deliver(IpcDecoded decoded, ref long next) => _decoding.Deliver(decoded, ref next);
 
-    /// <summary>The mapping to read a message's body from: always with <see cref="IpcMemoryMap.On"/>; for uncompressed bodies with Auto.</summary>
-    private MappedFile? MapFor(IpcMessage message) => _map is not null
-        && (_options.MemoryMap == IpcMemoryMap.On || (message.RecordBatch ?? message.DictionaryBatch!.Data).Compression == IpcCompression.None)
-        ? _map
-        : null;
 
     private async ValueTask ReadDictionariesAsync(bool useAsync, CancellationToken ct)
     {
@@ -302,7 +298,7 @@ public sealed class IpcReader : IDisposable
             IpcField field = footer.Schema.Dictionaries.TryGetValue(message.DictionaryBatch.Id, out IpcField? f) ? f
                 : throw new IpcFormatException($"Arrow IPC dictionary {message.DictionaryBatch.Id} belongs to no field.");
             bool[] needed = IpcIO.Plan([field.ValueField()], null, message, message.Version);
-            IpcBody body = await IpcIO.BodyAsync(_file.Source, MapFor(message), _mapStart, block.Offset + block.MetadataLength, message, needed, useAsync, ct)
+            IpcBody body = await IpcIO.BodyAsync(_file.Source, _map, _mapStart, block.Offset + block.MetadataLength, message, needed, useAsync, ct)
                 .ConfigureAwait(false);
             IpcIO.Dictionary(footer.Schema, message, body, _dictionaries, message.Version, _options.ValidateUtf8, replacements: false);
         }

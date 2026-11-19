@@ -67,6 +67,8 @@ internal static class Lz4Frame
 
         int frameStart = op;
         ip = headerEnd + 1;
+        // The content checksum is taken block by block as each is written (still in cache), not over the frame after.
+        var content = new XxHash32Stream();
         while (true)
         {
             if (source.Length - ip < 4) throw Damaged("a truncated block size");
@@ -98,12 +100,13 @@ internal static class Lz4Frame
                 Span<byte> window = destination.Slice(op - history, Math.Min(destination.Length - (op - history), history + maxBlock));
                 written = Lz4Block.Decompress(block, window, history);
             }
+            if (contentChecksum) content.Append(destination.Slice(op, written));
             op += written;
         }
         if (contentChecksum)
         {
             if (source.Length - ip < 4) throw Damaged("a truncated content checksum");
-            if (BinaryPrimitives.ReadUInt32LittleEndian(source[ip..]) != XxHash32.HashToUInt32(destination[frameStart..op])) throw Damaged("the content checksum does not match");
+            if (BinaryPrimitives.ReadUInt32LittleEndian(source[ip..]) != content.Hash()) throw Damaged("the content checksum does not match");
             ip += 4;
         }
         if (contentSize >= 0 && contentSize != op - frameStart) throw Damaged($"the frame holds {op - frameStart} bytes; its descriptor says {contentSize}");

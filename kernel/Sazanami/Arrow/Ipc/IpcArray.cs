@@ -25,6 +25,9 @@ internal sealed unsafe class IpcBodyMemory : NativeMemoryOwner
     /// <summary>Memory over <paramref name="map"/>, which the caller acquired for it (released when it is freed).</summary>
     public IpcBodyMemory(MappedFile map) => _map = map;
 
+    /// <summary>Whether the body was read from a file's mapping (for tests).</summary>
+    internal bool IsMapped => _map is not null;
+
     /// <summary>A pool block of <paramref name="bytes"/> bytes (64-byte aligned), freed with this memory.</summary>
     public byte* Allocate(long bytes)
     {

@@ -305,6 +305,10 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
         var (many, manyRows) = ReadDatasetOnce(new Random(seed), memory, datasetOptions, threads: 4, remote: true, async);
         if (one.Finding) return one;
         if (many.Finding) return many;
+        // Known difference: the one-thread path decodes only the rows a row limit leaves, the window whole batches; nulls
+        // of a run-end encoded column a file lacks fail past what Int16 run ends reach only when a whole batch is made.
+        static bool RunEnds(Outcome o) => o.Signature == "refused" && o.Detail.Contains("cannot be run-end encoded");
+        if (one.Signature != many.Signature && (RunEnds(one) || RunEnds(many))) return many;
         if (one.Signature != many.Signature)
             return new Outcome(true, "A dataset read differs on one thread and in the window", $"one thread: {one.Signature} {one.Detail}; window: {many.Signature} {many.Detail}");
         if (oneRows is not null && !oneRows.SequenceEqual(manyRows!))
