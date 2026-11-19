@@ -67,7 +67,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         _columnSettings = plan.Settings;
         _keyValues = plan.KeyValues;
         (_columns, _shredders) = NewColumns();
-        if (options.BatchOwnership == ParquetBatchOwnership.Writer && options.MaxDegreeOfParallelism > 1)
+        if (options.BatchOwnership == BatchOwnership.Writer && options.MaxDegreeOfParallelism > 1)
         {
             _columnWork = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, options.MaxDegreeOfParallelism);
             _spares.Push((_columns, _shredders));
@@ -178,7 +178,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <summary>
     /// About how many bytes the row groups not in <see cref="BytesWritten"/> yet will take: the open one (its pages so
     /// far, the open ones as plainly encoded) and, with more than one thread, those closed and still being finished
-    /// (exactly: waits for them). With <see cref="ParquetBatchOwnership.Writer"/> and more than one thread,
+    /// (exactly: waits for them). With <see cref="BatchOwnership.Writer"/> and more than one thread,
     /// also those still being encoded: exactly once encoded, else (and the open one) their batches' logical Arrow bytes scaled by
     /// the ratio the row groups laid out so far compressed to (unscaled before the first). So BytesWritten +
     /// PendingBytes is what the file would take now, which a caller splitting files by size can go by.
@@ -525,7 +525,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Adds a batch's rows. By default the batch is not kept: it may be disposed once this returns. With
-    /// <see cref="ParquetBatchOwnership.Writer"/> the writer takes it (in every case, also when this fails) and disposes
+    /// <see cref="BatchOwnership.Writer"/> the writer takes it (in every case, also when this fails) and disposes
     /// it once its rows are encoded, perhaps after this returns.
     /// </summary>
     public void Write(RecordBatch batch) => WriteCoreAsync(batch, false, default).AsTask().GetAwaiter().GetResult();
@@ -538,7 +538,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     internal void Write(RecordBatch batch, int start, int count)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        if (_options.BatchOwnership != ParquetBatchOwnership.Caller)
+        if (_options.BatchOwnership != BatchOwnership.Caller)
             throw new InvalidOperationException("Rows of a batch are written only when the caller owns the batches.");
         ArgumentOutOfRangeException.ThrowIfNegative(start);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
@@ -590,7 +590,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private async ValueTask WriteCoreAsync(RecordBatch batch, bool useAsync, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        if (_options.BatchOwnership == ParquetBatchOwnership.Caller)
+        if (_options.BatchOwnership == BatchOwnership.Caller)
         {
             await WriteNowAsync(batch, 0, batch.Length, useAsync, ct).ConfigureAwait(false);
             return;

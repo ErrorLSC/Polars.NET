@@ -9,7 +9,7 @@ using static Seseragi.Files.Tests.TestBatches;
 namespace Seseragi.Files.Tests.Parquet;
 
 /// <summary>
-/// <see cref="ParquetWriter"/> owning its batches (<see cref="ParquetBatchOwnership.Writer"/>): the file is the one
+/// <see cref="ParquetWriter"/> owning its batches (<see cref="BatchOwnership.Writer"/>): the file is the one
 /// the caller's batches give, whatever the threads (row groups encoded side by side); every batch is disposed once,
 /// after its rows are encoded, also when writing fails; row groups by bytes count the rows' logical Arrow bytes.
 /// </summary>
@@ -88,7 +88,7 @@ public sealed class ParquetWriterOwnershipTests
     public void RowsOfABatch_WriteTheFileTheirSlicesWrite(string layout)
     {
         RecordBatch batch = layout.StartsWith("flat") ? ParquetWriteData.Wide(81, 24_000) : ParquetNestedData.Batch(82, 12_000).Batch;
-        var options = new ParquetWriteOptions { RowGroupRows = 4000, DataPageRows = 1500, MaxDegreeOfParallelism = 4, BatchOwnership = ParquetBatchOwnership.Caller, LeaveOpen = true };
+        var options = new ParquetWriteOptions { RowGroupRows = 4000, DataPageRows = 1500, MaxDegreeOfParallelism = 4, BatchOwnership = BatchOwnership.Caller, LeaveOpen = true };
         (int Start, int Count)[] ranges = [(0, 777), (777, 3001), (3778, 1), (3779, 0), (3779, batch.Length - 3779)];
 
         using var sliced = new MemoryStream();
@@ -113,7 +113,7 @@ public sealed class ParquetWriterOwnershipTests
         var values = new Int32Array.Builder().Append(1).AppendNull().Append(3).Append(4).Build();
         using var batch = new RecordBatch(schema, [values], 4);
         using var stream = new MemoryStream();
-        using ParquetWriter writer = ParquetWriter.Create(stream, schema, new ParquetWriteOptions { BatchOwnership = ParquetBatchOwnership.Caller, LeaveOpen = true });
+        using ParquetWriter writer = ParquetWriter.Create(stream, schema, new ParquetWriteOptions { BatchOwnership = BatchOwnership.Caller, LeaveOpen = true });
         writer.Write(batch, 2, 2); // row 1 (null) is not among them
         Assert.Contains("row 1", Assert.Throws<ArgumentException>(() => writer.Write(batch, 0, 3)).Message);
         Assert.Throws<ArgumentOutOfRangeException>(() => writer.Write(batch, 3, 2));
@@ -151,7 +151,7 @@ public sealed class ParquetWriterOwnershipTests
         {
             var tracker = new Tracker();
             RecordBatch[] owned = [.. slices.Select(tracker.Copy)];
-            byte[] written = Written(owned, batch.Schema, options with { MaxDegreeOfParallelism = threads, BatchOwnership = ParquetBatchOwnership.Writer });
+            byte[] written = Written(owned, batch.Schema, options with { MaxDegreeOfParallelism = threads, BatchOwnership = BatchOwnership.Writer });
             Assert.True(expected.AsSpan().SequenceEqual(written), $"{layout}: {threads} threads owning the batches write another file ({written.Length} bytes against {expected.Length})");
             tracker.AssertEachDisposedOnce();
         }
@@ -162,7 +162,7 @@ public sealed class ParquetWriterOwnershipTests
     {
         var (nested, _) = ParquetNestedData.Batch(83, 12_000);
         var tracker = new Tracker();
-        var options = new ParquetWriteOptions { RowGroupRows = 500, MaxDegreeOfParallelism = 8, BatchOwnership = ParquetBatchOwnership.Writer, LeaveOpen = true };
+        var options = new ParquetWriteOptions { RowGroupRows = 500, MaxDegreeOfParallelism = 8, BatchOwnership = BatchOwnership.Writer, LeaveOpen = true };
         using var stream = new MemoryStream();
         using (var writer = ParquetWriter.Create(stream, nested.Schema, options))
         {
@@ -182,9 +182,9 @@ public sealed class ParquetWriterOwnershipTests
         var tracker = new Tracker();
         var options = new ParquetWriteOptions
         {
-            RowGroupRows = 500, MaxDegreeOfParallelism = 8, BatchOwnership = ParquetBatchOwnership.Writer, LeaveOpen = true, InFlightBytes = 1,
+            RowGroupRows = 500, MaxDegreeOfParallelism = 8, BatchOwnership = BatchOwnership.Writer, LeaveOpen = true, InFlightBytes = 1,
         };
-        byte[] expected = Written(Uneven(nested), nested.Schema, options with { MaxDegreeOfParallelism = 1, BatchOwnership = ParquetBatchOwnership.Caller });
+        byte[] expected = Written(Uneven(nested), nested.Schema, options with { MaxDegreeOfParallelism = 1, BatchOwnership = BatchOwnership.Caller });
         using var stream = new MemoryStream();
         using (var writer = ParquetWriter.Create(stream, nested.Schema, options))
         {
@@ -200,7 +200,7 @@ public sealed class ParquetWriterOwnershipTests
     public void RowGroupsByBytes_TheSameWhateverTheThreads()
     {
         RecordBatch wide = ParquetWriteData.Wide(84, 24_000);
-        var options = new ParquetWriteOptions { RowGroupBytes = 300_000, BatchOwnership = ParquetBatchOwnership.Writer };
+        var options = new ParquetWriteOptions { RowGroupBytes = 300_000, BatchOwnership = BatchOwnership.Writer };
         byte[]? first = null;
         foreach (int threads in (int[])[2, 3, 16])
         {
@@ -221,7 +221,7 @@ public sealed class ParquetWriterOwnershipTests
         // Batches sliced out of one (each holding the whole batch's buffers) close row groups where compact copies of
         // the same rows do: by the rows' logical bytes, never by the buffers they share.
         RecordBatch wide = ParquetWriteData.Wide(85, 24_000);
-        var options = new ParquetWriteOptions { RowGroupBytes = 3_000_000, BatchOwnership = ParquetBatchOwnership.Writer, MaxDegreeOfParallelism = 4 };
+        var options = new ParquetWriteOptions { RowGroupBytes = 3_000_000, BatchOwnership = BatchOwnership.Writer, MaxDegreeOfParallelism = 4 };
         RecordBatch[] slices = Uneven(wide);
         var tracker = new Tracker();
         byte[] sliced = Written([.. slices.Select(tracker.Copy)], wide.Schema, options);
@@ -253,7 +253,7 @@ public sealed class ParquetWriterOwnershipTests
             ("day", Fixed(Date64Type.Default, [.. Enumerable.Range(0, 5000).Select(i => (long?)(i == 2500 ? 1 : 0))]), true),
             ("dec", Fixed(new Decimal128Type(5, 0), [.. Enumerable.Range(0, 5000).Select(i => (Int128?)(i == 4500 ? 1_000_000 : i))]), true));
         var tracker = new Tracker();
-        var options = new ParquetWriteOptions { RowGroupRows = 1000, MaxDegreeOfParallelism = threads, BatchOwnership = ParquetBatchOwnership.Writer };
+        var options = new ParquetWriteOptions { RowGroupRows = 1000, MaxDegreeOfParallelism = threads, BatchOwnership = BatchOwnership.Writer };
         var e = Assert.Throws<NotSupportedException>(() =>
             ParquetWriter.Write(new MemoryStream(), batch.Schema, Enumerable.Range(0, 10).Select(k => tracker.Copy(batch.Slice(k * 500, 500))), options)); // made as taken
         Assert.Contains("'day'", e.Message, StringComparison.Ordinal);
@@ -271,7 +271,7 @@ public sealed class ParquetWriterOwnershipTests
         using var stream = new MemoryStream();
         using (var writer = ParquetWriter.Create(stream, good.Schema, new ParquetWriteOptions
         {
-            RowGroupRows = 1000, MaxDegreeOfParallelism = threads, BatchOwnership = ParquetBatchOwnership.Writer, LeaveOpen = true,
+            RowGroupRows = 1000, MaxDegreeOfParallelism = threads, BatchOwnership = BatchOwnership.Writer, LeaveOpen = true,
         }))
         {
             writer.Write(tracker.Copy(good));
@@ -311,7 +311,7 @@ public sealed class ParquetWriterOwnershipTests
         var tracker = new Tracker();
         var writer = ParquetWriter.Create(new FailingStream(150_000), wide.Schema, new ParquetWriteOptions
         {
-            RowGroupRows = 2000, MaxDegreeOfParallelism = threads, BatchOwnership = ParquetBatchOwnership.Writer,
+            RowGroupRows = 2000, MaxDegreeOfParallelism = threads, BatchOwnership = BatchOwnership.Writer,
         });
         Exception? failure = null;
         try
@@ -343,7 +343,7 @@ public sealed class ParquetWriterOwnershipTests
         using var stream = new MemoryStream();
         using (var writer = ParquetWriter.Create(stream, wide.Schema, new ParquetWriteOptions
         {
-            RowGroupRows = 1000, MaxDegreeOfParallelism = threads, BatchOwnership = ParquetBatchOwnership.Writer, LeaveOpen = true,
+            RowGroupRows = 1000, MaxDegreeOfParallelism = threads, BatchOwnership = BatchOwnership.Writer, LeaveOpen = true,
         }))
         {
             for (int at = 0; at < wide.Length; at += 4000)
@@ -364,7 +364,7 @@ public sealed class ParquetWriterOwnershipTests
         var tracker = new Tracker();
         var writer = ParquetWriter.Create(new FailingStream(0), wide.Schema, new ParquetWriteOptions
         {
-            RowGroupRows = 5000, MaxDegreeOfParallelism = 8, BatchOwnership = ParquetBatchOwnership.Writer,
+            RowGroupRows = 5000, MaxDegreeOfParallelism = 8, BatchOwnership = BatchOwnership.Writer,
         });
         // The first row group closes and fails to be written later; the second stays open.
         try
@@ -389,7 +389,7 @@ public sealed class ParquetWriterOwnershipTests
         RecordBatch first = ParquetWriteData.Wide(95, 1000);
         var writer = ParquetWriter.Create(stream, first.Schema, new ParquetWriteOptions
         {
-            LeaveOpen = true, MaxDegreeOfParallelism = 16, BatchOwnership = ParquetBatchOwnership.Writer, RowGroupRows = 1000,
+            LeaveOpen = true, MaxDegreeOfParallelism = 16, BatchOwnership = BatchOwnership.Writer, RowGroupRows = 1000,
         });
         await writer.WriteAsync(first);
         for (int k = 1; k < 10; k++) await writer.WriteAsync(ParquetWriteData.Wide(95 + k, 1000));
@@ -412,7 +412,7 @@ public sealed class ParquetWriterOwnershipTests
         RecordBatch first = ParquetWriteData.Wide(96, 4000);
         var writer = ParquetWriter.Create(stream, first.Schema, new ParquetWriteOptions
         {
-            LeaveOpen = true, MaxDegreeOfParallelism = 2, BatchOwnership = ParquetBatchOwnership.Writer, RowGroupRows = 4000,
+            LeaveOpen = true, MaxDegreeOfParallelism = 2, BatchOwnership = BatchOwnership.Writer, RowGroupRows = 4000,
         });
         await writer.WriteAsync(first);
         for (int k = 1; k < 6; k++) await writer.WriteAsync(ParquetWriteData.Wide(96 + k, 4000));

@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 
 namespace Seseragi.Files.Tests.Parquet;
@@ -86,7 +87,7 @@ public sealed class ParquetWriterAbortTests
         RecordBatch first = ParquetWriteData.Wide(84, 3000);
         var writer = ParquetWriter.Create(stream, first.Schema, new ParquetWriteOptions
         {
-            LeaveOpen = true, MaxDegreeOfParallelism = 16, BatchOwnership = ParquetBatchOwnership.Writer, RowGroupRows = 1000,
+            LeaveOpen = true, MaxDegreeOfParallelism = 16, BatchOwnership = BatchOwnership.Writer, RowGroupRows = 1000,
         });
         await writer.WriteAsync(first);
         for (int k = 1; k < 6; k++) await writer.WriteAsync(ParquetWriteData.Wide(84 + k, 3000));

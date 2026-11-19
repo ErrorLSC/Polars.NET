@@ -7,18 +7,69 @@ using Kaminari.Sazanami.Buffers;
 namespace Kaminari.Sazanami.Arrow.Ipc;
 
 /// <summary>A message ready to write: its prefix and metadata (padded) and its body (buffers at their offsets).</summary>
-internal sealed class IpcOutgoingMessage(byte[] metadata, IpcEncodedBody? body, IpcBuffer[] layout, long bodyLength, bool isDictionary) : IDisposable
+internal sealed class IpcOutgoingMessage : IDisposable
 {
-    /// <summary>The continuation marker, the metadata length and the metadata, padded so that the body starts 64-byte aligned.</summary>
-    public byte[] Metadata { get; } = metadata;
+    private readonly Func<IpcRecordBatch, long, byte[]>? _describe;
+    private readonly long _rows;
+    private readonly IpcCompression _compression;
+    private byte[]? _flatBuffer;
 
-    public IpcEncodedBody? Body { get; } = body;
+    /// <summary>A message without a body (the schema), framed already.</summary>
+    public IpcOutgoingMessage(byte[] framed)
+    {
+        Metadata = framed;
+        Layout = [];
+    }
 
-    public IpcBuffer[] Layout { get; } = layout;
+    /// <summary>A batch message whose body is still to be compressed (<see cref="Compress"/>) and framed (<see cref="Frame"/>).</summary>
+    public IpcOutgoingMessage(IpcEncodedBody body, long rows, IpcCompression compression, bool isDictionary, Func<IpcRecordBatch, long, byte[]> describe)
+    {
+        Body = body;
+        _rows = rows;
+        _compression = compression;
+        IsDictionary = isDictionary;
+        _describe = describe;
+        Layout = [];
+    }
 
-    public long BodyLength { get; } = bodyLength;
+    /// <summary>The continuation marker, the metadata length and the metadata, padded so that the body starts 64-byte aligned (once framed).</summary>
+    public byte[] Metadata { get; private set; } = [];
 
-    public bool IsDictionary { get; } = isDictionary;
+    public IpcEncodedBody? Body { get; }
+
+    public IpcBuffer[] Layout { get; private set; }
+
+    public long BodyLength { get; private set; }
+
+    public bool IsDictionary { get; }
+
+    /// <summary>The bytes of the buffers before compression (what the message holds in memory until written).</summary>
+    public long RawBytes => Body?.Buffers.Sum(b => b.Length) ?? 0;
+
+    /// <summary>
+    /// Compresses the body (on up to <paramref name="parallelism"/> threads) and lays it out; any thread may run it,
+    /// several messages at once. The metadata is then known but for its framing.
+    /// </summary>
+    public void Compress(int level, int parallelism, int zstdFrameBytes)
+    {
+        if (Body is null || _flatBuffer is not null) return;
+        IpcBatchEncoder.Compress(Body, _compression, level, parallelism, zstdFrameBytes);
+        (IpcBuffer[] layout, long length) = IpcBatchEncoder.Layout(Body.Buffers);
+        var header = new IpcRecordBatch(_rows, [.. Body.Nodes], layout, _compression, [.. Body.VariadicCounts]);
+        _flatBuffer = _describe!(header, length);
+        Layout = layout;
+        BodyLength = length;
+    }
+
+    /// <summary>Frames the metadata for a message written at <paramref name="position"/> (after <see cref="Compress"/>).</summary>
+    public void Frame(long position)
+    {
+        if (Body is null) return;
+        Metadata = IpcMessageEncoder.Frame(_flatBuffer ?? throw new InvalidOperationException("The message is not compressed yet."), position);
+    }
+
+    /// <summary>The bytes the message takes in the output (once framed).</summary>
+    public long Size => Metadata.Length + BodyLength;
 
     public void Dispose() => Body?.Dispose();
 }
@@ -39,15 +90,43 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
 
     /// <summary>The schema message.</summary>
     public IpcOutgoingMessage SchemaMessage(long position, IReadOnlyList<KeyValuePair<string, string>>? metadata) =>
-        new(Frame(IpcMetadataWriter.SchemaMessage(Schema, metadata), position), null, [], 0, false);
+        new(Frame(IpcMetadataWriter.SchemaMessage(Schema, metadata), position));
 
     /// <summary>
     /// The messages of a batch, written from <paramref name="position"/> on: the dictionary batches it needs, then the
-    /// record batch. The caller disposes them once written.
+    /// record batch, compressed and framed. The caller disposes them once written.
     /// </summary>
     /// <exception cref="ArgumentException">The batch does not match the schema.</exception>
     /// <exception cref="InvalidOperationException">A dictionary is replaced in the file format.</exception>
     public List<IpcOutgoingMessage> Batch(RecordBatch batch, IReadOnlyList<KeyValuePair<string, string>>? metadata, long position)
+    {
+        List<IpcOutgoingMessage> messages = Prepare(batch, metadata);
+        try
+        {
+            foreach (IpcOutgoingMessage message in messages)
+            {
+                message.Compress(level, parallelism, zstdFrameBytes);
+                message.Frame(position);
+                position += message.Size;
+            }
+            return messages;
+        }
+        catch
+        {
+            foreach (IpcOutgoingMessage m in messages) m.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The messages of a batch before compression and framing (in order: the dictionary batches it needs, then the
+    /// record batch): the batch is checked and its dictionaries settled here, in the order batches are written; the
+    /// bodies still read the batch's buffers. Then each message is compressed (<see cref="IpcOutgoingMessage.Compress"/>,
+    /// on any thread) and framed where it is written (<see cref="IpcOutgoingMessage.Frame"/>, in order).
+    /// </summary>
+    /// <exception cref="ArgumentException">The batch does not match the schema.</exception>
+    /// <exception cref="InvalidOperationException">A dictionary is replaced in the file format.</exception>
+    public List<IpcOutgoingMessage> Prepare(RecordBatch batch, IReadOnlyList<KeyValuePair<string, string>>? metadata)
     {
         if (batch.ColumnCount != Schema.Fields.Length)
             throw new ArgumentException($"The batch has {batch.ColumnCount} columns; the schema has {Schema.Fields.Length}.", nameof(batch));
@@ -56,11 +135,9 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         try
         {
             IpcBatchEncoder.Encode(body, Schema.Fields, [.. Enumerable.Range(0, batch.ColumnCount).Select(c => batch.Column(c).Data)], 0, batch.Length);
-            foreach (var (id, field, dictionary) in body.Dictionaries) Dictionary(id, field, dictionary, messages, ref position);
-            IpcBatchEncoder.Compress(body, compression, level, parallelism, zstdFrameBytes);
-            (IpcBuffer[] layout, long length) = IpcBatchEncoder.Layout(body.Buffers);
-            var header = new IpcRecordBatch(batch.Length, [.. body.Nodes], layout, compression, [.. body.VariadicCounts]);
-            messages.Add(new IpcOutgoingMessage(Frame(IpcMetadataWriter.RecordBatchMessage(header, length, metadata), position), body, layout, length, false));
+            foreach (var (id, field, dictionary) in body.Dictionaries) Dictionary(id, field, dictionary, messages);
+            messages.Add(new IpcOutgoingMessage(body, batch.Length, compression, false,
+                (header, length) => IpcMetadataWriter.RecordBatchMessage(header, length, metadata)));
             return messages;
         }
         catch
@@ -71,8 +148,11 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         }
     }
 
+    /// <summary>The compression settings of the messages (for writers that compress them elsewhere).</summary>
+    public (int Level, int Parallelism, int ZstdFrameBytes) CompressionSettings => (level, parallelism, zstdFrameBytes);
+
     /// <summary>Writes what dictionary <paramref name="id"/> needs (nothing, a delta or the whole dictionary), after the dictionaries its values use.</summary>
-    private void Dictionary(long id, IpcField field, ArrayData dictionary, List<IpcOutgoingMessage> messages, ref long position)
+    private void Dictionary(long id, IpcField field, ArrayData dictionary, List<IpcOutgoingMessage> messages)
     {
         IpcField values = field.ValueField();
         int length = dictionary.Length;
@@ -99,14 +179,10 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
         try
         {
             IpcBatchEncoder.Encode(body, [values], [dictionary], first, length - first);
-            foreach (var (inner, innerField, innerDictionary) in body.Dictionaries) Dictionary(inner, innerField, innerDictionary, messages, ref position);
+            foreach (var (inner, innerField, innerDictionary) in body.Dictionaries) Dictionary(inner, innerField, innerDictionary, messages);
             Remember(id, values, dictionary);
-            IpcBatchEncoder.Compress(body, compression, level, parallelism, zstdFrameBytes);
-            (IpcBuffer[] layout, long bodyLength) = IpcBatchEncoder.Layout(body.Buffers);
-            var header = new IpcRecordBatch(length - first, [.. body.Nodes], layout, compression, [.. body.VariadicCounts]);
-            byte[] metadata = Frame(IpcMetadataWriter.DictionaryBatchMessage(new IpcDictionaryBatch(id, header, delta), bodyLength), position);
-            messages.Add(new IpcOutgoingMessage(metadata, body, layout, bodyLength, true));
-            position += metadata.Length + bodyLength;
+            messages.Add(new IpcOutgoingMessage(body, length - first, compression, true,
+                (header, bodyLength) => IpcMetadataWriter.DictionaryBatchMessage(new IpcDictionaryBatch(id, header, delta), bodyLength)));
         }
         catch
         {

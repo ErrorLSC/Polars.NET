@@ -187,15 +187,22 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
             Compression = Codecs[random.Next(Codecs.Length)],
             MaxDegreeOfParallelism = random.Next(3) == 0 ? 1 : 1 + random.Next(8),
             LeaveOpen = true,
+            // The writer taking the batch: it compresses several side by side (slices would share the batch's buffers: given whole).
+            BatchOwnership = skip == 0 && random.Next(3) == 0 ? BatchOwnership.Writer : BatchOwnership.Caller,
+            InFlightBytes = random.Next(2) == 0 ? 1 : 512L << 20,
         };
         using var stream = new MemoryStream();
         using (IpcWriter writer = IpcWriter.Create(stream, batch.Schema, options))
         {
-            for (int at = skip; at < rows;)
+            if (options.BatchOwnership == BatchOwnership.Writer) writer.Write(batch); // taken: the writer disposes it
+            else
             {
-                int take = Math.Min(rows - at, random.Next(2) == 0 ? rows : random.Next(1, 400));
-                writer.Write(batch.Slice(at, take));
-                at += take;
+                for (int at = skip; at < rows;)
+                {
+                    int take = Math.Min(rows - at, random.Next(2) == 0 ? rows : random.Next(1, 400));
+                    writer.Write(batch.Slice(at, take));
+                    at += take;
+                }
             }
         }
         var read = new IpcReadOptions
@@ -219,14 +226,14 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
                 using IpcStreamReader reader = IpcStreamReader.Open(stream, read, leaveOpen: true);
                 batches.AddRange(reader.ReadBatches());
             }
-            for (int c = 0; c < batch.ColumnCount; c++)
+            for (int c = 0; c < expected.Length; c++)
             {
                 string[] got = nested
                     ? [.. batches.SelectMany(b => ParquetNestedData.Canonical(b.Column(c)))]
                     : [.. batches.SelectMany(b => ParquetWriteData.Canonical(b.Column(c)))];
                 if (!expected[c].SequenceEqual(got))
                     return new Outcome(true, "Written IPC values do not come back",
-                        $"column {batch.Schema.FieldsList[c].Name} ({batch.Schema.FieldsList[c].DataType.Name}), {options.Format}, {options.Compression}");
+                        $"column {c}, {options.Format}, {options.Compression}, {options.BatchOwnership}");
             }
             return Outcome.Read;
         }

@@ -14,8 +14,11 @@ internal interface IBatchSink
     /// <summary>Gives the output up: it cannot be completed.</summary>
     void Abort();
 
-    /// <summary>Writes a batch (the caller keeps and disposes it).</summary>
+    /// <summary>Writes a batch: the caller disposes it afterwards, unless <see cref="TakesBatches"/>.</summary>
     ValueTask WriteAsync(RecordBatch batch, bool useAsync, CancellationToken ct);
+
+    /// <summary>Whether the sink takes the batches given to it (disposes them itself, also when writing fails).</summary>
+    bool TakesBatches => false;
 }
 
 /// <summary>
@@ -155,7 +158,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
                     throw;
                 }
                 RowCount += BatchRows;
-                using (batch) await sink.WriteAsync(batch, useAsync, ct).ConfigureAwait(false);
+                await Hand(batch, useAsync, ct).ConfigureAwait(false);
             }
         }
         catch
@@ -228,8 +231,18 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
     public async ValueTask FlushAsync(bool useAsync, CancellationToken ct)
     {
         if (_rows.Count == 0) return;
-        using RecordBatch batch = _rows.ExportBatch();
-        await sink.WriteAsync(batch, useAsync, ct).ConfigureAwait(false);
+        await Hand(_rows.ExportBatch(), useAsync, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Gives a batch to the sink, disposing it afterwards unless the sink takes it.</summary>
+    private async ValueTask Hand(RecordBatch batch, bool useAsync, CancellationToken ct)
+    {
+        if (sink.TakesBatches)
+        {
+            await sink.WriteAsync(batch, useAsync, ct).ConfigureAwait(false);
+            return;
+        }
+        using (batch) await sink.WriteAsync(batch, useAsync, ct).ConfigureAwait(false);
     }
 
     /// <summary>Frees the builders (rows not flushed are dropped).</summary>

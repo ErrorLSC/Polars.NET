@@ -66,7 +66,7 @@ public sealed class ParquetWriter<[DynamicallyAccessedMembers(DynamicallyAccesse
         IReadOnlySet<string> maps = ArrowRowBuilder<T>.MapColumns;
         return options with
         {
-            BatchOwnership = ParquetBatchOwnership.Caller,
+            BatchOwnership = BatchOwnership.Caller,
             MapColumns = maps.Count == 0 ? options.MapColumns : options.MapColumns is { } given ? given.Union(maps).ToFrozenSet() : maps,
         };
     }

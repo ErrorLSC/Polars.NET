@@ -37,6 +37,19 @@ public class IpcRobustnessTests
         }
     }
 
+    /// <summary>
+    /// What our fuzzer found: two fields sharing a dictionary id but declaring values of different types (Apache.Arrow's
+    /// DictionaryArray threw ArgumentException when the dictionary decoded for the first was given to the second):
+    /// refused as invalid when the schema is read.
+    /// </summary>
+    [Fact]
+    public void SharedDictionaries_OfDifferentValueTypes_AreRefused()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "ipc-fuzz", "shared-dictionary-value-types.arrow");
+        var e = Assert.Throws<IpcFormatException>(() => IpcFile.Open(path));
+        Assert.Contains("share dictionary", e.Message);
+    }
+
     public static TheoryData<string> FuzzFiles => [.. IpcValueTests.Oracle.Value.RootElement.GetProperty("files").EnumerateObject()
         .Select(p => p.Name).Where(n => n.StartsWith("apache/fuzz/"))];
 

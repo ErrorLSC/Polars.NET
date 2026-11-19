@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using ArrowTimeUnit = Apache.Arrow.Types.TimeUnit;
 
 namespace Kaminari.Sazanami.Arrow.Ipc;
@@ -285,7 +286,15 @@ internal static class IpcMetadata
             dictionaryId = d.Int64(0);
         }
         var field = new IpcField(new Field(name, type, nullable, metadata), dictionaryId, children, conversion);
-        if (dictionaryId is long id) dictionaries.TryAdd(id, field);
+        if (dictionaryId is long id)
+        {
+            // Fields sharing a dictionary must agree on its values: it is decoded once, as the first of them declares it.
+            if (dictionaries.TryGetValue(id, out IpcField? first)
+                && !ArrowTypes.SameType(((DictionaryType)first.Field.DataType).ValueType, ((DictionaryType)type).ValueType))
+                throw new InvalidDataException($"Arrow IPC data is invalid: fields '{first.Field.Name}' and '{name}' share dictionary {id} but declare "
+                    + $"values of {ArrowTypes.Describe(((DictionaryType)first.Field.DataType).ValueType)} and {ArrowTypes.Describe(((DictionaryType)type).ValueType)}.");
+            dictionaries.TryAdd(id, field);
+        }
         return field;
     }
 

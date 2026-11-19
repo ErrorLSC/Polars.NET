@@ -29,6 +29,12 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     private long _position;  // bytes written to the stream
     private long _planned;   // where the messages handed over so far end (ahead of _position while one is written behind)
     private Task? _pending;  // the messages of the last batch being written behind (with compression)
+
+    // BatchOwnership.Writer: batches compressed side by side, written in order by a chain of tasks.
+    private readonly Queue<(Task Written, long Bytes)> _ahead = [];
+    private long _aheadBytes;
+    private Task _chain = Task.CompletedTask; // the last batch's write (it waits for every earlier one)
+    private volatile bool _stopping;           // aborted or disposed: batches still on their way are not written
     private bool _started, _completed, _aborted, _faulted, _disposed;
 
     private IpcWriter(Stream stream, Schema schema, IpcWriteOptions options)
@@ -221,7 +227,11 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         }
     }
 
-    /// <summary>Writes a batch (and the dictionary batches it needs). The batch is not kept: it may be disposed once this returns.</summary>
+    /// <summary>
+    /// Writes a batch (and the dictionary batches it needs). By default the batch is not kept: it may be disposed once
+    /// this returns. With <see cref="BatchOwnership.Writer"/> the writer takes it (in every case, also when this
+    /// fails) and disposes it once written, after this returns.
+    /// </summary>
     /// <exception cref="ArgumentException">The batch does not match the schema.</exception>
     /// <exception cref="InvalidOperationException">In the file format, a dictionary changes other than by growing.</exception>
     public void Write(RecordBatch batch) => IpcIO.Sync(WriteCoreAsync(batch, null, false, default));
@@ -249,7 +259,9 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     /// </summary>
     public void Abort()
     {
-        if (!_completed && !_disposed) _aborted = true;
+        if (_completed || _disposed) return;
+        _aborted = true;
+        _stopping = true; // batches still on their way are freed unwritten
     }
 
     private void CheckWritable()
@@ -263,6 +275,11 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     private async ValueTask WriteCoreAsync(RecordBatch batch, IReadOnlyDictionary<string, string>? metadata, bool useAsync, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        if (_options.BatchOwnership == BatchOwnership.Writer)
+        {
+            await WriteOwnedAsync(batch, metadata, useAsync, ct).ConfigureAwait(false);
+            return;
+        }
         CheckWritable();
         await StartAsync(useAsync, ct).ConfigureAwait(false);
         // Encoding refuses a batch that does not fit before anything is written: the output stays valid.
@@ -313,6 +330,117 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
                 foreach (IpcOutgoingMessage message in messages) message.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// <see cref="BatchOwnership.Writer"/>: takes the batch; once it is checked and its dictionaries settled (in
+    /// order, here), its messages are compressed on the thread pool and written after the batches before it, by a task
+    /// that then frees them and the batch. Up to <see cref="IpcWriteOptions.MaxDegreeOfParallelism"/> batches (and
+    /// <see cref="IpcWriteOptions.InFlightBytes"/> of their buffers, one batch at least) are on their way at once;
+    /// beyond, this waits for the oldest to be written.
+    /// </summary>
+    private async ValueTask WriteOwnedAsync(RecordBatch batch, IReadOnlyDictionary<string, string>? metadata, bool useAsync, CancellationToken ct)
+    {
+        List<IpcOutgoingMessage> messages;
+        try
+        {
+            CheckWritable();
+            await StartAsync(useAsync, ct).ConfigureAwait(false);
+            // Encoding refuses a batch that does not fit before anything is written: the output stays valid.
+            messages = _encoder.Prepare(batch, metadata?.ToList());
+        }
+        catch
+        {
+            batch.Dispose();
+            throw;
+        }
+        long bytes = messages.Sum(m => m.RawBytes);
+        try
+        {
+            while (_ahead.Count >= _options.MaxDegreeOfParallelism || _ahead.Count > 0 && _aheadBytes + bytes > _options.InFlightBytes)
+            {
+                var (written, oldest) = _ahead.Dequeue();
+                _aheadBytes -= oldest;
+                await WaitAsync(written, useAsync, ct).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            foreach (IpcOutgoingMessage message in messages) message.Dispose();
+            batch.Dispose();
+            throw;
+        }
+        var (level, parallelism, zstdFrames) = _encoder.CompressionSettings;
+        Task compressed = Task.Run(() =>
+        {
+            foreach (IpcOutgoingMessage message in messages) message.Compress(level, parallelism, zstdFrames);
+        });
+        _chain = WriteInOrderAsync(_chain, compressed, messages, batch, useAsync);
+        _ahead.Enqueue((_chain, bytes));
+        _aheadBytes += bytes;
+    }
+
+    /// <summary>
+    /// Writes a batch's messages once it is compressed and every earlier batch written (an earlier failure fails it
+    /// too, unwritten), framing them where they land; then frees them and the batch (never under a running compression).
+    /// </summary>
+    private async Task WriteInOrderAsync(Task previous, Task compressed, List<IpcOutgoingMessage> messages, RecordBatch batch, bool useAsync)
+    {
+        try
+        {
+            await ((Task)previous).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await compressed.ConfigureAwait(false);
+            if (previous.IsFaulted) await previous.ConfigureAwait(false); // rethrows the earlier failure
+            if (_stopping) return;
+            foreach (IpcOutgoingMessage message in messages)
+            {
+                message.Frame(_planned);
+                (message.IsDictionary ? _dictionaryBlocks : _batchBlocks).Add(new IpcBlock(_planned, message.Metadata.Length, message.BodyLength));
+                _planned += message.Size;
+                await WriteMessageAsync(message, useAsync, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            await ((Task)compressed).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            foreach (IpcOutgoingMessage message in messages) message.Dispose();
+            batch.Dispose();
+        }
+    }
+
+    /// <summary>Waits for a batch's write; its failure faults the writer and is thrown here.</summary>
+    private async ValueTask WaitAsync(Task written, bool useAsync, CancellationToken ct)
+    {
+        try
+        {
+            if (useAsync) await written.WaitAsync(ct).ConfigureAwait(false);
+            else written.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested && !written.IsCompleted)
+        {
+            throw; // the caller gave up waiting: the writer is still sound
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+    }
+
+    /// <summary>Waits for every batch on its way (<see cref="BatchOwnership.Writer"/>); a failure faults the writer and is thrown.</summary>
+    private async ValueTask WaitChainAsync(bool useAsync)
+    {
+        _ahead.Clear();
+        _aheadBytes = 0;
+        await WaitAsync(_chain, useAsync, default).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops the batches on their way (they are freed unwritten) and waits for them, whatever they end with.</summary>
+    private void StopChain()
+    {
+        _stopping = true;
+        _ahead.Clear();
+        ((Task)_chain).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
     }
 
     /// <summary>Waits for the batch being written behind; its failure faults the writer and is thrown here.</summary>
@@ -419,6 +547,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         {
             await StartAsync(useAsync, ct).ConfigureAwait(false);
             await WaitBehindAsync(useAsync).ConfigureAwait(false);
+            await WaitChainAsync(useAsync).ConfigureAwait(false);
             await WriteBytesAsync(EndOfStream.ToArray(), useAsync, ct).ConfigureAwait(false);
             if (_options.Format == IpcFormat.File)
             {
@@ -452,6 +581,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         {
             _disposed = true;
             WaitBehindQuietly(); // aborted or failed: the batch on its way still finishes before the stream closes
+            StopChain();
             _encoder.Dispose();
             if (!_options.LeaveOpen) _stream.Dispose();
         }
@@ -473,6 +603,9 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
                 _pending = null;
                 await ((Task)pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
+            _stopping = true;
+            _ahead.Clear();
+            await ((Task)_chain).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             _encoder.Dispose();
             if (!_options.LeaveOpen) await _stream.DisposeAsync().ConfigureAwait(false);
         }

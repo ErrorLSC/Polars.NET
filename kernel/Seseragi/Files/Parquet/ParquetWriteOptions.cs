@@ -15,21 +15,6 @@ public enum ParquetPageVersion
     V2,
 }
 
-/// <summary>Who owns the record batches given to <see cref="ParquetWriter"/>.</summary>
-public enum ParquetBatchOwnership
-{
-    /// <summary>The caller: a batch is encoded before Write returns and may be disposed then.</summary>
-    Caller,
-
-    /// <summary>
-    /// The writer: it takes every batch given to Write (and those of the static Write methods), reads it after Write
-    /// returns, and disposes it once its rows are encoded (also when Write fails); the caller neither uses nor disposes
-    /// it afterwards. With more than one thread, several row groups are then encoded at once, straight from the
-    /// batches.
-    /// </summary>
-    Writer,
-}
-
 /// <summary>Options for <see cref="ParquetWriter"/>.</summary>
 public sealed record ParquetWriteOptions
 {
@@ -48,7 +33,7 @@ public sealed record ParquetWriteOptions
 
     /// <summary>
     /// A row group is closed once its encoded pages reach about this many bytes (128 MiB by default); with
-    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, once its rows' logical Arrow bytes do (what
+    /// <see cref="BatchOwnership.Writer"/> and more than one thread, once its rows' logical Arrow bytes do (what
     /// a compact copy of them would take, however their buffers are shared; row groups are then laid out before they
     /// are encoded).
     /// </summary>
@@ -134,13 +119,13 @@ public sealed record ParquetWriteOptions
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
     /// <summary>
-    /// Who owns the batches (<see cref="ParquetBatchOwnership.Caller"/> by default). With
-    /// <see cref="ParquetBatchOwnership.Writer"/> and more than one thread, row groups are encoded side by side.
+    /// Who owns the batches (<see cref="BatchOwnership.Caller"/> by default). With
+    /// <see cref="BatchOwnership.Writer"/> and more than one thread, row groups are encoded side by side.
     /// </summary>
-    public ParquetBatchOwnership BatchOwnership { get; init; } = ParquetBatchOwnership.Caller;
+    public BatchOwnership BatchOwnership { get; init; } = BatchOwnership.Caller;
 
     /// <summary>
-    /// With <see cref="ParquetBatchOwnership.Writer"/>, the logical Arrow bytes of the row groups encoded at once, at
+    /// With <see cref="BatchOwnership.Writer"/>, the logical Arrow bytes of the row groups encoded at once, at
     /// most (a row group goes beyond alone). Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested table)
     /// wrote fastest eight at a time, of 210 MB (1 Mi rows of eight flat columns) two at a time; more held memory and
     /// slowed the writes. Tests set less.

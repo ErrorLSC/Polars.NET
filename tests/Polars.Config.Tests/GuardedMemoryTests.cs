@@ -1,5 +1,7 @@
 using Apache.Arrow;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files;
+using Kaminari.Seseragi.Files.Ipc;
 using Kaminari.Seseragi.Files.Parquet;
 
 namespace Polars.Config.Tests;
@@ -37,6 +39,29 @@ public sealed unsafe class GuardedMemoryTests : IDisposable
         NativeMemoryPool.Free(before); // an ordinary block, freed while guards were on and after
         NativeMemoryPool.Free(during); // a guarded block, freed after the switch went off
     }
+
+    /// <summary>
+    /// Typed rows written as Arrow IPC with the writer owning their batches (compressed side by side, after Write
+    /// returns): the same bytes with guards on, where a block is unmapped once freed, so a batch freed before the
+    /// writer is done with it (by the row batcher, say) ends the process instead of passing by luck.
+    /// </summary>
+    [Fact]
+    public void TypedIpcRows_WriteTheSame_WithGuardsOn()
+    {
+        Row[] rows = [.. Enumerable.Range(0, 60_000).Select(i => new Row(i, $"name {i % 777}", i % 3 == 0 ? null : i * 0.5))];
+        byte[] plain = Write(rows);
+        GuardedMemory.Enabled = true;
+        Assert.Equal(plain, Write(rows));
+
+        static byte[] Write(Row[] rows)
+        {
+            using var memory = new MemoryStream();
+            IpcWriter.WriteRows(memory, rows, new IpcWriteOptions { Compression = Lz4FrameCompression.Instance, MaxDegreeOfParallelism = 4, LeaveOpen = true });
+            return memory.ToArray();
+        }
+    }
+
+    public sealed record Row(long Id, string Name, double? Value);
 
     [Fact]
     public void ParquetFiles_ReadTheSame_WithGuardsOn()

@@ -15,7 +15,8 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// threads. The rows of an array or a <see cref="List{T}"/> given to <see cref="WriteRows"/> are turned into batches on
 /// up to <see cref="IpcWriteOptions.MaxDegreeOfParallelism"/> threads at once (they are all there and unchanged while
 /// the call lasts); rows given one by one or by a lazy sequence are read as they come, on the caller's thread (a
-/// producer may reuse one object for every row).
+/// producer may reuse one object for every row). The batches are handed to the writer
+/// (<see cref="BatchOwnership.Writer"/>), which compresses several of them side by side.
 /// </summary>
 /// <remarks>
 /// A row the layout refuses (a decimal that does not fit decimal(38, 18) exactly, a value outside its enum) aborts the
@@ -41,6 +42,8 @@ public sealed class IpcWriter<[DynamicallyAccessedMembers(DynamicallyAccessedMem
     {
         public bool IsWritable => writer.IsWritable;
 
+        public bool TakesBatches => true; // the writer owns the batches: several are compressed side by side
+
         public void Abort() => writer.Abort();
 
         public async ValueTask WriteAsync(RecordBatch batch, bool useAsync, CancellationToken ct)
@@ -52,11 +55,14 @@ public sealed class IpcWriter<[DynamicallyAccessedMembers(DynamicallyAccessedMem
 
     /// <summary>Creates a writer over a stream (nothing is written before the first batch, or <see cref="Complete"/>).</summary>
     public static IpcWriter<T> Create(Stream stream, IpcWriteOptions? options = null) =>
-        new(IpcWriter.Create(stream, ArrowRowBuilder<T>.Schema, options), options);
+        new(IpcWriter.Create(stream, ArrowRowBuilder<T>.Schema, Owned(options)), options);
 
     /// <summary>Creates (or overwrites) a file.</summary>
     public static IpcWriter<T> Create(string path, IpcWriteOptions? options = null) =>
-        new(IpcWriter.Create(path, ArrowRowBuilder<T>.Schema, options), options);
+        new(IpcWriter.Create(path, ArrowRowBuilder<T>.Schema, Owned(options)), options);
+
+    /// <summary>The batches are made here and handed over: the writer owns them (whatever the options say).</summary>
+    private static IpcWriteOptions Owned(IpcWriteOptions? options) => (options ?? new()) with { BatchOwnership = BatchOwnership.Writer };
 
     /// <summary>The Arrow schema the rows are written with (<see cref="ArrowRowBuilder{T}.Schema"/>).</summary>
     public Schema Schema => _writer.Schema;
