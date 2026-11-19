@@ -339,8 +339,8 @@ public class Lz4BlockTests
     }
 
     /// <summary>
-    /// Blocks decoded from input and into output that both end at a guard page: no read or write past either end
-    /// (an over-read of the 16-byte copies would fault and end the test process).
+    /// Blocks decoded from input and into output that both end at a guard page, and encoded likewise: no read or write
+    /// past either end (an over-read or over-write of the wide copies would fault and end the test process).
     /// </summary>
     [Fact]
     public void Decoding_StaysInsideItsSpans()
@@ -354,23 +354,45 @@ public class Lz4BlockTests
             Span<byte> output = target.GetSpan()[..data.Length];
             Assert.Equal(data.Length, Lz4Block.Decompress(source.GetSpan(), output));
             Assert.Equal(data, output.ToArray());
+            // The encoder reads inside its input and writes inside a destination of exactly the bound (its literal copies
+            // run 8 bytes at a time without a check: at least 8 more output bytes always follow them).
             using var copy = GuardedMemory.Block.Copy(data);
-            byte[] again = new byte[Lz4Block.MaxCompressedLength(data.Length)];
-            Assert.Equal(n, Lz4Block.Compress(copy.GetSpan(), again)); // the encoder reads inside its input too
+            using var bound = new GuardedMemory.Block(Lz4Block.MaxCompressedLength(data.Length));
+            Assert.Equal(n, Lz4Block.Compress(copy.GetSpan(), bound.GetSpan()));
+            Assert.Equal(block[..n], bound.GetSpan()[..n].ToArray());
         }
     }
 
-    /// <summary>When the table's base runs out (every 2 GiB compressed on a thread) the table is cleared: the same bytes.</summary>
+    /// <summary>
+    /// Inputs either side of 64 KiB (16-bit positions up to it, 32-bit beyond) round-trip; beyond it a repeat more than
+    /// 65535 bytes back is not taken as a match (its offset would not fit).
+    /// </summary>
     [Fact]
-    public void ARestartedTable_GivesTheSameBlocks()
+    public void BothTablePaths_RoundTrip_AndFarRepeatsAreNotMatched()
     {
-        foreach (byte[] data in Inputs(13, 40))
+        var random = new Random(14);
+        foreach (int length in (int[])[13, 65_535, 65_536, 65_537, 131_072, 300_000])
+        {
+            byte[] data = new byte[length];
+            random.NextBytes(data);
+            for (int i = 0; i < length; i += 4096) data.AsSpan(i, Math.Min(64, length - i)).Fill((byte)i); // some matches
+            AssertRoundTrip(data);
+        }
+        // Random bytes, then their first 4 KiB again 70,000 bytes later: too far to reference.
+        byte[] far = new byte[74_096];
+        random.NextBytes(far.AsSpan(0, 70_000));
+        far.AsSpan(0, 4096).CopyTo(far.AsSpan(70_000));
+        AssertRoundTrip(far);
+        byte[] block = new byte[Lz4Block.MaxCompressedLength(far.Length)];
+        Assert.True(Lz4Block.Compress(far, block) > far.Length - 100, "a repeat out of reach was matched");
+
+        static void AssertRoundTrip(byte[] data)
         {
             byte[] block = new byte[Lz4Block.MaxCompressedLength(data.Length)];
-            byte[] expected = block[..Lz4Block.Compress(data, block)];
-            Lz4Block.SetTableBase(int.MaxValue - 5);
-            Assert.Equal(expected, block[..Lz4Block.Compress(data, block)]);
-            Assert.Equal(expected, block[..Lz4Block.Compress(data, block)]);
+            int n = Lz4Block.Compress(data, block);
+            byte[] back = new byte[data.Length];
+            Assert.Equal(data.Length, Lz4Reference.Decompress(block.AsSpan(0, n), back));
+            Assert.Equal(data, back);
         }
     }
 

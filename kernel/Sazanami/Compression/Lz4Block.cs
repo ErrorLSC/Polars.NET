@@ -145,19 +145,15 @@ internal static class Lz4Block
     /// <summary>After 2^SkipTrigger probes without a match the step grows by one (LZ4's acceleration over incompressible data).</summary>
     private const int SkipTrigger = 6;
 
-    /// <summary>
-    /// A thread's hash table of positions. Entries are stored as <see cref="t_base"/> + position: a call reserves a
-    /// range of values above every earlier one, so entries of earlier calls read as empty without clearing the table
-    /// (the output depends on the input alone).
-    /// </summary>
+    /// <summary>The largest input whose positions fit 16 bits (its matches are always within reach).</summary>
+    private const int SmallInput = 1 << 16;
+
+    /// <summary>A thread's hash tables of positions, cleared for each input: 16-bit for inputs up to 64 KiB (16 KiB, as LZ4's), 32-bit beyond.</summary>
     [ThreadStatic]
-    private static int[]? t_table;
+    private static ushort[]? t_small;
 
     [ThreadStatic]
-    private static int t_base;
-
-    /// <summary>Sets this thread's table base (tests: near its end, the next call clears the table and starts over).</summary>
-    internal static void SetTableBase(int value) => t_base = value;
+    private static uint[]? t_large;
 
     /// <summary>
     /// Compresses <paramref name="source"/> into one block (LZ4's fast compressor: a hash table of 4-byte sequences,
@@ -168,112 +164,148 @@ internal static class Lz4Block
     public static unsafe int Compress(ReadOnlySpan<byte> source, Span<byte> destination)
     {
         if (destination.Length < MaxCompressedLength(source.Length)) throw new ArgumentException("The destination is too small.", nameof(destination));
+        int length = source.Length;
         fixed (byte* src = source)
         fixed (byte* dst = destination)
         {
-            return (int)(Encode(src, source.Length, dst, dst + destination.Length) - dst);
+            byte* oend = dst + destination.Length;
+            if (length <= MatchSafeDistance) return (int)(Literals(src, src + length, dst, oend) - dst);
+            if (length <= SmallInput)
+            {
+                ushort[] table = t_small ??= new ushort[1 << HashLog];
+                Array.Clear(table);
+                fixed (ushort* t = table) return (int)(Encode<Small>(src, length, dst, oend, t) - dst);
+            }
+            uint[] large = t_large ??= new uint[1 << HashLog];
+            Array.Clear(large);
+            fixed (uint* t = large) return (int)(Encode<Large>(src, length, dst, oend, t) - dst);
         }
     }
 
-    private static unsafe byte* Encode(byte* src, int length, byte* op, byte* oend)
+    /// <summary>How positions are kept in the hash table: the encoder is specialized for each.</summary>
+    private unsafe interface IPositions
+    {
+        static abstract uint Get(void* table, uint h);
+
+        static abstract void Set(void* table, uint h, uint position);
+
+        /// <summary>Whether a match this far back can be encoded (offsets are 16-bit).</summary>
+        static abstract bool Reachable(nuint distance);
+    }
+
+    /// <summary>Inputs up to 64 KiB: 16-bit positions, every match within reach.</summary>
+    private readonly unsafe struct Small : IPositions
+    {
+        public static uint Get(void* table, uint h) => ((ushort*)table)[h];
+
+        public static void Set(void* table, uint h, uint position) => ((ushort*)table)[h] = (ushort)position;
+
+        public static bool Reachable(nuint distance) => true;
+    }
+
+    /// <summary>Larger inputs (Parquet pages): 32-bit positions, matches at most 65535 bytes back.</summary>
+    private readonly unsafe struct Large : IPositions
+    {
+        public static uint Get(void* table, uint h) => ((uint*)table)[h];
+
+        public static void Set(void* table, uint h, uint position) => ((uint*)table)[h] = position;
+
+        public static bool Reachable(nuint distance) => distance <= MaxOffset;
+    }
+
+    /// <summary>
+    /// The encoding loop over a cleared table: an empty entry reads as position 0, a candidate like any other (its bytes
+    /// are compared before it is used). Every position in the table lies before the current one.
+    /// </summary>
+    /// <remarks>
+    /// The output never passes <paramref name="oend"/> (the destination holds the bound): literals are copied 8 bytes at a
+    /// time without a check, since at least 8 more bytes always follow them (an offset, a token, 5 last literals).
+    /// </remarks>
+    private static unsafe byte* Encode<T>(byte* src, int length, byte* op, byte* oend, void* t) where T : struct, IPositions
     {
         byte* anchor = src;
-        byte* iend = src + length;
-        if (length > MatchSafeDistance)
+        byte* searchEnd = src + length - MatchSafeDistance + 1;   // a match starts at least 12 bytes before the end
+        byte* matchlimit = src + length - LastLiterals;          // and ends at least 5 before it
+        byte* ip = src;
+        T.Set(t, Hash(ip), 0);
+        ip++;
+        uint forwardH = Hash(ip);
+        while (true)
         {
-            int[] table = t_table ??= new int[1 << HashLog];
-            if (t_base == 0 || t_base > int.MaxValue - length - 2)
+            // Find a match, stepping faster the longer none is found.
+            byte* match;
+            byte* forwardIp = ip;
+            uint step = 1, probes = 1u << SkipTrigger;
+            do
             {
-                Array.Clear(table);
-                t_base = 1;
+                uint h = forwardH;
+                ip = forwardIp;
+                forwardIp += step;
+                step = probes++ >> SkipTrigger;
+                if (forwardIp > searchEnd) return Literals(anchor, src + length, op, oend);
+                match = src + T.Get(t, h);
+                forwardH = Hash(forwardIp);
+                T.Set(t, h, (uint)(ip - src));
             }
-            int bas = t_base; // this call's entries: bas + position
-            t_base += length + 1;
-            fixed (int* t = table)
+            while (!T.Reachable((nuint)(ip - match)) || Unsafe.ReadUnaligned<uint>(match) != Unsafe.ReadUnaligned<uint>(ip));
+            // Extend it backward over the literals.
+            while (ip > anchor && match > src && ip[-1] == match[-1])
             {
-                byte* mflimit = iend - MatchSafeDistance;     // a match starts at least 12 bytes before the end
-                byte* matchlimit = iend - LastLiterals;      // and ends at least 5 before it
-                byte* ip = src;
-                t[Hash(ip)] = bas;
-                ip++;
-                uint forwardH = Hash(ip);
-                while (true)
-                {
-                    // Find a match, stepping faster the longer none is found.
-                    byte* match;
-                    byte* forwardIp = ip;
-                    int step = 1, probes = 1 << SkipTrigger;
-                    while (true)
-                    {
-                        uint h = forwardH;
-                        ip = forwardIp;
-                        forwardIp += step;
-                        step = probes++ >> SkipTrigger;
-                        if (forwardIp > mflimit + 1) goto Last;
-                        int stored = t[h];
-                        forwardH = Hash(forwardIp);
-                        t[h] = bas + (int)(ip - src);
-                        match = src + (stored - bas);
-                        if (stored >= bas && match < ip && ip - match <= MaxOffset && Unsafe.ReadUnaligned<uint>(match) == Unsafe.ReadUnaligned<uint>(ip)) break;
-                    }
-                    // Extend it backward over the literals.
-                    while (ip > anchor && match > src && ip[-1] == match[-1])
-                    {
-                        ip--;
-                        match--;
-                    }
-                    byte* token = op++;
-                    nuint literals = (nuint)(ip - anchor);
-                    if (literals >= 15)
-                    {
-                        *token = 15 << 4;
-                        op = WriteLength(op, literals - 15);
-                    }
-                    else
-                    {
-                        *token = (byte)(literals << 4);
-                    }
-                    Copy(op, anchor, literals, oend);
-                    op += literals;
+                ip--;
+                match--;
+            }
+            byte* token = op++;
+            nuint literals = (nuint)(ip - anchor);
+            if (literals >= 15)
+            {
+                *token = 15 << 4;
+                op = WriteLength(op, literals - 15);
+            }
+            else
+            {
+                *token = (byte)(literals << 4);
+            }
+            CopyLiterals(op, anchor, literals);
+            op += literals;
 
-                    while (true)
-                    {
-                        // The match: offset, then its length counted 8 bytes at a time.
-                        Unsafe.WriteUnaligned(op, BitConverter.IsLittleEndian ? (ushort)(ip - match) : BinaryPrimitives.ReverseEndianness((ushort)(ip - match)));
-                        op += 2;
-                        nuint extra = Count(ip + MinMatch, match + MinMatch, matchlimit);
-                        ip += MinMatch + extra;
-                        if (extra >= 15)
-                        {
-                            *token += 15;
-                            op = WriteLength(op, extra - 15);
-                        }
-                        else
-                        {
-                            *token += (byte)extra;
-                        }
-                        anchor = ip;
-                        if (ip >= mflimit) goto Last;
-                        t[Hash(ip - 2)] = bas + (int)(ip - 2 - src);
-                        // A match right here: a sequence without literals.
-                        uint here = Hash(ip);
-                        int at = t[here];
-                        t[here] = bas + (int)(ip - src);
-                        match = src + (at - bas);
-                        if (at >= bas && match < ip && ip - match <= MaxOffset && Unsafe.ReadUnaligned<uint>(match) == Unsafe.ReadUnaligned<uint>(ip))
-                        {
-                            token = op++;
-                            *token = 0;
-                            continue;
-                        }
-                        break;
-                    }
-                    forwardH = Hash(++ip);
+            while (true)
+            {
+                // The match: offset, then its length counted 8 bytes at a time.
+                Unsafe.WriteUnaligned(op, BitConverter.IsLittleEndian ? (ushort)(ip - match) : BinaryPrimitives.ReverseEndianness((ushort)(ip - match)));
+                op += 2;
+                nuint extra = Count(ip + MinMatch, match + MinMatch, matchlimit);
+                ip += MinMatch + extra;
+                if (extra >= 15)
+                {
+                    *token += 15;
+                    op = WriteLength(op, extra - 15);
                 }
+                else
+                {
+                    *token += (byte)extra;
+                }
+                anchor = ip;
+                if (ip + 1 >= searchEnd) return Literals(anchor, src + length, op, oend);
+                T.Set(t, Hash(ip - 2), (uint)(ip - 2 - src));
+                // A match right here: a sequence without literals.
+                uint here = Hash(ip);
+                match = src + T.Get(t, here);
+                T.Set(t, here, (uint)(ip - src));
+                if (T.Reachable((nuint)(ip - match)) && Unsafe.ReadUnaligned<uint>(match) == Unsafe.ReadUnaligned<uint>(ip))
+                {
+                    token = op++;
+                    *token = 0;
+                    continue;
+                }
+                break;
             }
+            forwardH = Hash(++ip);
         }
-    Last:
-        // The last sequence: literals only.
+    }
+
+    /// <summary>The last sequence: the literals from <paramref name="anchor"/> to the end.</summary>
+    private static unsafe byte* Literals(byte* anchor, byte* iend, byte* op, byte* oend)
+    {
         nuint last = (nuint)(iend - anchor);
         if (last >= 15)
         {
@@ -293,25 +325,21 @@ internal static class Lz4Block
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe uint Hash(byte* p) => (Unsafe.ReadUnaligned<uint>(p) * 2654435761u) >> (32 - HashLog);
 
-    /// <summary>Copies literals, 8 bytes at a time when the output has room for the overrun (the input always has: literals end 12 bytes before it).</summary>
+    /// <summary>
+    /// Copies literals 8 bytes at a time (up to 7 bytes past them, which the caller overwrites): the input has the bytes
+    /// (literals end 12 bytes before it), and the output the room (see <see cref="Encode{T}"/>).
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe void Copy(byte* op, byte* from, nuint count, byte* oend)
+    private static unsafe void CopyLiterals(byte* op, byte* from, nuint count)
     {
-        if ((nuint)(oend - op) >= count + 8)
+        byte* end = op + count;
+        do
         {
-            byte* end = op + count;
-            do
-            {
-                Unsafe.WriteUnaligned(op, Unsafe.ReadUnaligned<ulong>(from));
-                op += 8;
-                from += 8;
-            }
-            while (op < end);
+            Unsafe.WriteUnaligned(op, Unsafe.ReadUnaligned<ulong>(from));
+            op += 8;
+            from += 8;
         }
-        else
-        {
-            Buffer.MemoryCopy(from, op, (long)count, (long)count);
-        }
+        while (op < end);
     }
 
     /// <summary>How many bytes from <paramref name="p"/> equal those from <paramref name="m"/>, up to <paramref name="limit"/>.</summary>
@@ -319,7 +347,8 @@ internal static class Lz4Block
     private static unsafe nuint Count(byte* p, byte* m, byte* limit)
     {
         byte* start = p;
-        while (p < limit - 7)
+        byte* limit8 = limit - 7;
+        while (p < limit8)
         {
             ulong diff = Unsafe.ReadUnaligned<ulong>(p) ^ Unsafe.ReadUnaligned<ulong>(m);
             if (diff != 0) return (nuint)(p - start) + (nuint)((BitConverter.IsLittleEndian ? BitOperations.TrailingZeroCount(diff) : BitOperations.LeadingZeroCount(diff)) >> 3);
