@@ -282,19 +282,85 @@ internal sealed unsafe class StructConversion(IArrowType target, (int Source, Ar
     }
 }
 
-/// <summary>Lists (and maps, lists of entries) into lists of converted elements: the offsets rebased to 0.</summary>
+/// <summary>
+/// Lists of any layout (list, large list, list view, large list view; maps as lists of entries) into lists of any
+/// layout, their elements converted. A view's elements are gathered row by row into a list (views may overlap or come
+/// out of order); between layouts of one kind the elements are converted as a slice.
+/// </summary>
 internal sealed unsafe class ListConversion(IArrowType target, ArrowConversion elements) : ArrowConversion(target)
 {
     internal override NativeCArray* Build(NativeBatchExport export, ArrayData source)
     {
         var (validity, nulls) = Validity(export, source);
         int length = source.Length;
-        ReadOnlySpan<int> offsets = MemoryMarshal.Cast<byte, int>(source.Buffers[1].Span).Slice(source.Offset, length + 1);
-        var rebased = (int*)export.Allocate((length + 1L) * sizeof(int));
-        int first = offsets[0];
-        for (int i = 0; i <= length; i++) rebased[i] = offsets[i] - first;
-        NativeCArray* child = elements.Build(export, source.Children[0].Slice(first, offsets[length] - first));
-        return export.NewArray(length, nulls, [validity, (nint)rebased], [(nint)child]);
+        bool sourceView = source.DataType is ListViewType or LargeListViewType;
+        bool sourceLarge = source.DataType is LargeListType or LargeListViewType;
+        bool targetView = Target is ListViewType or LargeListViewType;
+        bool targetLarge = Target is LargeListType or LargeListViewType;
+        int width = targetLarge ? 8 : 4;
+        // Offsets (length + 1 of them, or one per row for a view) and a view's sizes, in the target's width.
+        var offsets = (byte*)export.AllocateUninitialized((length + 1L) * width);
+        byte* sizes = targetView ? (byte*)export.AllocateUninitialized(Math.Max(1, length) * (long)width) : null;
+        IntegerType width64 = sourceLarge ? Int64Type.Default : Int32Type.Default;
+        var offsetsOf = new Slots(source, 1, width64);
+        Slots counts = sourceView ? new Slots(source, 2, width64) : default;
+        ArrayData child;
+        if (!sourceView)
+        {
+            long first = offsetsOf[0];
+            for (int i = 0; i < length; i++)
+            {
+                long start = offsetsOf[i], end = offsetsOf[i + 1];
+                Put(offsets, targetLarge, i, start - first);
+                if (targetView) Put(sizes, targetLarge, i, end - start);
+            }
+            long last = offsetsOf[length];
+            if (!targetView) Put(offsets, targetLarge, length, last - first);
+            child = source.Children[0].Slice(checked((int)first), checked((int)(last - first)));
+        }
+        else if (targetView)
+        {
+            // Views into views: the same rows over the whole child (a null row's offset and size are not looked at).
+            for (int i = 0; i < length; i++)
+            {
+                bool valid = offsetsOf.IsValid(i);
+                Put(offsets, targetLarge, i, valid ? offsetsOf[i] : 0);
+                Put(sizes, targetLarge, i, valid ? counts[i] : 0);
+            }
+            child = source.Children[0];
+        }
+        else
+        {
+            // Views into a list: each row's elements gathered after the previous row's.
+            long total = 0;
+            for (int i = 0; i < length; i++)
+            {
+                Put(offsets, targetLarge, i, total);
+                if (offsetsOf.IsValid(i)) total += counts[i];
+            }
+            Put(offsets, targetLarge, length, total);
+            using var rows = new Buffers.NativeArray<int>(checked((int)total));
+            for (int i = 0, at = 0; i < length; i++)
+            {
+                if (!offsetsOf.IsValid(i)) continue;
+                long start = offsetsOf[i], size = counts[i];
+                for (long k = 0; k < size; k++) rows[at++] = checked((int)(start + k));
+            }
+            IArrowArray gathered = ArrowTake.Take(ArrowArrayFactory.BuildArray(source.Children[0]), rows.AsSpan(0, (int)total));
+            export.Hold(gathered);
+            child = gathered.Data;
+        }
+        NativeCArray* converted = elements.Build(export, child);
+        return targetView
+            ? export.NewArray(length, nulls, [validity, (nint)offsets, (nint)sizes], [(nint)converted])
+            : export.NewArray(length, nulls, [validity, (nint)offsets], [(nint)converted]);
+
+        // A 32-bit target refuses elements past int.MaxValue.
+        static void Put(byte* buffer, bool large, int i, long value)
+        {
+            if (large) ((long*)buffer)[i] = value;
+            else ((int*)buffer)[i] = value <= int.MaxValue ? (int)value : throw new OverflowException("A list column holds more than 2^31 elements in one batch.");
+        }
     }
 }
 
@@ -310,77 +376,173 @@ internal sealed unsafe class FixedSizeListConversion(FixedSizeListType target, A
     }
 }
 
-/// <summary>A dictionary of strings or binaries into its values' type: each row's value.</summary>
-internal sealed unsafe class DictionaryDecodeConversion(IArrowType target) : ArrowConversion(target)
+/// <summary>A dictionary into its values' type (converted by <c>values</c>): each row's value, taken from the dictionary.</summary>
+internal sealed unsafe class DictionaryDecodeConversion(IArrowType target, ArrowConversion values) : ArrowConversion(target)
 {
     internal override NativeCArray* Build(NativeBatchExport export, ArrayData source)
     {
-        IArrowArray values = ArrowArrayFactory.BuildArray(source.Dictionary!);
         var indexType = (IntegerType)((DictionaryType)source.DataType).IndexType;
-        using NativeColumnBuilder builder = NativeColumnBuilder.Create(Target);
-        builder.Reserve(source.Length);
+        int entries = source.Dictionary!.Length;
+        using var rows = new Buffers.NativeArray<int>(Math.Max(1, source.Length));
+        var slots = new Slots(source, 1, indexType);
         for (int i = 0; i < source.Length; i++)
         {
-            if (!IsValid(source, i))
+            if (!slots.IsValid(i))
             {
-                builder.AppendNull();
+                rows[i] = ArrowTake.NullRow;
                 continue;
             }
-            int index = Index(source, indexType, i);
-            if (values.IsNull(index))
-            {
-                builder.AppendNull();
-                continue;
-            }
-            ReadOnlySpan<byte> bytes = values switch
-            {
-                BinaryArray b => b.GetBytes(index),
-                BinaryViewArray b => b.GetBytes(index),
-                _ => throw new NotSupportedException(values.Data.DataType.Name),
-            };
-            Append(builder, bytes);
+            long index = slots[i];
+            rows[i] = (ulong)index < (ulong)entries ? (int)index : throw new InvalidDataException($"Dictionary index {index} is past its {entries} entries.");
         }
-        return builder.Export(export);
-
-        static void Append(NativeColumnBuilder builder, ReadOnlySpan<byte> bytes)
-        {
-            if (builder is NativeBinaryViewBuilder views) views.Append(bytes);
-            else ((NativeBinaryBuilder)builder).Append(bytes);
-        }
-
-        static int Index(ArrayData data, IntegerType type, int i) => type.BitWidth switch
-        {
-            8 => type.IsSigned ? Values<sbyte>(data)[i] : Values<byte>(data)[i],
-            16 => type.IsSigned ? Values<short>(data)[i] : Values<ushort>(data)[i],
-            32 => type.IsSigned ? Values<int>(data)[i] : checked((int)Values<uint>(data)[i]),
-            _ => checked((int)(type.IsSigned ? Values<long>(data)[i] : (long)Values<ulong>(data)[i])),
-        };
+        IArrowArray taken = ArrowTake.Take(ArrowArrayFactory.BuildArray(source.Dictionary), rows.AsSpan(0, source.Length));
+        export.Hold(taken);
+        return values.Build(export, taken.Data);
     }
 }
 
 /// <summary>
-/// Strings or binaries into a dictionary of them: the values themselves (in the dictionary's layout), indexed in
-/// order (0, 1, 2, …).
+/// The slots of an array read row by row without going back to its buffers each time: whether a row is valid, and an
+/// integer of a fixed-width buffer (offsets, sizes, dictionary indices) at the row.
 /// </summary>
-internal sealed unsafe class DictionaryEncodeConversion(DictionaryType target) : ArrowConversion(target)
+internal readonly ref struct Slots
+{
+    private readonly ReadOnlySpan<byte> _valid;
+    private readonly ReadOnlySpan<byte> _values;
+    private readonly int _offset;
+    private readonly int _width;
+    private readonly bool _signed;
+
+    /// <param name="data">The array.</param>
+    /// <param name="buffer">The buffer of integers (1: offsets or indices, 2: a view's sizes).</param>
+    /// <param name="type">Their type.</param>
+    public Slots(ArrayData data, int buffer, IntegerType type)
+    {
+        _valid = data.Buffers.Length == 0 || data.Buffers[0].IsEmpty ? default : data.Buffers[0].Span;
+        _values = data.Buffers[buffer].Span;
+        _offset = data.Offset;
+        _width = type.BitWidth / 8;
+        _signed = type.IsSigned;
+    }
+
+    public bool IsValid(int i) => _valid.IsEmpty || (_valid[(_offset + i) >> 3] >> ((_offset + i) & 7) & 1) != 0;
+
+    public long this[int i]
+    {
+        get
+        {
+            int at = (_offset + i) * _width;
+            return (_width, _signed) switch
+            {
+                (1, true) => (sbyte)_values[at],
+                (1, false) => _values[at],
+                (2, true) => System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(_values[at..]),
+                (2, false) => System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(_values[at..]),
+                (4, true) => System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(_values[at..]),
+                (4, false) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_values[at..]),
+                (_, true) => System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(_values[at..]),
+                _ => checked((long)System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(_values[at..])),
+            };
+        }
+    }
+}
+
+/// <summary>A dictionary's indices read as numbers.</summary>
+internal static class DictionaryIndices
+{
+    /// <summary>The index of row <paramref name="i"/> (from the array's offset).</summary>
+    public static long Read(ArrayData data, IntegerType type, int i) => type.BitWidth switch
+    {
+        8 => type.IsSigned ? Values<sbyte>(data)[i] : Values<byte>(data)[i],
+        16 => type.IsSigned ? Values<short>(data)[i] : Values<ushort>(data)[i],
+        32 => type.IsSigned ? Values<int>(data)[i] : Values<uint>(data)[i],
+        _ => type.IsSigned ? Values<long>(data)[i] : checked((long)Values<ulong>(data)[i]),
+    };
+
+    private static ReadOnlySpan<T> Values<T>(ArrayData data) where T : unmanaged => data.Buffers[1].Span.CastTo<T>().Slice(data.Offset, data.Length);
+}
+
+/// <summary>
+/// A dictionary into one with wider indices (or the same) and its values converted: the indices widened, the
+/// dictionary converted (shared with the source when its values stay as they are).
+/// </summary>
+internal sealed unsafe class DictionaryIndexConversion(DictionaryType target, ArrowConversion values) : ArrowConversion(target)
 {
     internal override NativeCArray* Build(NativeBatchExport export, ArrayData source)
     {
-        if (target.IndexType is not Int32Type) throw new NotSupportedException($"Dictionaries indexed by {target.IndexType.Name}.");
         var (validity, nulls) = Validity(export, source);
-        var indices = (int*)export.Allocate(source.Length * 4L);
-        for (int i = 0; i < source.Length; i++) indices[i] = i;
-        NativeCArray* dictionary = ArrowTypes.SameType(source.DataType, target.ValueType)
-            ? Share(export, source)
-            : RelayoutConversion.Copy(export, source, target.ValueType);
+        var from = (IntegerType)((DictionaryType)source.DataType).IndexType;
+        int width = ((IntegerType)target.IndexType).BitWidth / 8;
+        var indices = (byte*)export.Allocate(Math.Max(1, source.Length) * (long)width);
+        var slots = new Slots(source, 1, from);
+        for (int i = 0; i < source.Length; i++)
+        {
+            long index = slots.IsValid(i) ? slots[i] : 0;
+            switch (width)
+            {
+                case 1: ((sbyte*)indices)[i] = (sbyte)index; break;
+                case 2: ((short*)indices)[i] = (short)index; break;
+                case 4: ((int*)indices)[i] = (int)index; break;
+                default: ((long*)indices)[i] = index; break;
+            }
+        }
+        NativeCArray* dictionary = values.Build(export, source.Dictionary!);
         return export.NewArray(source.Length, nulls, [validity, (nint)indices], [], dictionary);
     }
 }
 
-/// <summary>Strings (binaries) from the plain layout into the view layout or back: the values copied.</summary>
+/// <summary>
+/// Values into a dictionary of them (converted by <c>values</c>): the values themselves, indexed in order (0, 1,
+/// 2, …); the index type must reach the batch's length.
+/// </summary>
+internal sealed unsafe class DictionaryEncodeConversion(DictionaryType target, ArrowConversion values) : ArrowConversion(target)
+{
+    internal override NativeCArray* Build(NativeBatchExport export, ArrayData source)
+    {
+        var index = (IntegerType)target.IndexType;
+        int width = index.BitWidth / 8;
+        long most = width switch { 1 => index.IsSigned ? sbyte.MaxValue : byte.MaxValue, 2 => index.IsSigned ? short.MaxValue : ushort.MaxValue, _ => int.MaxValue };
+        if (source.Length - 1 > most)
+            throw new OverflowException($"{source.Length} values cannot be indexed by the dictionary's {index.Name} indices.");
+        var (validity, nulls) = Validity(export, source);
+        var indices = (byte*)export.Allocate(Math.Max(1, source.Length) * (long)width);
+        for (int i = 0; i < source.Length; i++)
+        {
+            switch (width)
+            {
+                case 1: indices[i] = (byte)i; break;
+                case 2: ((short*)indices)[i] = (short)i; break;
+                case 4: ((int*)indices)[i] = i; break;
+                default: ((long*)indices)[i] = i; break;
+            }
+        }
+        NativeCArray* dictionary = values.Build(export, source);
+        return export.NewArray(source.Length, nulls, [validity, (nint)indices], [], dictionary);
+    }
+}
+
+/// <summary>
+/// Strings (binaries) from one layout into another (plain, large, view): between plain and large the offsets are
+/// rewritten in the other width and the value bytes shared; otherwise the values are copied.
+/// </summary>
 internal sealed unsafe class RelayoutConversion(IArrowType target) : ArrowConversion(target)
 {
-    internal override NativeCArray* Build(NativeBatchExport export, ArrayData source) => Copy(export, source, Target);
+    internal override NativeCArray* Build(NativeBatchExport export, ArrayData source) =>
+        (source.DataType, Target) switch
+        {
+            (StringType or BinaryType, LargeStringType or LargeBinaryType) => Widen(export, source),
+            (LargeStringType or LargeBinaryType, StringType or BinaryType) when Narrows(source) => Narrow(export, source),
+            _ => Copy(export, source, Target),
+        };
+
+    /// <summary>The bytes of value <paramref name="i"/> of a string or binary array of any layout.</summary>
+    internal static ReadOnlySpan<byte> Bytes(IArrowArray values, int i) => values switch
+    {
+        BinaryArray b => b.GetBytes(i),
+        LargeBinaryArray b => b.GetBytes(i),
+        BinaryViewArray b => b.GetBytes(i),
+        _ => throw new NotSupportedException(values.Data.DataType.Name),
+    };
 
     /// <summary>The values of <paramref name="source"/> appended one by one to an array of <paramref name="target"/>.</summary>
     internal static NativeCArray* Copy(NativeBatchExport export, ArrayData source, IArrowType target)
@@ -388,23 +550,47 @@ internal sealed unsafe class RelayoutConversion(IArrowType target) : ArrowConver
         IArrowArray values = ArrowArrayFactory.BuildArray(source);
         using NativeColumnBuilder builder = NativeColumnBuilder.Create(target);
         builder.Reserve(source.Length);
+        var bytes = (IBytesBuilder)builder;
         for (int i = 0; i < source.Length; i++)
         {
-            if (values.IsNull(i))
-            {
-                builder.AppendNull();
-                continue;
-            }
-            ReadOnlySpan<byte> bytes = values switch
-            {
-                BinaryArray b => b.GetBytes(i),
-                BinaryViewArray b => b.GetBytes(i),
-                _ => throw new NotSupportedException(source.DataType.Name),
-            };
-            if (builder is NativeBinaryViewBuilder views) views.Append(bytes);
-            else ((NativeBinaryBuilder)builder).Append(bytes);
+            if (values.IsNull(i)) builder.AppendNull();
+            else bytes.Append(Bytes(values, i));
         }
         return builder.Export(export);
+    }
+
+    /// <summary>32-bit offsets into 64-bit ones over the same bytes.</summary>
+    private static NativeCArray* Widen(NativeBatchExport export, ArrayData source)
+    {
+        var (validity, nulls) = Validity(export, source);
+        ReadOnlySpan<int> offsets = source.Buffers[1].Span.CastTo<int>().Slice(source.Offset, source.Length + 1);
+        var wide = (long*)export.Allocate((source.Length + 1) * 8L);
+        for (int i = 0; i <= source.Length; i++) wide[i] = offsets[i];
+        return export.NewArray(source.Length, nulls, [validity, (nint)wide, Data(export, source.Buffers[2])], []);
+    }
+
+    /// <summary>Whether a large array's offsets all fit 32 bits (its bytes then shared as they are).</summary>
+    private static bool Narrows(ArrayData source) =>
+        source.Buffers[1].Span.CastTo<long>()[source.Offset + source.Length] <= int.MaxValue;
+
+    /// <summary>64-bit offsets into 32-bit ones over the same bytes (every offset fits).</summary>
+    private static NativeCArray* Narrow(NativeBatchExport export, ArrayData source)
+    {
+        var (validity, nulls) = Validity(export, source);
+        ReadOnlySpan<long> offsets = source.Buffers[1].Span.CastTo<long>().Slice(source.Offset, source.Length + 1);
+        var narrow = (int*)export.Allocate((source.Length + 1) * 4L);
+        for (int i = 0; i <= source.Length; i++) narrow[i] = (int)offsets[i];
+        return export.NewArray(source.Length, nulls, [validity, (nint)narrow, Data(export, source.Buffers[2])], []);
+    }
+
+    /// <summary>A value buffer shared with the source (or copied when its memory is not a native batch's).</summary>
+    private static nint Data(NativeBatchExport export, ArrowBuffer buffer)
+    {
+        if (buffer.IsEmpty) return 0;
+        if (export.TryShare(buffer, out nint pointer)) return pointer;
+        byte* copy = (byte*)export.Allocate(buffer.Length);
+        buffer.Span.CopyTo(new Span<byte>(copy, buffer.Length));
+        return (nint)copy;
     }
 }
 
@@ -431,6 +617,14 @@ internal static unsafe class NullArrays
 
     internal static NativeCArray* Build(NativeBatchExport export, IArrowType type, int length)
     {
+        if (type is ListViewType or LargeListViewType)
+        {
+            // No builder makes views: null rows of size 0 over an empty child.
+            long width = type is LargeListViewType ? 8 : 4;
+            nint validity = (nint)export.Allocate(Math.Max(1, Filters.Masks.Words(length)) * 8L);
+            nint offsets = (nint)export.Allocate(Math.Max(1, length) * width), sizes = (nint)export.Allocate(Math.Max(1, length) * width);
+            return export.NewArray(length, length, [validity, offsets, sizes], [(nint)Build(export, ArrowWidening.ListElement(type), 0)]);
+        }
         using NativeColumnBuilder builder = NativeColumnBuilder.Create(type);
         builder.Reserve(length);
         for (int i = 0; i < length; i++) builder.AppendNull();

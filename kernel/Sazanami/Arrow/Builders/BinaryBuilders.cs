@@ -7,8 +7,14 @@ using Kaminari.Sazanami.Arrow.Interop;
 
 namespace Kaminari.Sazanami.Arrow.Builders;
 
+/// <summary>A builder of strings or binaries that takes values as bytes, whatever its layout.</summary>
+internal interface IBytesBuilder
+{
+    void Append(ReadOnlySpan<byte> value);
+}
+
 /// <summary>Utf8 / Binary with 32-bit offsets.</summary>
-internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
+internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder, IBytesBuilder
 {
     private NativeGrowBuffer _offsets;
     private NativeGrowBuffer _data;
@@ -119,13 +125,76 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder
     }
 }
 
+/// <summary>LargeUtf8 / LargeBinary: 64-bit offsets.</summary>
+internal sealed unsafe class NativeLargeBinaryBuilder : NativeColumnBuilder, IBytesBuilder
+{
+    private NativeGrowBuffer _offsets;
+    private NativeGrowBuffer _data;
+
+    public NativeLargeBinaryBuilder(IArrowType type) : base(type) => _offsets.Append(0L);
+
+    protected override void ReserveValues(long slots, long dataBytes)
+    {
+        _offsets.EnsureAdditional(slots * sizeof(long));
+        _data.EnsureAdditional(dataBytes);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Append(ReadOnlySpan<byte> value)
+    {
+        _data.Append(value);
+        _offsets.Append(_data.Length);
+        MarkValid();
+    }
+
+    /// <summary>Appends text, encoded as UTF-8 straight into the value buffer (lone surrogates become U+FFFD).</summary>
+    public void AppendUtf8(ReadOnlySpan<char> text)
+    {
+        long start = _data.Length;
+        int most = System.Text.Encoding.UTF8.GetMaxByteCount(text.Length);
+        byte* at = _data.Reserve(most);
+        int written = System.Text.Encoding.UTF8.GetBytes(text, new Span<byte>(at, most));
+        _data.SetLength(start + written);
+        _offsets.Append(_data.Length);
+        MarkValid();
+    }
+
+    public override void AppendNull()
+    {
+        _offsets.Append(_data.Length);
+        MarkNull();
+    }
+
+    public override void AppendDefault()
+    {
+        _offsets.Append(_data.Length);
+        MarkValid();
+    }
+
+    public override NativeCArray* Export(NativeBatchExport export)
+    {
+        long nulls = NullCount;
+        nint validity = Validity.Detach(export);
+        var a = export.NewArray(Length, nulls, [validity, export.Ptr(ref _offsets), export.Ptr(ref _data)], []);
+        Length = 0;
+        _offsets.Append(0L);
+        return a;
+    }
+
+    protected override void FreeBuffers()
+    {
+        _offsets.Free();
+        _data.Free();
+    }
+}
+
 /// <summary>
 /// Utf8View / BinaryView: a 16-byte view per slot (the length; up to 12 bytes inline, else a 4-byte prefix, the
 /// data buffer's index and the offset in it) over data buffers. Long values appended go to a data buffer of the
 /// batch (a new one before an offset would pass 2 GB); callers may also add buffers of their own
 /// (<see cref="AddBuffer"/>, a dictionary's bytes) and write views into them directly.
 /// </summary>
-internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeColumnBuilder(type)
+internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeColumnBuilder(type), IBytesBuilder
 {
     public const int MaxInline = 12;
 

@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Apache.Arrow;
+using Kaminari.Sazanami.Arrow.Compute;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.IO;
 
@@ -29,6 +30,8 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
         Options = options;
         Files = files;
         Footers = kept;
+        // One dictionary per column for the dataset: every dictionary indexed by Int32.
+        if (options.UnifyDictionaries) fileSchema = DictionaryUnifier.Unified(fileSchema);
         FileSchema = fileSchema;
         Partitions = partitions;
         // The files' columns (a partition column of the same name in its place: the path's value wins), then the

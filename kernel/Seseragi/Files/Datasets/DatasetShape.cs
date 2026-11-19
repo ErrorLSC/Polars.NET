@@ -288,9 +288,9 @@ internal sealed class DatasetShape
     {
         int skip = _rowIndex is null ? 0 : 1;
         var outputs = new (int, ArrowConversion)[Targets.Length];
-        for (int t = 0; t < Targets.Length; t++) outputs[t] = Conversion(read, skip, Targets[t].Name, Targets[t].Field.DataType, path);
+        for (int t = 0; t < Targets.Length; t++) outputs[t] = Conversion(read, skip, Targets[t].Name, Targets[t].Field, path);
         var filtered = after ? new (int, ArrowConversion)[FilterRoots.Length] : [];
-        for (int f = 0; f < filtered.Length; f++) filtered[f] = Conversion(read, skip, FilterRoots[f], Columns[FilterRoots[f]].DataType, path);
+        for (int f = 0; f < filtered.Length; f++) filtered[f] = Conversion(read, skip, FilterRoots[f], Columns[FilterRoots[f]], path);
         return new Converted(outputs, filtered);
     }
 
@@ -298,8 +298,9 @@ internal sealed class DatasetShape
     /// Where a column comes from in the reader's batches (-1 when the file lacks it: nulls) and how it converts to
     /// <paramref name="target"/>; a conversion the rules refuse is an error naming the file, the column and what allows it.
     /// </summary>
-    private (int Source, ArrowConversion Conversion) Conversion(Schema read, int skip, string name, IArrowType target, string path)
+    private (int Source, ArrowConversion Conversion) Conversion(Schema read, int skip, string name, Field targetField, string path)
     {
+        IArrowType target = targetField.DataType;
         int at = -1;
         for (int c = skip; c < read.FieldsList.Count; c++)
         {
@@ -307,6 +308,8 @@ internal sealed class DatasetShape
         }
         if (at < 0) return (-1, new NullsConversion(target));
         IArrowType type = read.FieldsList[at].DataType;
+        if (EnumMismatch(read.FieldsList[at], targetField, name, declared: _dataset.Schema is not null) is { } mismatch)
+            throw _error($"{path}: {mismatch}", null);
         if (ArrowWidening.TryCompile(type, target, _rules, name, out ArrowConversion? conversion, out ArrowConversionError? error)) return (at, conversion);
         string hint = error.Problem switch
         {
@@ -320,6 +323,51 @@ internal sealed class DatasetShape
             ? $"the file has no field '{error.Path}', which the dataset reads"
             : $"'{error.Path}': {error.Message} (the dataset's type)";
         throw _error($"{path}: {what}{hint}.", null);
+    }
+
+    /// <summary>
+    /// A Polars Enum (field metadata <c>_PL_ENUM_VALUES2</c>, <c>_PL_ENUM_VALUES</c> before it) of other categories than
+    /// the dataset's, or an Enum against a column that is none (or the reverse), at any depth: what is wrong, or null.
+    /// An Enum is a declared set of values: as Polars, the dataset does not change it (cast the column, or change the
+    /// Enum).
+    /// </summary>
+    /// <param name="declared">
+    /// The dataset's fields are given (<see cref="DatasetOptions.Schema"/>): a field declared without an Enum reads the
+    /// file's Enum as its values (the way to downgrade one); only a declared Enum is compared.
+    /// </param>
+    private static string? EnumMismatch(Field file, Field dataset, string path, bool declared)
+    {
+        string? mine = EnumOf(file), theirs = EnumOf(dataset);
+        if (mine != theirs && !(declared && theirs is null))
+        {
+            string Describe(string? categories) => categories is null ? "no Enum" : $"an Enum of {Shorten(categories)}";
+            return $"'{path}' is {Describe(mine)} in this file but {Describe(theirs)} in the dataset: an Enum's categories are not "
+                + "changed (give the dataset's Schema with the column as plain values, or make the Enums alike).";
+        }
+        return (file.DataType, dataset.DataType) switch
+        {
+            (StructType f, StructType d) => d.Fields.Select(df => f.Fields.FirstOrDefault(ff => ff.Name == df.Name) is { } ff ? EnumMismatch(ff, df, $"{path}.{df.Name}", declared) : null)
+                .FirstOrDefault(m => m is not null),
+            (NestedType f, NestedType d) when ListItem(f) is { } fi && ListItem(d) is { } di => EnumMismatch(fi, di, path + "[]", declared),
+            (MapType f, MapType d) => EnumMismatch(f.KeyField, d.KeyField, path + "{key}", declared) ?? EnumMismatch(f.ValueField, d.ValueField, path + "{value}", declared),
+            _ => null,
+        };
+
+        static string? EnumOf(Field field) => field.Metadata is { } metadata
+            ? metadata.TryGetValue("_PL_ENUM_VALUES2", out string? values) || metadata.TryGetValue("_PL_ENUM_VALUES", out values) ? values : null
+            : null;
+
+        static string Shorten(string text) => text.Length <= 80 ? text : text[..77] + "...";
+
+        static Field? ListItem(NestedType type) => type switch
+        {
+            ListType l => l.ValueField,
+            LargeListType l => l.ValueField,
+            ListViewType l => l.ValueField,
+            LargeListViewType l => l.ValueField,
+            FixedSizeListType l => l.ValueField,
+            _ => null,
+        };
     }
 
     private Exception Missing(string path, string column, bool filter) =>
@@ -495,17 +543,25 @@ internal sealed class DatasetShape
     }
 
     /// <summary>A batch cut to the <paramref name="remaining"/> rows still to deliver (over its memory: disposing the cut releases it all).</summary>
-    public RecordBatch Cut(RecordBatch batch, ref long? remaining)
+    public RecordBatch Cut(RecordBatch batch, ref long? remaining, DictionaryUnifier? unifier)
     {
-        if (remaining is not long left) return batch;
-        if (batch.Length < left)
+        if (remaining is long left)
         {
-            remaining = left - batch.Length;
-            return batch;
+            if (batch.Length < left) remaining = left - batch.Length;
+            else
+            {
+                remaining = 0;
+                if (batch.Length > left) batch = new RecordBatch(Schema, [.. batch.Arrays.Select(a => ArrowArrayFactory.Slice(a, 0, (int)left))], (int)left);
+            }
         }
-        remaining = 0;
-        return batch.Length == left ? batch : new RecordBatch(Schema, [.. batch.Arrays.Select(a => ArrowArrayFactory.Slice(a, 0, (int)left))], (int)left);
+        return unifier is null ? batch : unifier.Apply(batch);
     }
+
+    /// <summary>
+    /// The unifier of one reading's dictionaries (<see cref="DatasetOptions.UnifyDictionaries"/>), its batches handed to
+    /// <see cref="Cut"/> in order; null when not asked or no column holds a dictionary.
+    /// </summary>
+    public DictionaryUnifier? NewUnifier() => _dataset.UnifyDictionaries ? DictionaryUnifier.For(Schema) : null;
 
     /// <summary>A column of the batch converted (the batch's own when nothing changes, marked used), or nulls when the file lacks it.</summary>
     private static IArrowArray Convert(RecordBatch batch, (int Source, ArrowConversion Conversion) plan, int length, bool[] used)

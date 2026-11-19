@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Network;
 using Kaminari.Seseragi.Files.IO;
@@ -162,6 +163,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         RequestGate? gate = NewRequestGate();
         using var ahead = new Ahead(this, FilesInFlight, gate, default); // the file taken counts among them
         long? remaining = _options.MaxRows;
+        using DictionaryUnifier? unifier = _shape.NewUnifier(); // per reading: values numbered as they come
         long before = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
         {
@@ -175,7 +177,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     using IEnumerator<RecordBatch> batches = plan.Reader.ReadBatches().GetEnumerator();
                     while (remaining != 0 && Next(batches, i) is { } batch)
                     {
-                        if (_shape.Convert(batch, plan.Converted, plan.FilterAfter, i) is { } done) yield return _shape.Cut(done, ref remaining);
+                        if (_shape.Convert(batch, plan.Converted, plan.FilterAfter, i) is { } done) yield return _shape.Cut(done, ref remaining, unifier);
                     }
                 }
                 before += RowCount(file);
@@ -198,6 +200,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         RequestGate? gate = NewRequestGate();
         using var ahead = new Ahead(this, FilesInFlight, gate, cancellationToken);
         long? remaining = _options.MaxRows;
+        using DictionaryUnifier? unifier = _shape.NewUnifier(); // per reading: values numbered as they come
         long before = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
         {
@@ -211,7 +214,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     await using IAsyncEnumerator<RecordBatch> batches = plan.Reader.ReadBatchesAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
                     while (remaining != 0 && await NextAsync(batches, i).ConfigureAwait(false) is { } batch)
                     {
-                        if (_shape.Convert(batch, plan.Converted, plan.FilterAfter, i) is { } done) yield return _shape.Cut(done, ref remaining);
+                        if (_shape.Convert(batch, plan.Converted, plan.FilterAfter, i) is { } done) yield return _shape.Cut(done, ref remaining, unifier);
                     }
                 }
                 before += RowCount(file);
@@ -228,6 +231,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     {
         using var window = new UnitWindow(this, default);
         long? remaining = _options.MaxRows;
+        using DictionaryUnifier? unifier = _shape.NewUnifier(); // per reading: values numbered as they come
         while (remaining != 0 && window.NextAsync().GetAwaiter().GetResult() is { } batches)
         {
             int i = 0;
@@ -237,7 +241,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                 {
                     RecordBatch batch = batches[i];
                     batches[i] = null!;
-                    yield return _shape.Cut(batch, ref remaining);
+                    yield return _shape.Cut(batch, ref remaining, unifier);
                 }
             }
             finally
@@ -252,6 +256,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     {
         using var window = new UnitWindow(this, cancellationToken);
         long? remaining = _options.MaxRows;
+        using DictionaryUnifier? unifier = _shape.NewUnifier(); // per reading: values numbered as they come
         while (remaining != 0 && await window.NextAsync().ConfigureAwait(false) is { } batches)
         {
             int i = 0;
@@ -262,7 +267,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     cancellationToken.ThrowIfCancellationRequested();
                     RecordBatch batch = batches[i];
                     batches[i] = null!;
-                    yield return _shape.Cut(batch, ref remaining);
+                    yield return _shape.Cut(batch, ref remaining, unifier);
                 }
             }
             finally

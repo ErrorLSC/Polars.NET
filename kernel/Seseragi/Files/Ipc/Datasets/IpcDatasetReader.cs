@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Network;
@@ -132,16 +133,18 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         {
             await using var window = new Window(this, ct);
             long? left = _options.MaxRows;
+            using DictionaryUnifier? windowed = _shape.NewUnifier(); // per reading: values numbered as they come
             long next = 0; // the rows before the next unit, across the files (the row index)
             while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } output)
             {
-                if (Deliver(output, ref next) is { } batch) yield return _shape.Cut(batch, ref left);
+                if (Deliver(output, ref next) is { } batch) yield return _shape.Cut(batch, ref left, windowed);
             }
             yield break;
         }
 
         // One thread, local files or memory: file after file on the calling thread.
         long? remaining = _options.MaxRows;
+        using DictionaryUnifier? unifier = _shape.NewUnifier(); // per reading: values numbered as they come
         long row = 0;
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
         {
@@ -160,7 +163,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 {
                     var (message, body) = await Named(i, plan.Reader.FetchAsync(b, useAsync, ct)).ConfigureAwait(false);
                     IpcDecoded decoded = Decode(plan, i, message, body, plan.FilterAfter ? long.MaxValue : remaining ?? long.MaxValue);
-                    if (Deliver(new Output(plan, i, decoded, null, 0), ref row) is { } batch) yield return _shape.Cut(batch, ref remaining);
+                    if (Deliver(new Output(plan, i, decoded, null, 0), ref row) is { } batch) yield return _shape.Cut(batch, ref remaining, unifier);
                 }
             }
             finally

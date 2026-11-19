@@ -93,12 +93,18 @@ internal static class ArrowWidening
             (TimestampType x, TimestampType y) when Zoned(x) == Zoned(y) => Rank(y.Unit) > Rank(x.Unit) ? new TimestampType(y.Unit, x.Timezone) : a,
             (Time32Type or Time64Type, Time32Type or Time64Type) => Rank(Unit(b)) > Rank(Unit(a)) ? b : a,
             (DurationType x, DurationType y) => Rank(y.Unit) > Rank(x.Unit) ? b : a,
-            // Strings (binaries) in two layouts: the view layout when either is (a reader's dictionaries hold plain values).
-            (StringType or StringViewType, StringType or StringViewType) => a is StringViewType ? a : b,
-            (BinaryType or BinaryViewType, BinaryType or BinaryViewType) => a is BinaryViewType ? a : b,
+            // Strings (binaries) in two layouts: the view layout when either is (a reader's dictionaries hold plain values),
+            // else the large one when either is (it holds more bytes per batch).
+            (StringType or LargeStringType or StringViewType, StringType or LargeStringType or StringViewType) =>
+                a is StringViewType || b is not StringViewType && a is LargeStringType ? a : b,
+            (BinaryType or LargeBinaryType or BinaryViewType, BinaryType or LargeBinaryType or BinaryViewType) =>
+                a is BinaryViewType || b is not BinaryViewType && a is LargeBinaryType ? a : b,
             (StructType x, StructType y) => CommonStruct(x, y, lossy),
-            (ListType x, ListType y) => Common(x.ValueDataType, y.ValueDataType, lossy) is { } element
-                ? new ListType(new Field(x.ValueField.Name, element, nullable: true)) : null,
+            // Lists in several layouts: the view layout when either is, else the large one when either is.
+            (ListType or LargeListType or ListViewType or LargeListViewType, ListType or LargeListType or ListViewType or LargeListViewType) =>
+                Common(ListElement(a), ListElement(b), lossy) is { } element
+                    ? WithElement(a is ListViewType or LargeListViewType || b is not (ListViewType or LargeListViewType) && a is LargeListType ? a : b, a, element)
+                    : null,
             (FixedSizeListType x, FixedSizeListType y) when x.ListSize == y.ListSize => Common(x.ValueDataType, y.ValueDataType, lossy) is { } element
                 ? new FixedSizeListType(new Field(x.ValueField.Name, element, nullable: true), x.ListSize) : null,
             (MapType x, MapType y) => Common(x.KeyField.DataType, y.KeyField.DataType, lossy) is { } key && Common(x.ValueField.DataType, y.ValueField.DataType, lossy) is { } value
@@ -117,10 +123,19 @@ internal static class ArrowWidening
         {
             case (NullType, _):
                 return new NullsConversion(to);
-            case (DictionaryType d, _) when SameFamily(d.ValueType, to):
-                return new DictionaryDecodeConversion(to);
-            case (_, DictionaryType d) when SameFamily(from, d.ValueType):
-                return new DictionaryEncodeConversion(d);
+            case (DictionaryType f, DictionaryType t):
+            {
+                // Indices into wider ones, the dictionary's values converted (shared when they stay).
+                // Into wider indices, or into any of 32 bits or more: a valid index is below an array's length (2^31).
+                if (!ArrowTypes.SameType(f.IndexType, t.IndexType) && !IntegerWidens((IntegerType)f.IndexType, (IntegerType)t.IndexType)
+                    && ((IntegerType)t.IndexType).BitWidth < 32)
+                    return Refuse(ArrowConversionProblem.Incompatible, ref error);
+                return Compile(f.ValueType, t.ValueType, rules, path, ref error) is { } values ? new DictionaryIndexConversion(t, values) : null;
+            }
+            case (DictionaryType d, _):
+                return Compile(d.ValueType, to, rules, path, ref error) is { } decoded ? new DictionaryDecodeConversion(to, decoded) : null;
+            case (_, DictionaryType d):
+                return Compile(from, d.ValueType, rules, path, ref error) is { } encoded ? new DictionaryEncodeConversion(d, encoded) : null;
             case (_, _) when SameFamily(from, to):
                 return new RelayoutConversion(to);
             case (IntegerType f, IntegerType t):
@@ -161,8 +176,8 @@ internal static class ArrowWidening
                 return Units(Rank(f.Unit), Rank(t.Unit), 8, 8, ref error);
             case (StructType f, StructType t):
                 return Struct(f, t, rules, path, ref error);
-            case (ListType f, ListType t):
-                return Compile(f.ValueDataType, t.ValueDataType, rules, path + "[]", ref error) is { } element ? new ListConversion(to, element) : null;
+            case (ListType or LargeListType or ListViewType or LargeListViewType, ListType or LargeListType or ListViewType or LargeListViewType):
+                return Compile(ListElement(from), ListElement(to), rules, path + "[]", ref error) is { } element ? new ListConversion(to, element) : null;
             case (FixedSizeListType f, FixedSizeListType t) when f.ListSize == t.ListSize:
                 return Compile(f.ValueDataType, t.ValueDataType, rules, path + "[]", ref error) is { } items ? new FixedSizeListConversion(t, items) : null;
             case (MapType f, MapType t):
@@ -217,7 +232,7 @@ internal static class ArrowWidening
 
     // ---- common types ---------------------------------------------------------------------------------------------
 
-    private static IArrowType? CommonInteger(IntegerType a, IntegerType b, bool lossy)
+    internal static IArrowType? CommonInteger(IntegerType a, IntegerType b, bool lossy)
     {
         if (a.IsSigned == b.IsSigned) return a.BitWidth >= b.BitWidth ? a : b;
         int signed = a.IsSigned ? a.BitWidth : b.BitWidth, unsigned = a.IsSigned ? b.BitWidth : a.BitWidth;
@@ -278,8 +293,40 @@ internal static class ArrowWidening
     // ---- type facts -----------------------------------------------------------------------------------------------
 
     /// <summary>Whether both are strings, or both binaries, in the plain or view layout.</summary>
+    /// <summary>The element type of a list of any layout.</summary>
+    internal static IArrowType ListElement(IArrowType list) => list switch
+    {
+        ListType l => l.ValueDataType,
+        LargeListType l => l.ValueDataType,
+        ListViewType l => l.ValueDataType,
+        LargeListViewType l => l.ValueDataType,
+        _ => throw new ArgumentException($"{list.Name} is no list."),
+    };
+
+    /// <summary>A list in the layout of <paramref name="layout"/> of <paramref name="element"/>, its item named as <paramref name="named"/>'s.</summary>
+    internal static IArrowType WithElement(IArrowType layout, IArrowType named, IArrowType element)
+    {
+        Field? field = named switch
+        {
+            ListType l => l.ValueField,
+            LargeListType l => l.ValueField,
+            ListViewType l => l.ValueField,
+            LargeListViewType l => l.ValueField,
+            _ => null,
+        };
+        var item = new Field(field?.Name ?? "item", element, nullable: true, field?.Metadata); // its metadata kept (a Polars Enum's)
+        return layout switch
+        {
+            LargeListType => new LargeListType(item),
+            ListViewType => new ListViewType(item),
+            LargeListViewType => new LargeListViewType(item),
+            _ => new ListType(item),
+        };
+    }
+
     private static bool SameFamily(IArrowType a, IArrowType b) =>
-        a is StringType or StringViewType && b is StringType or StringViewType || a is BinaryType or BinaryViewType && b is BinaryType or BinaryViewType;
+        a is StringType or LargeStringType or StringViewType && b is StringType or LargeStringType or StringViewType
+        || a is BinaryType or LargeBinaryType or BinaryViewType && b is BinaryType or LargeBinaryType or BinaryViewType;
 
     private static bool IntegerWidens(IntegerType from, IntegerType to) =>
         to.BitWidth > from.BitWidth && (to.IsSigned || !from.IsSigned);

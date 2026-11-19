@@ -218,6 +218,7 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
         IntervalType { Unit: IntervalUnit.MonthDayNanosecond } => new NativeFixedWidthBuilder<MonthDayNanos>(type),
         StringType or BinaryType => new NativeBinaryBuilder(type),
         StringViewType or BinaryViewType => new NativeBinaryViewBuilder(type),
+        LargeStringType or LargeBinaryType => new NativeLargeBinaryBuilder(type),
         FixedSizeBinaryType f => new NativeFixedSizeBinaryBuilder(f),
         DictionaryType d => new NativeDictionaryBuilder(d),
         MapType m => new NativeListBuilder(m, Create(m.KeyValueType)),

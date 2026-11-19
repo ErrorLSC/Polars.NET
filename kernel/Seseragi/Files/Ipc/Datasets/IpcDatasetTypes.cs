@@ -7,9 +7,10 @@ namespace Kaminari.Seseragi.Files.Ipc;
 
 /// <summary>
 /// How the columns of an IPC dataset's files unite (<see cref="DatasetSchemaMode.UnionByName"/>): as
-/// <see cref="ArrowWidening.Common"/> unites them, but strings and binaries in two layouts (plain, view) keep the layout
-/// of the file that had the column first, at any depth (Arrow IPC files keep the layout their writer chose: a dataset
-/// of files from several writers mixes them).
+/// <see cref="ArrowWidening.Common"/> unites them, but strings, binaries and lists in several layouts (plain, large,
+/// view) keep the layout of the file that had the column first, at any depth (Arrow IPC files keep the layout their
+/// writer chose: a dataset of files from several writers mixes them); dictionaries stay dictionaries, their indices
+/// widened to a type holding both (a dictionary beside plain values gives plain values).
 /// </summary>
 internal static class IpcDatasetTypes
 {
@@ -18,11 +19,19 @@ internal static class IpcDatasetTypes
         if (ArrowTypes.SameType(a, b)) return a;
         return (a, b) switch
         {
-            (StringType or StringViewType, StringType or StringViewType) => a,
-            (BinaryType or BinaryViewType, BinaryType or BinaryViewType) => a,
+            (StringType or LargeStringType or StringViewType, StringType or LargeStringType or StringViewType) => a,
+            (BinaryType or LargeBinaryType or BinaryViewType, BinaryType or LargeBinaryType or BinaryViewType) => a,
+            // Dictionaries: indices widened to a type holding both, values united; beside plain values, plain values.
+            (DictionaryType x, DictionaryType y) => Common(x.ValueType, y.ValueType, lossy) is { } values
+                ? ArrowWidening.CommonInteger((IntegerType)x.IndexType, (IntegerType)y.IndexType, lossy: false) is IntegerType index
+                    ? new DictionaryType(index, values, x.Ordered && y.Ordered)
+                    : values
+                : null,
+            (DictionaryType x, _) => Common(x.ValueType, b, lossy),
+            (_, DictionaryType y) => Common(a, y.ValueType, lossy),
             (StructType x, StructType y) => Struct(x, y, lossy),
-            (ListType x, ListType y) => Common(x.ValueDataType, y.ValueDataType, lossy) is { } element
-                ? new ListType(new Field(x.ValueField.Name, element, nullable: true)) : null,
+            (ListType or LargeListType or ListViewType or LargeListViewType, ListType or LargeListType or ListViewType or LargeListViewType) =>
+                Common(ArrowWidening.ListElement(a), ArrowWidening.ListElement(b), lossy) is { } element ? ArrowWidening.WithElement(a, a, element) : null,
             (FixedSizeListType x, FixedSizeListType y) when x.ListSize == y.ListSize => Common(x.ValueDataType, y.ValueDataType, lossy) is { } element
                 ? new FixedSizeListType(new Field(x.ValueField.Name, element, nullable: true), x.ListSize) : null,
             (MapType x, MapType y) => Common(x.KeyField.DataType, y.KeyField.DataType, lossy) is { } key

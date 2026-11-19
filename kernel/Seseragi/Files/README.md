@@ -44,10 +44,14 @@ order with the narrowest type holding each (`UnionByName`: every footer read whe
 as they are, by lossless widenings (wider integers, floats holding the integers, decimals of no fewer digits or a
 larger scale, integers into decimals, dates into timestamps, finer time units — values beyond the range fail —,
 timestamps of another zone, struct fields matched by name, list and map elements, dictionaries to and from their
-values, plain and view layouts), or with `AllowLossyCasts` by approximating ones (integers and decimals into floats,
+values and into wider indices, plain, large and view layouts of strings, binaries and lists), or with `AllowLossyCasts` by approximating ones (integers and decimals into floats,
 narrower floats, coarser time units rounded down); wall-clock times and instants, strings and numbers never mix.
 Columns and struct fields beyond the dataset's are not read; those a file lacks are an error naming the file and the
-way out, or nulls (`AllowMissingColumns`; always when united). Filters prune each file on its own types; columns it
+way out, or nulls (`AllowMissingColumns`; always when united). Polars Enums (at any depth) must have the same
+categories in every file, and an Enum never meets a column that is none, unless the given `Schema` declares the column
+as plain values. `UnifyDictionaries` reads every dictionary column (at any depth) with one dictionary for the dataset:
+values numbered as first seen, indices Int32, each batch carrying the dictionary as it then is (row groups' and files'
+dictionaries alike). Filters prune each file on its own types; columns it
 lacks become nulls folded into the filter; conjuncts over lossily converted columns do not prune; where a file's own
 filtering cannot be exact the dataset filters its rows after converting, so `FiltersExactly` holds across files.
 Files are read in order with the reader options; with several threads the row groups of several files decode side
@@ -323,9 +327,10 @@ before any filter, in both readers (a single batch read alone numbered after the
 
 **Datasets** (`IpcDataset`, `IpcDatasetOptions`, `IpcDatasetReader`, `IpcDatasetFile`): many IPC files read as one
 table, as Parquet datasets are (the same `DatasetOptions`: paths, directories, globs, stores, Hive partitions pruned
-by the filter, schema modes, missing columns, lossy casts, file path column, files and requests in flight). Strings and
-binaries in another layout than the dataset's (plain, view) convert to the first file's; columns sharing a name are
-refused. Batches of several files are read and decoded side by side ahead of the consumer within a byte budget, files
+by the filter, schema modes, missing columns, lossy casts, Enums, unified dictionaries, file path column, files and
+requests in flight). Strings, binaries and lists in several layouts (plain, large, view) unite to the first file's;
+dictionaries unite to dictionaries with indices holding both (a dictionary beside plain values to plain values);
+columns sharing a name are refused. Batches of several files are read and decoded side by side ahead of the consumer within a byte budget, files
 opened and their dictionaries read ahead, requests to remote stores bounded apart; on one thread from local files, file
 after file. Rows are numbered across the files (files left out by their partitions counted, their batches' messages
 read only then); on a store a file opens with one read of its tail, a large file's footer kept between reads. Typed

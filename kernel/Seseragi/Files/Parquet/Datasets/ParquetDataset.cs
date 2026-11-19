@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Apache.Arrow;
+using Kaminari.Sazanami.Arrow.Compute;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.IO;
@@ -41,6 +42,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         Footers = kept;
         Interner = interner;
         _first = first;
+        // One dictionary per column for the dataset: every dictionary indexed by Int32.
+        if (options.UnifyDictionaries) fileSchema = DictionaryUnifier.Unified(fileSchema);
         FileSchema = fileSchema;
         Partitions = partitions;
         // The files' columns (a partition column of the same name in its place: the path's value wins), then the
@@ -101,6 +104,12 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// </summary>
     /// <exception cref="ParquetFormatException">A file's schema is damaged, or (united) no type holds a column's types in two files.</exception>
     internal Apache.Arrow.Schema ColumnsFor(ParquetReadOptions options)
+    {
+        Apache.Arrow.Schema columns = ColumnsOf(options);
+        return Options.UnifyDictionaries ? DictionaryUnifier.Unified(columns) : columns;
+    }
+
+    private Apache.Arrow.Schema ColumnsOf(ParquetReadOptions options)
     {
         if (Options.Schema is { } given) return Layout(given, options.ViewTypes);
         if (Options.SchemaMode == DatasetSchemaMode.UnionByName)

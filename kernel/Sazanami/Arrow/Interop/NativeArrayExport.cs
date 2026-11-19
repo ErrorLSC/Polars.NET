@@ -40,6 +40,20 @@ internal sealed unsafe class NativeBatchExport
 {
     private NativeGrowBuffer _allocations; // NativeAllocation entries, in native memory (no managed lookup per buffer)
     private Dictionary<nint, (NativeMemoryOwner Owner, int Length)>? _shared; // buffers of other batches, made when one is shared
+    private List<IDisposable>? _held; // arrays made on the way whose buffers may be shared here: disposed once imported
+
+    /// <summary>
+    /// Keeps <paramref name="array"/> (an intermediate array whose buffers this batch may share) alive until the batch
+    /// is imported (its shared buffers then hold the memory themselves) or freed; then disposes it.
+    /// </summary>
+    public void Hold(IDisposable array) => (_held ??= []).Add(array);
+
+    private void Release()
+    {
+        if (_held is null) return;
+        foreach (IDisposable array in _held) array.Dispose();
+        _held = null;
+    }
 
     /// <summary>
     /// Puts a buffer of another imported batch into this one without copying (when it is one: a buffer over native
@@ -115,6 +129,7 @@ internal sealed unsafe class NativeBatchExport
         finally
         {
             owner.Sealed();
+            Release();
         }
     }
 
@@ -132,6 +147,7 @@ internal sealed unsafe class NativeBatchExport
         finally
         {
             owner.Sealed();
+            Release();
         }
     }
 
@@ -164,6 +180,8 @@ internal sealed unsafe class NativeBatchExport
         MapType m => m.KeyValueType,
         ListType l => l.ValueDataType,
         LargeListType l => l.ValueDataType,
+        ListViewType l => l.ValueDataType,
+        LargeListViewType l => l.ValueDataType,
         FixedSizeListType f => f.ValueDataType,
         _ => throw new InvalidOperationException($"A {type.Name} array has no children."),
     };
@@ -180,6 +198,7 @@ internal sealed unsafe class NativeBatchExport
         for (long i = 0; i < count; i++) NativeMemoryPool.Free((void*)items[i].Pointer);
         _allocations.Free();
         _shared?.Clear();
+        Release();
     }
 }
 

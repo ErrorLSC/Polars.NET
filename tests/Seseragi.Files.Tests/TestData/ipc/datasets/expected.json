@@ -1,0 +1,80 @@
+{
+ "strings": [
+  "\"x\"",
+  "null",
+  "\"\"",
+  "\"a string longer than twelve bytes\"",
+  "\"y\"",
+  "\"y\"",
+  "\"a string longer than twelve bytes\"",
+  "\"\"",
+  "null",
+  "\"x\"",
+  "\"z\"",
+  "\"a string longer than twelve bytes!\"",
+  "null"
+ ],
+ "lists": [
+  "[1, 2]",
+  "null",
+  "[]",
+  "[3]",
+  "[4]",
+  "[5, 6, 7]",
+  "null",
+  "[12, 13]",
+  "[10, 11, 12]",
+  "[]",
+  "null"
+ ],
+ "dicts": [
+  "\"p\"",
+  "\"q\"",
+  "null",
+  "\"p\"",
+  "\"q\"",
+  "\"a string longer than twelve bytes\"",
+  "\"r\"",
+  "\"r\"",
+  "\"s\"",
+  "null",
+  "\"a string longer than twelve bytes\""
+ ],
+ "dictplain": [
+  "\"p\"",
+  "\"q\"",
+  "\"p\"",
+  "\"q\"",
+  "null",
+  "\"z\""
+ ],
+ "nested": [
+  "{c: \"k\", l: [\"x\"]}",
+  "{c: \"l\", l: []}",
+  "{c: \"k\", l: null}",
+  "{c: \"l\", l: [\"a string longer than twelve bytes\", \"y\"]}",
+  "{c: \"m\", l: [\"z\"]}"
+ ],
+ "enum_same": [
+  "\"lo\"",
+  "\"hi\"",
+  "\"hi\"",
+  "null"
+ ],
+ "enum_list": [
+  "[\"lo\", \"hi\"]",
+  "null",
+  "[\"hi\"]",
+  "[]"
+ ],
+ "parquet_dicts": [
+  "\"p\"",
+  "\"q\"",
+  "\"p\"",
+  "\"a string longer than twelve bytes\"",
+  "\"a string longer than twelve bytes\"",
+  "null",
+  "\"z\"",
+  "\"q\""
+ ]
+}

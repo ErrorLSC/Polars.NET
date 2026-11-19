@@ -35,6 +35,7 @@ internal static class ArrowRender
             MapArray m => "{" + string.Join(", ", Enumerable.Range(m.ValueOffsets[i], m.GetValueLength(i)).Select(k => $"{Value(m.Keys, k)}: {Value(m.Values, k)}")) + "}",
             ListArray l => "[" + string.Join(", ", Enumerable.Range(l.ValueOffsets[i], l.GetValueLength(i)).Select(k => Value(l.Values, k))) + "]",
             LargeListArray l => "[" + string.Join(", ", Enumerable.Range((int)l.ValueOffsets[i], (int)l.GetValueLength(i)).Select(k => Value(l.Values, k))) + "]",
+            ListViewArray or LargeListViewArray => ListView(a, i),
             FixedSizeListArray l => "[" + string.Join(", ", Enumerable.Range((l.Offset + i) * ((Apache.Arrow.Types.FixedSizeListType)l.Data.DataType).ListSize, ((Apache.Arrow.Types.FixedSizeListType)l.Data.DataType).ListSize).Select(k => Value(l.Values, k))) + "]",
             _ => Convert.ToString(Boxed(a, i), CultureInfo.InvariantCulture) ?? "?",
         };
@@ -64,4 +65,15 @@ internal static class ArrowRender
     };
 
     private static string Hex(ReadOnlySpan<byte> b) => "0x" + Convert.ToHexString(b);
+
+    /// <summary>A list view's row: its size elements from its offset (32- or 64-bit).</summary>
+    private static string ListView(IArrowArray a, int i)
+    {
+        ArrayData d = a.Data;
+        bool large = a is LargeListViewArray;
+        long start = large ? d.Buffers[1].Span.CastTo<long>()[d.Offset + i] : d.Buffers[1].Span.CastTo<int>()[d.Offset + i];
+        long size = large ? d.Buffers[2].Span.CastTo<long>()[d.Offset + i] : d.Buffers[2].Span.CastTo<int>()[d.Offset + i];
+        IArrowArray values = ArrowArrayFactory.BuildArray(d.Children[0]);
+        return "[" + string.Join(", ", Enumerable.Range((int)start, (int)size).Select(k => Value(values, k))) + "]";
+    }
 }

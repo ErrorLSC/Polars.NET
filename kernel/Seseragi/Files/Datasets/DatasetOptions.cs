@@ -76,6 +76,16 @@ public abstract record DatasetOptions
     public bool AllowLossyCasts { get; init; }
 
     /// <summary>
+    /// Whether every dictionary column (at any depth) is read with one dictionary for the whole dataset (off by
+    /// default: each batch keeps its file's — or row group's — own). The dictionary grows as the files are read: its
+    /// values in the order first seen, every batch's indices remapped into it (Int32: the dataset's dictionaries are
+    /// then indexed by Int32), each batch carrying the dictionary as it is when the batch is read. Equal values then
+    /// have equal indices across the dataset (joins, groupings and appends need not compare values). Values are
+    /// strings, binaries or fixed-width values; more than 2^31 distinct ones are an error.
+    /// </summary>
+    public bool UnifyDictionaries { get; init; }
+
+    /// <summary>
     /// How many files are open at once: read, planned (their footers read, their units started as threads allow) or
     /// opened ahead; null decides it: from local files and memory enough that small files keep every thread busy,
     /// from other stores 1024, so that the files after one whose request is slow keep being read meanwhile (their
