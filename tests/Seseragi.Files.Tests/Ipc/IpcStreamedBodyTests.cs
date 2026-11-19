@@ -112,8 +112,8 @@ public class IpcStreamedBodyTests
             StreamBodyFrom = Never,
         };
         byte[] expected = Bytes(Make, 3, options);
-        Assert.True(expected.Length > 3 * (8 << 20), "each batch is over the default threshold");
-        var streamed = options with { StreamBodyFrom = new IpcWriteOptions().StreamBodyFrom };
+        Assert.True(expected.Length > 3 * (8 << 20), "each batch is over the threshold");
+        var streamed = options with { StreamBodyFrom = 8L << 20 };
         Assert.Equal(expected, Bytes(Make, 3, streamed));
         Assert.Equal(expected, Bytes(Make, 3, streamed with { BatchOwnership = BatchOwnership.Writer }));
         Assert.Equal(expected, Bytes(Make, 3, streamed with { BatchOwnership = BatchOwnership.Writer, MaxDegreeOfParallelism = 16, InFlightBytes = 1 }));

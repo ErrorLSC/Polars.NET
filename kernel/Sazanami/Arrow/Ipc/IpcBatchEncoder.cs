@@ -336,14 +336,28 @@ internal static unsafe class IpcBatchEncoder
     internal const int ZstdFrameBytes = 32 << 20; // measured (10M rows, one batch, 16 threads): 8 MiB +3.7 % bytes, 32 MiB +0.8 % at the same speed
 
     /// <summary>
+    /// The bytes of a chunk of a streamed body's output (<see cref="Compress"/> with a stream): each worker packs the
+    /// units it compresses into a chunk of its own, then the next; chunks of one size return to the pool and are taken
+    /// again as buffers are written. A unit whose bound is larger (a Zstandard frame) has a block of its own.
+    /// </summary>
+    internal const int StreamChunkBytes = 4 << 20;
+
+    /// <summary>
+    /// The LZ4 blocks of a unit of a streamed body: each unit is written as one piece, so that the writer makes a
+    /// write per MiB rather than per block (measured: one block per unit made writing the bottleneck, +20 %).
+    /// </summary>
+    internal const int StreamLz4UnitBlocks = 16;
+
+    /// <summary>
     /// Compresses each buffer with <paramref name="codec"/>: the uncompressed length first, or -1 and the bytes as they
     /// are when compression does not make them smaller. Empty buffers stay empty. The work runs on up to
     /// <paramref name="parallelism"/> threads in units handed out front to back: a buffer each, or for LZ4 its
-    /// independent 64 KiB blocks (<see cref="Lz4UnitBytes"/>), for Zstandard frames of <paramref name="zstdFrameBytes"/>,
-    /// each written into its slot of the buffer's output, the slots closed up by the thread that finishes the buffer's
-    /// last unit. The bytes are the same whatever the number of threads. With <paramref name="stream"/>, each buffer is
-    /// handed over as soon as it is final, its output then the stream's (a buffer stored as it is is first copied into
-    /// it when <paramref name="detach"/>: the caller's arrays may go once this returns); else the outputs are the body's.
+    /// independent 64 KiB blocks (<see cref="Lz4UnitBytes"/>), for Zstandard frames of <paramref name="zstdFrameBytes"/>;
+    /// the thread that finishes a buffer's last unit settles it. The bytes are the same whatever the number of threads.
+    /// Without a stream, each buffer's units go into slots of one output, closed up into the buffer's bytes (the body's).
+    /// With <paramref name="stream"/>, units are packed into chunks (<see cref="StreamChunkBytes"/>) and each buffer is
+    /// handed over as its run of pieces as soon as it is settled (a buffer stored as it is is first copied into memory
+    /// of the stream's when <paramref name="detach"/>: the caller's arrays may go once this returns).
     /// </summary>
     public static void Compress(IpcEncodedBody body, IpcCompression codec, int level, int parallelism, int zstdFrameBytes = ZstdFrameBytes,
         IpcBodyStream? stream = null, bool detach = false, CancellationToken cancellationToken = default)
@@ -351,68 +365,61 @@ internal static unsafe class IpcBatchEncoder
         if (codec == IpcCompression.None) return;
         var pieces = body.Buffers;
         bool lz4 = codec == IpcCompression.Lz4Frame;
-        int unitBytes = lz4 ? Lz4UnitBytes : zstdFrameBytes;
-        long slot = lz4 ? 4L + Lz4Block.MaxCompressedLength(Lz4Frame.BlockBytes) : ZstdBlock.MaxCompressedLength(unitBytes); // a unit's bound
+        int blocks = stream is null ? 1 : StreamLz4UnitBlocks; // LZ4 blocks per unit
+        int unitBytes = lz4 ? blocks * Lz4UnitBytes : zstdFrameBytes;
+        long slot = lz4 ? blocks * (4L + Lz4Block.MaxCompressedLength(Lz4Frame.BlockBytes)) : ZstdBlock.MaxCompressedLength(unitBytes); // a unit's bound
         int header = lz4 ? Lz4Frame.HeaderLength : 0, end = lz4 ? Lz4Frame.EndLength : 0;
-        // Per buffer: its output (a frame, or slots for the units of a split one), its bytes, its first unit and the
-        // units still to compress. Outputs are allocated before the work starts, or with a stream when a unit of the
-        // buffer is first taken (-1 while allocated), so that a buffer written and freed already lends its block to a
-        // later one (measured: allocating while the workers fault pages costs 6 % unstreamed, nothing streamed).
-        var outputs = new nint[pieces.Count];
-        var outputBytes = new long[pieces.Count];
+        // Per buffer: its first unit and the units still to compress. A unit is a buffer whole (-1) or its k-th part.
         var firstUnit = new int[pieces.Count];
         var left = new int[pieces.Count];
-        var result = new IpcPiece[pieces.Count];
         List<(int Piece, int Unit, long Start, int Length)> units = [];
-        try
+        for (int i = 0; i < pieces.Count; i++)
         {
-            for (int i = 0; i < pieces.Count; i++)
+            long length = pieces[i].Length;
+            if (length == 0)
             {
-                long length = pieces[i].Length;
-                if (length == 0)
-                {
-                    stream?.Publish(i, default, 0);
-                    continue;
-                }
-                firstUnit[i] = units.Count;
-                if (length > unitBytes)
-                {
-                    int count = 0;
-                    for (long at = 0; at < length; at += unitBytes) units.Add((i, count++, at, (int)Math.Min(unitBytes, length - at)));
-                    left[i] = count;
-                    outputBytes[i] = header + count * slot + end;
-                }
-                else
-                {
-                    units.Add((i, -1, 0, checked((int)length)));
-                    left[i] = 1;
-                    outputBytes[i] = Bound((int)length);
-                }
+                stream?.Publish(i, new IpcStreamedBuffer(default));
+                continue;
             }
-            if (stream is null)
+            firstUnit[i] = units.Count;
+            if (length > unitBytes)
             {
-                for (int i = 0; i < pieces.Count; i++)
-                {
-                    if (outputBytes[i] > 0) outputs[i] = (nint)NativeMemoryPool.Alloc(outputBytes[i]);
-                }
+                int count = 0;
+                for (long at = 0; at < length; at += unitBytes) units.Add((i, count++, at, (int)Math.Min(unitBytes, length - at)));
+                left[i] = count;
             }
-            var sizes = new int[units.Count];
+            else
+            {
+                units.Add((i, -1, 0, checked((int)length)));
+                left[i] = 1;
+            }
+        }
+        var result = new IpcPiece[pieces.Count];
+        var sizes = new int[units.Count];
+        if (stream is null) Contiguous();
+        else Chunked(stream);
+        pieces.Clear();
+        pieces.AddRange(result);
+
+        // Each worker takes the next unit until none is left: units finish about in order, so that a stream sees the
+        // buffers from the first on as the work goes (a range per worker would finish them all at the end).
+        void Run(Action<int, Worker> work)
+        {
             int next = -1;
             bool failed = false;
             int workers = Math.Min(Math.Max(1, parallelism), units.Count);
-            // Each worker takes the next unit until none is left: units finish about in order, so that a stream sees
-            // the buffers from the first on as the work goes (a range per worker would finish them all at the end).
-            if (workers > 0) Parallel.For(0, workers, new ParallelOptions { MaxDegreeOfParallelism = workers }, _ =>
+            if (workers == 0) return;
+            Parallel.For(0, workers, new ParallelOptions { MaxDegreeOfParallelism = workers }, _ =>
             {
+                var worker = new Worker();
                 try
                 {
                     while (!Volatile.Read(ref failed))
                     {
                         int u = Interlocked.Increment(ref next);
-                        if (u >= units.Count) return;
+                        if (u >= units.Count) break;
                         cancellationToken.ThrowIfCancellationRequested();
-                        Work(u);
-                        if (Interlocked.Decrement(ref left[units[u].Piece]) == 0) Close(units[u].Piece);
+                        work(u, worker);
                     }
                 }
                 catch
@@ -420,9 +427,59 @@ internal static unsafe class IpcBatchEncoder
                     Volatile.Write(ref failed, true);
                     throw;
                 }
+                finally
+                {
+                    worker.Chunk?.Unref(); // the worker's own reference
+                }
             });
-            if (stream is null)
+        }
+
+        ReadOnlySpan<byte> Source(int u) => pieces[units[u].Piece].Span.Slice((int)units[u].Start, units[u].Length);
+
+        // Compresses unit u into target (its bound).
+        int CompressUnit(int u, Span<byte> target)
+        {
+            ReadOnlySpan<byte> source = Source(u);
+            if (units[u].Unit < 0) return codec == IpcCompression.Zstd ? ZstdBlock.Compress(source, target, level) : Lz4Frame.Compress(source, target);
+            // LZ4 blocks (the frame's header and end mark go around the blocks), or a Zstandard frame.
+            if (!lz4) return ZstdBlock.Compress(source, target, level);
+            int op = 0;
+            for (int at = 0; at < source.Length; at += Lz4Frame.BlockBytes) op = Lz4Frame.Block(source[at..Math.Min(source.Length, at + Lz4Frame.BlockBytes)], target, op);
+            return op;
+        }
+
+        long UnitBound(int u) => units[u].Unit < 0 ? Bound(units[u].Length) : slot;
+
+        // The bytes buffer i takes compressed (its units done).
+        long Size(int i)
+        {
+            int first = firstUnit[i];
+            if (units[first].Unit < 0) return sizes[first];
+            long size = header + end;
+            for (int k = first; k < units.Count && units[k].Piece == i; k++) size += sizes[k];
+            return size;
+        }
+
+        // Without a stream: each buffer's output allocated up front (measured: allocating while the workers fault pages
+        // costs 6 %), its units in slots, closed up when the last is done.
+        void Contiguous()
+        {
+            var outputs = new nint[pieces.Count];
+            try
             {
+                for (int i = 0; i < pieces.Count; i++)
+                {
+                    if (pieces[i].Length == 0) continue;
+                    int first = firstUnit[i];
+                    outputs[i] = (nint)NativeMemoryPool.Alloc(units[first].Unit < 0 ? Bound(units[first].Length) : header + left[i] * slot + end);
+                }
+                Run((u, _) =>
+                {
+                    int i = units[u].Piece;
+                    byte* into = units[u].Unit < 0 ? (byte*)outputs[i] : (byte*)outputs[i] + header + units[u].Unit * slot;
+                    sizes[u] = CompressUnit(u, new Span<byte>(into, checked((int)UnitBound(u))));
+                    if (Interlocked.Decrement(ref left[i]) == 0) Close(i);
+                });
                 for (int i = 0; i < outputs.Length; i++)
                 {
                     if (outputs[i] == 0) continue;
@@ -430,48 +487,11 @@ internal static unsafe class IpcBatchEncoder
                     outputs[i] = 0;
                 }
             }
-            pieces.Clear();
-            pieces.AddRange(result);
-
-            void Work(int u)
+            finally
             {
-                var (i, unit, start, length) = units[u];
-                ReadOnlySpan<byte> source = pieces[i].Span.Slice((int)start, length);
-                if (unit < 0)
+                foreach (nint p in outputs)
                 {
-                    var target = new Span<byte>(Output(i), checked((int)Bound(length)));
-                    sizes[u] = codec == IpcCompression.Zstd ? ZstdBlock.Compress(source, target, level) : Lz4Frame.Compress(source, target);
-                    return;
-                }
-                // Into the unit's slot: LZ4 blocks (the frame's header and end mark are written when the slots are closed
-                // up), or a Zstandard frame.
-                var into = new Span<byte>(Output(i) + header + unit * slot, checked((int)slot));
-                sizes[u] = lz4 ? Lz4Frame.Block(source, into, 0) : ZstdBlock.Compress(source, into, level);
-            }
-
-            // Buffer i's output: the first thread to need it allocates it, the others wait for it.
-            byte* Output(int i)
-            {
-                var spin = new SpinWait();
-                while (true)
-                {
-                    nint p = Volatile.Read(ref outputs[i]);
-                    if (p > 0) return (byte*)p;
-                    if (p == 0 && Interlocked.CompareExchange(ref outputs[i], -1, 0) == 0)
-                    {
-                        try
-                        {
-                            p = (nint)NativeMemoryPool.Alloc(outputBytes[i]);
-                        }
-                        catch
-                        {
-                            Volatile.Write(ref outputs[i], 0);
-                            throw;
-                        }
-                        Volatile.Write(ref outputs[i], p);
-                        return (byte*)p;
-                    }
-                    spin.SpinOnce();
+                    if (p != 0) NativeMemoryPool.Free((void*)p);
                 }
             }
 
@@ -481,9 +501,8 @@ internal static unsafe class IpcBatchEncoder
                 IpcPiece piece = pieces[i];
                 byte* frame = (byte*)outputs[i];
                 int first = firstUnit[i];
-                long size;
-                if (units[first].Unit < 0) size = sizes[first];
-                else
+                long size = Size(i);
+                if (units[first].Unit >= 0)
                 {
                     // Close up the slots (each moves down, never past the next).
                     long op = lz4 ? Lz4Frame.WriteHeader(new Span<byte>(frame, Lz4Frame.HeaderLength)) : 0;
@@ -493,35 +512,78 @@ internal static unsafe class IpcBatchEncoder
                         op += sizes[k];
                     }
                     if (lz4) BinaryPrimitives.WriteUInt32LittleEndian(new Span<byte>(frame + op, 4), 0); // end mark
-                    size = op + end;
                 }
-                if (size < piece.Length) result[i] = new IpcPiece((nint)frame, size, piece.Length, true);
-                else if (stream is not null && detach)
+                if (size < piece.Length)
                 {
-                    Buffer.MemoryCopy((void*)piece.Pointer, frame, piece.Length, piece.Length); // the output is at least as long
-                    result[i] = piece with { Pointer = (nint)frame, Prefix = -1, Prefixed = true };
+                    result[i] = new IpcPiece((nint)frame, size, piece.Length, true);
+                    return;
                 }
-                else
-                {
-                    NativeMemoryPool.Free(frame);
-                    outputs[i] = 0;
-                    result[i] = piece with { Prefix = -1, Prefixed = true };
-                }
-                if (stream is null) return;
-                nint owned = outputs[i];
+                NativeMemoryPool.Free(frame);
                 outputs[i] = 0;
-                stream.Publish(i, result[i], owned);
+                result[i] = piece with { Prefix = -1, Prefixed = true };
             }
         }
-        finally
+
+        // With a stream: units packed into the workers' chunks, buffers handed over as runs of pieces.
+        void Chunked(IpcBodyStream stream)
         {
-            foreach (nint p in outputs)
+            var placed = new IpcChunkPiece[units.Count];
+            Run(Work);
+
+            void Work(int u, Worker worker)
             {
-                if (p > 0) NativeMemoryPool.Free((void*)p);
+                long bound = UnitBound(u);
+                if (worker.Chunk is not { } chunk || chunk.Bytes - worker.Used < bound)
+                {
+                    worker.Chunk?.Unref();
+                    worker.Chunk = null; // dropped: not again if the next one cannot be had
+                    worker.Chunk = chunk = stream.NewChunk(Math.Max(StreamChunkBytes, bound));
+                    worker.Used = 0;
+                }
+                byte* at = chunk.Pointer + worker.Used;
+                sizes[u] = CompressUnit(u, new Span<byte>(at, checked((int)bound)));
+                chunk.Ref();
+                placed[u] = new IpcChunkPiece(chunk, (nint)at, sizes[u]);
+                worker.Used += sizes[u];
+                int i = units[u].Piece;
+                if (Interlocked.Decrement(ref left[i]) == 0) Settle(i);
+            }
+
+            // Buffer i's units are all done: handed over compressed (its run of pieces) or as it is.
+            void Settle(int i)
+            {
+                IpcPiece piece = pieces[i];
+                int first = firstUnit[i], count = 1;
+                while (first + count < units.Count && units[first + count].Piece == i) count++;
+                long size = Size(i);
+                if (size < piece.Length)
+                {
+                    result[i] = new IpcPiece(0, size, piece.Length, true);
+                    stream.Publish(i, new IpcStreamedBuffer(result[i], placed[first..(first + count)], lz4 && units[first].Unit >= 0));
+                    return;
+                }
+                for (int k = first; k < first + count; k++) placed[k].Chunk.Unref(); // not used
+                if (!detach)
+                {
+                    result[i] = piece with { Prefix = -1, Prefixed = true };
+                    stream.Publish(i, new IpcStreamedBuffer(result[i]));
+                    return;
+                }
+                byte* copy = NativeMemoryPool.Alloc(piece.Length);
+                Buffer.MemoryCopy((void*)piece.Pointer, copy, piece.Length, piece.Length);
+                result[i] = piece with { Pointer = (nint)copy, Prefix = -1, Prefixed = true };
+                stream.Publish(i, new IpcStreamedBuffer(result[i], Owned: (nint)copy));
             }
         }
 
         long Bound(int length) => codec == IpcCompression.Zstd ? ZstdBlock.MaxCompressedLength(length) : Lz4Frame.MaxCompressedLength(length);
+    }
+
+    /// <summary>A compressing thread's state: its chunk (one reference of it its own) and how much of it is used.</summary>
+    private sealed class Worker
+    {
+        public IpcChunk? Chunk;
+        public long Used;
     }
 
     /// <summary>Where each buffer goes in the body (64-byte aligned), and the body's length.</summary>

@@ -458,7 +458,8 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         long at = 0, next = 0; // where the bytes written end, where the next buffer goes (as IpcBatchEncoder.Layout)
         for (int i = 0; i < body.Count; i++)
         {
-            IpcPiece piece = await body.Ready(i).ConfigureAwait(false);
+            IpcStreamedBuffer buffer = await body.Ready(i).ConfigureAwait(false);
+            IpcPiece piece = buffer.Piece;
             long offset = next;
             next = (offset + piece.Size + IpcBatchEncoder.Alignment - 1) / IpcBatchEncoder.Alignment * IpcBatchEncoder.Alignment;
             if (piece.Size == 0) continue;
@@ -468,7 +469,14 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
                 BinaryPrimitives.WriteInt64LittleEndian(_prefix, piece.Prefix);
                 await WriteBytesAsync(_prefix, useAsync, CancellationToken.None).ConfigureAwait(false);
             }
-            await WriteNativeAsync(piece.Pointer, piece.Length, useAsync, CancellationToken.None).ConfigureAwait(false);
+            if (buffer.Pieces is not { } pieces) await WriteNativeAsync(piece.Pointer, piece.Length, useAsync, CancellationToken.None).ConfigureAwait(false);
+            else
+            {
+                // Compressed: its units' bytes one after the other (LZ4 blocks inside their frame).
+                if (buffer.Framed) await WriteBytesAsync(IpcBodyStream.Lz4FrameHeader, useAsync, CancellationToken.None).ConfigureAwait(false);
+                foreach (IpcChunkPiece unit in pieces) await WriteNativeAsync(unit.Pointer, unit.Length, useAsync, CancellationToken.None).ConfigureAwait(false);
+                if (buffer.Framed) await WriteBytesAsync(IpcBodyStream.Lz4FrameEnd, useAsync, CancellationToken.None).ConfigureAwait(false);
+            }
             body.Release(i);
             at = offset + piece.Size;
         }

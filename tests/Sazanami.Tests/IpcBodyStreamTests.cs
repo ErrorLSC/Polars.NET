@@ -14,8 +14,11 @@ public unsafe class IpcBodyStreamTests
     private static byte[][] Make()
     {
         var random = new Random(5);
-        byte[][] data = [[], [.. Enumerable.Range(0, 300_000).Select(i => (byte)(i % 251))], new byte[200_000], new byte[70_000], []];
+        byte[][] data = [[], [.. Enumerable.Range(0, 300_000).Select(i => (byte)(i % 251))], new byte[200_000], new byte[70_000], [],
+            [.. Enumerable.Range(0, 2_500_003).Select(i => (byte)(i % 7 == 0 ? random.Next() : i / 1000))], // several units of several blocks
+            new byte[6 << 20]]; // more than a chunk: each thread moves on to new chunks
         random.NextBytes(data[2]); // stored as it is
+        random.NextBytes(data[6]);
         return data;
     }
 
@@ -46,13 +49,25 @@ public unsafe class IpcBodyStreamTests
         Assert.Equal(streamed.Placeholder(0).Length, IpcMessageEncoder.Frame(new byte[24], 0).Length);
         for (int i = 0; i < Data.Length; i++)
         {
-            IpcPiece piece = streamed.Streamed!.Ready(i).Result;
+            IpcStreamedBuffer buffer = streamed.Streamed!.Ready(i).Result;
             IpcPiece expected = whole.Body!.Buffers[i];
-            Assert.Equal((expected.Prefix, expected.Prefixed), (piece.Prefix, piece.Prefixed));
-            Assert.Equal(expected.Span.ToArray(), piece.Span.ToArray());
-            if (piece.Prefix == -1) Assert.NotEqual(whole.Body.Buffers[i].Pointer, piece.Pointer); // detached: a copy of ours
+            Assert.Equal((expected.Prefix, expected.Prefixed, expected.Size), (buffer.Piece.Prefix, buffer.Piece.Prefixed, buffer.Piece.Size));
+            Assert.Equal(expected.Span.ToArray(), Bytes(buffer));
+            if (buffer.Piece.Prefix == -1) Assert.NotEqual(0, buffer.Owned); // detached: a copy of ours
             streamed.Streamed.Release(i);
         }
+        Assert.Equal(0, streamed.Streamed!.LiveChunks); // every unit written (or not used) and every packer done: all back in the pool
+    }
+
+    /// <summary>A streamed buffer's bytes as written.</summary>
+    private static byte[] Bytes(IpcStreamedBuffer buffer)
+    {
+        if (buffer.Pieces is null) return buffer.Piece.Span.ToArray();
+        List<byte> bytes = [];
+        if (buffer.Framed) bytes.AddRange(IpcBodyStream.Lz4FrameHeader);
+        foreach (IpcChunkPiece piece in buffer.Pieces) bytes.AddRange(new ReadOnlySpan<byte>((void*)piece.Pointer, piece.Length));
+        if (buffer.Framed) bytes.AddRange(IpcBodyStream.Lz4FrameEnd);
+        return [.. bytes];
     }
 
     [Fact]

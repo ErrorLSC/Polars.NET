@@ -56,9 +56,10 @@ public sealed record IpcWriteOptions
     /// <summary>
     /// A compressed record batch of at least this many uncompressed bytes, written to a seekable output, is written as
     /// its buffers are compressed (its metadata, which precedes the body, written over a placeholder once known); the
-    /// bytes are the same. Tests set 0 (always) or <see cref="long.MaxValue"/> (never).
+    /// bytes are the same. Measured (LZ4, 16 threads): 100 MB batches 15–20 % faster, 30 MB even, 10 MB 30 % slower
+    /// (batches that small already overlap one another). Tests set 0 (always) or <see cref="long.MaxValue"/> (never).
     /// </summary>
-    internal long StreamBodyFrom { get; init; } = 8L << 20;
+    internal long StreamBodyFrom { get; init; } = 64L << 20;
 
     internal void Validate()
     {
