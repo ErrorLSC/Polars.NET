@@ -382,15 +382,20 @@ public class IpcDecoderTests
         Assert.Contains("lies outside", Assert.Throws<InvalidDataException>(() => Kaminari.Sazanami.Arrow.Ipc.IpcBatchDecoder.Plan([Int32Field], null, Header(1, 2), Kaminari.Sazanami.Arrow.Ipc.IpcMetadataVersion.V5, 4)).Message);
     }
 
+    /// <summary>
+    /// A compressed buffer must expand to the length it declares; a Zstandard frame from a streaming writer (arrow-rs's,
+    /// which declares no content size: ZstdSharp's size of such a frame is a bound, not a size) reads too.
+    /// </summary>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public unsafe void ACompressedBuffer_MustExpandToItsDeclaredLength(bool zstd)
+    [InlineData("zstd")]
+    [InlineData("zstd-streamed")]
+    [InlineData("lz4")]
+    public unsafe void ACompressedBuffer_MustExpandToItsDeclaredLength(string kind)
     {
-        var codec = zstd ? Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Zstd : Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Lz4Frame;
+        var codec = kind.StartsWith("zstd") ? Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Zstd : Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Lz4Frame;
         byte[] plain = [.. Enumerable.Range(0, 64).Select(i => (byte)(i % 7))];
         // A frame of the codec, from a file of it, is not needed: Zstandard frames are made here; for LZ4 a frame of stored blocks.
-        byte[] frame = codec == Kaminari.Sazanami.Arrow.Ipc.IpcCompression.Zstd ? Zstd(plain) : StoredLz4Frame(plain);
+        byte[] frame = kind switch { "zstd" => Zstd(plain), "zstd-streamed" => ZstdStreamed(plain), _ => StoredLz4Frame(plain) };
         foreach (long declared in (long[])[64, 65, 100])
         {
             byte[] buffer = [.. BitConverter.GetBytes(declared), .. frame];
@@ -408,6 +413,16 @@ public class IpcDecoderTests
     {
         byte[] output = new byte[Kaminari.Sazanami.Compression.ZstdBlock.MaxCompressedLength(plain.Length)];
         return output[..Kaminari.Sazanami.Compression.ZstdBlock.Compress(plain, output)];
+    }
+
+    /// <summary>A Zstandard frame as a streaming compressor writes it: no content size in its header.</summary>
+    private static byte[] ZstdStreamed(byte[] plain)
+    {
+        using var memory = new MemoryStream();
+        using (var stream = new ZstdSharp.CompressionStream(memory, 3)) stream.Write(plain);
+        byte[] frame = memory.ToArray();
+        Assert.Equal(-1, Kaminari.Sazanami.Compression.ZstdBlock.DeclaredLength(frame));
+        return frame;
     }
 
     /// <summary>An LZ4 frame (no checksums, no content size) of one stored block.</summary>

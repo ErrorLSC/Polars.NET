@@ -5,7 +5,6 @@ using System.IO.Hashing;
 using Kaminari.Sazanami.Compression;
 using Kaminari.Sazanami.Buffers;
 using Snappier;
-using ZstdSharp;
 
 namespace Kaminari.Seseragi.Files.Avro;
 
@@ -135,49 +134,23 @@ internal sealed class SnappyCodec : AvroCodec
 
 internal sealed class ZstandardCodec(int level) : AvroCodec
 {
-    private Decompressor? _decompressor;
-    private Compressor? _compressor;
-
     public override string Name => "zstandard";
 
     public override int Decompress(ReadOnlySpan<byte> input, NativeByteBuffer output)
     {
-        _decompressor ??= new Decompressor();
         try
         {
-            ulong declared = Decompressor.GetDecompressedSize(input);
-            if (declared > 0 && declared <= (ulong)Array.MaxLength)
-            {
-                EnsureCapacity(output, (long)declared);
-                return _decompressor.Unwrap(input, output.Span);
-            }
-            // Frame without a content size: stream it into a growing buffer.
-            _decompressor.ResetStream();
-            EnsureCapacity(output, Math.Max(4096L, (long)input.Length * 4));
-            int consumedTotal = 0, total = 0;
-            while (true)
-            {
-                if (total == output.Capacity) Grow(output);
-                var status = _decompressor.UnwrapStream(input[consumedTotal..], output.Span[total..], out int consumed, out int written);
-                consumedTotal += consumed;
-                total += written;
-                if (status == OperationStatus.Done && consumedTotal == input.Length) return total;
-                if (status == OperationStatus.InvalidData) throw new AvroFormatException("Corrupt zstandard block in Avro file.");
-                if (status == OperationStatus.NeedMoreData && consumedTotal == input.Length && written == 0)
-                    throw new AvroFormatException("Truncated zstandard block in Avro file.");
-                if (status == OperationStatus.Done && consumedTotal < input.Length) _decompressor.ResetStream();
-            }
+            return ZstdBlock.Decompress(input, output, Array.MaxLength);
         }
-        catch (ZstdException e)
+        catch (InvalidDataException e)
         {
-            throw new AvroFormatException("Corrupt zstandard block in Avro file.", e);
+            throw new AvroFormatException($"Corrupt zstandard block in Avro file: {e.Message}", e);
         }
     }
 
     public override int Compress(ReadOnlySpan<byte> input, NativeByteBuffer output)
     {
-        _compressor ??= new Compressor(level);
-        EnsureCapacity(output, Compressor.GetCompressBound(input.Length));
-        return _compressor.Wrap(input, output.Span);
+        EnsureCapacity(output, ZstdBlock.MaxCompressedLength(input.Length));
+        return ZstdBlock.Compress(input, output.Span, level);
     }
 }

@@ -291,19 +291,9 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
     /// <summary>Whether the first values of <paramref name="dictionary"/> are those of <paramref name="last"/>.</summary>
     private bool SamePrefix(IpcField values, IpcArray last, ArrayData dictionary)
     {
+        // Views point anywhere in their data buffers: compare the values themselves.
+        if (values.Field.DataType is BinaryViewType or StringViewType) return SameViews(last, dictionary);
         using IArrowArray old = ArrowArrayFactory.BuildArray(last.ToArrayData());
-        if (values.Field.DataType is BinaryViewType or StringViewType)
-        {
-            // Views point anywhere in their data buffers: compare the values themselves.
-            var a = (BinaryViewArray)old;
-            // Not disposed: it wraps the caller's buffers, which stay the caller's.
-            var b = (BinaryViewArray)ArrowArrayFactory.BuildArray(dictionary);
-            for (int i = 0; i < a.Length; i++)
-            {
-                if (a.IsNull(i) != b.IsNull(i) || !a.IsNull(i) && !a.GetBytes(i).SequenceEqual(b.GetBytes(i))) return false;
-            }
-            return true;
-        }
         using var x = new IpcEncodedBody();
         using var y = new IpcEncodedBody();
         IpcBatchEncoder.Encode(x, [values], [old.Data], 0, last.Length);
@@ -324,6 +314,82 @@ internal sealed unsafe class IpcMessageEncoder(Schema schema, IpcCompression com
             int mask = (1 << (int)(a.Bits % 8)) - 1; // the bits past a bitmap's length do not count
             return sa[..^1].SequenceEqual(sb[..^1]) && (sa[^1] & mask) == (sb[^1] & mask);
         }
+    }
+
+    /// <summary>
+    /// Whether the first values of view array <paramref name="dictionary"/> are those of <paramref name="last"/> (nulls
+    /// at the same slots): read from the views and data buffers in place (measured: through Apache's arrays, 7× slower,
+    /// most of the time of writing a growing string-view dictionary).
+    /// </summary>
+    private static bool SameViews(IpcArray last, ArrayData dictionary)
+    {
+        if (dictionary.Buffers[1].Length < (dictionary.Offset + (long)last.Length) * 16) return false;
+        ReadOnlySpan<byte> aViews = last.Buffers[1].Span, aValid = last.Buffers[0].Span;
+        ReadOnlySpan<byte> bViews = dictionary.Buffers[1].Span[(dictionary.Offset * 16)..], bValid = dictionary.Buffers[0].Span;
+        int at = dictionary.Offset;
+        if (SameViewLayout(last, dictionary)) return true;
+        for (int i = 0; i < last.Length; i++)
+        {
+            bool aValue = aValid.IsEmpty || Kernels.Bits.Get(aValid, i), bValue = bValid.IsEmpty || Kernels.Bits.Get(bValid, at + i);
+            if (aValue != bValue) return false;
+            if (!aValue) continue;
+            ReadOnlySpan<byte> a = aViews.Slice(16 * i, 16), b = bViews.Slice(16 * i, 16);
+            int size = BinaryPrimitives.ReadInt32LittleEndian(a);
+            if (size != BinaryPrimitives.ReadInt32LittleEndian(b)) return false;
+            if (size <= 12)
+            {
+                if (!a.Slice(4, size).SequenceEqual(b.Slice(4, size))) return false;
+                continue;
+            }
+            if (BinaryPrimitives.ReadInt32LittleEndian(a[4..]) != BinaryPrimitives.ReadInt32LittleEndian(b[4..])) return false; // the prefixes
+            ReadOnlySpan<byte> aData = last.Buffers[2 + BinaryPrimitives.ReadInt32LittleEndian(a[8..])].Span.Slice(BinaryPrimitives.ReadInt32LittleEndian(a[12..]), size);
+            int buffer = BinaryPrimitives.ReadInt32LittleEndian(b[8..]), offset = BinaryPrimitives.ReadInt32LittleEndian(b[12..]);
+            if ((uint)buffer >= (uint)(dictionary.Buffers.Length - 2) || offset < 0 || offset > dictionary.Buffers[2 + buffer].Length - size)
+                throw new ArgumentException("A dictionary's view refers to bytes outside its data buffers.");
+            if (!aData.SequenceEqual(dictionary.Buffers[2 + buffer].Span.Slice(offset, size))) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Whether view array <paramref name="dictionary"/> starts with the same views, validity and data bytes as
+    /// <paramref name="last"/> (the bytes our valid views use, in place in theirs): then the same values, whatever the
+    /// views point at (a dictionary made again the same way, or the same one), told by comparisons of whole spans.
+    /// </summary>
+    private static bool SameViewLayout(IpcArray last, ArrayData dictionary)
+    {
+        int n = last.Length, at = dictionary.Offset;
+        if (!last.Buffers[1].Span[..(16 * n)].SequenceEqual(dictionary.Buffers[1].Span.Slice(16 * at, 16 * n))) return false;
+        ReadOnlySpan<byte> aValid = last.Buffers[0].Span, bValid = dictionary.Buffers[0].Span;
+        if (aValid.IsEmpty != bValid.IsEmpty) return false;
+        if (!aValid.IsEmpty)
+        {
+            if (at % 8 != 0 || bValid.Length < (at + n + 7) / 8) return false;
+            ReadOnlySpan<byte> b = bValid[(at / 8)..];
+            if (!aValid[..(n / 8)].SequenceEqual(b[..(n / 8)])) return false;
+            int mask = (1 << (n % 8)) - 1;
+            if (n % 8 != 0 && (aValid[n / 8] & mask) != (b[n / 8] & mask)) return false;
+        }
+        if (last.Buffers.Length > dictionary.Buffers.Length) return false;
+        // How far our valid views reach into each data buffer (past that, buffers may hold anything: capacity).
+        int buffers = last.Buffers.Length - 2;
+        Span<long> ends = buffers <= 64 ? stackalloc long[buffers] : new long[buffers];
+        ends.Clear();
+        ReadOnlySpan<byte> views = last.Buffers[1].Span;
+        for (int i = 0; i < n; i++)
+        {
+            if (!aValid.IsEmpty && !Kernels.Bits.Get(aValid, i)) continue;
+            int size = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i)..]);
+            if (size <= 12) continue;
+            int b = BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i + 8)..]);
+            ends[b] = Math.Max(ends[b], (long)BinaryPrimitives.ReadInt32LittleEndian(views[(16 * i + 12)..]) + size);
+        }
+        for (int k = 0; k < buffers; k++)
+        {
+            ReadOnlySpan<byte> ours = last.Buffers[2 + k].Span, theirs = dictionary.Buffers[2 + k].Span;
+            if (theirs.Length < ends[k] || !ours[..(int)ends[k]].SequenceEqual(theirs[..(int)ends[k]])) return false;
+        }
+        return true;
     }
 
     /// <summary>

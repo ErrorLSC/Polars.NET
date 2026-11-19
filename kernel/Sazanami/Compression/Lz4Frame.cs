@@ -114,11 +114,14 @@ internal static class Lz4Frame
 
     private const int BlockSize = 64 << 10;
 
-    /// <summary>The largest frame <see cref="Compress"/> makes of <paramref name="length"/> bytes.</summary>
+    /// <summary>
+    /// The room <see cref="Compress"/> needs for <paramref name="length"/> bytes: every block compressed straight into
+    /// the destination needs its LZ4 bound (a little more than the largest frame, whose blocks are stored at worst).
+    /// </summary>
     public static long MaxCompressedLength(long length)
     {
-        long blocks = Math.Max(1, (length + BlockSize - 1) / BlockSize);
-        return 7 + blocks * 4 + length + 4; // header, block sizes, data stored at worst, end mark
+        long full = length / BlockSize, rest = length % BlockSize;
+        return HeaderLength + full * (4L + Lz4Block.MaxCompressedLength(BlockSize)) + (rest > 0 ? 4L + Lz4Block.MaxCompressedLength((int)rest) : 0) + EndLength;
     }
 
     /// <summary>
@@ -159,25 +162,15 @@ internal static class Lz4Frame
 
     /// <summary>
     /// Writes one block at <paramref name="op"/> (its size word, then the data compressed, or stored when it does not
-    /// shrink); returns the position after it. Compressed straight into the destination when it has room for the
-    /// block's bound, else through a thread's scratch.
+    /// shrink), compressed straight into the destination, which has room for the block's LZ4 bound after its size word;
+    /// returns the position after it.
     /// </summary>
     internal static int Block(ReadOnlySpan<byte> block, Span<byte> destination, int op)
     {
         int bound = Lz4Block.MaxCompressedLength(block.Length);
-        int n;
-        if (destination.Length - op - 4 >= bound)
-        {
-            n = Lz4Block.Compress(block, destination.Slice(op + 4, bound));
-            if (n >= block.Length) block.CopyTo(destination[(op + 4)..]);
-        }
-        else
-        {
-            Span<byte> scratch = t_scratch ??= new byte[Lz4Block.MaxCompressedLength(BlockSize)];
-            n = Lz4Block.Compress(block, scratch);
-            if (n < block.Length) scratch[..n].CopyTo(destination[(op + 4)..]);
-            else block.CopyTo(destination[(op + 4)..]);
-        }
+        if (destination.Length - op - 4 < bound) throw new ArgumentException("The destination has no room for the block's bound.", nameof(destination));
+        int n = Lz4Block.Compress(block, destination.Slice(op + 4, bound));
+        if (n >= block.Length) block.CopyTo(destination[(op + 4)..]);
         if (n < block.Length)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)n);
@@ -186,7 +179,4 @@ internal static class Lz4Frame
         BinaryPrimitives.WriteUInt32LittleEndian(destination[op..], (uint)block.Length | 0x80000000u); // stored
         return op + 4 + block.Length;
     }
-
-    [ThreadStatic]
-    private static byte[]? t_scratch;
 }

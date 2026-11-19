@@ -183,14 +183,12 @@ internal static unsafe class IpcBatchEncoder
                 Visit(body, field.Children[0], data.Children[0], checked((int)start), checked((int)(end - start)), where + "." + field.Children[0].Field.Name);
                 return;
             }
-            case ListViewType or LargeListViewType:
-            {
-                int width = type is ListViewType ? 4 : 8;
-                body.Buffers.Add(Slice(body, data.Buffers[1], at, count, width));
-                body.Buffers.Add(Slice(body, data.Buffers[2], at, count, width));
-                Visit(body, field.Children[0], data.Children[0], 0, data.Children[0].Length, where + "." + field.Children[0].Field.Name); // views point anywhere in it
+            case ListViewType:
+                ListViews<int>(body, field, data, at, count, where);
                 return;
-            }
+            case LargeListViewType:
+                ListViews<long>(body, field, data, at, count, where);
+                return;
             case BinaryType or StringType:
             {
                 (IpcPiece offsets, long start, long end) = Offsets<int>(body, data.Buffers[1], at, count);
@@ -206,13 +204,8 @@ internal static unsafe class IpcBatchEncoder
                 return;
             }
             case BinaryViewType or StringViewType:
-            {
-                body.Buffers.Add(Slice(body, data.Buffers[1], at, count, 16));
-                // The data buffers are written whole: views point into them by index and offset.
-                for (int b = 2; b < data.Buffers.Length; b++) body.Buffers.Add(Range(body, data.Buffers[b], 0, data.Buffers[b].Length));
-                body.VariadicCounts.Add(data.Buffers.Length - 2);
+                Views(body, data, at, count, where);
                 return;
-            }
             case FixedSizeBinaryType b:
                 body.Buffers.Add(Slice(body, data.Buffers[1], at, count, b.ByteWidth));
                 return;
@@ -282,6 +275,151 @@ internal static unsafe class IpcBatchEncoder
         var rebased = new Span<T>(copy, count + 1);
         for (int i = 0; i <= count; i++) rebased[i] = offsets[i] - offsets[0];
         return (new IpcPiece((nint)copy, (long)(count + 1) * width), start, end);
+    }
+
+    private static bool Valid(ReadOnlySpan<byte> validity, int slot) => validity.IsEmpty || Kernels.Bits.Get(validity, slot);
+
+    /// <summary>
+    /// The data bytes per view up to which a view array's data buffers are written whole without looking at its views:
+    /// what a slice may then write in excess is bounded (measured: scanning the views of every array doubled the time of
+    /// uncompressed writes with string views).
+    /// </summary>
+    private const int ViewDataBytesWhole = 64;
+
+    /// <summary>The child items per list view up to which the child is written whole without looking at the views.</summary>
+    private const int ListViewItemsWhole = 16;
+
+    /// <summary>
+    /// Binary or string views of slots [<paramref name="at"/>, + <paramref name="count"/>). Data buffers of up to
+    /// <see cref="ViewDataBytesWhole"/> bytes per view are written whole, with the views as they are. Else (a slice
+    /// perhaps: Apache's cannot be told from an array by its offset and length), of each data buffer only the bytes up
+    /// to the last its valid views use; when they do not all start at 0, from the first: the views copied, those of null
+    /// slots emptied, offsets counted from there. Buffers no view uses are empty (their count stays).
+    /// </summary>
+    private static void Views(IpcEncodedBody body, ArrayData data, int at, int count, string where)
+    {
+        int buffers = data.Buffers.Length - 2;
+        body.VariadicCounts.Add(buffers);
+        if (count == 0)
+        {
+            body.Buffers.Add(default);
+            for (int b = 0; b < buffers; b++) body.Buffers.Add(default);
+            return;
+        }
+        if (data.Buffers[1].Length < (at + (long)count) * 16) throw new ArgumentException($"Column '{where}': its views ({data.Buffers[1].Length} bytes) are fewer than its {count} values.");
+        long dataBytes = 0;
+        for (int b = 2; b < data.Buffers.Length; b++) dataBytes += data.Buffers[b].Length;
+        if (dataBytes <= (long)count * ViewDataBytesWhole)
+        {
+            body.Buffers.Add(Slice(body, data.Buffers[1], at, count, 16));
+            for (int b = 2; b < data.Buffers.Length; b++) body.Buffers.Add(Range(body, data.Buffers[b], 0, data.Buffers[b].Length));
+            return;
+        }
+        ReadOnlySpan<byte> source = data.Buffers[1].Span.Slice(at * 16, count * 16), validity = data.Buffers[0].Span;
+        Span<long> first = buffers <= 64 ? stackalloc long[buffers] : new long[buffers];
+        Span<long> end = buffers <= 64 ? stackalloc long[buffers] : new long[buffers];
+        first.Fill(long.MaxValue);
+        end.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            if (!Valid(validity, at + i)) continue;
+            ReadOnlySpan<byte> view = source.Slice(i * 16, 16);
+            int size = BinaryPrimitives.ReadInt32LittleEndian(view);
+            if (size <= 12) continue; // inline
+            int b = BinaryPrimitives.ReadInt32LittleEndian(view[8..]), offset = BinaryPrimitives.ReadInt32LittleEndian(view[12..]);
+            if ((uint)b >= (uint)buffers || offset < 0 || offset > data.Buffers[2 + b].Length - size)
+                throw new ArgumentException($"Column '{where}': view {at + i} refers to bytes outside its data buffers.");
+            first[b] = Math.Min(first[b], offset);
+            end[b] = Math.Max(end[b], (long)offset + size);
+        }
+        bool fromZero = true;
+        for (int b = 0; b < buffers; b++)
+        {
+            if (end[b] == 0) first[b] = 0;
+            fromZero &= first[b] == 0;
+        }
+        if (fromZero)
+        {
+            // The views as they are; each buffer up to its last byte used.
+            body.Buffers.Add(Slice(body, data.Buffers[1], at, count, 16));
+            for (int b = 0; b < buffers; b++) body.Buffers.Add(end[b] == 0 ? default : Range(body, data.Buffers[2 + b], 0, end[b]));
+            return;
+        }
+        byte* copy = body.Make(count * 16L);
+        var views = new Span<byte>(copy, count * 16);
+        source.CopyTo(views);
+        for (int i = 0; i < count; i++)
+        {
+            Span<byte> view = views.Slice(i * 16, 16);
+            if (!Valid(validity, at + i))
+            {
+                view.Clear(); // a null slot: an empty view, whatever it held
+                continue;
+            }
+            if (BinaryPrimitives.ReadInt32LittleEndian(view) <= 12) continue;
+            int b = BinaryPrimitives.ReadInt32LittleEndian(view[8..]);
+            BinaryPrimitives.WriteInt32LittleEndian(view[12..], (int)(BinaryPrimitives.ReadInt32LittleEndian(view[12..]) - first[b]));
+        }
+        body.Buffers.Add(new IpcPiece((nint)copy, count * 16L));
+        for (int b = 0; b < buffers; b++) body.Buffers.Add(end[b] == 0 ? default : Range(body, data.Buffers[2 + b], first[b], end[b] - first[b]));
+    }
+
+    /// <summary>
+    /// List views of slots [<paramref name="at"/>, + <paramref name="count"/>). A child of up to
+    /// <see cref="ListViewItemsWhole"/> items per view, or one the valid views use whole, is written whole with the
+    /// offsets and sizes as they are. Else (a slice perhaps) only the items from the first to the last the valid views
+    /// use, the offsets and sizes copied, counted from there, null and empty views made (0, 0): pyarrow validates the
+    /// views of null slots too, so none may point past the child cut.
+    /// </summary>
+    private static void ListViews<T>(IpcEncodedBody body, IpcField field, ArrayData data, int at, int count, string where) where T : unmanaged, IBinaryInteger<T>
+    {
+        int width = sizeof(T);
+        ArrayData child = data.Children[0];
+        string inner = where + "." + field.Children[0].Field.Name;
+        if (count == 0)
+        {
+            body.Buffers.Add(default);
+            body.Buffers.Add(default);
+            Visit(body, field.Children[0], child, 0, 0, inner);
+            return;
+        }
+        long first = 0, end = child.Length;
+        if (child.Length > (long)count * ListViewItemsWhole)
+        {
+            long need = (at + (long)count) * width;
+            if (data.Buffers[1].Length < need || data.Buffers[2].Length < need)
+                throw new ArgumentException($"Column '{where}': its offsets or sizes are fewer than its {count} values.");
+            ReadOnlySpan<T> offsets = MemoryMarshal.Cast<byte, T>(data.Buffers[1].Span).Slice(at, count), sizes = MemoryMarshal.Cast<byte, T>(data.Buffers[2].Span).Slice(at, count);
+            ReadOnlySpan<byte> validity = data.Buffers[0].Span;
+            (first, end) = (long.MaxValue, 0);
+            for (int i = 0; i < count; i++)
+            {
+                long offset = long.CreateSaturating(offsets[i]), size = long.CreateSaturating(sizes[i]);
+                if (!Valid(validity, at + i) || size == 0) continue;
+                if (offset < 0 || size < 0 || offset > child.Length - size)
+                    throw new ArgumentException($"Column '{where}': list view {at + i} ({offset}, {size}) reaches past its {child.Length} items.");
+                first = Math.Min(first, offset);
+                end = Math.Max(end, offset + size);
+            }
+            if (end == 0) first = 0;
+            if (first != 0 || end != child.Length)
+            {
+                T* o = (T*)body.Make((long)count * width), z = (T*)body.Make((long)count * width);
+                for (int i = 0; i < count; i++)
+                {
+                    bool used = Valid(validity, at + i) && sizes[i] != T.Zero;
+                    o[i] = used ? offsets[i] - T.CreateTruncating(first) : T.Zero;
+                    z[i] = used ? sizes[i] : T.Zero;
+                }
+                body.Buffers.Add(new IpcPiece((nint)o, (long)count * width));
+                body.Buffers.Add(new IpcPiece((nint)z, (long)count * width));
+                Visit(body, field.Children[0], child, checked((int)first), checked((int)(end - first)), inner);
+                return;
+            }
+        }
+        body.Buffers.Add(Slice(body, data.Buffers[1], at, count, width));
+        body.Buffers.Add(Slice(body, data.Buffers[2], at, count, width));
+        Visit(body, field.Children[0], child, 0, child.Length, inner);
     }
 
     /// <summary>A run-end encoded slice: the runs it covers, their ends cut to it and counted from it.</summary>

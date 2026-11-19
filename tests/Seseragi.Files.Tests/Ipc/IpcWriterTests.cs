@@ -146,6 +146,99 @@ public class IpcWriterTests
         }
     }
 
+    internal const int ViewRows = 200_000;
+
+    /// <summary>
+    /// <see cref="ViewRows"/> rows: string views over two data buffers, list views over a large child, nulls (every 5th
+    /// row from row 3) holding views and offsets that point nowhere. Its arrays hold managed memory: not disposed.
+    /// </summary>
+    internal static RecordBatch LargeViews()
+    {
+        const int Rows = ViewRows;
+        byte[] validity = new byte[(Rows + 7) / 8];
+        for (int i = 0; i < Rows; i++)
+        {
+            if (i % 5 != 3) validity[i >> 3] |= (byte)(1 << (i & 7));
+        }
+        int nulls = Enumerable.Range(0, Rows).Count(i => i % 5 == 3);
+
+        // Strings of 20 bytes in data buffer 0 (rows < 100,000) or 1 (the rest); inline ones every 7th row (from row 1:
+        // rows from 0 use buffer 0 from its first byte, written without moving the views).
+        byte[] views = new byte[16 * Rows], data0 = new byte[20 * 100_000], data1 = new byte[20 * 100_000];
+        for (int i = 0; i < Rows; i++)
+        {
+            Span<byte> view = views.AsSpan(16 * i, 16);
+            if (i % 5 == 3)
+            {
+                BitConverter.TryWriteBytes(view, 99); // a null: garbage that points nowhere
+                BitConverter.TryWriteBytes(view[8..], 7);
+                BitConverter.TryWriteBytes(view[12..], -5);
+                continue;
+            }
+            if (i % 7 == 1)
+            {
+                BitConverter.TryWriteBytes(view, 3);
+                "abc"u8.CopyTo(view[4..]);
+                continue;
+            }
+            byte[] buffer = i < 100_000 ? data0 : data1;
+            int offset = 20 * (i % 100_000);
+            System.Text.Encoding.ASCII.GetBytes($"value {i,13}").CopyTo(buffer, offset);
+            BitConverter.TryWriteBytes(view, 20);
+            buffer.AsSpan(offset, 4).CopyTo(view[4..]);
+            BitConverter.TryWriteBytes(view[8..], i < 100_000 ? 0 : 1);
+            BitConverter.TryWriteBytes(view[12..], offset);
+        }
+        var strings = new StringViewArray(new ArrayData(StringViewType.Default, Rows, nulls, 0,
+            [new ArrowBuffer(validity), new ArrowBuffer(views), new ArrowBuffer(data0), new ArrowBuffer(data1)]));
+
+        // Lists of 3 items at 3i, empty every 11th row from row 10 (at 3i + 50: past the items of the rows around); nulls
+        // (-7, 1000), which pyarrow would refuse: written (0, 0) when the child is cut.
+        int items = 3 * Rows;
+        byte[] child = new byte[4 * items], offsets = new byte[4 * Rows], sizes = new byte[4 * Rows];
+        for (int k = 0; k < items; k++) BitConverter.TryWriteBytes(child.AsSpan(4 * k), k);
+        for (int i = 0; i < Rows; i++)
+        {
+            bool isNull = i % 5 == 3;
+            BitConverter.TryWriteBytes(offsets.AsSpan(4 * i), isNull ? -7 : i % 11 == 10 ? Math.Min(3 * i + 50, items) : 3 * i);
+            BitConverter.TryWriteBytes(sizes.AsSpan(4 * i), isNull ? 1000 : i % 11 == 10 ? 0 : 3);
+        }
+        var items32 = new ArrayData(Int32Type.Default, items, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(child)]);
+        var lists = new ListViewArray(new ArrayData(new ListViewType(Int32Type.Default), Rows, nulls, 0,
+            [new ArrowBuffer(validity), new ArrowBuffer(offsets), new ArrowBuffer(sizes)], [items32]));
+
+        var schema = new Schema([new Field("s", StringViewType.Default, true), new Field("l", new ListViewType(Int32Type.Default), true)], null);
+        return new RecordBatch(schema, [strings, lists], Rows);
+    }
+
+    /// <summary>
+    /// String views over two large data buffers and list views over a large child, nulls holding views and offsets that
+    /// point nowhere: a slice writes only the bytes and items its valid slots use, and reads back as its rows.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(150_000)]
+    public void SlicesOfViews_WriteOnlyWhatTheyUse(int start)
+    {
+        const int Take = 100;
+        RecordBatch whole = LargeViews();
+        Schema schema = whole.Schema;
+        RecordBatch slice = whole.Slice(start, Take); // shares the batch's buffers: not disposed
+        foreach (IIpcCompression codec in (IIpcCompression[])[NoCompression.Instance, Lz4FrameCompression.Instance])
+        {
+            using var memory = new MemoryStream();
+            IpcWriter.Write(memory, schema, [slice], new IpcWriteOptions { Compression = codec, LeaveOpen = true });
+            Assert.True(memory.Length < 16 << 10, $"{memory.Length} bytes written for {Take} rows");
+            using IpcFile file = IpcFile.Open(memory.ToArray());
+            using IpcReader reader = file.OpenReader(new IpcReadOptions { ValidateUtf8 = true });
+            using RecordBatch read = reader.ReadBatch(0);
+            for (int c = 0; c < 2; c++)
+            {
+                for (int i = 0; i < Take; i++) Assert.Equal(CanonicalRender.Value(slice.Column(c), i), CanonicalRender.Value(read.Column(c), i));
+            }
+        }
+    }
+
     [Theory]
     [InlineData(IpcFormat.File)]
     [InlineData(IpcFormat.Stream)]
@@ -159,6 +252,81 @@ public class IpcWriterTests
         List<string> same = Messages(Rewrite("pyarrow/dictionary.arrow", new IpcWriteOptions { Format = format }), format);
         Assert.Equal(CountDictionaryFields("pyarrow/dictionary.arrow"), same.Count(k => k == "Dictionary"));
         Assert.DoesNotContain("Dictionary(delta)", same);
+    }
+
+    /// <summary>
+    /// String-view dictionaries are told apart by their values, not their layout, each step against the dictionary last
+    /// written: made again the same way (other bytes past what the views use) or laid out otherwise, the same dictionary
+    /// writes nothing; extended, a delta; else a replacement: a long value changed past its 4-byte prefix, an inline
+    /// one changed (in the same layout or another), a null made an empty string (the same view bytes).
+    /// </summary>
+    [Fact]
+    public void StringViewDictionaries_AreComparedByTheirValues()
+    {
+        string?[] a = ["a", "a long value, past twelve bytes", null, "another long value here", "bb"];
+        string?[] longChanged = ["a", "a long value, past twelve bytez", null, "another long value here", "bb"];
+        string?[] inlineChanged = ["a", "a long value, past twelve bytez", null, "another long value here", "bc"];
+        string?[] inlineChangedElsewhere = ["z", "a long value, past twelve bytez", null, "another long value here", "bc"];
+        string?[] extended = [.. inlineChangedElsewhere, "a new long value, a delta"];
+        string?[] nullToEmpty = ["z", "a long value, past twelve bytez", "", "another long value here", "bc", "a new long value, a delta"];
+        (string?[] Values, bool Reversed, string Expected)[] steps =
+        [
+            (a, false, "Dictionary"),
+            (a, false, ""),                                    // made again the same way: the same layout
+            (a, true, ""),                                     // laid out otherwise
+            (longChanged, false, "Dictionary"),                // the same layout, bytes past a prefix changed
+            (inlineChanged, false, "Dictionary"),              // the same layout, an inline value changed
+            (inlineChangedElsewhere, true, "Dictionary"),      // another layout, an inline value changed
+            (extended, true, "Dictionary(delta)"),
+            (extended, false, ""),
+            (nullToEmpty, true, "Dictionary"),                 // the layout last written, the same view bytes: only the validity differs
+        ];
+        var type = new DictionaryType(Int32Type.Default, StringViewType.Default, false);
+        var schema = new Schema([new Field("d", type, true)], null);
+        using var memory = new MemoryStream();
+        using (IpcWriter writer = IpcWriter.Create(memory, schema, new IpcWriteOptions { Format = IpcFormat.Stream, LeaveOpen = true }))
+        {
+            foreach (var (values, reversed, _) in steps)
+            {
+                var indices = new Int32Array.Builder().AppendRange(Enumerable.Range(0, values.Length)).Build();
+                writer.Write(new RecordBatch(schema, [new DictionaryArray(type, indices, Views(values, reversed))], values.Length));
+            }
+        }
+        byte[] written = memory.ToArray();
+        Assert.Equal(["Schema", .. steps.SelectMany(s => s.Expected == "" ? (string[])["Batch"] : [s.Expected, "Batch"])], Messages(written, IpcFormat.Stream));
+        var (_, batches) = ReadBytes(written, IpcFormat.Stream);
+        for (int b = 0; b < steps.Length; b++)
+            Assert.Equal(steps[b].Values.Select(v => v is null ? "null" : CanonicalRender.Value(new StringViewArray.Builder().Append(v).Build(), 0)), batches[b][0]);
+
+        // String views over one data buffer: in order, or the long values in reverse order; 16 bytes of noise after them.
+        static StringViewArray Views(string?[] values, bool reversed)
+        {
+            byte[] views = new byte[16 * values.Length];
+            List<byte> data = [];
+            byte[] validity = new byte[(values.Length + 7) / 8];
+            int[] order = [.. Enumerable.Range(0, values.Length)];
+            if (reversed) System.Array.Reverse(order);
+            foreach (int i in order)
+            {
+                if (values[i] is not { } value) continue;
+                validity[i >> 3] |= (byte)(1 << (i & 7));
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+                Span<byte> view = views.AsSpan(16 * i, 16);
+                BitConverter.TryWriteBytes(view, bytes.Length);
+                if (bytes.Length <= 12)
+                {
+                    bytes.CopyTo(view[4..]);
+                    continue;
+                }
+                bytes.AsSpan(0, 4).CopyTo(view[4..]);
+                BitConverter.TryWriteBytes(view[12..], data.Count); // buffer 0
+                data.AddRange(bytes);
+            }
+            data.AddRange(Enumerable.Range(0, 16).Select(k => (byte)(reversed ? k : 255 - k))); // capacity past the values
+            byte[] bytesOfData = [.. data];
+            return new StringViewArray(new ArrayData(StringViewType.Default, values.Length, values.Count(v => v is null), 0,
+                [new ArrowBuffer(validity), new ArrowBuffer(views), new ArrowBuffer(bytesOfData)]));
+        }
     }
 
     [Fact]
