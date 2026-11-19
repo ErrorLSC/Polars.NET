@@ -615,20 +615,90 @@ internal static unsafe class NullArrays
         }
     }
 
+    /// <summary>
+    /// The nulls built here (export memory is zeroed: no bit valid, offsets and indices 0): nested types, so that their
+    /// children may be of any type, dictionaries of any index and value type (over an empty dictionary), run-end
+    /// encoded nulls (one run) and unions (nulls in their first child); leaves by their builders.
+    /// </summary>
     internal static NativeCArray* Build(NativeBatchExport export, IArrowType type, int length)
     {
-        if (type is ListViewType or LargeListViewType)
+        switch (type)
         {
-            // No builder makes views: null rows of size 0 over an empty child.
-            long width = type is LargeListViewType ? 8 : 4;
-            nint validity = (nint)export.Allocate(Math.Max(1, Filters.Masks.Words(length)) * 8L);
-            nint offsets = (nint)export.Allocate(Math.Max(1, length) * width), sizes = (nint)export.Allocate(Math.Max(1, length) * width);
-            return export.NewArray(length, length, [validity, offsets, sizes], [(nint)Build(export, ArrowWidening.ListElement(type), 0)]);
+            case NullType:
+                return export.NewArray(length, length, [], []);
+            case ListViewType or LargeListViewType:
+            {
+                // Null rows of size 0 over an empty child.
+                long width = type is LargeListViewType ? 8 : 4;
+                nint offsets = (nint)export.Allocate(Math.Max(1, length) * width), sizes = (nint)export.Allocate(Math.Max(1, length) * width);
+                return export.NewArray(length, length, [Validity(export, length), offsets, sizes], [(nint)Build(export, ArrowWidening.ListElement(type), 0)]);
+            }
+            case ListType or LargeListType or MapType:
+            {
+                // Null rows, every offset 0, over an empty child (a map's entries).
+                long width = type is LargeListType ? 8 : 4;
+                IArrowType child = type is MapType m ? m.KeyValueType : ArrowWidening.ListElement(type);
+                nint offsets = (nint)export.Allocate((length + 1L) * width);
+                return export.NewArray(length, length, [Validity(export, length), offsets], [(nint)Build(export, child, 0)]);
+            }
+            case FixedSizeListType f:
+                return export.NewArray(length, length, [Validity(export, length)], [(nint)Build(export, f.ValueDataType, checked(length * f.ListSize))]);
+            case StructType s:
+            {
+                var children = new nint[s.Fields.Count];
+                for (int c = 0; c < children.Length; c++) children[c] = (nint)Build(export, s.Fields[c].DataType, length);
+                return export.NewArray(length, length, [Validity(export, length)], children);
+            }
+            case DictionaryType d:
+            {
+                // Null indices over an empty dictionary.
+                long width = ((IntegerType)d.IndexType).BitWidth / 8;
+                nint indices = (nint)export.Allocate(Math.Max(1, length) * width);
+                return export.NewArray(length, length, [Validity(export, length), indices], [], Build(export, d.ValueType, 0));
+            }
+            case RunEndEncodedType r:
+            {
+                // One run of nulls (run ends are positions: their type bounds the array's length).
+                var ends = (IntegerType)r.RunEndsDataType;
+                long most = ends.BitWidth switch { 16 => short.MaxValue, 32 => int.MaxValue, _ => long.MaxValue };
+                if (length > most) throw new OverflowException($"{length} rows cannot be run-end encoded with {ends.Name} run ends.");
+                int runs = length == 0 ? 0 : 1;
+                byte* runEnds = (byte*)export.Allocate(ends.BitWidth / 8);
+                switch (ends.BitWidth)
+                {
+                    case 16: *(short*)runEnds = (short)length; break;
+                    case 32: *(int*)runEnds = length; break;
+                    default: *(long*)runEnds = length; break;
+                }
+                NativeCArray* endsArray = export.NewArray(runs, 0, [0, (nint)runEnds], []);
+                return export.NewArray(length, 0, [], [(nint)endsArray, (nint)Build(export, r.ValuesDataType, runs)]);
+            }
+            case UnionType u:
+            {
+                // Every slot in the first child, whose values are null (a union has no validity of its own).
+                byte* typeIds = (byte*)export.Allocate(Math.Max(1, length));
+                new Span<byte>(typeIds, length).Fill((byte)u.TypeIds[0]);
+                var children = new nint[u.Fields.Count];
+                if (u.Mode == UnionMode.Sparse)
+                {
+                    for (int c = 0; c < children.Length; c++) children[c] = (nint)Build(export, u.Fields[c].DataType, length);
+                    return export.NewArray(length, 0, [(nint)typeIds], children);
+                }
+                var offsets = (int*)export.Allocate(Math.Max(1, length) * 4L);
+                for (int i = 0; i < length; i++) offsets[i] = i;
+                for (int c = 0; c < children.Length; c++) children[c] = (nint)Build(export, u.Fields[c].DataType, c == 0 ? length : 0);
+                return export.NewArray(length, 0, [(nint)typeIds, (nint)offsets], children);
+            }
+            default:
+            {
+                using NativeColumnBuilder builder = NativeColumnBuilder.Create(type);
+                builder.Reserve(length);
+                for (int i = 0; i < length; i++) builder.AppendNull();
+                return builder.Export(export);
+            }
         }
-        using NativeColumnBuilder builder = NativeColumnBuilder.Create(type);
-        builder.Reserve(length);
-        for (int i = 0; i < length; i++) builder.AppendNull();
-        return builder.Export(export);
+
+        static nint Validity(NativeBatchExport export, int length) => (nint)export.Allocate(Math.Max(1, Filters.Masks.Words(length)) * 8L);
     }
 }
 

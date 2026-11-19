@@ -92,7 +92,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             options.Columns, options.ColumnPaths, options.Filter, options.FilterRows, options.RowIndexColumn, options.ViewTypes,
             PathOf, static (message, inner) => new ParquetFormatException(message, inner));
         _read = _shape.Read;
-        Schema = _shape.Schema;
+        Schema = _shape.Output;
         FiltersExactly = _shape.FiltersExactly;
     }
 

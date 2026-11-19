@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using Apache.Arrow;
 using Kaminari.Seseragi.Files;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Ipc;
 using Seseragi.Files.Tests.Parquet;
 
@@ -24,9 +25,10 @@ internal interface IFuzzCases
 /// The Arrow IPC cases: three in four are a corpus file (TestData/ipc: files and streams of pyarrow, Polars and the
 /// Arrow integration gold files) with a few mutations aimed in part at message starts and the footer, read with random
 /// options (threads, memory mapping through a temporary file, columns, row limits, row filters, UTF-8 checks, batches
-/// read at random); the fourth writes random columns of every type (flat, or nested with dictionaries and run-end
-/// encoding at every level) in random slices with random options (format, compression, threads) and reads them back,
-/// every value compared. Any input either reads to the end or is refused with <see cref="IpcFormatException"/>.
+/// read at random); of the others, half write random columns of every type (flat, or nested with dictionaries and
+/// run-end encoding at every level) in random slices with random options (format, compression, threads) and read them
+/// back, every value compared, and half read a dataset of corpus files (see <see cref="ReadDataset"/>). Any input either
+/// reads to the end or is refused with <see cref="IpcFormatException"/>.
 /// </summary>
 internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
 {
@@ -41,7 +43,7 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
         Random random = Cases.RandomFor(seed, n);
         try
         {
-            return HasFile(n) ? ReadFile(Mutate(random, out _), random) : WriteAndRead(random);
+            return HasFile(n) ? ReadFile(Mutate(random, out _), random) : n / 4 % 2 == 0 ? WriteAndRead(random) : ReadDataset(random);
         }
         catch (Exception e)
         {
@@ -243,6 +245,147 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
         {
             foreach (RecordBatch b in batches) b.Dispose();
         }
+    }
+
+    // ---- datasets ---------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sets of corpus files that make datasets: each directory of TestData/ipc/datasets (types, layouts and dictionaries
+    /// that differ), pyarrow's files of one schema in several codecs, Polars' frames at two levels, the two big files.
+    /// </summary>
+    private List<string[]> Families()
+    {
+        if (_families is not null) return _families;
+        string[] files = [.. corpus.Where(f => Path.GetExtension(f) is ".arrow" or ".feather")];
+        List<string[]> families = [.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(f))) == "datasets")
+            .GroupBy(Path.GetDirectoryName).Select(g => g.ToArray())];
+        string[] Named(string folder, params string[] names) => [.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(f)) == folder && names.Contains(Path.GetFileNameWithoutExtension(f)))];
+        families.Add(Named("pyarrow", "lz4", "zstd", "zstd_level19", "many_batches", "many_batches_lz4"));
+        families.Add([.. files.Where(f => Path.GetFileName(Path.GetDirectoryName(f)) == "polars" && Path.GetFileName(f).StartsWith("frame_", StringComparison.Ordinal))]);
+        families.Add([.. files.Where(f => Path.GetFileName(f) == "big_lz4.arrow")]);
+        return _families = [.. families.Where(f => f.Length > 0)];
+    }
+
+    private List<string[]>? _families;
+
+    /// <summary>
+    /// A dataset of 1 to 6 corpus files (one family, or any files; one in four of them mutated) in memory, flat or in
+    /// Hive partitions, with random dataset options (schema mode, missing columns, lossy casts, unified dictionaries,
+    /// the file path) and read options (columns, a filter over files and partitions, row limit, row index), read twice:
+    /// file after file on one thread, and through the window on four threads from a store that counts as remote,
+    /// synchronously or not. Both must refuse alike or read the same rows (an error of a file past a row limit never
+    /// surfaces in either).
+    /// </summary>
+    private Outcome ReadDataset(Random random)
+    {
+        List<string[]> families = Families();
+        string[] pool = random.Next(4) == 0 ? [.. corpus.Where(f => Path.GetExtension(f) is ".arrow" or ".feather")] : families[random.Next(families.Count)];
+        int count = 1 + random.Next(6);
+        var memory = new MemoryFileStore();
+        bool hive = random.Next(2) == 0;
+        for (int i = 0; i < count; i++)
+        {
+            string source = pool[random.Next(pool.Length)];
+            var (bytes, hot, footer) = Load(source);
+            if (random.Next(4) == 0) bytes = Mutations.Apply(random, bytes, hot, footer, r => Load(corpus[r.Next(corpus.Count)]).Bytes);
+            memory.Add(hive ? $"d/part_k={random.Next(3)}/f{i}.arrow" : $"d/f{i}.arrow", bytes);
+        }
+        var datasetOptions = new IpcDatasetOptions
+        {
+            SchemaMode = random.Next(2) == 0 ? DatasetSchemaMode.FirstFile : DatasetSchemaMode.UnionByName,
+            AllowMissingColumns = random.Next(3) == 0,
+            AllowLossyCasts = random.Next(3) == 0,
+            UnifyDictionaries = random.Next(3) == 0,
+            FilePathColumn = random.Next(4) == 0 ? "__file" : null,
+            MaxFilesInFlight = random.Next(3) == 0 ? 1 + random.Next(4) : null,
+        };
+        int seed = random.Next();
+        bool async = random.Next(2) == 0;
+        var (one, oneRows) = ReadDatasetOnce(new Random(seed), memory, datasetOptions, threads: 1, remote: false, async: false);
+        var (many, manyRows) = ReadDatasetOnce(new Random(seed), memory, datasetOptions, threads: 4, remote: true, async);
+        if (one.Finding) return one;
+        if (many.Finding) return many;
+        if (one.Signature != many.Signature)
+            return new Outcome(true, "A dataset read differs on one thread and in the window", $"one thread: {one.Signature} {one.Detail}; window: {many.Signature} {many.Detail}");
+        if (oneRows is not null && !oneRows.SequenceEqual(manyRows!))
+        {
+            int at = Enumerable.Range(0, Math.Min(oneRows.Count, manyRows!.Count)).FirstOrDefault(i => oneRows[i] != manyRows[i], Math.Min(oneRows.Count, manyRows.Count));
+            return new Outcome(true, "A dataset's rows differ on one thread and in the window",
+                $"{oneRows.Count} vs {manyRows.Count} rows; first difference at {at}: {(at < oneRows.Count ? oneRows[at] : "-")} vs {(at < manyRows.Count ? manyRows[at] : "-")}");
+        }
+        return one;
+    }
+
+    /// <summary>One reading of the dataset (its read options drawn from <paramref name="random"/>, the same for both readings): the outcome and the rows read.</summary>
+    private static (Outcome Outcome, List<string>? Rows) ReadDatasetOnce(Random random, MemoryFileStore memory, IpcDatasetOptions options, int threads, bool remote, bool async)
+    {
+        try
+        {
+            using var dataset = IpcDataset.Open("d/", options with { Store = remote ? new RemoteMemory(memory) : memory });
+            Schema schema = dataset.Schema;
+            string[] names = [.. schema.FieldsList.Select(f => f.Name)];
+            var read = new IpcReadOptions
+            {
+                MaxDegreeOfParallelism = threads,
+                Columns = random.Next(3) == 0 && names.Length > 1 ? [.. names.Where(_ => random.Next(2) == 0)] : null,
+                Filter = random.Next(3) == 0 ? Cases.RandomFilter(random, schema) : null,
+                FilterRows = random.Next(4) != 0,
+                MaxRows = random.Next(5) == 0 ? random.Next(0, 3000) : null,
+                RowIndexColumn = random.Next(4) == 0 ? "__row" : null,
+                ValidateUtf8 = random.Next(3) == 0,
+            };
+            using IpcDatasetReader reader = dataset.OpenReader(read);
+            List<string> rows = [];
+            void Add(RecordBatch batch)
+            {
+                using (batch)
+                {
+                    for (int i = 0; i < batch.Length; i++)
+                        rows.Add(string.Join('|', Enumerable.Range(0, batch.ColumnCount).Select(c => CanonicalRender.Value(batch.Column(c), i))));
+                }
+            }
+            if (async)
+            {
+                IAsyncEnumerator<RecordBatch> batches = reader.ReadBatchesAsync().GetAsyncEnumerator();
+                try
+                {
+                    while (batches.MoveNextAsync().AsTask().GetAwaiter().GetResult()) Add(batches.Current);
+                }
+                finally
+                {
+                    batches.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            }
+            else foreach (RecordBatch batch in reader.ReadBatches()) Add(batch);
+            return (Outcome.Read, rows);
+        }
+        catch (IpcFormatException e)
+        {
+            return (Outcome.Refused(e), null);
+        }
+        catch (NotSupportedException e) when (e.Message.Contains("cannot be filtered") || e.Message.Contains("cannot be unified"))
+        {
+            return (Outcome.Refused(e), null);
+        }
+        catch (Exception e)
+        {
+            return (Outcome.From(e), null);
+        }
+    }
+
+    /// <summary>A store over memory that a dataset takes for a remote one (its files read through the window, requests bounded).</summary>
+    private sealed class RemoteMemory(MemoryFileStore inner) : IFileStore
+    {
+        public bool CanList => true;
+
+        public IAsyncEnumerable<StoredFile> ListAsync(string prefix, bool recursive, CancellationToken cancellationToken = default) =>
+            inner.ListAsync(prefix, recursive, cancellationToken);
+
+        public ValueTask<StoredFile?> StatAsync(string path, CancellationToken cancellationToken = default) => inner.StatAsync(path, cancellationToken);
+
+        public ValueTask<IRandomAccess> OpenAsync(StoredFile file, CancellationToken cancellationToken = default) => inner.OpenAsync(file, cancellationToken);
+
+        public ValueTask<IRandomAccess?> OpenAsync(string path, CancellationToken cancellationToken = default) => inner.OpenAsync(path, cancellationToken);
     }
 
     /// <summary>A stream that cannot seek (a socket, a pipe).</summary>

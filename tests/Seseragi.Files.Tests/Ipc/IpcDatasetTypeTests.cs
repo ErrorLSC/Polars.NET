@@ -160,6 +160,122 @@ public sealed class IpcDatasetTypeTests
         }
     }
 
+    /// <summary>
+    /// A given schema's dictionary index types are kept by unified dictionaries (at any depth, in Parquet too); more
+    /// distinct values than they reach are an error naming the column; undeclared dictionaries are indexed by Int32.
+    /// </summary>
+    [Fact]
+    public void UnifiedDictionaries_KeepAGivenSchemasIndexTypes()
+    {
+        var bytes = new DictionaryType(UInt8Type.Default, StringType.Default, false);
+        using (var dataset = IpcDataset.Open(Dir("dicts"), new IpcDatasetOptions { Schema = new Schema([new Field("d", bytes, true)], null), UnifyDictionaries = true }))
+        {
+            Assert.IsType<UInt8Type>(((DictionaryType)dataset.Schema.FieldsList[0].DataType).IndexType);
+            foreach (IpcReadOptions way in Ways)
+            {
+                List<RecordBatch> batches;
+                using (IpcDatasetReader reader = dataset.OpenReader(way))
+                {
+                    Assert.IsType<UInt8Type>(((DictionaryType)reader.Schema.FieldsList[0].DataType).IndexType);
+                    batches = [.. reader.ReadBatches()];
+                }
+                Dictionary<string, int> indexOf = [];
+                foreach (RecordBatch batch in batches)
+                {
+                    var column = (DictionaryArray)batch.Column(0);
+                    var indices = Assert.IsType<UInt8Array>(column.Indices);
+                    for (int i = 0; i < column.Length; i++)
+                    {
+                        if (column.IsNull(i)) continue;
+                        int index = indices.GetValue(i)!.Value;
+                        string value = ArrowRender.Value(column.Dictionary, index);
+                        Assert.Equal(index, indexOf.TryGetValue(value, out int known) ? known : indexOf[value] = index);
+                    }
+                }
+                Assert.Equal(ExpectedRows("dicts"), ArrowRender.Rows(batches));
+                foreach (RecordBatch batch in batches) batch.Dispose();
+            }
+        }
+
+        // Nested: the struct's dictionary as declared (Int16); a dictionary the given schema leaves out of a list is Int32.
+        var nested = new StructType([new Field("c", new DictionaryType(Int16Type.Default, StringType.Default, false), true),
+            new Field("l", new ListType(new Field("item", StringType.Default, true)), true)]);
+        using (var dataset = IpcDataset.Open(Dir("nested"), new IpcDatasetOptions { Schema = new Schema([new Field("s", nested, true)], null), UnifyDictionaries = true }))
+        {
+            List<string> rows = [];
+            using (IpcDatasetReader reader = dataset.OpenReader())
+            {
+                foreach (RecordBatch batch in reader.ReadBatches())
+                {
+                    using (batch)
+                    {
+                        var c = (DictionaryArray)((StructArray)batch.Column(0)).Fields[0];
+                        Assert.IsType<Int16Array>(c.Indices);
+                        rows.AddRange(ArrowRender.Rows(batch));
+                    }
+                }
+            }
+            Assert.Equal(ExpectedRows("nested"), rows);
+        }
+
+        // Parquet: a dictionary per row group, unified into the declared Int16 indices.
+        var shorts = new Schema([new Field("d", new DictionaryType(Int16Type.Default, StringType.Default, false), true)], null);
+        using (var parquet = ParquetDataset.Open(Dir("parquet_dicts"), new ParquetDatasetOptions { Schema = shorts, UnifyDictionaries = true }))
+        {
+            List<RecordBatch> batches;
+            using (ParquetDatasetReader reader = parquet.OpenReader()) batches = [.. reader.ReadBatches()];
+            Assert.All(batches, b => Assert.IsType<Int16Array>(((DictionaryArray)b.Column(0)).Indices));
+            Assert.Equal(ExpectedRows("parquet_dicts"), ArrowRender.Rows(batches));
+            foreach (RecordBatch batch in batches) batch.Dispose();
+        }
+
+        // 200 distinct values: UInt8 indices reach them, Int8 ones do not.
+        string root = Directory.CreateTempSubdirectory("seseragi-ipc-dict-overflow-").FullName;
+        try
+        {
+            for (int f = 0; f < 2; f++)
+            {
+                var values = new StringArray.Builder().AppendRange(Enumerable.Range(0, 100).Select(i => $"v{f * 100 + i}")).Build();
+                var keys = new Int32Array.Builder().AppendRange(Enumerable.Range(0, 100)).Build();
+                var type = new DictionaryType(Int32Type.Default, StringType.Default, false);
+                var schema = new Schema([new Field("d", type, true)], null);
+                using IpcWriter writer = IpcWriter.Create(Path.Combine(root, $"f{f}.arrow"), schema);
+                using (var batch = new RecordBatch(schema, [new DictionaryArray(type, keys, values)], 100)) writer.Write(batch);
+                writer.Complete();
+            }
+            foreach (IpcReadOptions way in Ways)
+            {
+                var wide = new Schema([new Field("d", new DictionaryType(UInt8Type.Default, StringType.Default, false), true)], null);
+                using var fits = IpcDataset.Open(root, new IpcDatasetOptions { Schema = wide, UnifyDictionaries = true });
+                using (IpcDatasetReader reader = fits.OpenReader(way)) Assert.Equal(200, Drain(reader));
+                var narrow = new Schema([new Field("d", new DictionaryType(Int8Type.Default, StringType.Default, false), true)], null);
+                using var overflows = IpcDataset.Open(root, new IpcDatasetOptions { Schema = narrow, UnifyDictionaries = true });
+                Exception error = Assert.ThrowsAny<Exception>(() =>
+                {
+                    using IpcDatasetReader reader = overflows.OpenReader(way);
+                    Drain(reader);
+                });
+                Assert.Contains("'d'", error.Message);
+                Assert.Contains("200 distinct", error.Message);
+                Assert.Contains("wider index type", error.Message);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        static int Drain(IpcDatasetReader reader)
+        {
+            int rows = 0;
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch) rows += batch.Length;
+            }
+            return rows;
+        }
+    }
+
     /// <summary>Parquet datasets unify their dictionaries too: one per row group in the files, one for the dataset.</summary>
     [Fact]
     public void ParquetDictionaries_AreUnifiedAcrossRowGroupsAndFiles()

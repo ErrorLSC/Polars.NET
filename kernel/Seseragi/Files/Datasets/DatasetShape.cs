@@ -81,11 +81,12 @@ internal sealed class DatasetShape
 
         Columns = columns.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
 
-        // The columns selected: from files (not shadowed by a partition column), and partition columns.
+        // The columns selected: from files (not shadowed by a partition column), and partition columns (the file path
+        // column, always last when asked, may be named too: the dataset's schema lists it).
         bool all = selected is null && paths is null;
         foreach (string name in selected ?? [])
         {
-            if (!IsPartition(name) && !Columns.ContainsKey(name))
+            if (!IsPartition(name) && !Columns.ContainsKey(name) && name != dataset.FilePathColumn)
                 throw new ArgumentException($"The dataset has no column '{name}' (the columns are those of the files and the partitions).", "options");
         }
         Dictionary<string, List<string[]>> below = new(StringComparer.Ordinal);
@@ -296,7 +297,7 @@ internal sealed class DatasetShape
 
     /// <summary>
     /// Where a column comes from in the reader's batches (-1 when the file lacks it: nulls) and how it converts to
-    /// <paramref name="target"/>; a conversion the rules refuse is an error naming the file, the column and what allows it.
+    /// <paramref name="targetField"/>; a conversion the rules refuse is an error naming the file, the column and what allows it.
     /// </summary>
     private (int Source, ArrowConversion Conversion) Conversion(Schema read, int skip, string name, Field targetField, string path)
     {
@@ -335,6 +336,9 @@ internal sealed class DatasetShape
     /// The dataset's fields are given (<see cref="DatasetOptions.Schema"/>): a field declared without an Enum reads the
     /// file's Enum as its values (the way to downgrade one); only a declared Enum is compared.
     /// </param>
+    /// <param name="file">The file's field.</param>
+    /// <param name="dataset">The dataset's field.</param>
+    /// <param name="path">The field's path (in messages).</param>
     private static string? EnumMismatch(Field file, Field dataset, string path, bool declared)
     {
         string? mine = EnumOf(file), theirs = EnumOf(dataset);
@@ -561,7 +565,13 @@ internal sealed class DatasetShape
     /// The unifier of one reading's dictionaries (<see cref="DatasetOptions.UnifyDictionaries"/>), its batches handed to
     /// <see cref="Cut"/> in order; null when not asked or no column holds a dictionary.
     /// </summary>
-    public DictionaryUnifier? NewUnifier() => _dataset.UnifyDictionaries ? DictionaryUnifier.For(Schema) : null;
+    public DictionaryUnifier? NewUnifier() => _dataset.UnifyDictionaries ? DictionaryUnifier.For(Output) : null;
+
+    /// <summary>
+    /// The schema of the batches delivered: <see cref="Schema"/>, its dictionaries indexed as the given schema declares
+    /// them when they are unified (<see cref="DictionaryUnifier.Declared(Schema, Schema)"/>).
+    /// </summary>
+    public Schema Output => _dataset.UnifyDictionaries && _dataset.Schema is { } given ? DictionaryUnifier.Declared(Schema, given) : Schema;
 
     /// <summary>A column of the batch converted (the batch's own when nothing changes, marked used), or nulls when the file lacks it.</summary>
     private static IArrowArray Convert(RecordBatch batch, (int Source, ArrowConversion Conversion) plan, int length, bool[] used)

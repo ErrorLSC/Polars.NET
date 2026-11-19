@@ -12,7 +12,7 @@ namespace Kaminari.Sazanami.Arrow.Compute;
 /// <summary>
 /// One dictionary for every batch of a stream (a dataset's files, a file's row groups): each dictionary column, at any
 /// depth, gets a global dictionary that only grows, its values in the order first seen; every batch's indices are
-/// remapped into it (Int32) and the batch carries the global dictionary as it then is. Batches must come in order (a
+/// remapped into it (Int32, or the index type the target schema declares) and the batch carries the global dictionary as it then is. Batches must come in order (a
 /// value's index is where it was first seen). Arrays made share the dictionary's memory, which a batch keeps after the
 /// unifier is gone.
 /// </summary>
@@ -53,7 +53,43 @@ internal sealed class DictionaryUnifier : IDisposable
     /// <inheritdoc cref="Unified(IArrowType)"/>
     public static Schema Unified(Schema schema) => new([.. schema.FieldsList.Select(Unified)], schema.Metadata);
 
-    /// <summary>The unifier of batches of <paramref name="schema"/> (unified already), or null when it holds no dictionary.</summary>
+    /// <summary>
+    /// The type unified batches of <paramref name="type"/> (unified: Int32 indices) are delivered as: each dictionary
+    /// that <paramref name="declared"/> (a given schema's type, matched by field names and positions) declares too
+    /// indexed by its declared index type, the others by Int32.
+    /// </summary>
+    public static IArrowType Declared(IArrowType type, IArrowType? declared) => (type, declared) switch
+    {
+        (DictionaryType d, DictionaryType g) => new DictionaryType(g.IndexType, d.ValueType, d.Ordered),
+        (StructType s, StructType g) => new StructType([.. s.Fields.Select(f => Declared(f, g.GetFieldIndex(f.Name) is int i and >= 0 ? g.Fields[i] : null))]),
+        (MapType m, MapType g) => new MapType(Declared(m.KeyField, g.KeyField), Declared(m.ValueField, g.ValueField), m.KeySorted),
+        (ListType l, ListType or LargeListType or ListViewType or LargeListViewType or FixedSizeListType) => new ListType(Declared(l.ValueField, Element(declared))),
+        (LargeListType l, ListType or LargeListType or ListViewType or LargeListViewType or FixedSizeListType) => new LargeListType(Declared(l.ValueField, Element(declared))),
+        (ListViewType l, ListType or LargeListType or ListViewType or LargeListViewType or FixedSizeListType) => new ListViewType(Declared(l.ValueField, Element(declared))),
+        (LargeListViewType l, ListType or LargeListType or ListViewType or LargeListViewType or FixedSizeListType) => new LargeListViewType(Declared(l.ValueField, Element(declared))),
+        (FixedSizeListType l, ListType or LargeListType or ListViewType or LargeListViewType or FixedSizeListType) => new FixedSizeListType(Declared(l.ValueField, Element(declared)), l.ListSize),
+        _ => type,
+    };
+
+    private static Field? Element(IArrowType? list) => list switch
+    {
+        MapType => null,
+        NestedType { Fields.Count: 1 } nested => nested.Fields[0],
+        _ => null,
+    };
+
+    /// <inheritdoc cref="Declared(IArrowType, IArrowType?)"/>
+    public static Field Declared(Field field, Field? declared) =>
+        declared is null ? field : new(field.Name, Declared(field.DataType, declared.DataType), field.IsNullable, field.Metadata);
+
+    /// <inheritdoc cref="Declared(IArrowType, IArrowType?)"/>
+    public static Schema Declared(Schema schema, Schema declared) =>
+        new([.. schema.FieldsList.Select(f => Declared(f, declared.GetFieldIndex(f.Name) is int i and >= 0 ? declared.FieldsList[i] : null))], schema.Metadata);
+
+    /// <summary>
+    /// The unifier of batches of <paramref name="schema"/> unified (Int32 indices) delivered as <paramref name="schema"/>
+    /// says (its dictionaries' index types: see <see cref="Declared(Schema, Schema)"/>), or null when it holds no dictionary.
+    /// </summary>
     /// <exception cref="NotSupportedException">A dictionary of values that hold dictionaries, or of values of no fixed width (booleans, nested).</exception>
     public static DictionaryUnifier? For(Schema schema)
     {
@@ -253,6 +289,9 @@ internal sealed unsafe class GlobalDictionary : IDisposable
 
     public IArrowType Type => _type;
 
+    /// <summary>The column's path (in messages).</summary>
+    public string Path => _path;
+
     public int Count => _lookup.Count;
 
     /// <summary>
@@ -392,15 +431,32 @@ internal sealed unsafe class GlobalDictionary : IDisposable
     }
 }
 
-/// <summary>A dictionary column's arrays into the global dictionary: Int32 indices remapped, the global dictionary as it now is.</summary>
+/// <summary>
+/// A dictionary column's arrays into the global dictionary: indices remapped into the target's index type (more
+/// distinct values than it reaches: an error), the global dictionary as it now is.
+/// </summary>
 internal sealed unsafe class UnifyConversion(DictionaryType target, GlobalDictionary dictionary) : ArrowConversion(target)
 {
+    private readonly int _width = ((IntegerType)target.IndexType).BitWidth / 8;
+
+    /// <summary>The largest index the target's index type holds (the global dictionary stops at Int32).</summary>
+    private readonly long _most = (IntegerType)target.IndexType switch
+    {
+        { BitWidth: 8, IsSigned: true } => sbyte.MaxValue,
+        { BitWidth: 8 } => byte.MaxValue,
+        { BitWidth: 16, IsSigned: true } => short.MaxValue,
+        { BitWidth: 16 } => ushort.MaxValue,
+        _ => int.MaxValue,
+    };
+
     internal override NativeCArray* Build(NativeBatchExport export, ArrayData source)
     {
         int length = source.Length;
         var indexType = (IntegerType)((DictionaryType)source.DataType).IndexType;
         ReadOnlySpan<int> ids = source.Dictionary is { } values ? dictionary.Ids(values) : [];
-        var indices = (int*)export.Allocate(Math.Max(1, length) * 4L);
+        if (dictionary.Count - 1L > _most)
+            throw new OverflowException($"'{dictionary.Path}': {dictionary.Count} distinct dictionary values cannot be indexed by {target.IndexType.Name} indices (declare a wider index type).");
+        var indices = (byte*)export.Allocate(Math.Max(1, length) * (long)_width);
         var valid = (ulong*)export.Allocate(Math.Max(1, Filters.Masks.Words(length)) * 8L);
         long nulls = 0;
         var slots = new Slots(source, 1, indexType);
@@ -417,7 +473,13 @@ internal sealed unsafe class UnifyConversion(DictionaryType target, GlobalDictio
                 nulls++;
                 continue;
             }
-            indices[i] = id;
+            switch (_width)
+            {
+                case 1: indices[i] = (byte)id; break;
+                case 2: ((ushort*)indices)[i] = (ushort)id; break;
+                case 4: ((int*)indices)[i] = id; break;
+                default: ((long*)indices)[i] = id; break;
+            }
             valid[i >> 6] |= 1UL << (i & 63);
         }
         NativeCArray* snapshot = dictionary.Snapshot(export);

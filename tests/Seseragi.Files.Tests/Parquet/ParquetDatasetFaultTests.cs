@@ -203,7 +203,7 @@ public sealed class ParquetDatasetFaultTests
     /// A store over memory whose sources are not local (as a network's), failing, hanging or answering late as told,
     /// counting the sources opened and disposed.
     /// </summary>
-    private sealed class FaultStore(MemoryFileStore inner) : IFileStore
+    internal sealed class FaultStore(MemoryFileStore inner) : IFileStore
     {
         private int _opened, _disposed;
 
@@ -247,8 +247,12 @@ public sealed class ParquetDatasetFaultTests
 
         private Task Delay(CancellationToken ct) => MaxDelayMs > 0 ? Task.Delay(Random.Shared.Next(MaxDelayMs + 1), ct) : Task.CompletedTask;
 
+        /// <summary>The paths of the sources opened, in the order they opened.</summary>
+        public System.Collections.Concurrent.ConcurrentQueue<string> OpenedPaths { get; } = new();
+
         private Source Wrap(string path, IRandomAccess source)
         {
+            OpenedPaths.Enqueue(path);
             Interlocked.Increment(ref _opened);
             return new Source(this, path, source);
         }

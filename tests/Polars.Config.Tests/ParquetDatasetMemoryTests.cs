@@ -63,7 +63,7 @@ public class ParquetDatasetMemoryTests
         };
         GC.Collect();
         GC.WaitForPendingFinalizers();
-        long before = NativeBatchMemory.Live;
+        long before = NativeBatchMemory.Live, owners = NativeMemoryOwner.Live;
         long rows = 0;
         using (var dataset = ParquetDataset.Open("d/", new ParquetDatasetOptions { Store = store, AllowLossyCasts = true, AllowMissingColumns = true, FilePathColumn = "file" }))
         using (var reader = dataset.OpenReader(new ParquetReadOptions { Filter = expression, FilterRows = expression is not null, MaxRows = limit, RowIndexColumn = "n" }))
@@ -76,6 +76,7 @@ public class ParquetDatasetMemoryTests
         }
         Assert.Equal(filter switch { "some" => Math.Min(2, limit ?? 2), "none" => 0, _ => Math.Min(9, limit ?? 9) }, rows);
         Assert.Equal(before, NativeBatchMemory.Live);
+        Assert.Equal(owners, NativeMemoryOwner.Live);
     }
 
     [Fact]
@@ -88,7 +89,7 @@ public class ParquetDatasetMemoryTests
             new DateTimeOffset(2300, 1, 1, 0, 0, 0, TimeSpan.Zero)]).Build()), ("y", new StringArray.Builder().AppendRange(["b", "c"]).Build()));
         GC.Collect();
         GC.WaitForPendingFinalizers();
-        long before = NativeBatchMemory.Live;
+        long before = NativeBatchMemory.Live, owners = NativeMemoryOwner.Live;
         // One value per batch: the second fails after the first was converted (the unit's converted batches are freed).
         using (var dataset = ParquetDataset.Open("d/", new ParquetDatasetOptions { Store = store }))
         using (var reader = dataset.OpenReader(new ParquetReadOptions { BatchSize = 1, MaxDegreeOfParallelism = 8 }))
@@ -99,6 +100,7 @@ public class ParquetDatasetMemoryTests
             });
         }
         Assert.Equal(before, NativeBatchMemory.Live);
+        Assert.Equal(owners, NativeMemoryOwner.Live);
     }
 
     private static MemoryFileStore ManyFiles(int files, bool damagedMiddle)
@@ -131,7 +133,7 @@ public class ParquetDatasetMemoryTests
         MemoryFileStore store = ManyFiles(60, damagedMiddle: how == "error");
         GC.Collect();
         GC.WaitForPendingFinalizers();
-        long before = NativeBatchMemory.Live;
+        long before = NativeBatchMemory.Live, owners = NativeMemoryOwner.Live;
         using (var dataset = ParquetDataset.Open("m/", new ParquetDatasetOptions { Store = store, FilePathColumn = "file" }))
         // Batches of 2 rows: a unit gives several, so stopping takes some of a unit's and leaves the others.
         using (var reader = dataset.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = 8, RowIndexColumn = "n", BatchSize = 2 }))
@@ -173,5 +175,6 @@ public class ParquetDatasetMemoryTests
             }
         }
         Assert.Equal(before, NativeBatchMemory.Live);
+        Assert.Equal(owners, NativeMemoryOwner.Live);
     }
 }

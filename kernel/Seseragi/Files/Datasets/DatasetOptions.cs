@@ -78,10 +78,11 @@ public abstract record DatasetOptions
     /// <summary>
     /// Whether every dictionary column (at any depth) is read with one dictionary for the whole dataset (off by
     /// default: each batch keeps its file's — or row group's — own). The dictionary grows as the files are read: its
-    /// values in the order first seen, every batch's indices remapped into it (Int32: the dataset's dictionaries are
-    /// then indexed by Int32), each batch carrying the dictionary as it is when the batch is read. Equal values then
-    /// have equal indices across the dataset (joins, groupings and appends need not compare values). Values are
-    /// strings, binaries or fixed-width values; more than 2^31 distinct ones are an error.
+    /// values in the order first seen, every batch's indices remapped into it, each batch carrying the dictionary as
+    /// it is when the batch is read. Indices are of the type <see cref="Schema"/> declares for the dictionary, else
+    /// Int32; more distinct values than that type reaches (2^31 at most) are an error naming the column. Equal values
+    /// then have equal indices across the dataset (joins, groupings and appends need not compare values). Values are
+    /// strings, binaries or fixed-width values.
     /// </summary>
     public bool UnifyDictionaries { get; init; }
 

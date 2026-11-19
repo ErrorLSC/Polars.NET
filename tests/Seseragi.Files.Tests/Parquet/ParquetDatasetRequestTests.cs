@@ -185,7 +185,7 @@ public sealed class ParquetDatasetRequestTests
     /// requests at once (opens and reads), can delay each, hold one file's open until released, or hang one until
     /// cancelled.
     /// </summary>
-    private sealed class RemoteStore(MemoryFileStore inner) : IFileStore
+    internal sealed class RemoteStore(MemoryFileStore inner) : IFileStore
     {
         private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Lock _opensLock = new();

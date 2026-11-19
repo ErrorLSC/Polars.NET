@@ -417,6 +417,81 @@ public class ArrowWideningTests
         }
     }
 
+    /// <summary>
+    /// Nulls of types no builder makes, alone or nested: dictionaries of any index and value type (over an empty
+    /// dictionary), run-end encoded nulls (one run; past what the run ends' type reaches, an error), unions (each slot
+    /// a null of the first child).
+    /// </summary>
+    [Fact]
+    public void NullArrays_OfTypesWithoutABuilder_ReadAsNulls()
+    {
+        static DictionaryType Dictionary(IArrowType index, IArrowType values) => new(index, values, false);
+        IArrowType[] counted =
+        [
+            Dictionary(Int8Type.Default, Int64Type.Default), Dictionary(UInt16Type.Default, StringViewType.Default),
+            new StructType([new Field("d", Dictionary(Int16Type.Default, StringType.Default), true)]),
+            new ListType(new Field("item", Dictionary(Int8Type.Default, StringType.Default), true)),
+            new LargeListType(new Field("item", Dictionary(Int64Type.Default, BinaryType.Default), true)),
+            new MapType(new Field("key", StringType.Default, false), new Field("value", Dictionary(Int8Type.Default, StringType.Default), true)),
+            new FixedSizeListType(new Field("item", Dictionary(UInt8Type.Default, StringType.Default), true), 2),
+            new ListViewType(new Field("item", Dictionary(Int8Type.Default, StringType.Default), true)),
+        ];
+        foreach (IArrowType type in counted)
+        {
+            foreach (int length in (int[])[0, 1, 70])
+            {
+                using IArrowArray nulls = NullArrays.Of(type, length);
+                Assert.Equal(length, nulls.Length);
+                Assert.Equal(length, nulls.NullCount);
+                Assert.True(ArrowTypes.SameType(type, nulls.Data.DataType));
+            }
+        }
+
+        foreach (IArrowType ends in (IArrowType[])[Int16Type.Default, Int32Type.Default, Int64Type.Default])
+        {
+            var type = new RunEndEncodedType(ends, Dictionary(Int8Type.Default, StringType.Default));
+            foreach (int length in (int[])[0, 1, 32_767, 70_000])
+            {
+                if (ends is Int16Type && length > short.MaxValue)
+                {
+                    Assert.Throws<OverflowException>(() => NullArrays.Of(type, length));
+                    continue;
+                }
+                using IArrowArray nulls = NullArrays.Of(type, length);
+                var ree = Assert.IsType<RunEndEncodedArray>(nulls);
+                Assert.Equal(length, ree.Length);
+                long[] runEnds = [.. Enumerable.Range(0, ree.RunEnds.Length).Select(i => ree.RunEnds switch
+                {
+                    Int16Array a => (long)a.GetValue(i)!.Value,
+                    Int32Array a => a.GetValue(i)!.Value,
+                    Int64Array a => a.GetValue(i)!.Value,
+                    _ => -1,
+                })];
+                Assert.Equal(length == 0 ? 0 : 1, runEnds.Length);
+                if (length > 0) Assert.Equal(length, runEnds[^1]);
+                Assert.Equal(runEnds.Length, ree.Values.Length);
+                Assert.Equal(ree.Values.Length, ree.Values.NullCount);
+            }
+        }
+
+        foreach (UnionMode mode in (UnionMode[])[UnionMode.Sparse, UnionMode.Dense])
+        {
+            var type = new UnionType([new Field("i", Int32Type.Default, true), new Field("d", Dictionary(Int8Type.Default, StringType.Default), true)], [5, 7], mode);
+            foreach (int length in (int[])[0, 1, 70])
+            {
+                using IArrowArray nulls = NullArrays.Of(type, length);
+                var union = Assert.IsAssignableFrom<UnionArray>(nulls);
+                Assert.Equal(length, union.Length);
+                for (int i = 0; i < length; i++)
+                {
+                    Assert.Equal(5, union.TypeIds[i]);
+                    int at = union is DenseUnionArray dense ? dense.ValueOffsets[i] : i;
+                    Assert.True(union.Fields[0].IsNull(at));
+                }
+            }
+        }
+    }
+
     [Fact]
     public void Identity_ReturnsTheSourceItself()
     {

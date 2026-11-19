@@ -230,6 +230,14 @@ public sealed class IpcDatasetTests : IDisposable
             Assert.Equal(["3|20", "4|21", "5|22"], Read(dataset, way with { RowIndexColumn = "idx", Columns = ["id"], Filter = p2, FilterRows = true }));
             ScalarExpr id21 = ScalarExpr.NewBinary(BinaryOp.Eq, ScalarExpr.NewColumn("id"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(21)));
             Assert.Equal(["4|21"], Read(dataset, way with { RowIndexColumn = "idx", Columns = ["id"], Filter = id21, FilterRows = true }));
+            // Batches the filter keeps no row of are not delivered (numbered or not).
+            foreach (string? index in (string?[])["idx", null])
+            {
+                using IpcDatasetReader filtered = dataset.OpenReader(way with { RowIndexColumn = index, Columns = ["id"], Filter = id21, FilterRows = true });
+                List<RecordBatch> batches = [.. filtered.ReadBatches()];
+                Assert.Equal([1], batches.Select(b => b.Length));
+                foreach (RecordBatch batch in batches) batch.Dispose();
+            }
             Assert.Equal(["0|10", "1|11", "2|12", "3|20"], Read(dataset, way with { RowIndexColumn = "idx", Columns = ["id"], MaxRows = 4 }));
         }
     }
@@ -259,6 +267,81 @@ public sealed class IpcDatasetTests : IDisposable
         {
             List<string> rows = Read(dataset, way with { MaxRows = 4 });
             Assert.Equal([$"0|n0|{At("m/a.arrow")}", $"1|n1|{At("m/a.arrow")}", $"2|n2|{At("m/a.arrow")}", $"100|n100|{At("m/b.arrow")}"], rows);
+        }
+    }
+
+    /// <summary>The file path column, listed in the dataset's schema, may be named among the columns read (alone too).</summary>
+    [Fact]
+    public void TheFilePathColumn_MayBeSelected()
+    {
+        Write("fp/a.arrow", 0, 2);
+        Write("fp/b.arrow", 10, 1);
+        using var dataset = IpcDataset.Open(At("fp"), new IpcDatasetOptions { FilePathColumn = "file" });
+        foreach (IpcReadOptions way in Ways)
+        {
+            Assert.Equal([$"0|{At("fp/a.arrow")}", $"1|{At("fp/a.arrow")}", $"10|{At("fp/b.arrow")}"], Read(dataset, way with { Columns = ["id", "file"] }));
+            Assert.Equal([At("fp/a.arrow"), At("fp/a.arrow"), At("fp/b.arrow")], Read(dataset, way with { Columns = ["file"] }));
+        }
+        Assert.Throws<ArgumentException>(() => dataset.OpenReader(new IpcReadOptions { Columns = ["path"] }));
+    }
+
+    /// <summary>
+    /// Columns a file lacks read as nulls of any type: dictionaries of every index and value type, run-end encoded
+    /// columns, unions (nulls in their first child), nested types holding them, Polars' types (corpus files beside a
+    /// file of another column, united by name).
+    /// </summary>
+    [Theory]
+    [InlineData("pyarrow/dictionary.arrow")]
+    [InlineData("pyarrow/ree.arrow")]
+    [InlineData("pyarrow/unions.arrow")]
+    [InlineData("pyarrow/nested.arrow")]
+    [InlineData("pyarrow/primitives.arrow")]
+    [InlineData("pyarrow/strings.arrow")]
+    [InlineData("pyarrow/extension.arrow")]
+    [InlineData("polars/frame_uncompressed.arrow")]
+    public void ColumnsAFileLacks_AreNullsOfAnyType(string corpus)
+    {
+        string first = Path.Combine(IpcValueTests.Root, corpus);
+        string other = At("other/z.arrow");
+        Directory.CreateDirectory(Path.GetDirectoryName(other)!);
+        var schema = new Schema([new Field("__other", Int32Type.Default, true)], null);
+        using (IpcWriter writer = IpcWriter.Create(other, schema))
+        using (var batch = new RecordBatch(schema, [new Int32Array.Builder().Append(1).AppendNull().Append(3).Build()], 3))
+            writer.Write(batch);
+        int firstRows;
+        using (IpcFile file = IpcFile.Open(first))
+        using (IpcReader whole = file.OpenReader())
+        {
+            firstRows = 0;
+            foreach (RecordBatch batch in whole.ReadBatches())
+            {
+                using (batch) firstRows += batch.Length;
+            }
+        }
+        using var dataset = IpcDataset.Open([first, other], new IpcDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName });
+        foreach (IpcReadOptions way in Ways)
+        {
+            using IpcDatasetReader reader = dataset.OpenReader(way);
+            List<RecordBatch> batches = [.. reader.ReadBatches()];
+            try
+            {
+                List<string[]> rows = [.. batches.SelectMany(b => Enumerable.Range(0, b.Length).Select(i => Enumerable.Range(0, b.ColumnCount)
+                    .Select(c => CanonicalRender.Value(b.Column(c), i)).ToArray()))];
+                Assert.Equal(firstRows + 3, rows.Count);
+                foreach (string[] row in rows.Skip(firstRows))
+                {
+                    for (int c = 0; c < row.Length - 1; c++)
+                    {
+                        bool union = reader.Schema.FieldsList[c].DataType is UnionType;
+                        Assert.True(union ? row[c].EndsWith(":null", StringComparison.Ordinal) : row[c] == "null", $"{reader.Schema.FieldsList[c].Name}: {row[c]}");
+                    }
+                }
+                Assert.Equal(["1", "null", "3"], rows.Skip(firstRows).Select(r => r[^1]));
+            }
+            finally
+            {
+                foreach (RecordBatch batch in batches) batch.Dispose();
+            }
         }
     }
 

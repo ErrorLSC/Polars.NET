@@ -20,6 +20,7 @@
     <Compile Include="..\Seseragi.Files.Tests\TestBatches.cs" Link="Shared\TestBatches.cs" />
     <Compile Include="..\Seseragi.Files.Tests\Parquet\ParquetWriteData.cs" Link="Shared\ParquetWriteData.cs" />
     <Compile Include="..\Seseragi.Files.Tests\Parquet\ParquetNestedData.cs" Link="Shared\ParquetNestedData.cs" />
+    <Compile Include="..\Seseragi.Files.Tests\Parquet\CanonicalRender.cs" Link="Shared\CanonicalRender.cs" />
   </ItemGroup>
 
 </Project>

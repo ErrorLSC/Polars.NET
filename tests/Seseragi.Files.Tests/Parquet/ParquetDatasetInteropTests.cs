@@ -40,7 +40,7 @@ public sealed class ParquetDatasetInteropTests : IDisposable
     }
 
     /// <summary>A dataset read: <paramref name="Hive"/> null is Auto (Polars' None); <paramref name="Filter"/> is a column and the value it equals.</summary>
-    private sealed record Case(string[] Inputs, string? RowIndex, string? FileColumn, long? Rows, bool? Hive = false, bool ParseDates = true,
+    internal sealed record Case(string[] Inputs, string? RowIndex, string? FileColumn, long? Rows, bool? Hive = false, bool ParseDates = true,
         (string Column, object Value)? Filter = null);
 
     [Fact]
@@ -212,7 +212,7 @@ public sealed class ParquetDatasetInteropTests : IDisposable
         Assert.True(differences.Count == 0, string.Join(Environment.NewLine, differences));
     }
 
-    private static async Task Python(string python, params string[] arguments)
+    internal static async Task Python(string python, params string[] arguments)
     {
         var psi = new ProcessStartInfo(python, ["-I", .. arguments]) { RedirectStandardOutput = true, RedirectStandardError = true };
         using var process = Process.Start(psi)!;
@@ -262,9 +262,10 @@ public sealed class ParquetDatasetInteropTests : IDisposable
         return time.ToString(ticks % TimeSpan.TicksPerSecond == 0 ? "HH:mm:ss" : "HH:mm:ss.ffffff", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private async Task Compare(string python, Dictionary<string, Case> cases)
+    /// <summary>The cases as Polars reads them (dataset_polars.py; <paramref name="format"/> "ipc" scans IPC files), the output in <paramref name="directory"/>.</summary>
+    internal static async Task<JsonDocument> ReadWithPolars(string python, string directory, Dictionary<string, Case> cases, string format = "parquet")
     {
-        string casesPath = At("cases.json"), outPath = At("polars.json");
+        string casesPath = Path.Combine(directory, "cases.json"), outPath = Path.Combine(directory, "polars.json");
         using (var stream = File.Create(casesPath))
         using (var json = new Utf8JsonWriter(stream))
         {
@@ -280,6 +281,7 @@ public sealed class ParquetDatasetInteropTests : IDisposable
                 if (c.Rows is null) json.WriteNull("n_rows"); else json.WriteNumber("n_rows", c.Rows.Value);
                 if (c.Hive is null) json.WriteNull("hive"); else json.WriteBoolean("hive", c.Hive.Value);
                 json.WriteBoolean("parse_dates", c.ParseDates);
+                json.WriteString("format", format);
                 if (c.Filter is var (column, value))
                 {
                     json.WriteStartArray("filter");
@@ -292,20 +294,13 @@ public sealed class ParquetDatasetInteropTests : IDisposable
             }
             json.WriteEndObject();
         }
-        var psi = new ProcessStartInfo(python, ["-I", Path.Combine(AppContext.BaseDirectory, "TestData", "parquet", "dataset_polars.py"), casesPath, outPath])
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using (var process = Process.Start(psi)!)
-        {
-            Task<string> stderr = process.StandardError.ReadToEndAsync();
-            await process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-            Assert.True(process.ExitCode == 0, await stderr);
-        }
+        await Python(python, Path.Combine(AppContext.BaseDirectory, "TestData", "parquet", "dataset_polars.py"), casesPath, outPath);
+        return JsonDocument.Parse(File.ReadAllText(outPath));
+    }
 
-        using JsonDocument polars = JsonDocument.Parse(File.ReadAllText(outPath));
+    private async Task Compare(string python, Dictionary<string, Case> cases)
+    {
+        using JsonDocument polars = await ReadWithPolars(python, _root, cases);
         List<string> differences = [];
         foreach (var (name, c) in cases)
         {
@@ -352,7 +347,7 @@ public sealed class ParquetDatasetInteropTests : IDisposable
     }
 
     /// <summary>An Arrow type as Polars names the type it reads it as.</summary>
-    private static string PolarsType(IArrowType type) => type switch
+    internal static string PolarsType(IArrowType type) => type switch
     {
         Int64Type => "Int64",
         Int32Type => "Int32",
@@ -366,7 +361,7 @@ public sealed class ParquetDatasetInteropTests : IDisposable
     };
 
     /// <summary>A value as Python's <c>str</c> writes it.</summary>
-    private static string Render(IArrowArray array, int i) => array.IsNull(i) ? "" : array switch
+    internal static string Render(IArrowArray array, int i) => array.IsNull(i) ? "" : array switch
     {
         Int64Array a => a.GetValue(i)!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
         Int32Array a => a.GetValue(i)!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),

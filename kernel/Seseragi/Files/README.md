@@ -50,8 +50,8 @@ Columns and struct fields beyond the dataset's are not read; those a file lacks 
 way out, or nulls (`AllowMissingColumns`; always when united). Polars Enums (at any depth) must have the same
 categories in every file, and an Enum never meets a column that is none, unless the given `Schema` declares the column
 as plain values. `UnifyDictionaries` reads every dictionary column (at any depth) with one dictionary for the dataset:
-values numbered as first seen, indices Int32, each batch carrying the dictionary as it then is (row groups' and files'
-dictionaries alike). Filters prune each file on its own types; columns it
+values numbered as first seen, indices of the type the given `Schema` declares (else Int32; more distinct values than
+it reaches are an error), each batch carrying the dictionary as it then is (row groups' and files' dictionaries alike). Filters prune each file on its own types; columns it
 lacks become nulls folded into the filter; conjuncts over lossily converted columns do not prune; where a file's own
 filtering cannot be exact the dataset filters its rows after converting, so `FiltersExactly` holds across files.
 Files are read in order with the reader options; with several threads the row groups of several files decode side

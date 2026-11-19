@@ -61,7 +61,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             PathOf, static (message, inner) => new IpcFormatException(message, inner));
         _read = _shape.Read;
         _indexed = options.RowIndexColumn is not null;
-        Schema = _shape.Schema;
+        Schema = _shape.Output;
         FiltersExactly = _shape.FiltersExactly;
     }
 

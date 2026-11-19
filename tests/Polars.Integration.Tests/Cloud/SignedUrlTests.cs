@@ -16,41 +16,14 @@ internal static class UrlDatasets
     public const int Files = 4, Rows = 20_000;
 
     /// <summary>File <paramref name="f"/>: ids from f × Rows; even files uncompressed (beyond the first read of a tail).</summary>
-    public static byte[] File(int f)
-    {
-        var schema = new Apache.Arrow.Schema([new Field("id", Int64Type.Default, true), new Field("s", StringType.Default, true)], null);
-        var ids = new Int64Array.Builder().AppendRange(Enumerable.Range(f * Rows, Rows).Select(i => (long)i)).Build();
-        var s = new StringArray.Builder().AppendRange(Enumerable.Range(f * Rows, Rows).Select(i => $"value {i}")).Build();
-        using var stream = new MemoryStream();
-        using (var writer = ParquetWriter.Create(stream, schema, new ParquetWriteOptions
-        {
-            RowGroupRows = Rows / 4,
-            Compression = f % 2 == 0 ? NoCompression.Instance : new ZstandardCompression(),
-        }))
-        {
-            writer.Write(new RecordBatch(schema, [ids, s], Rows));
-            writer.Complete();
-        }
-        return stream.ToArray();
-    }
+    public static byte[] File(string format, int f) => DatasetFormats.File(format, (long)f * Rows, Rows, large: f % 2 == 0);
 
-    public static List<long> Ids(ParquetDataset dataset, int threads)
+    public static void ReadTwice(string format, IReadOnlyList<string> urls)
     {
-        using var reader = dataset.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = threads });
-        List<long> ids = [];
-        foreach (RecordBatch batch in reader.ReadBatches())
-        {
-            using (batch) ids.AddRange(((Int64Array)batch.Column(0)).Values.ToArray());
-        }
-        return ids;
-    }
-
-    public static void ReadTwice(IReadOnlyList<string> urls)
-    {
-        using var dataset = ParquetDataset.Open(urls);
+        using DatasetFormats.Opened dataset = DatasetFormats.Open(format, urls);
         long[] expected = [.. Enumerable.Range(0, Files * Rows).Select(i => (long)i)];
-        Assert.Equal(expected, Ids(dataset, 1));
-        Assert.Equal(expected, Ids(dataset, 8)); // the large files reopened from their kept footers, their versions required (If-Match)
+        Assert.Equal(expected, dataset.Ids(1));
+        Assert.Equal(expected, dataset.Ids(8)); // the large files reopened from their kept footers, their versions required (If-Match)
     }
 }
 
@@ -58,15 +31,16 @@ internal static class UrlDatasets
 [Trait("Category", "Integration")]
 public sealed class MinioSignedUrlTests(MinioFixture minio) : IClassFixture<MinioFixture>
 {
-    [Fact]
-    public async Task ADatasetOfPresignedUrls_ReadsThem()
+    [Theory]
+    [MemberData(nameof(DatasetFormats.All), MemberType = typeof(DatasetFormats))]
+    public async Task ADatasetOfPresignedUrls_ReadsThem(string format)
     {
         using var s3 = new AmazonS3Client(minio.AccessKey, minio.SecretKey, new AmazonS3Config { ServiceURL = minio.Endpoint, ForcePathStyle = true, UseHttp = true });
         List<string> urls = [];
         for (int f = 0; f < UrlDatasets.Files; f++)
         {
-            string key = $"signed/f{f}.parquet";
-            using var content = new MemoryStream(UrlDatasets.File(f));
+            string key = $"signed/f{f}.{DatasetFormats.Extension(format)}";
+            using var content = new MemoryStream(UrlDatasets.File(format, f));
             await s3.PutObjectAsync(new PutObjectRequest { BucketName = minio.BucketName, Key = key, InputStream = content });
             urls.Add(await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
             {
@@ -77,7 +51,7 @@ public sealed class MinioSignedUrlTests(MinioFixture minio) : IClassFixture<Mini
                 Expires = DateTime.UtcNow.AddHours(1),
             }));
         }
-        UrlDatasets.ReadTwice(urls);
+        UrlDatasets.ReadTwice(format, urls);
     }
 }
 
@@ -85,19 +59,20 @@ public sealed class MinioSignedUrlTests(MinioFixture minio) : IClassFixture<Mini
 [Trait("Category", "Integration")]
 public sealed class AzuriteSasUrlTests(AzuriteFixture azurite) : IClassFixture<AzuriteFixture>
 {
-    [Fact]
-    public async Task ADatasetOfSasUrls_ReadsThem()
+    [Theory]
+    [MemberData(nameof(DatasetFormats.All), MemberType = typeof(DatasetFormats))]
+    public async Task ADatasetOfSasUrls_ReadsThem(string format)
     {
         var container = new BlobContainerClient(azurite.ConnectionString, azurite.ContainerName, new BlobClientOptions(BlobClientOptions.ServiceVersion.V2025_11_05));
         await container.CreateIfNotExistsAsync();
         List<string> urls = [];
         for (int f = 0; f < UrlDatasets.Files; f++)
         {
-            BlobClient blob = container.GetBlobClient($"signed/f{f}.parquet");
-            await blob.UploadAsync(new BinaryData(UrlDatasets.File(f)), overwrite: true);
+            BlobClient blob = container.GetBlobClient($"signed/f{f}.{DatasetFormats.Extension(format)}");
+            await blob.UploadAsync(new BinaryData(UrlDatasets.File(format, f)), overwrite: true);
             urls.Add(blob.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddHours(1)).ToString());
         }
-        UrlDatasets.ReadTwice(urls);
+        UrlDatasets.ReadTwice(format, urls);
     }
 }
 
@@ -120,5 +95,20 @@ public sealed class WebServerUrlTests(HttpFixture http) : IClassFixture<HttpFixt
             }
         }
         Assert.Equal(["HTTP", "Test"], names);
+    }
+
+    /// <summary>Files on the web server given as URLs, read twice (the large ones' footers kept, their ETags required).</summary>
+    [Theory]
+    [MemberData(nameof(DatasetFormats.All), MemberType = typeof(DatasetFormats))]
+    public async Task ADatasetOfWebServerUrls_ReadsThem(string format)
+    {
+        List<string> urls = [];
+        for (int f = 0; f < UrlDatasets.Files; f++)
+        {
+            string name = $"set_{format}_f{f}.{DatasetFormats.Extension(format)}";
+            await http.PutAsync(name, UrlDatasets.File(format, f));
+            urls.Add($"{http.BaseUrl}/{name}");
+        }
+        UrlDatasets.ReadTwice(format, urls);
     }
 }

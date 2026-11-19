@@ -34,6 +34,60 @@ public sealed class HttpFileStoreTests
         return bytes;
     }
 
+    /// <summary>An Arrow IPC file of the same columns (four batches; <paramref name="large"/>: uncompressed, beyond the first tail read).</summary>
+    private static byte[] Ipc(long first, int rows, bool large = false)
+    {
+        var schema = new Apache.Arrow.Schema([new Field("id", Int64Type.Default, true), new Field("s", StringType.Default, true)], null);
+        using var stream = new MemoryStream();
+        using (var writer = Kaminari.Seseragi.Files.Ipc.IpcWriter.Create(stream, schema,
+            new Kaminari.Seseragi.Files.Ipc.IpcWriteOptions { Compression = large ? NoCompression.Instance : new ZstandardCompression() }))
+        {
+            int batchRows = Math.Max(1, rows / 4);
+            for (long at = first; at < first + rows; at += batchRows)
+            {
+                int n = (int)Math.Min(batchRows, first + rows - at);
+                using var batch = new RecordBatch(schema,
+                [
+                    new Int64Array.Builder().AppendRange(Enumerable.Range(0, n).Select(i => at + i)).Build(),
+                    new StringArray.Builder().AppendRange(Enumerable.Range(0, n).Select(i => $"v{at + i}")).Build(),
+                ], n);
+                writer.Write(batch);
+            }
+            writer.Complete();
+        }
+        byte[] bytes = stream.ToArray();
+        Assert.True(large == bytes.Length > Kaminari.Seseragi.Files.Ipc.IpcFile.TailGuess, $"{bytes.Length} bytes");
+        return bytes;
+    }
+
+    private static byte[] File(string format, long first, int rows, bool large = false) => format == "ipc" ? Ipc(first, rows, large) : Parquet(first, rows, large);
+
+    /// <summary>A dataset of either format: its ids read at some threads, and its footers kept.</summary>
+    private sealed class Opened(IDisposable dataset) : IDisposable
+    {
+        public static Opened Of(string format, string[] paths, IFileStore? store = null) => format == "ipc"
+            ? new(Kaminari.Seseragi.Files.Ipc.IpcDataset.Open(paths, new Kaminari.Seseragi.Files.Ipc.IpcDatasetOptions { Store = store }))
+            : new(ParquetDataset.Open(paths, new ParquetDatasetOptions { Store = store }));
+
+        public int Footers => dataset switch { ParquetDataset p => p.Footers.Count, Kaminari.Seseragi.Files.Ipc.IpcDataset i => i.Footers.Count, _ => 0 };
+
+        public List<long> Ids(int threads)
+        {
+            if (dataset is ParquetDataset parquet) return HttpFileStoreTests.Ids(parquet, threads);
+            using var reader = ((Kaminari.Seseragi.Files.Ipc.IpcDataset)dataset).OpenReader(new Kaminari.Seseragi.Files.Ipc.IpcReadOptions { MaxDegreeOfParallelism = threads });
+            List<long> ids = [];
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch) ids.AddRange(((Int64Array)batch.Column(0)).Values.ToArray());
+            }
+            return ids;
+        }
+
+        public void Dispose() => dataset.Dispose();
+    }
+
+    public static TheoryData<string> Formats => ["parquet", "ipc"];
+
     private static byte[] Bytes(int n) => [.. Enumerable.Range(0, n).Select(i => (byte)(i * 31 + 7))];
 
     private static (HttpTestServer Server, HttpFileStore Store) Serve(HttpFileStoreOptions? options = null)
@@ -238,45 +292,43 @@ public sealed class HttpFileStoreTests
         return ids;
     }
 
-    [Fact]
-    public void ADatasetOfUrls_ReadsOverHttp_AsFromDisk()
+    [Theory]
+    [MemberData(nameof(Formats))]
+    public void ADatasetOfUrls_ReadsOverHttp_AsFromDisk(string format)
     {
         var server = new HttpTestServer();
-        for (int f = 0; f < 6; f++) server.Put($"/data/f{f}.parquet", f % 2 == 0 ? Parquet(f * 10_000, 10_000, large: true) : Parquet(f * 10_000, 10_000));
+        for (int f = 0; f < 6; f++) server.Put($"/data/f{f}.{format}", File(format, f * 10_000, 10_000, large: f % 2 == 0));
         using HttpTestServer.Listening listening = server.Listen();
-        string[] urls = [.. Enumerable.Range(0, 6).Select(f => $"{listening.BaseUrl}/data/f{f}.parquet")];
-        using var dataset = ParquetDataset.Open(urls); // no store given: http(s) URLs are read by an HttpFileStore
+        string[] urls = [.. Enumerable.Range(0, 6).Select(f => $"{listening.BaseUrl}/data/f{f}.{format}")];
+        using Opened dataset = Opened.Of(format, urls); // no store given: http(s) URLs are read by an HttpFileStore
         foreach (int threads in (int[])[1, 8])
-            Assert.Equal(Enumerable.Range(0, 60_000).Select(i => (long)i), Ids(dataset, threads));
+            Assert.Equal(Enumerable.Range(0, 60_000).Select(i => (long)i), dataset.Ids(threads));
     }
 
     /// <summary>
     /// Large files' footers are kept with their sizes and versions: a later read opens them without a request; a
     /// small file comes whole in one request each time. A file replaced between reads fails, naming it.
     /// </summary>
-    [Fact]
-    public void KeptFooters_SpareRequests_AndAFileReplacedFails()
+    [Theory]
+    [MemberData(nameof(Formats))]
+    public void KeptFooters_SpareRequests_AndAFileReplacedFails(string format)
     {
         var server = new HttpTestServer();
-        server.Put("/d/a.parquet", Parquet(0, 20_000, large: true));
-        server.Put("/d/b.parquet", Parquet(20_000, 20_000, large: true));
-        server.Put("/d/c.parquet", Parquet(40_000, 100));
+        server.Put($"/d/a.{format}", File(format, 0, 20_000, large: true));
+        server.Put($"/d/b.{format}", File(format, 20_000, 20_000, large: true));
+        server.Put($"/d/c.{format}", File(format, 40_000, 100));
         var store = new HttpFileStore(new HttpClient(server), Quick);
-        using var dataset = ParquetDataset.Open(["http://h/d/a.parquet", "http://h/d/b.parquet", "http://h/d/c.parquet"], new ParquetDatasetOptions { Store = store });
-        Assert.Equal(40_100, Ids(dataset, 4).Count);
+        using Opened dataset = Opened.Of(format, [$"http://h/d/a.{format}", $"http://h/d/b.{format}", $"http://h/d/c.{format}"], store);
+        Assert.Equal(40_100, dataset.Ids(4).Count);
         int Tails() => server.Seen.Count(r => Range(r).StartsWith("bytes=-", StringComparison.Ordinal));
         int tails = Tails();
-        Assert.Equal(40_100, Ids(dataset, 4).Count);
+        Assert.Equal(40_100, dataset.Ids(4).Count);
         Assert.Equal(tails + 1, Tails()); // only the small file's (whole) read
-        Assert.Equal(2, dataset.Footers.Count);
+        Assert.Equal(2, dataset.Footers);
 
-        server.Put("/d/b.parquet", Parquet(20_000, 20_000, large: true)); // replaced: another version
-        using var reader = dataset.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = 4 });
-        var error = Assert.ThrowsAny<IOException>(() =>
-        {
-            foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
-        });
-        Assert.Contains("http://h/d/b.parquet", error.Message);
+        server.Put($"/d/b.{format}", File(format, 20_000, 20_000, large: true)); // replaced: another version
+        var error = Assert.ThrowsAny<IOException>(() => dataset.Ids(4));
+        Assert.Contains($"http://h/d/b.{format}", error.Message);
         Assert.Contains("changed while it was read", error.Message);
     }
 

@@ -20,6 +20,9 @@ public class HttpFixture : IAsyncLifetime
 
     public string BaseUrl => $"http://{_nginxContainer.Hostname}:{_nginxContainer.GetMappedPublicPort(ContainerPort)}";
 
+    /// <summary>Serves <paramref name="content"/> as <c>{BaseUrl}/{name}</c>.</summary>
+    public Task PutAsync(string name, byte[] content) => _nginxContainer.CopyAsync(content, $"/usr/share/nginx/html/{name}");
+
     public async Task InitializeAsync()
     {
         await _nginxContainer.StartAsync();

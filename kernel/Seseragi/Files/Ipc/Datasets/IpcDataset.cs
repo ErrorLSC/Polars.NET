@@ -30,9 +30,10 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
         Options = options;
         Files = files;
         Footers = kept;
-        // One dictionary per column for the dataset: every dictionary indexed by Int32.
+        // One dictionary per column for the dataset: read with Int32 indices, delivered with the given schema's (or Int32).
         if (options.UnifyDictionaries) fileSchema = DictionaryUnifier.Unified(fileSchema);
         FileSchema = fileSchema;
+        if (options.UnifyDictionaries && options.Schema is { } declared) fileSchema = DictionaryUnifier.Declared(fileSchema, declared);
         Partitions = partitions;
         // The files' columns (a partition column of the same name in its place: the path's value wins), then the
         // other partition columns, then the file path.

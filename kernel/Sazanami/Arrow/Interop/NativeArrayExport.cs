@@ -183,6 +183,8 @@ internal sealed unsafe class NativeBatchExport
         ListViewType l => l.ValueDataType,
         LargeListViewType l => l.ValueDataType,
         FixedSizeListType f => f.ValueDataType,
+        UnionType u => u.Fields[index].DataType,
+        RunEndEncodedType r => index == 0 ? r.RunEndsDataType : r.ValuesDataType,
         _ => throw new InvalidOperationException($"A {type.Name} array has no children."),
     };
 
@@ -215,8 +217,15 @@ internal readonly record struct NativeAllocation(nint Pointer, long Bytes) : ICo
 /// </summary>
 internal abstract class NativeMemoryOwner
 {
+    private static long _live;
+
     private int _buffers = 1; // the import itself holds a reference until it is sealed
     private int _freed;
+
+    protected NativeMemoryOwner() => Interlocked.Increment(ref _live);
+
+    /// <summary>How many owners of any kind hold memory not let go of yet, in the whole process (for tests).</summary>
+    internal static long Live => Volatile.Read(ref _live);
 
     /// <summary>Whether the memory was let go of (for tests).</summary>
     internal bool IsFreed => Volatile.Read(ref _freed) != 0;
@@ -234,6 +243,7 @@ internal abstract class NativeMemoryOwner
     private void Free()
     {
         if (Interlocked.Exchange(ref _freed, 1) != 0) return;
+        Interlocked.Decrement(ref _live);
         FreeMemory();
         GC.SuppressFinalize(this);
     }
@@ -271,8 +281,8 @@ internal sealed unsafe class NativeBatchMemory : NativeMemoryOwner
         return at >= 0 ? _allocations[at].Bytes : throw new InvalidOperationException("A buffer outside the batch's allocations.");
     }
 
-    /// <summary>How many batch memories are allocated and not yet freed, in the whole process (for tests).</summary>
-    internal static long Live => Volatile.Read(ref _live);
+    /// <summary>How many batch memories are allocated and not yet freed, in the whole process (for tests; <see cref="NativeMemoryOwner.Live"/> counts every owner).</summary>
+    internal static new long Live => Volatile.Read(ref _live);
 
     protected override void FreeMemory()
     {
