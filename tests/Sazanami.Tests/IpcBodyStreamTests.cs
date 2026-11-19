@@ -49,7 +49,7 @@ public unsafe class IpcBodyStreamTests
         Assert.Equal(streamed.Placeholder(0).Length, IpcMessageEncoder.Frame(new byte[24], 0).Length);
         for (int i = 0; i < Data.Length; i++)
         {
-            IpcStreamedBuffer buffer = streamed.Streamed!.Ready(i).Result;
+            IpcStreamedBuffer buffer = Settled(streamed.Streamed!.Ready(i));
             IpcPiece expected = whole.Body!.Buffers[i];
             Assert.Equal((expected.Prefix, expected.Prefixed, expected.Size), (buffer.Piece.Prefix, buffer.Piece.Prefixed, buffer.Piece.Size));
             Assert.Equal(expected.Span.ToArray(), Bytes(buffer));
@@ -60,6 +60,13 @@ public unsafe class IpcBodyStreamTests
     }
 
     /// <summary>A streamed buffer's bytes as written.</summary>
+    /// <summary>A buffer already settled: the body was compressed before (an unsafe class cannot await).</summary>
+    private static IpcStreamedBuffer Settled(Task<IpcStreamedBuffer> ready)
+    {
+        Assert.True(ready.IsCompletedSuccessfully);
+        return ready.Result;
+    }
+
     private static byte[] Bytes(IpcStreamedBuffer buffer)
     {
         if (buffer.Pieces is null) return buffer.Piece.Span.ToArray();

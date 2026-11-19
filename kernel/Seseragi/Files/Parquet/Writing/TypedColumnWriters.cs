@@ -462,7 +462,7 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
             }
             return;
         }
-        Span<byte> scratch = stackalloc byte[ScratchBytes];
+        Span<byte> scratch = stackalloc byte[ValueBytes];
         for (int i = offset; i < offset + count; i++)
         {
             if (nulls > 0 && IsNullAt(array, offset, i - offset)) continue;
@@ -487,7 +487,7 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
             }
             return;
         }
-        Span<byte> scratch = stackalloc byte[ScratchBytes];
+        Span<byte> scratch = stackalloc byte[ValueBytes];
         foreach (int i in indices)
         {
             ReadOnlySpan<byte> value = source(array, i, scratch);
@@ -588,7 +588,7 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
     }
 
     /// <summary>The bytes the sources may make a value in (decimals, intervals, half floats).</summary>
-    private const int ScratchBytes = 32;
+    private const int ValueBytes = 32;
 
     /// <summary>The offsets of an empty page: the first, 0, is never written again.</summary>
     private static NativeArray<int> Offsets()

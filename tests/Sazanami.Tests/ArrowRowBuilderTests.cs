@@ -241,7 +241,7 @@ public sealed class ArrowRowBuilderTests
         Schema schema = ArrowRowBuilder<Odd>.Schema;
         Assert.All(schema.FieldsList.Take(4), f => Assert.IsType<StringViewType>(f.DataType));
         using RecordBatch batch = builder.ExportBatch();
-        string?[] Strings(int c) => [.. Enumerable.Range(0, 2).Select(i => ((StringViewArray)batch.Column(c)).GetString(i))];
+        List<string?> Strings(int c) => [.. Enumerable.Range(0, 2).Select(i => ((StringViewArray)batch.Column(c)).GetString(i))];
         Assert.Equal(["é", "a"], Strings(0));
         Assert.Equal(["42", null], Strings(1));
         Assert.Equal(["opaque", null], Strings(2));

@@ -258,8 +258,8 @@ public sealed class ParquetDatasetWindowTests
         for (int round = 0; round < 10; round++)
         {
             Task<List<string>>[] reads = [.. Enumerable.Range(0, 6).Select(i => Task.Run(() => Read(i % 2)))];
-            await Task.WhenAll(reads);
-            for (int i = 0; i < reads.Length; i++) Assert.Equal(i % 2 == 0 ? all : strings, reads[i].Result);
+            List<string>[] results = await Task.WhenAll(reads);
+            for (int i = 0; i < results.Length; i++) Assert.Equal(i % 2 == 0 ? all : strings, results[i]);
         }
     }
 

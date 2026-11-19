@@ -37,6 +37,13 @@ public class ArrowWideningTests
         { "d38,0", "d40,2", "lossless" }, { "d10,2", "d9,2", "never" },
         { "i32", "d10,0", "lossless" }, { "i32", "d12,2", "lossless" }, { "i32", "d9,0", "never" }, { "i64", "d19,0", "lossless" },
         { "u64", "d19,0", "never" }, { "i64", "d18,0", "never" }, { "u32", "d9,0", "never" }, { "u64", "d20,0", "lossless" }, { "i8", "d3,0", "lossless" }, { "i16", "d5,0", "lossless" },
+        // Decimals of 32 and 64 bits by the same digit rules, into and out of every width.
+        { "d32_9,2", "d64_18,3", "lossless" }, { "d32_9,2", "d10,2", "lossless" }, { "d32_5,2", "d32_9,4", "lossless" },
+        { "d64_18,0", "d40,2", "lossless" }, { "d10,2", "d64_18,2", "lossless" }, { "d40,0", "d64_18,0", "never" },
+        { "d64_18,0", "d32_9,0", "never" }, { "d32_9,2", "d64_18,1", "never" }, { "d32_9,2", "d32_9,3", "never" },
+        { "i8", "d32_3,0", "lossless" }, { "i32", "d32_9,0", "never" }, { "i32", "d64_10,0", "lossless" }, { "i64", "d64_18,0", "never" },
+        { "d32_7,0", "f32", "lossless" }, { "d32_8,0", "f32", "lossy" }, { "d64_15,0", "f64", "lossless" }, { "d64_18,2", "f64", "lossy" },
+        { "f64", "d64_18,2", "never" },
         { "d7,0", "f32", "lossless" }, { "d8,0", "f32", "lossy" }, { "d15,0", "f64", "lossless" }, { "d10,2", "f64", "lossy" }, { "f64", "d38,10", "never" },
         { "date", "ts_us", "lossless" }, { "date", "ts_ns", "lossless" }, { "date", "ts_us_utc", "never" }, { "ts_us", "date", "never" },
         { "ts_ms", "ts_us", "lossless" }, { "ts_us", "ts_ns", "lossless" }, { "ts_ns", "ts_us", "lossy" }, { "ts_us", "ts_ms", "lossy" },
@@ -68,14 +75,21 @@ public class ArrowWideningTests
         "dict_view" => new DictionaryType(Int32Type.Default, StringViewType.Default, false),
         "list_i32" => new ListType(Int32Type.Default), "list_i64" => new ListType(Int64Type.Default), "list_f64" => new ListType(DoubleType.Default),
         "map_i32" => new MapType(StringType.Default, Int32Type.Default), "map_i64" => new MapType(StringType.Default, Int64Type.Default),
+        _ when name.StartsWith("d32_", StringComparison.Ordinal) => Decimal(name[4..], 32),
+        _ when name.StartsWith("d64_", StringComparison.Ordinal) => Decimal(name[4..], 64),
         _ when name.StartsWith('d') => Decimal(name[1..]),
         _ => throw new ArgumentException(name),
     };
 
-    private static IArrowType Decimal(string parameters)
+    private static IArrowType Decimal(string parameters, int bits = 0)
     {
         int[] ps = [.. parameters.Split(',').Select(int.Parse)];
-        return ps[0] <= 38 ? new Decimal128Type(ps[0], ps[1]) : new Decimal256Type(ps[0], ps[1]);
+        return bits switch
+        {
+            32 => new Decimal32Type(ps[0], ps[1]),
+            64 => new Decimal64Type(ps[0], ps[1]),
+            _ => ps[0] <= 38 ? new Decimal128Type(ps[0], ps[1]) : new Decimal256Type(ps[0], ps[1]),
+        };
     }
 
     [Theory]
@@ -121,6 +135,12 @@ public class ArrowWideningTests
         { "str", "i64", null, null }, { "str", "bin", null, null }, { "dict_str", "str", "str", "str" }, { "null", "i32", "i32", "i32" },
         { "list_i32", "list_i64", "list_i64", "list_i64" }, { "t32_ms", "t64_us", "t64_us", "t64_us" }, { "d15,0", "f32", "f64", "f64" },
         { "d10,2", "f64", null, "f64" }, { "str", "view", "view", "view" }, { "bin", "binview", "binview", "binview" },
+        // Decimals as wide as the wider one (integers count as 32 bits), wider when the precision needs it (pyarrow's
+        // unify_schemas(promote_options="permissive") gives the same).
+        { "d32_9,2", "d64_18,3", "d64_18,3", "d64_18,3" }, { "d32_9,2", "d32_9,3", "d64_10,3", "d64_10,3" },
+        { "d32_5,2", "d32_6,3", "d32_6,3", "d32_6,3" }, { "d64_18,2", "d10,2", "d18,2", "d18,2" }, { "d64_18,0", "d32_9,9", "d27,9", "d27,9" },
+        { "d32_2,1", "d40,0", "d41,1", "d41,1" }, { "i8", "d32_4,2", "d32_5,2", "d32_5,2" }, { "i32", "d32_9,2", "d64_12,2", "d64_12,2" },
+        { "i64", "d32_9,2", "d21,2", "d21,2" }, { "d32_7,0", "f32", "f32", "f32" }, { "d32_9,2", "f64", null, "f64" },
     };
 
     [Theory]
@@ -234,6 +254,57 @@ public class ArrowWideningTests
         Assert.Equal(["1.234500", null, "-12345678901234567890.123400"], Enumerable.Range(0, 3).Select(into128.GetString));
     }
 
+    /// <summary>
+    /// Decimals of every width into every width the rules allow: the source's extremes, zero, ±1 and random values
+    /// rescaled exactly, at an offset; null slots holding the width's extreme convert without an overflow.
+    /// </summary>
+    [Fact]
+    public void Decimals_OfEveryWidth_RescaleExactly()
+    {
+        IArrowType[] types =
+        [
+            new Decimal32Type(9, 2), new Decimal32Type(5, 0), new Decimal32Type(9, 9), new Decimal64Type(18, 3), new Decimal64Type(12, 0),
+            new Decimal128Type(20, 4), new Decimal128Type(38, 10), new Decimal256Type(40, 5), new Decimal256Type(60, 20),
+        ];
+        var random = new Random(2026_11_19);
+        int compiled = 0;
+        foreach (IArrowType from in types)
+        {
+            foreach (IArrowType to in types)
+            {
+                if (!ArrowWidening.TryCompile(from, to, Lossless, "x", out ArrowConversion? conversion, out _)) continue;
+                compiled++;
+                var (p1, s1) = ArrowTypes.DecimalParameters(from);
+                BigInteger max = BigInteger.Pow(10, p1) - 1;
+                BigInteger?[] values = [null, 0, 1, -1, max, -max, null, .. Enumerable.Range(0, 20).Select(_ => (BigInteger?)Within(random, max))];
+                IArrowArray source = ArrowArrayFactory.Slice(ArrowArrayFactory.BuildArray(Decimals(from, values)), 1, values.Length - 1);
+                using var converted = (IArrowArray)conversion.Convert(source);
+                Assert.True(ArrowTypes.SameType(to, converted.Data.DataType));
+                BigInteger factor = BigInteger.Pow(10, ArrowTypes.DecimalParameters(to).Scale - s1);
+                for (int i = 0; i < source.Length; i++)
+                {
+                    BigInteger? expected = values[i + 1] * factor;
+                    Assert.Equal(expected, converted.IsNull(i) ? null : Unscaled(converted, i));
+                }
+            }
+        }
+        Assert.Equal(37, compiled); // identities included
+
+        // Integers into 32 and 64 bits.
+        var bytes = new Int8Array.Builder().Append(sbyte.MinValue).AppendNull().Append(sbyte.MaxValue).Build();
+        using var small = (IArrowArray)Compile(Int8Type.Default, new Decimal32Type(3, 0)).Convert(bytes);
+        Assert.Equal([-128, null, 127], Enumerable.Range(0, 3).Select(i => small.IsNull(i) ? null : (BigInteger?)Unscaled(small, i)));
+        using var ints = (IArrowArray)Compile(Int32Type.Default, new Decimal64Type(12, 2)).Convert(Ints(int.MinValue, null, int.MaxValue));
+        Assert.Equal([-214748364800L, null, 214748364700L], Enumerable.Range(0, 3).Select(i => ints.IsNull(i) ? null : (BigInteger?)Unscaled(ints, i)));
+
+        static BigInteger Within(Random random, BigInteger max)
+        {
+            var bytes = new byte[max.GetByteCount() + 1];
+            random.NextBytes(bytes);
+            return new BigInteger(bytes) % (max + 1);
+        }
+    }
+
     [Fact]
     public void Decimals_IntoFloats_AreTheNearest()
     {
@@ -242,6 +313,14 @@ public class ArrowWideningTests
         Assert.Equal([0.1, -12345678.91, 0.0], ((DoubleArray)conversion.Convert(source)).Values.ToArray());
         var exact = new Decimal128Array.Builder(new Decimal128Type(15, 0)).Append(999_999_999_999_999m).Build();
         Assert.Equal(999_999_999_999_999.0, ((DoubleArray)Compile(exact.Data.DataType, DoubleType.Default).Convert(exact)).GetValue(0));
+
+        // 32 and 64 bits.
+        IArrowArray d32 = ArrowArrayFactory.BuildArray(Decimals(new Decimal32Type(9, 2), [123_456_789, null, -1]));
+        Assert.True(ArrowWidening.TryCompile(d32.Data.DataType, DoubleType.Default, LossyRules, "x", out ArrowConversion? from32, out _));
+        var doubles = (DoubleArray)from32.Convert(d32);
+        Assert.Equal([1234567.89, null, -0.01], Enumerable.Range(0, 3).Select(doubles.GetValue));
+        IArrowArray d64 = ArrowArrayFactory.BuildArray(Decimals(new Decimal64Type(15, 0), [999_999_999_999_999, -999_999_999_999_999]));
+        Assert.Equal([999_999_999_999_999.0, -999_999_999_999_999.0], ((DoubleArray)Compile(d64.Data.DataType, DoubleType.Default).Convert(d64)).Values.ToArray());
     }
 
     // ---- times ----------------------------------------------------------------------------------------------------
@@ -546,6 +625,44 @@ public class ArrowWideningTests
     }
 
     private static long[] Longs(IArrowArray array) => ((Int64Array)array).Values.ToArray();
+
+    private static int DecimalWidth(IArrowType type) => type switch
+    {
+        Decimal32Type => 4,
+        Decimal64Type => 8,
+        Decimal128Type => 16,
+        _ => 32,
+    };
+
+    /// <summary>A decimal array of unscaled values; null slots hold the width's largest value (anything may be there).</summary>
+    private static ArrayData Decimals(IArrowType type, BigInteger?[] unscaled)
+    {
+        int width = DecimalWidth(type);
+        var values = new byte[unscaled.Length * width];
+        var bits = new byte[(unscaled.Length + 7) / 8];
+        for (int i = 0; i < unscaled.Length; i++)
+        {
+            Span<byte> slot = values.AsSpan(i * width, width);
+            if (unscaled[i] is { } v)
+            {
+                bits[i / 8] |= (byte)(1 << (i % 8));
+                slot.Fill(v.Sign < 0 ? (byte)0xFF : (byte)0);
+                Assert.True(v.TryWriteBytes(slot, out _, isUnsigned: false, isBigEndian: false));
+            }
+            else
+            {
+                slot.Fill(0xFF);
+                slot[^1] = 0x7F;
+            }
+        }
+        return new ArrayData(type, unscaled.Length, unscaled.Count(v => v is null), 0, [new ArrowBuffer(bits), new ArrowBuffer(values)]);
+    }
+
+    private static BigInteger Unscaled(IArrowArray array, int i)
+    {
+        int width = DecimalWidth(array.Data.DataType);
+        return new BigInteger(array.Data.Buffers[1].Span.Slice((array.Data.Offset + i) * width, width), isUnsigned: false, isBigEndian: false);
+    }
 
     private static double Sample(Random random, IArrowType type) => type switch
     {

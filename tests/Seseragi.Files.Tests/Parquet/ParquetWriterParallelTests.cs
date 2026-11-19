@@ -105,7 +105,7 @@ public sealed class ParquetWriterParallelTests
     [InlineData(1, false)]
     [InlineData(8, false)]
     [InlineData(8, true)]
-    public void AStreamFailingUnderARowGroup_FaultsTheWriter(int threads, bool useAsync)
+    public async Task AStreamFailingUnderARowGroup_FaultsTheWriter(int threads, bool useAsync)
     {
         RecordBatch batch = ParquetWriteData.Wide(73, 20_000);
         var stream = new FailingStream(200_000);
@@ -115,7 +115,7 @@ public sealed class ParquetWriterParallelTests
         {
             for (int at = 0; at < batch.Length; at += 2000)
             {
-                if (useAsync) writer.WriteAsync(batch.Slice(at, 2000)).AsTask().GetAwaiter().GetResult();
+                if (useAsync) await writer.WriteAsync(batch.Slice(at, 2000));
                 else writer.Write(batch.Slice(at, 2000));
             }
             writer.Complete();
@@ -205,7 +205,7 @@ public sealed class ParquetWriterParallelTests
     [InlineData(1, false)]
     [InlineData(8, false)]
     [InlineData(8, true)]
-    public void EndRowGroup_ReturnsOnceItsBytesReachedTheStream(int threads, bool useAsync)
+    public async Task EndRowGroup_ReturnsOnceItsBytesReachedTheStream(int threads, bool useAsync)
     {
         RecordBatch batch = ParquetWriteData.Wide(74, 12_000);
         var stream = new SlowStream();
@@ -214,8 +214,8 @@ public sealed class ParquetWriterParallelTests
         {
             if (useAsync)
             {
-                writer.WriteAsync(batch.Slice(at, 3000)).AsTask().GetAwaiter().GetResult();
-                writer.EndRowGroupAsync().AsTask().GetAwaiter().GetResult();
+                await writer.WriteAsync(batch.Slice(at, 3000));
+                await writer.EndRowGroupAsync();
             }
             else
             {

@@ -195,6 +195,7 @@ public class FilterLoweringTests
             {
                 int width = ((FixedWidthType)type).BitWidth / 8;
                 var bytes = new byte[n * width];
+                Span<byte> all = stackalloc byte[8];
                 for (int i = 0; i < n; i++)
                 {
                     Span<byte> slot = bytes.AsSpan(i * width, width);
@@ -207,7 +208,6 @@ public class FilterLoweringTests
                         case Int128 x: BinaryPrimitives.WriteInt128LittleEndian(slot, x); break;
                         case ulong u: BinaryPrimitives.WriteUInt64LittleEndian(slot, u); break;
                         case long l:
-                            Span<byte> all = stackalloc byte[8];
                             BinaryPrimitives.WriteInt64LittleEndian(all, l);
                             all[..width].CopyTo(slot);
                             break;

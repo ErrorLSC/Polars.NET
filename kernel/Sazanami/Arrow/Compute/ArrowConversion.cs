@@ -202,7 +202,7 @@ internal sealed unsafe class ScaleConversion(IArrowType target, int sourceWidth,
     }
 }
 
-/// <summary>Integers and decimals into decimals of no smaller scale and no fewer integer digits.</summary>
+/// <summary>Integers and decimals into decimals (32 to 256 bits) of no smaller scale and no fewer integer digits.</summary>
 internal sealed unsafe class DecimalConversion : ArrowConversion
 {
     private readonly IArrowType _source;
@@ -219,17 +219,30 @@ internal sealed unsafe class DecimalConversion : ArrowConversion
     {
         var (validity, nulls) = Validity(export, source);
         int length = source.Length;
-        if (Target is Decimal128Type)
+        if (Target is Decimal256Type)
         {
-            var values = (Int128*)export.Allocate(length * 16L);
-            Int128 factor = Decimals.Pow10(_shift);
-            for (int i = 0; i < length; i++) values[i] = checked(Decimals.Read(_source, source, i) * factor);
-            return export.NewArray(length, nulls, [validity, (nint)values], []);
+            var wide = (byte*)export.Allocate(length * 32L);
+            BigInteger wideFactor = BigInteger.Pow(10, _shift);
+            for (int i = 0; i < length; i++)
+                Decimals.Write256(IsValid(source, i) ? Decimals.ReadBig(_source, source, i) * wideFactor : BigInteger.Zero, new Span<byte>(wide + 32L * i, 32));
+            return export.NewArray(length, nulls, [validity, (nint)wide], []);
         }
-        var wide = (byte*)export.Allocate(length * 32L);
-        BigInteger wideFactor = BigInteger.Pow(10, _shift);
-        for (int i = 0; i < length; i++) Decimals.Write256(Decimals.ReadBig(_source, source, i) * wideFactor, new Span<byte>(wide + 32L * i, 32));
-        return export.NewArray(length, nulls, [validity, (nint)wide], []);
+
+        Int128 factor = Decimals.Pow10(_shift);
+        int width = Target switch { Decimal32Type => 4, Decimal64Type => 8, _ => 16 };
+        void* values = export.Allocate(length * (long)width);
+        for (int i = 0; i < length; i++)
+        {
+            // Null slots hold anything: zero, never an overflow.
+            Int128 value = IsValid(source, i) ? checked(Decimals.Read(_source, source, i) * factor) : 0;
+            switch (width)
+            {
+                case 4: ((int*)values)[i] = checked((int)value); break;
+                case 8: ((long*)values)[i] = checked((long)value); break;
+                default: ((Int128*)values)[i] = value; break;
+            }
+        }
+        return export.NewArray(length, nulls, [validity, (nint)values], []);
     }
 }
 

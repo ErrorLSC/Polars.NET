@@ -41,8 +41,9 @@ read unless `IgnorePrefixes` says otherwise, a directory given alone holding one
 are the first file's (`DatasetSchemaMode.FirstFile`, the default), every file's united by name in first-appearance
 order with the narrowest type holding each (`UnionByName`: every footer read when the dataset opens), or given
 (`Schema`: no file read to open; string layouts follow the reader). Files' columns convert to the dataset's types:
-as they are, by lossless widenings (wider integers, floats holding the integers, decimals of no fewer digits or a
-larger scale, integers into decimals, dates into timestamps, finer time units — values beyond the range fail —,
+as they are, by lossless widenings (wider integers, floats holding the integers, decimals of 32 to 256 bits into
+decimals of no fewer integer digits and no smaller scale — united as wide as the widest, wider when the digits need
+it —, integers into decimals, dates into timestamps, finer time units — values beyond the range fail —,
 timestamps of another zone, struct fields matched by name, list and map elements, dictionaries to and from their
 values and into wider indices, plain, large and view layouts of strings, binaries and lists), or with `AllowLossyCasts` by approximating ones (integers and decimals into floats,
 narrower floats, coarser time units rounded down); wall-clock times and instants, strings and numbers never mix.

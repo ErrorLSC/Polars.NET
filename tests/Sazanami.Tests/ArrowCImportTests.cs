@@ -466,6 +466,14 @@ public unsafe class ArrowCImportTests
 
     // ---- streams ----
 
+    /// <summary>The next batch of a C stream, which the reader reads synchronously (the producer's get_next is).</summary>
+    private static RecordBatch? ReadNext(ArrowCStreamReader reader)
+    {
+        ValueTask<RecordBatch?> next = reader.ReadNextRecordBatchAsync();
+        Assert.True(next.IsCompleted);
+        return next.GetAwaiter().GetResult();
+    }
+
     [Fact]
     public void AStream_ReadsItsBatches_AndIsReleasedOnDispose()
     {
@@ -495,11 +503,11 @@ public unsafe class ArrowCImportTests
                 Assert.Equal(["v", "i"], reader.Schema.FieldsList.Select(f => f.Name));
                 for (int n = 1; n <= 3; n++)
                 {
-                    using RecordBatch batch = reader.ReadNextRecordBatchAsync().AsTask().Result!;
+                    using RecordBatch batch = ReadNext(reader)!;
                     Assert.Equal(n * 10, batch.Length);
                     Assert.Equal(expected[n - 1], ((StringViewArray)batch.Column(0)).GetString(1));
                 }
-                Assert.Null(reader.ReadNextRecordBatchAsync().AsTask().Result);
+                Assert.Null(ReadNext(reader));
 
                 // Moved on to another consumer: the reader has nothing left, a second move is refused.
                 var other = (Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*)NativeMemory.AllocZeroed((nuint)sizeof(Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream));
@@ -508,7 +516,7 @@ public unsafe class ArrowCImportTests
                     reader.MoveTo(other);
                     Assert.True(other->release != null);
                     Assert.Throws<InvalidOperationException>(() => reader.MoveTo(other));
-                    Assert.Throws<InvalidOperationException>(() => reader.ReadNextRecordBatchAsync().AsTask().GetAwaiter().GetResult());
+                    Assert.Throws<InvalidOperationException>(() => ReadNext(reader));
                     other->release(other);
                 }
                 finally

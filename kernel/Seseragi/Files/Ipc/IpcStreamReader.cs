@@ -359,7 +359,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
         {
             // The producer queues its failures; it does not end faulted. Nothing to report while disposing.
         }
-        if (_producer.IsCompleted) Release();
+        if (_producer!.IsCompleted) Release();
         else _producer.ContinueWith(_ => Release(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
 
         void Release()
@@ -550,7 +550,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
         }
     }
 
-    private static IReadOnlyDictionary<string, string> ToDictionary(IReadOnlyList<KeyValuePair<string, string>>? pairs)
+    private static Dictionary<string, string> ToDictionary(IReadOnlyList<KeyValuePair<string, string>>? pairs)
     {
         Dictionary<string, string> map = [];
         if (pairs is not null)

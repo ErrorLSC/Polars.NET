@@ -18,7 +18,7 @@ public class OrderedWindowTests
     }
 
     [Fact]
-    public void Results_ComeInOrder_AndThoseNotTakenAreDisposed()
+    public async Task Results_ComeInOrder_AndThoseNotTakenAreDisposed()
     {
         List<int> disposed = [];
         int started = 0;
@@ -30,17 +30,20 @@ public class OrderedWindowTests
         {
             for (int i = 0; i < 6; i++)
             {
-                using Result result = window.Take(i).GetAwaiter().GetResult();
+                using Result result = await window.Take(i);
                 Assert.Equal(i, result.Item);
             }
+            // The window opens 1, 2, 4 items ahead: items 0 to 8 are on the pool (waited for: one not running yet when
+            // the window is disposed would be canceled, never started).
+            Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref started) == 9, TimeSpan.FromSeconds(10)));
         }
         // Six taken (disposed by the consumer), the rest started ahead disposed by the window, nothing past the window started.
-        Assert.InRange(started, 7, 10);
+        Assert.Equal(9, started);
         Assert.Equal(Enumerable.Range(0, started), disposed.Order());
     }
 
     [Fact]
-    public void TheBudget_LimitsTheItemsAhead_ButTheNextAlwaysStarts()
+    public async Task TheBudget_LimitsTheItemsAhead_ButTheNextAlwaysStarts()
     {
         int running = 0, most = 0;
         using var window = new OrderedWindow<Result>(12, async (i, _) =>
@@ -51,15 +54,15 @@ public class OrderedWindowTests
             Interlocked.Decrement(ref running);
             return new Result(i, []);
         }, window: 8, size: _ => 100, budget: 250);
-        for (int i = 0; i < 12; i++) window.Take(i).GetAwaiter().GetResult().Dispose();
+        for (int i = 0; i < 12; i++) (await window.Take(i)).Dispose();
         Assert.InRange(most, 1, 3);
     }
 
     [Fact]
-    public void TakingAfterDispose_Throws()
+    public async Task TakingAfterDispose_Throws()
     {
         var window = new OrderedWindow<Result>(3, (i, _) => Task.FromResult(new Result(i, [])), 2, _ => 0, 0);
-        window.Take(0).Result.Dispose();
+        (await window.Take(0)).Dispose();
         window.Dispose();
         window.Dispose();
         Assert.Throws<ObjectDisposedException>(() => { _ = window.Take(1); return 0; });

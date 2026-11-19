@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
@@ -329,6 +330,121 @@ public sealed class IpcDatasetTypeTests
         using var parquet = ParquetDataset.Open(Dir("parquet_enum_diff"), new ParquetDatasetOptions { Schema = plain });
         using ParquetDatasetReader reader = parquet.OpenReader();
         Assert.Equal(["\"lo\"", "\"mid\""], ArrowRender.Rows(reader.ReadBatches()));
+    }
+
+    /// <summary>
+    /// Decimals of 32, 64 and 128 bits in one column: united into the decimal holding every file's digits (as wide as
+    /// the widest), refused by the first file's narrower type, read as a given decimal64; in Parquet (whose files read
+    /// as decimal128) as a given decimal64 too.
+    /// </summary>
+    [Fact]
+    public void DecimalsOfEveryWidth_UniteOrReadAsGiven()
+    {
+        (IArrowType Type, decimal?[] Values)[] files =
+        [
+            (new Decimal32Type(9, 2), [1234567.89m, null, -0.01m]),
+            (new Decimal64Type(15, 3), [999_999_999_999.999m, -1.5m]),
+            (new Decimal128Type(10, 2), [-99_999_999.99m, 0m]),
+        ];
+        decimal?[] all = [.. files.SelectMany(f => f.Values)];
+        var given = new Schema([new Field("d", new Decimal64Type(18, 4), true)], null);
+        string root = Directory.CreateTempSubdirectory("seseragi-ipc-decimals-").FullName;
+        try
+        {
+            string ipc = Directory.CreateDirectory(Path.Combine(root, "ipc")).FullName, parquet = Directory.CreateDirectory(Path.Combine(root, "parquet")).FullName;
+            for (int f = 0; f < files.Length; f++)
+            {
+                var schema = new Schema([new Field("d", files[f].Type, true)], null);
+                using (var batch = new RecordBatch(schema, [Decimals(files[f].Type, files[f].Values)], files[f].Values.Length))
+                {
+                    IpcWriter.Write(Path.Combine(ipc, $"f{f}.arrow"), schema, [batch]);
+                    ParquetWriter.Write(Path.Combine(parquet, $"f{f}.parquet"), schema, [batch]);
+                }
+            }
+
+            using (var union = IpcDataset.Open(ipc, new IpcDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName }))
+            {
+                var type = Assert.IsType<Decimal128Type>(union.Schema.FieldsList[0].DataType);
+                Assert.Equal((15, 3), (type.Precision, type.Scale));
+                foreach (IpcReadOptions way in Ways) Assert.Equal(all, ReadIpc(union, way));
+            }
+            Exception refused = Assert.ThrowsAny<Exception>(() =>
+            {
+                using var first = IpcDataset.Open(ipc, new IpcDatasetOptions { SchemaMode = DatasetSchemaMode.FirstFile });
+                ReadIpc(first, Ways[0]);
+            });
+            Assert.Contains("decimal64(15, 3) cannot be read as decimal32(9, 2)", refused.Message);
+            using (var declared = IpcDataset.Open(ipc, new IpcDatasetOptions { Schema = given }))
+            {
+                foreach (IpcReadOptions way in Ways) Assert.Equal(all, ReadIpc(declared, way, given.FieldsList[0].DataType));
+            }
+            using (var declared = ParquetDataset.Open(parquet, new ParquetDatasetOptions { Schema = given }))
+            {
+                using ParquetDatasetReader reader = declared.OpenReader();
+                Assert.Equal(all, Read(reader.ReadBatches(), given.FieldsList[0].DataType));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        static IArrowArray Decimals(IArrowType type, decimal?[] values)
+        {
+            var (width, scale) = type switch
+            {
+                Decimal32Type d => (4, d.Scale),
+                Decimal64Type d => (8, d.Scale),
+                Decimal128Type d => (16, d.Scale),
+                _ => throw new ArgumentException(type.Name),
+            };
+            var bytes = new byte[values.Length * width];
+            var bits = new byte[(values.Length + 7) / 8];
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (values[i] is not { } v) continue;
+                bits[i / 8] |= (byte)(1 << (i % 8));
+                var unscaled = new BigInteger(v * (decimal)Math.Pow(10, scale));
+                Span<byte> slot = bytes.AsSpan(i * width, width);
+                slot.Fill(unscaled.Sign < 0 ? (byte)0xFF : (byte)0);
+                unscaled.TryWriteBytes(slot, out _, isUnsigned: false, isBigEndian: false);
+            }
+            return ArrowArrayFactory.BuildArray(new ArrayData(type, values.Length, values.Count(v => v is null), 0, [new ArrowBuffer(bits), new ArrowBuffer(bytes)]));
+        }
+
+        static List<decimal?> ReadIpc(IpcDataset dataset, IpcReadOptions way, IArrowType? expected = null)
+        {
+            using IpcDatasetReader reader = dataset.OpenReader(way);
+            return Read(reader.ReadBatches(), expected);
+        }
+
+        // The values of every batch read (disposed), each batch of the expected type when one is given.
+        static List<decimal?> Read(IEnumerable<RecordBatch> batches, IArrowType? expected)
+        {
+            List<decimal?> values = [];
+            foreach (RecordBatch batch in batches)
+            {
+                using (batch)
+                {
+                    IArrowArray column = batch.Column(0);
+                    if (expected is not null) Assert.Equal(expected.TypeId, column.Data.DataType.TypeId);
+                    var (width, scale) = column.Data.DataType switch
+                    {
+                        Decimal32Type d => (4, d.Scale),
+                        Decimal64Type d => (8, d.Scale),
+                        Decimal128Type d => (16, d.Scale),
+                        _ => throw new ArgumentException(column.Data.DataType.Name),
+                    };
+                    for (int i = 0; i < column.Length; i++)
+                    {
+                        values.Add(column.IsNull(i) ? null
+                            : (decimal)new BigInteger(column.Data.Buffers[1].Span.Slice((column.Data.Offset + i) * width, width), isUnsigned: false, isBigEndian: false)
+                                / (decimal)Math.Pow(10, scale));
+                    }
+                }
+            }
+            return values;
+        }
     }
 
     /// <summary>

@@ -181,8 +181,8 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
     private readonly int _parallelism = parallelism;
 
     /// <summary>
-    /// Reads the rows, batch by batch (each batch's memory freed once its rows are made). With
-    /// <see cref="ParquetReadOptions.MaxDegreeOfParallelism"/> above 1, up to that many batches are turned into rows at
+    /// Reads the rows, batch by batch (each batch's memory freed once its rows are made). With a degree of parallelism
+    /// (the read options' <c>MaxDegreeOfParallelism</c>) above 1, up to that many batches are turned into rows at
     /// once on the thread pool, ahead of the consumer (the predicate's conjuncts evaluated on the rows run there too);
     /// the rows still come in the file's order, and a failure surfaces after the rows before it, as on one thread.
     /// </summary>

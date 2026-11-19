@@ -17,7 +17,7 @@ public class ParquetFuzzRegressionTests
 {
     private static string Dir(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", name);
 
-    public static TheoryData<string> FuzzFiles => [.. Directory.GetFiles(Dir("parquet-fuzz"), "*.parquet").Select(Path.GetFileName).Order()!];
+    public static TheoryData<string> FuzzFiles => [.. Directory.GetFiles(Dir("parquet-fuzz"), "*.parquet").Select(Path.GetFileName).OfType<string>().Order()];
 
     /// <summary>Every way of reading a found file ends in batches or a format error.</summary>
     [Theory]

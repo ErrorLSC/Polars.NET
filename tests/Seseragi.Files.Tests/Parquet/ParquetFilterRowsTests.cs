@@ -519,7 +519,7 @@ public class ParquetFilterRowsTests
     }
 
     [Fact]
-    public void RowsTheIndexCannotPrune_AreStillReadSparselyByThePageIndex()
+    public async Task RowsTheIndexCannotPrune_AreStillReadSparselyByThePageIndex()
     {
         // A filter statistics cannot decide (a three-way coalesce): every row group is read, the filter's column whole.
         // Only row 1234 is kept: the other columns are read for page 4 of group 1 alone (by the offset index).
@@ -538,8 +538,7 @@ public class ParquetFilterRowsTests
         source.Reads.Clear();
         Assert.Equal(1, reader.ReadBatches().Sum(b => { using (b) return b.Length; }));
         List<(long Offset, int Length)> reads = [.. source.Reads];
-        file.PageIndexes.LoadAsync([.. Enumerable.Range(0, 3).SelectMany(g => Enumerable.Range(0, 7).Select(l => (g, l)))], [], false, default)
-            .AsTask().GetAwaiter().GetResult();
+        await file.PageIndexes.LoadAsync([.. Enumerable.Range(0, 3).SelectMany(g => Enumerable.Range(0, 7).Select(l => (g, l)))], [], false, default);
         List<(long Start, long End)> forbidden = [];
         for (int g = 0; g < 3; g++)
         {
@@ -564,7 +563,7 @@ public class ParquetFilterRowsTests
     [InlineData("Dense")]
     [InlineData("Sparse")]
     [InlineData("Masked")]
-    public void FetchedReads_TakeOnlyWhatEachPhaseNeeds(string way)
+    public async Task FetchedReads_TakeOnlyWhatEachPhaseNeeds(string way)
     {
         var mode = Enum.Parse<LateMaterialization>(way);
         // key = 1234 keeps one row of group 1 (page 24 of key); the other columns are read for that row only when
@@ -587,8 +586,7 @@ public class ParquetFilterRowsTests
         // Data pages other than page 4 of group 1 (rows 1200..1249) of key, cat and f are never read, nor any page of
         // the columns neither selected nor tested (planning reads only footers and indexes).
         List<(long Offset, int Length)> reads = [.. source.Reads];
-        file.PageIndexes.LoadAsync([.. Enumerable.Range(0, 3).SelectMany(g => Enumerable.Range(0, 7).Select(l => (g, l)))], [], false, default)
-            .AsTask().GetAwaiter().GetResult();
+        await file.PageIndexes.LoadAsync([.. Enumerable.Range(0, 3).SelectMany(g => Enumerable.Range(0, 7).Select(l => (g, l)))], [], false, default);
         List<(long Start, long End)> forbidden = [];
         for (int g = 0; g < 3; g++)
         {

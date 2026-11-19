@@ -305,7 +305,7 @@ public sealed class ParquetWriterOwnershipTests
     [Theory]
     [InlineData(8, false)]
     [InlineData(8, true)]
-    public void AFailingStream_FaultsTheWriter_AndEveryBatchIsDisposed(int threads, bool useAsync)
+    public async Task AFailingStream_FaultsTheWriter_AndEveryBatchIsDisposed(int threads, bool useAsync)
     {
         RecordBatch wide = ParquetWriteData.Wide(85, 24_000);
         var tracker = new Tracker();
@@ -318,7 +318,7 @@ public sealed class ParquetWriterOwnershipTests
         {
             foreach (RecordBatch batch in Uneven(wide))
             {
-                if (useAsync) writer.WriteAsync(tracker.Copy(batch)).AsTask().GetAwaiter().GetResult();
+                if (useAsync) await writer.WriteAsync(tracker.Copy(batch));
                 else writer.Write(tracker.Copy(batch));
             }
             writer.Complete();

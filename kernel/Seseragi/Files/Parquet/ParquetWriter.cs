@@ -75,7 +75,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// What a writer derives from its schema and options before the first row (validated as <see cref="Create(Stream, Apache.Arrow.Schema, ParquetWriteOptions?)"/>
+    /// What a writer derives from its schema and options before the first row (validated as <see cref="ParquetWriter.Create(System.IO.Stream, Apache.Arrow.Schema, ParquetWriteOptions)"/>
     /// validates them): one plan serves every file a sink writes with that schema and options, which share their
     /// <see cref="ParquetWriteOptions.SharedBudget"/>.
     /// </summary>

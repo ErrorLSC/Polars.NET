@@ -41,7 +41,7 @@ internal sealed record ArrowConversionError(string Path, string Message, ArrowCo
 /// <remarks>
 /// Lossless: integers into wider integers (unsigned into wider signed too); integers into floats whose mantissa holds
 /// them (8 bits into half, 16 into float, 32 into double); floats into wider floats; decimals into decimals of no
-/// fewer integer digits and no smaller scale; integers into decimals of enough integer digits (3, 5, 10, 19; 20 for
+/// fewer integer digits and no smaller scale (of any width, 32 to 256 bits); integers into decimals of enough integer digits (3, 5, 10, 19; 20 for
 /// unsigned 64-bit); decimals of scale 0 into floats holding their digits; dates into wall-clock timestamps; times,
 /// timestamps and durations into finer units (values beyond the target's range fail when converted); timestamps of
 /// one zone into another (the same instants); nulls (the null type) into anything. Wall-clock timestamps and instants
@@ -85,9 +85,10 @@ internal static class ArrowWidening
             (IntegerType x, FloatingPointType y) => CommonFloat(a, y, lossy),
             (FloatingPointType x, IntegerType y) => CommonFloat(b, x, lossy),
             (FloatingPointType x, FloatingPointType y) => x.Precision >= y.Precision ? a : b,
-            (IntegerType or Decimal128Type or Decimal256Type, IntegerType or Decimal128Type or Decimal256Type) => CommonDecimal(a, b),
-            (Decimal128Type or Decimal256Type, FloatingPointType y) => CommonFloat(a, y, lossy),
-            (FloatingPointType x, Decimal128Type or Decimal256Type) => CommonFloat(b, x, lossy),
+            (IntegerType or Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type,
+                IntegerType or Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type) => CommonDecimal(a, b),
+            (Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type, FloatingPointType y) => CommonFloat(a, y, lossy),
+            (FloatingPointType x, Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type) => CommonFloat(b, x, lossy),
             (Date32Type, TimestampType { Timezone: null or "" }) => b,
             (TimestampType { Timezone: null or "" }, Date32Type) => a,
             (TimestampType x, TimestampType y) when Zoned(x) == Zoned(y) => Rank(y.Unit) > Rank(x.Unit) ? new TimestampType(y.Unit, x.Timezone) : a,
@@ -147,20 +148,20 @@ internal static class ArrowWidening
             case (FloatingPointType f, FloatingPointType t):
                 if (t.Precision > f.Precision) return NumericConversion.Create(from, to);
                 return rules.Lossy ? NumericConversion.Create(from, to) : Refuse(ArrowConversionProblem.Lossy, ref error);
-            case (IntegerType f, Decimal128Type or Decimal256Type):
+            case (IntegerType f, Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type):
             {
                 var (p, s) = ArrowTypes.DecimalParameters(to);
                 if (Digits(f) <= p - s) return new DecimalConversion(from, to);
                 return Refuse(ArrowConversionProblem.Incompatible, ref error);
             }
-            case (Decimal128Type or Decimal256Type, Decimal128Type or Decimal256Type):
+            case (Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type, Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type):
             {
                 var (p1, s1) = ArrowTypes.DecimalParameters(from);
                 var (p2, s2) = ArrowTypes.DecimalParameters(to);
                 if (s2 >= s1 && p2 - s2 >= p1 - s1) return new DecimalConversion(from, to);
                 return Refuse(ArrowConversionProblem.Incompatible, ref error);
             }
-            case (Decimal128Type or Decimal256Type, FloatingPointType t):
+            case (Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type, FloatingPointType t):
             {
                 var (p, s) = ArrowTypes.DecimalParameters(from);
                 if (s == 0 && p <= FloatDigits(t)) return new DecimalToFloatConversion(from, to);
@@ -257,20 +258,34 @@ internal static class ArrowWidening
         return lossy ? DoubleType.Default : null;
     }
 
+    /// <summary>
+    /// The decimal of both scales and both integer digits, as wide as the wider decimal (integers count as 32 bits) or
+    /// wider when its precision needs it (Arrow C++'s rule): decimal32(9, 2) and decimal32(9, 3) unite into
+    /// decimal64(10, 3).
+    /// </summary>
     private static IArrowType? CommonDecimal(IArrowType a, IArrowType b)
     {
-        var (pa, sa) = DecimalOrInteger(a);
-        var (pb, sb) = DecimalOrInteger(b);
+        var (pa, sa, ba) = DecimalOrInteger(a);
+        var (pb, sb, bb) = DecimalOrInteger(b);
         int scale = Math.Max(sa, sb), precision = Math.Max(pa - sa, pb - sb) + scale;
-        return precision switch
+        return (Math.Max(ba, bb), precision) switch
         {
-            <= 38 => new Decimal128Type(precision, scale),
-            <= 76 => new Decimal256Type(precision, scale),
+            (32, <= 9) => new Decimal32Type(precision, scale),
+            (<= 64, <= 18) => new Decimal64Type(precision, scale),
+            (<= 128, <= 38) => new Decimal128Type(precision, scale),
+            (_, <= 76) => new Decimal256Type(precision, scale),
             _ => null,
         };
 
-        static (int Precision, int Scale) DecimalOrInteger(IArrowType type) =>
-            type is IntegerType i ? (Digits(i), 0) : ArrowTypes.DecimalParameters(type);
+        static (int Precision, int Scale, int Bits) DecimalOrInteger(IArrowType type) => type switch
+        {
+            IntegerType i => (Digits(i), 0, 32),
+            Decimal32Type d => (d.Precision, d.Scale, 32),
+            Decimal64Type d => (d.Precision, d.Scale, 64),
+            Decimal128Type d => (d.Precision, d.Scale, 128),
+            Decimal256Type d => (d.Precision, d.Scale, 256),
+            _ => throw new ArgumentException($"{type.Name} is no integer or decimal type.", nameof(type)),
+        };
     }
 
     private static StructType? CommonStruct(StructType a, StructType b, bool lossy)
@@ -292,7 +307,6 @@ internal static class ArrowWidening
 
     // ---- type facts -----------------------------------------------------------------------------------------------
 
-    /// <summary>Whether both are strings, or both binaries, in the plain or view layout.</summary>
     /// <summary>The element type of a list of any layout.</summary>
     internal static IArrowType ListElement(IArrowType list) => list switch
     {
@@ -324,6 +338,7 @@ internal static class ArrowWidening
         };
     }
 
+    /// <summary>Whether both are strings, or both binaries, in the plain or view layout.</summary>
     private static bool SameFamily(IArrowType a, IArrowType b) =>
         a is StringType or LargeStringType or StringViewType && b is StringType or LargeStringType or StringViewType
         || a is BinaryType or LargeBinaryType or BinaryViewType && b is BinaryType or LargeBinaryType or BinaryViewType;

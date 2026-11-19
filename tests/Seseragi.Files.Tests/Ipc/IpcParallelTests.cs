@@ -215,14 +215,15 @@ public class IpcParallelTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void DisposingAReaderWhoseStreamBlocks_DoesNotWait(bool leaveOpen)
+    public async Task DisposingAReaderWhoseStreamBlocks_DoesNotWait(bool leaveOpen)
     {
         byte[] bytes = ManyBatchesStream();
         using var blocking = new Blocking(bytes[..(bytes.Length / 6)]); // a couple of batches, then a read that blocks
         var reader = IpcStreamReader.Open(blocking, Many, leaveOpen);
         reader.ReadNext()!.Dispose();
         Assert.True(blocking.Blocked.Wait(TimeSpan.FromSeconds(10)), "the reader never blocked in a read");
-        Assert.True(Task.Run(reader.Dispose).Wait(TimeSpan.FromSeconds(10)), "Dispose waited for a blocked read");
+        Task disposing = Task.Run(reader.Dispose);
+        Assert.True(await Task.WhenAny(disposing, Task.Delay(TimeSpan.FromSeconds(10))) == disposing, "Dispose waited for a blocked read");
         blocking.Release();
     }
 
