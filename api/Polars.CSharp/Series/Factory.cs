@@ -92,7 +92,7 @@ public partial class Series : IDisposable
     /// Create a Series from a list of objects, primitives, or nested lists.
     /// Uses SeriesFactory to automatically select the fastest path (SIMD for Arrays, Reflection for Lists).
     /// </summary>
-    public static Series From<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data)
+    public static Series From<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data)
     {
         var handle = SeriesFactory.CreateGenericType(name, data);
 

@@ -12,7 +12,7 @@ public class NullNameTests
     [Fact]
     public void NullNames_AreRefusedBeforeTheEngine()
     {
-        string? none = null;
+        string none = null;
         Assert.Throws<ArgumentNullException>(() => { IntoSelector _ = none!; });
         Assert.Throws<ArgumentNullException>(() => { IntoExprColumn _ = none!; });
         Assert.Throws<ArgumentNullException>(() => Pl.Col(none!));
@@ -26,7 +26,7 @@ public class NullNameTests
         // The way it used to be met: a conditional partition column whose "none" branch was a null string.
         string dir = Path.Combine(Path.GetTempPath(), $"nullpart-{Guid.NewGuid():N}");
         using var df = DataFrame.From<Row>([new(1), new(2)]);
-        string? partition = null;
+        string partition = null;
         Assert.Throws<ArgumentNullException>(() => df.Lazy().SinkDelta(dir, partitionBy: partition!));
         Assert.False(Directory.Exists(dir));
     }

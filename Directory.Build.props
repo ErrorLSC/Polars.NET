@@ -19,8 +19,9 @@
     <AdditionalFiles Include="$(RepoRoot)BannedSymbols.txt" />
   </ItemGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
-    <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
+  <!-- Every warning is an error, in every project (C# and F#, the banned APIs' RS0030 included): the build stays clean. -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.fsproj'">

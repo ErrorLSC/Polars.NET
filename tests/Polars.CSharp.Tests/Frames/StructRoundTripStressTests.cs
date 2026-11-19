@@ -6,15 +6,15 @@ namespace Polars.CSharp.Tests;
 /// </summary>
 public class StructRoundTripStressTests
 {
-    public sealed record Leaf(int A, string? B, Int128 Big);
+    public sealed record Leaf(int A, string B, Int128 Big);
 
-    public sealed record Branch(Leaf? One, List<Leaf?>? Many, Dictionary<string, Leaf?>? ByName);
+    public sealed record Branch(Leaf One, List<Leaf> Many, Dictionary<string, Leaf> ByName);
 
-    public sealed record Tree(long Id, Branch? Branch, List<Branch?>? Branches);
+    public sealed record Tree(long Id, Branch Branch, List<Branch> Branches);
 
     private static Tree[] Trees(int count) => [.. Enumerable.Range(0, count).Select(i => new Tree(i,
         i % 5 == 0 ? null : new Branch(new Leaf(i, i % 3 == 0 ? null : $"b{i}", (Int128)i << 90), [new Leaf(-i, "m", -i), null],
-            i % 4 == 0 ? null : new Dictionary<string, Leaf?> { ["k"] = new Leaf(i, "v", i), ["z"] = null }),
+            i % 4 == 0 ? null : new Dictionary<string, Leaf> { ["k"] = new Leaf(i, "v", i), ["z"] = null }),
         i % 7 == 0 ? null : [null, new Branch(new Leaf(i, null, 0), null, null)]))]; // an all-null record reads back as null (the row mapper folds it)
 
     [Fact]
@@ -43,8 +43,8 @@ public class StructRoundTripStressTests
     private static string Show(Tree[] trees) => string.Join("\n", trees.Select(t =>
         $"{t.Id}|{Show(t.Branch)}|{(t.Branches is null ? "null" : string.Join(";", t.Branches.Select(Show)))}"));
 
-    private static string Show(Branch? b) => b is null ? "null"
+    private static string Show(Branch b) => b is null ? "null"
         : $"{Show(b.One)}/{(b.Many is null ? "null" : string.Join(",", b.Many.Select(Show)))}/{(b.ByName is null ? "null" : string.Join(",", b.ByName.OrderBy(e => e.Key).Select(e => e.Key + "=" + Show(e.Value))))}";
 
-    private static string Show(Leaf? l) => l is null ? "null" : $"{l.A}:{l.B ?? "~"}:{l.Big}";
+    private static string Show(Leaf l) => l is null ? "null" : $"{l.A}:{l.B ?? "~"}:{l.Big}";
 }

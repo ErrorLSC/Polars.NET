@@ -52,8 +52,6 @@ static string Corpus(string? given)
     throw new DirectoryNotFoundException("No corpus: pass the TestData/parquet directory.");
 }
 
-static string[] CorpusFiles(string dir) => Parent.CorpusFilesOf(dir);
-
 static int Worker(long seed, long first, int count, string corpus)
 {
     GuardedMemory.Enabled = true;

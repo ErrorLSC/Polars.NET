@@ -112,6 +112,14 @@ public sealed unsafe class ArrowImportFromEngineTests
         if (expected.Dictionary is not null) AssertSame(expected.Dictionary, actual.Dictionary!, $"{where}.dictionary");
     }
 
+    /// <summary>The next batch of the engine's C stream, which is read synchronously (an unsafe class cannot await).</summary>
+    private static RecordBatch? ReadNext(IArrowArrayStream stream)
+    {
+        ValueTask<RecordBatch?> next = stream.ReadNextRecordBatchAsync();
+        Assert.True(next.IsCompleted);
+        return next.GetAwaiter().GetResult();
+    }
+
     [Fact]
     public void TheEnginesStream_ReadsAsItsFrame()
     {
@@ -119,7 +127,7 @@ public sealed unsafe class ArrowImportFromEngineTests
         using RecordBatch whole = ArrowFfiBridge.ExportDataFrame(Handle(df));
         using IArrowArrayStream stream = ArrowStreamInterop.ExportToStream(Handle(df));
         int rows = 0;
-        while (stream.ReadNextRecordBatchAsync().AsTask().Result is { } batch)
+        while (ReadNext(stream) is { } batch)
         {
             using (batch)
             {

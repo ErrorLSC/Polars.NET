@@ -362,7 +362,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
         {
             string table = Table($"non_finite_{sink}_{column}");
             Sink(sink, () => rows.WriteDelta(table, partitionBy: column));
-            string?[] values = [.. Adds(table).Select(a => a.GetProperty("partitionValues").GetProperty(column).GetString()).Distinct().OrderBy(v => v, StringComparer.Ordinal)];
+            List<string?> values = [.. Adds(table).Select(a => a.GetProperty("partitionValues").GetProperty(column).GetString()).Distinct().OrderBy(v => v, StringComparer.Ordinal)];
             Assert.Equal([null, "-Infinity", "1.5", "Infinity", "NaN"], values);
             Assert.True(Directory.Exists(Path.Combine(table, $"{column}=NaN")) && Directory.Exists(Path.Combine(table, $"{column}=-Infinity")), "the directories");
             // Read back as written: the NaNs and infinities are values again, the nulls null.

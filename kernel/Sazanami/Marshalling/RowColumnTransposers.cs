@@ -19,7 +19,7 @@ public interface IColumnSink<TColumn> where TColumn : class
     TColumn? CreateFromSpan<T>(string name, ReadOnlySpan<T> data);
 
     /// <summary>Builds a column of any supported element type.</summary>
-    TColumn CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data);
+    TColumn CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data);
 }
 
 /// <summary>
@@ -36,7 +36,7 @@ public interface IColumnBuffer
 /// Hands the sink a span of the buffer to avoid memory duplication.
 /// </summary>
 /// <typeparam name="T">The scalar or nullable element type.</typeparam>
-internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(int capacity) : IColumnBuffer
+internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(int capacity) : IColumnBuffer
 {
     private T?[] _buffer = capacity > 0 ? new T?[capacity] : [];
     private int _count = 0;
@@ -86,7 +86,7 @@ internal sealed class ColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccess
 /// <summary>
 /// Fallback buffer for complex nested or non-primitive types.
 /// </summary>
-internal sealed class StructColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(int capacity) : IColumnBuffer
+internal sealed class StructColumnBuffer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(int capacity) : IColumnBuffer
 {
     private readonly List<T?> _items = new(capacity);
 
@@ -99,7 +99,7 @@ internal sealed class StructColumnBuffer<[DynamicallyAccessedMembers(Dynamically
     {
         if (_items.Count == 0)
         {
-            return sink.CreateGeneric(name, Array.Empty<T>());
+            return sink.CreateGeneric<T>(name, []);
         }
 
         return sink.CreateGeneric(name, _items);
@@ -119,7 +119,7 @@ internal static class ColumnBufferFactory
         if (ClrTypeHelper.IsSupportedSimpleType(propType))
         {
             Type targetType = ClrTypeHelper.EnsureNullable(propType);
-            return SimpleFactories.GetOrAdd(targetType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] t) =>
+            return SimpleFactories.GetOrAdd(targetType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] t) =>
             {
                 var constructed = typeof(ColumnBuffer<>).MakeGenericType(t);
                 var ctor = constructed.GetConstructor([typeof(int)])!;
@@ -128,7 +128,7 @@ internal static class ColumnBufferFactory
             })(capacity);
         }
 
-        return StructFactories.GetOrAdd(propType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] t) =>
+        return StructFactories.GetOrAdd(propType, static ([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] t) =>
         {
             var constructed = typeof(StructColumnBuffer<>).MakeGenericType(t);
             var ctor = constructed.GetConstructor([typeof(int)])!;

@@ -27,9 +27,9 @@ public class GuidRowsTests
         }
     }
 
-    public sealed record DictRow(int Id, Dictionary<string, int> Map, IReadOnlyDictionary<int, string>? Maybe);
+    public sealed record DictRow(int Id, Dictionary<string, int> Map, IReadOnlyDictionary<int, string> Maybe);
 
     public sealed record GuidHolder(Guid Inner);
 
-    public sealed record GuidRow(Guid Id, Guid? Maybe, GuidHolder? Nested);
+    public sealed record GuidRow(Guid Id, Guid? Maybe, GuidHolder Nested);
 }

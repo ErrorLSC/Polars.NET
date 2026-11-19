@@ -24,7 +24,7 @@ public sealed class SeriesHandleSink : IColumnSink<SeriesHandle>
         return handle?.IsInvalid == false ? handle : null;
     }
 
-    public SeriesHandle CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data) =>
+    public SeriesHandle CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data) =>
         SeriesFactory.CreateGenericType(name, data);
 }
 

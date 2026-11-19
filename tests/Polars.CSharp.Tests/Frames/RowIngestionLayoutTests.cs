@@ -6,7 +6,7 @@ namespace Polars.CSharp.Tests;
 /// </summary>
 public class RowIngestionLayoutTests
 {
-    public sealed record Wide(Int128 Big, UInt128? UBig, byte[]? Blob, decimal Price, Holder? Nested);
+    public sealed record Wide(Int128 Big, UInt128? UBig, byte[] Blob, decimal Price, Holder Nested);
 
     public sealed record Holder(Int128 Inner, List<UInt128> Many);
 
@@ -47,7 +47,7 @@ public class RowIngestionLayoutTests
         }
     }
 
-    public sealed record Plain(byte[]? Blob, decimal Price);
+    public sealed record Plain(byte[] Blob, decimal Price);
 
     [Fact]
     public void WideIntegers_ThroughStreams()
@@ -67,9 +67,9 @@ public class RowIngestionLayoutTests
     [Fact]
     public void Objects_AreReadAsTheirClass_OrTheirText()
     {
-        using var records = Series.From("s", new object?[] { new Plain([1], 1m), null, new Plain(null, 2m) });
+        using var records = Series.From("s", (object[])[new Plain([1], 1m), null, new Plain(null, 2m)]);
         Assert.StartsWith("struct", records.DataType.ToString());
-        using var mixed = Series.From("s", new object?[] { new Plain([1], 1m), "text", 3 });
+        using var mixed = Series.From("s", (object[])[new Plain([1], 1m), "text", 3]);
         Assert.Equal("str", mixed.DataType.ToString());
     }
 

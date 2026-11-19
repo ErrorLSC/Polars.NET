@@ -44,7 +44,7 @@ public sealed class FileSystemStoreTests : IDisposable
     }
 
     [Fact]
-    public void ADatasetBelowTheRoot_IsListedAndRead()
+    public async Task ADatasetBelowTheRoot_IsListedAndRead()
     {
         var fs = new LocalFileSystem(_dir);
         fs.Overwrite("data/a b.parquet", File(0, 100));
@@ -61,8 +61,8 @@ public sealed class FileSystemStoreTests : IDisposable
         using var one = ParquetDataset.Open($"{Root}/data/sub/c%20d.parquet", new ParquetDatasetOptions { Store = store });
         Assert.Equal(100, Ids(one).Count);
         Assert.Throws<ArgumentException>(() => ParquetDataset.Open("mem://other/x.parquet", new ParquetDatasetOptions { Store = store }));
-        Assert.Null(store.StatAsync($"{Root}/data/missing.parquet").AsTask().Result);
-        Assert.Equal(new FileInfo(Path.Combine(_dir, "data", "a b.parquet")).Length, store.StatAsync($"{Root}/data/a b.parquet").AsTask().Result!.Value.Size);
+        Assert.Null(await store.StatAsync($"{Root}/data/missing.parquet"));
+        Assert.Equal(new FileInfo(Path.Combine(_dir, "data", "a b.parquet")).Length, (await store.StatAsync($"{Root}/data/a b.parquet"))!.Value.Size);
     }
 
     [Fact]

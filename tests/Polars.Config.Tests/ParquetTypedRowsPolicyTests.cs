@@ -103,7 +103,7 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
     /// rows before it, as on one thread.
     /// </summary>
     [Fact]
-    public void ConjunctsOnTheRows_UnderParallelHydration_KeepTheOrder_TheLimit_AndTheRowsBeforeAFailure()
+    public async Task ConjunctsOnTheRows_UnderParallelHydration_KeepTheOrder_TheLimit_AndTheRowsBeforeAFailure()
     {
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
         {
@@ -117,7 +117,7 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
                 Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123), reader.ReadRowsAsync().ToBlockingEnumerable());
             Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123), ParquetFile.ReadList<Row>(_path, r => Odd(r.Id), options with { MaxRows = 123 }));
             Assert.Equal(_rows.Where(r => Odd(r.Id)).Take(123),
-                ParquetFile.ReadListAsync<Row>(_path, r => Odd(r.Id), options with { MaxRows = 123 }).GetAwaiter().GetResult());
+                await ParquetFile.ReadListAsync<Row>(_path, r => Odd(r.Id), options with { MaxRows = 123 }));
             Assert.Equal("537", Assert.Throws<InvalidOperationException>(() => ParquetFile.ReadList<Row>(_path, r => FailsAt537(r.Id), options)).Message);
             foreach (int parallelism in (int[])[1, 8])
             {

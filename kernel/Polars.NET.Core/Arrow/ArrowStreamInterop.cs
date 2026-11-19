@@ -28,7 +28,7 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Perpare lazy scan context，then return GCHandle pointed to context.
     /// </summary>
-    public static void* CreateScanContext<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(IEnumerable<T> data, int batchSize, Schema schema)
+    public static void* CreateScanContext<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data, int batchSize, Schema schema)
     {
         var context = new ScanContext
         {

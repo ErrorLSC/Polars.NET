@@ -15,7 +15,9 @@ internal sealed class XlsbBuilder
     private readonly List<(int Id, string Code)> _formats = [];
     private readonly List<int> _xfFormats = [0];
     private bool _date1904;
-    private MemoryStream? _current;
+
+    /// <summary>The sheet being written: the last one started.</summary>
+    private MemoryStream Current => _sheets[^1].Sheet;
 
     public XlsbBuilder Date1904()
     {
@@ -23,12 +25,18 @@ internal sealed class XlsbBuilder
         return this;
     }
 
-    /// <summary>A cell format with a number format (a built-in id, or a custom code given an id ≥ 164); returns its index.</summary>
-    public int Style(int formatId, string? code = null)
+    /// <summary>A cell format with a built-in number format; returns its index.</summary>
+    public int Style(int formatId)
     {
-        if (code is not null) _formats.Add((formatId, code));
         _xfFormats.Add(formatId);
         return _xfFormats.Count - 1;
+    }
+
+    /// <summary>A cell format with a custom number format <paramref name="code"/> of id <paramref name="formatId"/> (≥ 164).</summary>
+    public int Style(int formatId, string code)
+    {
+        _formats.Add((formatId, code));
+        return Style(formatId);
     }
 
     public int SharedString(string s)
@@ -40,11 +48,10 @@ internal sealed class XlsbBuilder
     /// <summary>Starts a sheet (state 0 visible, 1 hidden, 2 very hidden) with a dimension record and BrtBeginSheetData.</summary>
     public XlsbBuilder Sheet(string name, int state = 0)
     {
-        _current = new MemoryStream();
-        _sheets.Add((name, state, _current, []));
-        Record(_current, 129, []);                                        // BrtBeginSheet
-        Record(_current, 148, [.. I32(0), .. I32(0), .. I32(0), .. I32(0)]); // BrtWsDim
-        Record(_current, 145, []);                                        // BrtBeginSheetData
+        _sheets.Add((name, state, new MemoryStream(), []));
+        Record(Current, 129, []);                                        // BrtBeginSheet
+        Record(Current, 148, [.. I32(0), .. I32(0), .. I32(0), .. I32(0)]); // BrtWsDim
+        Record(Current, 145, []);                                        // BrtBeginSheetData
         return this;
     }
 
@@ -84,14 +91,14 @@ internal sealed class XlsbBuilder
     /// <summary>Any record (unknown ones included) in the current sheet.</summary>
     public XlsbBuilder Raw(int type, byte[] data)
     {
-        Record(_current!, type, data);
+        Record(Current, type, data);
         return this;
     }
 
     /// <summary>Raw bytes (malformed records).</summary>
     public XlsbBuilder Bytes(params byte[] bytes)
     {
-        _current!.Write(bytes);
+        Current.Write(bytes);
         return this;
     }
 
@@ -112,10 +119,9 @@ internal sealed class XlsbBuilder
     {
         if (close)
         {
-            Record(_current!, 146, []);
-            Record(_current!, 130, []);
+            Record(Current, 146, []);
+            Record(Current, 130, []);
         }
-        _current = null;
         return this;
     }
 

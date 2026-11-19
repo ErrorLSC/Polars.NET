@@ -50,7 +50,7 @@ public static class SeriesFactory
     /// <summary>
     /// Generic type entry for Series create
     /// </summary>
-    public static SeriesHandle CreateGenericType<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(string name, IEnumerable<T> data)
+    public static SeriesHandle CreateGenericType<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data)
     {
         // 1. Array fast path 
         if (data is T[] array)
@@ -72,7 +72,7 @@ public static class SeriesFactory
         else if (data is Array arr && arr.Rank > 1)
         {
             // Not Create(string, Array): an array of rank 2 never takes its run-time generic path (enums are rank 1).
-            var fixedHandle = CreateFixedArray(name, arr) ?? CreateFromArrowViaReflection(name, arr);
+            var fixedHandle = CreateFixedArray(name, arr) ?? throw MultiDimensional(arr);
             if (fixedHandle != null && !fixedHandle.IsInvalid)
             {
                 return fixedHandle;
@@ -750,13 +750,10 @@ public static class SeriesFactory
     }
 
     // --- Helpers ---
+    [RequiresDynamicCode("Arrays of element types only known at run time (enums, nested types) build generic code; with native AOT, use the typed overloads.")]
     private static SeriesHandle CreateFromArrowViaReflection(string name, Array array)
     {
-        if (array.Rank != 1)
-        {
-            throw new NotSupportedException(
-                $"Multi-dimensional arrays are only supported for numeric element types, not '{array.GetType()}'.");
-        }
+        if (array.Rank != 1) throw MultiDimensional(array);
 
         // The column builder of the runtime element type (reflection).
         Type elementType = array.GetType().GetElementType()!;
@@ -771,6 +768,9 @@ public static class SeriesFactory
         }
     }
 
+    private static NotSupportedException MultiDimensional(Array array) =>
+        new($"Multi-dimensional arrays are only supported for numeric element types, not '{array.GetType()}'.");
+
     private static readonly MethodInfo FromColumnBuilderDef =
         typeof(SeriesFactory).GetMethod(nameof(FromColumnBuilder), BindingFlags.NonPublic | BindingFlags.Static)!;
 
@@ -779,12 +779,14 @@ public static class SeriesFactory
     /// <summary>
     /// The values as one Arrow array built in native memory (Sazanami's column builder), imported as a Series. Objects
     /// whose first non-null value is a class (not a string) are read as that class (a struct column) when they all are;
-    /// other objects as their text.
+    /// other objects as their text (always under native AOT, which cannot make the class's builder at run time).
     /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2060", Justification = "Objects are read as their run-time class as before: reflection by design.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Guarded by RuntimeFeature.IsDynamicCodeSupported, which the analyzer of a net8.0 target does not see as a guard.")]
     private static SeriesHandle FromColumnBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data)
     {
-        if (typeof(T) == typeof(object) && data.FirstOrDefault(static v => v is not null)?.GetType() is { IsClass: true } runtime && runtime != typeof(string))
+        if (RuntimeFeature.IsDynamicCodeSupported && typeof(T) == typeof(object)
+            && data.FirstOrDefault(static v => v is not null)?.GetType() is { IsClass: true } runtime && runtime != typeof(string))
         {
             try
             {

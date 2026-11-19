@@ -55,7 +55,7 @@ public class ParquetManagedPipelineTests
     {
         private readonly IEnumerator<RecordBatch> _batches = batches.GetEnumerator();
         public Apache.Arrow.Schema Schema => schema;
-        public ValueTask<RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default) =>
+        public ValueTask<RecordBatch> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(_batches.MoveNext() ? _batches.Current : null);
         public void Dispose() => _batches.Dispose();
     }
