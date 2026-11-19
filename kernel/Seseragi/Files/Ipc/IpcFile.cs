@@ -16,6 +16,12 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     private const int TailLength = 10; // footer length + magic
     private const int HeadLength = 8;  // magic + padding
 
+    /// <summary>
+    /// The bytes read from the end of a file on a store (not a local file or memory) when it opens: the footer comes in
+    /// the same request unless it is larger.
+    /// </summary>
+    internal const int TailGuess = 64 * 1024;
+
     private readonly IDisposable? _owned;
 
     private IpcFile(IRandomAccess source, IDisposable? owned, IpcFooter footer, long footerStart)
@@ -96,6 +102,19 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         ArgumentOutOfRangeException.ThrowIfNegative(index);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, BatchCount);
         return ToDictionary(IpcIO.Sync(IpcIO.MessageAsync(Source, Footer.RecordBatches[index], false, default)).Metadata);
+    }
+
+    /// <summary>The rows of the file's record batches (their messages read: a request each on a store).</summary>
+    internal async ValueTask<long> RowCountAsync(bool useAsync, CancellationToken ct)
+    {
+        long rows = 0;
+        for (int i = 0; i < BatchCount; i++)
+        {
+            IpcMessage message = await IpcIO.MessageAsync(Source, Footer.RecordBatches[i], useAsync, ct).ConfigureAwait(false);
+            rows += message.RecordBatch?.Length
+                ?? throw new IpcFormatException($"Arrow IPC footer block {i} of the record batches holds a {message.Kind} message.");
+        }
+        return rows;
     }
 
     private static IReadOnlyDictionary<string, string> ToDictionary(IReadOnlyList<KeyValuePair<string, string>>? pairs)
@@ -187,41 +206,91 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
         }
     }
 
-    private static async ValueTask<IpcFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct)
+    /// <summary>
+    /// Opens a file of a source it then owns (disposed with it, or here when opening fails), as a dataset does: with its
+    /// footer's bytes when they were kept from before (nothing read), else handing the bytes read to
+    /// <paramref name="footerRead"/>.
+    /// </summary>
+    internal static async ValueTask<IpcFile> OpenOwnedAsync(IRandomAccess source, ReadOnlyMemory<byte>? footer, FooterRead? footerRead, bool useAsync,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await OpenCoreAsync(source, source as IDisposable, useAsync, ct, footer, footerRead).ConfigureAwait(false);
+        }
+        catch
+        {
+            (source as IDisposable)?.Dispose();
+            throw;
+        }
+    }
+
+    private static async ValueTask<IpcFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct,
+        ReadOnlyMemory<byte>? kept = null, FooterRead? footerRead = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         long length = source.Length;
-        nint tail = IpcIO.Alloc(TailLength);
-        int footerLength;
-        try
+        IpcFooter parsed;
+        long footerStart;
+        if (kept is { } known)
+        {
+            footerStart = length - TailLength - known.Length;
+            if (known.Length == 0 || footerStart < HeadLength)
+                throw new IpcFormatException($"The Arrow IPC footer kept ({known.Length} bytes) does not fit the {length}-byte file.");
+            parsed = Parse(known.Span);
+        }
+        else
         {
             if (length < HeadLength + TailLength) throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
-            await IpcIO.ReadAsync(source, length - TailLength, tail, TailLength, useAsync, ct).ConfigureAwait(false);
-            if (!IpcIO.Bytes(tail, TailLength)[4..].SequenceEqual(IpcFraming.FileMagic)) throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
-            footerLength = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(IpcIO.Bytes(tail, 4));
+            // On a store, one request for the tail and (most often) the footer; locally, the tail then the footer.
+            int guess = source is ILocalSource ? TailLength : (int)Math.Min(length, TailGuess);
+            nint tail = IpcIO.Alloc(guess);
+            try
+            {
+                await IpcIO.ReadAsync(source, length - guess, tail, guess, useAsync, ct).ConfigureAwait(false);
+                ReadOnlySpan<byte> end = IpcIO.Bytes(tail + guess - TailLength, TailLength);
+                if (!end[4..].SequenceEqual(IpcFraming.FileMagic)) throw await NotAFileAsync(source, length, useAsync, ct).ConfigureAwait(false);
+                int footerLength = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(end);
+                footerStart = length - TailLength - footerLength;
+                if (footerLength <= 0 || footerStart < HeadLength)
+                    throw new IpcFormatException($"The Arrow IPC footer length ({footerLength} bytes) does not fit the {length}-byte file.");
+                if (footerLength <= guess - TailLength)
+                {
+                    ReadOnlySpan<byte> bytes = IpcIO.Bytes(tail + guess - TailLength - footerLength, footerLength);
+                    footerRead?.Invoke(bytes);
+                    parsed = Parse(bytes);
+                }
+                else
+                {
+                    nint footer = IpcIO.Alloc(footerLength);
+                    try
+                    {
+                        await IpcIO.ReadAsync(source, footerStart, footer, footerLength, useAsync, ct).ConfigureAwait(false);
+                        footerRead?.Invoke(IpcIO.Bytes(footer, footerLength));
+                        parsed = Parse(IpcIO.Bytes(footer, footerLength));
+                    }
+                    finally
+                    {
+                        IpcIO.Free(footer);
+                    }
+                }
+            }
+            finally
+            {
+                IpcIO.Free(tail);
+            }
         }
-        finally
-        {
-            IpcIO.Free(tail);
-        }
-        long footerStart = length - TailLength - footerLength;
-        if (footerLength <= 0 || footerStart < HeadLength)
-            throw new IpcFormatException($"The Arrow IPC footer length ({footerLength} bytes) does not fit the {length}-byte file.");
 
-        nint footer = IpcIO.Alloc(footerLength);
-        IpcFooter parsed;
-        try
+        static IpcFooter Parse(ReadOnlySpan<byte> footer)
         {
-            await IpcIO.ReadAsync(source, footerStart, footer, footerLength, useAsync, ct).ConfigureAwait(false);
-            parsed = IpcMetadata.ParseFooter(IpcIO.Bytes(footer, footerLength));
-        }
-        catch (InvalidDataException e)
-        {
-            throw IpcIO.Format(e);
-        }
-        finally
-        {
-            IpcIO.Free(footer);
+            try
+            {
+                return IpcMetadata.ParseFooter(footer);
+            }
+            catch (InvalidDataException e)
+            {
+                throw IpcIO.Format(e);
+            }
         }
         foreach (IpcBlock block in (IpcBlock[])[.. parsed.Dictionaries, .. parsed.RecordBatches])
         {

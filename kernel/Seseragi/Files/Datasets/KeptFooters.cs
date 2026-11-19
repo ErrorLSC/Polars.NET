@@ -1,13 +1,13 @@
 using Kaminari.Seseragi.Files.IO;
-using Kaminari.Seseragi.Files.Parquet.Schema;
 
-namespace Kaminari.Seseragi.Files.Parquet;
+namespace Kaminari.Seseragi.Files;
 
-/// <summary>Receives a footer's Thrift bytes while a file opens (valid only during the call).</summary>
+/// <summary>Receives a footer's bytes while a file opens (valid only during the call).</summary>
 internal delegate void FooterRead(ReadOnlySpan<byte> footer);
 
 /// <summary>
-/// The footers a dataset keeps between reads, as their Thrift bytes, parsed again when a file is opened again. Only
+/// The footers a dataset keeps between reads, as their bytes (a format's: Parquet's Thrift, Arrow IPC's FlatBuffer),
+/// parsed again by the format when a file is opened again. Only
 /// footers whose reading costs a request of its own are kept: those of files on a store (not a local file or memory:
 /// reading a tail there costs microseconds, and later reads then see the files as they are) larger than the first read
 /// of a file's tail (a smaller file comes whole in that read, data included). The bytes are copied into chunks of
@@ -37,8 +37,11 @@ internal sealed class KeptFooters(int files)
     /// <summary>The number of footers kept.</summary>
     internal int Count { get; private set; }
 
-    /// <summary>Whether a footer read from <paramref name="source"/> is worth keeping (see the class remarks).</summary>
-    internal static bool Worth(IRandomAccess source) => source is not ILocalSource && source.Length > ParquetMetadata.TailGuess;
+    /// <summary>
+    /// Whether a footer read from <paramref name="source"/> is worth keeping (see the class remarks), the format reading
+    /// <paramref name="tailGuess"/> bytes of a file's tail first.
+    /// </summary>
+    internal static bool Worth(IRandomAccess source, long tailGuess) => source is not ILocalSource && source.Length > tailGuess;
 
     /// <summary>
     /// Keeps the footer of file <paramref name="index"/> unless one is kept already or the limit is reached, with the
@@ -80,17 +83,14 @@ internal sealed class KeptFooters(int files)
         lock (_lock) return _versions[index];
     }
 
-    /// <summary>The footer of file <paramref name="index"/> parsed again (sharing with <paramref name="interner"/>), or null when none is kept.</summary>
-    internal ParquetMetadata? Get(int index, FooterInterner? interner = null)
+    /// <summary>The footer bytes of file <paramref name="index"/> (never changed once kept), or null when none is kept.</summary>
+    internal ReadOnlyMemory<byte>? Get(int index)
     {
-        byte[] chunk;
-        int offset, length;
         lock (_lock)
         {
-            (int c, offset, length) = _slots[index];
-            if (length == 0) return null;
-            chunk = _chunks[c];
+            var (c, offset, length) = _slots[index];
+            if (length == 0) return null; // not "length == 0 ? null : memory": null would become an empty Memory, not "none"
+            return _chunks[c].AsMemory(offset, length);
         }
-        return ParquetMetadata.ParseFooter(chunk.AsSpan(offset, length), interner);
     }
 }

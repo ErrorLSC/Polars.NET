@@ -45,6 +45,15 @@ public sealed record IpcReadOptions
     public bool FilterRows { get; init; }
 
     /// <summary>
+    /// The name of an Int64 column put first in the batches, numbering each row from 0 in the order of the data (before
+    /// any filter: a row keeps its number); null adds none. A dataset numbers rows across its files.
+    /// </summary>
+    public string? RowIndexColumn { get; init; }
+
+    /// <summary>Added to the numbers in <see cref="RowIndexColumn"/> (a dataset numbers rows across its files).</summary>
+    internal long RowIndexOffset { get; init; }
+
+    /// <summary>
     /// How many threads decode at once (all cores by default; 1 reads on the calling thread). Several batches are read
     /// and decoded side by side, ahead of the consumer, and the compressed buffers of a large batch are decompressed
     /// side by side; batches still come in order. An <see cref="IpcStreamReader"/> above 1 reads the stream ahead on a
@@ -64,6 +73,7 @@ public sealed record IpcReadOptions
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");
         if (MaxRows is < 0) throw new ArgumentOutOfRangeException(nameof(MaxRows), MaxRows, "The row limit is negative.");
         if (!Enum.IsDefined(MemoryMap)) throw new ArgumentOutOfRangeException(nameof(MemoryMap), MemoryMap, "Unknown memory map mode.");
+        if (RowIndexColumn is "") throw new ArgumentException("The row index column needs a name.", nameof(RowIndexColumn));
     }
 }
 

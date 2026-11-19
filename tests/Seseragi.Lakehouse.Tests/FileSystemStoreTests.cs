@@ -1,3 +1,4 @@
+using Kaminari.Seseragi.Files;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.IO;

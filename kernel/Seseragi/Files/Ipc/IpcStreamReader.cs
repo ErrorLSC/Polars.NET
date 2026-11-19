@@ -35,6 +35,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     private readonly IpcDecoding _decoding;
     private readonly IpcDictionaries _dictionaries = new();
     private long _left;
+    private long _next; // the rows of the batches delivered or passed over (the row index of the next)
     private bool _ended;
     private bool _disposed;
 
@@ -57,7 +58,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>The schema of the batches (the selected columns), with the schema's custom metadata.</summary>
-    public Schema Schema => _decoding.Schema;
+    public Schema Schema => _decoding.OutputSchema;
 
     /// <inheritdoc cref="IpcReader.FiltersExactly"/>
     public bool FiltersExactly => _decoding.FiltersExactly;
@@ -168,7 +169,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
             }
             CheckRecordBatch(message);
             IpcBody body = await ReadBodyAsync(message, _decoding.Plan(message), useAsync, ct).ConfigureAwait(false);
-            RecordBatch batch = _decoding.Decode(message, body, _dictionaries, _left);
+            RecordBatch batch = _decoding.Deliver(_decoding.Decode(message, body, _dictionaries, _left), ref _next);
             if (batch.Length == 0 && _decoding.Filters)
             {
                 batch.Dispose();
@@ -207,7 +208,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>A decoded batch and the custom metadata of its message.</summary>
-    private sealed record Delivered(RecordBatch Batch, IReadOnlyDictionary<string, string> Metadata);
+    private sealed record Delivered(IpcDecoded Batch, IReadOnlyDictionary<string, string> Metadata);
 
     /// <summary>A batch read ahead: its decoding, and the body bytes it counts against <see cref="IpcReadOptions.InFlightBytes"/>.</summary>
     private readonly record struct Ahead(Task<Delivered> Decoding, long Bytes);
@@ -240,7 +241,7 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
             Interlocked.Add(ref _aheadBytes, -next.Bytes);
             _taken.Release();
             Delivered delivered = useAsync ? await next.Decoding.ConfigureAwait(false) : next.Decoding.GetAwaiter().GetResult();
-            RecordBatch batch = delivered.Batch;
+            RecordBatch batch = _decoding.Deliver(delivered.Batch, ref _next);
             if (batch.Length == 0 && _decoding.Filters)
             {
                 batch.Dispose();

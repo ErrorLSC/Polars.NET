@@ -7,7 +7,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Text;
 
-namespace Kaminari.Seseragi.Files.Parquet;
+namespace Kaminari.Seseragi.Files;
 
 /// <summary>
 /// The partition values of a dataset's files, as a table of one row per file (typed columns, in the order of the
@@ -87,16 +87,16 @@ internal sealed class Partitions
     }
 
     /// <summary>
-    /// The partitions given with the files (<see cref="ParquetDatasetFile.PartitionValues"/>), typed by
+    /// The partitions given with the files (<see cref="DatasetFile.PartitionValues"/>), typed by
     /// <paramref name="schema"/>: every file gives every key (null allowed); a value is of the type's CLR kind, or a
     /// string read as a Hive value is (as a log of the files records them).
     /// </summary>
     /// <exception cref="ArgumentException">A file lacks a key or gives one the schema lacks, or a value does not fit its type.</exception>
-    public static Partitions FromValues(IReadOnlyList<ParquetDatasetFile> files, Apache.Arrow.Schema schema)
+    public static Partitions FromValues(IReadOnlyList<DatasetFile> files, Apache.Arrow.Schema schema)
     {
         var fields = new Field[schema.FieldsList.Count];
         var columns = new IArrowArray[fields.Length];
-        foreach (ParquetDatasetFile file in files)
+        foreach (DatasetFile file in files)
         {
             foreach (string key in (file.PartitionValues ?? new Dictionary<string, object?>()).Keys)
             {

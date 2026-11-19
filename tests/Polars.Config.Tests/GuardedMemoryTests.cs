@@ -65,6 +65,67 @@ public sealed unsafe class GuardedMemoryTests : IDisposable
 
     public sealed record Row(long Id, string Name, double? Value);
 
+    /// <summary>
+    /// An Arrow IPC dataset read through its window (files and batches side by side, rows numbered and filtered, a read
+    /// stopped early): the same rows with guards on, every block freed only once nothing reads it.
+    /// </summary>
+    [Fact]
+    public void IpcDatasets_ReadTheSame_WithGuardsOn()
+    {
+        string root = Directory.CreateTempSubdirectory("guarded-ipc-dataset-").FullName;
+        try
+        {
+            Row[] rows = [.. Enumerable.Range(0, 30_000).Select(i => new Row(i, $"name {i % 777}", i % 3 == 0 ? null : i * 0.5))];
+            for (int f = 0; f < 12; f++)
+            {
+                string dir = Path.Combine(root, $"p={f % 3}");
+                Directory.CreateDirectory(dir);
+                IpcWriter.WriteRows(Path.Combine(dir, $"f{f:D2}.arrow"), rows.Skip(f * 2500).Take(2500),
+                    new IpcWriteOptions { Compression = f % 2 == 0 ? Lz4FrameCompression.Instance : NoCompression.Instance });
+            }
+            Kaminari.Samidare.IR.ScalarExpr filter = Kaminari.Samidare.IR.ScalarExpr.NewBinary(Kaminari.Samidare.IR.BinaryOp.Lt,
+                Kaminari.Samidare.IR.ScalarExpr.NewColumn("Id"), Kaminari.Samidare.IR.ScalarExpr.NewLiteral(Kaminari.Samidare.IR.LiteralValue.NewInt64(20_000)));
+            var options = new IpcReadOptions { MaxDegreeOfParallelism = 8, RowIndexColumn = "row", Filter = filter, FilterRows = true };
+            string plain = Read(root, options, stopAfter: int.MaxValue);
+            string early = Read(root, options, stopAfter: 3);
+            GuardedMemory.Enabled = true;
+            Assert.Equal(plain, Read(root, options, stopAfter: int.MaxValue));
+            Assert.Equal(early, Read(root, options, stopAfter: 3));
+        }
+        finally
+        {
+            GuardedMemory.Enabled = false;
+            Directory.Delete(root, recursive: true);
+        }
+
+        static string Read(string root, IpcReadOptions options, int stopAfter)
+        {
+            using var dataset = IpcDataset.Open(root);
+            using IpcDatasetReader reader = dataset.OpenReader(options);
+            List<string> lines = [];
+            int taken = 0;
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch)
+                {
+                    for (int i = 0; i < batch.Length; i++)
+                        lines.Add(string.Join('|', Enumerable.Range(0, batch.ColumnCount).Select(c => batch.Column(c).IsNull(i) ? "null" : Value(batch.Column(c), i))));
+                }
+                if (++taken == stopAfter) break;
+            }
+            return string.Join('\n', lines);
+        }
+
+        static string Value(IArrowArray array, int i) => array switch
+        {
+            Int64Array a => a.GetValue(i)!.Value.ToString(),
+            DoubleArray a => a.GetValue(i)!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            StringArray a => a.GetString(i),
+            StringViewArray a => a.GetString(i),
+            _ => array.GetType().Name,
+        };
+    }
+
     [Fact]
     public void ParquetFiles_ReadTheSame_WithGuardsOn()
     {

@@ -1,3 +1,4 @@
+using Kaminari.Seseragi.Files;
 using System.Diagnostics;
 using Apache.Arrow;
 using Kaminari.Seseragi.Files.IO;
@@ -7,7 +8,7 @@ namespace Seseragi.Files.Tests.Parquet;
 
 /// <summary>
 /// The requests a dataset read sends to a store whose requests wait on the network: bounded
-/// (<see cref="ParquetDatasetOptions.MaxRequestsInFlight"/>) apart from the files open, so that a slow request does not
+/// (<see cref="DatasetOptions.MaxRequestsInFlight"/>) apart from the files open, so that a slow request does not
 /// stop the files after it; not bounded from local files and memory.
 /// </summary>
 public sealed class ParquetDatasetRequestTests

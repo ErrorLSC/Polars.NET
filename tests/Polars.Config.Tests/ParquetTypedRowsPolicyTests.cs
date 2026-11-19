@@ -1,4 +1,5 @@
 #nullable enable
+using Kaminari.Seseragi.Files;
 using System.Linq.Expressions;
 using Kaminari.Seseragi.Files.Parquet;
 using Polars.NET.Core.Enums;

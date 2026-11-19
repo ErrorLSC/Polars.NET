@@ -498,7 +498,7 @@ public sealed class ParquetDatasetTests : IDisposable
         Assert.Equal(large.Length + (count / 2 + count % 2) * (long)small.Length + (count / 2 - 1) * (long)other.Length, kept.Bytes);
         for (int i = 0; i < count; i++)
         {
-            ParquetMetadata footer = kept.Get(i)!;
+            ParquetMetadata footer = ParquetMetadata.ParseFooter(kept.Get(i)!.Value.Span);
             Assert.Equal(i == 1 ? 4000 : i % 2 == 0 ? 10 : 20, footer.RowCount);
             Assert.Equal(i == 1 ? large.Length : i % 2 == 0 ? small.Length : other.Length, footer.FooterSize);
         }

@@ -2,11 +2,22 @@ using System.Numerics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Filters;
 
 namespace Kaminari.Seseragi.Files.Ipc;
+
+/// <summary>
+/// A record batch decoded: its rows (all, the first ones, or those a filter kept), how many the message held, and with a
+/// row index asked and rows filtered, which ones it kept (a bit per row of the message). Disposing it disposes the batch
+/// (a batch taken from it is the taker's).
+/// </summary>
+internal sealed record IpcDecoded(RecordBatch Batch, long Rows, ulong[]? Kept) : IDisposable
+{
+    public void Dispose() => Batch.Dispose();
+}
 
 /// <summary>
 /// What a reader decodes from each record batch: the selected columns, and (with <see cref="IpcReadOptions.FilterRows"/>)
@@ -47,10 +58,55 @@ internal sealed class IpcDecoding
         }
         Read = read;
         DictionaryIds = IpcFraming.DictionaryIds(schema.Fields, read);
+        _rowIndex = options.RowIndexColumn;
+        _rowIndexOffset = options.RowIndexOffset;
+        if (_rowIndex is { } index)
+        {
+            if (Schema.GetFieldIndex(index) >= 0) throw new ArgumentException($"The row index column '{index}' has the name of a column read.", nameof(options));
+            OutputSchema = new Schema([new Field(index, Int64Type.Default, nullable: false), .. Schema.FieldsList], Schema.Metadata);
+        }
+        else OutputSchema = Schema;
     }
 
-    /// <summary>The schema of the batches (the selected columns).</summary>
+    private readonly string? _rowIndex;
+    private readonly long _rowIndexOffset;
+
+    /// <summary>The schema of the columns decoded (the selected columns).</summary>
     public Schema Schema { get; }
+
+    /// <summary>The schema of the batches delivered: the row index first when asked, then the selected columns.</summary>
+    public Schema OutputSchema { get; }
+
+    /// <summary>
+    /// A decoded batch as delivered: the row index put first when asked, numbered from <paramref name="next"/> (the rows
+    /// of the data before this batch, the offset aside), which then moves past every row the batch's message held.
+    /// Called in the order of the data.
+    /// </summary>
+    public RecordBatch Deliver(IpcDecoded decoded, ref long next)
+    {
+        long start = next + _rowIndexOffset;
+        next += decoded.Rows;
+        RecordBatch batch = decoded.Batch;
+        if (_rowIndex is null) return batch;
+        int length = batch.Length;
+        using var builder = new NativeFixedWidthBuilder<long>(Int64Type.Default);
+        Span<long> numbers = builder.AppendSlots(length);
+        if (decoded.Kept is not { } kept)
+        {
+            for (int i = 0; i < length; i++) numbers[i] = start + i;
+        }
+        else
+        {
+            int at = 0;
+            for (int w = 0; w < kept.Length && at < length; w++)
+            {
+                for (ulong word = kept[w]; word != 0 && at < length; word &= word - 1)
+                    numbers[at++] = start + 64L * w + BitOperations.TrailingZeroCount(word);
+            }
+        }
+        IArrowArray index = builder.ExportArray();
+        return new RecordBatch(OutputSchema, [index, .. batch.Arrays], length);
+    }
 
     /// <summary>Whether the batches hold exactly the rows the filter keeps (see <see cref="IpcReader.FiltersExactly"/>).</summary>
     public bool FiltersExactly { get; }
@@ -72,7 +128,7 @@ internal sealed class IpcDecoding
     /// <paramref name="rows"/> rows, or with a filter the first <paramref name="rows"/> rows it keeps.
     /// </summary>
     /// <exception cref="IpcFormatException">The batch is damaged or invalid.</exception>
-    public RecordBatch Decode(IpcMessage message, IpcBody body, IpcDictionaries dictionaries, long rows)
+    public IpcDecoded Decode(IpcMessage message, IpcBody body, IpcDictionaries dictionaries, long rows)
     {
         IpcRecordBatch header = message.RecordBatch!;
         IpcMetadataVersion version = message.Version;
@@ -82,7 +138,7 @@ internal sealed class IpcDecoding
             {
                 body.Prepare(header, Plan(message), _parallelism, _parallelFrom);
                 IpcArray?[] arrays = IpcBatchDecoder.Decode(_schema.Fields, _selected, header, version, body, dictionaries, _validateUtf8);
-                return IpcFraming.Assemble(Schema, arrays, (int)Math.Min(rows, header.Length));
+                return new IpcDecoded(IpcFraming.Assemble(Schema, arrays, (int)Math.Min(rows, header.Length)), header.Length, null);
             }
             return Filtered(message, body, dictionaries, rows);
         }
@@ -96,7 +152,7 @@ internal sealed class IpcDecoding
         }
     }
 
-    private RecordBatch Filtered(IpcMessage message, IpcBody body, IpcDictionaries dictionaries, long most)
+    private IpcDecoded Filtered(IpcMessage message, IpcBody body, IpcDictionaries dictionaries, long most)
     {
         RowFilter filter = _filter!;
         IpcRecordBatch header = message.RecordBatch!;
@@ -113,7 +169,8 @@ internal sealed class IpcDecoding
             IArrowArray[] arguments = [.. filter.Arguments.Select(a => Argument(columns[a.Column]!, a.Fields))];
             int kept = filter.Program.Evaluate(arguments, length, mask);
             if (kept > most) kept = Truncate(mask, (int)most);
-            if (kept == 0) return Empty();
+            ulong[]? keptRows = _rowIndex is null ? null : mask; // the rows' numbers, for the row index
+            if (kept == 0) return new IpcDecoded(Empty(), length, keptRows);
 
             // Then the other selected columns.
             bool[] rest = [.. Enumerable.Range(0, fields).Select(i => (_selected is null || _selected[i]) && !filter.Reads[i])];
@@ -134,7 +191,7 @@ internal sealed class IpcDecoding
                 foreach (IArrowArray array in output) array.Dispose();
                 throw;
             }
-            return new RecordBatch(Schema, output, kept);
+            return new IpcDecoded(new RecordBatch(Schema, output, kept), length, keptRows);
         }
         finally
         {
