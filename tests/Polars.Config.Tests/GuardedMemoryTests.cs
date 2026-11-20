@@ -63,6 +63,30 @@ public sealed unsafe class GuardedMemoryTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Typed rows written as Parquet, the writer owning them: it takes the row batcher's batches and encodes row groups side by side
+    /// after Write returns. The same bytes with guards on, so a batch freed while a row group still encodes it ends the
+    /// process instead of passing by luck.
+    /// </summary>
+    [Fact]
+    public void TypedParquetRows_WriteTheSame_WithGuardsOn()
+    {
+        Row[] rows = [.. Enumerable.Range(0, 200_000).Select(i => new Row(i, $"name {i % 777}", i % 3 == 0 ? null : i * 0.5))];
+        byte[] plain = Write(rows);
+        GuardedMemory.Enabled = true;
+        Assert.Equal(plain, Write(rows));
+
+        static byte[] Write(Row[] rows)
+        {
+            using var memory = new MemoryStream();
+            ParquetWriter.WriteRows(memory, rows, new ParquetWriteOptions
+            {
+                MaxDegreeOfParallelism = 8, RowGroupRows = 20_000, LeaveOpen = true, BatchOwnership = BatchOwnership.Writer,
+            });
+            return memory.ToArray();
+        }
+    }
+
     public sealed record Row(long Id, string Name, double? Value);
 
     /// <summary>

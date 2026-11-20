@@ -241,12 +241,12 @@ With `MaxDegreeOfParallelism` above 1 (the processor count by default) the colum
 threads, pages are compressed by helper threads (a few in flight a column, the total of busy threads kept to the
 degree), a full row group is sealed and finished (last pages, dictionary pages, indexes) by a task while the next one
 fills another set of column writers, and goes to the stream while the next one is encoded; the file is the same, byte
-for byte, whatever the degree. With `BatchOwnership = Writer` the writer takes the batches (reading them after `Write` returns,
+for byte, whatever the degree. `BatchOwnership` is a choice of speed or memory: with `Writer` the writer takes the batches (reading them after `Write` returns,
 disposing each once its rows are encoded, also on failure) and, on several threads, encodes several row groups at once
-straight from them (each by column writers of its own, within a bound on their batches' bytes), writing them in order;
-row groups are then closed on rows or on the rows' logical Arrow bytes (what a compact copy of them takes, however
-their buffers are shared), and the file is the one the caller's batches give
-whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once its row group is in the stream. Pages
+straight from them (each by column writers of its own, within a bound on their batches' bytes, two at least), writing
+them in order; row groups are then closed on rows or on the rows' logical Arrow bytes (what a compact copy of them
+takes, however their buffers are shared) on any number of threads, so that the file is again the same whatever the
+degree, and the one the caller's batches give whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once its row group is in the stream. Pages
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
 `IParquetCompression` (none, Snappy, Zstandard, Gzip, Brotli, LZ4_RAW) and checksummed (`WriteChecksums`). Columns are
 dictionary-encoded (PLAIN dictionary page, RLE_DICTIONARY pages) unless the first page holding values shows the dictionary does not
@@ -282,8 +282,10 @@ it has one this layout will change to it),
 value-type columns non-nullable, list items and members of nested records nullable); dictionaries (`Dictionary`, `IDictionary`, `IReadOnlyDictionary`, F# `Map`, at any depth) are
 written as Parquet MAP groups, and stored as Arrow maps in `ARROW:schema` (Spark, DuckDB, pyarrow and Python Polars read
 maps); any other `T` is one column named `value`. Rows are gathered into batches of 16 384 in native
-memory, each written and then freed (the caller owning the batches: measured faster and lighter than the writer owning
-them): the file depends on the rows alone, not on how they were passed nor on the threads. The batches of an array or a list are made on up to `MaxDegreeOfParallelism` threads at once and handed
+memory, each written and freed. Speed or memory is the options' `BatchOwnership`: `Caller` (the default) encodes
+each batch before the next, the least memory; `Writer` hands the batches over and encodes several row groups side by
+side, up to twice as fast where the columns are few or cheap, for some hundreds of MiB more. Either way the file
+depends on the rows alone, not on how they were passed nor on the threads. The batches of an array or a list are made on up to `MaxDegreeOfParallelism` threads at once and handed
 over in order (rows passed one by one or by a lazy sequence are read as they come, on the caller's thread: a producer
 may reuse one object for every row). A null
 row is refused (the writer goes on); a value the layout refuses (a decimal that does not fit exactly, an undefined enum
@@ -649,7 +651,7 @@ written synchronously on completion.
 | `Parquet/ParquetReaderOfT.cs`, `Parquet/TypedRows.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>` and `IpcReader<T>`; `ParquetTypedRows` maps Parquet's options onto it): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
 | `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
 | `BatchOwnership.cs` | Who owns the batches given to a writer (Parquet's and Arrow IPC's): the caller, or the writer, which then encodes several side by side and disposes them. |
-| `Parquet/ParquetWriterOfT.cs`, `RowBatcher.cs` | `ParquetWriter<T>` over `RowBatcher<T>` (shared with `IpcWriter<T>`): rows gathered into native batches by Sazanami's `ArrowRowBuilder<T>` (an array's or a list's whole batches made in parallel by a pool of builders, up to its first null row, written in order and freed); a refused value aborts the output. |
+| `Parquet/ParquetWriterOfT.cs`, `RowBatcher.cs` | `ParquetWriter<T>` over `RowBatcher<T>` (shared with `IpcWriter<T>`): rows gathered into native batches by Sazanami's `ArrowRowBuilder<T>` (an array's or a list's whole batches made in parallel by a pool of builders, up to its first null row, handed in order to the writer, which takes them with `BatchOwnership.Writer`); a refused value aborts the output. |
 | `Parquet/ParquetWriter.cs`, `ParquetWriteOptions.cs` | The writer: batches checked (types, lengths, nulls of required columns) before anything is written; segments of a batch written column by column in parallel (`MaxDegreeOfParallelism`, the first column's error reported), row groups closed on rows or (per segment) bytes, finished in parallel and written chunk by chunk while the next group is encoded (with several threads sealed: finished by a task on a second set of column writers); with the writer owning the batches, row groups encoded side by side (sets of column writers, one column scheduler, reference-counted batches, laid out and written in order); Bloom filters, column indexes, offset indexes and the footer (schema, row groups, column orders, `ARROW:schema`) at completion; failure handling as `AvroWriter`'s. |
 | `Parquet/ParquetColumnOptions.cs` | Settings by column (`ParquetWriteOptions.Columns`): the encoding of pages written without the dictionary (`ParquetValueEncoding`), the dictionary on or off, Bloom filters (`ParquetBloomFilterOptions`: false positive rate, a cap on the distinct values sized for, the largest size). |
 | `Parquet/Writing/WriteSchema.cs` | The Arrow schema as a Parquet schema tree (groups, LIST and MAP nodes, field ids) with each leaf's levels and shredding steps; Arrow fields to Parquet leaves: physical type, annotations, the value source of each Arrow type (conversions checked only on valid rows; dictionary columns through their values), statistics order. |

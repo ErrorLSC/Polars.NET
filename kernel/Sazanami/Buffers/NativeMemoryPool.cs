@@ -38,6 +38,8 @@ internal static unsafe class NativeMemoryPool
     /// <summary>The most bytes kept in unused blocks (1 GiB); a block freed beyond it goes back to the system.</summary>
     internal static long RetainLimit { get; set; } = 1L << 30;
 
+    internal static long TempLive; // TEMP W0: bytes of the blocks handed out and not freed
+
     /// <summary>
     /// Whether blocks are handed out filled with 0xCC instead of whatever they held (fresh pages hold zeros): tests turn
     /// it on so that code reading memory it never wrote, or counting on zeros, fails instead of passing by luck.
@@ -60,6 +62,7 @@ internal static unsafe class NativeMemoryPool
     public static byte* Alloc(long bytes)
     {
         byte* p = AllocBlock(bytes);
+        Interlocked.Add(ref TempLive, UsableSize(p)); // TEMP W0
         if (Poison) NativeMemory.Fill(p, (nuint)UsableSize(p), 0xCC);
         return p;
     }
@@ -108,6 +111,7 @@ internal static unsafe class NativeMemoryPool
     public static void Free(void* pointer)
     {
         if (pointer == null) return;
+        Interlocked.Add(ref TempLive, -UsableSize(pointer)); // TEMP W0
         byte* block = (byte*)pointer - Header;
         int c = *(int*)block;
         if (c == Guarded)

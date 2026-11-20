@@ -11,9 +11,13 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// strings as string views, collections as large lists, nested records as structs, enums as dictionaries of their
 /// member names, decimals as decimal(38, 18), ...; dictionaries as Parquet MAP groups); any other <typeparamref name="T"/> as one column named
 /// <c>value</c>. <see cref="ParquetReader{T}"/> reads the rows back. The rows are gathered into batches of
-/// <see cref="BatchRows"/> in native memory, each written by a <see cref="ParquetWriter"/> and freed (the caller owning
-/// the batches, whatever <see cref="ParquetWriteOptions.BatchOwnership"/> says: measured faster, and lighter, than the
-/// writer owning them); the file depends on the rows alone, not on how they were passed nor on the threads. The rows of an array or a <see cref="List{T}"/> given to <see cref="WriteRows"/> are turned into batches
+/// <see cref="BatchRows"/> in native memory, each written by a <see cref="ParquetWriter"/> and freed. Speed or memory:
+/// <see cref="ParquetWriteOptions.BatchOwnership"/> chooses. <see cref="BatchOwnership.Caller"/> (the default) encodes
+/// each batch before taking the next (a batch's columns side by side): the least memory. <see cref="BatchOwnership.Writer"/>
+/// hands each batch over and encodes several row groups side by side, holding their rows until they are written: up to
+/// twice as fast (most where the columns are few or cheap) for some hundreds of MiB more. Either way the file depends
+/// on the rows alone, not on how they were passed nor
+/// on the threads. The rows of an array or a <see cref="List{T}"/> given to <see cref="WriteRows"/> are turned into batches
 /// on up to <see cref="ParquetWriteOptions.MaxDegreeOfParallelism"/> threads at once (they are all there and unchanged
 /// while the call lasts); rows given one by one or by a lazy sequence are read as they come, on the caller's thread
 /// (a producer may reuse one object for every row).
@@ -31,22 +35,40 @@ public sealed class ParquetWriter<[DynamicallyAccessedMembers(DynamicallyAccesse
     private readonly RowBatcher<T> _rows;
     private bool _disposed;
 
+    private readonly Sink _sink;
+
     private ParquetWriter(ParquetWriter writer, ParquetWriteOptions? options)
     {
         _writer = writer;
-        _rows = new RowBatcher<T>(new Sink(writer), options?.MaxDegreeOfParallelism ?? Environment.ProcessorCount, "Parquet");
+        _sink = new Sink(writer, writer.Owns);
+        _rows = new RowBatcher<T>(_sink, options?.MaxDegreeOfParallelism ?? Environment.ProcessorCount, "Parquet");
     }
 
-    /// <summary>The Parquet writer as the batches' sink.</summary>
-    private sealed class Sink(ParquetWriter writer) : IBatchSink
+    /// <summary>Whether the batches are handed over to the writer (else freed here once written): exactly when it owns them (tests).</summary>
+    internal bool HandsOverBatches => _sink.TakesBatches;
+
+    internal ParquetWriter TempInner => _writer; // TEMP W0
+
+    /// <summary>The Parquet writer as the batches' sink; with <see cref="BatchOwnership.Writer"/> it owns them (and frees them, also when writing fails).</summary>
+    /// <remarks>
+    /// Measured (10M rows, 16 threads, 2026-11-20; steady, owner caller → writer): six cheap columns 330 → 164 ms (a
+    /// batch's columns alone keep few threads busy; row groups side by side keep all), seven heavier ones 362 → 330 ms;
+    /// the first write in a process 1087–1140 → 565–812 ms; but the run's peak anonymous memory 154 → 521–532 MiB and
+    /// 258–270 → 670–691 MiB (row groups held as their batches while they wait and while they encode).
+    /// </remarks>
+    private sealed class Sink(ParquetWriter writer, bool owns) : IBatchSink
     {
         public bool IsWritable => writer.IsWritable;
+
+        public bool TakesBatches => owns;
 
         public void Abort() => writer.Abort();
 
         public async ValueTask WriteAsync(Apache.Arrow.RecordBatch batch, bool useAsync, CancellationToken ct)
         {
-            if (useAsync) await writer.WriteAsync(batch, ct).ConfigureAwait(false);
+            // Not cancelled once handed over: the batch's rows are counted already (a write that gave up waiting
+            // would drop them while the output goes on). Cancellation stops the rows at their source.
+            if (useAsync) await writer.WriteAsync(batch, CancellationToken.None).ConfigureAwait(false);
             else writer.Write(batch);
         }
     }
@@ -66,7 +88,6 @@ public sealed class ParquetWriter<[DynamicallyAccessedMembers(DynamicallyAccesse
         IReadOnlySet<string> maps = ArrowRowBuilder<T>.MapColumns;
         return options with
         {
-            BatchOwnership = BatchOwnership.Caller,
             MapColumns = maps.Count == 0 ? options.MapColumns : options.MapColumns is { } given ? given.Union(maps).ToFrozenSet() : maps,
         };
     }

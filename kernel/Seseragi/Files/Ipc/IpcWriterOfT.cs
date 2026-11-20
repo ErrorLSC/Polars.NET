@@ -48,7 +48,9 @@ public sealed class IpcWriter<[DynamicallyAccessedMembers(DynamicallyAccessedMem
 
         public async ValueTask WriteAsync(RecordBatch batch, bool useAsync, CancellationToken ct)
         {
-            if (useAsync) await writer.WriteAsync(batch, ct).ConfigureAwait(false);
+            // Not cancelled once handed over: the batch's rows are counted already (a write that gave up waiting
+            // would drop them while the output goes on). Cancellation stops the rows at their source.
+            if (useAsync) await writer.WriteAsync(batch, CancellationToken.None).ConfigureAwait(false);
             else writer.Write(batch);
         }
     }

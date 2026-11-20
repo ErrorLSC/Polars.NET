@@ -33,9 +33,9 @@ public sealed record ParquetWriteOptions
 
     /// <summary>
     /// A row group is closed once its encoded pages reach about this many bytes (128 MiB by default); with
-    /// <see cref="BatchOwnership.Writer"/> and more than one thread, once its rows' logical Arrow bytes do (what
-    /// a compact copy of them would take, however their buffers are shared; row groups are then laid out before they
-    /// are encoded).
+    /// <see cref="BatchOwnership.Writer"/>, once its rows' logical Arrow bytes do (what a compact copy of them would
+    /// take, however their buffers are shared; known before encoding, so row groups are laid out before they are
+    /// encoded, and the same on any number of threads).
     /// </summary>
     public long RowGroupBytes { get; init; } = 128L << 20;
 
@@ -119,18 +119,24 @@ public sealed record ParquetWriteOptions
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
     /// <summary>
-    /// Who owns the batches (<see cref="BatchOwnership.Caller"/> by default). With
-    /// <see cref="BatchOwnership.Writer"/> and more than one thread, row groups are encoded side by side.
+    /// Who owns the batches, which is a choice of speed or memory. <see cref="BatchOwnership.Caller"/> (the default):
+    /// each batch is encoded before Write returns, its columns side by side; the least memory. With
+    /// <see cref="BatchOwnership.Writer"/> and more than one thread, row groups are encoded side by side, straight from
+    /// the batches handed over, which the writer holds until their rows are written: faster where a batch's columns
+    /// alone keep few threads busy (few or cheap columns: measured up to twice as fast), for some hundreds of MiB more
+    /// (row groups waiting and encoding; <see cref="RowGroupBytes"/> then counts the rows' logical Arrow bytes). Typed
+    /// rows (<see cref="ParquetWriter{T}"/>) follow it too.
     /// </summary>
     public BatchOwnership BatchOwnership { get; init; } = BatchOwnership.Caller;
 
     /// <summary>
     /// With <see cref="BatchOwnership.Writer"/>, the logical Arrow bytes of the row groups encoded at once, at
-    /// most (a row group goes beyond alone). Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested table)
-    /// wrote fastest eight at a time, of 210 MB (1 Mi rows of eight flat columns) two at a time; more held memory and
-    /// slowed the writes. Tests set less.
+    /// most, two row groups being always allowed. Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested
+    /// table) wrote fastest eight at a time, of 210 MB (1 Mi rows of eight flat columns) two at a time; of 85 MB (1 Mi
+    /// typed rows of seven columns, 2026-11-20) three at a time: 330 ms, where six (512 MiB) took 380 ms and held
+    /// 200 MiB more, one (128 MiB) 420 ms. More held memory and slowed the writes. Tests set less.
     /// </summary>
-    internal long InFlightBytes { get; init; } = 512L << 20;
+    internal long InFlightBytes { get; init; } = 256L << 20;
 
     /// <summary>
     /// Columns that are lists of key/value structs (the shape engines without a map type hold maps

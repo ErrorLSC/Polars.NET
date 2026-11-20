@@ -243,6 +243,55 @@ public sealed class IpcTypedTests : IDisposable
         Assert.False(refused.CanRead);
     }
 
+    /// <summary>
+    /// A cancelled token stops the rows at their source: a batch handed over is written all the same, so the output
+    /// holds every row counted (a write that gave up waiting for the ones before used to drop its batch silently).
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_LosesNoRowCounted()
+    {
+        Narrow[] rows = [.. Enumerable.Range(0, 5 * IpcWriter<Narrow>.BatchRows).Select(i => new Narrow(i, $"s{i % 13}"))];
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var output = new SlowStream();
+        long counted;
+        await using (var writer = IpcWriter<Narrow>.Create(output, new IpcWriteOptions { MaxDegreeOfParallelism = 1, LeaveOpen = true }))
+        {
+            writer.WriteRows(rows[..IpcWriter<Narrow>.BatchRows]); // started; its batch still being written
+            try { await writer.WriteRowsAsync(rows[IpcWriter<Narrow>.BatchRows..], cancelled.Token); } catch (OperationCanceledException) { }
+            counted = writer.RowCount;
+            await writer.CompleteAsync();
+        }
+        string path = Path("cancelled.arrow");
+        File.WriteAllBytes(path, output.ToArray());
+        Assert.Equal(counted, IpcFile.ReadList<Narrow>(path).Count);
+    }
+
+    /// <summary>A stream whose writes take a while (so writes before a batch are still going on when it comes).</summary>
+    private sealed class SlowStream : MemoryStream
+    {
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            Thread.Sleep(20);
+            base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            Thread.Sleep(20);
+            base.Write(buffer);
+        }
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(20, CancellationToken.None);
+            base.Write(buffer.Span);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+    }
+
     public sealed record Missing(long Id, string Nowhere);
 
     [Fact]

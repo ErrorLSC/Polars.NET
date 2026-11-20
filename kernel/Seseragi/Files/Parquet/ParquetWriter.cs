@@ -579,6 +579,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <summary>Whether rows can still be written (not completed, aborted, failed or disposed).</summary>
     internal bool IsWritable => !_completed && !_aborted && !_faulted && !_disposed;
 
+    /// <summary>Whether the writer owns the batches given to it (<see cref="BatchOwnership.Writer"/>).</summary>
+    internal bool Owns => _options.BatchOwnership == BatchOwnership.Writer;
+
+    internal long TempOpenBytes => _openBytes; // TEMP W0
+    internal long TempEncodingBytes => _encodingBytes; // TEMP W0
+    internal int TempEncodingCount => _encoding.Count; // TEMP W0
+
     private void CheckWritable()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -598,7 +605,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         var taken = new Taken(batch);
         try
         {
-            if (_columnWork is null) await WriteNowAsync(batch, 0, batch.Length, useAsync, ct).ConfigureAwait(false);
+            // On one thread encoded at once, row groups cut as on several (by the rows' logical bytes).
+            if (_columnWork is null) await WriteNowAsync(batch, 0, batch.Length, useAsync, ct, logical: true).ConfigureAwait(false);
             else await WriteTakenAsync(taken, useAsync, ct).ConfigureAwait(false);
         }
         finally
@@ -609,14 +617,17 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Encodes rows <paramref name="start"/> .. +<paramref name="count"/> of a batch before returning, segment by
-    /// segment, each segment's columns side by side.
+    /// segment, each segment's columns side by side. A row group is full by its encoded pages' bytes, or with
+    /// <paramref name="logical"/> (a batch the writer owns, on one thread) by its rows' logical Arrow bytes, counted
+    /// as <see cref="WriteTakenAsync"/> counts them: the file is the same whatever the threads.
     /// </summary>
-    private async ValueTask WriteNowAsync(RecordBatch batch, int start, int count, bool useAsync, CancellationToken ct)
+    private async ValueTask WriteNowAsync(RecordBatch batch, int start, int count, bool useAsync, CancellationToken ct, bool logical = false)
     {
         CheckWritable();
         CheckBatch(batch, start, count);
         try
         {
+            long bytes = logical ? ArrowSizes.LogicalBytes(batch) : 0;
             int offset = start, end = start + count;
             while (offset < end)
             {
@@ -624,7 +635,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 WriteColumns(batch, offset, take);
                 _rowGroupRows += take;
                 offset += take;
-                if (_rowGroupRows >= _options.RowGroupRows || RowGroupFull())
+                if (logical) _openBytes += bytes * take / batch.Length;
+                if (_rowGroupRows >= _options.RowGroupRows || (logical ? _openBytes >= _options.RowGroupBytes : RowGroupFull()))
                     await FlushRowGroupAsync(useAsync, ct).ConfigureAwait(false);
             }
         }
@@ -741,13 +753,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Sends the open row group to be encoded by a set of column writers of its own, once fewer than
-    /// <see cref="MaxRowGroupsInFlight"/> are, holding less than <see cref="ParquetWriteOptions.InFlightBytes"/> with it (the oldest are laid
-    /// out and written meanwhile).
+    /// <see cref="MaxRowGroupsInFlight"/> are, holding less than <see cref="ParquetWriteOptions.InFlightBytes"/> with it, two at
+    /// least (the oldest are laid out and written meanwhile).
     /// </summary>
     private async ValueTask CloseRowGroupAsync(bool useAsync, CancellationToken ct)
     {
         if (_rowGroupRows == 0) return;
-        while (_encoding.Count >= MaxRowGroupsInFlight || _encoding.Count > 0 && _encodingBytes + _openBytes > _options.InFlightBytes)
+        while (_encoding.Count >= MaxRowGroupsInFlight || _encoding.Count > 1 && _encodingBytes + _openBytes > _options.InFlightBytes)
             await WriteEncodedAsync(useAsync, ct).ConfigureAwait(false);
         Segment[] segments = [.. _open];
         _open.Clear();
@@ -983,6 +995,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         if (_rowGroupRows == 0) return;
         long rows = _rowGroupRows;
+        _openBytes = 0; // the rows' logical bytes, counted when the writer owns the batches
         // Writers sharing a budget (one per partition, many open) do not seal: a second set of column writers each would
         // double what they hold.
         if (_budget.Max > 1 && _options.SharedBudget is null)

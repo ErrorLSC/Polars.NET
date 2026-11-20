@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Kaminari.Sazanami.Data.Building;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 
 namespace Seseragi.Files.Tests.Parquet;
@@ -71,11 +72,13 @@ public sealed class ParquetWriterOfTTests : IDisposable
         Assert.All(["list", "lazy", "one-thread", "async", "by-row", "mixed", "arrow"], name => Assert.Equal(expected, Hash($"{name}.parquet")));
     }
 
-    [Fact]
-    public void RowGroupsClosedOnBytes_DoNotDependOnTheThreads()
+    [Theory]
+    [InlineData(BatchOwnership.Caller)]
+    [InlineData(BatchOwnership.Writer)]
+    public void RowGroupsClosedOnBytes_DoNotDependOnTheThreads(BatchOwnership owner)
     {
         Trade[] rows = Trades(120_000);
-        var options = new ParquetWriteOptions { RowGroupBytes = 1 << 20 };
+        var options = new ParquetWriteOptions { RowGroupBytes = 1 << 20, BatchOwnership = owner };
         string Hash(string name) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path(name))));
         ParquetWriter.WriteRows(Path("bytes-1.parquet"), rows, options with { MaxDegreeOfParallelism = 1 });
         ParquetWriter.WriteRows(Path("bytes-8.parquet"), rows, options with { MaxDegreeOfParallelism = 8 });
@@ -83,6 +86,24 @@ public sealed class ParquetWriterOfTTests : IDisposable
         using (var file = ParquetFile.Open(Path("bytes-1.parquet"))) Assert.True(file.Metadata.RowGroups.Count > 2);
         Assert.Equal(Hash("bytes-1.parquet"), Hash("bytes-8.parquet"));
         Assert.Equal(Hash("bytes-1.parquet"), Hash("bytes-lazy.parquet"));
+    }
+
+    /// <summary>Speed or memory, not the file: rows cut by rows alone come out the same whoever owns the batches.</summary>
+    [Fact]
+    public void TheOwnerOfTheBatches_ChangesNotTheFile()
+    {
+        Trade[] rows = Trades(100_000);
+        string Hash(string name) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path(name))));
+        ParquetWriter.WriteRows(Path("caller.parquet"), rows, new ParquetWriteOptions { RowGroupRows = 30_000 });
+        ParquetWriter.WriteRows(Path("writer.parquet"), rows, new ParquetWriteOptions { RowGroupRows = 30_000, BatchOwnership = BatchOwnership.Writer });
+        Assert.Equal(Hash("caller.parquet"), Hash("writer.parquet"));
+        Assert.Equal(rows.Length, ParquetFile.ReadList<Trade>(Path("writer.parquet")).Count);
+        // Each batch freed once: by the writer when it owns them, else after Write returns.
+        foreach (BatchOwnership owner in (BatchOwnership[])[BatchOwnership.Caller, BatchOwnership.Writer])
+        {
+            using var writer = ParquetWriter<Trade>.Create(new MemoryStream(), new ParquetWriteOptions { BatchOwnership = owner });
+            Assert.Equal(owner == BatchOwnership.Writer, writer.HandsOverBatches);
+        }
     }
 
     [Fact]

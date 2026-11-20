@@ -176,7 +176,7 @@ public sealed class ParquetWriterOwnershipTests
     }
 
     [Fact]
-    public void RowGroupsInFlight_StayWithinTheirBytes_OneAloneBeyond()
+    public void RowGroupsInFlight_StayWithinTheirBytes_TwoAtLeast()
     {
         var (nested, _) = ParquetNestedData.Batch(88, 12_000);
         var tracker = new Tracker();
@@ -190,7 +190,7 @@ public sealed class ParquetWriterOwnershipTests
         {
             foreach (RecordBatch batch in Uneven(nested)) writer.Write(tracker.Copy(batch));
             writer.Complete();
-            Assert.Equal(1, writer.PeakRowGroupsInFlight);
+            Assert.Equal(2, writer.PeakRowGroupsInFlight); // two always allowed, however large
         }
         tracker.AssertEachDisposedOnce();
         Assert.True(expected.AsSpan().SequenceEqual(stream.ToArray()));
@@ -202,7 +202,8 @@ public sealed class ParquetWriterOwnershipTests
         RecordBatch wide = ParquetWriteData.Wide(84, 24_000);
         var options = new ParquetWriteOptions { RowGroupBytes = 300_000, BatchOwnership = BatchOwnership.Writer };
         byte[]? first = null;
-        foreach (int threads in (int[])[2, 3, 16])
+        // One thread encodes each batch at once, several side by side: row groups cut by the same logical bytes.
+        foreach (int threads in (int[])[1, 2, 3, 16])
         {
             var tracker = new Tracker();
             byte[] written = Written([.. Uneven(wide).Select(tracker.Copy)], wide.Schema, options with { MaxDegreeOfParallelism = threads });
@@ -213,6 +214,16 @@ public sealed class ParquetWriterOwnershipTests
         using var file = ParquetFile.Open(new MemoryStream(first!));
         Assert.True(file.Metadata.RowGroups.Count > 3, $"{file.Metadata.RowGroups.Count} row groups");
         Assert.Equal(24_000, file.Metadata.RowGroups.Sum(g => g.RowCount));
+
+        // Row groups of several segments each: the bytes counted start again with every row group.
+        RecordBatch narrow = ParquetWriteData.Wide(3, 200_000);
+        var larger = options with { RowGroupBytes = 16_000_000 };
+        var copies = new Tracker();
+        byte[] one = Written([.. Uneven(narrow).Select(copies.Copy)], narrow.Schema, larger with { MaxDegreeOfParallelism = 1 });
+        Assert.True(one.AsSpan().SequenceEqual(Written([.. Uneven(narrow).Select(copies.Copy)], narrow.Schema, larger with { MaxDegreeOfParallelism = 8 })));
+        copies.AssertEachDisposedOnce();
+        using var groups = ParquetFile.Open(new MemoryStream(one));
+        Assert.InRange(groups.Metadata.RowGroups.Count, 3, 200_000 / 16_384 / 2); // each of several segments
     }
 
     [Fact]
