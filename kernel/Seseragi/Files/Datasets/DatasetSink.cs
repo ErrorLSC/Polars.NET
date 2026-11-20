@@ -376,15 +376,23 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
         long held = open.Sum(p => p.Open!.HeldBytes);
         while (held + publishing > budget && WaitForOldest()) publishing = ForgetPublished();
         if (held <= budget) return;
-        List<Partition> ending = [];
-        foreach (Partition partition in open.OrderByDescending(p => p.Open!.HeldBytes))
+        // In rounds, the largest first: a file whose pages went out keeps some scratch, which the estimate leaves out
+        // (counted as its stream's bytes alone); the files not ended yet go next while some remain.
+        HashSet<Partition> ended = [];
+        while (held > budget && ended.Count < open.Count)
         {
-            if (held <= budget) break;
-            ending.Add(partition);
-            held -= partition.Open!.HeldBytes - partition.Open.BufferedBytes;
+            List<Partition> ending = [];
+            long estimate = held;
+            foreach (Partition partition in open.Where(p => !ended.Contains(p)).OrderByDescending(p => p.Open!.HeldBytes))
+            {
+                if (estimate <= budget) break;
+                ending.Add(partition);
+                ended.Add(partition);
+                estimate -= partition.Open!.HeldBytes - partition.Open.BufferedBytes;
+            }
+            ForEachPartition(ending, p => p.Open!.Writer.EndChunk());
+            held = open.Sum(p => p.Open!.HeldBytes);
         }
-        ForEachPartition(ending, p => p.Open!.Writer.EndChunk());
-        held = open.Sum(p => p.Open!.HeldBytes);
         if (held <= budget) return;
         List<Partition> closing = [];
         foreach (Partition partition in open.OrderByDescending(p => p.Open!.HeldBytes))

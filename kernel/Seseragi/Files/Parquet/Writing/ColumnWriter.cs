@@ -84,7 +84,7 @@ internal abstract class ColumnWriter : IDisposable
     private readonly NativeArray<byte> _pageDef = new(InitialLevels), _pageRep; // repetition levels only below a list
     private ValidityWords _validity; // the validity of the rows of a flat step (1024 at most)
     private int _validityWords;
-    private readonly NativeArray<uint> _indices = new(InitialLevels);
+    private readonly NativeArray<uint> _indices = new(); // made room for when a page is dictionary-encoded
     private int _pageRows, _pageLevels, _pageNulls;
     private long _chunkLevels, _chunkNulls, _uncompressed;
     private PagesByEncoding _pagesBy; // data pages by ParquetEncoding

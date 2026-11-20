@@ -92,6 +92,18 @@ public sealed class ParquetWriterTests : IDisposable
     }
 
     [Fact]
+    public void AWriterHoldingAFewRows_KeepsLittleScratch()
+    {
+        // A partition's writer holds its open page long, many writers at once: no buffer is taken before it is needed
+        // (the dictionary indices only once a page is encoded).
+        var batch = Batch(("a", Fixed(Int64Type.Default, [(long?)1, 2, 3]), true), ("s", Strings(["x", "y", null]), true));
+        using var stream = new MemoryStream();
+        using var writer = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { LeaveOpen = true });
+        writer.Write(batch);
+        Assert.InRange(writer.ScratchBytes, 0, 128 * 1024); // some 110 KB: the strings' first 64 KiB, the open pages' buffers
+    }
+
+    [Fact]
     public void LevelsBeyond255_AreRefused_255Written()
     {
         // Optional structs nested around an optional leaf: the leaf's definition level is the number of fields.
