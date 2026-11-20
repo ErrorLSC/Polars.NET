@@ -38,4 +38,20 @@ internal static class ByteSizes
         bytes = (long)value;
         return true;
     }
+
+    /// <summary>
+    /// Reads a size as <see cref="TryParse"/> does, or a share of <paramref name="whole"/> bytes: a number above 0 and at
+    /// most 100 followed by <c>%</c> (<c>25%</c>, <c>12.5 %</c>), at least one byte.
+    /// </summary>
+    public static bool TryParseSizeOrShare(ReadOnlySpan<char> text, long whole, out long bytes)
+    {
+        text = text.Trim();
+        if (text is not [.., '%']) return TryParse(text, out bytes);
+        bytes = 0;
+        if (!double.TryParse(text[..^1].Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double percent)
+            || percent is not (> 0 and <= 100))
+            return false;
+        bytes = Math.Max(1, (long)(whole * percent / 100));
+        return true;
+    }
 }

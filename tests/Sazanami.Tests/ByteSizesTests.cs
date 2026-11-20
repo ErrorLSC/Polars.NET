@@ -2,7 +2,10 @@ using Kaminari.Sazanami.Text;
 
 namespace Sazanami.Tests;
 
-/// <summary><see cref="ByteSizes.TryParse"/>: binary and decimal units, decimals, spaces and case; what it refuses.</summary>
+/// <summary>
+/// <see cref="ByteSizes.TryParse"/>: binary and decimal units, decimals, spaces and case; what it refuses. Shares of a
+/// whole with <see cref="ByteSizes.TryParseSizeOrShare"/>.
+/// </summary>
 public class ByteSizesTests
 {
     [Theory]
@@ -34,4 +37,26 @@ public class ByteSizesTests
     [InlineData("9000000TiB")]
     [InlineData("25%")]
     public void OtherText_IsRefused(string text) => Assert.False(ByteSizes.TryParse(text, out _));
+
+    [Theory]
+    [InlineData("25%", 250L)]
+    [InlineData(" 12.5 % ", 125L)]
+    [InlineData("100%", 1000L)]
+    [InlineData("0.01%", 1L)]   // at least one byte
+    [InlineData("2KiB", 2048L)] // a size is read as one
+    [InlineData("0", 0L)]
+    public void SizesOrShares_AreRead(string text, long bytes)
+    {
+        Assert.True(ByteSizes.TryParseSizeOrShare(text, 1000, out long read));
+        Assert.Equal(bytes, read);
+    }
+
+    [Theory]
+    [InlineData("0%")]
+    [InlineData("101%")]
+    [InlineData("-5%")]
+    [InlineData("%")]
+    [InlineData("half%")]
+    [InlineData("lots")]
+    public void OtherSharesAndText_AreRefused(string text) => Assert.False(ByteSizes.TryParseSizeOrShare(text, 1000, out _));
 }

@@ -81,6 +81,11 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 
 * Arrow data handed between the engine and .NET (exports to Arrow, record-batch scans) no longer reports its native memory to the .NET garbage collector as memory pressure. Apache.Arrow's importer did so for every buffer, which forced a full (gen2) collection for nearly every batch.
 
+## Native memory
+
+* The managed readers and writers (Avro, Excel, Parquet, Arrow IPC, Delta's data files) take their buffers from a native memory pool that keeps freed blocks for reuse. It now keeps no more than the process had in use at once lately (the peak fades within seconds once the load drops), and a request may take a kept block up to half as large again instead of mapping fresh pages: writers hold 5–12 % less memory at their peak in our measurements, at about the same speed. Blocks unused for a second go back to the system, as before.
+* `POLARS_NET_POOL_RETAIN` sets the most the pool ever keeps: a size (`512MiB`, `2GiB`; `0` keeps nothing) or a share of the memory the process may use (`10%`). By default 1 GiB. A value that cannot be read leaves the default.
+
 ---
 
 # Polars.NET 1.2.0 Release Note

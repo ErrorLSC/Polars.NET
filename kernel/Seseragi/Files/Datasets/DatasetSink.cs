@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Compute;
@@ -63,12 +62,7 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
     internal static long Budget(string? setting, long available, string source)
     {
         if (string.IsNullOrWhiteSpace(setting)) return Math.Max(256L << 20, available / 8);
-        ReadOnlySpan<char> text = setting.AsSpan().Trim();
-        if (text is [.., '%']
-            && double.TryParse(text[..^1].Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double percent)
-            && percent is > 0 and <= 100)
-            return Math.Max(1, (long)(available * percent / 100));
-        if (ByteSizes.TryParse(text, out long bytes) && bytes > 0) return bytes;
+        if (ByteSizes.TryParseSizeOrShare(setting, available, out long bytes) && bytes > 0) return bytes;
         throw new ArgumentException(
             $"{source} is '{setting}': neither a size (such as 2GiB or 512MiB) nor a share of the memory the process may use (such as 25%).");
     }

@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using Kaminari.Sazanami.Text;
 
 namespace Kaminari.Sazanami.Buffers;
 
@@ -7,10 +8,12 @@ namespace Kaminari.Sazanami.Buffers;
 /// The process's native memory for large buffers (Arrow column buffers, file ranges, decompressed pages): blocks
 /// freed here are kept and handed out again instead of going back to the system allocator, which for large sizes
 /// maps fresh pages every time (glibc beyond its mmap threshold, musl beyond about 128 KiB) — and every fresh page
-/// costs a page fault on first touch. Blocks of 64 KiB to 1 GiB are kept by size class (four per doubling) up to
-/// <see cref="RetainLimit"/> bytes in all; a timer, running only while blocks are kept, frees those that stayed
-/// unused through a whole tick (one second), so an idle process gives the memory back within about two seconds.
-/// Smaller and larger blocks go straight to the system allocator.
+/// costs a page fault on first touch. Blocks of 64 KiB to 1 GiB are kept by size class (four per doubling); a request
+/// takes a kept block of its class, else of one of the next two (at most half as large again). The bytes kept follow
+/// the bytes in use: at most the most in use lately (<see cref="RetainCap"/>), never beyond <see cref="RetainLimit"/>.
+/// A timer, running only while blocks are kept, frees those that stayed unused through a whole tick (one second), so
+/// an idle process gives the memory back within about two seconds. Smaller and larger blocks go straight to the
+/// system allocator.
 /// </summary>
 /// <remarks>
 /// Every block, pooled or not, starts with a 64-byte header holding its size class and usable size, so any pointer
@@ -32,11 +35,35 @@ internal static unsafe class NativeMemoryPool
     private static readonly List<nint>[] _free = [.. Enumerable.Range(0, Classes).Select(_ => new List<nint>())];
     private static readonly int[] _lowWater = new int[Classes]; // fewest blocks a class held since the last tick
     private static long _retained;
+    private static long _live;       // bytes of pooled classes handed out and not freed yet
+    private static long _peak;       // the most live bytes since the last tick
+    private static long _recentPeak; // the peaks of the ticks before, halved every tick
     private static Timer? _timer;
     private static bool _ticking;
 
-    /// <summary>The most bytes kept in unused blocks (1 GiB); a block freed beyond it goes back to the system.</summary>
-    internal static long RetainLimit { get; set; } = 1L << 30;
+    /// <summary>
+    /// The environment variable that sets <see cref="RetainLimit"/>: a size (<c>512MiB</c>, <c>2GiB</c>, <c>0</c> to keep
+    /// nothing) or a share of the memory the process may use (<c>10%</c>).
+    /// </summary>
+    internal const string RetainVariable = "POLARS_NET_POOL_RETAIN";
+
+    /// <summary>
+    /// The most bytes ever kept in unused blocks, whatever the bytes in use: <see cref="RetainVariable"/> when set, else
+    /// 1 GiB. A block freed beyond <see cref="RetainCap"/> goes back to the system.
+    /// </summary>
+    internal static long RetainLimit { get; set; } = DefaultRetainLimit(Environment.GetEnvironmentVariable(RetainVariable));
+
+    /// <summary>The bytes that may be kept however few are in use (64 MiB), within <see cref="RetainLimit"/>.</summary>
+    internal static long RetainFloor { get; set; } = 64L << 20;
+
+    /// <summary>
+    /// The <see cref="RetainLimit"/> a <see cref="RetainVariable"/> <paramref name="setting"/> gives (null, blank or
+    /// unreadable: 1 GiB — the pool must not fail over a setting).
+    /// </summary>
+    internal static long DefaultRetainLimit(string? setting) =>
+        !string.IsNullOrWhiteSpace(setting) && ByteSizes.TryParseSizeOrShare(setting, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, out long bytes)
+            ? bytes
+            : 1L << 30;
 
     /// <summary>
     /// Whether blocks are handed out filled with 0xCC instead of whatever they held (fresh pages hold zeros): tests turn
@@ -56,6 +83,31 @@ internal static unsafe class NativeMemoryPool
         }
     }
 
+    /// <summary>The bytes of pooled sizes now in use (handed out, not freed yet).</summary>
+    internal static long LiveBytes
+    {
+        get
+        {
+            lock (_lock) return _live;
+        }
+    }
+
+    /// <summary>
+    /// The most bytes kept in unused blocks now: the most in use lately (since the last tick, or before it, halved
+    /// every tick since), at least <see cref="RetainFloor"/>, at most <see cref="RetainLimit"/>: blocks kept beyond what
+    /// was ever in use at once mostly wait unused for the tick that frees them.
+    /// </summary>
+    internal static long RetainCap
+    {
+        get
+        {
+            lock (_lock) return Cap();
+        }
+    }
+
+    // Under the lock.
+    private static long Cap() => Math.Min(RetainLimit, Math.Max(RetainFloor, Math.Max(_peak, _recentPeak)));
+
     /// <summary>A block of at least <paramref name="bytes"/> bytes, 64-byte aligned, contents undefined.</summary>
     public static byte* Alloc(long bytes)
     {
@@ -73,19 +125,33 @@ internal static unsafe class NativeMemoryPool
         {
             lock (_lock)
             {
-                List<nint> free = _free[c];
-                if (free.Count > 0)
+                // The block freed last of the class, else of the next two (buffers that grow class by class leave the
+                // smaller blocks behind). The block keeps its class: freed, it goes back there.
+                for (int k = c, last = Math.Min(c + 2, Classes - 1); k <= last; k++)
                 {
+                    List<nint> free = _free[k];
+                    if (free.Count == 0) continue;
                     nint block = free[^1];
                     free.RemoveAt(free.Count - 1);
-                    _lowWater[c] = Math.Min(_lowWater[c], free.Count);
-                    _retained -= ClassSize(c);
+                    _lowWater[k] = Math.Min(_lowWater[k], free.Count);
+                    _retained -= ClassSize(k);
+                    InUse(ClassSize(k));
                     return (byte*)block + Header;
                 }
+                InUse(ClassSize(c));
             }
         }
         long usable = c == Unpooled ? Math.Max(bytes, 8) : ClassSize(c);
-        byte* p = Mapped(usable) ? OsPages.Alloc(MappedBytes(usable)) : (byte*)NativeMemory.AlignedAlloc((nuint)(usable + Header), Alignment);
+        byte* p;
+        try
+        {
+            p = Mapped(usable) ? OsPages.Alloc(MappedBytes(usable)) : (byte*)NativeMemory.AlignedAlloc((nuint)(usable + Header), Alignment);
+        }
+        catch when (c != Unpooled)
+        {
+            lock (_lock) _live -= usable;
+            throw;
+        }
         *(int*)p = c;
         *(long*)(p + 8) = usable;
         return p + Header;
@@ -120,7 +186,8 @@ internal static unsafe class NativeMemoryPool
             long size = ClassSize(c);
             lock (_lock)
             {
-                if (_retained + size <= RetainLimit)
+                _live -= size;
+                if (_retained + size <= Cap())
                 {
                     _free[c].Add((nint)block);
                     _retained += size;
@@ -130,6 +197,13 @@ internal static unsafe class NativeMemoryPool
             }
         }
         Release(block);
+    }
+
+    // Under the lock: a block of a pooled class handed out.
+    private static void InUse(long size)
+    {
+        _live += size;
+        if (_live > _peak) _peak = _live;
     }
 
     /// <summary>
@@ -163,13 +237,17 @@ internal static unsafe class NativeMemoryPool
             }
             Array.Clear(_lowWater);
             _retained = 0;
+            _peak = _live;
+            _recentPeak = 0;
         }
         foreach (nint block in released) Release((byte*)block);
     }
 
     /// <summary>
     /// One tick of the timer: frees the blocks that stayed unused since the last tick (the oldest of each class, as
-    /// many as the class never dropped below), and stops the timer once nothing is kept.
+    /// many as the class never dropped below), carries the tick's peak of bytes in use over (halving the older ones),
+    /// and stops the timer once nothing is kept (forgetting the older peaks: the blocks freed next follow the bytes in
+    /// use from then on).
     /// </summary>
     internal static void Tick()
     {
@@ -188,6 +266,8 @@ internal static unsafe class NativeMemoryPool
                 }
                 _lowWater[c] = free.Count;
             }
+            _recentPeak = _retained == 0 ? 0 : Math.Max(_peak, _recentPeak / 2);
+            _peak = _live;
             if (_retained == 0 && _ticking)
             {
                 _ticking = false;

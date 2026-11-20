@@ -38,14 +38,17 @@ public sealed unsafe class ParquetWriterReusedMemoryTests : IDisposable
         var schema = new Schema([new Field("s", Apache.Arrow.Types.StringType.Default, false)], null);
         var batch = new RecordBatch(schema, [values], values.Length);
 
-        // Blocks of that size class, full of 1 (the first page's stamp), freed for the writer to get.
+        // Blocks of that size class, full of 1 (the first page's stamp), freed for the writer to get; and of the class
+        // below, which a smaller request takes before borrowing one of those (and handing it back with its own bytes,
+        // on top of the class's free blocks: the stamps would get that one).
         List<nint> primed = [];
-        for (int b = 0; b < 64; b++)
-        {
-            byte* block = NativeMemoryPool.Alloc(Distinct * sizeof(int));
-            new Span<int>(block, (int)(NativeMemoryPool.UsableSize(block) / sizeof(int))).Fill(1);
-            primed.Add((nint)block);
-        }
+        foreach (long size in (long[])[64 * 1024, Distinct * sizeof(int)])
+            for (int b = 0; b < 64; b++)
+            {
+                byte* block = NativeMemoryPool.Alloc(size);
+                new Span<int>(block, (int)(NativeMemoryPool.UsableSize(block) / sizeof(int))).Fill(1);
+                primed.Add((nint)block);
+            }
         foreach (nint block in primed) NativeMemoryPool.Free((void*)block);
 
         using var stream = new MemoryStream();

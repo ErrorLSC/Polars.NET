@@ -13,7 +13,9 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, 
 
 * Depends on `Kaminari.Sazanami` (Arrow infrastructure) and pure managed codec packages (`ZstdSharp.Port`,
   `Snappier`; Zstandard and XxHash come through Sazanami), never on Polars.NET or Seseragi.Lakehouse; the sources never mention the engine.
-* Off the managed heap where it matters: file blocks, decompression output and Arrow buffers are native memory.
+* Off the managed heap where it matters: file blocks, decompression output and Arrow buffers are native memory, from
+  Sazanami's native memory pool (freed blocks kept for reuse, as many as were in use at once lately, at most
+  `POLARS_NET_POOL_RETAIN`: a size such as `512MiB` or a share such as `10%`, 1 GiB by default).
 * Values a format cannot hold exactly are refused with an exception, never changed silently.
 * No reflection JSON (AOT): schemas are parsed with `JsonDocument` and written with `Utf8JsonWriter`.
 * Generic native infrastructure (builders, buffers, the row view) belongs in Sazanami, not here.

@@ -3,7 +3,8 @@ using Kaminari.Sazanami.Buffers;
 namespace Polars.Config.Tests;
 
 /// <summary>
-/// The process-wide native memory pool: reuse, the retention limit and the release of idle blocks. Global state,
+/// The process-wide native memory pool: reuse (across classes too), the retention cap and limit, and the release of
+/// idle blocks. Global state,
 /// hence here, in the serial project; the timer is off and ticks are driven by hand.
 /// </summary>
 public sealed unsafe class NativeMemoryPoolTests : IDisposable
@@ -20,6 +21,7 @@ public sealed unsafe class NativeMemoryPoolTests : IDisposable
     public void Dispose()
     {
         NativeMemoryPool.RetainLimit = 1L << 30;
+        NativeMemoryPool.RetainFloor = 64L << 20;
         NativeMemoryPool.Trim();
         NativeMemoryPool.TimerEnabled = true;
     }
@@ -90,6 +92,129 @@ public sealed unsafe class NativeMemoryPoolTests : IDisposable
     }
 
     [Fact]
+    public void AMiss_TakesABlockUpToTwoClassesLarger_WhichGoesBackToItsOwnClass()
+    {
+        long live = NativeMemoryPool.LiveBytes;
+        int c = NativeMemoryPool.ClassOf(64 * 1024);
+        long own = NativeMemoryPool.ClassSize(c), next = NativeMemoryPool.ClassSize(c + 1), second = NativeMemoryPool.ClassSize(c + 2);
+
+        byte* larger = NativeMemoryPool.Alloc(second);
+        NativeMemoryPool.Free(larger);
+        byte* p = NativeMemoryPool.Alloc(64 * 1024);
+        Assert.True(p == larger);
+        Assert.Equal(second, NativeMemoryPool.UsableSize(p));
+        Assert.Equal(0, NativeMemoryPool.RetainedBytes);
+        NativeMemoryPool.Free(p);
+        Assert.Equal(second, NativeMemoryPool.RetainedBytes);
+        Assert.True(NativeMemoryPool.Alloc(second) == larger); // freed, it went back to its own class
+        NativeMemoryPool.Free(larger);
+
+        // The request's own class comes first, then the next one up.
+        NativeMemoryPool.Trim();
+        byte* a = NativeMemoryPool.Alloc(own), b = NativeMemoryPool.Alloc(next), d = NativeMemoryPool.Alloc(second);
+        NativeMemoryPool.Free(b);
+        NativeMemoryPool.Free(a);
+        NativeMemoryPool.Free(d);
+        Assert.True(NativeMemoryPool.Alloc(64 * 1024) == a);
+        Assert.True(NativeMemoryPool.Alloc(64 * 1024) == b);
+        Assert.True(NativeMemoryPool.Alloc(64 * 1024) == d);
+        NativeMemoryPool.Free(a);
+        NativeMemoryPool.Free(b);
+        NativeMemoryPool.Free(d);
+
+        // Three classes larger wastes too much: left alone, the request maps a block of its own class.
+        NativeMemoryPool.Trim();
+        long third = NativeMemoryPool.ClassSize(c + 3);
+        byte* far = NativeMemoryPool.Alloc(third);
+        NativeMemoryPool.Free(far);
+        byte* fresh = NativeMemoryPool.Alloc(64 * 1024);
+        Assert.False(fresh == far);
+        Assert.Equal(own, NativeMemoryPool.UsableSize(fresh));
+        Assert.Equal(third, NativeMemoryPool.RetainedBytes);
+        NativeMemoryPool.Free(fresh);
+        Assert.Equal(live, NativeMemoryPool.LiveBytes); // a borrowed block counted in use at its own size, as when freed
+    }
+
+    [Fact]
+    public void ABlockTakenForASmallerRequest_CountsAsUsedInItsOwnClass()
+    {
+        long next = NativeMemoryPool.ClassSize(NativeMemoryPool.ClassOf(64 * 1024) + 1);
+        NativeMemoryPool.Free(NativeMemoryPool.Alloc(next));
+        NativeMemoryPool.Tick();                             // kept: it arrived during this tick
+        NativeMemoryPool.Free(NativeMemoryPool.Alloc(64 * 1024)); // used during the next one, by a smaller request
+        NativeMemoryPool.Tick();
+        Assert.Equal(next, NativeMemoryPool.RetainedBytes);
+    }
+
+    [Fact]
+    public void TheKeptBytes_FollowTheBytesInUse_AndTheirPeakFades()
+    {
+        NativeMemoryPool.RetainFloor = 0;
+        long baseline = NativeMemoryPool.LiveBytes; // blocks held elsewhere in the process (normally none)
+        long small = NativeMemoryPool.ClassSize(NativeMemoryPool.ClassOf(64 * 1024));
+        long big = NativeMemoryPool.ClassSize(NativeMemoryPool.ClassOf(1 << 20)); // far above: never taken for a small one
+
+        // Eight small blocks in use at once, then freed: all kept, the peak in use allows that much.
+        FreeAll(AllocAll(8, 64 * 1024));
+        Assert.Equal(8 * small, NativeMemoryPool.RetainedBytes);
+        Assert.Equal(baseline + 8 * small, NativeMemoryPool.RetainCap);
+
+        // Two big ones in use at once: the peak rises to theirs, and the kept small ones count against it.
+        FreeAll(AllocAll(2, 1 << 20));
+        Assert.Equal(baseline + 2 * big, NativeMemoryPool.RetainCap);
+        Assert.Equal(8 * small + (baseline >= 8 * small ? 2 : 1) * big, NativeMemoryPool.RetainedBytes);
+
+        // The tick carries the peak over; the next one halves it (unless that tick's own peak is higher).
+        NativeMemoryPool.Tick();
+        Assert.Equal(baseline + 2 * big, NativeMemoryPool.RetainCap);
+        NativeMemoryPool.Free(NativeMemoryPool.Alloc(64 * 1024)); // one small block stays in use, the others are idle
+        NativeMemoryPool.Tick();
+        Assert.Equal(small, NativeMemoryPool.RetainedBytes);
+        Assert.Equal(Math.Max(baseline + small, (baseline + 2 * big) / 2), NativeMemoryPool.RetainCap);
+
+        // Nothing kept any more: the older peaks are forgotten.
+        NativeMemoryPool.Tick();
+        Assert.Equal(0, NativeMemoryPool.RetainedBytes);
+        Assert.Equal(baseline, NativeMemoryPool.RetainCap);
+
+        static nint[] AllocAll(int count, long bytes)
+        {
+            nint[] blocks = new nint[count];
+            for (int i = 0; i < count; i++) blocks[i] = (nint)NativeMemoryPool.Alloc(bytes);
+            return blocks;
+        }
+
+        static void FreeAll(nint[] blocks)
+        {
+            foreach (nint block in blocks) NativeMemoryPool.Free((void*)block);
+        }
+    }
+
+    [Fact]
+    public void TheCap_IsAtLeastTheFloor_AndAtMostTheLimit()
+    {
+        long baseline = NativeMemoryPool.LiveBytes;
+        Assert.Equal(Math.Max(64L << 20, baseline), NativeMemoryPool.RetainCap);
+        NativeMemoryPool.RetainLimit = 1 << 20;
+        Assert.Equal(1 << 20, NativeMemoryPool.RetainCap);
+    }
+
+    [Theory]
+    [InlineData("512MiB", 512L << 20)]
+    [InlineData(" 2 GiB ", 2L << 30)]
+    [InlineData("0", 0L)]
+    [InlineData(null, 1L << 30)]
+    [InlineData(" ", 1L << 30)]
+    [InlineData("lots", 1L << 30)]
+    [InlineData("150%", 1L << 30)]
+    public void TheRetainSetting_IsASize_ElseTheDefault(string? setting, long limit) =>
+        Assert.Equal(limit, NativeMemoryPool.DefaultRetainLimit(setting));
+
+    [Fact]
+    public void TheRetainSetting_MayBeAShareOfTheMemoryTheProcessMayUse() =>
+        Assert.Equal((long)(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes * 10.0 / 100), NativeMemoryPool.DefaultRetainLimit("10%"));
+
+    [Fact]
     public void BlocksUnusedForAWholeTick_AreReleased()
     {
         long size = NativeMemoryPool.ClassSize(NativeMemoryPool.ClassOf(64 * 1024));
@@ -128,6 +253,7 @@ public sealed unsafe class NativeMemoryPoolTests : IDisposable
     [Fact]
     public void ManyThreads_AllocatingAndFreeing_KeepTheCountsRight()
     {
+        long live = NativeMemoryPool.LiveBytes;
         long[] sizes = [64 * 1024, 100_000, 256 * 1024, 1 << 20];
         Parallel.For(0, 64, new ParallelOptions { MaxDegreeOfParallelism = 16 }, t =>
         {
@@ -151,6 +277,7 @@ public sealed unsafe class NativeMemoryPoolTests : IDisposable
             foreach (nint p in held) NativeMemoryPool.Free((void*)p);
         });
         Assert.InRange(NativeMemoryPool.RetainedBytes, 1, NativeMemoryPool.RetainLimit);
+        Assert.Equal(live, NativeMemoryPool.LiveBytes);
         NativeMemoryPool.Trim();
         Assert.Equal(0, NativeMemoryPool.RetainedBytes);
         // Every class is empty again: a fresh allocation comes from the system, then is kept once freed.
