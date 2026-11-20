@@ -15,6 +15,17 @@ public abstract record DatasetWriteOptions
     /// </summary>
     public IWritableFileStore? Store { get; init; }
 
+    /// <summary>
+    /// The columns whose values split the rows into Hive partitions: a directory <c>key=value/</c> per column below the
+    /// dataset's path, in this order, values rendered as Polars renders them (escaped as Hive and Spark escape them; a
+    /// null is <c>__HIVE_DEFAULT_PARTITION__</c>, an empty string an empty value). Integers, floats, decimals,
+    /// booleans, strings, dates, times, timestamps and dictionaries of them. Null or empty: no partitions.
+    /// </summary>
+    public IReadOnlyList<string>? PartitionBy { get; init; }
+
+    /// <summary>Whether the partition columns are written into the files too (off by default: their values are in the paths, as Hive, Spark and pyarrow write them).</summary>
+    public bool IncludePartitionColumns { get; init; }
+
     /// <summary>What happens to files under the dataset's path already (<see cref="ExistingData.Error"/> by default).</summary>
     public ExistingData ExistingData { get; init; } = ExistingData.Error;
 
@@ -68,8 +79,9 @@ public enum ExistingData
     Append,
 
     /// <summary>
-    /// The files there are deleted once every file of the write is published (a failed write leaves them): every file
-    /// under the dataset's path, at any depth.
+    /// The files there in the partitions written are deleted once every file of the write is published (a failed write
+    /// leaves them): every file under each partition's directory, at any depth (without partitions, under the
+    /// dataset's path); the other partitions are left as they are.
     /// </summary>
     ReplacePartitions,
 }
@@ -84,7 +96,8 @@ public readonly record struct DatasetFileName(string WriteId, long Index, string
 /// <param name="Path">Its path in the store.</param>
 /// <param name="Rows">Its rows.</param>
 /// <param name="Bytes">Its size.</param>
-public record DatasetWrittenFile(string Path, long Rows, long Bytes);
+/// <param name="PartitionValues">Its partition's values by column, as rendered in its path (unescaped; null for a null); empty without partitions.</param>
+public record DatasetWrittenFile(string Path, long Rows, long Bytes, IReadOnlyDictionary<string, string?> PartitionValues);
 
 /// <summary>A dataset write's files, in the order they were written (partition by partition).</summary>
 /// <param name="WriteId">The write's id (in the files' default names).</param>

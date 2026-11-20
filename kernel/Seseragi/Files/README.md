@@ -83,19 +83,27 @@ request. A store's failure names the file and surfaces in order; a hung request 
 
 **Writing datasets** (`ParquetDatasetWriter`, `ParquetDatasetWriteOptions`, `ParquetWrittenFile`; `DatasetWriteOptions`,
 `DatasetWriteResult`, shared with the IPC writer): record batches written as files under a path (a directory, or a
-prefix of an `IWritableFileStore`), sync or async, or in one call (`Write`, `WriteAsync`). Files are cut by rows
+prefix of an `IWritableFileStore`), sync or async, or in one call (`Write`, `WriteAsync`). `PartitionBy` splits the
+rows into Hive partitions: a directory `key=value/` per column, in order, values rendered as Polars renders them
+(floats by their shortest digits, timestamps with their unit's digits and their zone's offset, decimals with their
+scale's digits, times with their fraction), escaped as Hive and Spark escape them, a null `__HIVE_DEFAULT_PARTITION__`
+and an empty string an empty value (two partitions); integers, floats, decimals, booleans, strings, dates, times,
+timestamps and dictionaries of them. The partition columns stay out of the files unless `IncludePartitionColumns`.
+Each batch's rows are grouped by their keys and gathered once, and the partitions' files are written side by side.
+Files are cut by rows
 (`MaxRowsPerFile`, exactly) and by size on disk (`ApproxBytesPerFile`: rows cut to fit, the size of the rows to come
 estimated from those written), named `part-00000-<write id>.parquet` and so on (the index sorts the files of one write
 in the order written; the write's id keeps them apart from any other write's; `FileName` names them otherwise) and
 published whole (a file appears with its footer or not at all). Files under the path already fail the write
 (`ExistingData.Error`, the default; a store that cannot list cannot be checked), are kept (`Append`) or replaced
-(`ReplacePartitions`: deleted once every new file is published). A failed write gives its open files up and deletes
+(`ReplacePartitions`: those of the partitions written — or every file without partitions — deleted once every new
+file is published; the other partitions stay). A failed write gives its open files up and deletes
 the files it published, so the path is as it was; `DatasetWriteException` lists what it could not delete. Each file
 takes the writer's options (`Writer`: compression, row groups, encodings, statistics); the dataset decides the threads
 and owns the streams, batches stay the caller's. The files open at once hold their bytes within a memory budget
 (`MemoryBudget`: an eighth of the memory the process may use by default): files being published are waited for, then
 the largest files' row groups ended early, then the largest files closed early. The result lists each file with its
-rows, size and footer.
+partition's values, rows, size and footer.
 
 **Partitions** (`HivePartitioning`, `PartitionSchema`, `ParseHiveDates`, `ParquetDatasetFile.PartitionValues`): Hive
 `key=value` directories give partition columns as Polars reads them — by default for a directory given alone, on
@@ -310,8 +318,9 @@ schemas united by name (`DatasetFiles`), partition values (`Partitions`: Hive pa
 one row per file), the columns, filter split and batch conversion around each file's reader (`DatasetShape`), footers
 kept between reads (`KeptFooters`) and how far readers read ahead (`DatasetLimits`); for writing, the options and
 results (`DatasetWriteOptions`), the sink every format's dataset writer writes through (`DatasetSink`: rows split by their keys' values, files cut, written side by side within a memory budget and
-published while the next rows are written), the format seam (`DatasetFileFormat`) and the write around it
-(`DatasetWriting`: existing files, names, undoing a failed write). `Parquet/Datasets/` holds the
+published while the next rows are written), the format seam (`DatasetFileFormat`), the write around it
+(`DatasetWriting`: partitions, existing files, names, undoing a failed write) and Hive partition paths (`HivePaths`:
+values rendered and escaped, shared with the Delta writer). `Parquet/Datasets/` holds the
 Parquet dataset (`ParquetDataset`; `ParquetDatasetReader`: shape plans per file schema, filters per file, the window
 of row groups across files; `ParquetDatasetReader<T>`: typed rows); `Ipc/Datasets/` the Arrow IPC one (`IpcDataset`;
 `IpcDatasetReader`: the window of record batches across files; `IpcDatasetReader<T>`; `IpcDatasetTypes`: layouts
@@ -371,7 +380,8 @@ stops their scans), their whole scans kept on stores between reads (with their v
 the row index. Typed
 rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`. Written by `IpcDatasetWriter`
 (`IpcDatasetWriteOptions`) as Parquet datasets are (see Parquet's "Writing datasets"): files in the file format
-(`.arrow`) or the stream format (`.arrows`), each batch (or the part of it a file takes) a record batch of a file.
+(`.arrow`) or the stream format (`.arrows`); runs of 64 Ki rows or more are written as record batches as they are,
+shorter ones (a partition's rows of each batch, small batches) gathered into record batches of 64 Ki rows or 8 MiB.
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
 `IpcStreamReader<T>.Open(stream, where)`: a stream's rows, read once, its columns chosen once its schema is read;
@@ -674,6 +684,7 @@ In Sazanami (generic, reusable by other formats):
 | `Data/Mapping/` accessors (`NestedAccessors.cs`: `MapAccessor`; `ScalarAccessors.cs`: `WideIntegerAccessor`) | Decimal(p, 0) columns into `Int128` / `UInt128` members (a column marked unsigned by its bits). Map columns (Arrow maps, lists of two-field structs: key / value by name, else by position) read into `Dictionary`, `IDictionary`, `IReadOnlyDictionary` and F# `Map` members; null keys refused, a repeated key keeps its last value. |
 | `Concurrency/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Concurrency/OrderedWindow.cs` | Numbered work items run ahead of a consumer taking them in order, a window opening 1, 2, 4 … at a time within a size budget; results that own resources disposed when never taken. |
+| `Arrow/Builders/ArrowBatchAppender.cs` | Rows of many record batches appended as ranges, copied once into growable native buffers, taken as one batch (flat layouts, views with their long values copied, structs, lists, maps, fixed-size lists, dictionaries while they stay the same): the IPC dataset writer's gathering of short runs. |
 | `Concurrency/OrderedUnits.cs` | The datasets' read window, for any format: groups (files) planned ahead in order, their units (row groups, record batches) run ahead of a consumer taking the results in order within unit, byte and group bounds; units of a group found as it is read join as they are found; failures in order; a group freed when its last unit is taken (or kept for a result that still needs it). |
 | `Compression/Lz4Block.cs`, `Lz4Frame.cs`, `ZstdBlock.cs`, `SnappyBlock.cs` | Block codecs shared by Parquet, Arrow IPC and Avro. LZ4: the decoder copies 16 bytes at a time where the output leaves room (each sequence checked whole first, exact copies near the end, runs and short periods expanded); the encoder is LZ4's fast compressor (8192-entry table reused across calls without clearing, the step growing over data without matches, matches extended backward and compared 8 bytes at a time), its output depending on the input alone; frames of independent 64 KiB blocks, which writers compress side by side. |
 | `Arrow/RowViews/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |

@@ -5,10 +5,10 @@ using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files;
 
-/// <summary>A directory of a dataset being written, as a <see cref="DatasetSink{TPartition}"/> partition: its path under the dataset's.</summary>
-internal sealed record DatasetPartition(string Directory)
+/// <summary>A directory of a dataset being written, as a <see cref="DatasetSink{TPartition}"/> partition: its path under the dataset's (ending with '/'), its values.</summary>
+internal sealed record DatasetPartition(string Directory, IReadOnlyDictionary<string, string?> Values)
 {
-    public static readonly DatasetPartition Root = new("");
+    public static readonly DatasetPartition Root = new("", new Dictionary<string, string?>());
 }
 
 /// <summary>
@@ -28,6 +28,7 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
     private readonly string _extension;
     private readonly Func<SunkFile<DatasetPartition>, TFile> _file;
     private readonly DatasetSink<DatasetPartition> _sink;
+    private readonly string[] _keys;
     private int _state;
 
     private DatasetWriting(IWritableFileStore store, string root, Schema schema, DatasetWriteOptions options, DatasetFileFormat format,
@@ -39,10 +40,14 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
         _options = options;
         _extension = format.Extension;
         _file = file;
-        var settings = new DatasetSinkSettings(store, format, [], [], [.. Enumerable.Range(0, schema.FieldsList.Count)],
+        _keys = [.. options.PartitionBy ?? []];
+        int[] keys = [.. _keys.Select(k => schema.GetFieldIndex(k))];
+        int[] data = [.. Enumerable.Range(0, schema.FieldsList.Count).Where(c => options.IncludePartitionColumns || !keys.Contains(c))];
+        // An empty string and a null are partitions apart: their directories differ (k= and k=__HIVE_DEFAULT_PARTITION__).
+        var settings = new DatasetSinkSettings(store, format, keys, [.. keys.Select(_ => false)], data,
             options.MaxRowsPerFile ?? 0, options.ApproxBytesPerFile ?? 0, options.MemoryBudget ?? DatasetSink<DatasetPartition>.DefaultBudget,
             options.MaxDegreeOfParallelism, options.SyncOnCommit);
-        _sink = new DatasetSink<DatasetPartition>(settings, _ => DatasetPartition.Root, PathOf);
+        _sink = new DatasetSink<DatasetPartition>(settings, Partition, PathOf);
     }
 
     /// <summary>The schema of the rows written.</summary>
@@ -59,6 +64,17 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
+        IReadOnlyList<string> keys = options.PartitionBy ?? [];
+        foreach (string key in keys)
+        {
+            int index = schema.GetFieldIndex(key);
+            if (index < 0) throw new ArgumentException($"The partition column '{key}' is not a column of the schema.", nameof(options));
+            if (!HivePaths.Renders(schema.GetFieldByIndex(index).DataType))
+                throw new ArgumentException($"The partition column '{key}' is of type {schema.GetFieldByIndex(index).DataType.Name}, which partition paths cannot hold.", nameof(options));
+        }
+        if (keys.Distinct(StringComparer.Ordinal).Count() != keys.Count) throw new ArgumentException("A partition column is named twice.", nameof(options));
+        if (keys.Count == schema.FieldsList.Count && keys.Count > 0 && !options.IncludePartitionColumns)
+            throw new ArgumentException("Every column partitions the rows: the files would hold no column (include the partition columns in them).", nameof(options));
         IWritableFileStore store = options.Store ?? new LocalFileStore();
         string root = path.Length > 1 ? path.TrimEnd('/', '\\') : path;
         if (options.ExistingData == ExistingData.Error && await FirstFileAsync(store, root, ct).ConfigureAwait(false) is { } there)
@@ -75,6 +91,14 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
             throw new NotSupportedException($"The store of '{root}' cannot list its files: it cannot be checked for files there already (choose ExistingData.Append).");
         await foreach (StoredFile file in store.ListAsync(root + "/", recursive: true, ct).ConfigureAwait(false)) return file.Path;
         return null;
+    }
+
+    /// <summary>The partition of a first row (none without keys): its values rendered, its directory.</summary>
+    private DatasetPartition Partition(PartitionRow? row)
+    {
+        if (row is not { } first) return DatasetPartition.Root;
+        string?[] values = [.. first.Keys.Select(keys => HivePaths.Render(keys, first.Row))];
+        return new DatasetPartition(HivePaths.Directory(_keys, values), _keys.Zip(values).ToDictionary(static p => p.First, static p => p.Second));
     }
 
     /// <summary>The path of a partition's file of an index.</summary>
@@ -129,7 +153,8 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
             throw; // not reached
         }
         _state = Completed;
-        if (_options.ExistingData == ExistingData.ReplacePartitions) DeleteOld([.. files.Select(f => Normalized(f.Path))]);
+        if (_options.ExistingData == ExistingData.ReplacePartitions)
+            DeleteOld([.. files.Select(f => Normalized(f.Path))], [.. files.Select(f => f.Partition.Directory).Distinct()]);
         return new DatasetWriteResult<TFile>(WriteId, [.. files.Select(_file)]);
     }
 
@@ -182,12 +207,15 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
         return left;
     }
 
-    /// <summary>Deletes the files under the dataset's path that the write did not publish; those it cannot are listed by a <see cref="DatasetWriteException"/>.</summary>
-    private void DeleteOld(HashSet<string> written)
+    /// <summary>
+    /// Deletes the files under the directories of the partitions written (without partitions: under the dataset's path)
+    /// that the write did not publish; those it cannot are listed by a <see cref="DatasetWriteException"/>.
+    /// </summary>
+    private void DeleteOld(HashSet<string> written, List<string> directories)
     {
         List<string> left = [];
         Exception? first = null;
-        foreach (string old in ListAll())
+        foreach (string old in directories.SelectMany(ListAll))
         {
             if (written.Contains(Normalized(old))) continue;
             try
@@ -203,10 +231,10 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
         if (left.Count > 0)
             throw new DatasetWriteException($"The dataset was written; {left.Count} of the files it replaces could not be deleted.", left, first);
 
-        IEnumerable<string> ListAll()
+        List<string> ListAll(string directory)
         {
             List<string> paths = [];
-            IAsyncEnumerator<StoredFile> files = _store.ListAsync(_root + "/", recursive: true).GetAsyncEnumerator();
+            IAsyncEnumerator<StoredFile> files = _store.ListAsync($"{_root}/{directory}", recursive: true).GetAsyncEnumerator();
             try
             {
                 while (files.MoveNextAsync().AsTask().GetAwaiter().GetResult()) paths.Add(files.Current.Path);

@@ -46,7 +46,7 @@ public sealed class IpcDatasetWriter : IDisposable
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
         return new IpcDatasetWriter(await DatasetWriting<DatasetWrittenFile>.CreateAsync(path, schema, options, new IpcFileFormat(options.Writer),
-            static f => new DatasetWrittenFile(f.Path, f.Rows, f.Bytes), cancellationToken).ConfigureAwait(false));
+            static f => new DatasetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values), cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>The schema of the batches written.</summary>

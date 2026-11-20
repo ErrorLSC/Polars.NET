@@ -5,6 +5,7 @@ using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Parquet;
 using Polars.NET.Core.Enums;
@@ -691,7 +692,7 @@ internal static class DeltaKernelWrite
             string directory = prefixLength > 0
                 ? FilePrefixes.New(prefixLength) + "/"
                 : (changeData ? "_change_data/" : "") + string.Concat(partitions.Select(p =>
-                    $"{EscapePartitionName(schema.Field(p)!.PhysicalName)}={EscapePartitionName(values[p] ?? HiveDefaultPartition)}/"));
+                    $"{HivePaths.Escape(schema.Field(p)!.PhysicalName)}={HivePaths.Escape(values[p] ?? HivePaths.NullValue)}/"));
             // Spark's names: part-00000-UUID-c000.snappy.parquet, in a partitioned table (Spark's dynamic
             // partition writer) part-00000-UUID.c000.snappy.parquet, and cdc-00000-UUID.c000.snappy.parquet.
             string relative = changeData
@@ -852,22 +853,6 @@ internal static class DeltaKernelWrite
         }
         for (int i = 0; i < (extraColumns?.Length ?? 0); i++) exprs[schema.Fields.Count + i] = PolarsWrapper.Col(extraColumns![i]);
         return PolarsWrapper.LazySelect(lf, exprs);
-    }
-
-    private const string HiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
-
-    /// <summary>Escapes a partition directory name the way Hive and Spark do.</summary>
-    private static string EscapePartitionName(string value)
-    {
-        var sb = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            if (c < 0x20 || c == 0x7F || "\"#%'*/:=?\\{[]^".Contains(c))
-                sb.Append('%').Append(((int)c).ToString("X2", CultureInfo.InvariantCulture));
-            else
-                sb.Append(c);
-        }
-        return sb.ToString();
     }
 
     /// <summary>A table-relative file path as the log writes it: a URI path, percent-encoded.</summary>

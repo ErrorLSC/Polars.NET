@@ -16,8 +16,10 @@ public sealed record ParquetDatasetWriteOptions : DatasetWriteOptions
 /// <param name="Path">Its path in the store.</param>
 /// <param name="Rows">Its rows.</param>
 /// <param name="Bytes">Its size.</param>
+/// <param name="PartitionValues">Its partition's values by column, as rendered in its path; empty without partitions.</param>
 /// <param name="Metadata">Its footer, as written.</param>
-public sealed record ParquetWrittenFile(string Path, long Rows, long Bytes, ParquetMetadata Metadata) : DatasetWrittenFile(Path, Rows, Bytes);
+public sealed record ParquetWrittenFile(string Path, long Rows, long Bytes, IReadOnlyDictionary<string, string?> PartitionValues, ParquetMetadata Metadata)
+    : DatasetWrittenFile(Path, Rows, Bytes, PartitionValues);
 
 /// <summary>
 /// Writes record batches as a dataset of Parquet files under a path (a directory, or a prefix of a store): files cut by
@@ -50,7 +52,7 @@ public sealed class ParquetDatasetWriter : IDisposable
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
         return new ParquetDatasetWriter(await DatasetWriting<ParquetWrittenFile>.CreateAsync(path, schema, options, new ParquetFileFormat(options.Writer),
-            static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, (ParquetMetadata)f.Footer!), cancellationToken).ConfigureAwait(false));
+            static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values, (ParquetMetadata)f.Footer!), cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>The schema of the batches written.</summary>
