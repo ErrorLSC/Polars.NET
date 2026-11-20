@@ -60,6 +60,81 @@ public class IpcApiTests
         Assert.Equal(mapped, Assert.IsType<IpcBodyMemory>(Owner(batch.Column(column))).IsMapped);
     }
 
+    /// <summary>
+    /// A mapped file's messages (record batches, dictionaries, the row counts the row index needs) are parsed in the
+    /// mapping, as its bodies are read from it: reading asks nothing of the source; unmapped, every message is read.
+    /// </summary>
+    [Theory]
+    [InlineData("pyarrow/dictionary.arrow", 1)]
+    [InlineData("pyarrow/dictionary.arrow", 4)]
+    [InlineData("pyarrow/dictionary_replacement.arrows", 1)]
+    [InlineData("pyarrow/dictionary_replacement.arrows", 4)]
+    [InlineData("pyarrow/many_batches.arrow", 4)]
+    [InlineData("pyarrow/primitives.arrows", 1)]
+    public void MappedMessages_AreParsedInPlace_WithoutReads(string name, int threads)
+    {
+        foreach (IpcMemoryMap map in (IpcMemoryMap[])[IpcMemoryMap.Auto, IpcMemoryMap.Off])
+        {
+            using IpcFile file = IpcFile.Open(Path(name));
+            var source = (Kaminari.Seseragi.Files.IO.RandomAccessSource)file.Source;
+            int before = source.Reads;
+            using IpcReader reader = file.OpenReader(new IpcReadOptions { MemoryMap = map, MaxDegreeOfParallelism = threads, RowIndexColumn = "i", RowIndexOffset = 5 });
+            List<string> rows = [];
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch) rows.AddRange(Enumerable.Range(0, batch.Length).Select(r => string.Join("|", Enumerable.Range(0, batch.ColumnCount).Select(c => CanonicalRender.Value(batch.Column(c), r)))));
+            }
+            // A batch read at random: its row index counts the rows before it (a file's from their messages).
+            using IpcReader again = file.OpenReader(new IpcReadOptions { MemoryMap = map, RowIndexColumn = "i", RowIndexOffset = 5 });
+            List<string> tail;
+            using (RecordBatch last = again.ReadBatch(file.BatchCount - 1))
+                tail = [.. Enumerable.Range(0, last.Length).Select(r => string.Join("|", Enumerable.Range(0, last.ColumnCount).Select(c => CanonicalRender.Value(last.Column(c), r))))];
+            int reads = source.Reads - before;
+            if (map == IpcMemoryMap.Off) Assert.True(reads > 0, $"{name}: unmapped, {reads} reads");
+            else Assert.Equal(0, reads);
+            List<string> expected = Expected(name, threads);
+            Assert.Equal(expected, rows);
+            Assert.Equal(expected[^tail.Count..], tail);
+        }
+
+        static List<string> Expected(string name, int threads)
+        {
+            using IpcFile file = IpcFile.Open(File.OpenRead(Path(name)));
+            using IpcReader reader = file.OpenReader(new IpcReadOptions { MaxDegreeOfParallelism = threads, RowIndexColumn = "i", RowIndexOffset = 5 });
+            List<string> rows = [];
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                using (batch) rows.AddRange(Enumerable.Range(0, batch.Length).Select(r => string.Join("|", Enumerable.Range(0, batch.ColumnCount).Select(c => CanonicalRender.Value(batch.Column(c), r)))));
+            }
+            Assert.NotEmpty(rows);
+            return rows;
+        }
+    }
+
+    /// <summary>A message whose block reaches past the mapped file is a format error, as an early end is unmapped.</summary>
+    [Fact]
+    public void AMappedMessage_PastTheFile_IsAFormatError()
+    {
+        string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ipc-message-past-{Guid.NewGuid():N}.arrows");
+        try
+        {
+            File.Copy(Path("pyarrow/primitives.arrows"), path);
+            using IpcFile file = IpcFile.Open(path);
+            int batches = file.BatchCount; // scans the stream whole: the blocks are known
+            Assert.True(batches > 0);
+            var source = (Kaminari.Seseragi.Files.IO.RandomAccessSource)file.Source;
+            IpcBlock last = file.BatchBlock(batches - 1);
+            var map = source.Map(out long start)!; // the source's mapping (it keeps the hold)
+            IpcBlock past = last with { Offset = map.Length - last.MetadataLength + 1 };
+            var e = Assert.Throws<IpcFormatException>(() => IpcIO.Sync(IpcIO.MessageAsync(source, map, start, past, useAsync: false, default)));
+            Assert.Contains("reaches past the file", e.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Dictionaries_AreKeptByTheReaderAndEveryBatch_AndFreedAfterTheLast()
     {

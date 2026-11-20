@@ -21,6 +21,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     private readonly object _mapLock = new();
     private MappedFile? _map;
     private bool _disposed;
+    private int _reads;
 
     /// <summary>Wraps a seekable stream; <paramref name="copy"/> is the native memory the stream reads, when it was
     /// copied there (released on dispose). Only a file this library opened by its path is <paramref name="mappable"/>:
@@ -89,8 +90,12 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
     /// <summary>Whether the file was mapped (for tests).</summary>
     internal bool IsMapped => Volatile.Read(ref _map) is not null;
 
+    /// <summary>How many reads were asked of the source (for tests).</summary>
+    internal int Reads => Volatile.Read(ref _reads);
+
     public int ReadAt(long offset, Span<byte> destination)
     {
+        Interlocked.Increment(ref _reads);
         int count = (int)Math.Clamp(Length - offset, 0, destination.Length);
         if (count == 0) return 0;
         if (_memory is { } memory)
@@ -123,6 +128,7 @@ internal sealed class RandomAccessSource : IRandomAccess, ILocalSource, IDisposa
 
     public async ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken)
     {
+        if (_memory is null) Interlocked.Increment(ref _reads);
         int count = (int)Math.Clamp(Length - offset, 0, destination.Length);
         if (count == 0) return 0;
         if (_memory is not null) return ReadAt(offset, destination.Span);

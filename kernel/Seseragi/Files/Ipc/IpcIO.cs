@@ -40,6 +40,35 @@ internal static class IpcIO
         static unsafe int Read(IRandomAccess source, long offset, nint p, int n) => source.ReadAt(offset, new Span<byte>((void*)p, n));
     }
 
+    /// <summary>
+    /// The message a block points to: parsed in place in the file's mapping when <paramref name="map"/> is given (no
+    /// read; the message keeps nothing of the bytes), else read as <see cref="MessageAsync(IRandomAccess, IpcBlock, bool, CancellationToken)"/> does.
+    /// </summary>
+    public static ValueTask<IpcMessage> MessageAsync(IRandomAccess source, MappedFile? map, long mapStart, IpcBlock block, bool useAsync, CancellationToken ct)
+    {
+        if (map is null || !map.TryAcquire()) return MessageAsync(source, block, useAsync, ct);
+        try
+        {
+            return ValueTask.FromResult(Parse(Mapped(map, mapStart + block.Offset, block.MetadataLength, block), block));
+        }
+        finally
+        {
+            map.Release();
+        }
+
+        static unsafe ReadOnlySpan<byte> Mapped(MappedFile map, long offset, int length, IpcBlock block)
+        {
+            try
+            {
+                return new(map.At(offset, length), length);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new IpcFormatException($"The Arrow IPC message at {block.Offset} ({length} bytes) reaches past the file.");
+            }
+        }
+    }
+
     /// <summary>Reads the message a footer block points to (its metadata; the body stays where it is).</summary>
     public static async ValueTask<IpcMessage> MessageAsync(IRandomAccess source, IpcBlock block, bool useAsync, CancellationToken ct)
     {

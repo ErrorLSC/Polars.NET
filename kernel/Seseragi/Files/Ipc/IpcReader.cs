@@ -100,7 +100,7 @@ public sealed class IpcReader : IDisposable
             {
                 before[i] = rows;
                 if (i == blocks.Length - 1) break;
-                IpcMessage message = await IpcIO.MessageAsync(_file.Source, blocks[i], useAsync, ct).ConfigureAwait(false);
+                IpcMessage message = await IpcIO.MessageAsync(_file.Source, _map, _mapStart, blocks[i], useAsync, ct).ConfigureAwait(false);
                 rows += message.RecordBatch?.Length
                     ?? throw new IpcFormatException($"Arrow IPC footer block {i} of the record batches holds a {message.Kind} message.");
             }
@@ -307,7 +307,7 @@ public sealed class IpcReader : IDisposable
     {
         if (_file.Stream is { } stream) await ApplyDictionariesAsync(stream.BatchAt(index).Epoch, useAsync, ct).ConfigureAwait(false);
         IpcBlock block = _file.BatchBlock(index);
-        IpcMessage message = await IpcIO.MessageAsync(_file.Source, block, useAsync, ct).ConfigureAwait(false);
+        IpcMessage message = await IpcIO.MessageAsync(_file.Source, _map, _mapStart, block, useAsync, ct).ConfigureAwait(false);
         if (message.Kind != IpcMessageKind.RecordBatch)
             throw new IpcFormatException($"Arrow IPC footer block {index} of the record batches holds a {message.Kind} message.");
         bool[] needed = _decoding.Plan(message);
@@ -393,7 +393,7 @@ public sealed class IpcReader : IDisposable
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 IpcBlock block = _file.DictionaryBlock(_applied);
-                IpcMessage message = await IpcIO.MessageAsync(_file.Source, block, useAsync, ct).ConfigureAwait(false);
+                IpcMessage message = await IpcIO.MessageAsync(_file.Source, _map, _mapStart, block, useAsync, ct).ConfigureAwait(false);
                 if (wanted.Contains(message.DictionaryBatch!.Id))
                 {
                     IpcField field = footer.Schema.Dictionaries.TryGetValue(message.DictionaryBatch.Id, out IpcField? f) ? f
@@ -425,7 +425,7 @@ public sealed class IpcReader : IDisposable
         HashSet<long> wanted = _decoding.DictionaryIds;
         foreach (IpcBlock block in footer.Dictionaries)
         {
-            IpcMessage message = await IpcIO.MessageAsync(_file.Source, block, useAsync, ct).ConfigureAwait(false);
+            IpcMessage message = await IpcIO.MessageAsync(_file.Source, _map, _mapStart, block, useAsync, ct).ConfigureAwait(false);
             if (message.Kind != IpcMessageKind.DictionaryBatch)
                 throw new IpcFormatException($"An Arrow IPC footer block of the dictionaries holds a {message.Kind} message.");
             if (!wanted.Contains(message.DictionaryBatch!.Id)) continue;
