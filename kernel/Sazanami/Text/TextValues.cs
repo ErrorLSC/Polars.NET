@@ -190,6 +190,33 @@ internal static class TextValues
         return true;
     }
 
+    /// <summary>
+    /// A time of day alone: <c>H:MM</c> or <c>H:MM:SS[.f]</c> (up to nine fraction digits, kept exactly), as nanoseconds
+    /// since midnight.
+    /// </summary>
+    public static bool TryParseTime(ReadOnlySpan<char> text, out long nanoseconds)
+    {
+        nanoseconds = 0;
+        int dot = text.IndexOf('.');
+        ReadOnlySpan<char> fraction = dot < 0 ? [] : text[(dot + 1)..];
+        if (dot >= 0 && (fraction.IsEmpty || fraction.Length > 9 || fraction.ContainsAnyExceptInRange('0', '9'))) return false;
+        ReadOnlySpan<char> clock = dot < 0 ? text : text[..dot];
+        int c1 = clock.IndexOf(':');
+        if (c1 < 0 || !Number(clock[..c1], 1, 2, out int hour)) return false;
+        ReadOnlySpan<char> rest = clock[(c1 + 1)..];
+        int c2 = rest.IndexOf(':'), minute, second = 0;
+        if (c2 < 0)
+        {
+            if (dot >= 0 || !Number(rest, 2, 2, out minute)) return false;
+        }
+        else if (!Number(rest[..c2], 2, 2, out minute) || !Number(rest[(c2 + 1)..], 2, 2, out second)) return false;
+        if (hour > 23 || minute > 59 || second > 59) return false;
+        long digits = 0;
+        for (int i = 0; i < 9; i++) digits = digits * 10 + (i < fraction.Length ? fraction[i] - '0' : 0);
+        nanoseconds = ((hour * 60L + minute) * 60 + second) * 1_000_000_000 + digits;
+        return true;
+    }
+
     private static bool Time(ReadOnlySpan<char> text, out TimeSpan time)
     {
         time = default;

@@ -107,13 +107,23 @@ and owns the streams, batches stay the caller's. The files open at once hold the
 the largest files' row groups ended early, then the largest files closed early. The result lists each file with its
 partition's values, rows, size and footer.
 
+**Rows as objects, written as a dataset** (`ParquetDatasetWriter<T>.Create(path, options)`,
+`ParquetDatasetWriter.WriteRows<T>` / `WriteRowsAsync`; IPC: `IpcDatasetWriter<T>`, `IpcDatasetWriter.WriteRows<T>`):
+rows of `T` (`WriteRow`, `WriteRows`, `WriteRowsAsync` over sequences or async streams) laid out as `ParquetWriter<T>`
+lays them out (dictionaries as MAP groups), gathered into native batches (an array's or a list's made in parallel) and
+written as the record-batch writer writes them; `PartitionBy` names members (an enum's partition is its member name;
+a `Guid`, bytes or collections cannot partition). The files depend on the rows alone. `PartitionSchema` gives the
+partition columns' types for reading the dataset back as `T` (`ParquetDatasetReader<T>`). A row the layout refuses
+gives the write up (what it published deleted); a null row is refused alone. Disposing an uncompleted writer gives the
+write up.
+
 **Partitions** (`HivePartitioning`, `PartitionSchema`, `ParseHiveDates`, `ParquetDatasetFile.PartitionValues`): Hive
 `key=value` directories give partition columns as Polars reads them — by default for a directory given alone, on
 request for globs and files (their whole path); values percent-decoded, `__HIVE_DEFAULT_PARTITION__` null, an empty
 value null (an empty string for strings); the keys are the first path's and every path must hold them all. A key's
 type is the partition schema's, else the files' column of that name, else inferred over all values with Polars' CSV
 rules (booleans, floats, integers — beyond Int64 a decimal(38, 0) — dates and timestamps, strings; dates parsed by
-default; times of day and mixed date orders stay strings). Values may also come with a list of files (typed by the
+default; times of day and mixed date orders stay strings: a partition schema reads times too). Values may also come with a list of files (typed by the
 partition schema; strings read as Hive values). Partition columns follow the files' columns; a key the files hold
 takes that column's place with the path's value. A filter's conjuncts over partition columns only decide which files
 are read (the IR's semantics, evaluated on a table of one row per file); conjuncts over both partition and file
@@ -321,7 +331,8 @@ one row per file), the columns, filter split and batch conversion around each fi
 kept between reads (`KeptFooters`) and how far readers read ahead (`DatasetLimits`); for writing, the options and
 results (`DatasetWriteOptions`), the sink every format's dataset writer writes through (`DatasetSink`: rows split by their keys' values, files cut, written side by side within a memory budget and
 published while the next rows are written), the format seam (`DatasetFileFormat`), the write around it
-(`DatasetWriting`: partitions, existing files, names, undoing a failed write) and Hive partition paths (`HivePaths`:
+(`DatasetWriting`: partitions, existing files, names, undoing a failed write), typed rows written through it
+(`DatasetRows`: `RowBatcher` batches handed to the write, a refused row giving it up) and Hive partition paths (`HivePaths`:
 values rendered and escaped, shared with the Delta writer). `Parquet/Datasets/` holds the
 Parquet dataset (`ParquetDataset`; `ParquetDatasetReader`: shape plans per file schema, filters per file, the window
 of row groups across files; `ParquetDatasetReader<T>`: typed rows); `Ipc/Datasets/` the Arrow IPC one (`IpcDataset`;
@@ -384,6 +395,8 @@ rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`. Writte
 (`IpcDatasetWriteOptions`) as Parquet datasets are (see Parquet's "Writing datasets"): files in the file format
 (`.arrow`) or the stream format (`.arrows`); runs of 64 Ki rows or more are written as record batches as they are,
 shorter ones (a partition's rows of each batch, small batches) gathered into record batches of 64 Ki rows or 8 MiB.
+Rows of `T` are written by `IpcDatasetWriter<T>` as by `ParquetDatasetWriter<T>` (dictionaries as lists of key / value
+structs).
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
 `IpcStreamReader<T>.Open(stream, where)`: a stream's rows, read once, its columns chosen once its schema is read;

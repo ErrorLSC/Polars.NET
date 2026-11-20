@@ -225,6 +225,23 @@ public sealed class ParquetWriterOfTTests : IDisposable
         Assert.Equal(rows, read);
     }
 
+    /// <summary>
+    /// Decimals of up to twenty integer digits fit decimal(38, 18), and come back although their unscaled values pass
+    /// .NET's 96 bits at scale 18 (the fraction's trailing zeros dropped on the way).
+    /// </summary>
+    [Fact]
+    public void LargeDecimals_ComeBack()
+    {
+        string path = Path("large-decimals.parquet");
+        Amount[] rows =
+        [
+            new(1, 12345678901234567890.123456789m), new(2, -99999999999999999999.99m), new(3, 79228162514.264337593543950335m),
+            new(4, 0.000000000000000001m), new(5, decimal.Round(decimal.MaxValue / 1e9m)), new(6, null),
+        ];
+        ParquetWriter.WriteRows(path, rows);
+        Assert.Equal(rows, ParquetFile.ReadList<Amount>(path));
+    }
+
     [Theory]
     [InlineData("100000000000000000000000000000000000000", false)]  // 10^38: 39 digits
     [InlineData("-100000000000000000000000000000000000000", false)]
@@ -285,6 +302,8 @@ public enum Side { Buy, Sell, Hold }
 public sealed record Venues(Dictionary<int, string?> Codes);
 
 public sealed record Counter(Int128 Big, UInt128? Unsigned, Int128? Maybe);
+
+public sealed record Amount(int Id, decimal? Value);
 
 public sealed record Priced(int Id, IReadOnlyDictionary<string, decimal>? Prices, Venues? Venues, List<Dictionary<string, int>>? Tiers);
 

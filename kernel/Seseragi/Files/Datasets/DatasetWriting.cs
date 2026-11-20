@@ -56,6 +56,9 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
     /// <summary>The write's id (in the files' default names).</summary>
     public string WriteId { get; } = Guid.NewGuid().ToString();
 
+    /// <summary>Whether rows can still be written (not completed, failed or given up).</summary>
+    public bool IsOpen => _state == Open;
+
     /// <summary>Starts a write to <paramref name="path"/> (its files there checked first, as <see cref="DatasetWriteOptions.ExistingData"/> says).</summary>
     public static async ValueTask<DatasetWriting<TFile>> CreateAsync(string path, Schema schema, DatasetWriteOptions options, DatasetFileFormat format,
         Func<SunkFile<DatasetPartition>, TFile> file, CancellationToken ct)

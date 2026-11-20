@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Kaminari.Seseragi.Files.Parquet;
 
 /// <summary>How a dataset of Parquet files is written: the dataset's options, and those of each file.</summary>
@@ -45,14 +47,18 @@ public sealed class ParquetDatasetWriter : IDisposable
     /// <inheritdoc cref="Create"/>
     public static async Task<ParquetDatasetWriter> CreateAsync(string path, Apache.Arrow.Schema schema, ParquetDatasetWriteOptions? options = null,
         CancellationToken cancellationToken = default)
+        => new(await StartAsync(path, schema, options ?? new ParquetDatasetWriteOptions(), cancellationToken).ConfigureAwait(false));
+
+    /// <summary>Starts the dataset write of Parquet files (the typed writer's too).</summary>
+    internal static async Task<DatasetWriting<ParquetWrittenFile>> StartAsync(string path, Apache.Arrow.Schema schema, ParquetDatasetWriteOptions options,
+        CancellationToken cancellationToken)
     {
-        options ??= new ParquetDatasetWriteOptions();
         ArgumentNullException.ThrowIfNull(options.Writer, nameof(options.Writer));
         options.Writer.Validate();
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
-        return new ParquetDatasetWriter(await DatasetWriting<ParquetWrittenFile>.CreateAsync(path, schema, options, new ParquetFileFormat(options.Writer),
-            static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values, (ParquetMetadata)f.Footer!), cancellationToken).ConfigureAwait(false));
+        return await DatasetWriting<ParquetWrittenFile>.CreateAsync(path, schema, options, new ParquetFileFormat(options.Writer),
+            static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values, (ParquetMetadata)f.Footer!), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The schema of the batches written.</summary>
@@ -100,6 +106,36 @@ public sealed class ParquetDatasetWriter : IDisposable
         using ParquetDatasetWriter writer = await CreateAsync(path, schema, options, cancellationToken).ConfigureAwait(false);
         await foreach (Apache.Arrow.RecordBatch batch in batches.WithCancellation(cancellationToken).ConfigureAwait(false))
             await writer.WriteAsync(batch, cancellationToken).ConfigureAwait(false);
+        return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes rows of <typeparamref name="T"/> as a dataset under <paramref name="path"/>, in one call (<see cref="ParquetDatasetWriter{T}"/>).</summary>
+    public static DatasetWriteResult<ParquetWrittenFile> WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        IEnumerable<T> rows, ParquetDatasetWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        using ParquetDatasetWriter<T> writer = ParquetDatasetWriter<T>.Create(path, options);
+        writer.WriteRows(rows);
+        return writer.Complete();
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, ParquetDatasetWriteOptions?)"/>
+    public static async Task<DatasetWriteResult<ParquetWrittenFile>> WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
+        string path, IEnumerable<T> rows, ParquetDatasetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using ParquetDatasetWriter<T> writer = await ParquetDatasetWriter<T>.CreateAsync(path, options, cancellationToken).ConfigureAwait(false);
+        await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+        return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, ParquetDatasetWriteOptions?)"/>
+    public static async Task<DatasetWriteResult<ParquetWrittenFile>> WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
+        string path, IAsyncEnumerable<T> rows, ParquetDatasetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using ParquetDatasetWriter<T> writer = await ParquetDatasetWriter<T>.CreateAsync(path, options, cancellationToken).ConfigureAwait(false);
+        await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
         return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }

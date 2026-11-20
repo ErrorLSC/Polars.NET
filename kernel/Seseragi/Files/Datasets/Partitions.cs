@@ -206,7 +206,8 @@ internal sealed class Partitions
 
     /// <summary>The partition types the values can be read as.</summary>
     internal static bool Supported(IArrowType type) => type is BooleanType or Int8Type or Int16Type or Int32Type or Int64Type or UInt8Type or UInt16Type
-        or UInt32Type or UInt64Type or FloatType or DoubleType or Decimal128Type or Date32Type or Date64Type or TimestampType or StringType or StringViewType;
+        or UInt32Type or UInt64Type or FloatType or DoubleType or Decimal128Type or Date32Type or Date64Type or Time32Type or Time64Type or TimestampType
+        or StringType or StringViewType;
 
     /// <summary>One value per file: texts read as Hive values, or CLR values of the type's kind.</summary>
     private static IArrowArray Build(IArrowType type, IReadOnlyList<object?> values, Func<int, object, string> error)
@@ -328,6 +329,25 @@ internal sealed class Partitions
                     _ => checked(ticks * 100),
                 };
                 BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(i * 8), scaled);
+                return true;
+            }
+            case Time32Type or Time64Type:
+            {
+                long nanoseconds;
+                if (text is not null) { if (!TextValues.TryParseTime(text, out nanoseconds)) return false; }
+                else if (value is TimeOnly clock) nanoseconds = clock.Ticks * 100;
+                else if (value is TimeSpan span && span >= TimeSpan.Zero && span < TimeSpan.FromDays(1)) nanoseconds = span.Ticks * 100;
+                else return false;
+                long per = ((TimeType)type).Unit switch
+                {
+                    TimeUnit.Second => 1_000_000_000L,
+                    TimeUnit.Millisecond => 1_000_000L,
+                    TimeUnit.Microsecond => 1_000L,
+                    _ => 1L,
+                };
+                if (nanoseconds % per != 0) return false; // finer than the type holds
+                if (type is Time32Type) BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(i * 4), (int)(nanoseconds / per));
+                else BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(i * 8), nanoseconds / per);
                 return true;
             }
             default:

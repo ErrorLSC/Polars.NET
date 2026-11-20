@@ -38,7 +38,7 @@ public abstract record DatasetOptions
     /// The types of the partition columns (by name; it may name more than the paths hold); null infers them (a
     /// column the files have takes its type; else booleans, integers, floats, dates when
     /// <see cref="ParseHiveDates"/>, strings). Required with <see cref="DatasetFile.PartitionValues"/>.
-    /// Types: booleans, integers, floats, decimal128, dates, timestamps, strings.
+    /// Types: booleans, integers, floats, decimal128, dates, times, timestamps, strings.
     /// </summary>
     public Apache.Arrow.Schema? PartitionSchema { get; init; }
 
@@ -144,7 +144,7 @@ public abstract record DatasetOptions
 /// <param name="PartitionValues">
 /// The file's partition values by column (as a table's log of files records them): values of the
 /// <see cref="DatasetOptions.PartitionSchema"/> types' CLR kinds (bool, integers, floats, decimal, DateOnly,
-/// DateTime, DateTimeOffset, string), or strings read as Hive values; null values allowed. Every file then gives every
+/// TimeOnly, DateTime, DateTimeOffset, string), or strings read as Hive values; null values allowed. Every file then gives every
 /// column of the schema.
 /// </param>
 public abstract record DatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null);

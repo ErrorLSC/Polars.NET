@@ -66,6 +66,48 @@ public sealed unsafe class GuardedMemoryTests : IDisposable
     public sealed record Row(long Id, string Name, double? Value);
 
     /// <summary>
+    /// Typed rows written as datasets: the row batcher frees each batch once the write returns, while an unpartitioned
+    /// Parquet file keeps slices of it for row groups encoded side by side, and an unpartitioned IPC file writes it as
+    /// record batches; partitioned files take gathered copies. The same bytes with guards on, so a batch freed while
+    /// still referenced ends the process instead of passing by luck.
+    /// </summary>
+    [Fact]
+    public void TypedDatasets_WriteTheSame_WithGuardsOn()
+    {
+        Row[] rows = [.. Enumerable.Range(0, 300_000).Select(i => new Row(i, $"name {i % 777}", i % 3 == 0 ? null : i * 0.5))];
+        string root = Directory.CreateTempSubdirectory("guarded-typed-datasets-").FullName;
+        try
+        {
+            Dictionary<string, byte[]> plain = Write("plain");
+            Assert.Equal(6, plain.Count);
+            GuardedMemory.Enabled = true;
+            Dictionary<string, byte[]> guarded = Write("guarded");
+            GuardedMemory.Enabled = false;
+            Assert.Equal(plain.Keys.Order(), guarded.Keys.Order());
+            foreach ((string name, byte[] bytes) in plain) Assert.True(bytes.AsSpan().SequenceEqual(guarded[name]), name);
+        }
+        finally
+        {
+            GuardedMemory.Enabled = false;
+            Directory.Delete(root, recursive: true);
+        }
+
+        Dictionary<string, byte[]> Write(string run)
+        {
+            string at = Path.Combine(root, run);
+            static string Name(DatasetFileName n) => $"f-{n.Index}{n.Extension}";
+            ParquetDatasetWriter.WriteRows($"{at}/parquet", rows, new ParquetDatasetWriteOptions { FileName = Name, MaxDegreeOfParallelism = 4 });
+            IpcDatasetWriter.WriteRows($"{at}/ipc", rows, new IpcDatasetWriteOptions
+            {
+                FileName = Name, MaxDegreeOfParallelism = 4, Writer = new IpcWriteOptions { Compression = Lz4FrameCompression.Instance },
+            });
+            ParquetDatasetWriter.WriteRows($"{at}/parts", rows.Select(r => r with { Id = r.Id % 4 }),
+                new ParquetDatasetWriteOptions { FileName = Name, PartitionBy = [nameof(Row.Id)], MaxDegreeOfParallelism = 4 });
+            return Directory.GetFiles(at, "*", SearchOption.AllDirectories).ToDictionary(f => Path.GetRelativePath(at, f), File.ReadAllBytes);
+        }
+    }
+
+    /// <summary>
     /// An Arrow IPC dataset read through its window (files and batches side by side, rows numbered and filtered, a read
     /// stopped early): the same rows with guards on, every block freed only once nothing reads it.
     /// </summary>

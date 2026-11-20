@@ -172,12 +172,20 @@ internal sealed unsafe class DecimalAccessor : TypedColumnAccessor<decimal>,
                 ulong u64 = (ulong)uval;
                 return new decimal((int)u64, (int)(u64 >> 32), 0, isNegative, (byte)_scale);
             }
+            // Beyond 96 bits at the column's scale, trailing zeros of the fraction are dropped (a decimal(38, 18) of
+            // twenty integer digits holds them): the value is the same at a smaller scale.
+            int scale = _scale;
+            while (uval > MaxDecimalBits && scale > 0 && uval % 10 == 0)
+            {
+                uval /= 10;
+                scale--;
+            }
             if (uval <= MaxDecimalBits)
             {
                 int low = (int)(uval & 0xFFFF_FFFF);
                 int mid = (int)((uval >> 32) & 0xFFFF_FFFF);
                 int high = (int)((uval >> 64) & 0xFFFF_FFFF);
-                return new decimal(low, mid, high, isNegative, (byte)_scale);
+                return new decimal(low, mid, high, isNegative, (byte)scale);
             }
 
             throw new OverflowException($"Decimal value with precision {_precision} exceeds the 96-bit capacity of .NET decimal.");

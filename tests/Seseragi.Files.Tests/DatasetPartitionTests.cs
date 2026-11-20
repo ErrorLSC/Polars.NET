@@ -330,12 +330,16 @@ public sealed class DatasetPartitionTests : IDisposable
             Timestamps(TimeUnit.Microsecond, null, instants),
             Timestamps(TimeUnit.Microsecond, "UTC", instants),
             Timestamps(TimeUnit.Microsecond, "Asia/Tokyo", instants),
+            new Time64Array.Builder(new Time64Type(TimeUnit.Nanosecond)).AppendRange(Enumerable.Range(0, n).Select(i => i % 4 * 3_600_000_000_123L + i % 3)).Build(),
+            new Time64Array.Builder(new Time64Type(TimeUnit.Microsecond)).AppendRange(Enumerable.Range(0, n).Select(i => i % 5 * 86_399_999_999L / 4)).Build(),
+            new Time32Array.Builder(new Time32Type(TimeUnit.Millisecond)).AppendRange(Enumerable.Range(0, n).Select(i => i % 2 * 45_296_789)).Build(),
+            new Time32Array.Builder(new Time32Type(TimeUnit.Second)).AppendRange(Enumerable.Range(0, n).Select(i => i % 2 * 86_399)).Build(),
         ];
         foreach (IArrowArray key in keys)
         {
             var schema = new Schema([new Field("id", Int64Type.Default, false), new Field("k", key.Data.DataType, true)], null);
             var batch = new RecordBatch(schema, [new Int64Array.Builder().AppendRange(Enumerable.Range(0, n).Select(i => (long)i)).Build(), key], n);
-            string path = Path.Combine(_root, $"typed-{format}-{key.Data.DataType.Name}-{((key.Data.DataType as TimestampType)?.Timezone ?? "").Replace('/', '_')}");
+            string path = Path.Combine(_root, $"typed-{format}-{System.Array.IndexOf(keys, key)}");
             if (format == "parquet") ParquetDatasetWriter.Write(path, schema, [batch], new ParquetDatasetWriteOptions { PartitionBy = ["k"] });
             else IpcDatasetWriter.Write(path, schema, [batch], (IpcDatasetWriteOptions)(Options(format) with { PartitionBy = ["k"] }));
             // -0.0 is one partition with 0.0: it comes back as 0.0.

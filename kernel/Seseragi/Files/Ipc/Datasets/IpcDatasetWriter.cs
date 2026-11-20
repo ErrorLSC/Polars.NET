@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 
 namespace Kaminari.Seseragi.Files.Ipc;
@@ -39,14 +40,18 @@ public sealed class IpcDatasetWriter : IDisposable
     /// <inheritdoc cref="Create"/>
     public static async Task<IpcDatasetWriter> CreateAsync(string path, Schema schema, IpcDatasetWriteOptions? options = null,
         CancellationToken cancellationToken = default)
+        => new(await StartAsync(path, schema, options ?? new IpcDatasetWriteOptions(), cancellationToken).ConfigureAwait(false));
+
+    /// <summary>Starts the dataset write of Arrow IPC files (the typed writer's too).</summary>
+    internal static async Task<DatasetWriting<DatasetWrittenFile>> StartAsync(string path, Schema schema, IpcDatasetWriteOptions options,
+        CancellationToken cancellationToken)
     {
-        options ??= new IpcDatasetWriteOptions();
         ArgumentNullException.ThrowIfNull(options.Writer, nameof(options.Writer));
         options.Writer.Validate();
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
-        return new IpcDatasetWriter(await DatasetWriting<DatasetWrittenFile>.CreateAsync(path, schema, options, new IpcFileFormat(options.Writer),
-            static f => new DatasetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values), cancellationToken).ConfigureAwait(false));
+        return await DatasetWriting<DatasetWrittenFile>.CreateAsync(path, schema, options, new IpcFileFormat(options.Writer),
+            static f => new DatasetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The schema of the batches written.</summary>
@@ -92,6 +97,36 @@ public sealed class IpcDatasetWriter : IDisposable
         using IpcDatasetWriter writer = await CreateAsync(path, schema, options, cancellationToken).ConfigureAwait(false);
         await foreach (RecordBatch batch in batches.WithCancellation(cancellationToken).ConfigureAwait(false))
             await writer.WriteAsync(batch, cancellationToken).ConfigureAwait(false);
+        return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes rows of <typeparamref name="T"/> as a dataset under <paramref name="path"/>, in one call (<see cref="IpcDatasetWriter{T}"/>).</summary>
+    public static DatasetWriteResult<DatasetWrittenFile> WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        IEnumerable<T> rows, IpcDatasetWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        using IpcDatasetWriter<T> writer = IpcDatasetWriter<T>.Create(path, options);
+        writer.WriteRows(rows);
+        return writer.Complete();
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, IpcDatasetWriteOptions?)"/>
+    public static async Task<DatasetWriteResult<DatasetWrittenFile>> WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
+        string path, IEnumerable<T> rows, IpcDatasetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using IpcDatasetWriter<T> writer = await IpcDatasetWriter<T>.CreateAsync(path, options, cancellationToken).ConfigureAwait(false);
+        await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+        return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, IpcDatasetWriteOptions?)"/>
+    public static async Task<DatasetWriteResult<DatasetWrittenFile>> WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
+        string path, IAsyncEnumerable<T> rows, IpcDatasetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using IpcDatasetWriter<T> writer = await IpcDatasetWriter<T>.CreateAsync(path, options, cancellationToken).ConfigureAwait(false);
+        await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
         return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }

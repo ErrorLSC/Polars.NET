@@ -22,17 +22,17 @@ internal interface IBatchSink
 }
 
 /// <summary>
-/// Rows of <typeparamref name="T"/> gathered into batches of <see cref="BatchRows"/> in native memory
+/// Rows of <typeparamref name="T"/> gathered into batches (of <see cref="BatchRows"/> rows unless asked otherwise) in native memory
 /// (<see cref="ArrowRowBuilder{T}"/>), each handed to a sink and freed; the batches depend on the rows alone, not on how
 /// they were passed nor on the threads. The rows of an array or a <see cref="List{T}"/> are turned into batches on up
 /// to <c>parallelism</c> threads at once (they are all there and unchanged while the call lasts); rows given one by one
 /// or by a lazy sequence are read as they come, on the caller's thread (a producer may reuse one object for every row).
 /// A row the layout refuses aborts the sink: the rows before it in the open batch are lost.
 /// </summary>
-internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBatchSink sink, int parallelism, string format)
-    : IDisposable
+internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBatchSink sink, int parallelism, string format,
+    int batchRows = RowBatcher<T>.BatchRows) : IDisposable
 {
-    /// <summary>The rows of a batch.</summary>
+    /// <summary>The rows of a batch, unless the sink asks for others.</summary>
     public const int BatchRows = 16_384;
 
     private readonly ArrowRowBuilder<T> _rows = new();
@@ -53,7 +53,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
     public void WriteRow(T row)
     {
         Append(row);
-        if (_rows.Count == BatchRows) FlushAsync(false, default).AsTask().GetAwaiter().GetResult();
+        if (_rows.Count == batchRows) FlushAsync(false, default).AsTask().GetAwaiter().GetResult();
     }
 
     /// <summary>Adds rows (an array or a <see cref="List{T}"/> is read as a span).</summary>
@@ -72,7 +72,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
         foreach (T row in rows)
         {
             Append(row);
-            if (_rows.Count == BatchRows) await FlushAsync(useAsync, ct).ConfigureAwait(false);
+            if (_rows.Count == batchRows) await FlushAsync(useAsync, ct).ConfigureAwait(false);
         }
     }
 
@@ -83,7 +83,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
         await foreach (T row in rows.WithCancellation(ct).ConfigureAwait(false))
         {
             Append(row);
-            if (_rows.Count == BatchRows) await FlushAsync(true, ct).ConfigureAwait(false);
+            if (_rows.Count == batchRows) await FlushAsync(true, ct).ConfigureAwait(false);
         }
     }
 
@@ -95,16 +95,16 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
     private async ValueTask WriteListedAsync(int length, RowSlice slice, bool useAsync, CancellationToken ct)
     {
         int start = 0;
-        if (parallelism > 1 && length >= BatchRows)
+        if (parallelism > 1 && length >= batchRows)
         {
             if (_rows.Count > 0)
             {
                 start += AppendSpan(slice(0, length));
-                if (_rows.Count == BatchRows) await FlushAsync(useAsync, ct).ConfigureAwait(false);
+                if (_rows.Count == batchRows) await FlushAsync(useAsync, ct).ConfigureAwait(false);
             }
-            int end = start + (length - start) / BatchRows * BatchRows;
+            int end = start + (length - start) / batchRows * batchRows;
             if (ArrowRowBuilder<T>.RowsAreRecords && FirstNull(slice(start, end - start)) is int firstNull and >= 0)
-                end = start + firstNull / BatchRows * BatchRows;
+                end = start + firstNull / batchRows * batchRows;
             if (end > start)
             {
                 if (!sink.IsWritable) ThrowNotWritable();
@@ -115,7 +115,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
         while (start < length)
         {
             start += AppendSpan(slice(start, length - start));
-            if (_rows.Count == BatchRows) await FlushAsync(useAsync, ct).ConfigureAwait(false);
+            if (_rows.Count == batchRows) await FlushAsync(useAsync, ct).ConfigureAwait(false);
         }
     }
 
@@ -135,7 +135,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
     /// </summary>
     private async ValueTask WriteInParallelAsync(RowSlice slice, int start, int end, bool useAsync, CancellationToken ct)
     {
-        int batches = (end - start) / BatchRows, next = 0;
+        int batches = (end - start) / batchRows, next = 0;
         Queue<Task<RecordBatch>> making = new(parallelism);
         try
         {
@@ -143,7 +143,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
             {
                 while (next < batches && making.Count < parallelism)
                 {
-                    int at = start + next++ * BatchRows;
+                    int at = start + next++ * batchRows;
                     making.Enqueue(Task.Run(() => MakeBatch(slice, at)));
                 }
                 Task<RecordBatch> oldest = making.Dequeue();
@@ -157,7 +157,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
                     sink.Abort(); // a refused value: the output cannot be completed
                     throw;
                 }
-                RowCount += BatchRows;
+                RowCount += batchRows;
                 await Hand(batch, useAsync, ct).ConfigureAwait(false);
             }
         }
@@ -178,13 +178,13 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
         }
     }
 
-    /// <summary>A batch of rows <paramref name="at"/> .. +<see cref="BatchRows"/>, made by a builder of the pool (a faulted one is dropped).</summary>
+    /// <summary>A batch of rows <paramref name="at"/> .. +<c>batchRows</c>, made by a builder of the pool (a faulted one is dropped).</summary>
     private RecordBatch MakeBatch(RowSlice slice, int at)
     {
         ArrowRowBuilder<T> builder = _builders.TryTake(out ArrowRowBuilder<T>? spare) ? spare : new();
         try
         {
-            builder.AppendRange(slice(at, BatchRows));
+            builder.AppendRange(slice(at, batchRows));
             RecordBatch batch = builder.ExportBatch();
             _builders.Add(builder);
             return batch;
@@ -199,7 +199,7 @@ internal sealed class RowBatcher<[DynamicallyAccessedMembers(DynamicallyAccessed
     /// <summary>Appends rows from <paramref name="rows"/> until the open batch is full; returns how many.</summary>
     private int AppendSpan(ReadOnlySpan<T> rows)
     {
-        int take = Math.Min(rows.Length, BatchRows - _rows.Count);
+        int take = Math.Min(rows.Length, batchRows - _rows.Count);
         foreach (T row in rows[..take]) Append(row);
         return take;
     }
