@@ -121,15 +121,50 @@ module LiteralConversion =
             | ValueSome n -> Some(StoredLiteral.Integer(Int128.op_CheckedMultiply (n, pow10 scale), false))
             | ValueNone -> None
 
+    /// <summary>
+    /// The double that is the same number as <paramref name="d"/>, if there is one, worked out on the integers: a
+    /// runtime's own conversions differ (.NET 11 converts a double to a decimal exactly, earlier versions rounded it
+    /// to 15 digits, so <c>decimal (float d) = d</c> held for 0.1M there), and engines' decimal-to-double casts need
+    /// not round correctly: only a number every one of them converts exactly is the same on every side.
+    /// d = m / 10^s is m' / 2^s once 5^s divides m (trailing zeros dropped first), a double when m' less its factors
+    /// of two fits 53 bits.
+    /// </summary>
+    let private exactDouble (d: decimal) : float option =
+        let bits = Decimal.GetBits d
+        let mutable m =
+            (Int128.op_Implicit (uint64 (uint32 bits[2])) <<< 64)
+            ||| (Int128.op_Implicit (uint64 (uint32 bits[1])) <<< 32)
+            ||| Int128.op_Implicit (uint64 (uint32 bits[0]))
+        let mutable s = (bits[3] >>> 16) &&& 0xFF
+        let ten = Int128.op_Implicit 10L
+        while s > 0 && m % ten = Int128.Zero do
+            m <- m / ten
+            s <- s - 1
+        let mutable five = Int128.One
+        for _ in 1..s do
+            five <- five * Int128.op_Implicit 5L
+        if m % five <> Int128.Zero then
+            None
+        else
+            let mutable q = m / five // the number is q / 2^s
+            let mutable e = -s
+            while q <> Int128.Zero && Int128.IsEvenInteger q do
+                q <- q >>> 1
+                e <- e + 1
+            if q >= (Int128.One <<< 53) then
+                None
+            else
+                let x = Math.ScaleB(float (int64 q), e)
+                Some(if bits[3] < 0 then -x else x)
+
     let private tryFloating (literal: LiteralValue) : StoredLiteral option =
         match literal with
         | LiteralValue.Float16 h -> Some(StoredLiteral.Floating(float h))
         | LiteralValue.Float32 f -> Some(StoredLiteral.Floating(float f))
         | LiteralValue.Float64 x -> Some(StoredLiteral.Floating x)
         | LiteralValue.Decimal d ->
-            // Only where the double is the same number.
-            let x = float d
-            if decimal x = d then Some(StoredLiteral.Floating x) else None
+            // Only where the double is the same number (see exactDouble).
+            exactDouble d |> Option.map StoredLiteral.Floating
         | _ ->
             // Integers only where the double is the same number.
             match tryExactInteger literal with

@@ -64,7 +64,8 @@ public class FilterLoweringTests
             Of<object>(double.NaN, -1.5, -0.0, 0.0, 2.5, double.PositiveInfinity, 0.1f, 2, 2.5m, (Half)1, 9_007_199_254_740_992L),
             Of<object>(9_007_199_254_740_993L, 0.30000000000000004m)), // no double is exactly either
         new("f32", FloatType.Default, Floats, v => (float)(double)v,
-            Of<object>(double.NaN, -1.5, 0.0, 2.5, 0.1, -0.1, 1e300, -1e300, 0.1f, 2, 2.5m, 0.1m, double.NegativeInfinity), []),
+            Of<object>(double.NaN, -1.5, 0.0, 2.5, 0.1, -0.1, 1e300, -1e300, 0.1f, 2, 2.5m, double.NegativeInfinity),
+            Of<object>(0.1m)), // no double is exactly 0.1M (whatever a runtime's decimal(double) says)
         new("f16", HalfFloatType.Default, Floats, v => (Half)(double)v,
             Of<object>(double.NaN, -1.5, 0.0, 2.5, 0.1, 70000.0, -70000.0, (Half)2.5, 3, double.PositiveInfinity), []),
         new("dec", new Decimal128Type(10, 2), Of(-1.00m, 0m, 0.01m, 1.50m, 2.25m, 12345678.99m), v => Int128.Parse(((decimal)v * 100).ToString("0")),
@@ -525,6 +526,14 @@ public class FilterLoweringTests
         return (table, FilterLowering.lower(table.Schema, filter));
     }
 
+    /// <summary>The filter is not lowered at all: left whole to the engine.</summary>
+    private static void AssertDropped(ScalarExpr filter)
+    {
+        var (_, lowered) = Lower(filter);
+        Assert.False(lowered.Exact, Show(filter));
+        Assert.True(OptionModule.IsNone(lowered.Program), Show(filter));
+    }
+
     private static void AssertExact(ScalarExpr filter)
     {
         var (table, lowered) = Lower(filter);
@@ -545,6 +554,24 @@ public class FilterLoweringTests
             AssertExact(Bin(op, f32, ScalarExpr.NewLiteral(Lit(0.1))));      // no float is 0.1
             AssertExact(Bin(op, f32, ScalarExpr.NewLiteral(Lit(1e300))));    // beyond every finite float
             AssertExact(Bin(op, ts, ScalarExpr.NewLiteral(Lit(T0.AddTicks(1)))));
+        }
+    }
+
+    [Fact]
+    public void DecimalLiterals_AgainstFloats_LowerOnlyWhereADoubleIsTheSameNumber()
+    {
+        // Decided on the integers, the same on every runtime (.NET 11's decimal(double) is exact, .NET 10 rounded
+        // 0.1 to 0.1M) and whatever an engine's decimal-to-double cast rounds to.
+        foreach (string column in (string[])["f32", "f64"])
+        foreach (BinaryOp op in Comparisons)
+        {
+            AssertExact(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(2.5m))));
+            AssertExact(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(-0.375m))));
+            AssertExact(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(0.5000000000000000000000000000m)))); // scale 28
+            AssertExact(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(9_007_199_254_740_992m))));            // 2^53
+            AssertDropped(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(0.1m))));
+            AssertDropped(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(0.0000000000000000000000000001m)))); // 10^-28
+            AssertDropped(Bin(op, Col(column), ScalarExpr.NewLiteral(Lit(9_007_199_254_740_993m))));           // 2^53 + 1
         }
     }
 
@@ -603,11 +630,5 @@ public class FilterLoweringTests
             Kaminari.Samidare.IR.LogicalType.NewArrow(BooleanType.Default));
         AssertDropped(Bin(BinaryOp.Eq, Col("utf8"), ScalarExpr.NewLiteral(Lit(1))));
 
-        static void AssertDropped(ScalarExpr filter)
-        {
-            var (_, lowered) = Lower(filter);
-            Assert.False(lowered.Exact, Show(filter));
-            Assert.True(OptionModule.IsNone(lowered.Program), Show(filter));
-        }
     }
 }
