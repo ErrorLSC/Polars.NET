@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using Kaminari.Sazanami.Encodings;
 
 namespace Kaminari.Seseragi.Files.Parquet.Encodings;
@@ -9,13 +11,17 @@ namespace Kaminari.Seseragi.Files.Parquet.Encodings;
 /// </summary>
 internal static class RleBitPackedEncoder
 {
-    /// <summary>Appends <paramref name="values"/> (each below 2^<paramref name="bitWidth"/>, at most 32 bits) to <paramref name="output"/>.</summary>
-    public static void Encode(ReadOnlySpan<uint> values, int bitWidth, IBufferWriter<byte> output)
+    /// <summary>
+    /// Appends <paramref name="values"/> (each below 2^<paramref name="bitWidth"/>: at most 32 bits for <see cref="uint"/>,
+    /// 8 for <see cref="byte"/>, such as levels) to <paramref name="output"/>.
+    /// </summary>
+    public static void Encode<T>(ReadOnlySpan<T> values, int bitWidth, IBufferWriter<byte> output) where T : unmanaged, IUnsignedNumber<T>, IBinaryInteger<T>
     {
+        if (typeof(T) != typeof(uint) && typeof(T) != typeof(byte)) throw new NotSupportedException($"Values of {typeof(T)} are not encoded.");
         int n = values.Length, i = 0, literals = 0; // literals: values[literals..i] wait to be bit-packed
         while (i < n)
         {
-            uint value = values[i];
+            T value = values[i];
             int run = 1;
             while (i + run < n && values[i + run] == value) run++;
             if (run >= 8)
@@ -33,7 +39,7 @@ internal static class RleBitPackedEncoder
                     run -= fill;
                 }
                 BitPacked(values[literals..i], bitWidth, output);
-                Rle(value, run, bitWidth, output);
+                Rle(uint.CreateTruncating(value), run, bitWidth, output);
                 i += run;
                 literals = i;
             }
@@ -48,7 +54,7 @@ internal static class RleBitPackedEncoder
     /// <summary>The bytes <see cref="Encode"/> writes at most for <paramref name="count"/> values.</summary>
     public static int MaxBytes(int count, int bitWidth) => (int)(BitPacker.Bytes(count + 7, bitWidth) + (count / 8 + 1) * 5 + 8);
 
-    private static void BitPacked(ReadOnlySpan<uint> values, int bitWidth, IBufferWriter<byte> output)
+    private static void BitPacked<T>(ReadOnlySpan<T> values, int bitWidth, IBufferWriter<byte> output) where T : unmanaged
     {
         if (values.IsEmpty) return;
         int groups = (values.Length + 7) / 8;
@@ -57,7 +63,8 @@ internal static class RleBitPackedEncoder
         int o = Varint(((uint)groups << 1) | 1, span);
         Span<byte> packed = span.Slice(o, bytes);
         packed.Clear();
-        BitPacker.Pack(values, bitWidth, packed);
+        if (typeof(T) == typeof(byte)) BitPacker.Pack(MemoryMarshal.Cast<T, byte>(values), bitWidth, packed);
+        else BitPacker.Pack(MemoryMarshal.Cast<T, uint>(values), bitWidth, packed);
         output.Advance(o + bytes);
     }
 

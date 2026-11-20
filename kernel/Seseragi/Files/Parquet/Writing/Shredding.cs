@@ -36,15 +36,15 @@ internal sealed class Shredder(ShredStep[] steps) : IDisposable
     // The array each step walks is the same for every row of a column (a struct's child, a list's items, a
     // dictionary's values): built once per shredding.
     private readonly IArrowArray?[] _arrays = new IArrowArray?[steps.Length];
-    private readonly NativeArray<uint> _def = new(Initial), _rep = new(Initial);
+    private readonly NativeArray<byte> _def = new(Initial), _rep = new(Initial); // a byte per level (ColumnWriter.MaxLevel)
     private readonly NativeArray<int> _indices = new(Initial);
     private bool _emit;
 
-    /// <summary>The levels and positions the buffers hold at first (16 KiB each).</summary>
+    /// <summary>The levels and positions the buffers hold at first (4 KiB of levels each, 16 KiB of positions).</summary>
     private const int Initial = 4096;
 
-    public ReadOnlySpan<uint> Def => _def.AsSpan(0, Levels);
-    public ReadOnlySpan<uint> Rep => _rep.AsSpan(0, Levels);
+    public ReadOnlySpan<byte> Def => _def.AsSpan(0, Levels);
+    public ReadOnlySpan<byte> Rep => _rep.AsSpan(0, Levels);
     public ReadOnlySpan<int> Indices => _indices.AsSpan(0, Values);
     public int Levels { get; private set; }
     public int Values { get; private set; }
@@ -166,8 +166,8 @@ internal sealed class Shredder(ShredStep[] steps) : IDisposable
         if (!_emit) return;
         int at = Levels;
         if (at == _def.Capacity) GrowLevels();
-        _def.At(at) = def;
-        _rep.At(at) = rep;
+        _def.At(at) = (byte)def;
+        _rep.At(at) = (byte)rep;
         Levels = at + 1;
     }
 

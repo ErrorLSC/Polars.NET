@@ -92,6 +92,22 @@ public sealed class ParquetWriterTests : IDisposable
     }
 
     [Fact]
+    public void LevelsBeyond255_AreRefused_255Written()
+    {
+        // Optional structs nested around an optional leaf: the leaf's definition level is the number of fields.
+        static Schema Nested(int fields)
+        {
+            Field field = new("v", Int32Type.Default, true);
+            for (int f = 1; f < fields; f++) field = new Field("s", new StructType([field]), true);
+            return new Schema([field], null);
+        }
+
+        using (var stream = new MemoryStream()) ParquetWriter.Write(stream, Nested(255), []);
+        using var refused = new MemoryStream();
+        Assert.Contains("deeper than 255", Assert.Throws<NotSupportedException>(() => ParquetWriter.Write(refused, Nested(256), [])).Message);
+    }
+
+    [Fact]
     public void Int96_AndCoarserTimestamps_ComeBack()
     {
         var micros = new TimestampType(TimeUnit.Microsecond, "UTC");

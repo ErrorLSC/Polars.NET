@@ -1,3 +1,4 @@
+using System.Buffers;
 using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Compression;
@@ -279,6 +280,30 @@ public class ParquetKernelTests
     }
 
     private readonly record struct Triple(int A, int B, int C);
+
+    [Fact]
+    public void RleBitPacked_LevelsAsBytes_EncodeAsTheirUintsDo()
+    {
+        var random = new Random(255);
+        for (int width = 0; width <= 8; width++)
+        {
+            for (int round = 0; round < 20; round++)
+            {
+                // Runs of 1 to 40 equal values: both RLE runs and bit-packed groups, with the group boundaries anywhere.
+                List<byte> levels = [];
+                while (levels.Count < 3000) levels.AddRange(Enumerable.Repeat((byte)random.Next(0, 1 << width), random.Next(1, 41)));
+                var asBytes = new ArrayBufferWriter<byte>();
+                var asUints = new ArrayBufferWriter<byte>();
+                RleBitPackedEncoder.Encode<byte>([.. levels], width, asBytes);
+                RleBitPackedEncoder.Encode<uint>([.. levels.Select(l => (uint)l)], width, asUints);
+                Assert.Equal(asUints.WrittenSpan.ToArray(), asBytes.WrittenSpan.ToArray());
+                var decoder = new RleBitPackedDecoder(asBytes.WrittenSpan, width);
+                int[] read = new int[levels.Count];
+                Assert.Equal(levels.Count, decoder.Read(read));
+                Assert.Equal(levels.Select(l => (int)l), read);
+            }
+        }
+    }
 
     [Fact]
     public void RleBitPacked_ManyShortRunsOfBothKinds_ReadInAnyChunks()

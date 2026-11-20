@@ -74,6 +74,20 @@ public class ValueDictionaryTests
     }
 
     [Fact]
+    public void BytesPacked_AsTheirUintsAre_AtEveryWidthUpTo8()
+    {
+        var random = new Random(8);
+        for (int width = 0; width <= 8; width++)
+        {
+            byte[] values = [.. Enumerable.Range(0, random.Next(1, 300)).Select(_ => (byte)random.Next(0, 1 << width))];
+            byte[] packed = new byte[BitPacker.Bytes(values.Length, width) + 8], expected = new byte[packed.Length];
+            BitPacker.Pack(values, width, packed);
+            BitPacker.Pack([.. values.Select(v => (uint)v)], width, expected);
+            Assert.Equal(expected, packed);
+        }
+    }
+
+    [Fact]
     public void WidePackedValues_AreTheirBits_LeastSignificantFirst()
     {
         var random = new Random(64);

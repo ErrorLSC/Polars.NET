@@ -79,7 +79,9 @@ internal abstract class ColumnWriter : IDisposable
     private readonly NativeBufferWriter _body = new(1 << 16);
     private NativeBufferWriter _dictionaryPage = new(256);
     // The open page's levels and dictionary indices, in native memory too.
-    private readonly NativeArray<uint> _pageDef = new(InitialLevels), _pageRep; // repetition levels only below a list
+    // A byte per level (a level is at most the nesting depth: 255 at most, checked): a partition's open page holds its
+    // rows long, levels and all.
+    private readonly NativeArray<byte> _pageDef = new(InitialLevels), _pageRep; // repetition levels only below a list
     private ValidityWords _validity; // the validity of the rows of a flat step (1024 at most)
     private int _validityWords;
     private readonly NativeArray<uint> _indices = new(InitialLevels);
@@ -97,10 +99,13 @@ internal abstract class ColumnWriter : IDisposable
     private long _chunkRows, _chunkUnencoded;
     private bool _indexable = true; // every page so far has bounds a column index can hold
 
+    /// <summary>The highest definition or repetition level a column may have (levels are kept a byte each).</summary>
+    internal const int MaxLevel = byte.MaxValue;
+
     /// <summary>The bytes a page buffer (levels, indices, values) takes at first.</summary>
     protected const int InitialBytes = 16 * 1024;
 
-    private const int InitialLevels = InitialBytes / sizeof(uint);
+    private const int InitialLevels = InitialBytes / sizeof(uint); // levels and dictionary indices (a byte per level: a quarter)
 
     [InlineArray(16)]
     private struct ValidityWords
@@ -118,8 +123,11 @@ internal abstract class ColumnWriter : IDisposable
     /// <param name="maxDef">The leaf's maximum definition level (0 for a required top-level column).</param>
     /// <param name="maxRep">The leaf's maximum repetition level (0 outside lists and maps).</param>
     /// <param name="dictionary">Whether the type may be dictionary-encoded.</param>
+    /// <exception cref="NotSupportedException">A level beyond 255 (more than 255 nested optional or repeated fields).</exception>
     protected ColumnWriter(PageSettings settings, int maxDef, int maxRep, bool dictionary)
     {
+        if (maxDef > MaxLevel || maxRep > MaxLevel)
+            throw new NotSupportedException($"Columns nested deeper than {MaxLevel} optional or repeated levels are not written (definition level {maxDef}, repetition level {maxRep}).");
         _settings = settings;
         _maxDef = maxDef;
         _maxRep = maxRep;
@@ -184,7 +192,7 @@ internal abstract class ColumnWriter : IDisposable
             _validityWords = 0;
             if (_maxDef > 0)
             {
-                Span<uint> levels = _pageDef.AsSpan(_pageLevels, take);
+                Span<byte> levels = _pageDef.AsSpan(_pageLevels, take);
                 Span<ulong> validityWords = _validity;
                 if (ArrowValues.NullCount(array) == 0)
                 {
@@ -197,14 +205,14 @@ internal abstract class ColumnWriter : IDisposable
                     Masks.Load(validity.Span, (long)array.Offset + offset, take, validityWords[..words]);
                     _validityWords = words;
                     nulls = take - Masks.Count(validityWords[..words]);
-                    for (int i = 0; i < take; i++) levels[i] = (uint)(validityWords[i >> 6] >> (i & 63)) & 1;
+                    for (int i = 0; i < take; i++) levels[i] = (byte)((validityWords[i >> 6] >> (i & 63)) & 1);
                 }
                 else
                 {
                     for (int i = 0; i < take; i++)
                     {
                         bool valid = !ArrowValues.IsNull(array, offset + i);
-                        levels[i] = valid ? 1u : 0u;
+                        levels[i] = valid ? (byte)1 : (byte)0;
                         if (!valid) nulls++;
                     }
                 }
@@ -223,7 +231,7 @@ internal abstract class ColumnWriter : IDisposable
     /// Adds shredded rows: their levels (a row starts at each repetition level 0) and the positions in
     /// <paramref name="leaf"/> of the values present. Pages close only between rows.
     /// </summary>
-    public void Write(ReadOnlySpan<uint> def, ReadOnlySpan<uint> rep, IArrowArray? leaf, ReadOnlySpan<int> indices)
+    public void Write(ReadOnlySpan<byte> def, ReadOnlySpan<byte> rep, IArrowArray? leaf, ReadOnlySpan<int> indices)
     {
         while (!def.IsEmpty)
         {
@@ -251,7 +259,7 @@ internal abstract class ColumnWriter : IDisposable
         }
     }
 
-    /// <summary>The levels a step of <see cref="Write(ReadOnlySpan{uint}, ReadOnlySpan{uint}, IArrowArray?, ReadOnlySpan{int})"/> takes before the page's size is checked (a row is never split).</summary>
+    /// <summary>The levels a step of <see cref="Write(ReadOnlySpan{byte}, ReadOnlySpan{byte}, IArrowArray?, ReadOnlySpan{int})"/> takes before the page's size is checked (a row is never split).</summary>
     private const int LevelStep = 4096;
 
     private void EnsureLevels(int more)
@@ -440,7 +448,7 @@ internal abstract class ColumnWriter : IDisposable
     /// </summary>
     internal long ScratchBytes =>
         _values.Capacity + _levelScratch.Capacity + _body.Capacity + _dictionaryPage.Capacity
-        + 4L * (_pageDef.Capacity + _pageRep.Capacity + _indices.Capacity) + ValueScratchBytes;
+        + _pageDef.Capacity + _pageRep.Capacity + 4L * _indices.Capacity + ValueScratchBytes;
 
     /// <summary>The native bytes of a subclass's scratch (its page values, dictionary).</summary>
     protected virtual long ValueScratchBytes => 0;
@@ -679,7 +687,7 @@ internal abstract class ColumnWriter : IDisposable
             else
             {
                 counts.Clear();
-                foreach (uint level in _pageDef.AsSpan(0, _pageLevels)) counts[(int)level]++;
+                foreach (byte level in _pageDef.AsSpan(0, _pageLevels)) counts[level]++;
             }
         }
         if (_repHistograms is not null)
@@ -688,12 +696,12 @@ internal abstract class ColumnWriter : IDisposable
             Span<long> counts = _repHistograms.AsSpan(_repHistogramLength, _maxRep + 1);
             _repHistogramLength += _maxRep + 1;
             counts.Clear();
-            foreach (uint level in _pageRep.AsSpan(0, _pageLevels)) counts[(int)level]++;
+            foreach (byte level in _pageRep.AsSpan(0, _pageLevels)) counts[level]++;
         }
     }
 
     /// <summary>Appends levels to <paramref name="output"/> (format 1: after a 4-byte length); returns the bytes appended.</summary>
-    private int Levels(ReadOnlySpan<uint> levels, int width, bool withLength, IBufferWriter<byte> output)
+    private int Levels(ReadOnlySpan<byte> levels, int width, bool withLength, IBufferWriter<byte> output)
     {
         _levelScratch.ResetWrittenCount();
         RleBitPackedEncoder.Encode(levels, width, _levelScratch);
