@@ -24,6 +24,7 @@ using DeltaMap = Kaminari.Seseragi.Lakehouse.Delta.Schema.MapType;
 using DeltaStruct = Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType;
 using DeltaType = Kaminari.Seseragi.Lakehouse.Delta.Schema.DeltaType;
 using StructField = Kaminari.Seseragi.Lakehouse.Delta.Schema.StructField;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Polars.NET.Core.Delta;
 

@@ -4,10 +4,11 @@ using System.Runtime.CompilerServices;
 namespace Kaminari.Seseragi.Files.IO;
 
 /// <summary>
-/// Files held in memory as an <see cref="IFileStore"/> (tests, data received whole): '/'-separated paths, files read
-/// in place. Files can be added and removed while the store is used.
+/// Files held in memory as an <see cref="IFileStore"/>, for tests only (internal: the test projects see it):
+/// '/'-separated paths, files read in place. Files can be added and removed while the store is used. Files written are held as managed arrays of their
+/// own (readers keep reading a file replaced or removed meanwhile).
 /// </summary>
-public sealed class MemoryFileStore : IFileStore, IDirectoryAware
+internal sealed class MemoryFileStore : IWritableFileStore, IDirectoryAware
 {
     private readonly ConcurrentDictionary<string, (ReadOnlyMemory<byte> Bytes, DateTimeOffset? LastModified)> _files = new(StringComparer.Ordinal);
 
@@ -19,6 +20,24 @@ public sealed class MemoryFileStore : IFileStore, IDirectoryAware
         if (path.EndsWith('/')) throw new ArgumentException($"'{path}' names a directory, not a file.", nameof(path));
         if (!_files.TryAdd(path, (bytes, lastModified))) throw new ArgumentException($"The store has a file '{path}' already.", nameof(path));
     }
+
+    /// <inheritdoc/>
+    public FileWriteStream OpenWrite(string path, bool createOnly)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        if (path.EndsWith('/')) throw new ArgumentException($"'{path}' names a directory, not a file.", nameof(path));
+        return FileWriteStream.Buffered(content =>
+        {
+            // A copy of its own: the stream frees its bytes once this returns, and readers may outlive any later file.
+            (ReadOnlyMemory<byte> Bytes, DateTimeOffset? LastModified) file = (content.ToArray(), DateTimeOffset.UtcNow);
+            if (createOnly) return _files.TryAdd(path, file);
+            _files[path] = file;
+            return true;
+        });
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<bool> DeleteAsync(string path, CancellationToken cancellationToken = default) => ValueTask.FromResult(Remove(path));
 
     /// <summary>Removes a file; false when there was none.</summary>
     public bool Remove(string path) => _files.TryRemove(path, out _);

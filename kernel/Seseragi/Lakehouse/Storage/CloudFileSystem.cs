@@ -1,5 +1,6 @@
 using System.Buffers;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Lakehouse.Storage;
 

@@ -3,6 +3,7 @@ using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Storage;
 using Kaminari.Seseragi.Lakehouse.Storage.Gcs;
 using Kaminari.Seseragi.Lakehouse.Storage.S3;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Seseragi.Lakehouse.Tests;
 

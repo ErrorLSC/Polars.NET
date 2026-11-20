@@ -115,6 +115,36 @@ public sealed class FileSystemStoreTests : IDisposable
         Assert.Contains("changed", error.Message);
     }
 
+    /// <summary>A writable file system's store writes through it: whole files at commit, below the root; a read-only one refuses.</summary>
+    [Fact]
+    public async Task FilesAreWritten_ThroughAWritableFileSystem()
+    {
+        var store = new FileSystemStore(new LocalFileSystem(_dir), Root);
+        byte[] content = [.. Enumerable.Range(0, 70_000).Select(i => (byte)i)];
+        await using (FileWriteStream stream = store.OpenWrite($"{Root}/k=1/part.bin", createOnly: true))
+        {
+            await stream.WriteAsync(content);
+            Assert.False(System.IO.File.Exists(Path.Combine(_dir, "k=1", "part.bin")));
+            Assert.True(await stream.CommitAsync());
+        }
+        Assert.Equal(content, System.IO.File.ReadAllBytes(Path.Combine(_dir, "k=1", "part.bin")));
+        using (FileWriteStream again = store.OpenWrite($"{Root}/k=1/part.bin", createOnly: true))
+        {
+            again.Write([1]);
+            Assert.False(again.Commit());
+        }
+        List<string> listed = [];
+        await foreach (StoredFile file in store.ListAsync(Root, recursive: true)) listed.Add(file.Path);
+        Assert.Equal([$"{Root}/k=1/part.bin"], listed);
+        Assert.True(await store.DeleteAsync($"{Root}/k=1/part.bin"));
+        Assert.False(await store.DeleteAsync($"{Root}/k=1/part.bin"));
+        Assert.Throws<ArgumentException>(() => store.OpenWrite("mem://other/f.bin", createOnly: true));
+
+        var readOnly = new FileSystemStore(new OneLevel(new LocalFileSystem(_dir)), Root);
+        Assert.Throws<NotSupportedException>(() => readOnly.OpenWrite($"{Root}/f.bin", createOnly: true));
+        await Assert.ThrowsAsync<NotSupportedException>(async () => await readOnly.DeleteAsync($"{Root}/f.bin"));
+    }
+
     /// <summary>A file system with only the read contract (one directory at a time, no tails).</summary>
     private sealed class OneLevel(IFileSystem inner) : IFileSystem
     {

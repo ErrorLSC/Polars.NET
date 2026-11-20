@@ -67,7 +67,7 @@ name their file and surface after the rows of the files before it. Rows come typ
 (`ParquetDataset.OpenReader<T>`, `ParquetDatasetReader<T>`, `ParquetDataset.ReadList<T>`): members map columns and
 partitions by name, a `where` predicate is pushed down (conjuncts over partitions decide the files read), the rest
 evaluated on the rows as the query compiler's client evaluation policy allows. Files come from an `IFileStore`
-(`IO/`): the local file system by default (`LocalFileStore`), memory (`MemoryFileStore`), HTTP(S) URLs
+(`IO/`): the local file system by default (`LocalFileStore`), HTTP(S) URLs
 (`HttpFileStore`, chosen for http(s) URLs when no store is given), Hugging Face Hub repositories (`HuggingFaceFileStore`,
 chosen for `hf://datasets/…` and `hf://spaces/…`), object stores (`CloudFileStore.Open("s3://bucket")` of the lakehouse
 library: S3, Azure Blob Storage, Google Cloud Storage through its managed clients, read asynchronously, files opened by
@@ -284,8 +284,11 @@ them as PLAIN; string readers take delta byte arrays as data, starts and lengths
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
 streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
-open (`IFileStore`, `StoredFile`, `LocalFileStore`, `MemoryFileStore`, `HttpFileStore` over Sazanami's `HttpSender`,
-`HuggingFaceFileStore`). `Datasets/` holds what datasets of every format share: their options and files
+open (`IFileStore`, `StoredFile`, `LocalFileStore`, `HttpFileStore` over Sazanami's `HttpSender`,
+`HuggingFaceFileStore`); and for writing, the stores files are written to (`IWritableFileStore`: local files here,
+cloud file systems through the lakehouse's `FileSystemStore`; an internal memory store for tests) and `FileWriteStream`, a file that appears whole
+at its commit or not at all (locally a hidden temporary file renamed into place; create-only commits atomic against
+other writers). `Datasets/` holds what datasets of every format share: their options and files
 (`DatasetOptions`, `DatasetFile`, `HivePartitioning`, `DatasetSchemaMode`), path expansion, stores, partitions and
 schemas united by name (`DatasetFiles`), partition values (`Partitions`: Hive paths or given values as a typed table of
 one row per file), the columns, filter split and batch conversion around each file's reader (`DatasetShape`), footers
@@ -315,8 +318,8 @@ message, or data ending inside one, is an error once reading reaches it (the bat
 `ReadBatchesAsync`, `ReadArrowStream`. `Columns` selects top-level columns (the buffers of the others are never read,
 decompressed or checked; byte gaps up to 1 MiB between the needed buffers are read rather than skipped); `MaxRows`
 cuts the rows; `MemoryMap` (`IpcMemoryMap`: `Auto` by default, as `On` today) reads a local file opened by path
-through a mapping: uncompressed batches point into it, compressed ones are decompressed out of it; the mapping lives
-while a batch does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
+through a mapping: messages are parsed in it, uncompressed batches point into it, compressed ones are decompressed out
+of it; the mapping lives while a batch does. Dictionaries are read on the first batch, in footer order (deltas appended; a second non-delta dictionary of an
 id is refused, as the format says), only those the selected columns reach (dictionary values may themselves be
 dictionary-encoded); a stream's in order as far as each batch needs (replacements and deltas), the dictionaries of the
 batches delivered let go as a read goes on (read again from the stream's start for a batch read at random before them). `ValidateUtf8` checks strings (off by default, as pyarrow and Polars read).
@@ -650,6 +653,7 @@ In Sazanami (generic, reusable by other formats):
 | `Data/Mapping/` accessors (`NestedAccessors.cs`: `MapAccessor`; `ScalarAccessors.cs`: `WideIntegerAccessor`) | Decimal(p, 0) columns into `Int128` / `UInt128` members (a column marked unsigned by its bits). Map columns (Arrow maps, lists of two-field structs: key / value by name, else by position) read into `Dictionary`, `IDictionary`, `IReadOnlyDictionary` and F# `Map` members; null keys refused, a repeated key keeps its last value. |
 | `Concurrency/OrderedParallel.cs` | Maps a sequence's items on the thread pool, a window opening 1, 2, 4 … at a time, results in the source's order; failures where a sequential loop raises them; running maps waited for when the consumer stops. |
 | `Concurrency/OrderedWindow.cs` | Numbered work items run ahead of a consumer taking them in order, a window opening 1, 2, 4 … at a time within a size budget; results that own resources disposed when never taken. |
+| `Concurrency/OrderedUnits.cs` | The datasets' read window, for any format: groups (files) planned ahead in order, their units (row groups, record batches) run ahead of a consumer taking the results in order within unit, byte and group bounds; units of a group found as it is read join as they are found; failures in order; a group freed when its last unit is taken (or kept for a result that still needs it). |
 | `Compression/Lz4Block.cs`, `Lz4Frame.cs`, `ZstdBlock.cs`, `SnappyBlock.cs` | Block codecs shared by Parquet, Arrow IPC and Avro. LZ4: the decoder copies 16 bytes at a time where the output leaves room (each sequence checked whole first, exact copies near the end, runs and short periods expanded); the encoder is LZ4's fast compressor (8192-entry table reused across calls without clearing, the step growing over data without matches, matches extended backward and compared 8 bytes at a time), its output depending on the input alone; frames of independent 64 KiB blocks, which writers compress side by side. |
 | `Arrow/RowViews/ArrowRows.cs`, `ArrowRow.cs`, `ArrowList.cs`, `ArrowRowNode.cs` | Row view over a `RecordBatch` or `StructArray`: typed getters by ordinal, name or field id, nested structs, lists and maps, no allocation per row. |
 

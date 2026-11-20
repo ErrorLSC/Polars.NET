@@ -6,10 +6,11 @@ namespace Kaminari.Seseragi.Files.IO;
 /// The local file system as an <see cref="IFileStore"/>. Relative paths are taken from <paramref name="root"/> (the
 /// current directory when null) and listed with the spelling given: listing <c>data</c> gives <c>data/a.parquet</c>.
 /// Hidden files are listed like any other. Files are opened for reading at offsets (and may be read through a memory
-/// mapping, as files opened by path).
+/// mapping, as files opened by path). Files are written to a hidden temporary file beside the target (directories
+/// created), renamed into place at commit.
 /// </summary>
 /// <param name="root">The directory relative paths start from; null for the current directory.</param>
-public sealed class LocalFileStore(string? root = null) : IFileStore, IDirectoryAware
+public sealed class LocalFileStore(string? root = null) : IWritableFileStore, IDirectoryAware
 {
     private static readonly EnumerationOptions TopLevel = Options(recursive: false);
     private static readonly EnumerationOptions Everything = Options(recursive: true);
@@ -82,6 +83,23 @@ public sealed class LocalFileStore(string? root = null) : IFileStore, IDirectory
         {
             return ValueTask.FromResult<IRandomAccess?>(null);
         }
+    }
+
+    /// <inheritdoc/>
+    public FileWriteStream OpenWrite(string path, bool createOnly)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        return LocalFileWrites.OpenWrite(Path.GetFullPath(Resolve(path)), createOnly);
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<bool> DeleteAsync(string path, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        string target = Resolve(path);
+        if (!File.Exists(target)) return ValueTask.FromResult(false);
+        File.Delete(target);
+        return ValueTask.FromResult(true);
     }
 
     private RandomAccessSource Open(string path)

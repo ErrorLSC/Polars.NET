@@ -1,3 +1,4 @@
+using Kaminari.Seseragi.Files.IO;
 namespace Kaminari.Seseragi.Lakehouse.Engine;
 
 /// <summary>
@@ -23,7 +24,19 @@ public interface IWritableFileSystem : IFileSystem
     /// writers (as <see cref="TryCreate"/>); otherwise it replaces any file at the path. By default the bytes are held
     /// in memory and written with one call at commit; stores that can write in pieces override it.
     /// </summary>
-    FileWriteStream OpenWrite(string path, bool createOnly) => FileWriteStream.Buffered(this, path, createOnly);
+    FileWriteStream OpenWrite(string path, bool createOnly) => Buffered(this, path, createOnly);
+
+    /// <summary>
+    /// A stream that holds the bytes in memory and writes them at commit with one <see cref="TryCreate"/> (when
+    /// <paramref name="createOnly"/>) or <see cref="Overwrite"/>.
+    /// </summary>
+    static FileWriteStream Buffered(IWritableFileSystem fileSystem, string path, bool createOnly) =>
+        FileWriteStream.Buffered(content =>
+        {
+            if (createOnly) return fileSystem.TryCreate(path, content);
+            fileSystem.Overwrite(path, content);
+            return true;
+        });
 
     /// <summary>Deletes a file; returns false when there was none.</summary>
     bool Delete(string path);

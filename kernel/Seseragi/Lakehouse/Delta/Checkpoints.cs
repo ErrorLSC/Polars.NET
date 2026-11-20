@@ -5,6 +5,7 @@ using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Files.Parquet;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Lakehouse.Delta;
 

@@ -1,6 +1,7 @@
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Engine;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Seseragi.Lakehouse.Tests;
 

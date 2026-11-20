@@ -12,6 +12,7 @@ using Azure.Storage.Sas;
 using Polars.CSharp;
 using Polars.Integration.Tests.Fixtures;
 using Polars.NET.Core.Delta;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Polars.Integration.Tests;
 

@@ -10,9 +10,11 @@ namespace Kaminari.Seseragi.Lakehouse.Engine;
 /// require that version, so a file replaced while it is read fails (<see cref="IOException"/>). Reads are asynchronous
 /// where the file system is (<see cref="IAsyncFileSystem"/>). Listing needs a file system that lists at any depth
 /// (<see cref="IWritableFileSystem"/> or <see cref="IAsyncFileSystem"/>) for recursive listings. A path not ending with
-/// '/' names a file (the convention of object stores: nothing is asked to tell directories apart).
+/// '/' names a file (the convention of object stores: nothing is asked to tell directories apart). Files are written
+/// (<see cref="IWritableFileStore"/>) through a writable file system (<see cref="IWritableFileSystem.OpenWrite"/>: a
+/// cloud upload, a local file renamed into place); a read-only one refuses writes.
 /// </summary>
-public sealed class FileSystemStore : IFileStore
+public sealed class FileSystemStore : IWritableFileStore
 {
     /// <summary>How many of a file's last bytes are read when it is opened (its footer, usually).</summary>
     internal const int TailRead = 64 * 1024;
@@ -66,6 +68,22 @@ public sealed class FileSystemStore : IFileStore
             throw new IOException($"{prefix}: listing failed: {e.Message}", e);
         }
         foreach (FileEntry entry in entries) yield return new StoredFile($"{Root}/{entry.Path}", entry.Size, entry.LastModified);
+    }
+
+    private IWritableFileSystem Writable => _fileSystem as IWritableFileSystem
+        ?? throw new NotSupportedException($"The file system of '{Root}' cannot be written to.");
+
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">The file system is read-only.</exception>
+    public FileWriteStream OpenWrite(string path, bool createOnly) => Writable.OpenWrite(Relative(path), createOnly);
+
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">The file system is read-only.</exception>
+    public async ValueTask<bool> DeleteAsync(string path, CancellationToken cancellationToken = default)
+    {
+        IWritableFileSystem writable = Writable;
+        string relative = Relative(path);
+        return await Task.Run(() => writable.Delete(relative), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The file at a path, from a read of its last byte; null when there is none.</summary>

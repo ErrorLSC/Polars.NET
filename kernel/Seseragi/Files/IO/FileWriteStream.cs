@@ -1,7 +1,7 @@
 using System.Buffers;
 using Kaminari.Sazanami.Buffers;
 
-namespace Kaminari.Seseragi.Lakehouse.Engine;
+namespace Kaminari.Seseragi.Files.IO;
 
 /// <summary>
 /// A file being written, as a write-only stream: the bytes go in with <c>Write</c>, and the file appears when
@@ -36,12 +36,16 @@ public abstract class FileWriteStream : Stream
     /// </summary>
     public virtual long BufferedBytes => 0;
 
-    /// <summary>Opens a stream that holds the bytes in memory and writes them with one call at commit.</summary>
-    /// <param name="fileSystem">The file system written to: <see cref="IWritableFileSystem.TryCreate"/> or <see cref="IWritableFileSystem.Overwrite"/>.</param>
-    /// <param name="path">The file's path.</param>
-    /// <param name="createOnly">Whether the file is created only when none exists.</param>
-    public static FileWriteStream Buffered(IWritableFileSystem fileSystem, string path, bool createOnly) =>
-        new BufferedFileWriteStream(fileSystem, path, createOnly);
+    /// <summary>
+    /// Opens a stream that holds the bytes in native memory and hands them, whole, to <paramref name="publish"/> at
+    /// commit (for storage written with one call); the bytes are freed once it returns.
+    /// </summary>
+    /// <param name="publish">Stores the file's content; returns false when the file was not created (see <see cref="Commit"/>).</param>
+    public static FileWriteStream Buffered(Func<ReadOnlyMemory<byte>, bool> publish)
+    {
+        ArgumentNullException.ThrowIfNull(publish);
+        return new BufferedFileWriteStream(publish);
+    }
 
     /// <summary>
     /// Publishes the file. Returns false when the stream was opened create-only and a file already exists at the path
@@ -236,11 +240,8 @@ public abstract class FileWriteStream : Stream
         System.Diagnostics.Trace.TraceWarning($"Could not remove what an uncommitted file left: {e.Message}");
 }
 
-/// <summary>
-/// Holds the bytes in native memory (<see cref="NativeBufferWriter"/>); at commit, one
-/// <see cref="IWritableFileSystem.TryCreate"/> or <see cref="IWritableFileSystem.Overwrite"/>.
-/// </summary>
-internal sealed class BufferedFileWriteStream(IWritableFileSystem fileSystem, string path, bool createOnly) : FileWriteStream
+/// <summary>Holds the bytes in native memory (<see cref="NativeBufferWriter"/>); at commit, hands them to one call.</summary>
+internal sealed class BufferedFileWriteStream(Func<ReadOnlyMemory<byte>, bool> publish) : FileWriteStream
 {
     private NativeBufferWriter? _bytes = new();
 
@@ -248,13 +249,7 @@ internal sealed class BufferedFileWriteStream(IWritableFileSystem fileSystem, st
 
     protected override void WriteCore(ReadOnlySpan<byte> buffer) => _bytes!.Write(buffer);
 
-    protected override bool CommitCore()
-    {
-        ReadOnlyMemory<byte> content = _bytes!.WrittenMemory;
-        if (createOnly) return fileSystem.TryCreate(path, content);
-        fileSystem.Overwrite(path, content);
-        return true;
-    }
+    protected override bool CommitCore() => publish(_bytes!.WrittenMemory);
 
     protected override void Abort() => Free();
 

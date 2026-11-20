@@ -7,6 +7,7 @@ using Kaminari.Seseragi.Lakehouse.Storage;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Native;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Polars.NET.Core.Delta;
 
@@ -304,7 +305,7 @@ public sealed class ObjectStoreFileSystem : IWritableFileSystem, ITailReadable, 
     /// <inheritdoc/>
     /// <remarks>The managed store writes in parts; the native one holds the bytes and writes them at commit.</remarks>
     public FileWriteStream OpenWrite(string path, bool createOnly) =>
-        _managed is not null ? _managed.OpenWrite(path, createOnly) : FileWriteStream.Buffered(this, path, createOnly);
+        _managed is not null ? _managed.OpenWrite(path, createOnly) : IWritableFileSystem.Buffered(this, path, createOnly);
 
     /// <inheritdoc/>
     public bool Delete(string path)
