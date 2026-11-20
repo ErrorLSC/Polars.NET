@@ -316,7 +316,7 @@ public static class ChangeFeed
 
         foreach (DeltaAction action in actions)
         {
-            if (action is RemoveAction remove && removed.ContainsKey(remove.Path) && ReferenceEquals(removed[remove.Path], remove))
+            if (action is RemoveAction remove && removed.TryGetValue(remove.Path, out RemoveAction? kept) && ReferenceEquals(kept, remove))
             {
                 result.Add(new ChangeFile
                 {

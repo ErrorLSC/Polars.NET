@@ -4,6 +4,8 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
+using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Files.Parquet;
@@ -32,7 +34,7 @@ public static class FileStatistics
     public static string FromParquet(ParquetMetadata metadata, IReadOnlyList<StructField> dataFields)
     {
         ArgumentNullException.ThrowIfNull(dataFields);
-        return FromParquet(metadata, Leaves(dataFields, _ => true));
+        return FromParquet(metadata, new StatisticsLeaves(Leaves(dataFields, _ => true)));
     }
 
     /// <summary>
@@ -44,129 +46,464 @@ public static class FileStatistics
     /// <param name="leaves">The leaves to give statistics for; arrays and maps get none.</param>
     public static string FromParquet(ParquetMetadata metadata, IReadOnlyList<StructField[]> leaves)
     {
+        ArgumentNullException.ThrowIfNull(leaves);
+        return FromParquet(metadata, new StatisticsLeaves(leaves));
+    }
+
+    /// <summary>
+    /// <see cref="FromParquet(ParquetMetadata, IReadOnlyList{StructField[]})"/> with the leaves prepared once for the
+    /// files of a write. Only the stats text is allocated: the bounds are read from the footer's own bytes and written
+    /// straight into the JSON.
+    /// </summary>
+    internal static string FromParquet(ParquetMetadata metadata, StatisticsLeaves leaves)
+    {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(leaves);
-        leaves = [.. leaves.Where(p => p[^1].Type is not (StructType or ArrayType or MapType))];
-        Dictionary<string, ParquetSchemaElement> elements = LeafElements(metadata.Schema);
-
-        var mins = new List<(string[] Path, string Json)>();
-        var maxs = new List<(string[] Path, string Json)>();
-        var nulls = new List<(string[] Path, string Json)>();
-        foreach (StructField[] leaf in leaves)
+        int count = leaves.Count;
+        LeafStatistics[] results = t_results is { } kept && kept.Length >= count ? kept : t_results = new LeafStatistics[Math.Max(count, 16)];
+        try
         {
-            StructField field = leaf[^1];
-            string[] path = [.. leaf.Select(f => f.PhysicalName)];
-            elements.TryGetValue(string.Join(PathSeparator, path), out ParquetSchemaElement? element);
-            var chunks = metadata.RowGroups
-                .Select(g => (Rows: g.RowCount, Chunk: g.Columns.FirstOrDefault(c => c.Path.SequenceEqual(path))))
-                .ToList();
-            if (element is null || chunks.Any(c => c.Chunk is null))
+            Gather(metadata, leaves, results.AsSpan(0, count));
+            using var buffer = new NativeBufferWriter(1024);
+            using (var json = new Utf8JsonWriter(buffer, ActionWriter.JsonOptions))
+            {
+                json.WriteStartObject();
+                json.WriteNumber("numRecords"u8, metadata.RowCount);
+                if (count > 0)
+                {
+                    Section(json, "minValues"u8, leaves, results, Part.Min);
+                    Section(json, "maxValues"u8, leaves, results, Part.Max);
+                    Section(json, "nullCount"u8, leaves, results, Part.Nulls);
+                }
+                json.WriteEndObject();
+            }
+            return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        }
+        finally
+        {
+            results.AsSpan(0, count).Clear(); // let the footer's bound bytes go
+        }
+    }
+
+    /// <summary>Per thread: the statistics of the leaves of the file being described.</summary>
+    [ThreadStatic] private static LeafStatistics[]? t_results;
+
+    /// <summary>What a leaf's statistics are in one file.</summary>
+    private struct LeafStatistics
+    {
+        public Bound Min, Max;
+        public long NullCount;
+        public bool HasMin, HasMax, HasNullCount;
+    }
+
+    private enum Part { Min, Max, Nulls }
+
+    /// <summary>The statistics of every leaf in the footer: its null count, and the bounds that are written.</summary>
+    private static void Gather(ParquetMetadata metadata, StatisticsLeaves leaves, Span<LeafStatistics> results)
+    {
+        IReadOnlyList<ParquetSchemaElement> schema = metadata.Schema;
+        int elements = schema.Count;
+        Span<int> ends = elements <= 256 ? stackalloc int[elements] : new int[elements];
+        Span<int> ordinals = elements <= 256 ? stackalloc int[elements] : new int[elements];
+        int rootEnd = Index(schema, ends, ordinals);
+        var chunks = new Chunks(metadata);
+        int groups = chunks.GroupCount;
+        for (int i = 0; i < results.Length; i++)
+        {
+            ref LeafStatistics result = ref results[i];
+            string[] path = leaves.Paths[i];
+            int element = Find(schema, ends, rootEnd, path);
+            if (element < 0)
             {
                 // Not in the file: every row is null (an old file read with a newer schema has the same shape).
-                if (element is null) nulls.Add((path, metadata.RowCount.ToString(CultureInfo.InvariantCulture)));
+                result.NullCount = metadata.RowCount;
+                result.HasNullCount = true;
                 continue;
             }
-
+            int ordinal = ordinals[element];
+            bool everyChunk = true;
             long? nullCount = 0;
-            foreach (var (_, chunk) in chunks) nullCount = chunk!.Statistics?.NullCount is long n && nullCount is long sum ? sum + n : null;
-            if (nullCount is long total) nulls.Add((path, total.ToString(CultureInfo.InvariantCulture)));
+            for (int g = 0; g < groups && everyChunk; g++)
+            {
+                if (!chunks.TryGet(g, ordinal, path, out Statistic chunk)) everyChunk = false;
+                else nullCount = chunk.NullCount is long n && nullCount is long sum ? sum + n : null;
+            }
+            if (!everyChunk) continue;
+            result.HasNullCount = nullCount.HasValue;
+            result.NullCount = nullCount.GetValueOrDefault();
 
-            if (!HasBounds(field.Type)) continue;
-            Value? min = null, max = null;
+            DeltaType type = leaves.Types[i];
+            if (!HasBounds(type)) continue;
+            ParquetSchemaElement leaf = schema[element];
+            Bound min = default, max = default;
             bool minKnown = true, maxKnown = true;
-            foreach (var (rows, chunk) in chunks)
+            for (int g = 0; g < groups; g++)
             {
-                ParquetColumnStatistics? s = chunk!.Statistics;
-                bool allNull = s?.NullCount is long n && n >= rows;
+                chunks.TryGet(g, ordinal, path, out Statistic chunk);
+                long rows = chunks.Rows(g);
+                bool allNull = chunk.NullCount is long n && n >= rows;
                 if (allNull || rows == 0) continue;
-                Value? lo = s?.Min is byte[] a ? Decode(a, field.Type, element) : null;
-                Value? hi = s?.Max is byte[] b ? Decode(b, field.Type, element) : null;
-                if (lo is null) minKnown = false;
-                else if (min is null || lo.CompareTo(min) < 0) min = lo;
-                if (hi is null) maxKnown = false;
-                else if (max is null || hi.CompareTo(max) > 0) max = hi;
+                if (!chunk.Exists || chunk.Min is not { } a || !Decode(a, type, leaf, out Bound lo)) minKnown = false;
+                else if (min.Kind == BoundKind.None || Compare(lo, min) < 0) min = lo;
+                if (!chunk.Exists || chunk.Max is not { } b || !Decode(b, type, leaf, out Bound hi)) maxKnown = false;
+                else if (max.Kind == BoundKind.None || Compare(hi, max) > 0) max = hi;
             }
-            if (minKnown && min?.Format(field.Type, isMax: false) is string minJson) mins.Add((path, minJson));
-            if (maxKnown && max?.Format(field.Type, isMax: true) is string maxJson) maxs.Add((path, maxJson));
+            result.HasMin = minKnown && min.Kind != BoundKind.None && Written(min, type, isMax: false);
+            result.HasMax = maxKnown && max.Kind != BoundKind.None && Written(max, type, isMax: true);
+            result.Min = min;
+            result.Max = max;
         }
 
-        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
-        using (var json = new Utf8JsonWriter(buffer, ActionWriter.JsonOptions))
+        // Indexes the flattened schema: for each element the index after its subtree and the ordinal of its first leaf (a
+        // leaf's column chunk in every row group). Returns the index after the root's children.
+        static int Index(IReadOnlyList<ParquetSchemaElement> schema, Span<int> ends, Span<int> ordinals)
         {
-            json.WriteStartObject();
-            json.WriteNumber("numRecords", metadata.RowCount);
-            if (leaves.Count > 0)
+            if (schema.Count == 0) return 0;
+            int at = 1, leaf = 0;
+            for (int child = 0; child < schema[0].ChildCount && at < schema.Count; child++) at = Walk(schema, at, ends, ordinals, ref leaf);
+            return at;
+
+            static int Walk(IReadOnlyList<ParquetSchemaElement> schema, int at, Span<int> ends, Span<int> ordinals, ref int leaf)
             {
-                Section(json, "minValues", mins);
-                Section(json, "maxValues", maxs);
-                Section(json, "nullCount", nulls);
+                ParquetSchemaElement element = schema[at];
+                ordinals[at] = leaf;
+                int next = at + 1;
+                if (element.ChildCount == 0) leaf++;
+                for (int i = 0; i < element.ChildCount; i++) next = Walk(schema, next, ends, ordinals, ref leaf);
+                ends[at] = next;
+                return next;
             }
-            json.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-
-        static void Section(Utf8JsonWriter json, string section, List<(string[] Path, string Json)> values)
-        {
-            json.WriteStartObject(section);
-            Nest(json, values, 0);
-            json.WriteEndObject();
         }
 
-        // The values under one struct: leaves written, nested ones grouped under their next field (in order).
-        static void Nest(Utf8JsonWriter json, List<(string[] Path, string Json)> values, int depth)
+        // The schema element of the leaf at path (names from a top-level column down), or -1 when the
+        // file has none there or the leaf is repeated or under a repeated group (a list or map). Of equal names, the last.
+        static int Find(IReadOnlyList<ParquetSchemaElement> schema, ReadOnlySpan<int> ends, int rootEnd, string[] path)
         {
-            foreach (var group in values.GroupBy(v => v.Path[depth]))
+            int from = 1, to = rootEnd;
+            for (int depth = 0; depth < path.Length; depth++)
             {
-                json.WritePropertyName(group.Key);
-                var items = group.ToList();
-                if (items.Count == 1 && items[0].Path.Length == depth + 1)
+                int found = -1;
+                for (int at = from; at < to; at = ends[at])
                 {
-                    json.WriteRawValue(items[0].Json);
-                    continue;
+                    if (schema[at].Name == path[depth]) found = at;
                 }
-                json.WriteStartObject();
-                Nest(json, items, depth + 1);
-                json.WriteEndObject();
+                if (found < 0 || schema[found].Repetition == 2) return -1;
+                bool last = depth == path.Length - 1;
+                if (last != (schema[found].ChildCount == 0)) return -1;
+                (from, to) = (found + 1, ends[found]);
+                if (last) return found;
+            }
+            return -1;
+        }
+
+        static bool HasBounds(DeltaType type) =>
+            type is DecimalType || type is PrimitiveType { Name: not (PrimitiveType.Boolean or PrimitiveType.Binary) };
+
+        // Decodes a PLAIN-encoded bound; false when the physical type does not fit the column type.
+        static bool Decode(byte[] bytes, DeltaType type, ParquetSchemaElement element, out Bound bound)
+        {
+            bound = default;
+            int? physical = element.PhysicalType;
+            switch (type)
+            {
+                case DecimalType decimalType:
+                {
+                    if (element.DecimalScale is null) return false;
+                    if (physical is not (1 or 2 or 6 or 7) || (physical is 1 && bytes.Length != 4) || (physical is 2 && bytes.Length != 8) || bytes.Length == 0)
+                        return false;
+                    if (element.DecimalScale != decimalType.Scale) return false;
+                    bound = physical switch
+                    {
+                        1 => new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt32LittleEndian(bytes) },
+                        2 => new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt64LittleEndian(bytes) },
+                        _ when bytes.Length <= 16 => new Bound { Kind = BoundKind.Integer, Integer = BigEndian(bytes) },
+                        _ => new Bound { Kind = BoundKind.LongDecimal, Bytes = bytes },
+                    };
+                    return true;
+                }
+                case PrimitiveType p:
+                    switch (p.Name)
+                    {
+                        case PrimitiveType.Byte or PrimitiveType.Short or PrimitiveType.Integer or PrimitiveType.Date:
+                            if (physical != 1 || bytes.Length != 4) return false;
+                            bound = new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt32LittleEndian(bytes) };
+                            return true;
+                        case PrimitiveType.Long:
+                            if (physical == 2 && bytes.Length == 8) bound = new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt64LittleEndian(bytes) };
+                            else if (physical == 1 && bytes.Length == 4) bound = new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt32LittleEndian(bytes) };
+                            else return false;
+                            return true;
+                        case PrimitiveType.Float or PrimitiveType.Double:
+                        {
+                            double value;
+                            if (physical == 4 && bytes.Length == 4) value = BinaryPrimitives.ReadSingleLittleEndian(bytes);
+                            else if (physical == 5 && bytes.Length == 8) value = BinaryPrimitives.ReadDoubleLittleEndian(bytes);
+                            else return false;
+                            if (double.IsNaN(value)) return false;
+                            bound = new Bound { Kind = BoundKind.Float, Float = value };
+                            return true;
+                        }
+                        case PrimitiveType.Timestamp or PrimitiveType.TimestampNtz:
+                        {
+                            if (physical != 2 || bytes.Length != 8 || element.TimeUnit is not ParquetTimeUnit unit) return false;
+                            long raw = BinaryPrimitives.ReadInt64LittleEndian(bytes);
+                            Int128 micros = unit switch
+                            {
+                                ParquetTimeUnit.Millis => (Int128)raw * 1000,
+                                ParquetTimeUnit.Micros => raw,
+                                _ => unchecked(raw - (raw < 0 && raw % 1000 != 0 ? 1000 : 0)) / 1000, // floor
+                            };
+                            bound = new Bound { Kind = BoundKind.Integer, Integer = micros };
+                            return true;
+                        }
+                        case PrimitiveType.String:
+                            // A bound that is not valid UTF-8 (a cut inside a character) is not trusted.
+                            if (physical != 6 || !Utf8.IsValid(bytes)) return false;
+                            bound = new Bound { Kind = BoundKind.Utf8, Bytes = bytes };
+                            return true;
+                    }
+                    break;
+            }
+            return false;
+
+            // A two's complement big-endian integer of at most 16 bytes.
+            static Int128 BigEndian(ReadOnlySpan<byte> bytes)
+            {
+                Span<byte> wide = stackalloc byte[16];
+                wide[..^bytes.Length].Fill((bytes[0] & 0x80) != 0 ? (byte)0xFF : (byte)0);
+                bytes.CopyTo(wide[^bytes.Length..]);
+                return BinaryPrimitives.ReadInt128BigEndian(wide);
+            }
+        }
+
+        static int Compare(in Bound a, in Bound b) => (a.Kind, b.Kind) switch
+        {
+            (BoundKind.Integer, BoundKind.Integer) => a.Integer.CompareTo(b.Integer),
+            (BoundKind.Integer or BoundKind.LongDecimal, BoundKind.Integer or BoundKind.LongDecimal) => a.Big.CompareTo(b.Big),
+            (BoundKind.Float, BoundKind.Float) => a.Float.CompareTo(b.Float),
+            _ => a.Bytes.AsSpan().SequenceCompareTo(b.Bytes), // unsigned bytes: the Parquet order of UTF-8
+        };
+
+        // Whether a bound is written: not a non-finite float, not a string maximum longer than the prefix kept. A date
+        // or time the log cannot hold fails here, leaf by leaf, as when the bounds were formatted while gathered.
+        static bool Written(in Bound bound, DeltaType type, bool isMax) => type switch
+        {
+            PrimitiveType { Name: PrimitiveType.Float or PrimitiveType.Double } => double.IsFinite(bound.Float),
+            PrimitiveType { Name: PrimitiveType.String } => !isMax || Utf16Cut(bound.Bytes) == bound.Bytes!.Length,
+            PrimitiveType { Name: PrimitiveType.Date } => DayOf(bound) >= DateOnly.MinValue,
+            PrimitiveType { Name: PrimitiveType.Timestamp or PrimitiveType.TimestampNtz } => InstantOf(bound) >= DateTime.MinValue,
+            _ => true,
+        };
+    }
+
+    /// <summary>The statistics of one column chunk, as the footer has them.</summary>
+    private readonly record struct Statistic(bool Exists, byte[]? Min, byte[]? Max, long? NullCount);
+
+    /// <summary>
+    /// The column chunks of a footer, found by path: in its Thrift objects (no views made) first at the leaf's ordinal,
+    /// where a valid file has it, else (a footer built from its views alone, or one whose chunks name other paths)
+    /// by search.
+    /// </summary>
+    private readonly struct Chunks(ParquetMetadata metadata)
+    {
+        private readonly FileMetaData? _thrift = metadata.Thrift;
+
+        public int GroupCount => _thrift?.RowGroups.Length ?? metadata.RowGroups.Count;
+
+        public long Rows(int group) => _thrift is { } thrift ? thrift.RowGroups[group].NumRows : metadata.RowGroups[group].RowCount;
+
+        /// <summary>The chunk of the leaf in the group; false when the group has none.</summary>
+        public bool TryGet(int group, int ordinal, ReadOnlySpan<string> path, out Statistic statistic)
+        {
+            if (_thrift is { } thrift)
+            {
+                ColumnChunk[] columns = thrift.RowGroups[group].Columns;
+                if ((uint)ordinal < (uint)columns.Length && columns[ordinal].MetaData is { } meta && Same(meta.PathInSchema, path))
+                    return Found(meta, out statistic);
+                foreach (ColumnChunk chunk in columns)
+                {
+                    if (chunk.MetaData is { } other && Same(other.PathInSchema, path)) return Found(other, out statistic);
+                }
+            }
+            else
+            {
+                foreach (ParquetColumnChunk chunk in metadata.RowGroups[group].Columns)
+                {
+                    if (!Same(chunk.Path, path)) continue;
+                    ParquetColumnStatistics? s = chunk.Statistics;
+                    statistic = new Statistic(true, s?.Min, s?.Max, s?.NullCount);
+                    return true;
+                }
+            }
+            statistic = default;
+            return false;
+
+            static bool Found(ColumnMetaData meta, out Statistic statistic)
+            {
+                Statistics? s = meta.Statistics;
+                statistic = new Statistic(true, s?.MinValue, s?.MaxValue, s?.NullCount);
+                return true;
+            }
+
+            static bool Same(IReadOnlyList<string> a, ReadOnlySpan<string> b)
+            {
+                if (a.Count != b.Length) return false;
+                for (int i = 0; i < b.Length; i++)
+                {
+                    if (a[i] != b[i]) return false;
+                }
+                return true;
             }
         }
     }
 
-    private const char PathSeparator = '\u001f';
-
-    /// <summary>The leaves of the flattened Parquet schema (not inside repeated groups), by their path of names.</summary>
-    private static Dictionary<string, ParquetSchemaElement> LeafElements(IReadOnlyList<ParquetSchemaElement> schema)
+    /// <summary>
+    /// One section of the stats (minimum, maximum or null count of the leaves that have one), nested under the structs
+    /// of the leaves: a struct's object only holds what is written for its fields, and is left out when that is
+    /// nothing.
+    /// </summary>
+    private static void Section(Utf8JsonWriter json, ReadOnlySpan<byte> name, StatisticsLeaves leaves, LeafStatistics[] results, Part part)
     {
-        var result = new Dictionary<string, ParquetSchemaElement>(StringComparer.Ordinal);
-        if (schema.Count == 0) return result;
-        int at = 1;
-        for (int child = 0; child < schema[0].ChildCount && at < schema.Count; child++) at = Walk(schema, at, null, result);
-        return result;
-
-        static int Walk(IReadOnlyList<ParquetSchemaElement> schema, int at, string? prefix, Dictionary<string, ParquetSchemaElement> result)
+        json.WriteStartObject(name);
+        if (leaves.Contiguous)
         {
-            ParquetSchemaElement element = schema[at];
-            string path = prefix is null ? element.Name : prefix + PathSeparator + element.Name;
-            bool repeated = element.Repetition == 2;
-            at++;
-            if (element.ChildCount == 0)
+            // The leaves of a struct follow one another: open its object at its first written leaf, close it after
+            // its last.
+            int open = 0, previous = -1;
+            for (int i = 0; i < leaves.Count; i++)
             {
-                if (!repeated) result[path] = element;
-                return at;
+                if (!Has(results[i], part)) continue;
+                int[] prefixes = leaves.Prefixes[i];
+                int depth = prefixes.Length - 1, common = 0;
+                if (previous >= 0)
+                {
+                    int[] before = leaves.Prefixes[previous];
+                    while (common < open && common < depth && before[common] == prefixes[common]) common++;
+                }
+                for (; open > common; open--) json.WriteEndObject();
+                for (; open < depth; open++) json.WriteStartObject(leaves.Names[i][open]);
+                json.WritePropertyName(leaves.Names[i][depth]);
+                Value(json, leaves.Types[i], results[i], part);
+                previous = i;
             }
-            for (int i = 0; i < element.ChildCount; i++)
+            for (; open > 0; open--) json.WriteEndObject();
+        }
+        else
+        {
+            List<int> written = [];
+            for (int i = 0; i < leaves.Count; i++)
             {
-                // Below a repeated group (a list or map) nothing is a leaf of the table's structs.
-                at = repeated ? Skip(schema, at) : Walk(schema, at, path, result);
+                if (Has(results[i], part)) written.Add(i);
             }
-            return at;
+            Nest(json, leaves, results, part, written, 0);
+        }
+        json.WriteEndObject();
+
+        // Leaves in any order: the values under one struct grouped under its first leaf's place.
+        static void Nest(Utf8JsonWriter json, StatisticsLeaves leaves, LeafStatistics[] results, Part part, List<int> items, int depth)
+        {
+            foreach (IGrouping<int, int> group in items.GroupBy(i => leaves.Prefixes[i][depth]))
+            {
+                int first = group.First();
+                json.WritePropertyName(leaves.Names[first][depth]);
+                List<int> members = [.. group];
+                if (members.Count == 1 && leaves.Prefixes[first].Length == depth + 1)
+                {
+                    Value(json, leaves.Types[first], results[first], part);
+                    continue;
+                }
+                json.WriteStartObject();
+                Nest(json, leaves, results, part, members, depth + 1);
+                json.WriteEndObject();
+            }
         }
 
-        static int Skip(IReadOnlyList<ParquetSchemaElement> schema, int at)
+        static bool Has(in LeafStatistics result, Part part) => part switch
         {
-            int children = schema[at].ChildCount;
-            at++;
-            for (int i = 0; i < children; i++) at = Skip(schema, at);
-            return at;
+            Part.Min => result.HasMin,
+            Part.Max => result.HasMax,
+            _ => result.HasNullCount,
+        };
+
+        static void Value(Utf8JsonWriter json, DeltaType type, in LeafStatistics result, Part part)
+        {
+            switch (part)
+            {
+                case Part.Min: Write(json, result.Min, type, isMax: false); break;
+                case Part.Max: Write(json, result.Max, type, isMax: true); break;
+                default: json.WriteNumberValue(result.NullCount); break;
+            }
+        }
+
+        // Writes a bound as the log holds it.
+        static void Write(Utf8JsonWriter json, in Bound bound, DeltaType type, bool isMax)
+        {
+            Span<byte> text = stackalloc byte[64];
+            int length;
+            switch (type)
+            {
+                case DecimalType d:
+                    if (bound.Kind == BoundKind.LongDecimal)
+                    {
+                        json.WriteRawValue(WideDecimalText(bound.Big, d.Scale));
+                        return;
+                    }
+                    length = DecimalText(bound.Integer, d.Scale, text);
+                    break;
+                case PrimitiveType { Name: PrimitiveType.Float }:
+                    ((float)bound.Float).TryFormat(text, out length, "R", CultureInfo.InvariantCulture);
+                    break;
+                case PrimitiveType { Name: PrimitiveType.Double }:
+                    bound.Float.TryFormat(text, out length, "R", CultureInfo.InvariantCulture);
+                    break;
+                case PrimitiveType { Name: PrimitiveType.Date }:
+                    text[0] = (byte)'"';
+                    DayOf(bound).TryFormat(text[1..], out length, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    text[++length] = (byte)'"';
+                    length++;
+                    break;
+                case PrimitiveType { Name: PrimitiveType.Timestamp or PrimitiveType.TimestampNtz } p:
+                {
+                    text[0] = (byte)'"';
+                    InstantOf(bound).TryFormat(text[1..], out length, p.Name == PrimitiveType.Timestamp ? "yyyy-MM-dd'T'HH:mm:ss.fff'Z'" : "yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                    text[++length] = (byte)'"';
+                    length++;
+                    break;
+                }
+                case PrimitiveType { Name: PrimitiveType.String }:
+                    json.WriteStringValue(bound.Bytes.AsSpan(0, Utf16Cut(bound.Bytes)));
+                    return;
+                default:
+                    json.WriteNumberValue(checked((long)bound.Integer));
+                    return;
+            }
+            json.WriteRawValue(text[..length]); // validated: a float column with a double bound beyond its range gives Infinity, refused as before
+
+            // An unscaled decimal of at most 128 bits as text.
+            static int DecimalText(Int128 unscaled, int scale, Span<byte> text)
+            {
+                Span<byte> digits = stackalloc byte[40];
+                UInt128 magnitude = unscaled < 0 ? (UInt128)(-(unscaled + 1)) + 1 : (UInt128)unscaled;
+                magnitude.TryFormat(digits, out int count, default, CultureInfo.InvariantCulture);
+                int padded = Math.Max(count, scale + 1), at = 0;
+                if (unscaled < 0) text[at++] = (byte)'-';
+                Span<byte> whole = text.Slice(at, padded);
+                whole[..(padded - count)].Fill((byte)'0');
+                digits[..count].CopyTo(whole[(padded - count)..]);
+                at += padded;
+                if (scale == 0) return at;
+                whole[^scale..].CopyTo(text[(at - scale + 1)..]);
+                text[at - scale] = (byte)'.';
+                return at + 1;
+            }
+
+            // A wider decimal (beyond the 38 digits of the table's type: kept as written).
+            static string WideDecimalText(BigInteger unscaled, int scale)
+            {
+                string digits = BigInteger.Abs(unscaled).ToString(CultureInfo.InvariantCulture).PadLeft(scale + 1, '0');
+                string text = scale == 0 ? digits : digits[..^scale] + "." + digits[^scale..];
+                return unscaled.Sign < 0 ? "-" + text : text;
+            }
         }
     }
 
@@ -259,41 +596,35 @@ public static class FileStatistics
     {
         ArgumentNullException.ThrowIfNull(metadata);
         var result = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (string name in TopLevelLeaves(metadata.Schema).Keys)
-        {
-            long? sum = 0;
-            foreach (ParquetRowGroup group in metadata.RowGroups)
-            {
-                ParquetColumnChunk? chunk = group.Columns.FirstOrDefault(c => c.Path.Count == 1 && c.Path[0] == name);
-                sum = chunk?.Statistics?.NullCount is long n && sum is long s ? s + n : null;
-            }
-            if (sum is long total) result[name] = total;
-        }
-        return result;
-    }
-
-    private static bool HasBounds(DeltaType type) =>
-        type is DecimalType || type is PrimitiveType { Name: not (PrimitiveType.Boolean or PrimitiveType.Binary) };
-
-    /// <summary>The leaves directly under the root of the flattened schema, by name.</summary>
-    private static Dictionary<string, ParquetSchemaElement> TopLevelLeaves(IReadOnlyList<ParquetSchemaElement> schema)
-    {
-        var result = new Dictionary<string, ParquetSchemaElement>(StringComparer.Ordinal);
+        IReadOnlyList<ParquetSchemaElement> schema = metadata.Schema;
         if (schema.Count == 0) return result;
-        int at = 1;
+        var chunks = new Chunks(metadata);
+        int groups = chunks.GroupCount;
+        int at = 1, ordinal = 0;
         for (int child = 0; child < schema[0].ChildCount && at < schema.Count; child++)
         {
             ParquetSchemaElement element = schema[at];
-            if (element.ChildCount == 0 && element.Repetition != 2) result[element.Name] = element;
-            at = Skip(schema, at);
+            int next = Skip(schema, at, ref ordinal);
+            if (element.ChildCount == 0 && element.Repetition != 2 && !result.ContainsKey(element.Name))
+            {
+                long? sum = 0;
+                for (int g = 0; g < groups && sum is not null; g++)
+                {
+                    sum = chunks.TryGet(g, ordinal - 1, [element.Name], out Statistic chunk) && chunk.NullCount is long n ? sum + n : null;
+                }
+                if (sum is long total) result[element.Name] = total;
+            }
+            at = next;
         }
         return result;
 
-        static int Skip(IReadOnlyList<ParquetSchemaElement> schema, int at)
+        // The index after the subtree at `at`, counting its leaves.
+        static int Skip(IReadOnlyList<ParquetSchemaElement> schema, int at, ref int leaves)
         {
             int children = schema[at].ChildCount;
+            if (children == 0) leaves++;
             at++;
-            for (int i = 0; i < children; i++) at = Skip(schema, at);
+            for (int i = 0; i < children; i++) at = Skip(schema, at, ref leaves);
             return at;
         }
     }
@@ -302,129 +633,120 @@ public static class FileStatistics
     // Values
     // ------------------------------------------------------------------
 
-    /// <summary>A decoded bound: an integer (also dates, timestamps in microseconds, decimals unscaled), a float, or UTF-8 bytes.</summary>
-    private sealed class Value : IComparable<Value>
+    private enum BoundKind : byte { None, Integer, Float, Utf8, LongDecimal }
+
+    /// <summary>
+    /// A decoded bound: an integer (also dates, timestamps in microseconds, decimals unscaled), a float, UTF-8 bytes,
+    /// or the big-endian bytes of a decimal wider than 128 bits; the bytes are the footer's own.
+    /// </summary>
+    private readonly struct Bound
     {
-        public BigInteger? Integer;
-        public double? Float;
-        public byte[]? Utf8;
+        public BoundKind Kind { get; init; }
+        public Int128 Integer { get; init; }
+        public double Float { get; init; }
+        public byte[]? Bytes { get; init; }
 
-        public int CompareTo(Value? other)
-        {
-            if (other is null) return 1;
-            if (Integer is BigInteger a && other.Integer is BigInteger b) return a.CompareTo(b);
-            if (Float is double x && other.Float is double y) return x.CompareTo(y);
-            return Utf8!.AsSpan().SequenceCompareTo(other.Utf8); // unsigned bytes: the Parquet order of UTF-8
-        }
+        public BigInteger Big => Kind == BoundKind.LongDecimal ? new BigInteger(Bytes, isUnsigned: false, isBigEndian: true) : (BigInteger)Integer;
+    }
 
-        /// <summary>The JSON of the bound, or null when it is left out.</summary>
-        public string? Format(DeltaType type, bool isMax)
+    /// <summary>The day of a date bound (days since the epoch).</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The day is beyond the dates .NET holds.</exception>
+    private static DateOnly DayOf(in Bound bound) =>
+        DateOnly.FromDayNumber(DateOnly.FromDateTime(DateTime.UnixEpoch).DayNumber + checked((int)bound.Integer));
+
+    /// <summary>The instant of a timestamp bound (microseconds since the epoch), cut down to milliseconds (readers allow for the cut).</summary>
+    /// <exception cref="OverflowException">The microseconds are beyond a long.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The instant is beyond the times .NET holds.</exception>
+    private static DateTime InstantOf(in Bound bound)
+    {
+        long micros = checked((long)bound.Integer);
+        long millis = micros / 1000 - (micros % 1000 < 0 ? 1 : 0); // floor
+        return DateTime.UnixEpoch.AddMilliseconds(millis);
+    }
+
+    /// <summary>
+    /// The UTF-8 bytes of the first <see cref="StringPrefixLength"/> UTF-16 code units of valid UTF-8 text (all of
+    /// it when shorter), without splitting a surrogate pair: a cut minimum is still a lower bound.
+    /// </summary>
+    private static int Utf16Cut(ReadOnlySpan<byte> utf8)
+    {
+        int units = 0, at = 0;
+        while (at < utf8.Length)
         {
-            switch (type)
+            byte lead = utf8[at];
+            (int length, int width) = lead switch
             {
-                case DecimalType d:
-                {
-                    BigInteger unscaled = Integer!.Value;
-                    string digits = BigInteger.Abs(unscaled).ToString(CultureInfo.InvariantCulture).PadLeft(d.Scale + 1, '0');
-                    string text = d.Scale == 0 ? digits : digits[..^d.Scale] + "." + digits[^d.Scale..];
-                    return unscaled.Sign < 0 ? "-" + text : text;
-                }
-                case PrimitiveType { Name: PrimitiveType.Float }:
-                    return double.IsFinite(Float!.Value) ? ((float)Float.Value).ToString("R", CultureInfo.InvariantCulture) : null;
-                case PrimitiveType { Name: PrimitiveType.Double }:
-                    return double.IsFinite(Float!.Value) ? Float.Value.ToString("R", CultureInfo.InvariantCulture) : null;
-                case PrimitiveType { Name: PrimitiveType.Date }:
-                    return Quote(DateOnly.FromDayNumber(DateOnly.FromDateTime(DateTime.UnixEpoch).DayNumber + (int)Integer!.Value)
-                        .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
-                case PrimitiveType { Name: PrimitiveType.Timestamp or PrimitiveType.TimestampNtz } p:
-                {
-                    // Microseconds, cut down to milliseconds (readers allow for the cut).
-                    long micros = (long)Integer!.Value;
-                    long millis = micros / 1000 - (micros % 1000 < 0 ? 1 : 0); // floor
-                    DateTime t = DateTime.UnixEpoch.AddMilliseconds(millis);
-                    return Quote(t.ToString(p.Name == PrimitiveType.Timestamp ? "yyyy-MM-dd'T'HH:mm:ss.fff'Z'" : "yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture));
-                }
-                case PrimitiveType { Name: PrimitiveType.String }:
-                {
-                    string s = Encoding.UTF8.GetString(Utf8!);
-                    if (s.Length > StringPrefixLength)
-                    {
-                        // A cut minimum is still a lower bound; a cut maximum would not be an upper bound.
-                        if (isMax) return null;
-                        s = s[..StringPrefixLength];
-                        if (char.IsHighSurrogate(s[^1])) s = s[..^1];
-                    }
-                    return JsonSerializerString(s);
-                }
-                default:
-                    return Integer!.Value.ToString(CultureInfo.InvariantCulture);
-            }
+                < 0x80 => (1, 1),
+                < 0xE0 => (2, 1),
+                < 0xF0 => (3, 1),
+                _ => (4, 2),
+            };
+            if (units + width > StringPrefixLength) break;
+            units += width;
+            at += length;
         }
+        return at;
+    }
 
-        private static string Quote(string s) => "\"" + s + "\"";
+}
 
-        private static string JsonSerializerString(string s)
+/// <summary>
+/// The leaves a write gives statistics for, prepared once for all its files: their physical paths, types, JSON
+/// names, and which struct each level belongs to (whether the leaves of each struct follow one another).
+/// </summary>
+internal sealed class StatisticsLeaves
+{
+    /// <summary>Prepares <paramref name="leaves"/> (paths of fields from a table column down; struct, array and map leaves are left out).</summary>
+    public StatisticsLeaves(IReadOnlyList<StructField[]> leaves)
+    {
+        StructField[][] kept = [.. leaves.Where(p => p[^1].Type is not (StructType or ArrayType or MapType))];
+        Count = kept.Length;
+        Paths = new string[Count][];
+        Types = new DeltaType[Count];
+        Names = new JsonEncodedText[Count][];
+        Prefixes = new int[Count][];
+        var ids = new Dictionary<(int Parent, string Name), int>();
+        HashSet<int> started = [];
+        Contiguous = true;
+        for (int i = 0; i < Count; i++)
         {
-            var buffer = new System.Buffers.ArrayBufferWriter<byte>();
-            using (var json = new Utf8JsonWriter(buffer, ActionWriter.JsonOptions)) json.WriteStringValue(s);
-            return Encoding.UTF8.GetString(buffer.WrittenSpan);
+            StructField[] leaf = kept[i];
+            Paths[i] = [.. leaf.Select(f => f.PhysicalName)];
+            Types[i] = leaf[^1].Type;
+            Names[i] = [.. Paths[i].Select(n => JsonEncodedText.Encode(n, ActionWriter.JsonOptions.Encoder))];
+            int[] prefixes = new int[leaf.Length];
+            int parent = -1;
+            for (int d = 0; d < leaf.Length; d++)
+            {
+                if (!ids.TryGetValue((parent, Paths[i][d]), out int id)) ids[(parent, Paths[i][d])] = id = ids.Count;
+                prefixes[d] = parent = id;
+            }
+            // Each struct's leaves in one run: a struct (or leaf) that starts here was not seen before.
+            int[]? before = i > 0 ? Prefixes[i - 1] : null;
+            for (int d = 0; d < prefixes.Length; d++)
+            {
+                if (before is not null && d < before.Length && before[d] == prefixes[d]) continue;
+                if (!started.Add(prefixes[d])) Contiguous = false;
+            }
+            Prefixes[i] = prefixes;
         }
     }
 
-    /// <summary>Decodes a PLAIN-encoded bound; null when the physical type does not fit the column type.</summary>
-    private static Value? Decode(byte[] bytes, DeltaType type, ParquetSchemaElement element)
-    {
-        int? physical = element.PhysicalType;
-        switch (type)
-        {
-            case DecimalType:
-            {
-                if (element.DecimalScale is null) return null;
-                BigInteger unscaled = physical switch
-                {
-                    1 when bytes.Length == 4 => BinaryPrimitives.ReadInt32LittleEndian(bytes),
-                    2 when bytes.Length == 8 => BinaryPrimitives.ReadInt64LittleEndian(bytes),
-                    6 or 7 when bytes.Length > 0 => new BigInteger(bytes, isUnsigned: false, isBigEndian: true),
-                    _ => default,
-                };
-                if (physical is not (1 or 2 or 6 or 7) || (physical is 1 && bytes.Length != 4) || (physical is 2 && bytes.Length != 8) || bytes.Length == 0)
-                    return null;
-                if (element.DecimalScale != ((DecimalType)type).Scale) return null;
-                return new Value { Integer = unscaled };
-            }
-            case PrimitiveType p:
-                switch (p.Name)
-                {
-                    case PrimitiveType.Byte or PrimitiveType.Short or PrimitiveType.Integer or PrimitiveType.Date:
-                        return physical == 1 && bytes.Length == 4 ? new Value { Integer = BinaryPrimitives.ReadInt32LittleEndian(bytes) } : null;
-                    case PrimitiveType.Long:
-                        return physical == 2 && bytes.Length == 8 ? new Value { Integer = BinaryPrimitives.ReadInt64LittleEndian(bytes) }
-                             : physical == 1 && bytes.Length == 4 ? new Value { Integer = BinaryPrimitives.ReadInt32LittleEndian(bytes) }
-                             : null;
-                    case PrimitiveType.Float or PrimitiveType.Double:
-                        return physical == 4 && bytes.Length == 4 ? Finite(BinaryPrimitives.ReadSingleLittleEndian(bytes))
-                             : physical == 5 && bytes.Length == 8 ? Finite(BinaryPrimitives.ReadDoubleLittleEndian(bytes))
-                             : null;
-                    case PrimitiveType.Timestamp or PrimitiveType.TimestampNtz:
-                    {
-                        if (physical != 2 || bytes.Length != 8 || element.TimeUnit is not ParquetTimeUnit unit) return null;
-                        long raw = BinaryPrimitives.ReadInt64LittleEndian(bytes);
-                        BigInteger micros = unit switch
-                        {
-                            ParquetTimeUnit.Millis => (BigInteger)raw * 1000,
-                            ParquetTimeUnit.Micros => raw,
-                            _ => BigInteger.Divide(raw - (raw < 0 && raw % 1000 != 0 ? 1000 : 0), 1000), // floor
-                        };
-                        return new Value { Integer = micros };
-                    }
-                    case PrimitiveType.String:
-                        // A bound that is not valid UTF-8 (a cut inside a character) is not trusted.
-                        return physical == 6 && Utf8.IsValid(bytes) ? new Value { Utf8 = bytes } : null;
-                }
-                break;
-        }
-        return null;
+    /// <summary>The number of leaves.</summary>
+    public int Count { get; }
 
-        static Value? Finite(double d) => double.IsNaN(d) ? null : new Value { Float = d };
-    }
+    /// <summary>Each leaf's path of physical names.</summary>
+    public string[][] Paths { get; }
+
+    /// <summary>Each leaf's type.</summary>
+    public DeltaType[] Types { get; }
+
+    /// <summary>Each leaf's path of names as JSON property names.</summary>
+    public JsonEncodedText[][] Names { get; }
+
+    /// <summary>Each leaf's path as ids of its structs (and of itself, last): equal ids, the same struct.</summary>
+    public int[][] Prefixes { get; }
+
+    /// <summary>Whether the leaves of every struct follow one another (as in schema order).</summary>
+    public bool Contiguous { get; }
 }

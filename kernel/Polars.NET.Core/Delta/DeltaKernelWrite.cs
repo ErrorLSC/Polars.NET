@@ -583,7 +583,7 @@ internal static class DeltaKernelWrite
         StructField[] notNullLeaves = checkNotNull
             ? [.. dataFields.Where(f => !f.Nullable && f.Type is not (StructType or ArrayType or MapType))]
             : [];
-        IReadOnlyList<StructField[]> indexed = FileStatistics.IndexedLeaves(dataFields, tableProperties);
+        var indexed = new StatisticsLeaves(FileStatistics.IndexedLeaves(dataFields, tableProperties)); // prepared once for the files
         var adds = new List<AddAction>(files.Count);
         foreach (SunkFile file in files)
         {
@@ -918,8 +918,8 @@ internal static class DeltaKernelWrite
         }
 
         long rows = PolarsWrapper.DataFrameHeight(group);
-        using var stream = new MemoryStream();
-        using (var json = new Utf8JsonWriter(stream, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
+        using var buffer = new Kaminari.Sazanami.Buffers.NativeBufferWriter(1024);
+        using (var json = new Utf8JsonWriter(buffer, Kaminari.Seseragi.Lakehouse.Delta.Actions.ActionWriter.JsonOptions))
         {
             json.WriteStartObject();
             json.WriteNumber("numRecords", rows);
@@ -935,7 +935,7 @@ internal static class DeltaKernelWrite
             }
             json.WriteEndObject();
         }
-        return Encoding.UTF8.GetString(stream.ToArray());
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     private static void WriteBounds(Utf8JsonWriter json, string section, List<StructField> fields, Func<StructField, JsonElement> value, bool isMax)
