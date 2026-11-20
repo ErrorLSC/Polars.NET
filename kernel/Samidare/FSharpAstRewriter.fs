@@ -245,10 +245,58 @@ module internal FSharpAst =
 
     let private isTupleOrAnon (t: Type) = isTupleOrAnonType t
 
+    /// <summary>
+    /// The members an F# anonymous record's construction sets, which F# 11 leaves unnamed (<c>{| a = x; b = y |}</c> as
+    /// <c>new &lt;&gt;f__AnonymousType…(x, y)</c> without members): the properties named as the constructor's parameters,
+    /// as a C# anonymous type's construction names them. None for any other construction.
+    /// </summary>
+    let private anonymousRecordMembers (ne: NewExpression) : MemberInfo[] option =
+        if (not (isNull ne.Members) && ne.Members.Count > 0) || isNull ne.Constructor
+           || not (ne.Type.Name.Contains "AnonymousType") || ne.Type.Name.StartsWith "AnonymousObject" then
+            None
+        else
+            let parameters = ne.Constructor.GetParameters()
+            let members =
+                parameters
+                |> Array.map (fun p ->
+                    match ne.Type.GetProperty p.Name with
+                    | null -> null
+                    | property when property.PropertyType = p.ParameterType -> property.GetMethod :> MemberInfo
+                    | _ -> null)
+            if parameters.Length = ne.Arguments.Count && members |> Array.forall (isNull >> not) then Some members else None
+
+    /// <summary>
+    /// A block that only binds values: assignments to its own variables, each assigned once, then its value (of the
+    /// block's type). F# 11 binds the parts of a tuple pattern so (<c>fun (a, b) -> …</c> as
+    /// <c>Block[a]{ a = t.Item1; Block[b]{ b = t.Item2; … } }</c>), where F# 10 invoked nested lambdas.
+    /// </summary>
+    let private isLetBlock (block: BlockExpression) =
+        let count = block.Expressions.Count
+        let assigned = HashSet<ParameterExpression>(HashIdentity.Reference)
+        let bindings = Seq.take (count - 1) block.Expressions
+        block.Type = block.Expressions.[count - 1].Type
+        && block.Expressions.[count - 1].NodeType <> ExpressionType.Assign
+        && bindings |> Seq.forall (fun e ->
+            match e with
+            | :? BinaryExpression as b when b.NodeType = ExpressionType.Assign ->
+                match b.Left with
+                | :? ParameterExpression as v -> block.Variables.Contains v && assigned.Add v
+                | _ -> false
+            | _ -> false)
+        && assigned.Count = block.Variables.Count
+
     /// 1. Beta-reduction: reduce curried F# closure .Invoke(...), tuple operators, and structural expressions
     let rec betaReduce (expr: Expression) : Expression =
         match expr with
         | null -> null
+        // A block binding values (F# 11's tuple patterns, see isLetBlock): its value, each variable replaced by the value
+        // bound to it (a value may use the variables bound before it), as an invoked lambda is reduced.
+        | :? BlockExpression as block when isLetBlock block ->
+            let bound = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+            for e in Seq.take (block.Expressions.Count - 1) block.Expressions do
+                let assign = e :?> BinaryExpression
+                bound.[assign.Left :?> ParameterExpression] <- ParameterReplacer(bound).Visit(betaReduce assign.Right)
+            betaReduce (ParameterReplacer(bound).Visit block.Expressions.[block.Expressions.Count - 1])
         | :? MethodCallExpression as mc when mc.Method.Name = "Invoke" && not (isNull mc.Object) ->
             let reducedObj = betaReduce mc.Object
             let reducedArgs = mc.Arguments |> Seq.map betaReduce |> Seq.toList
@@ -352,12 +400,12 @@ module internal FSharpAst =
         | :? NewExpression as ne ->
             let newArgs = ne.Arguments |> Seq.map betaReduce |> Seq.toList
             let changed = Seq.zip ne.Arguments newArgs |> Seq.exists (fun (oldA, newA) -> oldA <> newA)
-            if not changed then
-                ne :> Expression
-            elif isNull ne.Members || ne.Members.Count = 0 then
+            match anonymousRecordMembers ne with
+            | Some members -> Expression.New(ne.Constructor, newArgs, members) :> Expression
+            | None when not changed -> ne :> Expression
+            | None when isNull ne.Members || ne.Members.Count = 0 ->
                 Expression.New(ne.Constructor, newArgs) :> Expression
-            else
-                Expression.New(ne.Constructor, newArgs, ne.Members) :> Expression
+            | None -> Expression.New(ne.Constructor, newArgs, ne.Members) :> Expression
 
         | :? MemberInitExpression as mie ->
             let newNew = betaReduce mie.NewExpression :?> NewExpression
@@ -661,6 +709,50 @@ module internal FSharpAst =
                 | _ -> None
             | _ -> None
 
+    /// Replaces the items of one AnonymousObject parameter (`after.Item1`, …) by the values it was built of; any other
+    /// use of the parameter is noted (the replacement then does not stand).
+    type private ItemReplacer(parameter: ParameterExpression, items: Map<string, Expression>) =
+        inherit ExpressionVisitor()
+
+        member val OtherUse = false with get, set
+
+        override this.VisitMember(node: MemberExpression) =
+            match node.Expression with
+            | :? ParameterExpression as p when p = parameter && items.ContainsKey node.Member.Name -> items.[node.Member.Name]
+            | _ -> base.VisitMember node
+
+        override this.VisitParameter(node: ParameterExpression) =
+            if node = parameter then this.OtherUse <- true
+            base.VisitParameter node
+
+    /// <summary>
+    /// F# 11's selection in two steps (<c>query { … select {| … |} }</c>): the row first built as an AnonymousObject,
+    /// then the result made of its items (<c>Select(Select(s, x => new AnonymousObject(a, b)), after => f(after.Item1,
+    /// after.Item2))</c>). One selection of the result from the source row (<c>Select(s, x => f(a, b))</c>), when the
+    /// result uses the AnonymousObject only through its items.
+    /// </summary>
+    let private tryFuseAnonymousObjectSelect (source: Expression) (outer: LambdaExpression) : Expression option =
+        let isSelect (m: MethodInfo) =
+            (m.DeclaringType = typeof<Queryable> || m.DeclaringType = typeof<Enumerable>) && m.Name = "Select"
+        match source with
+        | :? MethodCallExpression as inner when isSelect inner.Method && inner.Arguments.Count = 2 && outer.Parameters.Count = 1 ->
+            match unwrapQuote inner.Arguments.[1] with
+            | :? LambdaExpression as innerLambda when innerLambda.Parameters.Count = 1 ->
+                match unwrapQuote innerLambda.Body with
+                | :? NewExpression as ne when ne.Type.Name.StartsWith "AnonymousObject" ->
+                    let replacer = ItemReplacer(outer.Parameters.[0], extractMemberMap ne)
+                    let body = replacer.Visit outer.Body
+                    if replacer.OtherUse then
+                        None
+                    else
+                        let fused = Expression.Lambda(betaReduce body, innerLambda.Parameters)
+                        let select = inner.Method.GetGenericMethodDefinition().MakeGenericMethod(innerLambda.Parameters.[0].Type, fused.ReturnType)
+                        let selector = if inner.Method.DeclaringType = typeof<Queryable> then Expression.Quote fused :> Expression else fused :> Expression
+                        Some(Expression.Call(null, select, inner.Arguments.[0], selector) :> Expression)
+                | _ -> None
+            | _ -> None
+        | _ -> None
+
     /// 2. PipelineNormalizer:
     /// - Strips redundant identity projections (e.g. .Select(_arg => new AnonymousObject(_arg.Item1, ...)))
     /// - Flattens F# synthetic Grouping wrappers (e.g. .GroupBy(...).Select(g => new Grouping(g.Key, g.Select(...))))
@@ -690,6 +782,10 @@ module internal FSharpAst =
                 let selArg = unwrapQuote visitedMc.Arguments.[1]
 
                 match selArg with
+                // 0. F# 11's two-step selection, fused into one (see tryFuseAnonymousObjectSelect)
+                | :? LambdaExpression as l when (tryFuseAnonymousObjectSelect source l).IsSome ->
+                    this.NormalizeVisitedCall((tryFuseAnonymousObjectSelect source l).Value :?> MethodCallExpression)
+
                 // 1. Redundant Identity Projection Stripper
                 | :? LambdaExpression as l when isIdentityProjection l ->
                     source
@@ -978,7 +1074,7 @@ module internal FSharpAst =
             else
                 not (isNull me.Expression) && needsRewrite me.Expression
         | :? NewExpression as ne ->
-            if ne.Arguments.Count >= 8 then
+            if ne.Arguments.Count >= 8 || (anonymousRecordMembers ne).IsSome then
                 true
             else
                 ne.Arguments |> Seq.exists needsRewrite
@@ -990,7 +1086,8 @@ module internal FSharpAst =
             needsRewrite be.Left || needsRewrite be.Right
         | :? ConditionalExpression as ce ->
             needsRewrite ce.Test || needsRewrite ce.IfTrue || needsRewrite ce.IfFalse
-        | :? InvocationExpression ->
+        | :? InvocationExpression
+        | :? BlockExpression -> // F# 11's tuple patterns (see isLetBlock)
             true
         | :? MemberInitExpression as mie ->
             needsRewrite mie.NewExpression

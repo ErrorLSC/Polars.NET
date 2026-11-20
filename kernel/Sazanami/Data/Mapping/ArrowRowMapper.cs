@@ -585,7 +585,9 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
                                        IsFSharpList(fType) ||
                                        fType.IsArray ||
                                        IsDeclaredNullable(f);
-                    bool strictNullCheck = !acceptsNull;
+                    // An anonymous record ({| … |}) is a query's result shape, as a tuple: its fields take the nulls the
+                    // query gives them (a left join's missing side), as LINQ to Objects builds it.
+                    bool strictNullCheck = !acceptsNull && !actualType.Name.Contains("AnonymousType", StringComparison.Ordinal);
                     string serializedName = ClrTypeHelper.GetSerializedName(f);
 
                     if (TryFindCol(f.Name, serializedName, tupleIndex, out int colIdx))

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks>net11.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>true</GenerateProgramFile>
     <IsTestProject>true</IsTestProject>
@@ -56,6 +56,7 @@
     <Compile Include="GroupingSetsCascadeTests.fs" />
     <Compile Include="UnionAggregateFlatteningTests.fs" />
     <Compile Include="QueryNestedEntityTests.fs" />
+    <Compile Include="FSharp11ExpressionShapeTests.fs" />
     <Compile Include="EnumColumnTests.fs" />
     <Compile Include="SubqueryGraftingTests.fs" />
     <Compile Include="QueryOptionSemanticsTests.fs" />

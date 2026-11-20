@@ -42,7 +42,8 @@ module QueryNestedEntityTests =
 
         Assert.Equal<string list>(expected, actual |> Seq.map (sprintf "%A") |> List.ofSeq)
 
-    /// The provider query behind an F# query whose result is post-processed in memory (tuples, anonymous records).
+    /// The provider query behind an F# query whose result (tuples, anonymous records) F# 10 builds in memory; F# 11
+    /// lets the provider build it.
     let private assertNativeSource (query: IQueryable<NeEmp> -> IQueryable<NeDept> -> IQueryable<'T>) =
         use de = DataFrame.ofRecords emps
         use dd = DataFrame.ofRecords depts
@@ -58,7 +59,11 @@ module QueryNestedEntityTests =
         let providerQuery (o: obj) =
             let iterator = (fields (o.GetType()) |> Array.find (fun f -> f.Name = "_enumerable")).GetValue o
             fields (iterator.GetType()) |> Array.tryPick (fun f -> match f.GetValue iterator with :? IQueryable as q -> Some q | _ -> None)
-        let inner = providerQuery ((q.Expression :?> System.Linq.Expressions.ConstantExpression).Value)
+        // F# 11 hands the provider the whole query, the result's construction included: it is the provider's query.
+        let inner =
+            match q.Expression with
+            | :? System.Linq.Expressions.ConstantExpression as c -> providerQuery c.Value
+            | _ -> Some(q :> IQueryable)
         Assert.True(inner.IsSome)
         Assert.False((inner.Value :?> Kaminari.Samidare.IQueryExplainable).InspectPlan(true).IsFullFallback)
 

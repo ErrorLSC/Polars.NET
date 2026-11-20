@@ -131,4 +131,10 @@
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Pinned: the implicit version follows the SDK that builds (SDK 11 made it 11.x, a dependency every consumer
+         would have to meet); the oldest the libraries support, as Samidare, Sazanami and Core pin it. -->
+    <PackageReference Update="FSharp.Core" Version="8.0.100" />
+  </ItemGroup>
+
 </Project>

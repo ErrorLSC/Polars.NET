@@ -26,7 +26,8 @@ try
         report["implementation"] = fs.Implementation;
         step = "put-if-absent, read, list, delete";
         if (!fs.TryCreate("probe/hello.txt", "hello"u8.ToArray())) throw new InvalidOperationException("The probe file existed already.");
-        if (System.Text.Encoding.UTF8.GetString(fs.ReadAll("probe/hello.txt")!) != "hello") throw new InvalidOperationException("Read back something else.");
+        var readBack = new System.Buffers.ArrayBufferWriter<byte>();
+        if (!fs.TryReadAll("probe/hello.txt", readBack) || !readBack.WrittenSpan.SequenceEqual("hello"u8)) throw new InvalidOperationException("Read back something else.");
         if (fs.List("probe").Count != 1) throw new InvalidOperationException("The listing does not hold the probe file.");
         if (!fs.Delete("probe/hello.txt")) throw new InvalidOperationException("The probe file was not deleted.");
     }
