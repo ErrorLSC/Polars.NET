@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using static Seseragi.Files.Tests.TestBatches;
@@ -175,6 +176,34 @@ public sealed class ParquetWriterOwnershipTests
         Assert.Equal(24, file.Metadata.RowGroups.Count);
     }
 
+    /// <summary>
+    /// Rows wait for the encoders within their bytes (one segment at least goes): with a budget of one byte, no more
+    /// than one batch's rows are ever handed over and not encoded; the file is the caller's all the same.
+    /// </summary>
+    [Fact]
+    public void RowsWaitingForEncoders_StayWithinTheirBytes_OneSegmentAtLeast()
+    {
+        var (nested, _) = ParquetNestedData.Batch(88, 12_000);
+        var tracker = new Tracker();
+        // One row group (nothing else holds the writer back), the batches copied beforehand: they come faster than
+        // they are encoded.
+        var options = new ParquetWriteOptions { MaxDegreeOfParallelism = 8, BatchOwnership = BatchOwnership.Writer, LeaveOpen = true, InFlightBytes = 1 };
+        byte[] expected = Written(Uneven(nested), nested.Schema, options with { MaxDegreeOfParallelism = 1, BatchOwnership = BatchOwnership.Caller });
+        long largest = Uneven(nested).Max(b => ArrowSizes.LogicalBytes(b));
+        RecordBatch[] copies = [.. Uneven(nested).Select(tracker.Copy)];
+        using var stream = new MemoryStream();
+        using (var writer = ParquetWriter.Create(stream, nested.Schema, options))
+        {
+            foreach (RecordBatch batch in copies) writer.Write(batch);
+            writer.Complete();
+            Assert.InRange(writer.PeakBacklogBytes, 1, largest);
+            Assert.InRange(writer.PeakRowGroupsInFlight, 1, writer.MaxRowGroupsInFlight);
+        }
+        tracker.AssertEachDisposedOnce();
+        Assert.True(expected.AsSpan().SequenceEqual(stream.ToArray()));
+    }
+
+    /// <summary>Row groups encode at once within their rows' bytes, two at least (the open one and one before it).</summary>
     [Fact]
     public void RowGroupsInFlight_StayWithinTheirBytes_TwoAtLeast()
     {
@@ -190,10 +219,44 @@ public sealed class ParquetWriterOwnershipTests
         {
             foreach (RecordBatch batch in Uneven(nested)) writer.Write(tracker.Copy(batch));
             writer.Complete();
-            Assert.Equal(2, writer.PeakRowGroupsInFlight); // two always allowed, however large
+            Assert.Equal(2, writer.PeakRowGroupsInFlight);
         }
         tracker.AssertEachDisposedOnce();
         Assert.True(expected.AsSpan().SequenceEqual(stream.ToArray()));
+
+        // About two and a half row groups' bytes: the one opening counts (as large as the last), so three at most.
+        long group = ArrowSizes.LogicalBytes(nested) * 500 / 12_000;
+        RecordBatch[] copies = [.. Uneven(nested).Select(tracker.Copy)];
+        using var bounded = new MemoryStream();
+        using (var writer = ParquetWriter.Create(bounded, nested.Schema, options with { InFlightBytes = group * 5 / 2 }))
+        {
+            foreach (RecordBatch batch in copies) writer.Write(batch);
+            writer.Complete();
+            Assert.InRange(writer.PeakRowGroupsInFlight, 2, 3);
+        }
+        tracker.AssertEachDisposedOnce();
+        Assert.True(expected.AsSpan().SequenceEqual(bounded.ToArray()));
+    }
+
+    /// <summary>A row group is encoded as its rows come: their batches are let go before it closes.</summary>
+    [Fact]
+    public async Task BatchesAreLetGo_BeforeTheirRowGroupCloses()
+    {
+        RecordBatch wide = ParquetWriteData.Wide(85, 24_000);
+        var tracker = new Tracker();
+        var options = new ParquetWriteOptions { MaxDegreeOfParallelism = 4, BatchOwnership = BatchOwnership.Writer, LeaveOpen = true }; // one row group
+        using var stream = new MemoryStream();
+        using var writer = ParquetWriter.Create(stream, wide.Schema, options);
+        RecordBatch[] batches = Uneven(wide);
+        foreach (RecordBatch batch in batches) writer.Write(tracker.Copy(batch));
+        // Still open (no row group full): the batches handed over are encoded and let go meanwhile.
+        for (int wait = 0; wait < 500 && tracker.DisposedOnce < tracker.Buffers; wait++) await Task.Delay(10);
+        Assert.Equal(tracker.Buffers, tracker.DisposedOnce);
+        Assert.Equal(0, writer.BytesWritten);
+        writer.Complete();
+        tracker.AssertEachDisposedOnce();
+        using var file = ParquetFile.Open(new MemoryStream(stream.ToArray()));
+        Assert.Equal(24_000, Assert.Single(file.Metadata.RowGroups).RowCount);
     }
 
     [Fact]

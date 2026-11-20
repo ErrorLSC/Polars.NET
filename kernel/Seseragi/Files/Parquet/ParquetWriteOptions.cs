@@ -122,7 +122,7 @@ public sealed record ParquetWriteOptions
     /// Who owns the batches, which is a choice of speed or memory. <see cref="BatchOwnership.Caller"/> (the default):
     /// each batch is encoded before Write returns, its columns side by side; the least memory. With
     /// <see cref="BatchOwnership.Writer"/> and more than one thread, row groups are encoded side by side, straight from
-    /// the batches handed over, which the writer holds until their rows are written: faster where a batch's columns
+    /// the batches handed over, which the writer holds until their rows are encoded: faster where a batch's columns
     /// alone keep few threads busy (few or cheap columns: measured up to twice as fast), for some hundreds of MiB more
     /// (row groups waiting and encoding; <see cref="RowGroupBytes"/> then counts the rows' logical Arrow bytes). Typed
     /// rows (<see cref="ParquetWriter{T}"/>) follow it too.
@@ -131,7 +131,8 @@ public sealed record ParquetWriteOptions
 
     /// <summary>
     /// With <see cref="BatchOwnership.Writer"/>, the logical Arrow bytes of the row groups encoded at once, at
-    /// most, two row groups being always allowed. Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested
+    /// most, two row groups being always allowed; and of the rows handed over and not encoded yet (one segment at
+    /// least). Measured (16 threads): row groups of 7 MB (128 Ki rows of a nested
     /// table) wrote fastest eight at a time, of 210 MB (1 Mi rows of eight flat columns) two at a time; of 85 MB (1 Mi
     /// typed rows of seven columns, 2026-11-20) three at a time: 330 ms, where six (512 MiB) took 380 ms and held
     /// 200 MiB more, one (128 MiB) 420 ms. More held memory and slowed the writes. Tests set less.

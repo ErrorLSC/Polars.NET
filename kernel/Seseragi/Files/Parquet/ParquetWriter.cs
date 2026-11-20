@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
+using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Compute;
@@ -48,7 +49,10 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly Queue<(Task<FinishedChunk[]> Encoding, long Rows, long Bytes)> _encoding = new();
     private long _encodingBytes; // the logical Arrow bytes of the row groups being encoded
     private long _laidOutLogicalBytes, _laidOutChunkBytes; // of the row groups encoded from batches and laid out: their compression ratio
-    private readonly List<Segment> _open = []; // the open row group's rows
+    private OpenGroup? _openGroup;             // the open row group, being encoded as its rows come (the writer owning the batches)
+    private long _backlog;                     // the logical bytes of the rows handed to encoders and not encoded yet
+    private long _lastGroupBytes;              // the logical bytes of the last row group closed (the next one's guess)
+    private readonly SemaphoreSlim _progress = new(0); // released by encoders as rows are encoded (the backlog went down)
     private long _openBytes;                   // their batches' logical Arrow bytes
     private long _rowGroupRows, _totalRows, _position;
     private bool _started, _completed, _faulted, _aborted, _disposed;
@@ -582,10 +586,6 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <summary>Whether the writer owns the batches given to it (<see cref="BatchOwnership.Writer"/>).</summary>
     internal bool Owns => _options.BatchOwnership == BatchOwnership.Writer;
 
-    internal long TempOpenBytes => _openBytes; // TEMP W0
-    internal long TempEncodingBytes => _encodingBytes; // TEMP W0
-    internal int TempEncodingCount => _encoding.Count; // TEMP W0
-
     private void CheckWritable()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -704,10 +704,29 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
     }
 
-    /// <summary>Rows of a batch in a row group (cut as <see cref="WriteNowAsync"/> cuts them: the file's bytes are the same).</summary>
-    private readonly record struct Segment(Taken Batch, int Offset, int Rows);
+    /// <summary>
+    /// Rows of a batch in a row group (cut as <see cref="WriteNowAsync"/> cuts them: the file's bytes are the same), and
+    /// their share of the batch's logical Arrow bytes.
+    /// </summary>
+    private readonly record struct Segment(Taken Batch, int Offset, int Rows, long Bytes);
 
-    /// <summary>The row groups encoded at once at most (each holding its batches and its column writers).</summary>
+    /// <summary>
+    /// The open row group: its set of column writers, encoding its segments as they come (<see cref="EncodeAsync"/>),
+    /// each segment's batch let go once encoded.
+    /// </summary>
+    private sealed class OpenGroup((ColumnWriter[] Columns, Shredder?[] Shredders) set)
+    {
+        public (ColumnWriter[] Columns, Shredder?[] Shredders) Set { get; } = set;
+
+        public Channel<Segment> Segments { get; } = Channel.CreateUnbounded<Segment>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+
+        public Task<FinishedChunk[]> Encoding { get; set; } = null!;
+
+        /// <summary>Set when the file is given up: the segments still to come are let go, not encoded.</summary>
+        public volatile bool Abandoned;
+    }
+
+    /// <summary>The row groups encoded at once at most, the open one included (each holding its column writers' pages).</summary>
     internal int MaxRowGroupsInFlight => Math.Max(2, _options.MaxDegreeOfParallelism / 2);
 
     /// <summary>
@@ -719,9 +738,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// <summary>The most row groups that were being encoded at once (for tests).</summary>
     internal int PeakRowGroupsInFlight { get; private set; }
 
+    /// <summary>The most logical bytes handed to encoders and not encoded yet at once (for tests).</summary>
+    internal long PeakBacklogBytes { get; private set; }
+
     /// <summary>
-    /// Adds a batch the writer owns to the open row group, as segments; a row group full (by rows, or by its batches'
-    /// logical Arrow bytes: known before encoding) goes to be encoded while the next one fills.
+    /// Adds a batch the writer owns to the open row group, segment by segment: each goes to the group's encoder at once
+    /// (once the rows waiting for encoders stay within <see cref="ParquetWriteOptions.InFlightBytes"/>); a row group full
+    /// (by rows, or by its rows' logical Arrow bytes: known before encoding) is closed, the next one opens.
     /// </summary>
     private async ValueTask WriteTakenAsync(Taken taken, bool useAsync, CancellationToken ct)
     {
@@ -735,13 +758,21 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             while (offset < batch.Length)
             {
                 int take = (int)Math.Min(batch.Length - offset, Math.Min(_options.RowGroupRows - _rowGroupRows, SegmentRows));
+                long share = bytes * take / batch.Length;
+                OpenGroup group = _openGroup ?? await OpenRowGroupAsync(useAsync, ct).ConfigureAwait(false);
+                // The rows waiting for encoders held within their bytes (one segment at least goes).
+                while (Volatile.Read(ref _backlog) > 0 && Volatile.Read(ref _backlog) + share > _options.InFlightBytes)
+                {
+                    if (useAsync) await _progress.WaitAsync(ct).ConfigureAwait(false);
+                    else _progress.Wait(ct);
+                }
                 taken.Read();
-                _open.Add(new Segment(taken, offset, take));
+                PeakBacklogBytes = Math.Max(PeakBacklogBytes, Interlocked.Add(ref _backlog, share));
+                group.Segments.Writer.TryWrite(new Segment(taken, offset, take, share));
                 _rowGroupRows += take;
-                _openBytes += bytes * take / batch.Length;
+                _openBytes += share;
                 offset += take;
-                if (_rowGroupRows >= _options.RowGroupRows || _openBytes >= _options.RowGroupBytes)
-                    await CloseRowGroupAsync(useAsync, ct).ConfigureAwait(false);
+                if (_rowGroupRows >= _options.RowGroupRows || _openBytes >= _options.RowGroupBytes) CloseRowGroup();
             }
         }
         catch
@@ -752,41 +783,79 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// Sends the open row group to be encoded by a set of column writers of its own, once fewer than
-    /// <see cref="MaxRowGroupsInFlight"/> are, holding less than <see cref="ParquetWriteOptions.InFlightBytes"/> with it, two at
-    /// least (the oldest are laid out and written meanwhile).
+    /// Opens a row group, once fewer than <see cref="MaxRowGroupsInFlight"/> are encoded with it (the oldest are laid out
+    /// and written meanwhile): a set of column writers and its encoder, started.
     /// </summary>
-    private async ValueTask CloseRowGroupAsync(bool useAsync, CancellationToken ct)
+    private async ValueTask<OpenGroup> OpenRowGroupAsync(bool useAsync, CancellationToken ct)
     {
-        if (_rowGroupRows == 0) return;
-        while (_encoding.Count >= MaxRowGroupsInFlight || _encoding.Count > 1 && _encodingBytes + _openBytes > _options.InFlightBytes)
+        // As many as their state allows: the row groups closed and still encoding, with the one opening (taken to be as
+        // large as the last), within InFlightBytes of their rows' logical bytes, two at least. Measured: without this
+        // bound eight row groups encoded at once (memory up, 10M rows of eight columns 505 → 655 ms).
+        while (_encoding.Count + 1 > MaxRowGroupsInFlight || _encoding.Count > 1 && _encodingBytes + _lastGroupBytes > _options.InFlightBytes)
             await WriteEncodedAsync(useAsync, ct).ConfigureAwait(false);
-        Segment[] segments = [.. _open];
-        _open.Clear();
-        long rows = _rowGroupRows, bytes = _openBytes;
-        _rowGroupRows = 0;
-        _openBytes = 0;
-        var set = _spares.TryPop(out var spare) ? spare : NewColumns();
-        _encoding.Enqueue((Task.Run(() => EncodeAsync(set, segments)), rows, bytes));
-        _encodingBytes += bytes;
-        PeakRowGroupsInFlight = Math.Max(PeakRowGroupsInFlight, _encoding.Count);
+        var group = new OpenGroup(_spares.TryPop(out var spare) ? spare : NewColumns());
+        group.Encoding = Task.Run(() => EncodeAsync(group));
+        _openGroup = group;
+        PeakRowGroupsInFlight = Math.Max(PeakRowGroupsInFlight, _encoding.Count + 1);
+        return group;
     }
 
-    /// <summary>Encodes a row group's segments and finishes its chunks; its batches are let go, its column writers kept for another.</summary>
-    private async Task<FinishedChunk[]> EncodeAsync((ColumnWriter[] Columns, Shredder?[] Shredders) set, Segment[] segments)
+    /// <summary>Closes the open row group: no more rows come to its encoder, which finishes it; laid out in order later.</summary>
+    private void CloseRowGroup()
     {
-        var finished = new FinishedChunk[set.Columns.Length];
+        if (_openGroup is not { } group) return;
+        group.Segments.Writer.TryComplete();
+        _encoding.Enqueue((group.Encoding, _rowGroupRows, _openBytes));
+        _encodingBytes += _openBytes;
+        _lastGroupBytes = _openBytes;
+        _openGroup = null;
+        _rowGroupRows = 0;
+        _openBytes = 0;
+    }
+
+    /// <summary>
+    /// Encodes a row group's segments as they come, letting each batch go once its rows are encoded, then finishes its
+    /// chunks; its column writers are kept for another. After a failure (or once the file is given up) the segments
+    /// still to come are let go unencoded, and the failure surfaces when the row group is laid out.
+    /// </summary>
+    private async Task<FinishedChunk[]> EncodeAsync(OpenGroup group)
+    {
+        var (columns, shredders) = group.Set;
+        var finished = new FinishedChunk[columns.Length];
         bool reusable = false;
+        Exception? failure = null;
+        ChannelReader<Segment> segments = group.Segments.Reader;
+        while (await segments.WaitToReadAsync().ConfigureAwait(false))
+        {
+            while (segments.TryRead(out Segment segment))
+            {
+                try
+                {
+                    if (failure is null && !group.Abandoned)
+                    {
+                        RecordBatch batch = segment.Batch.Batch;
+                        await ForEachColumnAsync(c => WriteColumn(columns[c], shredders[c], batch.Column(_plans[c].Field), segment.Offset, segment.Rows),
+                            parallel: (long)segment.Rows * columns.Length >= 4096).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception e)
+                {
+                    failure = e;
+                }
+                finally
+                {
+                    segment.Batch.Done();
+                    Interlocked.Add(ref _backlog, -segment.Bytes);
+                    if (_progress.CurrentCount == 0) _progress.Release(); // a waiter rechecks the backlog (a spare release is harmless)
+                }
+            }
+        }
+        if (failure is not null) ExceptionDispatchInfo.Throw(failure);
+        if (group.Abandoned) return [];
         try
         {
-            foreach (Segment segment in segments)
-            {
-                RecordBatch batch = segment.Batch.Batch;
-                await ForEachColumnAsync(c => WriteColumn(set.Columns[c], set.Shredders[c], batch.Column(_plans[c].Field), segment.Offset, segment.Rows),
-                    parallel: (long)segment.Rows * set.Columns.Length >= 4096).ConfigureAwait(false);
-            }
-            await ForEachColumnAsync(c => finished[c] = set.Columns[c].Finish(), parallel: true).ConfigureAwait(false);
-            foreach (ColumnWriter column in set.Columns) column.Reset();
+            await ForEachColumnAsync(c => finished[c] = columns[c].Finish(), parallel: true).ConfigureAwait(false);
+            foreach (ColumnWriter column in columns) column.Reset();
             reusable = true;
             return finished;
         }
@@ -800,8 +869,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
         finally
         {
-            foreach (Segment segment in segments) segment.Batch.Done();
-            if (reusable) _spares.Push(set);
+            if (reusable) _spares.Push(group.Set);
         }
     }
 
@@ -867,15 +935,21 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private async ValueTask EndOpenRowGroupAsync(bool useAsync, CancellationToken ct)
     {
         if (_columnWork is null) await FlushRowGroupAsync(useAsync, ct).ConfigureAwait(false);
-        else await CloseRowGroupAsync(useAsync, ct).ConfigureAwait(false);
+        else CloseRowGroup();
         while (_encoding.Count > 0) await WriteEncodedAsync(useAsync, ct).ConfigureAwait(false);
     }
 
     /// <summary>Lets go of the rows not written (a writer given up): the open row group's batches, the row groups being encoded.</summary>
     private void Abandon()
     {
-        foreach (Segment segment in _open) segment.Batch.Done();
-        _open.Clear();
+        if (_openGroup is { } open)
+        {
+            // Its encoder lets the rows still to come go unencoded, and ends.
+            open.Abandoned = true;
+            open.Segments.Writer.TryComplete();
+            _encoding.Enqueue((open.Encoding, 0, 0));
+            _openGroup = null;
+        }
         while (_encoding.TryDequeue(out var pending))
         {
             try

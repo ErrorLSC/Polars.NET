@@ -243,8 +243,8 @@ degree), a full row group is sealed and finished (last pages, dictionary pages, 
 fills another set of column writers, and goes to the stream while the next one is encoded; the file is the same, byte
 for byte, whatever the degree. `BatchOwnership` is a choice of speed or memory: with `Writer` the writer takes the batches (reading them after `Write` returns,
 disposing each once its rows are encoded, also on failure) and, on several threads, encodes several row groups at once
-straight from them (each by column writers of its own, within a bound on their batches' bytes, two at least), writing
-them in order; row groups are then closed on rows or on the rows' logical Arrow bytes (what a compact copy of them
+straight from them (each by column writers of its own, encoding its rows as they come; the rows waiting for encoders
+and the row groups at once bounded by their bytes, two row groups at least), writing them in order; row groups are then closed on rows or on the rows' logical Arrow bytes (what a compact copy of them
 takes, however their buffers are shared) on any number of threads, so that the file is again the same whatever the
 degree, and the one the caller's batches give whenever that bytes rule does not decide. An explicit `EndRowGroup` returns once its row group is in the stream. Pages
 close at `DataPageRows` or `DataPageBytes`, in format 1 or 2 (`DataPageVersion`), compressed by any codec of
