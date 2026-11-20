@@ -11,7 +11,10 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// encodes several row groups side by side (<see cref="BatchOwnership.Writer"/>): one file's columns alone keep few
 /// threads busy. Measured (10M rows, 6 columns, 16 threads, 2026-11-21): 270 → 111–126 ms (Polars 133).
 /// </summary>
-internal sealed class ParquetFileFormat(ParquetWriteOptions options) : DatasetFileFormat
+/// <param name="options">The files' writer options (ownership, parallelism and sharing are set here).</param>
+/// <param name="takeBatches">Whether a file written alone may take its rows as batches of its own (else it always
+/// encodes the caller's rows at once).</param>
+internal sealed class ParquetFileFormat(ParquetWriteOptions options, bool takeBatches = true) : DatasetFileFormat
 {
     private Apache.Arrow.Schema? _schema;
     private ParquetWriteOptions? _options;
@@ -24,7 +27,7 @@ internal sealed class ParquetFileFormat(ParquetWriteOptions options) : DatasetFi
     {
         _schema = schema;
         // Sizes measured as rows come need every row encoded at once (batches waiting for their turn are not counted).
-        _takes = !sideBySide && !measured && threads > 1;
+        _takes = takeBatches && !sideBySide && !measured && threads > 1;
         _options = options with
         {
             LeaveOpen = true,
