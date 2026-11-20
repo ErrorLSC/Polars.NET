@@ -89,7 +89,9 @@ rows into Hive partitions: a directory `key=value/` per column, in order, values
 scale's digits, times with their fraction), escaped as Hive and Spark escape them, a null `__HIVE_DEFAULT_PARTITION__`
 and an empty string an empty value (two partitions); integers, floats, decimals, booleans, strings, dates, times,
 timestamps and dictionaries of them. The partition columns stay out of the files unless `IncludePartitionColumns`.
-Each batch's rows are grouped by their keys and gathered once, and the partitions' files are written side by side.
+Each batch's rows are grouped by their keys and gathered once (a large batch in slices that stay in the caches), and
+the partitions' files are written side by side; a file written alone, not cut by size, encodes several row groups
+side by side (holding references to the caller's batches, which may be disposed once written).
 Files are cut by rows
 (`MaxRowsPerFile`, exactly) and by size on disk (`ApproxBytesPerFile`: rows cut to fit, the size of the rows to come
 estimated from those written), named `part-00000-<write id>.parquet` and so on (the index sorts the files of one write

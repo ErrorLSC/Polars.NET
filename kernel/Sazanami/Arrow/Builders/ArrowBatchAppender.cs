@@ -182,8 +182,8 @@ internal sealed unsafe class ArrowBatchAppender : IDisposable
 
         private void AppendValidity(ArrayData data, int start, int count)
         {
+            if (data.DataType is NullType) return; // no buffers at all: every row null
             bool bitmap = data.NullCount != 0 && !data.Buffers[0].IsEmpty;
-            if (data.DataType is NullType) return;
             if (!bitmap && !_hasValidity) return;
             if (!_hasValidity)
             {

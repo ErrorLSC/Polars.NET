@@ -192,7 +192,7 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
         {
             _identity = settings.Data.Length == chunk.ColumnCount && settings.Data.Select((column, i) => column == i).All(static same => same);
             _dataSchema = _identity ? chunk.Schema : new Schema([.. settings.Data.Select(chunk.Schema.GetFieldByIndex)], chunk.Schema.Metadata);
-            settings.Format.Prepare(_dataSchema, sideBySide: _groups is not null, settings.MaxDegreeOfParallelism);
+            settings.Format.Prepare(_dataSchema, sideBySide: _groups is not null, settings.MaxDegreeOfParallelism, measured: _target > 0);
         }
         return _identity ? chunk : new RecordBatch(_dataSchema, [.. settings.Data.Select(chunk.Column)], chunk.Length);
     }

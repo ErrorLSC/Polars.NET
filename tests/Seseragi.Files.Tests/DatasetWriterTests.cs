@@ -125,6 +125,46 @@ public sealed class DatasetWriterTests : IDisposable
         Assert.Equal(Rows(batches), Read(format, path));
     }
 
+    /// <summary>
+    /// A file written alone takes its rows as batches of its own (row groups encoded side by side): the caller's batches
+    /// (native memory here) disposed as soon as each write returns still come back whole.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Formats))]
+    public void BatchesDisposedAfterEachWrite_ComeBackWhole(string format)
+    {
+        string path = Path.Combine(_root, "owned");
+        List<string> expected = [];
+        DatasetWriteOptions options = format == "parquet"
+            ? new ParquetDatasetWriteOptions { Writer = new ParquetWriteOptions { RowGroupRows = 1000 } }
+            : Options(format);
+        void Each(Action<RecordBatch> write)
+        {
+            for (int b = 0; b < 20; b++)
+            {
+                using RecordBatch managed = Batch(b * 3000L, 3000);
+                // A copy in native memory, freed when disposed (not left to the collector).
+                RecordBatch native = Kaminari.Sazanami.Arrow.Compute.ArrowTake.Take(managed, [.. Enumerable.Range(0, 3000)]);
+                expected.AddRange(Rows([native]));
+                write(native);
+                native.Dispose();
+            }
+        }
+        if (options is ParquetDatasetWriteOptions parquet)
+        {
+            using ParquetDatasetWriter writer = ParquetDatasetWriter.Create(path, TheSchema, parquet);
+            Each(writer.Write);
+            writer.Complete();
+        }
+        else
+        {
+            using IpcDatasetWriter writer = IpcDatasetWriter.Create(path, TheSchema, (IpcDatasetWriteOptions)options);
+            Each(writer.Write);
+            writer.Complete();
+        }
+        Assert.Equal(expected, Read(format, path));
+    }
+
     [Fact]
     public void NoRows_NoFile()
     {

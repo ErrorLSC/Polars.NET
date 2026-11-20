@@ -237,6 +237,23 @@ public class ArrowBatchAppenderTests
         whole.Dispose();
     }
 
+    /// <summary>A null column (no buffers at all) beside another: its rows counted.</summary>
+    [Fact]
+    public void NullColumns_CountTheirRows()
+    {
+        var schema = new Schema([new Field("n", NullType.Default, true), new Field("i", Int32Type.Default, true)], null);
+        using var appender = new ArrowBatchAppender(schema);
+        for (int p = 0; p < 3; p++)
+        {
+            var batch = new RecordBatch(schema, [new NullArray(10), new Int32Array.Builder().AppendRange(Enumerable.Range(p * 10, 10)).Build()], 10);
+            Assert.True(appender.TryAppend(batch, 2, 5));
+        }
+        using RecordBatch taken = appender.Take();
+        Assert.Equal(15, taken.Length);
+        Assert.Equal(15, taken.Column(0).NullCount);
+        Assert.Equal([2, 3, 4, 5, 6, 12, 13, 14, 15, 16, 22, 23, 24, 25, 26], ((Int32Array)taken.Column(1)).Values.ToArray());
+    }
+
     [Fact]
     public void TypesWithoutALayoutHere_AreNotTaken()
     {

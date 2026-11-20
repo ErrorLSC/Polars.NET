@@ -25,10 +25,11 @@ internal interface IFuzzCases
 /// The Arrow IPC cases: three in four are a corpus file (TestData/ipc: files and streams of pyarrow, Polars and the
 /// Arrow integration gold files) with a few mutations aimed in part at message starts and the footer, read with random
 /// options (threads, memory mapping through a temporary file, columns, row limits, row filters, UTF-8 checks, batches
-/// read at random); of the others, half write random columns of every type (flat, or nested with dictionaries and
+/// read at random); of the others, a third write random columns of every type (flat, or nested with dictionaries and
 /// run-end encoding at every level) in random slices with random options (format, compression, threads) and read them
-/// back, every value compared, and half read a dataset of corpus files (see <see cref="ReadDataset"/>). Any input either
-/// reads to the end or is refused with <see cref="IpcFormatException"/>.
+/// back, every value compared, a third read a dataset of corpus files (see <see cref="ReadDataset"/>), and a third write
+/// datasets and read them back (<see cref="DatasetWriteCases"/>). Any input either reads to the end or is refused with
+/// <see cref="IpcFormatException"/>.
 /// </summary>
 internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
 {
@@ -43,7 +44,12 @@ internal sealed class IpcCases(IReadOnlyList<string> corpus) : IFuzzCases
         Random random = Cases.RandomFor(seed, n);
         try
         {
-            return HasFile(n) ? ReadFile(Mutate(random, out _), random) : n / 4 % 2 == 0 ? WriteAndRead(random) : ReadDataset(random);
+            return HasFile(n) ? ReadFile(Mutate(random, out _), random) : (n / 4 % 3) switch
+            {
+                0 => WriteAndRead(random),
+                1 => ReadDataset(random),
+                _ => DatasetWriteCases.Run(random),
+            };
         }
         catch (Exception e)
         {

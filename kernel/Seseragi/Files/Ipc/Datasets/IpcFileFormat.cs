@@ -26,7 +26,7 @@ internal sealed class IpcFileFormat(IpcWriteOptions options) : DatasetFileFormat
 
     public override string Extension => options.Format == IpcFormat.Stream ? ".arrows" : ".arrow";
 
-    public override void Prepare(Schema schema, bool sideBySide, int threads)
+    public override void Prepare(Schema schema, bool sideBySide, int threads, bool measured)
     {
         _schema = schema;
         _options = options with

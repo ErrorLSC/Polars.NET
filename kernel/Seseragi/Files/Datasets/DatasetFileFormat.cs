@@ -14,9 +14,10 @@ internal abstract class DatasetFileFormat
     /// <summary>
     /// Prepares the files' writing (called once, before the first file opens): <paramref name="schema"/> is the schema of
     /// the rows the files take; with <paramref name="sideBySide"/> several files are written at once (one per partition),
-    /// on <paramref name="threads"/> threads together.
+    /// on <paramref name="threads"/> threads together; with <paramref name="measured"/> the files' sizes are measured as
+    /// rows come (they are cut by size: <see cref="DatasetFileWriter.Bytes"/> must count every row written).
     /// </summary>
-    public abstract void Prepare(Schema schema, bool sideBySide, int threads);
+    public abstract void Prepare(Schema schema, bool sideBySide, int threads, bool measured);
 
     /// <summary>A writer of one file into <paramref name="stream"/> (which the sink owns: the writer leaves it open).</summary>
     public abstract DatasetFileWriter Open(Stream stream);
