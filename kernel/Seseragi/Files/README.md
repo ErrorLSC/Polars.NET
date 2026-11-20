@@ -81,6 +81,22 @@ files on such stores are kept between reads with their sizes and versions: a dat
 request. A store's failure names the file and surfaces in order; a hung request ends with the caller's cancellation.
 `Glob = false` reads wildcard characters as names (Polars' `glob=False`).
 
+**Writing datasets** (`ParquetDatasetWriter`, `ParquetDatasetWriteOptions`, `ParquetWrittenFile`; `DatasetWriteOptions`,
+`DatasetWriteResult`, shared with the IPC writer): record batches written as files under a path (a directory, or a
+prefix of an `IWritableFileStore`), sync or async, or in one call (`Write`, `WriteAsync`). Files are cut by rows
+(`MaxRowsPerFile`, exactly) and by size on disk (`ApproxBytesPerFile`: rows cut to fit, the size of the rows to come
+estimated from those written), named `part-00000-<write id>.parquet` and so on (the index sorts the files of one write
+in the order written; the write's id keeps them apart from any other write's; `FileName` names them otherwise) and
+published whole (a file appears with its footer or not at all). Files under the path already fail the write
+(`ExistingData.Error`, the default; a store that cannot list cannot be checked), are kept (`Append`) or replaced
+(`ReplacePartitions`: deleted once every new file is published). A failed write gives its open files up and deletes
+the files it published, so the path is as it was; `DatasetWriteException` lists what it could not delete. Each file
+takes the writer's options (`Writer`: compression, row groups, encodings, statistics); the dataset decides the threads
+and owns the streams, batches stay the caller's. The files open at once hold their bytes within a memory budget
+(`MemoryBudget`: an eighth of the memory the process may use by default): files being published are waited for, then
+the largest files' row groups ended early, then the largest files closed early. The result lists each file with its
+rows, size and footer.
+
 **Partitions** (`HivePartitioning`, `PartitionSchema`, `ParseHiveDates`, `ParquetDatasetFile.PartitionValues`): Hive
 `key=value` directories give partition columns as Polars reads them — by default for a directory given alone, on
 request for globs and files (their whole path); values percent-decoded, `__HIVE_DEFAULT_PARTITION__` null, an empty
@@ -292,7 +308,10 @@ other writers). `Datasets/` holds what datasets of every format share: their opt
 (`DatasetOptions`, `DatasetFile`, `HivePartitioning`, `DatasetSchemaMode`), path expansion, stores, partitions and
 schemas united by name (`DatasetFiles`), partition values (`Partitions`: Hive paths or given values as a typed table of
 one row per file), the columns, filter split and batch conversion around each file's reader (`DatasetShape`), footers
-kept between reads (`KeptFooters`) and how far readers read ahead (`DatasetLimits`). `Parquet/Datasets/` holds the
+kept between reads (`KeptFooters`) and how far readers read ahead (`DatasetLimits`); for writing, the options and
+results (`DatasetWriteOptions`), the sink every format's dataset writer writes through (`DatasetSink`: rows split by their keys' values, files cut, written side by side within a memory budget and
+published while the next rows are written), the format seam (`DatasetFileFormat`) and the write around it
+(`DatasetWriting`: existing files, names, undoing a failed write). `Parquet/Datasets/` holds the
 Parquet dataset (`ParquetDataset`; `ParquetDatasetReader`: shape plans per file schema, filters per file, the window
 of row groups across files; `ParquetDatasetReader<T>`: typed rows); `Ipc/Datasets/` the Arrow IPC one (`IpcDataset`;
 `IpcDatasetReader`: the window of record batches across files; `IpcDatasetReader<T>`; `IpcDatasetTypes`: layouts
@@ -350,7 +369,9 @@ the stream format join any dataset, beside files (told apart by their content, n
 background once opened, a chunk at a time, their batches joining the read as they are found (a read that stops early
 stops their scans), their whole scans kept on stores between reads (with their versions), counted from their scans for
 the row index. Typed
-rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`.
+rows: `IpcDataset.OpenReader<T>(where)`, `ReadList<T>` / `ReadListAsync`. Written by `IpcDatasetWriter`
+(`IpcDatasetWriteOptions`) as Parquet datasets are (see Parquet's "Writing datasets"): files in the file format
+(`.arrow`) or the stream format (`.arrows`), each batch (or the part of it a file takes) a record batch of a file.
 
 **Typed rows** (`IpcReader<T>`, `IpcFile.OpenReader<T>(where)`, `IpcFile.ReadList<T>` / `ReadListAsync`;
 `IpcStreamReader<T>.Open(stream, where)`: a stream's rows, read once, its columns chosen once its schema is read;
