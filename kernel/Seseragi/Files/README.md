@@ -67,8 +67,8 @@ caller's from local files and memory, and from other stores fetched ahead as wit
 across files, `FilePathColumn` adds each row's file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors
 name their file and surface after the rows of the files before it. Rows come typed too
 (`ParquetDataset.OpenReader<T>`, `ParquetDatasetReader<T>`, `ParquetDataset.ReadList<T>`): members map columns and
-partitions by name, a `where` predicate is pushed down (conjuncts over partitions decide the files read), the rest
-evaluated on the rows as the query compiler's client evaluation policy allows. Files come from an `IFileStore`
+partitions by name, a `where` predicate is pushed down (conjuncts over partitions and the file path decide the files
+read), the rest evaluated on the rows as the query compiler's client evaluation policy allows. Files come from an `IFileStore`
 (`IO/`): the local file system by default (`LocalFileStore`), HTTP(S) URLs
 (`HttpFileStore`, chosen for http(s) URLs when no store is given), Hugging Face Hub repositories (`HuggingFaceFileStore`,
 chosen for `hf://datasets/…` and `hf://spaces/…`), object stores (`CloudFileStore.Open("s3://bucket")` of the lakehouse
@@ -106,8 +106,8 @@ the files it published, so the path is as it was; `DatasetWriteException` lists 
 takes the writer's options (`Writer`: compression, row groups, encodings, statistics); the dataset decides the threads
 and owns the streams, batches stay the caller's. The files open at once hold their bytes within a memory budget
 (`MemoryBudget`: an eighth of the memory the process may use by default): files being published are waited for, then
-the largest files' row groups ended early, then the largest files closed early. The result lists each file with its
-partition's values, rows, size and footer.
+the largest files' row groups ended early (as many as it takes), then the largest files closed early. The result lists
+each file with its partition's values, rows, size and footer.
 
 **Rows as objects, written as a dataset** (`ParquetDatasetWriter<T>.Create(path, options)`,
 `ParquetDatasetWriter.WriteRows<T>` / `WriteRowsAsync`; IPC: `IpcDatasetWriter<T>`, `IpcDatasetWriter.WriteRows<T>`):
@@ -127,10 +127,11 @@ type is the partition schema's, else the files' column of that name, else inferr
 rules (booleans, floats, integers — beyond Int64 a decimal(38, 0) — dates and timestamps, strings; dates parsed by
 default; times of day and mixed date orders stay strings: a partition schema reads times too). Values may also come with a list of files (typed by the
 partition schema; strings read as Hive values). Partition columns follow the files' columns; a key the files hold
-takes that column's place with the path's value. A filter's conjuncts over partition columns only decide which files
-are read (the IR's semantics, evaluated on a table of one row per file); conjuncts over both partition and file
-columns get each file's values as literals, folded (`FilterShapes.foldConstants`) before the file is read. Row
-numbers count the rows of files left out.
+takes that column's place with the path's value. A filter's conjuncts over partition columns (and the file path column,
+a value per file as well: `file == "…"`, prefixes, comparisons, lists) only decide which files are read (the IR's
+semantics, evaluated on a table of one row per file); conjuncts over both these and file columns get each file's values
+as literals, folded (`FilterShapes.foldConstants`) before the file is read. Row numbers count the rows of files left
+out.
 
 **Metadata** (`ParquetMetadata`): the footer as a read-only view (schema elements with their annotations, row count,
 row groups, per-chunk statistics, `CreatedBy`, `KeyValueMetadata`), also parsed from footer bytes alone
@@ -227,8 +228,9 @@ of every width and sign (annotated), half, single and double floats, dates (date
 (seconds stored in milliseconds, a zone as UTC-adjusted; `TimestampUnit` coerces exactly, `Int96Timestamps` writes
 the legacy layout), durations, decimals of 32 to 256 bits (in INT32 up to 9 digits, INT64 up to 18, else the shortest
 fixed-length bytes), strings and binary in every layout (large, view), fixed-size binary, dictionary columns (by their
-values), intervals (as INTERVAL when exact) and the null type. Nested columns at any depth: structs as groups, lists
-of every layout (list, large, fixed-size, list views) as three-level LIST groups (`list` / `element`), maps as MAP
+values), intervals (as INTERVAL when exact) and the null type. Nested columns up to 255 optional or repeated levels
+(deeper ones are refused): structs as groups, lists of every layout (list, large, fixed-size, list views) as
+three-level LIST groups (`list` / `element`), maps as MAP
 groups (`key_value` / `key` / `value`, keys required), run-end encoded arrays and dictionaries of nested values by
 the values they stand for (the stored Arrow schema keeps their layout); unions are refused (Parquet has no form for
 them). Definition and repetition levels follow the Dremel rules (as pyarrow and Spark write them, null counts
@@ -383,8 +385,8 @@ selected with `FilterRows` (refused on open).
 before any filter, in both readers (a single batch read alone numbered after the batches before it).
 
 **Datasets** (`IpcDataset`, `IpcDatasetOptions`, `IpcDatasetReader`, `IpcDatasetFile`): many IPC files read as one
-table, as Parquet datasets are (the same `DatasetOptions`: paths, directories, globs, stores, Hive partitions pruned
-by the filter, schema modes, missing columns, lossy casts, Enums, unified dictionaries, file path column, files and
+table, as Parquet datasets are (the same `DatasetOptions`: paths, directories, globs, stores, Hive partitions and file
+paths pruned by the filter, schema modes, missing columns, lossy casts, Enums, unified dictionaries, file path column, files and
 requests in flight). Strings, binaries and lists in several layouts (plain, large, view) unite to the first file's;
 dictionaries unite to dictionaries with indices holding both (a dictionary beside plain values to plain values);
 columns sharing a name are refused. Batches of several files are read and decoded side by side ahead of the consumer within a byte budget, files

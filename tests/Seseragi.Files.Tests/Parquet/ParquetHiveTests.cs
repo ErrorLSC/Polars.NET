@@ -249,6 +249,64 @@ public sealed class ParquetHiveTests : IDisposable
         Assert.Equal(9, Read(withNull, new ParquetReadOptions { Filter = Binary(BinaryOp.NotEq, "year", LiteralValue.NewInt64(1)) }).Count);
     }
 
+    [Fact]
+    public void AFilterOverTheFilePath_DecidesTheFilesRead()
+    {
+        string a = Write("g/year=2023/a.parquet", 0, 3);
+        string b = Write("g/year=2024/b.parquet", 3, 2);
+        string c = Write("g/year=2024/c.parquet", 5, 4);
+        using var dataset = ParquetDataset.Open(At("g"), new ParquetDatasetOptions { FilePathColumn = "file" });
+        Assert.Equal([a, b, c], dataset.Files.Select(f => f.Path)); // the values of the column
+        ScalarExpr Path(BinaryOp op, string value) => Binary(op, "file", LiteralValue.NewString(value));
+        ScalarExpr isB = Path(BinaryOp.Eq, b);
+        foreach (bool views in (bool[])[true, false])
+        {
+            using var reader = dataset.OpenReader(new ParquetReadOptions { Filter = isB, FilterRows = true, ViewTypes = views });
+            Assert.Equal([false, true, false], reader.FilesRead);
+            Assert.True(reader.FiltersExactly);
+        }
+        Assert.Equal([$"3|2024|{b}", $"4|2024|{b}"], Read(dataset, new ParquetReadOptions { Filter = isB }));
+
+        // A prefix; either of two paths; with a partition column; a comparison.
+        IReadOnlyList<bool> FilesRead(ScalarExpr filter)
+        {
+            using var reader = dataset.OpenReader(new ParquetReadOptions { Filter = filter, FilterRows = true });
+            Assert.True(reader.FiltersExactly);
+            return reader.FilesRead;
+        }
+        Assert.Equal([false, true, true], FilesRead(Path(BinaryOp.StartsWith, At("g/year=2024/"))));
+        Assert.Equal([true, false, true], FilesRead(ScalarExpr.NewBinary(BinaryOp.Or, Path(BinaryOp.Eq, a), Path(BinaryOp.Eq, c))));
+        Assert.Equal([false, false, true], FilesRead(ScalarExpr.NewBinary(BinaryOp.And,
+            Binary(BinaryOp.Eq, "year", LiteralValue.NewInt64(2024)), Path(BinaryOp.NotEq, b))));
+        Assert.Equal([false, true, true], FilesRead(Path(BinaryOp.Gt, a)));
+
+        // Conjuncts over the path and the files' columns together: each file's path put in, its rows filtered exactly.
+        ScalarExpr mixed = ScalarExpr.NewBinary(BinaryOp.Or,
+            ScalarExpr.NewBinary(BinaryOp.And, isB, Binary(BinaryOp.GtEq, "id", LiteralValue.NewInt64(4))),
+            ScalarExpr.NewBinary(BinaryOp.And, Path(BinaryOp.Eq, c), Binary(BinaryOp.Lt, "id", LiteralValue.NewInt64(6))));
+        Assert.Equal([true, true, true], FilesRead(mixed));
+        Assert.Equal([$"4|2024|{b}", $"5|2024|{c}"], Read(dataset, new ParquetReadOptions { Filter = mixed, FilterRows = true }));
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { Filter = mixed, FilterRows = true }))
+        {
+            Assert.Equal(2, reader.ReadBatches().Sum(batch => { using (batch) return batch.Length; }));
+            Assert.Equal(0, reader.FilesFilteredAfter); // each file's own filtering is exact: its path is in its filter
+        }
+
+        // A null partition value cannot be put in: that file's rows are filtered after converting, with its path.
+        string d = Write("g/year=__HIVE_DEFAULT_PARTITION__/d.parquet", 9, 2);
+        using var withNull = ParquetDataset.Open(At("g"), new ParquetDatasetOptions { FilePathColumn = "file" });
+        ScalarExpr afterwards = ScalarExpr.NewBinary(BinaryOp.Or,
+            ScalarExpr.NewBinary(BinaryOp.And, Binary(BinaryOp.Eq, "year", LiteralValue.NewInt64(2024)), Binary(BinaryOp.GtEq, "id", LiteralValue.NewInt64(8))),
+            ScalarExpr.NewBinary(BinaryOp.And, Path(BinaryOp.Eq, d), Binary(BinaryOp.GtEq, "id", LiteralValue.NewInt64(10))));
+        using (var reader = withNull.OpenReader(new ParquetReadOptions { Filter = afterwards, FilterRows = true }))
+        {
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal(2, reader.ReadBatches().Sum(batch => { using (batch) return batch.Length; }));
+            Assert.Equal(1, reader.FilesFilteredAfter); // the file of the null partition only
+        }
+        Assert.Equal([$"8|2024|{c}", $"10|null|{d}"], Read(withNull, new ParquetReadOptions { Filter = afterwards, FilterRows = true }));
+    }
+
     /// <summary>Each file reads its own filter: exactness holds only if every file's filter is exact.</summary>
     [Fact]
     public async Task FiltersExactly_HoldsForEveryFile_NotTheFirstOnly()

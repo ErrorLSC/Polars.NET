@@ -65,6 +65,7 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 * `POLARS_NET_DELTA_SINK=native` writes with the engine's sink, as before. It is also used where the managed storage clients do not serve the store.
 * Checkpoints are read with the managed Parquet reader and written in native memory, streamed to the store; a large checkpoint no longer passes through the managed heap.
 * Deletion vectors are decoded into native bitmaps (roaring), off the managed heap.
+* Writes into many partitions hold less memory: each open file keeps its levels a byte each and takes its buffers only when it needs them (10,000 partitions of 10M rows: about 1 GB less at the peak; there, twice as fast as the engine's sink in our measurements). Beyond `POLARS_NET_DELTA_SINK_MEMORY`, row groups end early, as many as it takes, before any file closes early.
 * On S3, Azure and Google Cloud Storage, data files and checkpoints are uploaded in parts while they are written (S3 multipart uploads, Azure blocks, GCS multipart and resumable uploads), never held whole; a write that fails or is given up aborts its upload.
 * S3: the `aws_unsigned_payload` setting is honoured. By default, uploads over HTTPS no longer hash their data into the request signature (TLS keeps it whole), as the AWS SDKs do; `false` signs it.
 

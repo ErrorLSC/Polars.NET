@@ -128,7 +128,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// The columns a filter reads, as a reader with <paramref name="options"/> filters them: the columns from files (a
-    /// partition column of the same name in its place), then the other partition columns.
+    /// partition column of the same name in its place), then the other partition columns, then the file path column.
     /// </summary>
     internal Apache.Arrow.Schema FilterSchema(ParquetReadOptions options)
     {
@@ -138,6 +138,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         {
             if (columns.GetFieldIndex(Partitions!.Fields[p].Name) < 0) fields.Add(PartitionField(p, options.ViewTypes));
         }
+        if (Options.FilePathColumn is { } file && !fields.Any(f => f.Name == file))
+            fields.Add(new Field(file, options.ViewTypes ? StringViewType.Default : StringType.Default, nullable: false));
         return new Apache.Arrow.Schema(fields, null);
     }
 

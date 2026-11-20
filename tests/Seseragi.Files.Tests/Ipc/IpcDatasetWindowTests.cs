@@ -197,6 +197,12 @@ public sealed class IpcDatasetWindowTests : IDisposable
         using IpcDatasetReader<Row> reader = dataset.OpenReader<Row>(r => r.P == 2);
         Assert.Equal(dataset.Files.Select(f => f.Path.Contains("p=2")), reader.Inner.FilesRead);
         Assert.Contains(false, reader.Inner.FilesRead);
+        // A predicate on the file path decides the files read too.
+        string one = dataset.Files[^1].Path;
+        using IpcDatasetReader<Row> byPath = dataset.OpenReader<Row>(r => r.File == one);
+        Assert.Equal(dataset.Files.Select(f => f.Path == one), byPath.Inner.FilesRead);
+        Assert.True(byPath.FiltersExactly);
+        Assert.All(byPath.ReadRows(), r => Assert.Equal(one, r.File));
     }
 
     /// <summary>A store that counts the sources opened and disposed and the most reads at once.</summary>

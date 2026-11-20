@@ -237,6 +237,18 @@ public sealed class ParquetDatasetWindowTests
         using (var reader = dataset.OpenReader<Located>(r => r.Id == 120))
             Assert.Equal([new Located(120, "d/k=c/f2.parquet")], reader.ReadRows());
         Assert.Contains("'Missing'", Assert.Throws<ArgumentException>(() => dataset.OpenReader<NoSuchColumn>()).Message);
+        // A predicate on the file path decides the files read (pushed: Strict client evaluation allows it).
+        using (var reader = dataset.OpenReader<Located>(r => r.File == "d/k=c/f2.parquet"))
+        {
+            Assert.Equal(dataset.Files.Select(f => f.Path == "d/k=c/f2.parquet"), reader.Inner.FilesRead);
+            Assert.True(reader.FiltersExactly);
+            Assert.All(reader.ReadRows(), r => Assert.Equal("d/k=c/f2.parquet", r.File));
+        }
+        using (var reader = dataset.OpenReader<Located>(r => r.File.StartsWith("d/k=b/") && r.Id % 2 == 0))
+        {
+            Assert.Equal(dataset.Files.Select(f => f.Path.StartsWith("d/k=b/", StringComparison.Ordinal)), reader.Inner.FilesRead);
+            Assert.All(reader.ReadRows(), r => Assert.True(r.File.StartsWith("d/k=b/", StringComparison.Ordinal) && r.Id % 2 == 0));
+        }
     }
 
     private sealed record NoSuchColumn(long Id, long Missing);

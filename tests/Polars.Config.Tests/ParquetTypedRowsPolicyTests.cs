@@ -176,26 +176,32 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
     private sealed record Located(long Id, string File);
 
     /// <summary>
-    /// A conjunct over a dataset's file path is evaluated on the rows (no file holds the column): refused when Strict,
-    /// the rows filtered all the same otherwise, the other conjuncts still pushed down.
+    /// A conjunct over a dataset's file path decides the files read (pushed down: Strict takes it); one the reader
+    /// cannot evaluate (a suffix) is evaluated on the rows: refused when Strict, the rows filtered all the same otherwise.
     /// </summary>
     [Fact]
-    public void DatasetRows_FilterTheFilePath_OnTheRows()
+    public void DatasetRows_FilterTheFilePath()
     {
         string[] paths = [Path.Combine(_dir, "rows.parquet")];
         var options = new ParquetDatasetOptions { FilePathColumn = "File" };
+        Located[] first = [.. Enumerable.Range(0, 5).Select(i => new Located(i, paths[0]))];
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Strict).BeginScope())
         {
             using var dataset = ParquetDataset.Open(paths, options);
-            Assert.Throws<NotSupportedException>(() => dataset.OpenReader<Located>(r => r.File == paths[0]));
+            using (ParquetDatasetReader<Located> reader = dataset.OpenReader<Located>(r => r.File == paths[0] && r.Id < 5))
+            {
+                Assert.True(reader.FiltersExactly);
+                Assert.Equal(first, reader.ReadRows());
+            }
+            using (ParquetDatasetReader<Located> none = dataset.OpenReader<Located>(r => r.File == "elsewhere" && r.Id < 5))
+                Assert.Empty(none.ReadRows());
+            Assert.Throws<NotSupportedException>(() => dataset.OpenReader<Located>(r => r.File.EndsWith(".parquet")));
         }
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
         {
             using var dataset = ParquetDataset.Open(paths, options);
-            using ParquetDatasetReader<Located> reader = dataset.OpenReader<Located>(r => r.File == paths[0] && r.Id < 5);
-            Assert.Equal([.. Enumerable.Range(0, 5).Select(i => new Located(i, paths[0]))], reader.ReadRows());
-            using ParquetDatasetReader<Located> none = dataset.OpenReader<Located>(r => r.File == "elsewhere" && r.Id < 5);
-            Assert.Empty(none.ReadRows());
+            using ParquetDatasetReader<Located> reader = dataset.OpenReader<Located>(r => r.File.EndsWith(".parquet") && r.Id < 5);
+            Assert.Equal(first, reader.ReadRows());
         }
     }
 }

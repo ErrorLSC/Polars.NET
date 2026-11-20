@@ -11,8 +11,8 @@ namespace Kaminari.Seseragi.Files;
 
 /// <summary>
 /// What a dataset reader of any format does around its files' readers: the columns selected (from files, and
-/// partition columns), the filter split (conjuncts over partition columns decide which files are read; the others go to
-/// the files, those over both with each file's values), how each file's columns convert to the dataset's types, and
+/// partition columns), the filter split (conjuncts over partition columns and the file path column — values of a file, not
+/// of a row — decide which files are read; the others go to the files, those over both with each file's values), how each file's columns convert to the dataset's types, and
 /// each file's batches made the dataset's (converted, partition values and the file path added, filtered again where a
 /// file's own filtering is not exact, cut to the rows asked). Safe on any thread once made.
 /// </summary>
@@ -78,6 +78,8 @@ internal sealed class DatasetShape
         _allowMissing = dataset.AllowMissingColumns || dataset.Schema is null && dataset.SchemaMode == DatasetSchemaMode.UnionByName;
         _rules = new ArrowConversionRules(dataset.AllowLossyCasts, _allowMissing);
         bool IsPartition(string name) => partitions?.IndexOf(name) >= 0;
+        // A value per file: a partition column, or the file path column (when it names no partition column).
+        bool PerFile(string name) => IsPartition(name) || name == dataset.FilePathColumn;
 
         Columns = columns.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
 
@@ -109,21 +111,25 @@ internal sealed class DatasetShape
         Targets = [.. targets];
         bool[] partitionsRead = [.. Enumerable.Range(0, partitions?.Fields.Length ?? 0).Select(p => all || selected?.Contains(partitions!.Fields[p].Name) == true)];
 
-        // The filter: conjuncts over partition columns only decide which files are read; the others go to the files,
-        // those over both with the partition columns replaced by each file's values.
+        // The filter: conjuncts over values per file only (partition columns, the file path) decide which files are
+        // read; the others go to the files, those over both with each file's values put in.
         Read = [.. Enumerable.Repeat(true, files)];
         bool exact = true;
         List<ScalarExpr> onFiles = [], mixed = [];
         if (filter is not null)
         {
-            List<ScalarExpr> onPartitions = [];
+            List<ScalarExpr> perFile = [];
             foreach (ScalarExpr conjunct in FilterShapes.conjuncts(filter))
             {
                 string[] names = [.. ScalarExprOps.collectColumns(conjunct)];
-                int inPartitions = names.Count(IsPartition);
-                (inPartitions == 0 ? onFiles : inPartitions == names.Length ? onPartitions : mixed).Add(conjunct);
+                int inPerFile = names.Count(PerFile);
+                (inPerFile == 0 ? onFiles : inPerFile == names.Length ? perFile : mixed).Add(conjunct);
             }
-            if (onPartitions.Count > 0) exact = Prune(partitions!, onPartitions.Aggregate(And), Read);
+            if (perFile.Count > 0)
+            {
+                var (fields, values, filePaths) = PerFileColumns();
+                using (filePaths) exact = Prune((fields, values), perFile.Aggregate(And), Read);
+            }
         }
         _types = new(StringComparer.Ordinal);
         foreach (Field field in columns.FieldsList) _types.TryAdd(field.Name, field.DataType);
@@ -143,7 +149,7 @@ internal sealed class DatasetShape
             if (FiltersExactly && OptionModule.IsSome(lowered.Program))
             {
                 _program = lowered.Program.Value;
-                FilterRoots = [.. _program.Columns.Select(c => c.Path[0]).Where(n => !IsPartition(n)).Distinct()];
+                FilterRoots = [.. _program.Columns.Select(c => c.Path[0]).Where(n => !PerFile(n)).Distinct()];
             }
         }
 
@@ -171,16 +177,37 @@ internal sealed class DatasetShape
         if (dataset.FilePathColumn is { } file)
         {
             if (output.Any(f => f.Name == file)) throw new ArgumentException($"The file path column '{file}' has the name of another column read.", "options");
-            output.Add(new Field(file, views ? StringViewType.Default : StringType.Default, nullable: false));
+            output.Add(PathField(file, views));
         }
         Schema = new Schema(output, columns.Metadata);
 
         static ScalarExpr And(ScalarExpr a, ScalarExpr b) => ScalarExpr.NewBinary(BinaryOp.And, a, b);
+
+        // The values per file a filter decides files by: the partition columns, then the file paths (made here: the
+        // caller disposes them).
+        (Field[] Fields, IArrowArray[] Columns, StringArray? Paths) PerFileColumns()
+        {
+            List<Field> fields = [.. partitions?.Fields ?? []];
+            List<IArrowArray> values = [.. partitions?.Columns ?? []];
+            StringArray? built = null;
+            if (dataset.FilePathColumn is { } file && !IsPartition(file))
+            {
+                var builder = new StringArray.Builder();
+                for (int i = 0; i < files; i++) builder.Append(pathOf(i));
+                built = builder.Build(PooledArrowAllocator.Instance);
+                fields.Add(PathField(file, views: false));
+                values.Add(built);
+            }
+            return ([.. fields], [.. values], built);
+        }
     }
+
+    /// <summary>The file path column as batches hold it.</summary>
+    private static Field PathField(string name, bool views) => new(name, views ? StringViewType.Default : StringType.Default, nullable: false);
 
     /// <summary>
     /// The columns a filter reads: the columns from files (a partition column of the same name in its place), then the
-    /// other partition columns.
+    /// other partition columns, then the file path column.
     /// </summary>
     private Schema FilterSchema(Schema columns)
     {
@@ -189,6 +216,7 @@ internal sealed class DatasetShape
         {
             if (columns.GetFieldIndex(_partitions!.Fields[p].Name) < 0) fields.Add(_partitionField(p, _views));
         }
+        if (_dataset.FilePathColumn is { } file && !fields.Any(f => f.Name == file)) fields.Add(PathField(file, _views));
         return new Schema(fields, null);
     }
 
@@ -485,10 +513,14 @@ internal sealed class DatasetShape
                     int f = System.Array.IndexOf(FilterRoots, column.Path[0]);
                     IArrowArray root;
                     if (f >= 0) root = filterArrays[f];
+                    else if (_partitions?.IndexOf(column.Path[0]) is int p and >= 0)
+                    {
+                        root = Constant(_partitions.Columns[p], index, length, _partitionField(p, _views).DataType);
+                        constants.Add(root);
+                    }
                     else
                     {
-                        int p = _partitions!.IndexOf(column.Path[0]);
-                        root = Constant(_partitions.Columns[p], index, length, _partitionField(p, _views).DataType);
+                        root = ConstantArrays.String(_pathOf(index), length, _views); // the file path column
                         constants.Add(root);
                     }
                     arguments[a] = Descend(root, column.Path);
@@ -602,16 +634,16 @@ internal sealed class DatasetShape
     // ---- filters --------------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Clears <paramref name="read"/> for the files whose partition values the filter rules out (false or null), as
-    /// the IR's semantics evaluate it; whether every conjunct could be decided (those that cannot keep every file).
+    /// Clears <paramref name="read"/> for the files whose values per file (partition values, the file path) the filter
+    /// rules out (false or null), as the IR's semantics evaluate it; whether every conjunct could be decided (those that cannot keep every file).
     /// </summary>
-    private static bool Prune(Partitions partitions, ScalarExpr filter, bool[] read)
+    private static bool Prune((Field[] Fields, IArrowArray[] Columns) perFile, ScalarExpr filter, bool[] read)
     {
-        var schema = new Schema(partitions.Fields, null);
+        var schema = new Schema(perFile.Fields, null);
         LoweredFilter lowered = FilterLowering.lower(schema, filter);
         if (OptionModule.IsNone(lowered.Program)) return lowered.Exact;
         FilterProgram program = lowered.Program.Value;
-        IArrowArray[] columns = [.. program.Columns.Select(c => partitions.Columns[partitions.IndexOf(c.Path[0])])];
+        IArrowArray[] columns = [.. program.Columns.Select(c => perFile.Columns[System.Array.FindIndex(perFile.Fields, f => f.Name == c.Path[0])])];
         var selected = new ulong[(read.Length + 63) / 64];
         program.Evaluate(columns, read.Length, selected);
         for (int i = 0; i < read.Length; i++) read[i] = (selected[i / 64] >> (i % 64) & 1) != 0;
@@ -671,6 +703,11 @@ internal sealed class DatasetShape
                     return FSharpOption<ScalarExpr>.Some(ScalarExpr.NewLiteral(LiteralValue.NewNull(LogicalTypes.Null)));
                 }
                 int p = partitions?.IndexOf(name) ?? -1;
+                if (p < 0 && name == _dataset.FilePathColumn)
+                {
+                    changed = true;
+                    return FSharpOption<ScalarExpr>.Some(ScalarExpr.NewLiteral(LiteralValue.NewString(_pathOf(index))));
+                }
                 if (p < 0) return FSharpOption<ScalarExpr>.None;
                 if (Literal(partitions!.Columns[p], index) is not { } literal)
                 {

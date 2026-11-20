@@ -156,7 +156,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// The columns a filter reads: the columns from files (a partition column of the same name in its place), then the
-    /// other partition columns.
+    /// other partition columns, then the file path column.
     /// </summary>
     internal Schema FilterSchema()
     {
@@ -165,6 +165,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
         {
             if (FileSchema.GetFieldIndex(Partitions!.Fields[p].Name) < 0) fields.Add(PartitionField(p, views: true));
         }
+        if (Options.FilePathColumn is { } file && !fields.Any(f => f.Name == file)) fields.Add(new Field(file, StringViewType.Default, nullable: false));
         return new Schema(fields, null);
     }
 
