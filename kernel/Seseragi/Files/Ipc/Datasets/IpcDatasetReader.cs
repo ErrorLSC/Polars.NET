@@ -3,6 +3,7 @@ using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow.Ipc;
+using Kaminari.Sazanami.Concurrency;
 using Kaminari.Sazanami.Network;
 
 namespace Kaminari.Seseragi.Files.Ipc;
@@ -134,24 +135,35 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     {
         if (_options.MaxDegreeOfParallelism > 1 || Remote)
         {
-            await using var window = new Window(this, ct);
-            long? left = _options.MaxRows;
-            using DictionaryUnifier? windowed = _shape.NewUnifier(); // per reading: values numbered as they come
-            long next = 0; // the rows before the next unit, across the files (the row index)
-            while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } taken)
+            RequestGate? gate = NewRequestGate();
+            int ahead = UnitsAhead;
+            var window = new OrderedUnits<FileSlot, Output>(new Units(this, gate),
+                new OrderedUnitsLimits(ahead, _options.InFlightBytes, DatasetLimits.FilesInFlight(_dataset.Options, Remote, ahead)), ct);
+            try
             {
-                try
+                long? left = _options.MaxRows;
+                using DictionaryUnifier? windowed = _shape.NewUnifier(); // per reading: values numbered as they come
+                long next = 0; // the rows before the next unit, across the files (the row index)
+                while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } taken)
                 {
-                    Output output = taken.Failure is null ? taken : await RedoAsync(taken, left, useAsync, ct).ConfigureAwait(false);
-                    RecordBatch? delivered = Deliver(output, ref next, left);
-                    // A stream's dictionaries no later batch of the file needs are let go (units come in order).
-                    if (taken.Unit >= 0) taken.Plan!.Reader.TrimDictionaries(taken.Unit);
-                    if (delivered is { } batch) yield return _shape.Cut(batch, ref left, windowed);
+                    try
+                    {
+                        Output output = taken.Failure is null ? taken : await RedoAsync(taken, left, useAsync, ct).ConfigureAwait(false);
+                        RecordBatch? delivered = Deliver(output, ref next, left);
+                        // A stream's dictionaries no later batch of the file needs are let go (units come in order).
+                        if (taken.Unit >= 0) taken.Plan!.Reader.TrimDictionaries(taken.Unit);
+                        if (delivered is { } batch) yield return _shape.Cut(batch, ref left, windowed);
+                    }
+                    finally
+                    {
+                        if (taken.Failure is not null) taken.Dispose(); // its file's hold
+                    }
                 }
-                finally
-                {
-                    if (taken.Failure is not null) taken.Dispose(); // its file's hold
-                }
+            }
+            finally
+            {
+                await window.DisposeAsync().ConfigureAwait(false);
+                (PeakInFlight, PeakRequests) = (window.Peak, gate?.PeakInside ?? 0);
             }
             yield break;
         }
@@ -393,308 +405,69 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     // ---- the window -----------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// A file the window reads: its file and plan (null for a file only counted), released once its units are all taken:
-    /// those joined, and none to come (<see cref="Complete"/>; a stream's units join as its scan finds its batches).
+    /// A file the window reads (its units: its record batches, a stream's found as its scan goes on): its file and plan,
+    /// null for a file only counted (for the row index), freed once its units are taken.
     /// </summary>
-    private sealed class FileSlot(int index, IpcFile? file, FilePlan? plan, long rows) : IDisposable
+    private sealed class FileSlot(IpcDatasetReader owner, int index, IpcFile? file, FilePlan? plan, long rows, RequestGate? gate) : UnitGroup(index)
     {
-        private int _taken, _joined, _holds;
-        private bool _disposed;
-
-        public int Index => index;
-
-        public IpcFile? File => file;
-
         public FilePlan? Plan => plan;
 
         /// <summary>The rows of a file only counted (for the row index).</summary>
         public long Rows => rows;
 
-        /// <summary>The record batches joined as units.</summary>
-        public int Batches { get; set; }
+        public override (int Found, bool Over) Progress => file is null ? (0, true) : file.Stream?.Progress ?? (file.BatchCount, true);
 
-        /// <summary>Whether every unit of the file joined (no batch is left to find).</summary>
-        public bool Complete { get; set; }
+        public override Exception? Failure => file?.Stream?.Failure is { } failure ? IpcDataset.InFile(owner.PathOf(Index), failure) : null;
 
-        /// <summary>A stream's scan in progress, a chunk at a time (the last chunk's task: a failed one stays).</summary>
-        public Task? Scanning { get; set; }
+        public override long UnitBytes(int unit) => plan!.Reader.BodyBytes(unit);
 
-        /// <summary>Whether every unit joined was taken.</summary>
-        public bool AllTaken => _taken == _joined;
-
-        /// <summary>One more unit joined (under the window's lock).</summary>
-        public void Joined() => _joined++;
-
-        /// <summary>One more unit taken; true when it was the last (the slot is then disposed, once no output holds it).</summary>
-        public bool Taken()
+        /// <summary>The stream scanned on (through the gate, by its file's place).</summary>
+        public override Task FindAsync(int units, CancellationToken cancellationToken)
         {
-            _taken++;
-            if (!Done) return false;
-            if (_holds == 0) Dispose();
-            return true;
+            IpcStreamScan stream = file!.Stream!;
+            ValueTask<RequestGate.Lease> entering = gate is null ? default : gate.EnterAsync(Index, cancellationToken);
+            return Task.Run(async () =>
+            {
+                using (RequestGate.Lease lease = await entering.ConfigureAwait(false))
+                    await owner.Named(Index, stream.ScanAheadAsync(units, useAsync: true, cancellationToken)).ConfigureAwait(false);
+            }, CancellationToken.None);
         }
 
-        private bool Done => Complete && _taken >= _joined;
-
-        /// <summary>Keeps the file open for an output beyond its last unit taken (on the consumer, as <see cref="Taken"/>).</summary>
-        public void Hold() => _holds++;
-
-        /// <summary>An output's hold let go: the slot disposed if every unit was taken and nothing else holds it.</summary>
-        public void Release()
+        protected override void Free()
         {
-            if (--_holds == 0 && Done) Dispose();
-        }
-
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
             plan?.Dispose();
             file?.Dispose();
         }
     }
 
-    /// <summary>A unit of the window: a file's record batch (or a file only counted), read by its task once started.</summary>
-    private sealed class Unit(FileSlot file, int batch, long bytes)
-    {
-        public FileSlot File => file;
-
-        public int Batch => batch;
-
-        public long Bytes => bytes;
-
-        public Task<Output>? Task { get; set; }
-    }
-
     /// <summary>
-    /// The units of the dataset's files (record batches) in output order, read and decoded ahead of the consumer: the
-    /// unit the consumer waits for always starts; the others start up to the units ahead beyond it while their body
-    /// bytes stay within <see cref="IpcReadOptions.InFlightBytes"/>. Files are opened and planned ahead (their
-    /// dictionaries read), up to the files in flight; their units join the window in file order as their plans
-    /// complete. A stream is scanned once planned, in the background a chunk (the units ahead) at a time; its units join
-    /// as the scan finds its batches, the files after it once its scan is over (scanned meanwhile alike). Requests (opens, dictionaries, batches) go through one gate, the lower files first. A failure surfaces
-    /// when the consumer reaches it. Disposing the window stops the work, waits for what runs, frees what was decoded
-    /// and not taken, then the files.
+    /// The dataset's files for the window: planned on the thread pool (opened, their dictionaries read, or their rows
+    /// counted), their record batches read and decoded there; requests (opens, dictionaries, scans, batches) go through
+    /// one gate, the lower files first.
     /// </summary>
-    private sealed class Window : IAsyncDisposable
+    private sealed class Units(IpcDatasetReader owner, RequestGate? gate) : IUnitSource<FileSlot, Output>
     {
-        private readonly IpcDatasetReader _owner;
-        private readonly CancellationTokenSource _cancel;
-        private readonly RequestGate? _gate;
-        private readonly int _ahead, _filesInFlight;
-        private readonly long _budget;
-        private readonly object _lock = new();
-        private readonly List<Unit> _units = [];
-        private readonly List<Task<FileSlot>?> _plans = [];  // the files planning or planned, in order (null once joined)
-        private readonly HashSet<FileSlot> _live = [];       // the files joined whose units are not all taken
-        private FileSlot? _tail;                             // a stream joined whose scan goes on (the files after it wait)
-        private int _nextFile, _integrated, _head, _started;
-        private long _inFlight, _peakBytes;
-        private int _peakUnits, _peakFiles;
-        private bool _disposed;
+        private int _nextFile;
 
-        public Window(IpcDatasetReader owner, CancellationToken cancellationToken)
-        {
-            _owner = owner;
-            _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _gate = owner.NewRequestGate();
-            _ahead = owner.UnitsAhead;
-            _filesInFlight = DatasetLimits.FilesInFlight(owner._dataset.Options, owner.Remote, _ahead);
-            _budget = owner._options.InFlightBytes;
-        }
+        public bool GroupsLeft => _nextFile < owner._dataset.Files.Count;
 
-        /// <summary>The next unit's output, in order; null when every unit was taken.</summary>
-        public async Task<Output?> NextAsync()
+        /// <summary>The next file to plan (read, or counted for row numbers), past those left out.</summary>
+        public int? NextGroup()
         {
-            while (true)
+            for (; _nextFile < owner._dataset.Files.Count; _nextFile++)
             {
-                Task waiting;
-                lock (_lock)
-                {
-                    Fill();
-                    if (_head < _units.Count) break;
-                    if (_tail is { Scanning: { } scanning })
-                    {
-                        waiting = scanning; // the tail's scan finds more units (its failure joins as one)
-                    }
-                    else
-                    {
-                        if (_integrated == _plans.Count) return null; // every file planned and taken
-                        waiting = _plans[_integrated]!;
-                    }
-                }
-                if (waiting is Task<FileSlot> plan) await plan.ConfigureAwait(false); // a failure to open or plan surfaces here, in order
-                else await waiting.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            }
-            Unit unit;
-            lock (_lock) unit = _units[_head];
-            Output output = await unit.Task!.ConfigureAwait(false);
-            lock (_lock)
-            {
-                unit.Task = null;
-                _inFlight -= unit.Bytes;
-                _units[_head++] = null!;
-                if (output.Failure is not null)
-                {
-                    // The consumer may read the unit again: its file stays open until the output is disposed.
-                    unit.File.Hold();
-                    output = output with { Held = unit.File };
-                }
-                if (unit.File.Taken()) _live.Remove(unit.File);
-            }
-            return output;
-        }
-
-        /// <summary>Under the lock: joins the plans completed in order, starts the units the window allows, plans more files.</summary>
-        private void Fill()
-        {
-            if (_disposed) return;
-            if (_tail is { } tail)
-            {
-                Extend(tail); // the batches found (before a failure too)
-                if (_tail == tail && tail.Scanning is { IsCompleted: true } chunk && !chunk.IsCompletedSuccessfully)
-                {
-                    // The scan failed (not a damaged message: the store, or the window cancelled): in order, as a unit.
-                    Join(tail, new Unit(tail, -1, 0) { Task = Failed(chunk) });
-                    tail.Complete = true;
-                    _tail = null;
-                }
-                else if (_tail == tail) Scan(tail); // the next chunk, unless one runs
-            }
-            while (_tail is null && _integrated < _plans.Count && _plans[_integrated]!.IsCompletedSuccessfully)
-            {
-                FileSlot slot = _plans[_integrated]!.Result;
-                _plans[_integrated++] = null;
-                _live.Add(slot);
-                if (slot.Plan is null)
-                {
-                    Join(slot, new Unit(slot, -1, 0) { Task = Task.FromResult(new Output(null, slot.Index, null, null, slot.Rows)) });
-                    slot.Complete = true;
-                }
-                else Extend(slot);
-            }
-            while (_started < _units.Count && (_started == _head || _started - _head < _ahead && _inFlight + _units[_started].Bytes <= _budget))
-            {
-                Unit unit = _units[_started++];
-                if (unit.Task is not null) continue; // a file only counted, or without batches
-                _inFlight += unit.Bytes;
-                _peakBytes = Math.Max(_peakBytes, _inFlight);
-                _peakUnits = Math.Max(_peakUnits, _started - _head);
-                CancellationToken token = _cancel.Token;
-                unit.Task = Task.Run(() => ReadAsync(unit, token), token);
-            }
-            // Files open: those planning or planned and not joined, and those joined with units not taken.
-            while (_plans.Count - _integrated + _live.Count < _filesInFlight && _units.Count - _head < _ahead && Next() is int file)
-            {
-                _plans.Add(Plan(file));
-                _peakFiles = Math.Max(_peakFiles, _plans.Count - _integrated + _live.Count);
-            }
-        }
-
-        /// <summary>Under the lock: a unit of <paramref name="slot"/> joins the window.</summary>
-        private void Join(FileSlot slot, Unit unit)
-        {
-            _units.Add(unit);
-            slot.Joined();
-        }
-
-        /// <summary>
-        /// Under the lock: the batches of <paramref name="slot"/> found (a file's: all of them) join as units; once its scan
-        /// is over, its failure joins as a unit too (in order), or an empty unit when every unit was taken already (taking
-        /// it lets the file go). A stream still scanning becomes the tail.
-        /// </summary>
-        private void Extend(FileSlot slot)
-        {
-            IpcFile file = slot.File!;
-            FilePlan plan = slot.Plan!;
-            // The batches found and whether the scan is over, read at once: the scan goes on outside the lock.
-            var (found, over) = file.Stream?.Progress ?? (file.BatchCount, true);
-            for (; slot.Batches < found; slot.Batches++) Join(slot, new Unit(slot, slot.Batches, plan.Reader.BodyBytes(slot.Batches)));
-            if (!over)
-            {
-                _tail = slot;
-                return;
-            }
-            if (file.Stream?.Failure is { } failure)
-                Join(slot, new Unit(slot, -1, 0) { Task = Task.FromException<Output>(IpcDataset.InFile(_owner.PathOf(slot.Index), failure)) });
-            else if (slot.AllTaken)
-                Join(slot, new Unit(slot, -1, 0) { Task = Task.FromResult(new Output(null, slot.Index, null, null, 0)) });
-            slot.Complete = true;
-            if (_tail == slot) _tail = null;
-        }
-
-        /// <summary>
-        /// Scans <paramref name="slot"/>'s stream on by a chunk (the units ahead; through the gate, by its file's place),
-        /// unless a chunk runs, the scan failed or is over, or the window is disposed; once a chunk is done the window
-        /// fills on (its units join) and the next chunk starts.
-        /// </summary>
-        private void Scan(FileSlot slot)
-        {
-            lock (_lock)
-            {
-                IpcStreamScan stream = slot.File!.Stream!;
-                if (_disposed || stream.Complete || slot.Scanning is { IsCompleted: false } or { IsCompletedSuccessfully: false }) return;
-                CancellationToken token = _cancel.Token;
-                IpcDatasetReader owner = _owner;
-                int batches = stream.Known + _ahead;
-                ValueTask<RequestGate.Lease> entering = _gate is null ? default : _gate.EnterAsync(slot.Index, token);
-                Task chunk = Task.Run(async () =>
-                {
-                    using (RequestGate.Lease lease = await entering.ConfigureAwait(false))
-                        await owner.Named(slot.Index, stream.ScanAheadAsync(batches, useAsync: true, token)).ConfigureAwait(false);
-                }, CancellationToken.None);
-                slot.Scanning = chunk;
-                chunk.ContinueWith(_ =>
-                {
-                    lock (_lock)
-                    {
-                        Scan(slot);
-                        Fill();
-                    }
-                }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
-            }
-        }
-
-        /// <summary>A unit that fails as <paramref name="chunk"/> did.</summary>
-        private static async Task<Output> Failed(Task chunk)
-        {
-            await chunk.ConfigureAwait(false);
-            throw new InvalidOperationException("A failed scan chunk completed.");
-        }
-
-        /// <summary>The next file to plan (read, or counted for row numbers), past those left out; null when none is left.</summary>
-        private int? Next()
-        {
-            for (; _nextFile < _owner._dataset.Files.Count; _nextFile++)
-            {
-                if (_owner._read[_nextFile] || _owner._indexed) return _nextFile++;
+                if (owner._read[_nextFile] || owner._indexed) return _nextFile++;
             }
             return null;
         }
 
-        /// <summary>Reads and decodes a unit (its requests through the gate, by its file's place); errors name the file.</summary>
-        private async Task<Output> ReadAsync(Unit unit, CancellationToken token)
+        public Task<FileSlot> Plan(int index, CancellationToken token)
         {
-            FileSlot slot = unit.File;
-            FilePlan plan = slot.Plan!;
-            (IpcMessage Message, IpcBody Body) fetched;
-            using (RequestGate.Lease lease = _gate is null ? default : await _gate.EnterAsync(slot.Index, token).ConfigureAwait(false))
-                fetched = await _owner.Named(slot.Index, plan.Reader.FetchAsync(unit.Batch, useAsync: true, token)).ConfigureAwait(false);
-            IpcDecoded decoded = _owner.Decode(plan, slot.Index, unit.Batch, fetched.Message, fetched.Body, long.MaxValue);
-            return _owner.Finish(plan, slot.Index, unit.Batch, decoded);
-        }
-
-        /// <summary>Opens and plans a file on the thread pool (its dictionaries read), or counts its rows; once done, the window fills on.</summary>
-        private Task<FileSlot> Plan(int index)
-        {
-            CancellationToken token = _cancel.Token;
-            IpcDatasetReader owner = _owner;
-            RequestGate? gate = _gate;
-            // The open's place is asked for here, in file order (Fill plans files in order), not on the thread pool:
-            // the gate lets waiting requests in by order, so the file the consumer waits for opens first.
+            // The open's place is asked for here, in file order (the window plans files in order), not on the thread
+            // pool: the gate lets waiting requests in by order, so the file the consumer waits for opens first.
             ValueTask<RequestGate.Lease> entering = gate is null ? default : gate.EnterAsync(index, token);
             // Started without the token: a planning cancelled before it ran would leave nothing to await.
-            Task<FileSlot> planning = Task.Run(async () =>
+            return Task.Run(async () =>
             {
                 IpcFile? file = null;
                 FilePlan? plan = null;
@@ -709,14 +482,12 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                         using (RequestGate.Lease lease = gate is null ? default : await gate.EnterAsync(index, token).ConfigureAwait(false))
                             rows = await owner.Named(index, file.RowCountAsync(useAsync: true, token)).ConfigureAwait(false);
                         file.Dispose();
-                        return new FileSlot(index, null, null, rows);
+                        return new FileSlot(owner, index, null, null, rows, gate);
                     }
                     plan = owner.Plan(file, index);
                     using (RequestGate.Lease lease = gate is null ? default : await gate.EnterAsync(index, token).ConfigureAwait(false))
                         await owner.Named(index, plan.Reader.PrepareAsync(useAsync: true, token)).ConfigureAwait(false);
-                    var slot = new FileSlot(index, file, plan, 0);
-                    if (file.Stream is not null) Scan(slot); // in the background, joined or not
-                    return slot;
+                    return new FileSlot(owner, index, file, plan, 0, gate);
                 }
                 catch
                 {
@@ -725,65 +496,25 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                     throw;
                 }
             }, CancellationToken.None);
-            planning.ContinueWith(_ =>
-            {
-                lock (_lock) Fill();
-            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
-            return planning;
         }
 
-        public async ValueTask DisposeAsync()
-        {
-            Task<FileSlot>[] plans;
-            Unit[] running;
-            FileSlot[] live;
-            lock (_lock)
-            {
-                _disposed = true;
-                _cancel.Cancel();
-                plans = [.. _plans.Skip(_integrated).OfType<Task<FileSlot>>()];
-                running = [.. _units.Skip(_head).Where(u => u?.Task is not null)];
-                live = [.. _live];
-            }
-            // What runs finishes first (a unit decodes against its file's dictionaries), then everything is freed.
-            foreach (Unit unit in running)
-            {
-                try
-                {
-                    (await unit.Task!.ConfigureAwait(false)).Dispose();
-                }
-                catch
-                {
-                    // abandoned: its error no longer matters
-                }
-            }
-            foreach (Task<FileSlot> plan in plans)
-            {
-                try
-                {
-                    FileSlot slot = await plan.ConfigureAwait(false);
-                    await Scanned(slot).ConfigureAwait(false);
-                    slot.Dispose();
-                }
-                catch
-                {
-                    // abandoned
-                }
-            }
-            foreach (FileSlot slot in live)
-            {
-                await Scanned(slot).ConfigureAwait(false);
-                slot.Dispose();
-            }
-            _cancel.Dispose();
-            _owner.PeakInFlight = (_peakBytes, _peakUnits, _peakFiles);
+        public Task<Output> Start(FileSlot slot, int unit, bool last, CancellationToken token) => Task.Run(() => ReadAsync(slot, unit, token), token);
 
-            // A chunk of the slot's scan still running (cancelled: no chunk starts once the window is disposed).
-            static async Task Scanned(FileSlot slot)
-            {
-                if (slot.Scanning is { } chunk) await chunk.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            }
-            _owner.PeakRequests = _gate?.PeakInside ?? 0;
+        public Output Empty(FileSlot slot) => new(null, slot.Index, null, null, slot.Rows);
+
+        /// <summary>A unit whose conversion failed keeps its file: the consumer may read it again (see <see cref="RedoAsync"/>).</summary>
+        public bool Keeps(Output output) => output.Failure is not null;
+
+        /// <summary>Reads and decodes a unit (its requests through the gate, by its file's place); errors name the file.</summary>
+        private async Task<Output> ReadAsync(FileSlot slot, int unit, CancellationToken token)
+        {
+            FilePlan plan = slot.Plan!;
+            (IpcMessage Message, IpcBody Body) fetched;
+            using (RequestGate.Lease lease = gate is null ? default : await gate.EnterAsync(slot.Index, token).ConfigureAwait(false))
+                fetched = await owner.Named(slot.Index, plan.Reader.FetchAsync(unit, useAsync: true, token)).ConfigureAwait(false);
+            IpcDecoded decoded = owner.Decode(plan, slot.Index, unit, fetched.Message, fetched.Body, long.MaxValue);
+            Output output = owner.Finish(plan, slot.Index, unit, decoded);
+            return output.Failure is null ? output : output with { Held = slot };
         }
     }
 }
