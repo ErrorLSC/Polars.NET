@@ -81,7 +81,8 @@ module FilterShapes =
 
     /// <summary>
     /// A filter with the shapes the LINQ translator gives rewritten as the readers' skip predicates and filter
-    /// lowering read them: a starts-with call as the binary operator, an IN over a collection of values as an IN over
+    /// lowering read them: a starts-with or ends-with call as the binary operator (a contains call stays a call:
+    /// BinaryOp.Contains is a pattern for the engine), an IN over a collection of values as an IN over
     /// their literals (kept as it is when a value has no plain literal). The other nodes are left as they are; the
     /// semantics are unchanged.
     /// </summary>
@@ -89,6 +90,8 @@ module FilterShapes =
         match expr with
         | ScalarExpr.Function(ScalarFunction.StartsWith, [ operand; ScalarExpr.Literal _ as prefix ], _) ->
             ScalarExpr.Binary(BinaryOp.StartsWith, canonical operand, prefix)
+        | ScalarExpr.Function(ScalarFunction.EndsWith, [ operand; ScalarExpr.Literal _ as suffix ], _) ->
+            ScalarExpr.Binary(BinaryOp.EndsWith, canonical operand, suffix)
         | ScalarExpr.InList(target, InListSource.Collection(values, elementType), negated, nullsEqual) ->
             let literals =
                 [ for value in Seq.cast<obj> values ->

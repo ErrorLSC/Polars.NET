@@ -131,6 +131,8 @@ internal sealed class FilterProgram
             FilterNode.Compare c => new Leaf(Column(c.Column), Compare(columns[c.Column], c.Op, c.Value)),
             FilterNode.InList i => new Leaf(Column(i.Column), InList(columns[i.Column], i.Values ?? throw new ArgumentException("IN needs a list."))),
             FilterNode.StartsWith s => new Leaf(Column(s.Column), StartsWith(columns[s.Column], s.Prefix ?? throw new ArgumentException("A prefix is needed."))),
+            FilterNode.EndsWith s => new Leaf(Column(s.Column), EndsWith(columns[s.Column], s.Suffix ?? throw new ArgumentException("A suffix is needed."))),
+            FilterNode.Contains c => new Leaf(Column(c.Column), Contains(columns[c.Column], c.Pattern ?? throw new ArgumentException("A pattern is needed."))),
             FilterNode.CompareValues c => Values(ValuePredicate.Compare(c, [.. columns.Select(x => x.Type)])),
             FilterNode.ValueInList v => Values(ValuePredicate.InList(v, [.. columns.Select(x => x.Type)])),
             FilterNode.ValueIsNull n => Values(ValuePredicate.IsNull(n, [.. columns.Select(x => x.Type)])),
@@ -202,11 +204,19 @@ internal sealed class FilterProgram
         return Numeric(column, new InListFactory(column, values));
     }
 
-    private static LeafTest StartsWith(FilterColumn column, byte[] prefix) => IsBytes(ValueType(column.Type))
+    private static BytesTest<BytesTests.Prefix> StartsWith(FilterColumn column, byte[] prefix) => IsBytes(ValueType(column.Type))
         ? new BytesTest<BytesTests.Prefix>(new(prefix))
         : throw Unfit(column, "STARTS WITH");
 
-    private static LeafTest Boolean(FilterColumn column, Func<bool, bool> outcome) => ValueType(column.Type) is BooleanType
+    private static BytesTest<BytesTests.Suffix> EndsWith(FilterColumn column, byte[] suffix) => IsBytes(ValueType(column.Type))
+        ? new BytesTest<BytesTests.Suffix>(new(suffix))
+        : throw Unfit(column, "ENDS WITH");
+
+    private static BytesTest<BytesTests.Substring> Contains(FilterColumn column, byte[] pattern) => IsBytes(ValueType(column.Type))
+        ? new BytesTest<BytesTests.Substring>(new(pattern))
+        : throw Unfit(column, "CONTAINS");
+
+    private static BooleanTest Boolean(FilterColumn column, Func<bool, bool> outcome) => ValueType(column.Type) is BooleanType
         ? new BooleanTest(outcome(false), outcome(true))
         : throw Unfit(column, "a boolean test");
 

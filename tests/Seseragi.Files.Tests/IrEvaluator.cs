@@ -54,6 +54,16 @@ internal static class IrEvaluator
                 object? l = Eval(b.left, column), r = Eval(b.right, column);
                 return l is null || r is null ? null : ((string)l).StartsWith((string)r, StringComparison.Ordinal);
             }
+            case ScalarExpr.Binary b when b.op.IsEndsWith:
+            {
+                object? l = Eval(b.left, column), r = Eval(b.right, column);
+                return l is null || r is null ? null : ((string)l).EndsWith((string)r, StringComparison.Ordinal);
+            }
+            case ScalarExpr.Function { func.IsStrContains: true, args: [var target, var pattern, ScalarExpr.Literal { value: LiteralValue.Bool { Item: true } }] }:
+            {
+                object? l = Eval(target, column), r = Eval(pattern, column);
+                return l is null || r is null ? null : ((string)l).Contains((string)r, StringComparison.Ordinal);
+            }
             case ScalarExpr.Unary u when u.op.IsNegate:
                 return Eval(u.expr, column) switch
                 {

@@ -176,8 +176,9 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
     private sealed record Located(long Id, string File);
 
     /// <summary>
-    /// A conjunct over a dataset's file path decides the files read (pushed down: Strict takes it); one the reader
-    /// cannot evaluate (a suffix) is evaluated on the rows: refused when Strict, the rows filtered all the same otherwise.
+    /// A conjunct over a dataset's file path decides the files read (pushed down: Strict takes it, a suffix too); one the
+    /// reader cannot evaluate (the path's length) is evaluated on the rows: refused when Strict, the rows filtered all the
+    /// same otherwise.
     /// </summary>
     [Fact]
     public void DatasetRows_FilterTheFilePath()
@@ -195,12 +196,17 @@ public sealed class ParquetTypedRowsPolicyTests : IDisposable
             }
             using (ParquetDatasetReader<Located> none = dataset.OpenReader<Located>(r => r.File == "elsewhere" && r.Id < 5))
                 Assert.Empty(none.ReadRows());
-            Assert.Throws<NotSupportedException>(() => dataset.OpenReader<Located>(r => r.File.EndsWith(".parquet")));
+            using (ParquetDatasetReader<Located> suffix = dataset.OpenReader<Located>(r => r.File.EndsWith(".parquet") && r.Id < 5))
+            {
+                Assert.True(suffix.FiltersExactly);
+                Assert.Equal(first, suffix.ReadRows());
+            }
+            Assert.Throws<NotSupportedException>(() => dataset.OpenReader<Located>(r => r.File.Length > 1));
         }
         using (Pl.Config.SetClientEvaluationPolicy(ClientEvaluationPolicy.Allow).BeginScope())
         {
             using var dataset = ParquetDataset.Open(paths, options);
-            using ParquetDatasetReader<Located> reader = dataset.OpenReader<Located>(r => r.File.EndsWith(".parquet") && r.Id < 5);
+            using ParquetDatasetReader<Located> reader = dataset.OpenReader<Located>(r => r.File.Length > 1 && r.Id < 5);
             Assert.Equal(first, reader.ReadRows());
         }
     }

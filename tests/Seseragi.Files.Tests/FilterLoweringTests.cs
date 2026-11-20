@@ -275,9 +275,22 @@ public class FilterLoweringTests
                 return operand;
             case 3 when spec.Type is StringType or StringViewType or DictionaryType:
             {
-                object? prefix = random.Next(8) == 0 ? null : ((string)Literal())[..];
-                if (prefix is string p) prefix = p[..random.Next(p.Length + 1)];
-                return Bin(BinaryOp.StartsWith, operand, ScalarExpr.NewLiteral(Lit(prefix)));
+                // A prefix, a suffix or a piece of a value (sometimes null, sometimes empty, sometimes the whole).
+                object? piece = random.Next(8) == 0 ? null : ((string)Literal())[..];
+                int kind = random.Next(3);
+                if (piece is string p)
+                {
+                    int start = kind == 0 ? 0 : random.Next(p.Length + 1), end = kind == 1 ? p.Length : random.Next(start, p.Length + 1);
+                    piece = p[start..end];
+                }
+                ScalarExpr literal = ScalarExpr.NewLiteral(Lit(piece));
+                return kind switch
+                {
+                    0 => Bin(BinaryOp.StartsWith, operand, literal),
+                    1 => Bin(BinaryOp.EndsWith, operand, literal),
+                    _ => ScalarExpr.NewFunction(ScalarFunction.StrContains, ListModule.OfSeq([operand, literal, ScalarExpr.NewLiteral(LiteralValue.NewBool(true))]),
+                        Kaminari.Samidare.IR.LogicalType.NewArrow(BooleanType.Default)),
+                };
             }
             case 4 or 5:
             {
@@ -580,6 +593,14 @@ public class FilterLoweringTests
         AssertDropped(Bin(BinaryOp.Lt, Col("i64"), Col("u64")));                                  // no integer type holds both
         AssertDropped(ScalarExpr.NewUnary(UnaryOp.IsNan, Col("i32")));
         AssertDropped(Bin(BinaryOp.StartsWith, Col("i32"), ScalarExpr.NewLiteral(Lit("1"))));
+        AssertDropped(Bin(BinaryOp.EndsWith, Col("i32"), ScalarExpr.NewLiteral(Lit("1"))));
+        AssertDropped(Contains(Col("i32"), "1", literal: true));
+        AssertDropped(Contains(Col("utf8"), "a.", literal: false));                                 // a pattern: the engine's
+        AssertDropped(Bin(BinaryOp.Contains, Col("utf8"), ScalarExpr.NewLiteral(Lit("a"))));        // a pattern too
+
+        static ScalarExpr Contains(ScalarExpr target, string pattern, bool literal) => ScalarExpr.NewFunction(ScalarFunction.StrContains,
+            ListModule.OfSeq([target, ScalarExpr.NewLiteral(Lit(pattern)), ScalarExpr.NewLiteral(LiteralValue.NewBool(literal))]),
+            Kaminari.Samidare.IR.LogicalType.NewArrow(BooleanType.Default));
         AssertDropped(Bin(BinaryOp.Eq, Col("utf8"), ScalarExpr.NewLiteral(Lit(1))));
 
         static void AssertDropped(ScalarExpr filter)

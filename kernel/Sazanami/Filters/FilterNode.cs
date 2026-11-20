@@ -29,6 +29,12 @@ internal abstract record FilterNode
     /// <summary>Whether the column's bytes start with the prefix.</summary>
     public sealed record StartsWith(int Column, byte[] Prefix) : FilterNode;
 
+    /// <summary>Whether the column's bytes end with the suffix.</summary>
+    public sealed record EndsWith(int Column, byte[] Suffix) : FilterNode;
+
+    /// <summary>Whether the column's bytes hold the pattern somewhere (an empty pattern: every value).</summary>
+    public sealed record Contains(int Column, byte[] Pattern) : FilterNode;
+
     /// <summary>Whether the column is null (never null itself).</summary>
     public sealed record IsNull(int Column) : FilterNode;
 

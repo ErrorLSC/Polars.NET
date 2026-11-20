@@ -31,6 +31,8 @@ public class FilterProgramTests
         FilterNode.Compare c => column(c.Column) is { } v ? Holds(c.Op, Compare(v, Model(c.Value))) : null,
         FilterNode.InList i => column(i.Column) is { } v ? i.Values.Any(x => Compare(v, Model(x)) == 0) : null,
         FilterNode.StartsWith s => column(s.Column) is byte[] v ? v.AsSpan().StartsWith(s.Prefix) : null,
+        FilterNode.EndsWith s => column(s.Column) is byte[] v ? v.AsSpan().EndsWith(s.Suffix) : null,
+        FilterNode.Contains s => column(s.Column) is byte[] v ? v.AsSpan().IndexOf(s.Pattern) >= 0 : null,
         _ => throw new ArgumentException($"{node}"),
     };
 
@@ -135,8 +137,15 @@ public class FilterProgramTests
         if (choice == 1 && kind.IsBoolean) return new FilterNode.BooleanColumn(c);
         if (choice == 2 && kind.IsBytes)
         {
+            // A prefix, a suffix or a piece of a value (empty, whole, or anything between).
             byte[] v = (byte[])Value();
-            return new FilterNode.StartsWith(c, v[..random.Next(v.Length + 1)]);
+            int start = random.Next(v.Length + 1), end = random.Next(start, v.Length + 1);
+            return random.Next(3) switch
+            {
+                0 => new FilterNode.StartsWith(c, v[..end]),
+                1 => new FilterNode.EndsWith(c, v[start..]),
+                _ => new FilterNode.Contains(c, v[start..end]),
+            };
         }
         if (choice <= 3)
         {
@@ -289,6 +298,14 @@ public class FilterProgramTests
         Assert.Equal([3, 4, 5], Selected(new FilterNode.StartsWith(0, "abcd"u8.ToArray()), kind, values));
         Assert.Equal([3, 4], Selected(new FilterNode.StartsWith(0, "abcdXXXXX"u8.ToArray()), kind, values));
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], Selected(new FilterNode.StartsWith(0, []), kind, values));
+        Assert.Equal([3], Selected(new FilterNode.EndsWith(0, "XX1"u8.ToArray()), kind, values));
+        Assert.Equal([0], Selected(new FilterNode.EndsWith(0, "a"u8.ToArray()), kind, values));
+        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], Selected(new FilterNode.EndsWith(0, []), kind, values));
+        Assert.Equal([2], Selected(new FilterNode.Contains(0, "pfel"u8.ToArray()), kind, values));
+        Assert.Equal([1, 2], Selected(new FilterNode.Contains(0, "p"u8.ToArray()), kind, values));
+        Assert.Equal([3, 4, 5], Selected(new FilterNode.Contains(0, "bcd"u8.ToArray()), kind, values));
+        Assert.Equal([4], Selected(new FilterNode.Contains(0, "XXXX2"u8.ToArray()), kind, values));
+        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], Selected(new FilterNode.Contains(0, []), kind, values));
         Assert.Equal([5, 7], Selected(new FilterNode.InList(0, [StoredScalar.Bytes("abcd"u8.ToArray()), StoredScalar.Bytes(""u8.ToArray()), StoredScalar.Bytes("zz"u8.ToArray())]), kind, values));
     }
 
@@ -321,6 +338,13 @@ public class FilterProgramTests
         Assert.Equal([], Run(new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Bytes("zzzzXXXXXXXXXXXXXXXXXXXXX"u8.ToArray()))));
         Assert.Equal([0], Run(new FilterNode.Compare(0, CompareOp.Lt, StoredScalar.Bytes("b"u8.ToArray()))));
         Assert.Equal([0], Run(new FilterNode.StartsWith(0, "abc"u8.ToArray())));
+        // Suffixes and pieces of long values: decided by the length, an empty test, or a piece in the first four bytes.
+        byte[] longest = "abcdefghijklmnopqrstuvwxyz0123456789"u8.ToArray();
+        Assert.Equal([], Run(new FilterNode.EndsWith(0, longest)));
+        Assert.Equal([0, 1, 2], Run(new FilterNode.EndsWith(0, [])));
+        Assert.Equal([], Run(new FilterNode.Contains(0, longest)));
+        Assert.Equal([1, 2], Run(new FilterNode.Contains(0, "zz"u8.ToArray())));
+        Assert.Equal([0, 1, 2], Run(new FilterNode.Contains(0, [])));
     }
 
     [Fact]
@@ -428,6 +452,8 @@ public class FilterProgramTests
         Refused(new FilterNode.Compare(3, CompareOp.Eq, StoredScalar.Integer(2)));
         Refused(new FilterNode.IsNan(0));
         Refused(new FilterNode.StartsWith(0, [1]));
+        Refused(new FilterNode.EndsWith(0, [1]));
+        Refused(new FilterNode.Contains(0, [1]));
         Refused(new FilterNode.BooleanColumn(0));
         Refused(new FilterNode.IsNull(5));
         Refused(new FilterNode.IsNull(-1));

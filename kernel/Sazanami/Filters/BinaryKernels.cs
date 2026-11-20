@@ -97,6 +97,36 @@ internal static class BytesTests
         }
     }
 
+    /// <summary>The value ends with a suffix.</summary>
+    public readonly struct Suffix(byte[] suffix) : IBytesTest
+    {
+        public bool Test(ReadOnlySpan<byte> value) => value.EndsWith(suffix);
+
+        public bool? FromView(ReadOnlySpan<byte> view)
+        {
+            int length = Length(view);
+            if (length < suffix.Length) return false;
+            if (length <= MaxInline) return view.Slice(4, length).EndsWith(suffix);
+            return suffix.Length == 0 ? true : null; // the end is in the buffer
+        }
+    }
+
+    /// <summary>The value holds a pattern (the span search is vectorized).</summary>
+    public readonly struct Substring(byte[] pattern) : IBytesTest
+    {
+        public bool Test(ReadOnlySpan<byte> value) => value.IndexOf(pattern) >= 0;
+
+        public bool? FromView(ReadOnlySpan<byte> view)
+        {
+            int length = Length(view);
+            if (length < pattern.Length) return false;
+            if (length <= MaxInline) return view.Slice(4, length).IndexOf(pattern) >= 0;
+            if (pattern.Length == 0) return true;
+            // Within the first four bytes, or the bytes must be read.
+            return pattern.Length <= 4 && view.Slice(4, 4).IndexOf(pattern) >= 0 ? true : null;
+        }
+    }
+
     /// <summary>Membership in a set of values, sorted and distinct (a binary search).</summary>
     public readonly struct Member(byte[][] sorted) : IBytesTest
     {

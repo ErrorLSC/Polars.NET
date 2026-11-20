@@ -223,6 +223,14 @@ public sealed class ParquetDatasetWindowTests
                 await foreach (Row row in reader.ReadRowsAsync()) got.Add(row);
                 Assert.Equal(all.Where(r => r.S != null && r.S.StartsWith(prefix) || r.Id < 3), got);
             }
+            // Suffixes and pieces too, exactly (ordinal, as the engine compares).
+            using (var reader = dataset.OpenReader<Row>(r => r.S != null && (r.S.EndsWith('7') || r.S.Contains("er 2")), options))
+            {
+                Assert.True(reader.FiltersExactly);
+                List<Row> expected = [.. all.Where(r => r.S != null && (r.S.EndsWith('7') || r.S.Contains("er 2", StringComparison.Ordinal)))];
+                Assert.NotEmpty(expected);
+                Assert.Equal(expected, reader.ReadRows());
+            }
         }
         Assert.Equal(all.Where(r => r.Id >= 100).Take(7), ParquetDataset.ReadList<Row>("d/", r => r.Id >= 100,
             new ParquetDatasetOptions { Store = store }, new ParquetReadOptions { MaxRows = 7 }));

@@ -128,7 +128,7 @@ rules (booleans, floats, integers — beyond Int64 a decimal(38, 0) — dates an
 default; times of day and mixed date orders stay strings: a partition schema reads times too). Values may also come with a list of files (typed by the
 partition schema; strings read as Hive values). Partition columns follow the files' columns; a key the files hold
 takes that column's place with the path's value. A filter's conjuncts over partition columns (and the file path column,
-a value per file as well: `file == "…"`, prefixes, comparisons, lists) only decide which files are read (the IR's
+a value per file as well: `file == "…"`, prefixes, suffixes, pieces, comparisons, lists) only decide which files are read (the IR's
 semantics, evaluated on a table of one row per file); conjuncts over both these and file columns get each file's values
 as literals, folded (`FilterShapes.foldConstants`) before the file is read. Row numbers count the rows of files left
 out.
@@ -217,7 +217,7 @@ predicate (`Expression<Func<T, bool>>`) is translated by Samidare as the LINQ pr
 evaluated first) and pushed into the read as `Filter` with `FilterRows`; the conjuncts it cannot translate, or that
 the reader cannot evaluate, are evaluated on the rows as `T` when Samidare's client evaluation policy allows it
 (Strict, the default, refuses them). Filters reach pruning and lowering in canonical shapes (`FilterShapes.canonical`:
-a starts-with call as the operator, an IN over a collection as an IN over literals), whoever built them.
+a starts-with or ends-with call as the operator, an IN over a collection as an IN over literals), whoever built them.
 
 **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches as a Parquet file, to a stream or a path
 (`Create`, then `Write` / `WriteAsync` batch by batch and `Complete`; or the static `Write` / `WriteAsync` of a whole
@@ -696,7 +696,7 @@ In Sazanami (generic, reusable by other formats):
 | `Encodings/ByteStreamSplit.cs` | Joins byte streams back into values (portable widening for 2-, 4- and 8-byte values). |
 | `Rows/RowRanges.cs` | Sets of row numbers as sorted, disjoint ranges: union, intersection, difference, complement, slice, take; from indices or a bitmap. |
 | `Filters/SplitBlockBloomFilter.cs` | Split block Bloom filters (Parquet's): insert and look up by a 64-bit hash (insert also into a bitset held elsewhere, such as native memory), size for a count and a false positive rate. |
-| `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
+| `Filters/FilterProgram.cs`, `FilterNode.cs`, `LeafTests.cs`, `CompareKernels.cs`, `BinaryKernels.cs`, `Masks.cs` | Physical row predicates over Arrow columns (comparisons, IN, prefix, suffix and substring (ordinal bytes), null and NaN tests, Kleene AND/OR/NOT/COALESCE; values in the column's stored representation), checked once and evaluated per batch into a row mask: vector compares on fixed-width columns, view-prefix shortcuts on strings, dictionaries tested per entry; the mask algebra. |
 | `Network/RetrySettings.cs`, `HttpSender.cs`, `RequestGate.cs` | HTTP requests with retries shared by the file stores and the lakehouse's object store clients: network failures (a failed body read included), 408, 429 and 5xx retried with jittered backoff (`Retry-After` honoured up to the cap), failures an answer decided never retried, caller cancellations never retried; synchronous and asynchronous; requests counted per flow; a bound on requests at once that lets waiters in by their order (the dataset reader's request budget). |
 | `Buffers/GuardedMemory.cs` | Fuzzing only: blocks that end at an inaccessible page; with it on, `NativeMemoryPool` and the Parquet page reader put one after every buffer. |
 | `Encodings/BitPacker.cs` | LSB-first packing of 0–32-bit values (the inverse of bit unpacking). |
