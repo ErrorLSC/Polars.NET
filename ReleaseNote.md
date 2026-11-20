@@ -49,9 +49,9 @@ A Parquet implementation of its own, for .NET code that reads or writes Parquet 
 
 * **Files** (`ParquetFile`): from a path, memory (read in place), a stream, or any source of ranged reads, synchronously or asynchronously; the footer as `ParquetMetadata` and the schema as Arrow's. Memory mapping is chosen automatically. Encrypted files are refused by name.
 * **Reading** (`ParquetReader`, `ParquetReadOptions`): every column, flat or nested, as Arrow record batches, on all cores by default; every encoding Parquet writers use (dictionary, DELTA_*, BYTE_STREAM_SPLIT, RLE booleans) and codecs (Snappy, GZIP, Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop LZ4; not LZO). Strings in Arrow's view layout by default. Row selection, a row index column and `MaxRows`.
-* **Pushdown**: a row filter prunes row groups by their statistics, Bloom filters and page indexes, and filters the rows read (late materialization: other columns decoded only for rows that pass).
+* **Pushdown**: a row filter prunes row groups by their statistics, Bloom filters and page indexes, and filters the rows read (late materialization: other columns decoded only for rows that pass). Strings are filtered by prefix, suffix and substring too (`StartsWith`, `EndsWith`, `Contains`, ordinal).
 * **Rows as objects**: `ParquetFile.OpenReader<T>(where)` / `ReadList<T>` read rows as records or classes (F# records and tuples too), the `where` lambda pushed into the read as the LINQ provider translates it.
-* **Datasets** (`ParquetDataset`): many files as one table, from directories, globs or file lists; Hive partitions (pruned by the filter); schemas from the first file, united by name, or given, with lossless widening between files; local files, memory, HTTP and the cloud stores, read ahead and in parallel. Typed rows too (`ParquetDataset.OpenReader<T>`).
+* **Datasets** (`ParquetDataset`): many files as one table, from directories, globs or file lists; Hive partitions and the file path column (both pruned by the filter: `file == "…"`, prefixes, suffixes); schemas from the first file, united by name, or given, with lossless widening between files; local files, memory, HTTP and the cloud stores, read ahead and in parallel. Typed rows too (`ParquetDataset.OpenReader<T>`).
 * **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches to a stream or a path, synchronously or asynchronously; flat and nested columns of every Arrow type Parquet holds (maps as MAP), field ids, statistics, page indexes, size statistics, Bloom filters, every encoding, the codecs Snappy, Zstandard, GZIP, Brotli and LZ4_RAW, data page v1 and v2; columns encoded and pages compressed on several threads. Values Parquet cannot hold exactly are refused, never changed. Files are read by pyarrow, DuckDB, Polars and Spark (verified).
 
 ## Delta Lake: managed Parquet writer
@@ -81,6 +81,20 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 ## Arrow interop
 
 * Arrow data handed between the engine and .NET (exports to Arrow, record-batch scans) no longer reports its native memory to the .NET garbage collector as memory pressure. Apache.Arrow's importer did so for every buffer, which forced a full (gen2) collection for nearly every batch.
+
+## LINQ
+
+### New
+
+* Checked sums per group (`g.Sum(x => x.L)` of int / long, distinct values too) take one exact sum per group in the engine, checked by a native kernel: about twice as fast (10M rows, 1000 groups: long 4.6× → 2.1× the plain sum, int 3.2× → 1.5×).
+
+### Changed
+
+* Checked conversions (`checked((int)x)`) throw `OverflowException` when the value leaves the target type's range or is NaN, as .NET does (floating values truncated toward zero). They wrapped before.
+
+### Fixed
+
+* A sum over a group's distinct values (`g.Select(x => x.L).Distinct().Sum()`) wrapped on overflow instead of throwing `OverflowException`.
 
 ## Native memory
 

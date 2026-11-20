@@ -47,6 +47,13 @@ module internal OperatorAndUdfTranslator =
     let private isDecimalClrType (t: Type) = (match Nullable.GetUnderlyingType t with null -> t | u -> u) = typeof<decimal>
 
     /// An integer type (or Nullable of one), excluding enums.
+    /// Whether every value of the integral type `source` is one of `target` (a checked conversion between them is a
+    /// plain one).
+    let private holdsEveryValue (target: Type) (source: Type) =
+        let core (t: Type) = match Nullable.GetUnderlyingType t with null -> t | u -> u
+        let bound (t: Type) (name: string) = Convert.ToDecimal((core t).GetField(name).GetValue(null))
+        bound target "MinValue" <= bound source "MinValue" && bound source "MaxValue" <= bound target "MaxValue"
+
     let private isIntegralClrType (t: Type) =
         let core = match Nullable.GetUnderlyingType t with null -> t | u -> u
         not core.IsEnum
@@ -274,6 +281,20 @@ module internal OperatorAndUdfTranslator =
             || (ScalarExprOps.tryEnumUnderlyingType targetType).IsSome
             ->
             eval ctx operand |> Option.bind (fun x -> translateEnumConvert x operand.Type targetType)
+        // A checked conversion (checked((int)x)) to an integer type that does not hold every value of the operand's
+        // (a narrower or other-signed integer, a floating value, which is truncated): the value, or OverflowException
+        // when it leaves the range (or is NaN), as .NET throws. Where the backend cannot fail a query, the plain cast.
+        | ExpressionType.ConvertChecked when
+            isIntegralClrType targetType
+            && (if isIntegralClrType operand.Type then not (holdsEveryValue targetType operand.Type)
+                else NaNSemantics.isFloatingClrType operand.Type)
+            && CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
+            ->
+            let core = match Nullable.GetUnderlyingType targetType with null -> targetType | u -> u
+            Option.map2
+                (fun x t -> ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ x ], t))
+                (eval ctx operand)
+                (LogicalTypes.tryOfClrType core)
         // .NET converts a floating value to an integer by truncating and saturating: NaN is 0, and values beyond
         // the range give MinValue / MaxValue (the engine's cast gives null for them). This holds for every integer
         // target, including the narrow ones, as in .NET 11 ((byte)-2.7 is 0, (byte)300.5 is 255); .NET 10 and

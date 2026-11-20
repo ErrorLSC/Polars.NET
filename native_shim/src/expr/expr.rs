@@ -2844,7 +2844,8 @@ fn integer_range(dtype: &DataType) -> Option<(i128, i128)> {
 }
 
 /// .NET checked narrowing (a checked conversion, or an exact wide sum taken back to its result type): integer values,
-/// or decimals of scale 0, as `target`, failing with the overflow marker when one leaves its range; null stays null.
+/// decimals of scale 0, or floating values truncated toward zero, as `target`, failing with the overflow marker when one
+/// leaves its range (or is NaN); null stays null.
 fn dotnet_checked_narrow(c: Column, target: &DataType) -> PolarsResult<Column> {
     let s = c.as_materialized_series();
     let (min, max) = integer_range(target).ok_or_else(|| polars_err!(ComputeError: "a checked narrowing goes to an integer type, not {}", target))?;
@@ -2852,7 +2853,21 @@ fn dotnet_checked_narrow(c: Column, target: &DataType) -> PolarsResult<Column> {
         DataType::Decimal(_, 0) => s.decimal()?.physical().clone(),
         DataType::Int128 => s.i128()?.clone(),
         dt if dt.is_integer() => s.cast(&DataType::Int128)?.i128()?.clone(),
-        other => polars_bail!(ComputeError: "a checked narrowing is defined for integers and decimals of scale 0, not {}", other),
+        dt if dt.is_float() => {
+            // Truncated toward zero into i128 (which saturates: infinities and huge values land outside every target's
+            // range, checked below); NaN, which the cast would take as 0, fails here.
+            let mut nan = false;
+            let f = s.cast(&DataType::Float64)?;
+            let truncated: Int128Chunked = polars_core::prelude::arity::unary_elementwise(f.f64()?, |v: Option<f64>| {
+                v.map(|v| {
+                    nan |= v.is_nan();
+                    v.trunc() as i128
+                })
+            });
+            polars_ensure!(!nan, ComputeError: "{}", DOTNET_OVERFLOW);
+            truncated
+        }
+        other => polars_bail!(ComputeError: "a checked narrowing is defined for integers, decimals of scale 0 and floats, not {}", other),
     };
     for arr in wide.downcast_iter() {
         let outside = if polars_arrow::array::Array::null_count(arr) == 0 {

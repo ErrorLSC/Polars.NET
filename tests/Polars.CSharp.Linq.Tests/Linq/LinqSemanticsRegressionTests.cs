@@ -1261,6 +1261,58 @@ public class LinqSemanticsRegressionTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Checked conversions (checked((int)x)) throw OverflowException when the value leaves the target's range (or is
+    // NaN), as .NET does; the engine's cast would wrap.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Conv
+    {
+        public long L { get; set; }
+        public int I { get; set; }
+        public double D { get; set; }
+        public long? NL { get; set; }
+        public ulong U { get; set; }
+    }
+
+    private static readonly Conv[] InRange =
+    [
+        new() { L = int.MaxValue, I = 5, D = 2.9, NL = null, U = 7 },
+        new() { L = int.MinValue, I = 0, D = -2147483648.9, NL = -3, U = (ulong)long.MaxValue },
+    ];
+
+    [Fact]
+    public void Checked_Conversions_Keep_The_Values_In_Range()
+    {
+        using var df = DataFrame.From(InRange);
+        var q = df.AsQueryable<Conv>();
+        // Truncated toward zero; null stays null; a widening is a plain cast.
+        Assert.Equal(
+            InRange.Select(x => new { A = checked((int)x.L), B = checked((uint)x.I), C = checked((int)x.D), N = checked((int?)x.NL), W = checked((long)x.I), S = checked((long)x.U) }),
+            [.. q.Select(x => new { A = checked((int)x.L), B = checked((uint)x.I), C = checked((int)x.D), N = checked((int?)x.NL), W = checked((long)x.I), S = checked((long)x.U) })]);
+    }
+
+    [Fact]
+    public void Checked_Conversions_Throw_Outside_The_Range()
+    {
+        Overflows(new() { L = (long)int.MaxValue + 1 }, x => checked((int)x.L));
+        Overflows(new() { L = long.MinValue }, x => checked((int)x.L));
+        Overflows(new() { I = -1 }, x => checked((uint)x.I));
+        Overflows(new() { U = ulong.MaxValue }, x => checked((long)x.U));
+        Overflows(new() { NL = -1 }, x => checked((byte?)x.NL) ?? 0);
+        Overflows(new() { D = double.NaN }, x => checked((int)x.D));
+        Overflows(new() { D = double.NegativeInfinity }, x => checked((long)x.D));
+        Overflows(new() { D = 2147483648.0 }, x => checked((int)x.D));
+        Overflows(new() { D = 9.2233720368547758E18 }, x => checked((long)x.D)); // long.MaxValue as a double: 2^63
+
+        static void Overflows(Conv row, System.Linq.Expressions.Expression<Func<Conv, long>> selector)
+        {
+            Conv[] rows = [row];
+            using var df = DataFrame.From(rows);
+            AssertSameFailure(() => rows.Select(selector.Compile()).ToList(), () => df.AsQueryable<Conv>().Select(selector).ToList());
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // A subquery held in a variable keeps its operators when a Select / Distinct follows it (the Where and Take
     // of `ob` used to be dropped under `ob.Select(..).Contains(..)`).
     // ---------------------------------------------------------------------------------------------
