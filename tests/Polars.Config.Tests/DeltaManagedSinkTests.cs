@@ -229,6 +229,43 @@ public sealed class DeltaManagedSinkTests : IDisposable
     }
 
     [Fact]
+    public void TheFilesFooters_AreFreed_OnceRead_OrWhenTheWriteFails()
+    {
+        // The managed sink hands its files' footers (native bytes) to the commit, which reads their statistics and
+        // frees them; a failed write frees those of the files it closed.
+        using DataFrame rows = Typed(100_000);
+        long live = ParquetFooter.Held;
+        Sink("managed", () => rows.WriteDelta(Table("footers"), maxRowsPerFile: 10_000));
+        Assert.Equal(10, DataFiles(Table("footers")).Length);
+        Assert.Equal(live, ParquetFooter.Held);
+
+        // A cast failing on a late batch: files of the earlier ones are closed by then.
+        using DataFrame more = Typed(300_000);
+        LazyFrame failing = more.Lazy().WithColumns(When(Col("Id") == 250_000).Then(Lit(1000)).Otherwise(Col("Tiny")).Cast(DataType.Int8, strict: true).Alias("Tiny"));
+        Sink("managed", () => Assert.ThrowsAny<Exception>(() => failing.SinkDelta(Table("failing"), maxRowsPerFile: 10_000)));
+        Assert.Equal(live, ParquetFooter.Held);
+    }
+
+    [Fact]
+    public void DatasetFilesFooters_AreFreed_CompletedOrAborted()
+    {
+        var schema = new Apache.Arrow.Schema([new ArrowField("id", ArrowTypes.Int64Type.Default, true)], null);
+        void Write(string name, bool complete)
+        {
+            using ParquetDatasetWriter writer = ParquetDatasetWriter.Create(Table(name), schema, new ParquetDatasetWriteOptions { MaxRowsPerFile = 10 });
+            using (var batch = new Apache.Arrow.RecordBatch(schema, [new Apache.Arrow.Int64Array.Builder().AppendRange(Enumerable.Range(0, 50).Select(i => (long)i)).Build()], 50))
+                writer.Write(batch);
+            if (complete) Assert.Equal(5, writer.Complete().Files.Count);
+            else writer.Abort(); // five files closed at their row limit: their footers held by the sink
+        }
+        long live = ParquetFooter.Held;
+        Write("completed", complete: true);
+        Assert.Equal(live, ParquetFooter.Held);
+        Write("aborted", complete: false);
+        Assert.Equal(live, ParquetFooter.Held);
+    }
+
+    [Fact]
     public void AFailureOnTheWay_LeavesNoFileAndNoCommit()
     {
         // A cast that fails on a row of the second batch: the first file is open (or written) by then.

@@ -555,7 +555,14 @@ internal static class DeltaKernelWrite
             table.FileSystem, table.Root, NormalizeLazy(rows, schema, [.. table.RowIdColumns, DeltaKernelScan.ChangeTypeColumn]), schema, partitions,
             changeData: true, KernelWriteOptions.Default, TargetFileSize(properties), FilePrefixes.ForDataFiles(properties),
             table.MaterializedRowColumns, table.Cloud);
-        return [.. files.Select(f => new CdcAction { Path = EncodeLogPath(f.Relative), PartitionValues = Logged(f.Values, schema, partitions), Size = f.Size })];
+        try
+        {
+            return [.. files.Select(f => new CdcAction { Path = EncodeLogPath(f.Relative), PartitionValues = Logged(f.Values, schema, partitions), Size = f.Size })];
+        }
+        finally
+        {
+            foreach (SunkFile file in files) file.Footer.Dispose();
+        }
     }
 
     /// <summary>Data files of normalized rows (consumed), with statistics and NOT NULL checks from their footers.</summary>
@@ -578,37 +585,44 @@ internal static class DeltaKernelWrite
             fileSystem, root, rows, schema, partitions, changeData: false, options, approxBytesPerFile, prefixLength, materialized, cloud,
             bucketColumn);
 
-        StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
-        // NOT NULL primitive columns are checked on the footers' null counts (nested ones were checked on the rows).
-        StructField[] notNullLeaves = checkNotNull
-            ? [.. dataFields.Where(f => !f.Nullable && f.Type is not (StructType or ArrayType or MapType))]
-            : [];
-        var indexed = new StatisticsLeaves(FileStatistics.IndexedLeaves(dataFields, tableProperties)); // prepared once for the files
         var adds = new List<AddAction>(files.Count);
-        foreach (SunkFile file in files)
+        try
         {
-            if (notNullLeaves.Length > 0)
+            StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
+            // NOT NULL primitive columns are checked on the footers' null counts (nested ones were checked on the rows).
+            StructField[] notNullLeaves = checkNotNull
+                ? [.. dataFields.Where(f => !f.Nullable && f.Type is not (StructType or ArrayType or MapType))]
+                : [];
+            var indexed = new StatisticsLeaves(FileStatistics.IndexedLeaves(dataFields, tableProperties)); // prepared once for the files
+            foreach (SunkFile file in files)
             {
-                IReadOnlyDictionary<string, long> nulls = FileStatistics.NullCounts(file.Footer);
-                string[] violated = [.. notNullLeaves.Where(f => !nulls.TryGetValue(f.PhysicalName, out long n) || n > 0).Select(f => f.Name)];
-                if (violated.Length > 0)
-                    throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {string.Join(", ", violated)}.");
+                if (notNullLeaves.Length > 0)
+                {
+                    Dictionary<string, long> nulls = FileStatistics.NullCounts(file.Footer, indexed);
+                    string[] violated = [.. notNullLeaves.Where(f => !nulls.TryGetValue(f.PhysicalName, out long n) || n > 0).Select(f => f.Name)];
+                    if (violated.Length > 0)
+                        throw new PolarsException($"The data has null values in columns the table declares NOT NULL: {string.Join(", ", violated)}.");
+                }
+                adds.Add(new AddAction
+                {
+                    Path = EncodeLogPath(file.Relative),
+                    PartitionValues = Logged(file.Values, schema, partitions),
+                    Size = file.Size,
+                    ModificationTime = now,
+                    DataChange = true,
+                    Stats = FileStatistics.FromFooter(file.Footer, indexed),
+                });
             }
-            adds.Add(new AddAction
-            {
-                Path = EncodeLogPath(file.Relative),
-                PartitionValues = Logged(file.Values, schema, partitions),
-                Size = file.Size,
-                ModificationTime = now,
-                DataChange = true,
-                Stats = FileStatistics.FromParquet(file.Footer, indexed),
-            });
+        }
+        finally
+        {
+            foreach (SunkFile file in files) file.Footer.Dispose(); // the managed sink's footers: native bytes
         }
         return adds;
     }
 
-    /// <summary>A file the sink wrote: its table-relative path, partition values (logical names), size and footer.</summary>
-    private readonly record struct SunkFile(string Relative, Dictionary<string, string?> Values, long Size, ParquetMetadata Footer);
+    /// <summary>A file the sink wrote: its table-relative path, partition values (logical names), size and footer (disposed once read).</summary>
+    private readonly record struct SunkFile(string Relative, Dictionary<string, string?> Values, long Size, ParquetFooter Footer);
 
     /// <summary>
     /// Sinks normalized rows (consumed; for change data followed by the change type column) as Parquet files named
@@ -653,7 +667,15 @@ internal static class DeltaKernelWrite
             if (sunk.ClosedForMemory > 0)
                 System.Diagnostics.Trace.TraceInformation($"{sunk.ClosedForMemory} data files were closed before their target size to hold the memory the open files take.");
             Dictionary<string, Dictionary<string, string?>> valuesOf = written.ToDictionary(w => w.Relative, w => w.Values, StringComparer.Ordinal);
-            return [.. sunk.Files.Select(f => new SunkFile(f.Relative, valuesOf[f.Relative], f.Size, f.Footer))];
+            try
+            {
+                return [.. sunk.Files.Select(f => new SunkFile(f.Relative, valuesOf[f.Relative], f.Size, f.Footer))];
+            }
+            catch
+            {
+                foreach (ManagedSink.Written file in sunk.Files) file.Footer.Dispose();
+                throw;
+            }
         }
         HostPathSink.Sink(
             shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile, (keys, index) => PathFor(Describe(keys), index),
@@ -670,7 +692,7 @@ internal static class DeltaKernelWrite
         {
             throw new PolarsException(e.Message);
         }
-        return [.. written.Select((w, i) => new SunkFile(w.Relative, w.Values, footers[i].Size, footers[i].Footer))];
+        return [.. written.Select((w, i) => new SunkFile(w.Relative, w.Values, footers[i].Size, new ParquetFooter(footers[i].Footer)))];
 
         // The partition values of the rows whose key values are the one row of `keys` (none without sink keys),
         // checked against the table's NOT NULL partition columns.

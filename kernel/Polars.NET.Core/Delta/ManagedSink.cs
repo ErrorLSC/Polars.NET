@@ -37,8 +37,8 @@ internal static class ManagedSink
     /// <summary>The rows of a row group (and of a batch the engine hands over): the engine's own sink's row groups.</summary>
     internal const int DefaultRowGroupRows = 122_880;
 
-    /// <summary>A file written: its path relative to the table, size and footer.</summary>
-    public readonly record struct Written(string Relative, long Size, ParquetMetadata Footer);
+    /// <summary>A file written: its path relative to the table, size and footer (its bytes in native memory: the caller disposes it).</summary>
+    public readonly record struct Written(string Relative, long Size, ParquetFooter Footer);
 
     /// <summary>
     /// The files written, partition by partition in the order the partitions first came (each partition's in order),
@@ -163,7 +163,7 @@ internal static class ManagedSink
                 sink.HoldMemory();
             }
             if (sink is null) return new SinkResult([], 0);
-            return new SinkResult([.. sink.Finish().Select(static f => new Written(f.Path, f.Bytes, (ParquetMetadata)f.Footer!))], sink.ClosedForMemory);
+            return new SinkResult([.. sink.Finish().Select(static f => new Written(f.Path, f.Bytes, (ParquetFooter)f.Footer!))], sink.ClosedForMemory);
         }
         catch
         {

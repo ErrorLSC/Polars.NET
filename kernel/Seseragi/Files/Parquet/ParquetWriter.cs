@@ -56,7 +56,9 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private long _openBytes;                   // their batches' logical Arrow bytes
     private long _rowGroupRows, _totalRows, _position;
     private bool _started, _completed, _faulted, _aborted, _disposed;
-    private byte[]? _footerBytes; // once completed: the footer's Thrift bytes, its length and the magic
+    private ParquetFooter? _footerHeld; // once completed: the footer, its bytes in native memory (until taken or disposed)
+    private byte[]? _footerBytes;       // once disposed with the footer neither taken nor parsed: its Thrift bytes
+    private bool _footerTaken;
     private ParquetMetadata? _metadata;
 
     private ParquetWriter(Stream stream, WritePlan plan)
@@ -323,9 +325,22 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
 
     /// <summary>The footer written, once the file is complete.</summary>
     /// <exception cref="InvalidOperationException">The file is not complete yet.</exception>
-    public ParquetMetadata Metadata => _metadata ??= _footerBytes is { } footer
-        ? ParquetMetadata.FromThrift(FileMetaData.Parse(footer.AsSpan(0, footer.Length - 8)))
+    public ParquetMetadata Metadata => _metadata ??= _footerHeld is { } held ? held.Metadata
+        : _footerBytes is { } footer ? ParquetMetadata.FromThrift(FileMetaData.Parse(footer))
+        : _footerTaken ? throw new InvalidOperationException("The footer of the Parquet file was handed over.")
         : throw new InvalidOperationException("The Parquet file is not complete yet: its footer is written by Complete.");
+
+    /// <summary>
+    /// Hands the footer over once the file is complete: its Thrift bytes in native memory, the taker's to dispose (a
+    /// sink reads its files' statistics from them without parsing).
+    /// </summary>
+    internal ParquetFooter TakeFooter()
+    {
+        ParquetFooter footer = _footerHeld ?? throw new InvalidOperationException("The Parquet file is not complete, or its footer was handed over.");
+        _footerHeld = null;
+        _footerTaken = true;
+        return footer;
+    }
 
     /// <summary>Creates a writer over a stream. Nothing is written before the first row group closes (or the file completes).</summary>
     public static ParquetWriter Create(Stream stream, Apache.Arrow.Schema schema, ParquetWriteOptions? options = null)
@@ -1277,17 +1292,23 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             await _writing.ConfigureAwait(false);
             await WriteBloomFiltersAsync(useAsync, ct).ConfigureAwait(false);
             await WritePageIndexesAsync(useAsync, ct).ConfigureAwait(false);
-            var thrift = new ThriftCompactWriter();
+            // The footer's bytes go to native memory (the scratch is copied out before any await).
+            ThriftCompactWriter thrift = ThriftCompactWriter.ThreadScratch();
             _footer.WriteFooter(thrift, _elements, _totalRows, _columns.Length, _keyValues, CreatedBy);
-            byte[] tail = new byte[thrift.WrittenSpan.Length + 8];
-            thrift.WrittenSpan.CopyTo(tail);
-            BinaryPrimitives.WriteInt32LittleEndian(tail.AsSpan(thrift.WrittenSpan.Length), thrift.WrittenSpan.Length);
-            Magic.CopyTo(tail.AsSpan(tail.Length - 4));
-            await WriteBytesAsync(tail, useAsync, ct).ConfigureAwait(false);
-            if (useAsync) await _stream.FlushAsync(ct).ConfigureAwait(false);
-            else _stream.Flush();
+            ParquetFooter footer = ParquetFooter.Of(thrift.WrittenSpan);
+            try
+            {
+                await WriteBytesAsync(footer.FileTail, useAsync, ct).ConfigureAwait(false);
+                if (useAsync) await _stream.FlushAsync(ct).ConfigureAwait(false);
+                else _stream.Flush();
+            }
+            catch
+            {
+                footer.Dispose();
+                throw;
+            }
             _completed = true;
-            _footerBytes = tail; // parsed when Metadata is first asked for
+            _footerHeld = footer; // parsed when Metadata is first asked for
             _footer.Dispose();
         }
         catch
@@ -1361,11 +1382,24 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         finally
         {
             _disposed = true;
+            ReleaseFooter();
             Abandon();
             WaitForWrites();
             FreeColumns();
             if (!_options.LeaveOpen) _stream.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Frees the footer's native bytes on dispose unless handed over; the metadata stays available (parsed already,
+    /// or its bytes kept on the managed heap to parse when asked for).
+    /// </summary>
+    private void ReleaseFooter()
+    {
+        if (_footerHeld is not { } footer) return;
+        if (_metadata is null) _footerBytes = footer.Thrift.ToArray();
+        footer.Dispose();
+        _footerHeld = null;
     }
 
     /// <inheritdoc cref="Dispose"/>
@@ -1379,6 +1413,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         finally
         {
             _disposed = true;
+            ReleaseFooter();
             Abandon();
             WaitForWrites();
             FreeColumns();

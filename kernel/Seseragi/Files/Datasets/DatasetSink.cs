@@ -109,6 +109,7 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
     private bool _identity; // the data columns are the input's, in order: chunks written as they are
     private readonly object _naming = new();
     private int _closedForMemory;
+    private bool _footersHandedOut; // by Finish: the files' footers are then the caller's to dispose
     // The files closed whose streams are still committing, oldest first (closes come from several threads).
     private readonly List<(File File, Task Commit)> _publishing = [];
     private readonly object _publishingLock = new();
@@ -405,12 +406,17 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
         _closedForMemory += closing.Count;
     }
 
-    /// <summary>Closes the files still open, side by side, and waits for every publication; every file written, partition by partition.</summary>
+    /// <summary>
+    /// Closes the files still open, side by side, and waits for every publication; every file written, partition by
+    /// partition. Their footers (disposable where the format's are) are the caller's from then on.
+    /// </summary>
     public List<SunkFile<TPartition>> Finish()
     {
         ForEachPartition([.. _partitions.Where(p => p.Open is not null)], Close);
         while (WaitForOldest()) ForgetPublished();
-        return [.. _partitions.SelectMany(p => p.Closed).Select(f => f.Sunk!)];
+        List<SunkFile<TPartition>> files = [.. _partitions.SelectMany(p => p.Closed).Select(f => f.Sunk!)];
+        _footersHandedOut = true;
+        return files;
     }
 
     /// <summary>Gives up every open file (nothing of them stays), once the files being published have landed or not.</summary>
@@ -436,9 +442,14 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
     /// <summary>The files published so far (after <see cref="GiveUp"/>: every file that landed).</summary>
     public List<SunkFile<TPartition>> Landed() => [.. _partitions.SelectMany(p => p.Closed).Where(f => f.Landed).Select(f => f.Sunk!)];
 
-    /// <summary>Frees the keys' and the scratch's native memory.</summary>
+    /// <summary>Frees the keys' and the scratch's native memory, and the footers of the files written unless <see cref="Finish"/> handed them out.</summary>
     public void Dispose()
     {
+        if (!_footersHandedOut)
+        {
+            _footersHandedOut = true;
+            foreach (File file in _partitions.SelectMany(p => p.Closed)) (file.Sunk?.Footer as IDisposable)?.Dispose();
+        }
         _groups?.Dispose();
         _publishers.Dispose();
         foreach (NativeArray<int> scratch in (NativeArray<int>[])[_ids, _globals, _firstRows, _starts, _order]) scratch.Dispose();

@@ -70,12 +70,20 @@ internal sealed class ParquetFileFormat(ParquetWriteOptions options, bool takeBa
             writer.TrimScratch();
         }
 
-        /// <summary>Completes the file; its footer (<see cref="ParquetMetadata"/>).</summary>
+        /// <summary>Completes the file; its footer (<see cref="ParquetFooter"/>: its bytes, the caller's to dispose).</summary>
         public override object? Complete()
         {
             writer.Complete();
-            ParquetMetadata footer = writer.Metadata;
-            writer.Dispose();
+            ParquetFooter footer = writer.TakeFooter();
+            try
+            {
+                writer.Dispose();
+            }
+            catch
+            {
+                footer.Dispose();
+                throw;
+            }
             return footer;
         }
 

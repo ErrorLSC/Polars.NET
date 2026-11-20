@@ -172,9 +172,16 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
             throw; // not reached
         }
         _state = Completed;
-        if (_options.ExistingData == ExistingData.ReplacePartitions)
-            DeleteOld([.. files.Select(f => Normalized(f.Path))], [.. files.Select(f => f.Partition.Directory).Distinct()]);
-        return new DatasetWriteResult<TFile>(WriteId, [.. files.Select(_file)]);
+        try
+        {
+            if (_options.ExistingData == ExistingData.ReplacePartitions)
+                DeleteOld([.. files.Select(f => Normalized(f.Path))], [.. files.Select(f => f.Partition.Directory).Distinct()]);
+            return new DatasetWriteResult<TFile>(WriteId, [.. files.Select(_file)]);
+        }
+        finally
+        {
+            foreach (SunkFile<DatasetPartition> file in files) (file.Footer as IDisposable)?.Dispose(); // read into the results
+        }
     }
 
     /// <summary>

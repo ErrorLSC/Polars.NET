@@ -58,7 +58,7 @@ public sealed class ParquetDatasetWriter : IDisposable
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
         return await DatasetWriting<ParquetWrittenFile>.CreateAsync(path, schema, options, new ParquetFileFormat(options.Writer),
-            static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values, (ParquetMetadata)f.Footer!), cancellationToken).ConfigureAwait(false);
+            static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values, ((ParquetFooter)f.Footer!).Metadata), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The schema of the batches written.</summary>

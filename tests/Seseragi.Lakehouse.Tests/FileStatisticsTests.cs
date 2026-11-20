@@ -91,15 +91,44 @@ public class FileStatisticsTests
         Assert.Equal(new Dictionary<string, long> { ["b"] = 0 }, FileStatistics.NullCounts(views));
     }
 
+    [Fact]
+    public void FootersAsWritten_ReadInPlace_AsParsed()
+    {
+        StructField[] fields = NestedFields();
+        byte[] nested = NestedFile();
+        byte[] grouped = File(2, ("a", Primitive(Int32Type.Default, 4, 5, null, 1, 9, 7)), ("s", Strings("x", "é", null, "😀", "")));
+        StructField[] groupedFields = [Field("a", Primitive(PrimitiveType.Integer)), Field("s", Primitive(PrimitiveType.String)), Field("gone", Primitive(PrimitiveType.Date))];
+        foreach ((byte[] file, StructField[] table) in (ValueTuple<byte[], StructField[]>[])[(nested, fields), (grouped, groupedFields)])
+        {
+            ParquetMetadata parsed = ParquetMetadata.FromFile(file);
+            var leaves = new StatisticsLeaves(FileStatistics.IndexedLeaves(table, null));
+            using ParquetFooter footer = BytesOf(file);
+            for (int read = 0; read < 2; read++) // the second read with the schema placed already
+            {
+                Assert.Equal(FileStatistics.FromParquet(parsed, table), FileStatistics.FromFooter(footer, leaves));
+                Assert.Equal(FileStatistics.NullCounts(parsed), FileStatistics.NullCounts(footer, leaves));
+            }
+            // A footer read elsewhere (its metadata alone) reads alike.
+            Assert.Equal(FileStatistics.FromParquet(parsed, table), FileStatistics.FromFooter(new ParquetFooter(parsed), leaves));
+        }
+
+        // Damaged bytes are read as parsing reads them: refused alike.
+        int length = BinaryPrimitives.ReadInt32LittleEndian(nested.AsSpan(nested.Length - 8));
+        using ParquetFooter cut = ParquetFooter.Of(nested.AsSpan(nested.Length - 8 - length, length - 3));
+        Assert.Throws<ParquetFormatException>(() => FileStatistics.FromFooter(cut, new StatisticsLeaves(FileStatistics.IndexedLeaves(fields, null))));
+    }
+
     // ------------------------------------------------------------------
 
-    private static ParquetMetadata NestedFooter()
+    private static ParquetMetadata NestedFooter() => ParquetMetadata.FromFile(NestedFile());
+
+    private static byte[] NestedFile()
     {
         var inner = new ArrowStructType([new ArrowField("x\"y", Int32Type.Default, true), new ArrowField("名", StringType.Default, true)]);
         var outer = new ArrowStructType([new ArrowField("t.u", inner, true)]);
         IArrowArray innerValues = new StructArray(inner, 3, [Primitive(Int32Type.Default, 4, null, null, null), Strings("é", "ü", null)], ArrowBuffer.Empty, 0);
         IArrowArray outerValues = new StructArray(outer, 3, [innerValues], ArrowBuffer.Empty, 0);
-        return Footer(10, ("a", Primitive(Int32Type.Default, 4, 3, null, -7)), ("s", outerValues));
+        return File(10, ("a", Primitive(Int32Type.Default, 4, 3, null, -7)), ("s", outerValues));
     }
 
     private static StructField[] NestedFields()
@@ -117,7 +146,10 @@ public class FileStatisticsTests
 
     private static PrimitiveType Primitive(string name) => new(name);
 
-    private static ParquetMetadata Footer(int rowGroupRows, params (string Name, IArrowArray Values)[] columns)
+    private static ParquetMetadata Footer(int rowGroupRows, params (string Name, IArrowArray Values)[] columns) =>
+        ParquetMetadata.FromFile(File(rowGroupRows, columns));
+
+    private static byte[] File(int rowGroupRows, params (string Name, IArrowArray Values)[] columns)
     {
         var schema = new Apache.Arrow.Schema([.. columns.Select(c => new ArrowField(c.Name, c.Values.Data.DataType, true))], null);
         using var stream = new MemoryStream();
@@ -127,7 +159,14 @@ public class FileStatisticsTests
             writer.Write(batch);
             writer.Complete();
         }
-        return ParquetMetadata.FromFile(stream.ToArray());
+        return stream.ToArray();
+    }
+
+    /// <summary>The footer bytes of a file, as its writer hands them over.</summary>
+    private static ParquetFooter BytesOf(byte[] file)
+    {
+        int length = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(file.Length - 8));
+        return ParquetFooter.Of(file.AsSpan(file.Length - 8 - length, length));
     }
 
     private static IArrowArray Strings(params string?[] values)

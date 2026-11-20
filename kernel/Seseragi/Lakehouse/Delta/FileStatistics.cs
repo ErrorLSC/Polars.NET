@@ -4,8 +4,11 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
+using System.Diagnostics.CodeAnalysis;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
+using Kaminari.Seseragi.Files.Parquet.Schema;
+using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Files.Parquet;
@@ -52,118 +55,156 @@ public static class FileStatistics
 
     /// <summary>
     /// <see cref="FromParquet(ParquetMetadata, IReadOnlyList{StructField[]})"/> with the leaves prepared once for the
-    /// files of a write. Only the stats text is allocated: the bounds are read from the footer's own bytes and written
-    /// straight into the JSON.
+    /// files of a write.
     /// </summary>
     internal static string FromParquet(ParquetMetadata metadata, StatisticsLeaves leaves)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(leaves);
-        int count = leaves.Count;
-        LeafStatistics[] results = t_results is { } kept && kept.Length >= count ? kept : t_results = new LeafStatistics[Math.Max(count, 16)];
+        LeafPlacement placement = Placed(leaves, metadata.Schema, topLevel: false);
+        LeafStatistics[] results = Rent(placement.Count);
         try
         {
-            Gather(metadata, leaves, results.AsSpan(0, count));
-            using var buffer = new NativeBufferWriter(1024);
-            using (var json = new Utf8JsonWriter(buffer, ActionWriter.JsonOptions))
-            {
-                json.WriteStartObject();
-                json.WriteNumber("numRecords"u8, metadata.RowCount);
-                if (count > 0)
-                {
-                    Section(json, "minValues"u8, leaves, results, Part.Min);
-                    Section(json, "maxValues"u8, leaves, results, Part.Max);
-                    Section(json, "nullCount"u8, leaves, results, Part.Nulls);
-                }
-                json.WriteEndObject();
-            }
-            return Encoding.UTF8.GetString(buffer.WrittenSpan);
+            GatherParsed(metadata, placement, results);
+            return Render(metadata.RowCount, leaves, results, []);
         }
         finally
         {
-            results.AsSpan(0, count).Clear(); // let the footer's bound bytes go
+            results.AsSpan(0, placement.Count).Clear(); // let the footer's bound arrays go
         }
+    }
+
+    /// <summary>
+    /// The stats JSON of a data file from its footer as its writer wrote it: read in place from the Thrift bytes (the
+    /// schema, shared by the files of a write and placed once; the row counts; the statistics of the leaves' chunks;
+    /// nothing else read, nothing parsed into objects). A footer read elsewhere, or bytes not as a valid footer has
+    /// them, is read from its metadata (parsed, with the errors of parsing).
+    /// </summary>
+    internal static string FromFooter(ParquetFooter footer, StatisticsLeaves leaves)
+    {
+        ArgumentNullException.ThrowIfNull(footer);
+        ArgumentNullException.ThrowIfNull(leaves);
+        if (footer.HasBytes)
+        {
+            ReadOnlySpan<byte> thrift = footer.Thrift;
+            if (GatherBytes(thrift, leaves, topLevel: false, out LeafPlacement? placement, out LeafStatistics[]? results, out long rows))
+                return Render(rows, leaves, results, thrift);
+        }
+        return FromParquet(footer.Metadata, leaves);
     }
 
     /// <summary>Per thread: the statistics of the leaves of the file being described.</summary>
     [ThreadStatic] private static LeafStatistics[]? t_results;
 
-    /// <summary>What a leaf's statistics are in one file.</summary>
+    /// <summary>Per thread: the chunks of one row group, by leaf, while a footer's bytes are read.</summary>
+    [ThreadStatic] private static Statistic[]? t_chunks;
+
+    /// <summary>This thread's statistics of <paramref name="count"/> leaves, cleared.</summary>
+    private static LeafStatistics[] Rent(int count)
+    {
+        LeafStatistics[] results = t_results is { } kept && kept.Length >= count ? kept : t_results = new LeafStatistics[Math.Max(count, 16)];
+        results.AsSpan(0, count).Clear();
+        return results;
+    }
+
+    /// <summary>What a leaf's statistics are in one file: gathered row group by row group, then what is written.</summary>
     private struct LeafStatistics
     {
         public Bound Min, Max;
         public long NullCount;
-        public bool HasMin, HasMax, HasNullCount;
+        public bool Missing, NullsUnknown, MinUnknown, MaxUnknown; // while gathering
+        public bool HasMin, HasMax, HasNullCount;                  // what is written
     }
 
     private enum Part { Min, Max, Nulls }
 
-    /// <summary>The statistics of every leaf in the footer: its null count, and the bounds that are written.</summary>
-    private static void Gather(ParquetMetadata metadata, StatisticsLeaves leaves, Span<LeafStatistics> results)
+    /// <summary>The bytes of a bound: a whole array (a parsed footer's) or a range of a footer's Thrift bytes; none by default.</summary>
+    private readonly record struct Slice(byte[]? Array, int Start, int Length, bool Present)
     {
-        IReadOnlyList<ParquetSchemaElement> schema = metadata.Schema;
-        int elements = schema.Count;
-        Span<int> ends = elements <= 256 ? stackalloc int[elements] : new int[elements];
-        Span<int> ordinals = elements <= 256 ? stackalloc int[elements] : new int[elements];
-        int rootEnd = Index(schema, ends, ordinals);
-        var chunks = new Chunks(metadata);
-        int groups = chunks.GroupCount;
-        for (int i = 0; i < results.Length; i++)
-        {
-            ref LeafStatistics result = ref results[i];
-            string[] path = leaves.Paths[i];
-            int element = Find(schema, ends, rootEnd, path);
-            if (element < 0)
-            {
-                // Not in the file: every row is null (an old file read with a newer schema has the same shape).
-                result.NullCount = metadata.RowCount;
-                result.HasNullCount = true;
-                continue;
-            }
-            int ordinal = ordinals[element];
-            bool everyChunk = true;
-            long? nullCount = 0;
-            for (int g = 0; g < groups && everyChunk; g++)
-            {
-                if (!chunks.TryGet(g, ordinal, path, out Statistic chunk)) everyChunk = false;
-                else nullCount = chunk.NullCount is long n && nullCount is long sum ? sum + n : null;
-            }
-            if (!everyChunk) continue;
-            result.HasNullCount = nullCount.HasValue;
-            result.NullCount = nullCount.GetValueOrDefault();
+        public static Slice Of(byte[]? array) => array is null ? default : new(array, 0, array.Length, true);
 
-            DeltaType type = leaves.Types[i];
-            if (!HasBounds(type)) continue;
-            ParquetSchemaElement leaf = schema[element];
-            Bound min = default, max = default;
-            bool minKnown = true, maxKnown = true;
-            for (int g = 0; g < groups; g++)
+        public ReadOnlySpan<byte> In(ReadOnlySpan<byte> footer) => Array is { } array ? array : footer.Slice(Start, Length);
+    }
+
+    /// <summary>The statistics of one column chunk, as the footer has them.</summary>
+    private readonly record struct Statistic(bool Exists, Slice Min, Slice Max, long? NullCount);
+
+    /// <summary>
+    /// Where leaves are in one file's schema: each one's schema element (-1 where the file has none) and column chunk
+    /// (its ordinal among the schema's leaves), and the leaves each chunk gives statistics for.
+    /// </summary>
+    private sealed class LeafPlacement
+    {
+        public required object Key { get; init; }
+        public required IReadOnlyList<ParquetSchemaElement> Schema { get; init; }
+        public required string[][] Paths { get; init; }
+        /// <summary>The paths in UTF-8, encoded when first asked for (only a footer's bytes are read by them).</summary>
+        public byte[][][] Utf8Paths => _utf8Paths ??= [.. Paths.Select(static path => path.Select(Encoding.UTF8.GetBytes).ToArray())];
+
+        private byte[][][]? _utf8Paths;
+        public required DeltaType[] Types { get; init; }
+        public required int[] Element { get; init; }
+        public required int[] Ordinal { get; init; }
+        public required int LeafCount { get; init; }
+        public required int[][] LeavesAt { get; init; }
+
+        public int Count => Paths.Length;
+    }
+
+    /// <summary>A type with no bounds: the top-level leaves of <see cref="NullCounts(ParquetMetadata)"/> are counted only.</summary>
+    private static readonly PrimitiveType Counted = new(PrimitiveType.Boolean);
+
+    /// <summary>
+    /// Places <paramref name="leaves"/> in <paramref name="schema"/>, or (without leaves) its top-level leaves that
+    /// are not repeated, each name once, for their null counts.
+    /// </summary>
+    private static LeafPlacement Place(object key, IReadOnlyList<ParquetSchemaElement> schema, StatisticsLeaves? leaves)
+    {
+        int elements = schema.Count;
+        int[] ends = new int[elements], ordinals = new int[elements];
+        (int rootEnd, int leafCount) = Index(schema, ends, ordinals);
+        string[][] paths;
+        DeltaType[] types;
+        int[] element;
+        if (leaves is null)
+        {
+            List<int> found = [];
+            HashSet<string> names = [];
+            for (int at = 1; at < rootEnd; at = ends[at])
             {
-                chunks.TryGet(g, ordinal, path, out Statistic chunk);
-                long rows = chunks.Rows(g);
-                bool allNull = chunk.NullCount is long n && n >= rows;
-                if (allNull || rows == 0) continue;
-                if (!chunk.Exists || chunk.Min is not { } a || !Decode(a, type, leaf, out Bound lo)) minKnown = false;
-                else if (min.Kind == BoundKind.None || Compare(lo, min) < 0) min = lo;
-                if (!chunk.Exists || chunk.Max is not { } b || !Decode(b, type, leaf, out Bound hi)) maxKnown = false;
-                else if (max.Kind == BoundKind.None || Compare(hi, max) > 0) max = hi;
+                if (schema[at].ChildCount == 0 && schema[at].Repetition != 2 && names.Add(schema[at].Name)) found.Add(at);
             }
-            result.HasMin = minKnown && min.Kind != BoundKind.None && Written(min, type, isMax: false);
-            result.HasMax = maxKnown && max.Kind != BoundKind.None && Written(max, type, isMax: true);
-            result.Min = min;
-            result.Max = max;
+            element = [.. found];
+            paths = [.. found.Select(at => (string[])[schema[at].Name])];
+            types = [.. found.Select(_ => (DeltaType)Counted)];
         }
+        else
+        {
+            (paths, types) = (leaves.Paths, leaves.Types);
+            element = [.. paths.Select(path => Find(schema, ends, rootEnd, path))];
+        }
+        int[] ordinal = [.. element.Select(e => e < 0 ? -1 : ordinals[e])];
+        var byChunk = new List<int>?[leafCount];
+        for (int i = 0; i < ordinal.Length; i++)
+        {
+            if (ordinal[i] >= 0) (byChunk[ordinal[i]] ??= []).Add(i);
+        }
+        return new LeafPlacement
+        {
+            Key = key, Schema = schema, Paths = paths, Types = types, Element = element, Ordinal = ordinal,
+            LeafCount = leafCount, LeavesAt = [.. byChunk.Select(l => l is null ? [] : l.ToArray())],
+        };
 
         // Indexes the flattened schema: for each element the index after its subtree and the ordinal of its first leaf (a
-        // leaf's column chunk in every row group). Returns the index after the root's children.
-        static int Index(IReadOnlyList<ParquetSchemaElement> schema, Span<int> ends, Span<int> ordinals)
+        // leaf's column chunk in every row group). Returns the index after the root's children, and the leaves.
+        static (int RootEnd, int Leaves) Index(IReadOnlyList<ParquetSchemaElement> schema, int[] ends, int[] ordinals)
         {
-            if (schema.Count == 0) return 0;
+            if (schema.Count == 0) return (0, 0);
             int at = 1, leaf = 0;
             for (int child = 0; child < schema[0].ChildCount && at < schema.Count; child++) at = Walk(schema, at, ends, ordinals, ref leaf);
-            return at;
+            return (at, leaf);
 
-            static int Walk(IReadOnlyList<ParquetSchemaElement> schema, int at, Span<int> ends, Span<int> ordinals, ref int leaf)
+            static int Walk(IReadOnlyList<ParquetSchemaElement> schema, int at, int[] ends, int[] ordinals, ref int leaf)
             {
                 ParquetSchemaElement element = schema[at];
                 ordinals[at] = leaf;
@@ -177,7 +218,7 @@ public static class FileStatistics
 
         // The schema element of the leaf at path (names from a top-level column down), or -1 when the
         // file has none there or the leaf is repeated or under a repeated group (a list or map). Of equal names, the last.
-        static int Find(IReadOnlyList<ParquetSchemaElement> schema, ReadOnlySpan<int> ends, int rootEnd, string[] path)
+        static int Find(IReadOnlyList<ParquetSchemaElement> schema, int[] ends, int rootEnd, string[] path)
         {
             int from = 1, to = rootEnd;
             for (int depth = 0; depth < path.Length; depth++)
@@ -195,14 +236,257 @@ public static class FileStatistics
             }
             return -1;
         }
+    }
 
-        static bool HasBounds(DeltaType type) =>
-            type is DecimalType || type is PrimitiveType { Name: not (PrimitiveType.Boolean or PrimitiveType.Binary) };
+    /// <summary>The placement for a parsed schema: the last one of the write when its files' schemas are equal, else placed now.</summary>
+    private static LeafPlacement Placed(StatisticsLeaves leaves, IReadOnlyList<ParquetSchemaElement> schema, bool topLevel)
+    {
+        if ((topLevel ? leaves.PlacedTopLevel : leaves.Placed) is LeafPlacement kept && Same(kept.Schema, schema)) return kept;
+        LeafPlacement placement = Place(schema, schema, topLevel ? null : leaves);
+        if (topLevel) leaves.PlacedTopLevel = placement;
+        else leaves.Placed = placement;
+        return placement;
+
+        static bool Same(IReadOnlyList<ParquetSchemaElement> a, IReadOnlyList<ParquetSchemaElement> b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!a[i].Equals(b[i])) return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>Gathers the statistics of the placed leaves from a parsed footer (its Thrift objects, or its views alone).</summary>
+    private static void GatherParsed(ParquetMetadata metadata, LeafPlacement placement, LeafStatistics[] results)
+    {
+        var chunks = new Chunks(metadata);
+        int groups = chunks.GroupCount;
+        for (int g = 0; g < groups; g++)
+        {
+            long rows = chunks.Rows(g);
+            for (int i = 0; i < placement.Count; i++)
+            {
+                if (placement.Element[i] < 0 || results[i].Missing) continue;
+                if (chunks.TryGet(g, placement.Ordinal[i], placement.Paths[i], out Statistic chunk))
+                    Fold(ref results[i], chunk, rows, placement.Types[i], placement.Schema[placement.Element[i]], []);
+                else results[i].Missing = true;
+            }
+        }
+        Finish(placement, results, metadata.RowCount, []);
+    }
+
+    /// <summary>
+    /// Gathers the statistics of the leaves (or of the top-level leaves) from a footer's Thrift bytes, read in place;
+    /// false when they are not as a valid footer has them (its row groups before its schema, a column count that is
+    /// not the schema's, a chunk without metadata or of another path, an encrypted footer, damage).
+    /// </summary>
+    private static bool GatherBytes(ReadOnlySpan<byte> footer, StatisticsLeaves leaves, bool topLevel,
+        [NotNullWhen(true)] out LeafPlacement? placement, [NotNullWhen(true)] out LeafStatistics[]? results, out long rowCount)
+    {
+        placement = null;
+        results = null;
+        rowCount = 0;
+        try
+        {
+            var r = new ThriftCompactReader(footer);
+            r.EnterStruct();
+            bool hasRows = false, hasGroups = false;
+            short last = 0;
+            while (r.NextField(ref last, out short id, out byte type))
+            {
+                switch (id)
+                {
+                    case 2 when type == ThriftType.List && placement is null:
+                        int at = r.Position;
+                        r.Skip(type);
+                        placement = PlacedRead(leaves, leaves.Interner.Schema(r.Since(at)), topLevel);
+                        results = Rent(placement.Count);
+                        break;
+                    case 3 when type == ThriftType.I64:
+                        rowCount = r.ReadI64();
+                        hasRows = true;
+                        break;
+                    case 4 when type == ThriftType.List && placement is not null && !hasGroups:
+                        if (!RowGroups(ref r, footer, placement, results!)) return false;
+                        hasGroups = true;
+                        break;
+                    case 2 or 3 or 4 or 8: return false; // out of order, repeated, of another type; 8: encrypted
+                    default:
+                        r.Skip(type);
+                        break;
+                }
+            }
+            if (!hasRows || !hasGroups || placement is null || results is null) return false;
+            Finish(placement, results, rowCount, footer);
+            return true;
+        }
+        catch (ParquetFormatException)
+        {
+            return false;
+        }
+
+        // The placement for a schema read from a footer's bytes: the last one of the write when its files share the
+        // schema (the interner gives them one array), else placed now (after checking the schema makes a tree: a
+        // ParquetFormatException otherwise).
+        static LeafPlacement PlacedRead(StatisticsLeaves leaves, SchemaElement[] schema, bool topLevel)
+        {
+            if ((topLevel ? leaves.PlacedTopLevel : leaves.Placed) is LeafPlacement kept && ReferenceEquals(kept.Key, schema)) return kept;
+            int leafCount = SchemaTree.CountLeaves(schema);
+            LeafPlacement placement = Place(schema, [.. schema.Select(ParquetMetadata.SchemaElement)], topLevel ? null : leaves);
+            if (placement.LeafCount != leafCount) throw new ParquetFormatException("The schema's leaves were miscounted.");
+            if (topLevel) leaves.PlacedTopLevel = placement;
+            else leaves.Placed = placement;
+            return placement;
+        }
+
+        // The row groups: per group, its chunks of the placed leaves, folded once its row count is read.
+        static bool RowGroups(ref ThriftCompactReader r, ReadOnlySpan<byte> footer, LeafPlacement placement, LeafStatistics[] results)
+        {
+            int count = r.ReadListHeader(out byte element);
+            if (element != ThriftType.Struct) return false;
+            Statistic[] chunks = t_chunks is { } kept && kept.Length >= placement.Count ? kept : t_chunks = new Statistic[Math.Max(placement.Count, 16)];
+            for (int g = 0; g < count; g++)
+            {
+                chunks.AsSpan(0, placement.Count).Clear();
+                r.EnterStruct();
+                long? rows = null;
+                bool columns = false;
+                short last = 0;
+                while (r.NextField(ref last, out short id, out byte type))
+                {
+                    if (id == 1 && type == ThriftType.List && !columns)
+                    {
+                        if (!Columns(ref r, placement, chunks)) return false;
+                        columns = true;
+                    }
+                    else if (id == 3 && type == ThriftType.I64) rows = r.ReadI64();
+                    else r.Skip(type);
+                }
+                r.ExitStruct();
+                if (rows is not long n || !columns) return false;
+                for (int i = 0; i < placement.Count; i++)
+                {
+                    if (placement.Element[i] >= 0) Fold(ref results[i], chunks[i], n, placement.Types[i], placement.Schema[placement.Element[i]], footer);
+                }
+            }
+            return true;
+        }
+
+        // A row group's column chunks: one per schema leaf, each with its metadata; the placed leaves' read.
+        static bool Columns(ref ThriftCompactReader r, LeafPlacement placement, Statistic[] chunks)
+        {
+            int count = r.ReadListHeader(out byte element);
+            if (element != ThriftType.Struct || count != placement.LeafCount) return false;
+            for (int c = 0; c < count; c++)
+            {
+                int[] wanted = placement.LeavesAt[c];
+                r.EnterStruct();
+                bool meta = false;
+                short last = 0;
+                while (r.NextField(ref last, out short id, out byte type))
+                {
+                    if (id == 3 && type == ThriftType.Struct && !meta)
+                    {
+                        meta = true;
+                        if (wanted.Length == 0) r.Skip(type);
+                        else if (!Chunk(ref r, placement.Utf8Paths[wanted[0]], wanted, chunks)) return false;
+                    }
+                    else r.Skip(type);
+                }
+                r.ExitStruct();
+                if (!meta) return false;
+            }
+            return true;
+        }
+
+        // A chunk's metadata: its path (the leaf's, or the footer is not read in place) and its statistics.
+        static bool Chunk(ref ThriftCompactReader r, byte[][] path, int[] wanted, Statistic[] chunks)
+        {
+            r.EnterStruct();
+            bool pathRead = false;
+            Slice min = default, max = default;
+            long? nulls = null;
+            short last = 0;
+            while (r.NextField(ref last, out short id, out byte type))
+            {
+                switch (id)
+                {
+                    case 3 when type == ThriftType.List && !pathRead:
+                        if (!SamePath(ref r, path)) return false;
+                        pathRead = true;
+                        break;
+                    case 12 when type == ThriftType.Struct:
+                        Statistics(ref r, out min, out max, out nulls);
+                        break;
+                    default:
+                        r.Skip(type);
+                        break;
+                }
+            }
+            r.ExitStruct();
+            if (!pathRead) return false;
+            foreach (int i in wanted) chunks[i] = new Statistic(true, min, max, nulls);
+            return true;
+        }
+
+        static bool SamePath(ref ThriftCompactReader r, byte[][] path)
+        {
+            int count = r.ReadListHeader(out byte element);
+            if (element != ThriftType.Binary || count != path.Length) return false;
+            for (int i = 0; i < count; i++)
+            {
+                if (!r.ReadBinary().SequenceEqual(path[i])) return false;
+            }
+            return true;
+        }
+
+        // The min_value / max_value bounds (ranges of the footer) and the null count; the legacy min / max ignored.
+        static void Statistics(ref ThriftCompactReader r, out Slice min, out Slice max, out long? nulls)
+        {
+            (min, max, nulls) = (default, default, null);
+            r.EnterStruct();
+            short last = 0;
+            while (r.NextField(ref last, out short id, out byte type))
+            {
+                switch (id)
+                {
+                    case 3 when type == ThriftType.I64: nulls = r.ReadI64(); break;
+                    case 5 when type == ThriftType.Binary: max = Here(ref r); break;
+                    case 6 when type == ThriftType.Binary: min = Here(ref r); break;
+                    default: r.Skip(type); break;
+                }
+            }
+            r.ExitStruct();
+
+            static Slice Here(ref ThriftCompactReader r)
+            {
+                int length = r.ReadBinary().Length;
+                return new Slice(null, r.Position - length, length, true);
+            }
+        }
+    }
+
+    /// <summary>Folds one row group's chunk of a leaf into its statistics.</summary>
+    private static void Fold(ref LeafStatistics result, in Statistic chunk, long rows, DeltaType type, ParquetSchemaElement leaf, ReadOnlySpan<byte> footer)
+    {
+        if (chunk.NullCount is long nulls) result.NullCount += nulls;
+        else result.NullsUnknown = true;
+        if (!HasBounds(type)) return;
+        bool allNull = chunk.NullCount is long n && n >= rows;
+        if (allNull || rows == 0) return;
+        if (!chunk.Min.Present || !Decode(chunk.Min, footer, type, leaf, out Bound lo)) result.MinUnknown = true;
+        else if (result.Min.Kind == BoundKind.None || Compare(lo, result.Min, footer) < 0) result.Min = lo;
+        if (!chunk.Max.Present || !Decode(chunk.Max, footer, type, leaf, out Bound hi)) result.MaxUnknown = true;
+        else if (result.Max.Kind == BoundKind.None || Compare(hi, result.Max, footer) > 0) result.Max = hi;
 
         // Decodes a PLAIN-encoded bound; false when the physical type does not fit the column type.
-        static bool Decode(byte[] bytes, DeltaType type, ParquetSchemaElement element, out Bound bound)
+        static bool Decode(Slice slice, ReadOnlySpan<byte> footer, DeltaType type, ParquetSchemaElement element, out Bound bound)
         {
             bound = default;
+            ReadOnlySpan<byte> bytes = slice.In(footer);
             int? physical = element.PhysicalType;
             switch (type)
             {
@@ -217,7 +501,7 @@ public static class FileStatistics
                         1 => new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt32LittleEndian(bytes) },
                         2 => new Bound { Kind = BoundKind.Integer, Integer = BinaryPrimitives.ReadInt64LittleEndian(bytes) },
                         _ when bytes.Length <= 16 => new Bound { Kind = BoundKind.Integer, Integer = BigEndian(bytes) },
-                        _ => new Bound { Kind = BoundKind.LongDecimal, Bytes = bytes },
+                        _ => new Bound { Kind = BoundKind.LongDecimal, Bytes = slice },
                     };
                     return true;
                 }
@@ -259,7 +543,7 @@ public static class FileStatistics
                         case PrimitiveType.String:
                             // A bound that is not valid UTF-8 (a cut inside a character) is not trusted.
                             if (physical != 6 || !Utf8.IsValid(bytes)) return false;
-                            bound = new Bound { Kind = BoundKind.Utf8, Bytes = bytes };
+                            bound = new Bound { Kind = BoundKind.Utf8, Bytes = slice };
                             return true;
                     }
                     break;
@@ -276,28 +560,58 @@ public static class FileStatistics
             }
         }
 
-        static int Compare(in Bound a, in Bound b) => (a.Kind, b.Kind) switch
+        static int Compare(in Bound a, in Bound b, ReadOnlySpan<byte> footer) => (a.Kind, b.Kind) switch
         {
             (BoundKind.Integer, BoundKind.Integer) => a.Integer.CompareTo(b.Integer),
-            (BoundKind.Integer or BoundKind.LongDecimal, BoundKind.Integer or BoundKind.LongDecimal) => a.Big.CompareTo(b.Big),
+            (BoundKind.Integer or BoundKind.LongDecimal, BoundKind.Integer or BoundKind.LongDecimal) => a.Big(footer).CompareTo(b.Big(footer)),
             (BoundKind.Float, BoundKind.Float) => a.Float.CompareTo(b.Float),
-            _ => a.Bytes.AsSpan().SequenceCompareTo(b.Bytes), // unsigned bytes: the Parquet order of UTF-8
+            _ => a.Bytes.In(footer).SequenceCompareTo(b.Bytes.In(footer)), // unsigned bytes: the Parquet order of UTF-8
         };
+    }
+
+    /// <summary>
+    /// Settles what is written for each leaf once every row group is folded, leaf by leaf: nothing where a row group
+    /// has no chunk for it, every row null where the file has no such leaf.
+    /// </summary>
+    private static void Finish(LeafPlacement placement, LeafStatistics[] results, long rowCount, ReadOnlySpan<byte> footer)
+    {
+        for (int i = 0; i < placement.Count; i++)
+        {
+            ref LeafStatistics result = ref results[i];
+            if (placement.Element[i] < 0)
+            {
+                // Not in the file: every row is null (an old file read with a newer schema has the same shape).
+                result = default;
+                result.NullCount = rowCount;
+                result.HasNullCount = true;
+                continue;
+            }
+            if (result.Missing)
+            {
+                result = default;
+                continue;
+            }
+            result.HasNullCount = !result.NullsUnknown;
+            DeltaType type = placement.Types[i];
+            if (!HasBounds(type)) continue;
+            result.HasMin = !result.MinUnknown && result.Min.Kind != BoundKind.None && Written(result.Min, type, isMax: false, footer);
+            result.HasMax = !result.MaxUnknown && result.Max.Kind != BoundKind.None && Written(result.Max, type, isMax: true, footer);
+        }
 
         // Whether a bound is written: not a non-finite float, not a string maximum longer than the prefix kept. A date
         // or time the log cannot hold fails here, leaf by leaf, as when the bounds were formatted while gathered.
-        static bool Written(in Bound bound, DeltaType type, bool isMax) => type switch
+        static bool Written(in Bound bound, DeltaType type, bool isMax, ReadOnlySpan<byte> footer) => type switch
         {
             PrimitiveType { Name: PrimitiveType.Float or PrimitiveType.Double } => double.IsFinite(bound.Float),
-            PrimitiveType { Name: PrimitiveType.String } => !isMax || Utf16Cut(bound.Bytes) == bound.Bytes!.Length,
+            PrimitiveType { Name: PrimitiveType.String } => !isMax || Utf16Cut(bound.Bytes.In(footer)) == bound.Bytes.Length,
             PrimitiveType { Name: PrimitiveType.Date } => DayOf(bound) >= DateOnly.MinValue,
             PrimitiveType { Name: PrimitiveType.Timestamp or PrimitiveType.TimestampNtz } => InstantOf(bound) >= DateTime.MinValue,
             _ => true,
         };
     }
 
-    /// <summary>The statistics of one column chunk, as the footer has them.</summary>
-    private readonly record struct Statistic(bool Exists, byte[]? Min, byte[]? Max, long? NullCount);
+    private static bool HasBounds(DeltaType type) =>
+        type is DecimalType || type is PrimitiveType { Name: not (PrimitiveType.Boolean or PrimitiveType.Binary) };
 
     /// <summary>
     /// The column chunks of a footer, found by path: in its Thrift objects (no views made) first at the leaf's ordinal,
@@ -331,7 +645,7 @@ public static class FileStatistics
                 {
                     if (!Same(chunk.Path, path)) continue;
                     ParquetColumnStatistics? s = chunk.Statistics;
-                    statistic = new Statistic(true, s?.Min, s?.Max, s?.NullCount);
+                    statistic = new Statistic(true, Slice.Of(s?.Min), Slice.Of(s?.Max), s?.NullCount);
                     return true;
                 }
             }
@@ -341,7 +655,7 @@ public static class FileStatistics
             static bool Found(ColumnMetaData meta, out Statistic statistic)
             {
                 Statistics? s = meta.Statistics;
-                statistic = new Statistic(true, s?.MinValue, s?.MaxValue, s?.NullCount);
+                statistic = new Statistic(true, Slice.Of(s?.MinValue), Slice.Of(s?.MaxValue), s?.NullCount);
                 return true;
             }
 
@@ -357,12 +671,31 @@ public static class FileStatistics
         }
     }
 
+    /// <summary>The stats JSON of the gathered statistics: only the text is allocated.</summary>
+    private static string Render(long rowCount, StatisticsLeaves leaves, LeafStatistics[] results, ReadOnlySpan<byte> footer)
+    {
+        using var buffer = new NativeBufferWriter(1024);
+        using (var json = new Utf8JsonWriter(buffer, ActionWriter.JsonOptions))
+        {
+            json.WriteStartObject();
+            json.WriteNumber("numRecords"u8, rowCount);
+            if (leaves.Count > 0)
+            {
+                Section(json, "minValues"u8, leaves, results, Part.Min, footer);
+                Section(json, "maxValues"u8, leaves, results, Part.Max, footer);
+                Section(json, "nullCount"u8, leaves, results, Part.Nulls, footer);
+            }
+            json.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
     /// <summary>
     /// One section of the stats (minimum, maximum or null count of the leaves that have one), nested under the structs
     /// of the leaves: a struct's object only holds what is written for its fields, and is left out when that is
     /// nothing.
     /// </summary>
-    private static void Section(Utf8JsonWriter json, ReadOnlySpan<byte> name, StatisticsLeaves leaves, LeafStatistics[] results, Part part)
+    private static void Section(Utf8JsonWriter json, ReadOnlySpan<byte> name, StatisticsLeaves leaves, LeafStatistics[] results, Part part, ReadOnlySpan<byte> footer)
     {
         json.WriteStartObject(name);
         if (leaves.Contiguous)
@@ -383,7 +716,7 @@ public static class FileStatistics
                 for (; open > common; open--) json.WriteEndObject();
                 for (; open < depth; open++) json.WriteStartObject(leaves.Names[i][open]);
                 json.WritePropertyName(leaves.Names[i][depth]);
-                Value(json, leaves.Types[i], results[i], part);
+                Value(json, leaves.Types[i], results[i], part, footer);
                 previous = i;
             }
             for (; open > 0; open--) json.WriteEndObject();
@@ -395,12 +728,12 @@ public static class FileStatistics
             {
                 if (Has(results[i], part)) written.Add(i);
             }
-            Nest(json, leaves, results, part, written, 0);
+            Nest(json, leaves, results, part, written, 0, footer);
         }
         json.WriteEndObject();
 
         // Leaves in any order: the values under one struct grouped under its first leaf's place.
-        static void Nest(Utf8JsonWriter json, StatisticsLeaves leaves, LeafStatistics[] results, Part part, List<int> items, int depth)
+        static void Nest(Utf8JsonWriter json, StatisticsLeaves leaves, LeafStatistics[] results, Part part, List<int> items, int depth, ReadOnlySpan<byte> footer)
         {
             foreach (IGrouping<int, int> group in items.GroupBy(i => leaves.Prefixes[i][depth]))
             {
@@ -409,11 +742,11 @@ public static class FileStatistics
                 List<int> members = [.. group];
                 if (members.Count == 1 && leaves.Prefixes[first].Length == depth + 1)
                 {
-                    Value(json, leaves.Types[first], results[first], part);
+                    Value(json, leaves.Types[first], results[first], part, footer);
                     continue;
                 }
                 json.WriteStartObject();
-                Nest(json, leaves, results, part, members, depth + 1);
+                Nest(json, leaves, results, part, members, depth + 1, footer);
                 json.WriteEndObject();
             }
         }
@@ -425,18 +758,18 @@ public static class FileStatistics
             _ => result.HasNullCount,
         };
 
-        static void Value(Utf8JsonWriter json, DeltaType type, in LeafStatistics result, Part part)
+        static void Value(Utf8JsonWriter json, DeltaType type, in LeafStatistics result, Part part, ReadOnlySpan<byte> footer)
         {
             switch (part)
             {
-                case Part.Min: Write(json, result.Min, type, isMax: false); break;
-                case Part.Max: Write(json, result.Max, type, isMax: true); break;
+                case Part.Min: Write(json, result.Min, type, footer); break;
+                case Part.Max: Write(json, result.Max, type, footer); break;
                 default: json.WriteNumberValue(result.NullCount); break;
             }
         }
 
         // Writes a bound as the log holds it.
-        static void Write(Utf8JsonWriter json, in Bound bound, DeltaType type, bool isMax)
+        static void Write(Utf8JsonWriter json, in Bound bound, DeltaType type, ReadOnlySpan<byte> footer)
         {
             Span<byte> text = stackalloc byte[64];
             int length;
@@ -445,7 +778,7 @@ public static class FileStatistics
                 case DecimalType d:
                     if (bound.Kind == BoundKind.LongDecimal)
                     {
-                        json.WriteRawValue(WideDecimalText(bound.Big, d.Scale));
+                        json.WriteRawValue(WideDecimalText(bound.Big(footer), d.Scale));
                         return;
                     }
                     length = DecimalText(bound.Integer, d.Scale, text);
@@ -471,7 +804,8 @@ public static class FileStatistics
                     break;
                 }
                 case PrimitiveType { Name: PrimitiveType.String }:
-                    json.WriteStringValue(bound.Bytes.AsSpan(0, Utf16Cut(bound.Bytes)));
+                    ReadOnlySpan<byte> utf8 = bound.Bytes.In(footer);
+                    json.WriteStringValue(utf8[..Utf16Cut(utf8)]);
                     return;
                 default:
                     json.WriteNumberValue(checked((long)bound.Integer));
@@ -595,38 +929,38 @@ public static class FileStatistics
     public static IReadOnlyDictionary<string, long> NullCounts(ParquetMetadata metadata)
     {
         ArgumentNullException.ThrowIfNull(metadata);
-        var result = new Dictionary<string, long>(StringComparer.Ordinal);
-        IReadOnlyList<ParquetSchemaElement> schema = metadata.Schema;
-        if (schema.Count == 0) return result;
-        var chunks = new Chunks(metadata);
-        int groups = chunks.GroupCount;
-        int at = 1, ordinal = 0;
-        for (int child = 0; child < schema[0].ChildCount && at < schema.Count; child++)
-        {
-            ParquetSchemaElement element = schema[at];
-            int next = Skip(schema, at, ref ordinal);
-            if (element.ChildCount == 0 && element.Repetition != 2 && !result.ContainsKey(element.Name))
-            {
-                long? sum = 0;
-                for (int g = 0; g < groups && sum is not null; g++)
-                {
-                    sum = chunks.TryGet(g, ordinal - 1, [element.Name], out Statistic chunk) && chunk.NullCount is long n ? sum + n : null;
-                }
-                if (sum is long total) result[element.Name] = total;
-            }
-            at = next;
-        }
-        return result;
+        LeafPlacement placement = Place(metadata.Schema, metadata.Schema, leaves: null);
+        LeafStatistics[] results = Rent(placement.Count);
+        GatherParsed(metadata, placement, results);
+        return Counts(placement, results);
+    }
 
-        // The index after the subtree at `at`, counting its leaves.
-        static int Skip(IReadOnlyList<ParquetSchemaElement> schema, int at, ref int leaves)
+    /// <summary>
+    /// <see cref="NullCounts(ParquetMetadata)"/> of a footer as its writer wrote it, read in place as
+    /// <see cref="FromFooter"/> reads it (the schema placed once per write of <paramref name="leaves"/>).
+    /// </summary>
+    internal static Dictionary<string, long> NullCounts(ParquetFooter footer, StatisticsLeaves leaves)
+    {
+        ArgumentNullException.ThrowIfNull(footer);
+        ArgumentNullException.ThrowIfNull(leaves);
+        if (footer.HasBytes && GatherBytes(footer.Thrift, leaves, topLevel: true, out LeafPlacement? placement, out LeafStatistics[]? results, out _))
+            return Counts(placement, results);
+        ParquetMetadata metadata = footer.Metadata;
+        LeafPlacement parsed = Placed(leaves, metadata.Schema, topLevel: true);
+        LeafStatistics[] counted = Rent(parsed.Count);
+        GatherParsed(metadata, parsed, counted);
+        return Counts(parsed, counted);
+    }
+
+    private static Dictionary<string, long> Counts(LeafPlacement placement, LeafStatistics[] results)
+    {
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        for (int i = 0; i < placement.Count; i++)
         {
-            int children = schema[at].ChildCount;
-            if (children == 0) leaves++;
-            at++;
-            for (int i = 0; i < children; i++) at = Skip(schema, at, ref leaves);
-            return at;
+            if (results[i].HasNullCount) counts[placement.Paths[i][0]] = results[i].NullCount;
         }
+        results.AsSpan(0, placement.Count).Clear();
+        return counts;
     }
 
     // ------------------------------------------------------------------
@@ -637,16 +971,18 @@ public static class FileStatistics
 
     /// <summary>
     /// A decoded bound: an integer (also dates, timestamps in microseconds, decimals unscaled), a float, UTF-8 bytes,
-    /// or the big-endian bytes of a decimal wider than 128 bits; the bytes are the footer's own.
+    /// or the big-endian bytes of a decimal wider than 128 bits; the bytes are the footer's own (an array of a parsed
+    /// footer, or a range of its Thrift bytes).
     /// </summary>
     private readonly struct Bound
     {
         public BoundKind Kind { get; init; }
         public Int128 Integer { get; init; }
         public double Float { get; init; }
-        public byte[]? Bytes { get; init; }
+        public Slice Bytes { get; init; }
 
-        public BigInteger Big => Kind == BoundKind.LongDecimal ? new BigInteger(Bytes, isUnsigned: false, isBigEndian: true) : (BigInteger)Integer;
+        public BigInteger Big(ReadOnlySpan<byte> footer) =>
+            Kind == BoundKind.LongDecimal ? new BigInteger(Bytes.In(footer), isUnsigned: false, isBigEndian: true) : (BigInteger)Integer;
     }
 
     /// <summary>The day of a date bound (days since the epoch).</summary>
@@ -749,4 +1085,15 @@ internal sealed class StatisticsLeaves
 
     /// <summary>Whether the leaves of every struct follow one another (as in schema order).</summary>
     public bool Contiguous { get; }
+
+    /// <summary>The footers' schemas of the write: read once for all its files of one schema.</summary>
+    public FooterInterner Interner => _interner ??= new();
+
+    private FooterInterner? _interner;
+
+    /// <summary>
+    /// The placement of the leaves, and of the top-level leaves, in the last schema read from a footer's bytes (a
+    /// write's files share it): the statistics' own type, held as an object here.
+    /// </summary>
+    internal object? Placed, PlacedTopLevel;
 }
