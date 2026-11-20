@@ -257,7 +257,8 @@ module internal EnumResolution =
                 nullIfZero)
         // .NET sums integers in checked arithmetic: Sum of int / long, and the long sum behind Average of long,
         // throw OverflowException where the engine wraps. The sum is taken exactly in a wider type and checked
-        // against the range of the summed type (a strict cast without assertions: the query still fails).
+        // against the range of the summed type (a strict cast without assertions: the query still fails; an
+        // Average is then the engine's mean).
         // A sum of narrower integers or of booleans (a count) widened to 64 bits cannot overflow, which also leaves the
         // rewritten sum alone. Neither can a long sum whose values are all small literals, below 2^32 rows.
         | ScalarExpr.Aggregation((AggKind.Sum | AggKind.Mean) as kind, Some inner, distinct) when
@@ -274,69 +275,57 @@ module internal EnumResolution =
             let inner' = resolve inner
             let summedType = typeOf inner'
             let wide, min, max = (checkedSumOf summedType).Value
-            match kind with
-            // Over all the rows, the checked sum is one aggregation (a single-pass backend kernel); per group it is an
-            // exact wide sum narrowed back (below), which the engine computes for all the groups at once.
+            let assertions = CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
+            // Per group: one exact sum in the wider type, narrowed back to the summed type with the overflow check.
+            // One aggregation: an engine evaluates the aggregations of a group-by apart (no common ones), so a check
+            // beside the value would sum twice. A long operand is cast to Int64 first (its inferred type is the CLR
+            // type's, which the engine's may not be: a count, a narrower integer), which also marks the sum as one of
+            // integers for a backend that sums them in a native 128-bit type.
+            let narrowedSum () =
+                let operand =
+                    match summedType with
+                    | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) ->
+                        ScalarExpr.Cast(ScalarExpr.Cast(inner', LogicalTypes.Int64, false), wide, false)
+                    | _ -> ScalarExpr.Cast(inner', wide, false)
+                ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ ScalarExpr.Aggregation(AggKind.Sum, Some operand, distinct) ], summedType)
+            // Over all the rows, the checked sum is one aggregation (a single-pass backend kernel); per group it is the
+            // narrowed exact sum, which the engine computes for all the groups at once.
             // The operand is cast to its inferred type, which the engine's may not be (a count, a narrower column).
-            | AggKind.Sum when not grouped ->
-                ScalarExpr.Aggregation(AggKind.CheckedSum, Some(ScalarExpr.Cast(inner', summedType, false)), distinct)
+            let checkedSum () =
+                if grouped then narrowedSum ()
+                else ScalarExpr.Aggregation(AggKind.CheckedSum, Some(ScalarExpr.Cast(inner', summedType, false)), distinct)
+            match kind with
+            | AggKind.Sum when not grouped -> checkedSum ()
+            | AggKind.Sum when not assertions ->
+                ScalarExpr.Cast(ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', wide, false)), distinct), summedType, true)
+            | AggKind.Sum -> narrowedSum ()
+            | _ when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+            // Average of long, as .NET: the checked long sum, as a double, over the count of values (no values: null).
+            | _ when not distinct ->
+                let count = ScalarExpr.Aggregation(AggKind.Count, Some inner', false)
+                let nullIfZero =
+                    ScalarExpr.Conditional(
+                        ScalarExpr.Binary(BinaryOp.Eq, count, ScalarExpr.Literal(LiteralValue.UInt32 0u)),
+                        ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Float64),
+                        ScalarExpr.Cast(count, LogicalTypes.Float64, false))
+                ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(checkedSum (), LogicalTypes.Float64, false), nullIfZero)
+            // Average of distinct longs: the engine's mean, its exact sum checked beside it (an engine's count of
+            // distinct values counts null as one).
             | _ ->
                 let wideSum = ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', wide, false)), distinct)
-                let assertions =
-                    CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
-                match kind with
-                | AggKind.Sum when not assertions -> ScalarExpr.Cast(wideSum, summedType, true)
-                | AggKind.Mean when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
-                // Per group: one exact sum in the wider type, narrowed back to the summed type with the overflow
-                // check. One aggregation: an engine evaluates the aggregations of a group-by apart (no common ones),
-                // so a check beside the value would sum twice. A long operand is cast to Int64 first (its inferred
-                // type is the CLR type's, which the engine's may not be: a count, a narrower integer), which also
-                // marks the sum as one of integers for a backend that sums them in a native 128-bit type.
-                | AggKind.Sum ->
-                    let operand =
-                        match summedType with
-                        | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) ->
-                            ScalarExpr.Cast(ScalarExpr.Cast(inner', LogicalTypes.Int64, false), wide, false)
-                        | _ -> ScalarExpr.Cast(inner', wide, false)
-                    ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ ScalarExpr.Aggregation(AggKind.Sum, Some operand, distinct) ], summedType)
-                | _ ->
-                    let isLong =
-                        match summedType with
-                        | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> true
-                        | _ -> false
-                    let outside (total: ScalarExpr) (low: LiteralValue) (high: LiteralValue) =
-                        ScalarExpr.Conditional(
-                            ScalarExpr.Binary(
-                                BinaryOp.Or,
-                                ScalarExpr.Binary(BinaryOp.Lt, total, ScalarExpr.Literal low),
-                                ScalarExpr.Binary(BinaryOp.Gt, total, ScalarExpr.Literal high)),
-                            ScalarExpr.Literal(LiteralValue.Int64 1L),
-                            ScalarExpr.Literal(LiteralValue.Int64 0L))
-                    // The mean's long sum is checked without a 128-bit sum (the engine's decimal sum is slower):
-                    // x = hi * 2^32 + lo with 0 <= lo < 2^32, and neither part's Int64 sum can overflow below 2^31
-                    // rows. The exact total is T * 2^32 + R with T = sum(hi) + sum(lo) // 2^32 and 0 <= R < 2^32,
-                    // so it fits a long exactly when T fits an int; the engine's wrapping sum is then exact.
-                    // A distinct sum cannot be split (the parts' distinct values are not the values'), so it keeps
-                    // the wide sum.
-                    let overflowed =
-                        if isLong && not distinct then
-                            // The operand is cast to Int64: its inferred type is the CLR type's, which the engine's
-                            // may not be (a count, a narrower integer column), and the halves must be Int64 arithmetic.
-                            let x = ScalarExpr.Cast(inner', LogicalTypes.Int64, false)
-                            let two32 = ScalarExpr.Literal(LiteralValue.Int64 4294967296L)
-                            let hi = ScalarExpr.Binary(BinaryOp.FloorDivide, x, two32)
-                            let lo = ScalarExpr.Binary(BinaryOp.Subtract, x, ScalarExpr.Binary(BinaryOp.Multiply, hi, two32))
-                            let sumOf e = ScalarExpr.Aggregation(AggKind.Sum, Some e, false)
-                            let t = ScalarExpr.Binary(BinaryOp.Add, sumOf hi, ScalarExpr.Binary(BinaryOp.FloorDivide, sumOf lo, two32))
-                            outside t (LiteralValue.Int64(int64 Int32.MinValue)) (LiteralValue.Int64(int64 Int32.MaxValue))
-                        else
-                            outside wideSum min max
-                    // The mean (Average of long): its sum checked as above, the mean itself the engine's.
-                    let value = ScalarExpr.Aggregation(kind, Some inner', distinct)
-                    ScalarExpr.Function(
-                        ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
-                        [ overflowed; value ],
-                        typeOf value)
+                let overflowed =
+                    ScalarExpr.Conditional(
+                        ScalarExpr.Binary(
+                            BinaryOp.Or,
+                            ScalarExpr.Binary(BinaryOp.Lt, wideSum, ScalarExpr.Literal min),
+                            ScalarExpr.Binary(BinaryOp.Gt, wideSum, ScalarExpr.Literal max)),
+                        ScalarExpr.Literal(LiteralValue.Int64 1L),
+                        ScalarExpr.Literal(LiteralValue.Int64 0L))
+                let value = ScalarExpr.Aggregation(kind, Some inner', distinct)
+                ScalarExpr.Function(
+                    ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
+                    [ overflowed; value ],
+                    typeOf value)
         | ScalarExpr.Aggregation(kind, inner, distinct) -> ScalarExpr.Aggregation(kind, inner |> Option.map resolve, distinct)
         | ScalarExpr.Window(inner, partitionBy, orderBy) ->
             ScalarExpr.Window(

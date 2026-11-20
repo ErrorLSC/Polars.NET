@@ -46,7 +46,6 @@ module internal OperatorAndUdfTranslator =
 
     let private isDecimalClrType (t: Type) = (match Nullable.GetUnderlyingType t with null -> t | u -> u) = typeof<decimal>
 
-    /// An integer type (or Nullable of one), excluding enums.
     /// Whether every value of the integral type `source` is one of `target` (a checked conversion between them is a
     /// plain one).
     let private holdsEveryValue (target: Type) (source: Type) =
@@ -54,6 +53,7 @@ module internal OperatorAndUdfTranslator =
         let bound (t: Type) (name: string) = Convert.ToDecimal((core t).GetField(name).GetValue(null))
         bound target "MinValue" <= bound source "MinValue" && bound source "MaxValue" <= bound target "MaxValue"
 
+    /// An integer type (or Nullable of one), excluding enums.
     let private isIntegralClrType (t: Type) =
         let core = match Nullable.GetUnderlyingType t with null -> t | u -> u
         not core.IsEnum

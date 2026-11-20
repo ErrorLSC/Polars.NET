@@ -87,9 +87,6 @@ module internal FilterLowering =
     // Nodes as FilterNode (F# does not upcast the nested record types by itself).
     let private compareNode (column: int, op: CompareOp, value: StoredScalar) = FilterNode.Compare(column, op, value) :> FilterNode
     let private inListNode (column: int, values: StoredScalar[]) = FilterNode.InList(column, values) :> FilterNode
-    let private startsWithNode (column: int, prefix: byte[]) = FilterNode.StartsWith(column, prefix) :> FilterNode
-    let private endsWithNode (column: int, suffix: byte[]) = FilterNode.EndsWith(column, suffix) :> FilterNode
-    let private containsNode (column: int, pattern: byte[]) = FilterNode.Contains(column, pattern) :> FilterNode
     let private isNullNode (column: int) = FilterNode.IsNull column :> FilterNode
     let private isNanNode (column: int) = FilterNode.IsNan column :> FilterNode
     let private booleanNode (column: int) = FilterNode.BooleanColumn column :> FilterNode
@@ -444,12 +441,12 @@ module internal FilterLowering =
             | Some l when (l.Values :? BooleanType) -> Some(booleanNode(columns.Index l))
             | _ -> None
         | ScalarExpr.Binary(BinaryOp.StartsWith, operand, ScalarExpr.Literal prefix) ->
-            stringTest columns schema operand prefix startsWithNode
+            stringTest columns schema operand prefix FilterNode.StartsWith
         | ScalarExpr.Binary(BinaryOp.EndsWith, operand, ScalarExpr.Literal suffix) ->
-            stringTest columns schema operand suffix endsWithNode
+            stringTest columns schema operand suffix FilterNode.EndsWith
         // .NET Contains (the translator's literal search; BinaryOp.Contains is a pattern for the engine).
         | ScalarExpr.Function(ScalarFunction.StrContains, [ operand; ScalarExpr.Literal pattern; ScalarExpr.Literal(LiteralValue.Bool true) ], _) ->
-            stringTest columns schema operand pattern containsNode
+            stringTest columns schema operand pattern FilterNode.Contains
         | ScalarExpr.Binary(op, left, right) -> comparison columns schema op left right
         | ScalarExpr.InList(target, InListSource.Literals values, negated, nullsEqual) ->
             inList columns schema target values negated nullsEqual
@@ -457,11 +454,13 @@ module internal FilterLowering =
 
     /// A test of a string column's bytes against a literal's UTF-8 bytes (ordinal, as the engine's string functions;
     /// valid UTF-8 matches by bytes exactly where it matches by characters); null against a null literal.
-    and private stringTest (columns: Columns) (schema: Schema) (operand: ScalarExpr) (literal: LiteralValue) (node: int * byte[] -> FilterNode) : FilterNode option =
+    /// `node` makes the test (a node constructor), widened to a FilterNode here.
+    and private stringTest<'Node when 'Node :> FilterNode>
+        (columns: Columns) (schema: Schema) (operand: ScalarExpr) (literal: LiteralValue) (node: int * byte[] -> 'Node) : FilterNode option =
         match leaf schema operand, literal with
         | Some l, LiteralValue.Null _ when LiteralConversion.ofArrowType l.Values = Some ValueDomain.String -> Some(nullConstant ())
         | Some l, LiteralValue.String s when LiteralConversion.ofArrowType l.Values = Some ValueDomain.String ->
-            Some(node (columns.Index l, Text.Encoding.UTF8.GetBytes s))
+            Some(node (columns.Index l, Text.Encoding.UTF8.GetBytes s) :> FilterNode)
         | _ -> None
 
     /// A comparison of a column with a literal (either side).

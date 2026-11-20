@@ -1260,6 +1260,55 @@ public class LinqSemanticsRegressionTests
             [.. q.Where(x => q.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I)]);
     }
 
+    public class Avg
+    {
+        public long K { get; set; }
+        public long L { get; set; }
+        public long? NL { get; set; }
+    }
+
+    // A double sum loses the 1 beside 2^62; the exact long sum keeps it.
+    private static readonly Avg[] Averaged =
+    [
+        new() { K = 1, L = 1L << 62, NL = null },
+        new() { K = 1, L = 1, NL = null },
+        new() { K = 1, L = -(1L << 62), NL = null },
+        new() { K = 2, L = 1L << 53, NL = 5 },
+        new() { K = 2, L = 1, NL = null },
+        new() { K = 2, L = 3, NL = -2 },
+    ];
+
+    [Fact]
+    public void Average_Of_Long_Is_The_Exact_Sum_Over_The_Count()
+    {
+        using var df = DataFrame.From(Averaged);
+        var q = df.AsQueryable<Avg>();
+        // As .NET: the exact long sum as a double over the count of values; a group of nulls only averages to null.
+        Assert.Equal(Averaged.Average(x => x.L), q.Average(x => x.L));
+        Assert.Equal(Averaged.Average(x => x.NL), q.Average(x => x.NL));
+        // No values: long throws as .NET does (no elements), long? is null.
+        AssertSameFailure(() => Averaged.Where(x => x.K > 5).Average(x => x.L), () => q.Where(x => x.K > 5).Average(x => x.L));
+        Assert.Null(q.Where(x => x.K > 5).Average(x => x.NL));
+        Assert.Null(q.Where(x => x.K == 1).Average(x => x.NL));
+        Assert.Contains("Int128", q.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L) }).Explain());
+        Assert.Equal(
+            Averaged.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L), N = g.Average(x => x.NL), D = g.Select(x => x.NL).Distinct().Average() }),
+            [.. q.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L), N = g.Average(x => x.NL), D = g.Select(x => x.NL).Distinct().Average() }).OrderBy(x => x.Key)]);
+        // Under a scalar terminal, and per row through a correlated subquery.
+        Assert.Equal(
+            Averaged.GroupBy(x => x.K).Select(g => g.Average(x => x.L)).Max(),
+            q.GroupBy(x => x.K).Select(g => g.Average(x => x.L)).Max());
+        Assert.Equal(
+            Averaged.Select(x => new { x.L, A = Averaged.Where(y => y.K == x.K).Average(y => y.L) }),
+            [.. q.Select(x => new { x.L, A = q.Where(y => y.K == x.K).Average(y => y.L) })]);
+        // Distinct values per group overflow too.
+        using var overflowing = DataFrame.From(Overflowing);
+        var o = overflowing.AsQueryable<Num>();
+        AssertSameFailure(
+            () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Select(x => x.L).Distinct().Average() }).ToList(),
+            () => o.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Select(x => x.L).Distinct().Average() }).ToList());
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Checked conversions (checked((int)x)) throw OverflowException when the value leaves the target's range (or is
     // NaN), as .NET does; the engine's cast would wrap.

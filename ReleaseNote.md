@@ -87,6 +87,7 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 ### New
 
 * Checked sums per group (`g.Sum(x => x.L)` of int / long, distinct values too) take one exact sum per group in the engine, checked by a native kernel: about twice as fast (10M rows, 1000 groups: long 4.6× → 2.1× the plain sum, int 3.2× → 1.5×).
+* `Average` of long values is the exact checked sum over the count, as .NET computes it, taken per group as one exact sum and a count: about 1.5× faster (10M rows, 1000 groups: 3.1× → 2.2× the plain mean), and exact where large values cancel (the engine's floating sum lost them: 2^62, 1, -2^62 averaged to 0, not 1/3).
 
 ### Changed
 

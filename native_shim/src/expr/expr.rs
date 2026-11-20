@@ -2896,3 +2896,65 @@ pub extern "C" fn pl_expr_dotnet_checked_narrow(expr_ptr: *mut ExprContext, code
         Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn narrow(values: Series, target: DataType) -> PolarsResult<Series> {
+        dotnet_checked_narrow(values.into_column(), &target).map(|c| c.as_materialized_series().clone())
+    }
+
+    fn expect_values(values: Series, target: DataType, expected: &[Option<i64>]) {
+        let out = narrow(values, target.clone()).unwrap();
+        assert_eq!(out.dtype(), &target);
+        assert_eq!(out.name().as_str(), "a");
+        let got = out.cast(&DataType::Int64).unwrap();
+        let got: Vec<Option<i64>> = (0..got.len()).map(|i| got.i64().unwrap().get(i)).collect();
+        assert_eq!(got, expected);
+    }
+
+    fn expect_overflow(values: Series, target: DataType) {
+        let error = narrow(values, target).unwrap_err().to_string();
+        assert!(error.contains(DOTNET_OVERFLOW), "{error}");
+    }
+
+    #[test]
+    fn checked_narrow_gives_the_target_type() {
+        let wide = Int128Chunked::from_slice_options("a".into(), &[Some(5), None, Some(-3)]).into_series();
+        expect_values(wide, DataType::Int32, &[Some(5), None, Some(-3)]);
+        let decimal = Series::new("a".into(), &[Some(i64::MAX), None, Some(i64::MIN)]).cast(&DataType::Decimal(38, 0)).unwrap();
+        expect_values(decimal, DataType::Int64, &[Some(i64::MAX), None, Some(i64::MIN)]);
+        expect_values(Series::new("a".into(), &[0i64, 255]), DataType::UInt8, &[Some(0), Some(255)]);
+        expect_values(Series::new("a".into(), &[-32768i32, 32767]), DataType::Int16, &[Some(-32768), Some(32767)]);
+        // Floating values are truncated toward zero.
+        expect_values(Series::new("a".into(), &[Some(2.9f64), None, Some(-2.9)]), DataType::Int32, &[Some(2), None, Some(-2)]);
+        expect_values(Series::new("a".into(), &[255.5f32, -0.5]), DataType::UInt8, &[Some(255), Some(0)]);
+    }
+
+    #[test]
+    fn checked_narrow_fails_outside_the_range() {
+        expect_overflow(Series::new("a".into(), &[256i64]), DataType::UInt8);
+        expect_overflow(Series::new("a".into(), &[-1i32]), DataType::UInt32);
+        expect_overflow(Series::new("a".into(), &[Some(i64::MAX as u64 + 1), None]), DataType::Int64);
+        expect_overflow(Series::new("a".into(), &[f64::NAN]), DataType::Int32);
+        expect_overflow(Series::new("a".into(), &[f64::NEG_INFINITY]), DataType::Int64);
+        expect_overflow(Series::new("a".into(), &[2147483648.0f64]), DataType::Int32);
+        expect_overflow(Series::new("a".into(), &[-1.0f32]), DataType::UInt8);
+    }
+
+    #[test]
+    fn checked_narrow_expression_has_the_target_type() {
+        let df = df!("a" => [Some(1i64), None, Some(-7)]).unwrap();
+        let code = crate::datatypes::map_dtype_to_kind(&DataType::Int16) as i32;
+        let expr = pl_expr_dotnet_checked_narrow(Box::into_raw(Box::new(ExprContext { inner: col("a") })), code);
+        assert!(!expr.is_null());
+        let expr = unsafe { Box::from_raw(expr) }.inner;
+        let mut plan = df.lazy().select([expr]);
+        assert_eq!(plan.collect_schema().unwrap().get("a"), Some(&DataType::Int16));
+        let out = plan.collect().unwrap();
+        let column = out.column("a").unwrap();
+        assert_eq!(column.dtype(), &DataType::Int16);
+        assert_eq!((0..column.len()).map(|i| column.i16().unwrap().get(i)).collect::<Vec<_>>(), [Some(1), None, Some(-7)]);
+    }
+}
