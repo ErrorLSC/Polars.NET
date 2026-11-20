@@ -105,7 +105,10 @@ module internal SchemaInference =
             else
                 match fn with
                 | ScalarFunction.BitLeftShift
-                | ScalarFunction.BitRightShift ->
+                | ScalarFunction.BitRightShift
+                // A group's distinct values (Distinct in a group chain) are of the values' type: a sum over them is
+                // checked as any other.
+                | ScalarFunction.Unique ->
                     match args with
                     | left :: _ -> inferScalarType schema left
                     | [] -> LogicalType.Unknown

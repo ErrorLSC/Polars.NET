@@ -51,8 +51,8 @@ internal sealed record IpcRecordBatch(long Length, IpcFieldNode[] Nodes, IpcBuff
 internal sealed record IpcDictionaryBatch(long Id, IpcRecordBatch Data, bool IsDelta);
 
 /// <summary>
-/// How the reader turns a field's stored values into its Arrow type, when they differ: Polars writes Int128 and
-/// UInt128 as an Arrow <c>Int</c> of 128 bits, which no Arrow type matches.
+/// How the reader turns a field's stored values into its Arrow type, when they differ: dataframe engines write Int128
+/// and UInt128 as an Arrow <c>Int</c> of 128 bits, which no Arrow type matches.
 /// </summary>
 internal enum IpcConversion : byte
 {

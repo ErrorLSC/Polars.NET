@@ -23,7 +23,7 @@ public sealed record IpcReadOptions
 
     /// <summary>
     /// Whether strings (<c>Utf8</c>, <c>LargeUtf8</c>, <c>Utf8View</c>) are checked to be UTF-8 (off by default, as
-    /// pyarrow and Polars read them: the format promises it). The structure of every array is always checked.
+    /// pyarrow and dataframe engines read them: the format promises it). The structure of every array is always checked.
     /// </summary>
     public bool ValidateUtf8 { get; init; }
 

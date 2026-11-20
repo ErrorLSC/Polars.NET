@@ -357,8 +357,8 @@ limit 100;
             c => new { c.customer_sk, c.item_sk },
             (s, c) => new
             {
-                in_store = (long?)s.in_store ?? 0L,
-                in_cat = (long?)c.in_cat ?? 0L
+                in_store = (long?)s!.in_store ?? 0L,
+                in_cat = (long?)c!.in_cat ?? 0L
             });
 
         var q97 = (from x in merged

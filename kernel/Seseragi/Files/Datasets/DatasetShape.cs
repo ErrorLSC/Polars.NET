@@ -355,10 +355,10 @@ internal sealed class DatasetShape
     }
 
     /// <summary>
-    /// A Polars Enum (field metadata <c>_PL_ENUM_VALUES2</c>, <c>_PL_ENUM_VALUES</c> before it) of other categories than
-    /// the dataset's, or an Enum against a column that is none (or the reverse), at any depth: what is wrong, or null.
-    /// An Enum is a declared set of values: as Polars, the dataset does not change it (cast the column, or change the
-    /// Enum).
+    /// An Enum (a dataframe engine's, in field metadata <c>_PL_ENUM_VALUES2</c>, <c>_PL_ENUM_VALUES</c> before it) of other
+    /// categories than the dataset's, or an Enum against a column that is none (or the reverse), at any depth: what is
+    /// wrong, or null. An Enum is a declared set of values: as the engines that declare it, the dataset does not change
+    /// it (cast the column, or change the Enum).
     /// </summary>
     /// <param name="declared">
     /// The dataset's fields are given (<see cref="DatasetOptions.Schema"/>): a field declared without an Enum reads the

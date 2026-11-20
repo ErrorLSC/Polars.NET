@@ -23,7 +23,7 @@ internal static class IpcSchemaMessage
 
     /// <summary>
     /// The schema of a message (with or without the continuation marker), or null when it is damaged, is not a schema,
-    /// or has a field that needs a conversion (Polars' 128-bit integers: no Arrow type of its own).
+    /// or has a field that needs a conversion (the 128-bit integers dataframe engines write: no Arrow type of its own).
     /// </summary>
     public static Schema? TryRead(ReadOnlySpan<byte> message)
     {

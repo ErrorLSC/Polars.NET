@@ -453,6 +453,10 @@ type ScalarFunction =
     /// the check's error. It has an effect, so it must be evaluated wherever its value is used, never folded
     /// or reordered past the computation of its count.
     | AssertCount of check: CountCheck
+    /// `[value]` over integers (or decimals of scale 0): the value as the function's integer type, its result type;
+    /// the query fails with `QueryErrorKind.Overflow` when a value leaves that type's range (.NET's checked
+    /// conversion; over an exact wide sum, a checked sum per group). Null stays null. It has an effect, as AssertCount.
+    | CheckedNarrow
 
     // --- Custom / Extension Function ---
     | Custom of name: string
@@ -599,6 +603,7 @@ type ScalarFunction =
         | ScalarFunction.SeriesGet -> "series_get"
         | ScalarFunction.ReplaceStrict _ -> "replace_strict"
         | ScalarFunction.AssertCount _ -> "assert_count"
+        | ScalarFunction.CheckedNarrow -> "checked_narrow"
         | ScalarFunction.RequireListed _ -> "require_listed"
         | ScalarFunction.FloatOrderKey -> "float_order_key"
         | ScalarFunction.Custom name -> name

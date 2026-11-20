@@ -78,10 +78,13 @@ public partial class LinqArchitectureTests
     // (Kaminari.Sazanami.Network) only, so they can leave the lakehouse project for an engine of their own without
     // being untangled first.
     // Sazanami.Buffers too: storage moves bytes in native memory (NativeBufferWriter, NativeByteBuffer), off the managed heap.
+    // Seseragi.Files.IO too: the file store contracts and the write stream every store's uploads share (FileWriteStream),
+    // which moved there from the lakehouse when the dataset writers came; nothing else of the file formats.
     [GeneratedRegex(
-        @"^\s*using\s+(?!System\b|Kaminari\.Seseragi\.Lakehouse\.(Storage|Engine)\b|Kaminari\.Sazanami\.(Network|Buffers)\b)[\w.]+\s*;"
+        @"^\s*using\s+(?!System\b|Kaminari\.Seseragi\.Lakehouse\.(Storage|Engine)\b|Kaminari\.Sazanami\.(Network|Buffers)\b|Kaminari\.Seseragi\.Files\.IO\b)[\w.]+\s*;"
         + @"|\bKaminari\.Samidare\b|\bKaminari\.Sazanami\.(?!Network\b|Buffers\b)\w+"
-        + @"|\bKaminari\.Seseragi\.Lakehouse\.(?!Storage\b|Engine\b)\w+")]
+        + @"|\bKaminari\.Seseragi\.Lakehouse\.(?!Storage\b|Engine\b)\w+"
+        + @"|\bKaminari\.Seseragi\.Files\.(?!IO\b)\w+")]
     private static partial Regex ForbiddenInStorage();
 
     [Fact]
@@ -95,8 +98,12 @@ public partial class LinqArchitectureTests
             .Select(x => $"{Path.GetRelativePath(root, x.path)}:{x.number}: {x.line.Trim()}")
             .ToList();
 
-        Assert.True(violations.Count == 0, "Storage may use only System.*, Lakehouse.Engine, Sazanami.Network and Sazanami.Buffers:\n" + string.Join('\n', violations));
+        Assert.True(violations.Count == 0, "Storage may use only System.*, Lakehouse.Engine, Sazanami.Network, Sazanami.Buffers and Seseragi.Files.IO:\n" + string.Join('\n', violations));
     }
+
+    // The product's own names are no mention of the backend: its settings' environment variables (POLARS_NET_…).
+    [GeneratedRegex(@"\bPOLARS_NET_\w*")]
+    private static partial Regex ProductNames();
 
     [Theory]
     [Trait("Architecture", "LinqLayering")]
@@ -111,7 +118,7 @@ public partial class LinqArchitectureTests
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                         && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .SelectMany(path => File.ReadLines(path).Select((line, i) => (path, line, number: i + 1)))
-            .Where(x => x.line.Contains("polars", StringComparison.OrdinalIgnoreCase))
+            .Where(x => ProductNames().Replace(x.line, "").Contains("polars", StringComparison.OrdinalIgnoreCase))
             .Select(x => $"{Path.GetRelativePath(root, x.path)}:{x.number}: {x.line.Trim()}")
             .ToList();
 

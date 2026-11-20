@@ -17,8 +17,8 @@ public abstract record DatasetWriteOptions
 
     /// <summary>
     /// The columns whose values split the rows into Hive partitions: a directory <c>key=value/</c> per column below the
-    /// dataset's path, in this order, values rendered as Polars renders them (escaped as Hive and Spark escape them; a
-    /// null is <c>__HIVE_DEFAULT_PARTITION__</c>, an empty string an empty value). Integers, floats, decimals,
+    /// dataset's path, in this order, values rendered as dataframe engines render them (escaped as Hive and Spark escape
+    /// them; a null is <c>__HIVE_DEFAULT_PARTITION__</c>, an empty string an empty value). Integers, floats, decimals,
     /// booleans, strings, dates, times, timestamps and dictionaries of them. Null or empty: no partitions.
     /// </summary>
     public IReadOnlyList<string>? PartitionBy { get; init; }
@@ -56,7 +56,7 @@ public abstract record DatasetWriteOptions
     /// </summary>
     public long? MemoryBudget { get; init; }
 
-    /// <summary>Whether a local file is synced to disk before it takes its name (off by default, as Polars and pyarrow write).</summary>
+    /// <summary>Whether a local file is synced to disk before it takes its name (off by default, as dataframe engines and pyarrow write).</summary>
     public bool SyncOnCommit { get; init; }
 
     internal void Validate()

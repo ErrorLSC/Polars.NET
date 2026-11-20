@@ -9,7 +9,7 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// from it), and encode the caller's rows at once (as ranges, never sliced). A file written alone, not cut by size,
 /// takes its rows as batches of its own (references to the caller's memory: the caller may let its batch go) and
 /// encodes several row groups side by side (<see cref="BatchOwnership.Writer"/>): one file's columns alone keep few
-/// threads busy. Measured (10M rows, 6 columns, 16 threads, 2026-11-21): 270 → 111–126 ms (Polars 133).
+/// threads busy. Measured (10M rows, 6 columns, 16 threads, 2026-11-21): 270 → 111–126 ms (a native engine's writer: 133).
 /// </summary>
 /// <param name="options">The files' writer options (ownership, parallelism and sharing are set here).</param>
 /// <param name="takeBatches">Whether a file written alone may take its rows as batches of its own (else it always

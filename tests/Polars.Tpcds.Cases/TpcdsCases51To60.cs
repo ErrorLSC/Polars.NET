@@ -41,10 +41,10 @@ public static partial class TpcdsCases
             s => new { s.item_sk, s.d_date },
             (w, s) => new
             {
-                item_sk = (long?)w.item_sk ?? s.item_sk,
-                d_date = w.d_date ?? s.d_date,
+                item_sk = (long?)w!.item_sk ?? s!.item_sk,
+                d_date = w.d_date ?? s!.d_date,
                 web_daily = (decimal?)w.web_daily ?? 0.00m,
-                store_daily = (decimal?)s.store_daily ?? 0.00m,
+                store_daily = (decimal?)s!.store_daily ?? 0.00m,
                 has_web = (long?)w.has_web ?? 0L,
                 has_web_val = (long?)w.has_web_val ?? 0L,
                 has_store = (long?)s.has_store ?? 0L,

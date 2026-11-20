@@ -1,3 +1,4 @@
+#nullable enable annotations
 using Polars.CSharp.Linq;
 using Polars.NET.Linq;
 using Kaminari.Samidare;

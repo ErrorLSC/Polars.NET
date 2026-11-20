@@ -95,6 +95,35 @@ let ``CheckedSum fails with Overflow when the total leaves the range`` () =
     let ints = [| { K = 1L; I = Nullable Int32.MinValue }; { K = 1L; I = Nullable -1 } |]
     Conformance.raises<OverflowException> t (project (t.Scan ints) [ "s", agg AggKind.CheckedSum (col "I") ]) "Arithmetic operation resulted in an overflow."
 
+/// A value as an integer type, checked (the function's result type).
+let private narrow (target: Apache.Arrow.Types.IArrowType) e = ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ e ], LogicalType.Arrow target)
+
+/// A long column's exact sum: widened to Decimal(38, 0) (cast to Int64 first, as the checked sum per group is built).
+let private exactSum e =
+    agg AggKind.Sum (ScalarExpr.Cast(ScalarExpr.Cast(e, LogicalTypes.Int64, false), LogicalTypes.decimalOf 38 0, false))
+
+[<Fact>]
+let ``CheckedNarrow takes an exact sum back per group`` () =
+    let t = Tables()
+    let rows = [| { K = 1L; V = n Int64.MaxValue }; { K = 2L; V = nul }; { K = 1L; V = n -1L }; { K = 1L; V = n 1L }; { K = 3L; V = n Int64.MinValue } |]
+    let plan = LogicalPlan.GroupBy(t.Scan rows, [ col "K" ], [ "s", narrow Apache.Arrow.Types.Int64Type.Default (exactSum (col "V")) ], None, true)
+    Conformance.rowsInOrder t plan [ [ 1L; Int64.MaxValue ]; [ 2L; 0L ]; [ 3L; Int64.MinValue ] ]
+    let over = [| { K = 1L; V = n 3L }; { K = 2L; V = n Int64.MaxValue }; { K = 2L; V = n 1L } |]
+    let t2 = Tables()
+    let overflowing = LogicalPlan.GroupBy(t2.Scan over, [ col "K" ], [ "s", narrow Apache.Arrow.Types.Int64Type.Default (exactSum (col "V")) ], None, true)
+    Conformance.raises<OverflowException> t2 overflowing "Arithmetic operation resulted in an overflow."
+
+[<Fact>]
+let ``CheckedNarrow converts row by row, failing with Overflow outside the range`` () =
+    let t = Tables()
+    let rows = [| { K = 1L; V = n (int64 Int32.MaxValue) }; { K = 2L; V = nul }; { K = 3L; V = n (int64 Int32.MinValue) } |]
+    Conformance.rowsInOrder t (project (t.Scan rows) [ "i", narrow Apache.Arrow.Types.Int32Type.Default (col "V") ])
+        [ [ Int32.MaxValue ]; [ null ]; [ Int32.MinValue ] ]
+    let t2 = Tables()
+    let beyond = [| { K = 1L; V = n 1L }; { K = 2L; V = n (int64 Int32.MaxValue + 1L) } |]
+    Conformance.raises<OverflowException> t2 (project (t2.Scan beyond) [ "i", narrow Apache.Arrow.Types.Int32Type.Default (col "V") ])
+        "Arithmetic operation resulted in an overflow."
+
 type GV = { Id: int64; S: string; D: decimal; T: DateTimeOffset }
 
 let private keyed: GV array =

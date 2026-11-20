@@ -306,6 +306,34 @@ module internal PolarsScalarLowerer =
                 conversion
                 (LogicalPlanOps.formatScalar inner)
 
+        // .NET checked narrowing: one shim kernel, element by element (per group, each group's value). An exact sum
+        // of integers in Decimal(38, 0), the IR's widest exact integer, is summed in the engine's Int128: the same
+        // values, about half the time of its decimal sum.
+        | ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ value ], returnType) ->
+            let target =
+                match returnType with
+                | LogicalType.Arrow(:? Apache.Arrow.Types.Int8Type) -> PlDataType.Int8
+                | LogicalType.Arrow(:? Apache.Arrow.Types.Int16Type) -> PlDataType.Int16
+                | LogicalType.Arrow(:? Apache.Arrow.Types.Int32Type) -> PlDataType.Int32
+                | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> PlDataType.Int64
+                | LogicalType.Arrow(:? Apache.Arrow.Types.UInt8Type) -> PlDataType.UInt8
+                | LogicalType.Arrow(:? Apache.Arrow.Types.UInt16Type) -> PlDataType.UInt16
+                | LogicalType.Arrow(:? Apache.Arrow.Types.UInt32Type) -> PlDataType.UInt32
+                | LogicalType.Arrow(:? Apache.Arrow.Types.UInt64Type) -> PlDataType.UInt64
+                | other -> failwithf "[Polars.NET.Linq Bug] a checked narrowing to %A" other
+            let valueH =
+                match value with
+                | ScalarExpr.Aggregation(
+                    AggKind.Sum,
+                    Some(ScalarExpr.Cast(ScalarExpr.Cast(_, LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type), _) as integers,
+                                         LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type as d), _)),
+                    distinct) when d.Scale = 0 ->
+                    use int128 = PolarsWrapper.NewPrimitiveType(int PlDataType.Int128)
+                    let castH = PolarsWrapper.ExprCast(lower integers, PolarsWrapper.DataTypeExprFromDataType int128, strict = false, wrapNumerical = false)
+                    PolarsWrapper.Sum(if distinct then PolarsWrapper.ExprUnique castH else castH)
+                | _ -> lower value
+            PolarsWrapper.DotNetCheckedNarrow(valueH, target)
+
         | ScalarExpr.Function(fn, args, _) ->
             match fn, args with
             // Math

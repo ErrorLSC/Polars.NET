@@ -275,8 +275,8 @@ module internal EnumResolution =
             let summedType = typeOf inner'
             let wide, min, max = (checkedSumOf summedType).Value
             match kind with
-            // Over all the rows, the checked sum is one aggregation (a single-pass backend kernel); per group it is
-            // composed below from plain aggregations, which the engine computes for all the groups at once.
+            // Over all the rows, the checked sum is one aggregation (a single-pass backend kernel); per group it is an
+            // exact wide sum narrowed back (below), which the engine computes for all the groups at once.
             // The operand is cast to its inferred type, which the engine's may not be (a count, a narrower column).
             | AggKind.Sum when not grouped ->
                 ScalarExpr.Aggregation(AggKind.CheckedSum, Some(ScalarExpr.Cast(inner', summedType, false)), distinct)
@@ -287,6 +287,18 @@ module internal EnumResolution =
                 match kind with
                 | AggKind.Sum when not assertions -> ScalarExpr.Cast(wideSum, summedType, true)
                 | AggKind.Mean when not assertions -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+                // Per group: one exact sum in the wider type, narrowed back to the summed type with the overflow
+                // check. One aggregation: an engine evaluates the aggregations of a group-by apart (no common ones),
+                // so a check beside the value would sum twice. A long operand is cast to Int64 first (its inferred
+                // type is the CLR type's, which the engine's may not be: a count, a narrower integer), which also
+                // marks the sum as one of integers for a backend that sums them in a native 128-bit type.
+                | AggKind.Sum ->
+                    let operand =
+                        match summedType with
+                        | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) ->
+                            ScalarExpr.Cast(ScalarExpr.Cast(inner', LogicalTypes.Int64, false), wide, false)
+                        | _ -> ScalarExpr.Cast(inner', wide, false)
+                    ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ ScalarExpr.Aggregation(AggKind.Sum, Some operand, distinct) ], summedType)
                 | _ ->
                     let isLong =
                         match summedType with
@@ -300,7 +312,7 @@ module internal EnumResolution =
                                 ScalarExpr.Binary(BinaryOp.Gt, total, ScalarExpr.Literal high)),
                             ScalarExpr.Literal(LiteralValue.Int64 1L),
                             ScalarExpr.Literal(LiteralValue.Int64 0L))
-                    // A long sum is checked without a 128-bit sum (the engine's decimal sum is about 50x slower):
+                    // The mean's long sum is checked without a 128-bit sum (the engine's decimal sum is slower):
                     // x = hi * 2^32 + lo with 0 <= lo < 2^32, and neither part's Int64 sum can overflow below 2^31
                     // rows. The exact total is T * 2^32 + R with T = sum(hi) + sum(lo) // 2^32 and 0 <= R < 2^32,
                     // so it fits a long exactly when T fits an int; the engine's wrapping sum is then exact.
@@ -319,12 +331,8 @@ module internal EnumResolution =
                             outside t (LiteralValue.Int64(int64 Int32.MinValue)) (LiteralValue.Int64(int64 Int32.MaxValue))
                         else
                             outside wideSum min max
-                    let value =
-                        match kind with
-                        | AggKind.Sum when isLong && not distinct ->
-                            ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Cast(inner', LogicalTypes.Int64, false)), false)
-                        | AggKind.Sum -> ScalarExpr.Cast(wideSum, summedType, false)
-                        | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
+                    // The mean (Average of long): its sum checked as above, the mean itself the engine's.
+                    let value = ScalarExpr.Aggregation(kind, Some inner', distinct)
                     ScalarExpr.Function(
                         ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
                         [ overflowed; value ],

@@ -307,8 +307,8 @@ public class TpcdsFullJoinQueryTests
             .FullJoin(storeV1, w => new { w.item_sk, w.d_date }, s => new { s.item_sk, s.d_date })
             .Select(pair => new
             {
-                item_sk = pair.Outer != null ? pair.Outer.item_sk : pair.Inner.item_sk,
-                d_date = pair.Outer != null ? pair.Outer.d_date : pair.Inner.d_date,
+                item_sk = pair.Outer != null ? pair.Outer.item_sk : pair.Inner!.item_sk,
+                d_date = pair.Outer != null ? pair.Outer.d_date : pair.Inner!.d_date,
                 web_sales = pair.Outer != null ? pair.Outer.cume_sales : null,
                 store_sales = pair.Inner != null ? pair.Inner.cume_sales : null
             });

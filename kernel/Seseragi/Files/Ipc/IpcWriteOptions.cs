@@ -17,7 +17,7 @@ public sealed record IpcWriteOptions
     public IpcFormat Format { get; init; } = IpcFormat.File;
 
     /// <summary>
-    /// The body compression: <see cref="NoCompression"/> by default (as Polars writes; pyarrow's Feather writes LZ4),
+    /// The body compression: <see cref="NoCompression"/> by default (as dataframe engines write; pyarrow's Feather writes LZ4),
     /// <see cref="Lz4FrameCompression"/> or <see cref="ZstandardCompression"/>. Each buffer is compressed on its own; one
     /// that does not get smaller is stored as it is.
     /// </summary>

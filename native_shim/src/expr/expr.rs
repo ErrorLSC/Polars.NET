@@ -2827,3 +2827,57 @@ pub extern "C" fn pl_expr_dotnet_checked_sum(expr_ptr: *mut ExprContext) -> *mut
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+/// The range of an integer data type, as i128.
+fn integer_range(dtype: &DataType) -> Option<(i128, i128)> {
+    Some(match dtype {
+        DataType::Int8 => (i8::MIN as i128, i8::MAX as i128),
+        DataType::Int16 => (i16::MIN as i128, i16::MAX as i128),
+        DataType::Int32 => (i32::MIN as i128, i32::MAX as i128),
+        DataType::Int64 => (i64::MIN as i128, i64::MAX as i128),
+        DataType::UInt8 => (0, u8::MAX as i128),
+        DataType::UInt16 => (0, u16::MAX as i128),
+        DataType::UInt32 => (0, u32::MAX as i128),
+        DataType::UInt64 => (0, u64::MAX as i128),
+        _ => return None,
+    })
+}
+
+/// .NET checked narrowing (a checked conversion, or an exact wide sum taken back to its result type): integer values,
+/// or decimals of scale 0, as `target`, failing with the overflow marker when one leaves its range; null stays null.
+fn dotnet_checked_narrow(c: Column, target: &DataType) -> PolarsResult<Column> {
+    let s = c.as_materialized_series();
+    let (min, max) = integer_range(target).ok_or_else(|| polars_err!(ComputeError: "a checked narrowing goes to an integer type, not {}", target))?;
+    let wide: Int128Chunked = match s.dtype() {
+        DataType::Decimal(_, 0) => s.decimal()?.physical().clone(),
+        DataType::Int128 => s.i128()?.clone(),
+        dt if dt.is_integer() => s.cast(&DataType::Int128)?.i128()?.clone(),
+        other => polars_bail!(ComputeError: "a checked narrowing is defined for integers and decimals of scale 0, not {}", other),
+    };
+    for arr in wide.downcast_iter() {
+        let outside = if polars_arrow::array::Array::null_count(arr) == 0 {
+            arr.values().iter().any(|&v| v < min || v > max)
+        } else {
+            arr.iter().flatten().any(|&v| v < min || v > max)
+        };
+        polars_ensure!(!outside, ComputeError: "{}", DOTNET_OVERFLOW);
+    }
+    Ok(wide.into_series().cast(target)?.with_name(s.name().clone()).into_column())
+}
+
+/// .NET checked narrowing of an integer (or scale-0 decimal) expression to the integer type of `code`
+/// (PlDataTypeKind): element by element, so a group context narrows each group's value.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dotnet_checked_narrow(expr_ptr: *mut ExprContext, code: i32) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let target = crate::datatypes::PlDataTypeKind::from_i32(code)
+            .map(|kind| kind.to_default_datatype())
+            .ok_or_else(|| polars_err!(ComputeError: "invalid DataType code: {}", code))?;
+        polars_ensure!(integer_range(&target).is_some(), ComputeError: "a checked narrowing goes to an integer type, not {}", target);
+        let output = target.clone();
+        let function = move |c: Column| dotnet_checked_narrow(c, &target);
+        let output_map = move |_input_schema: &Schema, input_field: &Field| Ok(Field::new(input_field.name().clone(), output.clone()));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
+    })
+}

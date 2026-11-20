@@ -328,7 +328,7 @@ internal static class ArrowWidening
             LargeListViewType l => l.ValueField,
             _ => null,
         };
-        var item = new Field(field?.Name ?? "item", element, nullable: true, field?.Metadata); // its metadata kept (a Polars Enum's)
+        var item = new Field(field?.Name ?? "item", element, nullable: true, field?.Metadata); // its metadata kept (an engine's Enum declaration)
         return layout switch
         {
             LargeListType => new LargeListType(item),

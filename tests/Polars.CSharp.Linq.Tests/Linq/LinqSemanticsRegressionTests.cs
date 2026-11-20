@@ -1,3 +1,4 @@
+#nullable enable annotations
 using Polars.CSharp.Linq;
 using Polars.NET.Linq;
 using Kaminari.Samidare;
@@ -1214,6 +1215,18 @@ public class LinqSemanticsRegressionTests
         AssertSameFailure(
             () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I) }).ToList(),
             () => q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I) }).ToList());
+        // Per group: long, nullable int, distinct values (one exact sum each, narrowed back; a long's in the engine's
+        // 128-bit integers, not its decimals).
+        Assert.Contains("Int128", q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.L) }).Explain());
+        AssertSameFailure(
+            () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.L) }).ToList(),
+            () => q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.L) }).ToList());
+        AssertSameFailure(
+            () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.NI) }).ToList(),
+            () => q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.NI) }).ToList());
+        AssertSameFailure(
+            () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Select(x => x.L).Distinct().Sum() }).ToList(),
+            () => q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Select(x => x.L).Distinct().Sum() }).ToList());
         AssertSameFailure(
             () => Overflowing.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L) }).ToList(),
             () => q.GroupBy(x => x.K).Select(g => new { g.Key, A = g.Average(x => x.L) }).ToList());
@@ -1234,6 +1247,14 @@ public class LinqSemanticsRegressionTests
         Assert.Equal(
             NearTheLimit.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I), T = g.Sum(x => x.L) }).OrderBy(x => x.Key),
             [.. q.GroupBy(x => x.K).Select(g => new { g.Key, S = g.Sum(x => x.I), T = g.Sum(x => x.L) }).OrderBy(x => x.Key)]);
+        // The sum per group is an int again: int arithmetic over it wraps at 32 bits, as .NET's.
+        Assert.Equal(
+            NearTheLimit.GroupBy(x => x.K).Select(g => new { g.Key, D = g.Sum(x => x.I) * 2 }).OrderBy(x => x.Key),
+            [.. q.GroupBy(x => x.K).Select(g => new { g.Key, D = g.Sum(x => x.I) * 2 }).OrderBy(x => x.Key)]);
+        // Nullable values (a group of nulls only sums to 0) and distinct values per group.
+        Assert.Equal(
+            NearTheLimit.GroupBy(x => x.K).Select(g => new { g.Key, N = g.Sum(x => x.NI), D = g.Select(x => x.L).Distinct().Sum() }).OrderBy(x => x.Key),
+            [.. q.GroupBy(x => x.K).Select(g => new { g.Key, N = g.Sum(x => x.NI), D = g.Select(x => x.L).Distinct().Sum() }).OrderBy(x => x.Key)]);
         Assert.Equal(
             NearTheLimit.Where(x => NearTheLimit.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I),
             [.. q.Where(x => q.Where(y => y.K == x.K).Sum(y => y.L) > 0).Select(x => x.I)]);

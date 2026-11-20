@@ -50,7 +50,7 @@ public class LinqGroupingIdTests
             .RollUp((key, g) => new { key.Dept, key.Team, Total = g.Sum(x => x.Amount), Gid = key.GroupingId() });
 
         Assert.Contains(NativePushdown, query.Explain());
-        var expected = Reference(RollupLevels).Select(r => new { r.Dept, r.Team, Total = r.Sum, Gid = r.GDept * 2 + r.GTeam });
+        var expected = Reference(RollupLevels).Select(r => new { Dept = r.Dept!, r.Team, Total = r.Sum, Gid = r.GDept * 2 + r.GTeam });
         Assert.Equal(expected, query.ToList());
     }
 
@@ -67,14 +67,14 @@ public class LinqGroupingIdTests
                 g.Key.Team,
                 All = g.Key.GroupingId(),
                 Reversed = g.Key.GroupingId(k => new { k.Team, k.Dept }),
-                TeamOnly = g.Key.GroupingId(k => k.Team),
+                TeamOnly = g.Key.GroupingId(k => k.Team!),
                 None = g.Key.GroupingId(k => new { }),
             });
 
         Assert.Contains(NativePushdown, query.Explain());
         var expected = Reference(CubeLevels).Select(r => new
         {
-            r.Dept,
+            Dept = r.Dept!,
             r.Team,
             All = r.GDept * 2 + r.GTeam,
             Reversed = r.GTeam * 2 + r.GDept,
@@ -98,7 +98,7 @@ public class LinqGroupingIdTests
 
         Assert.Contains(NativePushdown, query.Explain());
         var expected = Reference([1], [0], [])
-            .Select(r => new { r.Dept, r.Team, r.Count, Gid = r.GDept * 2 + r.GTeam })
+            .Select(r => new { Dept = r.Dept!, r.Team, r.Count, Gid = r.GDept * 2 + r.GTeam })
             .Where(r => r.Gid != 3)
             .OrderBy(r => r.Gid);
         Assert.Equal(expected, query.ToList());
@@ -119,7 +119,7 @@ public class LinqGroupingIdTests
                 Weighted = g.Sum(x => x.Amount) * (1 + key.GroupingId()),
                 Mean = g.Sum(x => x.Amount) / g.Count(),
                 Total = g.Sum(x => x.Amount),
-                Label = key.GroupingId(k => k.Team) == 1 ? "subtotal" : key.Dept + "/" + (key.Team ?? "-"),
+                Label = key.GroupingId(k => k.Team!) == 1 ? "subtotal" : key.Dept + "/" + (key.Team ?? "-"),
             });
 
         Assert.Contains(NativePushdown, query.Explain());
@@ -155,7 +155,7 @@ public class LinqGroupingIdTests
         var reference = Reference(RollupLevels);
         var expected = reference.Select(r => new
         {
-            r.Dept,
+            Dept = r.Dept!,
             r.Team,
             Total = r.Sum,
             Rank = 1L + reference.Count(o =>
@@ -249,7 +249,7 @@ public class LinqGroupingIdTests
             .RollUp((key, g) => new { key.Dept, Team = g.Count(), Gid = key.GroupingId() });
 
         Assert.Contains(NativePushdown, query.Explain());
-        var expected = Reference(RollupLevels).Select(r => new { r.Dept, Team = r.Count, Gid = r.GDept * 2 + r.GTeam });
+        var expected = Reference(RollupLevels).Select(r => new { Dept = r.Dept!, Team = r.Count, Gid = r.GDept * 2 + r.GTeam });
         Assert.Equal(expected, query.ToList());
     }
 }

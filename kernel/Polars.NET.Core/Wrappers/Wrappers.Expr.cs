@@ -468,6 +468,19 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle DotNetCheckedSum(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_dotnet_checked_sum, expr);
 
     /// <summary>
+    /// .NET checked narrowing of an integer (or scale-0 decimal) expression to the integer type
+    /// <paramref name="target"/>, element by element: each value as the target, or an <see cref="OverflowException"/>
+    /// when one leaves its range; null stays null. In a group context it narrows each group's value (an exact wide
+    /// sum taken back to its result type).
+    /// </summary>
+    public static ExprHandle DotNetCheckedNarrow(ExprHandle expr, PlDataType target)
+    {
+        var h = NativeBindings.pl_expr_dotnet_checked_narrow(expr, (int)target);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    /// <summary>
     /// The expression unchanged when every non-null value is one of <paramref name="values"/>; otherwise the query
     /// fails with <paramref name="message"/>, its first "{}" replaced by the offending value.
     /// </summary>

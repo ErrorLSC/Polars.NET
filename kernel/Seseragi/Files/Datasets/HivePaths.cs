@@ -9,16 +9,17 @@ namespace Kaminari.Seseragi.Files;
 
 /// <summary>
 /// Hive partition directories as writers make them: <c>key=value/</c> per key, names and values escaped as Hive and
-/// Spark escape them, a null value <see cref="NullValue"/>. Values are rendered as Polars casts them to strings (the
-/// partitions a dataset written here reads back, through Polars or the dataset readers, with the same values): every
-/// integer, float, decimal, boolean, string, date, time and timestamp type, and dictionaries of them.
+/// Spark escape them, a null value <see cref="NullValue"/>. Values are rendered as dataframe engines cast them to
+/// strings (the partitions a dataset written here reads back, through such an engine or the dataset readers, with the
+/// same values): every integer, float, decimal, boolean, string, date, time and timestamp type, and dictionaries of
+/// them.
 /// </summary>
 /// <remarks>
 /// Floats: the shortest digits that read back exactly, plainly from 1e-5 to below 1e16 (whole numbers end in
 /// <c>.0</c>), else as <c>1e+16</c>, <c>1.5e-6</c>; <c>NaN</c>, <c>inf</c>, <c>-inf</c>; -0.0 is 0.0 (they are one
 /// partition). Timestamps: <c>2024-01-02 03:04:05</c> with the unit's digits after the second (3, 6 or 9), in their
 /// zone's local time followed by its offset (<c>+09:00</c>) when they have a zone. Times: <c>03:04:05</c>, then the
-/// fraction when there is one (Polars leaves it out, so that distinct times would share a directory). Decimals with
+/// fraction when there is one (engines that leave it out make distinct times share a directory). Decimals with
 /// all their scale's digits.
 /// </remarks>
 internal static class HivePaths
@@ -110,7 +111,7 @@ internal static class HivePaths
 
     private static string Integer<T>(T value) where T : IFormattable => value.ToString(null, CultureInfo.InvariantCulture);
 
-    /// <summary>A float as Polars writes it (see the remarks).</summary>
+    /// <summary>A float as dataframe engines write it (see the remarks).</summary>
     internal static string Float(double value, bool single)
     {
         if (double.IsNaN(value)) return "NaN";
