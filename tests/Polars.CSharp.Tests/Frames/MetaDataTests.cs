@@ -1,5 +1,6 @@
 namespace Polars.CSharp.Tests;
 
+[Collection(ConsoleOutput.Name)]
 public class MetadataTests
 {
     [Fact]

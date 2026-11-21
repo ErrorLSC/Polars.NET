@@ -5,6 +5,7 @@ using Kaminari.Sazanami.Display;
 
 namespace Polars.CSharp.Tests;
 
+[Collection(ConsoleOutput.Name)]
 public class TerminalDisplayHelpersTests
 {
     [Fact]

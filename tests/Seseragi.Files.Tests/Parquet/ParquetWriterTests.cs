@@ -147,6 +147,31 @@ public sealed class ParquetWriterTests : IDisposable
     }
 
     [Fact]
+    public void Int96_ReadsInTheGivenZone_UnlessTheFileNamesOne()
+    {
+        var naive = new TimestampType(TimeUnit.Microsecond, (string?)null);
+        RecordBatch batch = Batch(("ts", Fixed(naive, [(long?)1_700_000_000_123_456, null]), true));
+        string bare = Path("int96_bare.parquet"), described = Path("int96_described.parquet");
+        // As Spark writes them: no Arrow schema to say what the values are.
+        ParquetWriter.Write(bare, batch.Schema, [batch], new ParquetWriteOptions { Int96Timestamps = true, StoreArrowSchema = false });
+        ParquetWriter.Write(described, batch.Schema, [batch], new ParquetWriteOptions { Int96Timestamps = true });
+
+        static (TimestampType Type, long? First) Read(string path, string? zone)
+        {
+            using var file = ParquetFile.Open(path);
+            using var reader = file.OpenReader(new ParquetReadOptions { Int96Timezone = zone });
+            using RecordBatch read = reader.ReadBatches().Single();
+            return ((TimestampType)reader.Schema.FieldsList[0].DataType, ((TimestampArray)read.Column(0)).GetValue(0));
+        }
+
+        Assert.Equal((null, 1_700_000_000_123_456), ((string?)Read(bare, null).Type.Timezone, Read(bare, null).First));
+        var utc = Read(bare, "UTC");
+        Assert.Equal(("UTC", TimeUnit.Microsecond, 1_700_000_000_123_456L), (utc.Type.Timezone, utc.Type.Unit, utc.First));
+        // The file's Arrow schema says wall-clock values: it wins over the option.
+        Assert.Null(Read(described, "UTC").Type.Timezone);
+    }
+
+    [Fact]
     public void NoBatches_MakeAFileWithoutRowGroups()
     {
         RecordBatch batch = Wide(1, 3);

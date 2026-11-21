@@ -187,6 +187,10 @@ internal static class ArrowWidening
                 if (Compile(f.ValueField.DataType, t.ValueField.DataType, rules, path + "{value}", ref error) is not { } value) return null;
                 return new ListConversion(to, new StructConversion(t.KeyValueType, [(0, key), (1, value)]));
             }
+            // A map is a list of its key/value entries: read as such a list (an engine without a map type, e.g.),
+            // the entries convert by field name like any struct.
+            case (MapType f, ListType or LargeListType or ListViewType or LargeListViewType) when ListElement(to) is StructType:
+                return Compile(f.KeyValueType, ListElement(to), rules, path + "{}", ref error) is { } entries ? new ListConversion(to, entries) : null;
             default:
                 return Refuse(ArrowConversionProblem.Incompatible, ref error);
         }

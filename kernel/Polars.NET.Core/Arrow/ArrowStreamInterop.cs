@@ -571,20 +571,9 @@ public static unsafe class ArrowStreamInterop
             try { _inner.Dispose(); } catch { /* Ignore dispose errors */ }
         }
 
-        public bool MoveNext()
-        {
-            try
-            {
-                return _inner.MoveNext();
-            }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[CRITICAL INTEROP ERROR] Stream iteration failed: {ex}");
-                Console.ResetColor();
-                return false;
-            }
-        }
+        // A source's failure goes to the engine as the stream's error (the exporter reports it), never as its end:
+        // ending the stream would return a truncated result.
+        public bool MoveNext() => _inner.MoveNext();
 
         public void Reset() => _inner.Reset();
     }

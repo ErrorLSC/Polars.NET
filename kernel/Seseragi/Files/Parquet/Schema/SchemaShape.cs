@@ -17,7 +17,7 @@ internal sealed class SchemaShape(SchemaElement[] elements, string? arrowSchema)
     private Apache.Arrow.Schema? _stored;
     private bool _storedRead;
     private IReadOnlyList<ParquetSchemaElement>? _public;
-    private readonly List<(bool Views, bool BinaryAsString, TimeUnit Int96, (Apache.Arrow.Schema, ColumnMapping[]) Mapping)> _mappings = [];
+    private readonly List<(bool Views, bool BinaryAsString, TimeUnit Int96, string? Int96Zone, (Apache.Arrow.Schema, ColumnMapping[]) Mapping)> _mappings = [];
 
     /// <summary>The schema elements, depth first.</summary>
     public SchemaElement[] Elements => elements;
@@ -72,9 +72,10 @@ internal sealed class SchemaShape(SchemaElement[] elements, string? arrowSchema)
     {
         lock (_lock)
         {
-            foreach (var (views, binary, int96, mapping) in _mappings)
+            foreach (var (views, binary, int96, zone, mapping) in _mappings)
             {
-                if (views == options.ViewTypes && binary == options.BinaryAsString && int96 == options.Int96Unit) return mapping;
+                if (views == options.ViewTypes && binary == options.BinaryAsString && int96 == options.Int96Unit && zone == options.Int96Timezone)
+                    return mapping;
             }
             if (!_storedRead)
             {
@@ -83,7 +84,7 @@ internal sealed class SchemaShape(SchemaElement[] elements, string? arrowSchema)
             }
             _tree ??= ParquetSchemaTree.Build(elements);
             var mapped = ArrowMapping.Map(_tree, _stored, options);
-            _mappings.Add((options.ViewTypes, options.BinaryAsString, options.Int96Unit, mapped));
+            _mappings.Add((options.ViewTypes, options.BinaryAsString, options.Int96Unit, options.Int96Timezone, mapped));
             return mapped;
         }
     }

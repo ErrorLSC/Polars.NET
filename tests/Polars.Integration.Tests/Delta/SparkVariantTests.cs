@@ -1,4 +1,7 @@
+using Kaminari.Seseragi.Files.IO;
 using Polars.CSharp;
+using Polars.Integration.Tests.Fixtures;
+using Polars.NET.Core.Delta;
 using Delta = Polars.CSharp.Delta;
 
 namespace Polars.Integration.Tests;
@@ -241,5 +244,202 @@ public class SparkVariantTests
             Assert.Contains("row", raw.Columns);
             Assert.Contains("w", raw.Columns);
         });
+    }
+
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void VariantTables_ReadOnlyTheFootersAndTheColumnsAndRowsAQueryUses()
+    {
+        InTable(table =>
+        {
+            // Wide rows, two files, and a widened column: creating the scan reads each file's schema for it.
+            LocalSpark.Run("sql", table,
+                "CREATE TABLE {table} (id INT, pad STRING, v VARIANT) USING delta TBLPROPERTIES ('delta.enableTypeWidening'='true')");
+            LocalSpark.Run("sql", table, """
+                INSERT INTO {table} SELECT CAST(id AS INT), repeat(md5(CAST(id AS STRING)), 8), parse_json(concat('{"k":', id, '}'))
+                FROM range(100000)
+                """);
+            LocalSpark.Run("sql", table, "ALTER TABLE {table} ALTER COLUMN id TYPE BIGINT");
+            LocalSpark.Run("sql", table, "INSERT INTO {table} SELECT 100000, 'x', parse_json('1')");
+            long total = Directory.EnumerateFiles(table, "*.parquet", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+
+            var counter = new ReadCounter();
+            DeltaKernelScan.ManagedStorage.WrapForTests = store => new CountingStore(store, counter, table);
+            try
+            {
+                using var lf = LazyFrame.ScanDelta(table);
+                long atCreation = counter.Bytes;
+                Assert.InRange(atCreation, 1, total / 10);
+
+                using var head = lf.Select(Polars.CSharp.Polars.Col("id")).Head(5).Collect();
+                Assert.Equal(5, head.Height);
+                Assert.InRange(counter.Bytes - atCreation, 1, total / 10);
+
+                using var all = lf.Select(Polars.CSharp.Polars.Col("v")).Collect();
+                Assert.Equal(100_001, all.Height);
+            }
+            finally
+            {
+                DeltaKernelScan.ManagedStorage.WrapForTests = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Columns of every type next to a variant read as the engine reads them without one: the same rows in a table
+    /// with a variant column (managed reader) and one without (engine), on the in-memory and streaming engines and
+    /// through a sink.
+    /// </summary>
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void ColumnsNextToAVariant_ReadAsInATableWithout()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_variant_types_{Guid.NewGuid():N}");
+        string with = Path.Combine(root, "with"), without = Path.Combine(root, "without");
+        try
+        {
+            const string columns =
+                "id INT, b TINYINT, sh SMALLINT, l BIGINT, f FLOAT, d DOUBLE, bo BOOLEAN, dec DECIMAL(10, 2), dec38 DECIMAL(38, 6), " +
+                "bin BINARY, dt DATE, ts TIMESTAMP, tsn TIMESTAMP_NTZ, st STRUCT<t: TIMESTAMP, n: DECIMAL(20, 3)>, " +
+                "arr ARRAY<TIMESTAMP>, m MAP<STRING, DECIMAL(10, 2)>";
+            const string values = """
+                SELECT CAST(id AS INT), CAST(id % 100 AS TINYINT), CAST(id * 7 AS SMALLINT), id * 1000000007, CAST(id / 3.0 AS FLOAT),
+                    id / 7.0, id % 2 = 0, CAST(id / 100.0 AS DECIMAL(10, 2)), CAST(id * 12345678901234.123456 AS DECIMAL(38, 6)),
+                    CAST(concat('b', id) AS BINARY), date_add(DATE'1969-12-25', CAST(id AS INT)),
+                    TIMESTAMP'2024-03-10 01:30:00.123456' + make_interval(0, 0, 0, 0, CAST(id AS INT), 0, 0),
+                    TIMESTAMP_NTZ'1900-01-01 00:00:00.5' + make_interval(0, 0, 0, CAST(id AS INT), 0, 0, 0),
+                    named_struct('t', TIMESTAMP'2000-01-01 00:00:00', 'n', CAST(id / 1000.0 AS DECIMAL(20, 3))),
+                    array(TIMESTAMP'1999-12-31 23:59:59.999999', NULL), map('k', CAST(id AS DECIMAL(10, 2)))
+                FROM range(50)
+                UNION ALL SELECT 50, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+                """;
+            LocalSpark.Run("sql", with, $"CREATE TABLE {{table}} ({columns}, v VARIANT) USING delta");
+            LocalSpark.Run("sql", with, $"INSERT INTO {{table}} SELECT *, parse_json('1') FROM ({values})");
+            LocalSpark.Run("sql", without, $"CREATE TABLE {{table}} ({columns}) USING delta");
+            LocalSpark.Run("sql", without, $"INSERT INTO {{table}} {values}");
+
+            using DataFrame expected = DataFrame.ReadDelta(without).Sort("id");
+            string[] names = [.. expected.Columns];
+            Polars.CSharp.Expr[] shared = [.. names.Select(n => Polars.CSharp.Polars.Col(n))];
+            using LazyFrame scan = LazyFrame.ScanDelta(with);
+            using (DataFrame inMemory = scan.Select(shared).Collect().Sort("id")) AssertSame(expected, inMemory);
+            using (DataFrame streaming = scan.Select(shared).Collect(Engine.Streaming).Sort("id")) AssertSame(expected, streaming);
+            string sunk = Path.Combine(root, "sunk.parquet");
+            scan.Select(shared).SinkParquet(sunk);
+            using (DataFrame back = DataFrame.ReadParquet(sunk).Sort("id")) AssertSame(expected, back);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+
+        static void AssertSame(DataFrame expected, DataFrame actual)
+        {
+            Assert.Equal(expected.Columns, actual.Columns);
+            Assert.Equal(expected.Schema.ToString(), actual.Schema.ToString());
+            Assert.Equal(expected.Height, actual.Height);
+            Assert.True(expected.Equals(actual), $"expected\n{expected}\nactual\n{actual}");
+        }
+    }
+
+    /// <summary>The bytes read from files below a table.</summary>
+    private sealed class ReadCounter
+    {
+        private long _bytes;
+
+        public long Bytes => Interlocked.Read(ref _bytes);
+
+        public void Add(long bytes) => Interlocked.Add(ref _bytes, bytes);
+    }
+
+    /// <summary>A store counting the bytes read from files below <paramref name="root"/>.</summary>
+    private sealed class CountingStore(IFileStore inner, ReadCounter counter, string root) : IFileStore
+    {
+        public bool CanList => inner.CanList;
+
+        public IAsyncEnumerable<StoredFile> ListAsync(string prefix, bool recursive, CancellationToken cancellationToken = default) =>
+            inner.ListAsync(prefix, recursive, cancellationToken);
+
+        public ValueTask<StoredFile?> StatAsync(string path, CancellationToken cancellationToken = default) => inner.StatAsync(path, cancellationToken);
+
+        public async ValueTask<IRandomAccess> OpenAsync(StoredFile file, CancellationToken cancellationToken = default) =>
+            Wrap(file.Path, await inner.OpenAsync(file, cancellationToken));
+
+        public async ValueTask<IRandomAccess?> OpenAsync(string path, CancellationToken cancellationToken = default) =>
+            await inner.OpenAsync(path, cancellationToken) is { } source ? Wrap(path, source) : null;
+
+        private IRandomAccess Wrap(string path, IRandomAccess source) =>
+            path.StartsWith(root, StringComparison.Ordinal) ? new Source(source, counter) : source;
+
+        private sealed class Source(IRandomAccess inner, ReadCounter counter) : IRandomAccess, IDisposable
+        {
+            public long Length => inner.Length;
+
+            public int ReadAt(long offset, Span<byte> destination)
+            {
+                int read = inner.ReadAt(offset, destination);
+                counter.Add(read);
+                return read;
+            }
+
+            public async ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken)
+            {
+                int read = await inner.ReadAtAsync(offset, destination, cancellationToken);
+                counter.Add(read);
+                return read;
+            }
+
+            public void Dispose() => (inner as IDisposable)?.Dispose();
+        }
+    }
+}
+
+/// <summary>A Spark variant table copied to S3 (MinIO): read there as it reads locally.</summary>
+public class SparkVariantCloudTests(MinioFixture minio) : IClassFixture<MinioFixture>
+{
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void VariantTable_OnS3_ReadsAsTheLocalCopy()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_variant_s3_{Guid.NewGuid():N}");
+        string table = Path.Combine(root, "table");
+        try
+        {
+            // Partitioned, with a deletion vector: the grouped scan and the one-file scan both run.
+            LocalSpark.Run("sql", table,
+                "CREATE TABLE {table} (id INT, p STRING, v VARIANT) USING delta PARTITIONED BY (p) " +
+                "TBLPROPERTIES ('delta.enableDeletionVectors'='true')");
+            LocalSpark.Run("sql", table, """
+                INSERT INTO {table} SELECT CAST(id AS INT), IF(id % 2 = 0, 'even', 'odd'), parse_json(concat('{"k":', id, '}'))
+                FROM range(1000)
+                """);
+            LocalSpark.Run("sql", table, "DELETE FROM {table} WHERE id % 10 = 3");
+
+            var options = CloudOptions.Aws(region: minio.Region, accessKey: minio.AccessKey, secretKey: minio.SecretKey,
+                endpoint: $"http://{minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}");
+            options.Credentials!["aws_allow_http"] = "true";
+            options.Credentials!["aws_s3_force_path_style"] = "true";
+            string url = $"s3://{minio.BucketName}/variant_{Guid.NewGuid():N}";
+            using (var store = new ObjectStoreFileSystem(url, KernelObjectStoreCheck.ToArgs(options)))
+            {
+                foreach (string file in Directory.EnumerateFiles(table, "*", SearchOption.AllDirectories))
+                    store.Overwrite(Path.GetRelativePath(table, file).Replace('\\', '/'), File.ReadAllBytes(file));
+            }
+
+            using DataFrame local = DataFrame.ReadDelta(table, variantAsJson: true).Sort("id");
+            using DataFrame remote = DataFrame.ReadDelta(url, cloudOptions: options, variantAsJson: true).Sort("id");
+            Assert.Equal(900, local.Height);
+            Assert.Equal(local["id"].ToArray<int>(), remote["id"].ToArray<int>());
+            Assert.Equal(local["p"].ToArray<string>(), remote["p"].ToArray<string>());
+            Assert.Equal(local["v"].ToArray<string?>(), remote["v"].ToArray<string?>());
+            Assert.Equal("{\"k\":4}", remote["v"].ToArray<string?>()[3]);
+
+            using DataFrame head = LazyFrame.ScanDelta(url, cloudOptions: options).Select(Polars.CSharp.Polars.Col("id")).Head(3).Collect();
+            Assert.Equal(3, head.Height);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
     }
 }

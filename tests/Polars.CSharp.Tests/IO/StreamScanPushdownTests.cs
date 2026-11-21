@@ -32,6 +32,9 @@ public class StreamScanPushdownTests
         /// <summary>When false the source ignores the request and gives every column and row.</summary>
         public bool Honours { get; init; } = true;
 
+        /// <summary>When set, the source fails with this message after its first batch.</summary>
+        public string? FailsWith { get; init; }
+
         public LazyFrame Scan()
         {
             using var reader = Table().CreateDataReader();
@@ -49,6 +52,7 @@ public class StreamScanPushdownTests
                 foreach (var batch in reader.ToArrowBatches(BatchSize))
                 {
                     if (left <= 0) yield break;
+                    if (FailsWith is not null && BatchesRead == 1) throw new InvalidOperationException(FailsWith);
                     BatchesRead++;
                     left -= batch.Length;
                     yield return Honours && request.Columns is { } columns ? Project(batch, columns) : batch;
@@ -139,6 +143,18 @@ public class StreamScanPushdownTests
         Assert.Equal(["V", "Id"], df.Columns);
         Assert.Equal([0, 1, 2, 3, 4], Ids(df));
         Assert.Equal(1, source.BatchesRead);
+        Assert.Equal(1, source.Disposed);
+    }
+
+    [Theory]
+    [MemberData(nameof(Runs))]
+    public void A_Failing_Source_Fails_The_Query(Run run)
+    {
+        // The error reaches the query: the source's stream does not just end (a truncated result).
+        var source = new Source { FailsWith = "the source broke" };
+        using var lf = source.Scan();
+        var error = Assert.ThrowsAny<Exception>(() => Execute(lf.Select(Pl.Col("Id")), run).Dispose());
+        Assert.Contains("the source broke", error.Message);
         Assert.Equal(1, source.Disposed);
     }
 

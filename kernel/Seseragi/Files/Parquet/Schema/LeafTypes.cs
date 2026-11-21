@@ -84,7 +84,7 @@ internal static class LeafTypes
         ParquetType.Boolean => new(BooleanType.Default, ValueKind.Boolean),
         ParquetType.Int32 => new(Int32Type.Default, ValueKind.Int32),
         ParquetType.Int64 => new(Int64Type.Default, ValueKind.Int64),
-        ParquetType.Int96 => Int96(options.Int96Unit),
+        ParquetType.Int96 => Int96(options.Int96Unit, options.Int96Timezone),
         ParquetType.Float => new(FloatType.Default, ValueKind.Float),
         ParquetType.Double => new(DoubleType.Default, ValueKind.Double),
         ParquetType.ByteArray => options.BinaryAsString ? new(StringType.Default, ValueKind.Utf8) : new(BinaryType.Default, ValueKind.Binary),
@@ -92,8 +92,12 @@ internal static class LeafTypes
         _ => throw new ParquetFormatException($"Unknown physical type {(int)physical}."),
     };
 
-    /// <summary>INT96 timestamps carry no zone: Spark's are UTC instants, but Arrow readers return them as local values.</summary>
-    public static LeafType Int96(TimeUnit unit) => new(new TimestampType(unit, (string?)null), ValueKind.Int96Timestamp) { Unit = unit, TypeLength = 12 };
+    /// <summary>
+    /// INT96 timestamps carry no zone: Spark's are UTC instants, but Arrow readers return them as local values (a
+    /// null <paramref name="timezone"/>).
+    /// </summary>
+    public static LeafType Int96(TimeUnit unit, string? timezone = null) =>
+        new(new TimestampType(unit, timezone), ValueKind.Int96Timestamp) { Unit = unit, TypeLength = 12 };
 
     private static LeafType? FromLogical(LogicalType logical, ParquetType physical, int length, SchemaElement e)
     {

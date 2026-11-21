@@ -116,7 +116,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         if (Options.SchemaMode == DatasetSchemaMode.UnionByName)
         {
             // United once with default options when the dataset opened; again only for other layouts.
-            if (options.ViewTypes == DefaultRead.ViewTypes && options.BinaryAsString == DefaultRead.BinaryAsString && options.Int96Unit == DefaultRead.Int96Unit)
+            if (options.ViewTypes == DefaultRead.ViewTypes && options.BinaryAsString == DefaultRead.BinaryAsString && options.Int96Unit == DefaultRead.Int96Unit
+                && options.Int96Timezone == DefaultRead.Int96Timezone)
                 return FileSchema;
             var footers = new ParquetMetadata?[Files.Count];
             for (int i = 0; i < footers.Length; i++) footers[i] = Footer(i);

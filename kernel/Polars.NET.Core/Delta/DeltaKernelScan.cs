@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using Kaminari.Sazanami.Bitmaps;
 using Kaminari.Sazanami.Buffers;
@@ -7,6 +6,10 @@ using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Skipping;
+using Kaminari.Seseragi.Files;
+using Kaminari.Seseragi.Files.IO;
+using Kaminari.Seseragi.Files.Parquet;
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Helpers;
@@ -623,12 +626,12 @@ public static class DeltaKernelScan
     }
 
     /// <param name="variantTable">The table's root when it has variant columns: its files are then read through
-    /// <see cref="ScanPatched"/>.</param>
+    /// <see cref="ScanManaged"/>.</param>
     internal static LazyFrameHandle ScanFiles(
         string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName, KernelScanOptions? options = null,
         string? variantTable = null) =>
         variantTable is not null
-            ? ScanPatched(variantTable, paths, cloud, schema, rowIndexName, options)
+            ? ScanManaged(paths, cloud, schema, rowIndexName, options)
             : PolarsWrapper.ScanParquetFiles(
             paths,
             parallel: options?.Parallel ?? PlParallelStrategy.Auto,
@@ -650,77 +653,106 @@ public static class DeltaKernelScan
             cloudKeys: cloud.Keys,
             cloudValues: cloud.Values);
 
-    // ------------------------------------------------------------------ OUR OWN PATCH: variant tables (TEMPORARY)
-
-    /// <summary>Tables already warned about in this process.</summary>
-    private static readonly ConcurrentDictionary<string, bool> WarnedVariantTables = new(StringComparer.Ordinal);
+    // ------------------------------------------------------------------ variant tables: the managed Parquet reader
 
     /// <summary>The table's root when its schema has variant columns (at any depth), else null.</summary>
     private static string? VariantTable(Snapshot snapshot, string tableRoot) => VariantColumns.HasVariant(snapshot.Schema) ? tableRoot : null;
 
+    /// <summary>
+    /// The files read by Seseragi's Parquet reader, which opens VARIANT (the engine cannot yet), with the policies of
+    /// <see cref="ScanFiles"/>: the columns of <paramref name="schema"/> (the first file's when null), those a file
+    /// lacks as nulls, others ignored, types converted leniently; a row index (each file's row numbers when one file
+    /// is read) and a path column when asked. Nothing is read when the frame is created (with no schema, the first
+    /// file's footer); each run reads only the columns and leading rows the query uses, by ranged reads.
+    /// </summary>
+    private static LazyFrameHandle ScanManaged(
+        string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName, KernelScanOptions? options)
+    {
+        Apache.Arrow.Schema? given = null;
+        if (schema is not null)
+        {
+            using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(schema, 0);
+            given = PolarsWrapper.ArrowSchemaOf(empty);
+        }
+        ParquetDatasetFile[] files = [.. paths.Select(p => new ParquetDatasetFile(p))];
+        string? pathColumn = options?.IncludePathColumn;
+        int parallelism = options?.Parallel == PlParallelStrategy.None ? 1 : Environment.ProcessorCount;
+
+        // The stream's schema: the reader's (row index first, then the columns, then the path column).
+        Apache.Arrow.Schema streamSchema;
+        using (var storage = ManagedStorage.Open(paths, cloud))
+        using (var dataset = ParquetDataset.Open(files, DatasetOptionsFor(storage.Store)))
+        using (var reader = dataset.OpenReader(new ParquetReadOptions { RowIndexColumn = rowIndexName, Int96Timezone = "UTC" }))
+            streamSchema = reader.Schema;
+        return ArrowStreamInterop.ScanStream(Batches, streamSchema, strict: true);
+
+        ParquetDatasetOptions DatasetOptionsFor(IFileStore? store) => new()
+        {
+            Store = store,
+            Schema = given,
+            AllowMissingColumns = true,
+            AllowLossyCasts = true,
+            Partitioning = HivePartitioning.Off,
+            FilePathColumn = pathColumn,
+        };
+
+        IEnumerable<Apache.Arrow.RecordBatch> Batches(StreamScanRequest request)
+        {
+            using var storage = ManagedStorage.Open(paths, cloud);
+            using var dataset = ParquetDataset.Open(files, DatasetOptionsFor(storage.Store));
+            string[]? columns = request.Columns is { } asked
+                ? [.. asked.Where(c => c != rowIndexName && c != pathColumn)]
+                : null;
+            // Some column is read to count the rows (the row index or the path alone hold none of their own).
+            if (columns is []) columns = [dataset.Schema.FieldsList[0].Name];
+            using var reader = dataset.OpenReader(new ParquetReadOptions
+            {
+                Columns = columns,
+                MaxRows = request.RowLimit,
+                RowIndexColumn = rowIndexName,
+                MaxDegreeOfParallelism = parallelism,
+                Int96Timezone = "UTC", // a Spark TIMESTAMP: the instants the table's type says
+            });
+            foreach (var batch in reader.ReadBatches()) yield return batch;
+        }
+    }
 
     /// <summary>
-    /// OUR OWN PATCH around the engine (see <see cref="VariantFooter"/>): each file of a table with variant columns
-    /// is read whole into memory, the VARIANT annotations are removed from its footer, and the engine scans the
-    /// patched bytes, one file after another, with the policies of a path scan. No ranged reads: every byte of every
-    /// file is read from storage (the engine still decodes only the columns and row groups it needs). Warns once per table and process. Delete with
-    /// <see cref="VariantFooter"/> once the engine reads VARIANT.
+    /// The store the managed reader reads data files from: the local file system for local paths (null: the
+    /// dataset's default), else the table's object store at the URL's bucket or container (a file of a shallow clone
+    /// may lie outside the table), with the table's credentials.
     /// </summary>
-    private static LazyFrameHandle ScanPatched(
-        string tableRoot, string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName, KernelScanOptions? options)
+    internal sealed class ManagedStorage(IFileStore? store, IDisposable? owner) : IDisposable
     {
-        if (WarnedVariantTables.TryAdd(tableRoot, true))
+        /// <summary>Tests only: wraps every store managed scans read through (to count their reads).</summary>
+        internal static Func<IFileStore, IFileStore>? WrapForTests;
+
+        public IFileStore? Store { get; } = store;
+
+        public static ManagedStorage Open(string[] paths, CloudArgs cloud)
         {
-            string warning =
-                $"[Polars.NET] Warning: the Delta table at {tableRoot} has variant columns, which the Parquet engine cannot open yet. " +
-                "Polars.NET works around it with its own patch: every data file the scan selects is read whole into memory when the scan " +
-                "is created (not when it is collected) and its footer patched; the files stay in memory until the frame is released. " +
-                "Every byte of those files is read from storage (no ranged reads), though the engine still decodes only the columns " +
-                "and row groups it needs; a Head() or a filter still reads every file.";
-            Console.Error.WriteLine(warning);
-            System.Diagnostics.Trace.TraceWarning(warning);
+            var storage = OpenStore(paths, cloud);
+            return WrapForTests is { } wrap ? new(wrap(storage.Store ?? new LocalFileStore()), storage) : storage;
         }
 
-        var frames = new List<LazyFrameHandle>(paths.Length);
-        try
+        private static ManagedStorage OpenStore(string[] paths, CloudArgs cloud)
         {
-            foreach (string path in paths)
+            if (paths.Length == 0 || !paths[0].Contains("://", StringComparison.Ordinal)) return new(null, null);
+            string root = AuthorityRoot(paths[0]);
+            if (paths.Any(p => !p.StartsWith(root + "/", StringComparison.Ordinal)))
+                throw new PolarsException($"The data files of one scan lie in different buckets: {root} and others.");
+            var fileSystem = new ObjectStoreFileSystem(root, cloud);
+            return new(new FileSystemStore(fileSystem, root), fileSystem);
+
+            static string AuthorityRoot(string url)
             {
-                byte[] file = VariantFooter.Strip(ReadWhole(path, cloud), path);
-                LazyFrameHandle lf = PolarsWrapper.ScanParquetBuffer(
-                    NativeBytes.Share(file), schema, rowIndexName,
-                    parallel: options?.Parallel ?? PlParallelStrategy.Auto,
-                    lowMemory: options?.LowMemory ?? false,
-                    useStatistics: options?.UseStatistics ?? true,
-                    ignoreExtraColumns: true,
-                    lenientCasts: true,
-                    rechunk: options?.Rechunk ?? false,
-                    cache: options?.Cache ?? true);
-                if (options?.IncludePathColumn is string pathColumn)
-                    lf = PolarsWrapper.LazyWithColumns(lf, [PolarsWrapper.Alias(PolarsWrapper.Lit(path), pathColumn)]);
-                frames.Add(lf);
+                int start = url.IndexOf("://", StringComparison.Ordinal) + 3;
+                int slash = url.IndexOf('/', start);
+                return slash < 0 ? url : url[..slash];
             }
-            LazyFrameHandle[] all = [.. frames];
-            frames.Clear(); // from here the result owns them
-            return all.Length == 1
-                ? all[0]
-                : PolarsWrapper.LazyConcat(all, PlConcatType.Vertical, rechunk: options?.Rechunk ?? false, parallel: true, toSupertypes: false, maintainOrder: true);
-        }
-        finally
-        {
-            foreach (LazyFrameHandle frame in frames) frame.Dispose();
         }
 
-        static byte[] ReadWhole(string path, CloudArgs cloud)
-        {
-            if (!path.Contains("://", StringComparison.Ordinal))
-                return File.Exists(path) ? File.ReadAllBytes(path) : throw new PolarsException($"The data file {path} does not exist.");
-            int slash = path.LastIndexOf('/');
-            using var store = new ObjectStoreFileSystem(path[..slash], cloud);
-            // Managed, as the engine reads it in place (this temporary path, see VariantFooter).
-            using FileBytes bytes = store.ReadFile(path[(slash + 1)..]) ?? throw new PolarsException($"The data file {path} does not exist.");
-            return bytes.Span.ToArray();
-        }
+        public void Dispose() => owner?.Dispose();
     }
 
     internal static string Combine(string root, string relative)

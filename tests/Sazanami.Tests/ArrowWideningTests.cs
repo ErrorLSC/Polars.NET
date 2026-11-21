@@ -433,6 +433,39 @@ public class ArrowWideningTests
     }
 
     [Fact]
+    public void Maps_ReadAsListsOfTheirEntries_FromAnyOffset()
+    {
+        var builder = new MapArray.Builder(new MapType(StringType.Default, Int32Type.Default));
+        var keys = (StringArray.Builder)builder.KeyBuilder;
+        var values = (Int32Array.Builder)builder.ValueBuilder;
+        builder.Append(); keys.Append("skipped"); values.Append(0);
+        builder.Append(); keys.Append("a"); values.Append(1); keys.Append("b"); values.AppendNull();
+        builder.AppendNull();
+        builder.Append();
+        using MapArray maps = builder.Build(PooledArrowAllocator.Instance);
+
+        // An engine without a map type: a large list of key/value structs, keys as views, values wider.
+        var entry = new StructType([new Field("key", StringViewType.Default, false), new Field("value", Int64Type.Default, true)]);
+        var target = new LargeListType(new Field("item", entry, true));
+        Assert.True(ArrowWidening.CanConvert(maps.Data.DataType, target, default));
+        using var lists = (LargeListArray)Compile(maps.Data.DataType, target).Convert(maps.Slice(1, 3));
+
+        Assert.Equal(3, lists.Length);
+        Assert.Equal(2, lists.GetValueLength(0));
+        Assert.True(lists.IsNull(1));
+        Assert.Equal(0, lists.GetValueLength(2));
+        var entries = (StructArray)lists.GetSlicedValues(0);
+        Assert.Equal(["a", "b"], [((StringViewArray)entries.Fields[0]).GetString(0), ((StringViewArray)entries.Fields[0]).GetString(1)]);
+        var widened = (Int64Array)entries.Fields[1];
+        Assert.Equal(1L, widened.GetValue(0));
+        Assert.True(widened.IsNull(1));
+
+        // Entries whose fields are not the map's do not convert.
+        var other = new ListType(new Field("item", new StructType([new Field("k", StringType.Default, false)]), true));
+        Assert.False(ArrowWidening.CanConvert(maps.Data.DataType, other, default));
+    }
+
+    [Fact]
     public void Dictionaries_ConvertToAndFromTheirValues()
     {
         var dictionary = new DictionaryArray(new DictionaryType(Int32Type.Default, StringType.Default, false),

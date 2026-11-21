@@ -110,6 +110,13 @@ public sealed record ParquetReadOptions
     /// </summary>
     public TimeUnit Int96Unit { get; init; } = TimeUnit.Microsecond;
 
+    /// <summary>
+    /// The time zone INT96 timestamps are read in when the file's Arrow schema does not give one: null (the default)
+    /// reads them as wall-clock values, as Arrow readers do; "UTC" reads them as the instants Spark, Hive and Impala
+    /// store in them (a Spark TIMESTAMP column).
+    /// </summary>
+    public string? Int96Timezone { get; init; }
+
     /// <summary>Added to the numbers in <see cref="RowIndexColumn"/> (a dataset numbers rows across its files).</summary>
     internal long RowIndexOffset { get; init; }
 

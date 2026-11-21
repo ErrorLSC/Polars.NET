@@ -176,47 +176,6 @@ fn table_scan(
 }
 
 // ---------------------------------------------------------
-// Scan Parquet (one file in memory, as a table format's data file)
-// ---------------------------------------------------------
-/// Scans one Parquet file held in memory (released through `release` once the plan no longer needs it) with the
-/// policies of `pl_scan_parquet_files`. For files the engine cannot open from storage as they are (Delta tables
-/// with variant columns, whose footers the caller patches).
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_scan_parquet_buffer(
-    buffer_ptr: *const u8,
-    buffer_len: usize,
-    release: Option<crate::pl_io::managed_buffer::ReleaseCallback>,
-    user_data: *mut std::ffi::c_void,
-    n_rows: *const usize,
-    parallel_code: u8,
-    low_memory: bool,
-    use_statistics: bool,
-    allow_missing_columns: bool,
-    ignore_extra_columns: bool,
-    lenient_casts: bool,
-    rechunk: bool,
-    cache: bool,
-    row_index_name_ptr: *const c_char,
-    row_index_offset: u32,
-    schema_ptr: *mut SchemaContext,
-) -> *mut LazyFrameContext {
-    ffi_try!({
-        let buffer = unsafe { crate::pl_io::managed_buffer::buffer_from_ffi(buffer_ptr, buffer_len, release, user_data) };
-        let args = build_scan_args(
-            n_rows, parallel_code, low_memory, use_statistics,
-            false, allow_missing_columns,
-            row_index_name_ptr, row_index_offset, std::ptr::null(),
-            schema_ptr, false, std::ptr::null_mut(), false,
-            rechunk, cache,
-            0, 0, 0, 0, 0, 0,
-            std::ptr::null(), std::ptr::null(), 0
-        );
-        let lf = table_scan(ScanSources::Buffers(Arc::new([buffer])), args, ignore_extra_columns, lenient_casts)?;
-        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
-    })
-}
-
-// ---------------------------------------------------------
 // Scan Parquet (Memory / Buffers)
 // ---------------------------------------------------------
 #[unsafe(no_mangle)]
