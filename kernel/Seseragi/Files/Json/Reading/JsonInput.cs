@@ -5,17 +5,24 @@ using Kaminari.Seseragi.Files.IO;
 namespace Kaminari.Seseragi.Files.Json.Reading;
 
 /// <summary>
-/// The bytes of one unit of work: whole lines (each line in exactly one unit), as memory valid until disposed. A
-/// borrowed unit (one an input keeps, lent for inference) disposes nothing.
+/// The bytes of one unit of work: whole lines (each line in exactly one unit), or a document's whole array elements, as
+/// memory valid until disposed. A borrowed unit (one an input keeps, lent for inference) disposes nothing.
 /// </summary>
-internal sealed class JsonUnitBytes(ReadOnlyMemory<byte> memory, bool fileStart, IDisposable? owner) : IDisposable
+internal sealed class JsonUnitBytes(ReadOnlyMemory<byte> memory, bool fileStart, IDisposable? owner, bool fileEnd = false, long elements = 0)
+    : IDisposable
 {
     public ReadOnlyMemory<byte> Memory { get; } = memory;
 
     /// <summary>Whether the unit starts the input (where a byte order mark may be).</summary>
     public bool FileStart { get; } = fileStart;
 
-    public JsonUnitBytes Borrow() => new(Memory, FileStart, null);
+    /// <summary>Whether the unit ends the input (a document's units: the last one holds its end).</summary>
+    public bool FileEnd { get; } = fileEnd;
+
+    /// <summary>About how many elements a document's unit holds (to reserve builders).</summary>
+    public long Elements { get; } = elements;
+
+    public JsonUnitBytes Borrow() => new(Memory, FileStart, null, FileEnd, Elements);
 
     public void Dispose() => owner?.Dispose();
 }
@@ -28,6 +35,9 @@ internal abstract class JsonInput : IDisposable
 
     /// <summary>The number of units, when known up front (random access); -1 when found as the input is read.</summary>
     public abstract int Count { get; }
+
+    /// <summary>Whether the input can be read once only (a stream).</summary>
+    public abstract bool ReadOnce { get; }
 
     /// <summary>
     /// Unit <paramref name="index"/>'s bytes (the caller disposes them when done), or null past the end of a stream. A
@@ -83,6 +93,8 @@ internal sealed class BlockInput : JsonInput
     }
 
     public override int Count => (int)Math.Min(int.MaxValue, (_length + _unitBytes - 1) / _unitBytes);
+
+    public override bool ReadOnce => false;
 
     /// <summary>Whether the input is read in place (memory or a mapping; for tests).</summary>
     internal bool InPlace => _memory is not null || _map is not null;
@@ -218,6 +230,8 @@ internal sealed class StreamInput(Stream stream, bool leaveOpen, int unitBytes) 
     private bool _ended, _disposed;
 
     public override int Count => -1;
+
+    public override bool ReadOnce => true;
 
     public override async ValueTask<JsonUnitBytes?> GetAsync(int index, bool useAsync, CancellationToken cancellationToken)
     {

@@ -3,11 +3,14 @@ using Apache.Arrow.Types;
 
 namespace Kaminari.Seseragi.Files.Json;
 
-/// <summary>How <see cref="JsonReader"/> reads newline-delimited JSON (one object per line).</summary>
+/// <summary>How <see cref="JsonReader"/> reads JSON: newline-delimited (one object per line) or one document.</summary>
 public sealed record JsonReadOptions
 {
     /// <summary>The default rows per record batch.</summary>
     public const int DefaultBatchSize = 65_536;
+
+    /// <summary>The input's layout: one object per line (the default) or one JSON document.</summary>
+    public JsonFormat Format { get; init; } = JsonFormat.Lines;
 
     /// <summary>
     /// The columns and their types: nothing is inferred, fields the schema does not name are passed over, fields a
@@ -23,8 +26,9 @@ public sealed record JsonReadOptions
 
     /// <summary>
     /// The records the columns and their types are inferred from (100 by default); null reads the whole input first.
-    /// Fields first seen after them are passed over; values that do not fit the inferred type are errors (or nulls with
-    /// <see cref="IgnoreErrors"/>).
+    /// Fields first seen after them are passed over (<see cref="JsonFormat.Lines"/>) or errors
+    /// (<see cref="JsonFormat.Document"/>, unless <see cref="IgnoreErrors"/>); values that do not fit the inferred type
+    /// are errors (or nulls with <see cref="IgnoreErrors"/>).
     /// </summary>
     public int? InferSchemaLength { get; init; } = 100;
 
@@ -43,7 +47,10 @@ public sealed record JsonReadOptions
     /// <summary>Inferred strings as Utf8View (true, the default) or Utf8. A given schema's types are kept as they are.</summary>
     public bool ViewTypes { get; init; } = true;
 
-    /// <summary>A value that does not fit its column's type is a null instead of an error (syntax errors still are).</summary>
+    /// <summary>
+    /// A value that does not fit its column's type is a null instead of an error, and a document's fields the inference
+    /// did not see are passed over (syntax errors still are errors).
+    /// </summary>
     public bool IgnoreErrors { get; init; }
 
     /// <summary>Whether a local file opened by its path is read through a memory mapping.</summary>
@@ -56,6 +63,23 @@ public sealed record JsonReadOptions
     internal int UnitBytes { get; init; } = Reading.JsonInput.DefaultUnitBytes;
 }
 
+/// <summary>The layout of JSON input.</summary>
+public enum JsonFormat
+{
+    /// <summary>
+    /// Newline-delimited JSON (NDJSON, JSON Lines): one object per line, blank lines passed over. The input is cut into
+    /// chunks of lines anywhere, so chunks are found and read in parallel.
+    /// </summary>
+    Lines,
+
+    /// <summary>
+    /// One JSON document: an array of objects (a row each), or a single object (one row). The array is cut into chunks
+    /// of whole elements (in parallel for memory and local files: a vectorized scan of segments, resolved in order; as
+    /// it is read for other sources), decoded in parallel.
+    /// </summary>
+    Document,
+}
+
 /// <summary>Whether a local file is read through a memory mapping.</summary>
 public enum JsonMemoryMap
 {
@@ -66,7 +90,7 @@ public enum JsonMemoryMap
     Off,
 }
 
-/// <summary>The input is not newline-delimited JSON (or not UTF-8).</summary>
+/// <summary>The input is not JSON of the expected layout (or not UTF-8).</summary>
 public sealed class JsonFormatException(string message, Exception? inner = null) : FormatException(message, inner);
 
 /// <summary>A value does not fit its column's type.</summary>

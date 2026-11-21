@@ -9,20 +9,26 @@ namespace Seseragi.Files.Tests.Json;
 
 /// <summary>
 /// A messy input (TestData/json/mixed.ndjson: every kind of value, missing fields, varying field order, escapes, blank
-/// and CRLF lines) read as Python Polars 2.1 reads it: the same column types and, per column, the same nulls, sums,
-/// string bytes and list items (mixed.expected.json, written by make_fixtures.py).
+/// and CRLF lines; the same records as an indented CRLF document and a compact one) read as Python Polars 2.1 reads it
+/// (read_ndjson, read_json): the same column types and, per column, the same nulls, sums, string bytes and list items
+/// (mixed.expected.json, written by make_fixtures.py).
 /// </summary>
 public class JsonPolarsOracleTests
 {
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", "json", name);
 
     [Theory]
-    [InlineData(1, 1 << 20)]
-    [InlineData(4, 4096)]
-    public void PolarsReadsTheSameValues(int threads, int unit)
+    [InlineData("mixed.ndjson", 1, 1 << 20)]
+    [InlineData("mixed.ndjson", 4, 4096)]
+    [InlineData("mixed.pretty.json", 1, 1 << 20)]
+    [InlineData("mixed.pretty.json", 4, 4096)]
+    [InlineData("mixed.compact.json", 1, 1 << 20)]
+    [InlineData("mixed.compact.json", 4, 999)]
+    public void PolarsReadsTheSameValues(string file, int threads, int unit)
     {
         using var expected = JsonDocument.Parse(File.ReadAllBytes(Fixture("mixed.expected.json")));
-        using var reader = JsonReader.Open(Fixture("mixed.ndjson"), new JsonReadOptions { InferSchemaLength = null, MaxDegreeOfParallelism = threads, UnitBytes = unit });
+        JsonFormat format = file.EndsWith(".ndjson", StringComparison.Ordinal) ? JsonFormat.Lines : JsonFormat.Document;
+        using var reader = JsonReader.Open(Fixture(file), new JsonReadOptions { Format = format, InferSchemaLength = null, MaxDegreeOfParallelism = threads, UnitBytes = unit });
         var batches = reader.ReadBatches().ToList();
         try
         {

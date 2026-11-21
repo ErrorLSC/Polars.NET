@@ -3,7 +3,7 @@
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
 **Parquet** (files and their full footer metadata read and written), **Arrow IPC** (the file format, Feather v2, and
-the stream format, read and written) and **JSON** (newline-delimited, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+the stream format, read and written) and **JSON** (newline-delimited and documents, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -461,9 +461,10 @@ variadic counts the schema takes, decompressed sizes as declared (and declared s
 to, so a forged length allocates nothing). Values themselves (decimal precision, date64 whole days) are not checked.
 Damaged or invalid data fails with `IpcFormatException`.
 
-## JSON (newline-delimited)
+## JSON
 
-**Reading** (`JsonReader`, `JsonReadOptions`): one JSON object per line, as Polars' `read_ndjson` reads it, from a path,
+**Reading** (`JsonReader`, `JsonReadOptions`): `Format` is `Lines` (the default: one JSON object per line, as Polars'
+`read_ndjson` reads it) or `Document` (one JSON document, see below), from a path,
 a stream or any `IRandomAccess` source, synchronously or asynchronously, as Arrow record batches in native memory. The
 input is cut into units of whole lines (a unit holds the lines that start in its block), decoded on several threads
 and handed over in order through a bounded window; a local file is read through a memory mapping (`MemoryMap`), other
@@ -480,13 +481,29 @@ strings String (other values as their text in the input), integers beyond Int64 
 `kaminari:int128`), objects structs of every field seen, arrays lists of their items' type, nulls alone Null, the
 fields ordered as Polars merges record types; `SchemaOverrides` types some inferred columns. Booleans with numbers,
 objects or arrays with numbers or each other, and columns of empty objects only (no Arrow struct type has no fields)
-are refused. Fields first seen after the inference window are passed over.
+are refused. Fields first seen after the inference window are passed over (lines) or errors (documents, as Polars'
+`read_json` has them, unless `IgnoreErrors`: then passed over too).
 
 **Values into types**: integers of every width (in range, whole numbers only), floats, Decimal128 (numbers or decimal
 strings, exact at the scale), strings (strings unescaped, other values as their text), binaries (base64 strings),
 dates (`yyyy-MM-dd`), timestamps (ISO 8601; with an offset or `Z` the instant, else the wall clock read as UTC), times
 of day, durations (ISO 8601, `PT1.5S`), lists, fixed-size lists (exact length), structs, maps (objects, string keys)
 and dictionary-encoded strings. A fraction finer than a temporal column's unit is refused, never cut.
+
+**Documents** (`JsonFormat.Document`, as Polars' `read_json` reads them): an array of objects (a row per element,
+indented or compact) or a single object (one row; an object of arrays is one row of lists); a leading byte order mark
+and whitespace around are accepted. `[]` has no columns and no rows, `{}` and `[{}]` a row without columns per object.
+Anything else is refused at its line (and array index): elements that are not objects (`null`, scalars, arrays),
+missing elements (`[,`, `,,`, `,]`), data after the document (a second array or object), an unclosed array, a top-level
+scalar, `null` or nothing. The array is cut between elements in parallel: segments of the input are summarized (quotes,
+escapes, bracket depth for either starting state, vectorized) by the threads that need units, the summaries taken in
+order give each segment's state, and a segment's first comma between top-level elements is a cut; a stream is scanned
+in order as it is read. Units then decode as lines do, one `Utf8JsonReader` per element. Values are read as in lines;
+where Polars' `read_json` changes them (booleans with integers read as integers, fractions into integer columns cut),
+they are refused, and objects or arrays into string columns are their text (Polars refuses them).
+
+**No columns** (`Columns = []`, an empty given schema, or a document of empty objects): batches without columns that
+count the rows, every record still checked.
 
 ## Avro features
 
@@ -660,7 +677,8 @@ written synchronously on completion.
 | `Avro/AvroWriter.cs` | Container writer: blocks by size, header with the first block, failure handling. |
 | `Json/JsonReader.cs`, `JsonReadOptions.cs` | Public JSON API: the reader (opening, compression detection, schema given / inferred / overridden / projected, the ordered window over units, exact `MaxRows`), options, `JsonMemoryMap`, `JsonFormatException`, `JsonValueException`. |
 | `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
-| `Json/Reading/JsonDecode.cs` | A unit's lines to record batches: line splitting, UTF-8 (the first bad byte fails its line, in input order), one `Utf8JsonReader` per line, builders reserved per batch; failures at their line in the unit. |
+| `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: line splitting, UTF-8 (the first bad byte fails its line or element, in input order), one `Utf8JsonReader` per line or element, builders reserved per batch; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
+| `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: in place (memory, mappings) by parallel segment summaries resolved in order, else read and scanned in order (units handed over, read again by range when the source allows). |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |
 | `Json/Reading/JsonInference.cs` | `JsonShape`: what the records held, folded record by record, resolved to Arrow types as Polars resolves them. |
 | `Excel/ExcelWorkbook.cs`, `ExcelReader.cs`, `ExcelWriter.cs`, `ExcelTypes.cs` | Public Excel API: workbook (format detection, sheets, tables), reader and options, writer and options, sheet and table records, `ExcelFormatException`, `ExcelValueException`. |
@@ -716,6 +734,7 @@ In Sazanami (generic, reusable by other formats):
 | `Buffers/NativeBufferWriter.cs`, `NativeStreamWriter.cs` | `IBufferWriter<byte>` in native memory: a growable one shaped like `ArrayBufferWriter` (Parquet pages, levels, scratch), and a small window that hands its bytes to a stream (JSON written line by line). |
 | `Buffers/NativeMemoryPool.cs` | The process's native memory for large buffers: blocks kept by size class and released when idle; `Poison` (the tests and the fuzzer) hands every block out filled with 0xCC, so code counting on zeroed memory fails. |
 | `Buffers/NativeArray.cs` | A growable array of unmanaged values in pooled native memory (page values, levels, indices, hash tables): growth keeps what it is told to keep, memory is not zeroed. |
+| `Json/JsonArrayScanner.cs` | Where a JSON array can be cut between top-level elements: a 64-byte bitmask scan (quotes, escapes by odd backslash runs, a prefix XOR for strings, depth by population counts) on portable vectors, a byte-at-a-time reference, piece summaries for an exact parallel cut. |
 | `Text/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
 | `Arrow/Builders/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path and partition columns): string views over one copy, repeated strings, any flat type repeated from one element of an array. |
 | `Text/TextValues.cs` | Text values inferred and parsed as Polars' CSV reader does: booleans, floats, integers (Int128 beyond Int64), dates and date-times with offsets; the kind of a column from the kinds of its values. |

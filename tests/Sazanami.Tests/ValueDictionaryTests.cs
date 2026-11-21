@@ -56,14 +56,15 @@ public class ValueDictionaryTests
 
         var random = new Random(3);
         using var longs = new FixedValueDictionary<long>();
-        using var twelve = new FixedValueDictionary<(long, int)>();
+        // Twelve bytes without padding: values are compared by their bytes, and padding bytes are whatever was there.
+        using var twelve = new FixedValueDictionary<Twelve>();
         Dictionary<long, int> model = [];
         for (int i = 0; i < 200_000; i++)
         {
             long value = random.Next(4) == 0 ? random.Next(100) : random.NextInt64();
             int expected = model.TryGetValue(value, out int known) ? known : model[value] = model.Count;
             Assert.Equal(expected, longs.GetOrAdd(value));
-            Assert.Equal(expected, twelve.GetOrAdd((value, (int)(value >> 7))));
+            Assert.Equal(expected, twelve.GetOrAdd(new Twelve(value, (int)(value >> 7))));
         }
         Assert.Equal(model.Keys.OrderBy(k => model[k]), longs.Values.ToArray());
     }
@@ -142,4 +143,7 @@ public class ValueDictionaryTests
             }
         }
     }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 4)]
+    private readonly record struct Twelve(long A, int B);
 }

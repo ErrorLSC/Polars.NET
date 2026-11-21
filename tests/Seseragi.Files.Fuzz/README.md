@@ -56,7 +56,7 @@ Run it inside a memory- and CPU-capped scope, so that nothing it does reaches th
 ```sh
 dotnet build tests/Seseragi.Files.Fuzz -c Release
 systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0 -p OOMPolicy=continue -p CPUQuota=200% \
-  nice -n 19 dotnet tests/Seseragi.Files.Fuzz/bin/Release/net10.0/Seseragi.Files.Fuzz.dll run <seed> <minutes> <out dir>
+  nice -n 19 dotnet tests/Seseragi.Files.Fuzz/bin/Release/net11.0/Seseragi.Files.Fuzz.dll run <seed> <minutes> <out dir>
 ```
 
 Also with `--setenv=DOTNET_EnableAVX2=0` for the scalar paths. For the IPC cases, pass
@@ -78,8 +78,9 @@ Fixed findings go to `tests/Seseragi.Files.Tests/TestData/parquet-fuzz/` with a 
 
 ## JSON cases
 
-With `tests/Seseragi.Files.Tests/TestData/json` as the corpus directory, each case takes a newline-delimited JSON file
-of it, applies a few mutations (aimed in part at line starts), gzips one case in eight, and reads it twice: a reference
+With `tests/Seseragi.Files.Tests/TestData/json` as the corpus directory, each case takes a JSON file of it
+(newline-delimited `.ndjson`, or a document `.json`, read in that layout), applies a few mutations (aimed in part at line
+and element starts), gzips one case in eight, and reads it twice: a reference
 read (one thread, the defaults) and a read with random options (unit size down to one byte, threads, the source kind:
 memory, a stream that cannot seek, ranged reads; a row limit, a batch size, a given schema, ignored errors). Contract:
 each read ends or is refused with `JsonFormatException` / `JsonValueException`, and the two agree: the same rows (the

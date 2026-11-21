@@ -7,11 +7,11 @@ using Seseragi.Files.Tests;
 namespace Seseragi.Files.Fuzz;
 
 /// <summary>
-/// The newline-delimited JSON cases: a corpus file (TestData/json) with a few mutations aimed in part at line starts,
-/// sometimes gzipped, read twice: once as the reference (one thread, defaults) and once with random options (unit size,
-/// threads, source kind, row limit, a given schema, ignoring errors). Contract: a read ends or is refused with
-/// JsonFormatException / JsonValueException, and the two reads agree (the same rows, the row limit's first ones, or the
-/// same refusal).
+/// The JSON cases: a corpus file (TestData/json: newline-delimited .ndjson, documents .json) with a few mutations aimed
+/// in part at line and element starts, sometimes gzipped, read in its layout twice: once as the reference (one thread,
+/// defaults) and once with random options (unit size, threads, source kind, row limit, a given schema, ignoring errors).
+/// Contract: a read ends or is refused with JsonFormatException / JsonValueException, and the two reads agree (the same
+/// rows, the row limit's first ones, or the same refusal).
 /// </summary>
 internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
 {
@@ -26,12 +26,14 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
         {
             byte[] bytes = Mutate(random, out string source);
             if (random.Next(8) == 0) bytes = Gzip(bytes);
-            Schema? given = random.Next(3) == 0 ? SchemaOf(File.ReadAllBytes(source)) : null;
+            JsonFormat format = FormatOf(source);
+            Schema? given = random.Next(3) == 0 ? SchemaOf(File.ReadAllBytes(source), format) : null;
             bool ignore = random.Next(4) == 0;
-            var reference = Read(bytes, new JsonReadOptions { Schema = given, IgnoreErrors = ignore, MaxDegreeOfParallelism = 1 }, 0);
+            var reference = Read(bytes, new JsonReadOptions { Format = format, Schema = given, IgnoreErrors = ignore, MaxDegreeOfParallelism = 1 }, 0);
             long? max = random.Next(4) == 0 ? random.Next(0, 300) : null;
             var options = new JsonReadOptions
             {
+                Format = format,
                 Schema = given,
                 IgnoreErrors = ignore,
                 MaxDegreeOfParallelism = random.Next(1, 5),
@@ -41,7 +43,7 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
             };
             int kind = random.Next(4);
             var candidate = Read(bytes, options, kind);
-            string described = $"source {kind}, threads {options.MaxDegreeOfParallelism}, unit {options.UnitBytes}, batch {options.BatchSize}, max {max}, schema given {given is not null}, ignore {ignore}, gzip {bytes.Length > 1 && bytes[0] == 0x1F}";
+            string described = $"{format}, source {kind}, threads {options.MaxDegreeOfParallelism}, unit {options.UnitBytes}, batch {options.BatchSize}, max {max}, schema given {given is not null}, ignore {ignore}, gzip {bytes.Length > 1 && bytes[0] == 0x1F}";
             if (reference.Error is { } e1)
             {
                 // A limited read may stop before the refused line.
@@ -71,15 +73,19 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
     {
         source = corpus[random.Next(corpus.Count)];
         byte[] original = File.ReadAllBytes(source);
-        long[] hot = [.. Enumerable.Range(0, original.Length).Where(i => i == 0 || original[i - 1] == '\n').Select(i => (long)i).Where((_, k) => k % 7 == 0)];
+        // Line starts, and element starts in a compact document.
+        long[] hot = [.. Enumerable.Range(0, original.Length).Where(i => i == 0 || original[i - 1] == '\n' || original[i - 1] == ',' && original[i] == '{')
+            .Select(i => (long)i).Where((_, k) => k % 7 == 0)];
         return Mutations.Apply(random, original, hot, 0, r => File.ReadAllBytes(corpus[r.Next(corpus.Count)]));
     }
 
-    private static Schema? SchemaOf(byte[] original)
+    private static JsonFormat FormatOf(string path) => path.EndsWith(".ndjson", StringComparison.Ordinal) ? JsonFormat.Lines : JsonFormat.Document;
+
+    private static Schema? SchemaOf(byte[] original, JsonFormat format)
     {
         try
         {
-            using var reader = JsonReader.Open(new MemoryStream(original), new JsonReadOptions { InferSchemaLength = null });
+            using var reader = JsonReader.Open(new MemoryStream(original), new JsonReadOptions { Format = format, InferSchemaLength = null });
             return reader.Schema;
         }
         catch (Exception e) when (e is JsonFormatException or JsonValueException) { return null; }

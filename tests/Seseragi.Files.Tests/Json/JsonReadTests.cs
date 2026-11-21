@@ -56,9 +56,9 @@ public class JsonReadTests
 
     internal static Exception Fails(string text, JsonReadOptions? options = null) => Assert.ThrowsAny<Exception>(() => Read(text, options));
 
-    private static string Types(Schema schema) => string.Join(", ", schema.FieldsList.Select(f => $"{f.Name}: {Name(f.DataType)}"));
+    internal static string Types(Schema schema) => string.Join(", ", schema.FieldsList.Select(f => $"{f.Name}: {Name(f.DataType)}"));
 
-    private static string Name(IArrowType t) => t switch
+    internal static string Name(IArrowType t) => t switch
     {
         StructType s => "{" + string.Join(", ", s.Fields.Select(f => $"{f.Name}: {Name(f.DataType)}")) + "}",
         ListType l => $"list<{Name(l.ValueDataType)}>",
@@ -66,7 +66,7 @@ public class JsonReadTests
         _ => t.Name,
     };
 
-    private static Schema Schema(params (string Name, IArrowType Type)[] fields) => new([.. fields.Select(f => new Field(f.Name, f.Type, true))], null);
+    internal static Schema Schema(params (string Name, IArrowType Type)[] fields) => new([.. fields.Select(f => new Field(f.Name, f.Type, true))], null);
 
     /// <summary>A stream that cannot seek (read in order).</summary>
     internal sealed class NonSeekable(Stream inner) : Stream

@@ -105,8 +105,11 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
         return buffer[..reader.CopyString(buffer)];
     }
 
-    /// <summary>The decoder of a column of <paramref name="field"/>'s type over <paramref name="builder"/>.</summary>
-    public static JsonColumn For(Field field, NativeColumnBuilder builder, string path, bool ignoreErrors) => field.DataType switch
+    /// <summary>
+    /// The decoder of a column of <paramref name="field"/>'s type over <paramref name="builder"/>; with
+    /// <paramref name="strict"/>, an object's field its struct type lacks is an error (in structs, also in lists).
+    /// </summary>
+    public static JsonColumn For(Field field, NativeColumnBuilder builder, string path, bool ignoreErrors, bool strict = false) => field.DataType switch
     {
         NullType => new NullColumn(builder, path, ignoreErrors),
         BooleanType => new BooleanColumn(builder, path, ignoreErrors),
@@ -133,10 +136,10 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
         DurationType t => new TemporalColumn(builder, path, ignoreErrors, TemporalKind.Duration, UnitNanos(t.Unit)),
         DictionaryType { ValueType: StringType or BinaryType } d => new DictionaryColumn((NativeDictionaryBuilder)builder, path, ignoreErrors, d.ValueType is BinaryType),
         MapType m => new MapColumn(m, (NativeListBuilder)builder, path, ignoreErrors),
-        ListType l => new ListColumn(builder, ((NativeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1),
-        LargeListType l => new ListColumn(builder, ((NativeLargeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1),
-        FixedSizeListType l => new ListColumn(builder, ((NativeFixedSizeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, l.ListSize),
-        StructType s => new StructColumn(s, (NativeStructBuilder)builder, path, ignoreErrors),
+        ListType l => new ListColumn(builder, ((NativeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1, strict),
+        LargeListType l => new ListColumn(builder, ((NativeLargeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1, strict),
+        FixedSizeListType l => new ListColumn(builder, ((NativeFixedSizeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, l.ListSize, strict),
+        StructType s => new StructColumn(s, (NativeStructBuilder)builder, path, ignoreErrors, strict),
         _ => throw new NotSupportedException($"Column '{path}': JSON cannot be read as {field.DataType.Name}."),
     };
 
@@ -480,10 +483,10 @@ internal sealed class ListColumn : JsonColumn
     private readonly JsonColumn _items;
     private readonly int _fixedSize;
 
-    public ListColumn(NativeColumnBuilder builder, NativeColumnBuilder values, Field item, string path, bool ignore, int fixedSize)
+    public ListColumn(NativeColumnBuilder builder, NativeColumnBuilder values, Field item, string path, bool ignore, int fixedSize, bool strict)
         : base(builder, path, ignore)
     {
-        _items = For(item, values, path + "[]", ignore);
+        _items = For(item, values, path + "[]", ignore, strict);
         _fixedSize = fixedSize;
     }
 
@@ -587,12 +590,23 @@ internal sealed class StructColumn : JsonColumn
     private readonly JsonColumn[] _children;
     private readonly bool[] _seen;
     private readonly ByteArrayDictionary? _lookup;
+    private readonly bool _strict;
+    private readonly byte[][] _passedOver;
 
-    public StructColumn(StructType type, NativeStructBuilder builder, string path, bool ignore) : base(builder, path, ignore)
+    /// <param name="type">The struct type (the records' columns at the top).</param>
+    /// <param name="builder">Its builder.</param>
+    /// <param name="path">The struct's path ("" for the records).</param>
+    /// <param name="ignore">Values that do not fit their type are nulls.</param>
+    /// <param name="strict">An object's field the type lacks is an error (the type was inferred from other objects).</param>
+    /// <param name="passedOver">Fields passed over without an error even when strict (columns left out of a read).</param>
+    public StructColumn(StructType type, NativeStructBuilder builder, string path, bool ignore, bool strict = false, IEnumerable<string>? passedOver = null)
+        : base(builder, path, ignore)
     {
         _b = builder;
+        _strict = strict;
+        _passedOver = [.. (passedOver ?? []).Select(Encoding.UTF8.GetBytes)];
         _names = [.. type.Fields.Select(f => Encoding.UTF8.GetBytes(f.Name))];
-        _children = [.. type.Fields.Select((f, i) => For(f, builder.Children[i], path.Length == 0 ? f.Name : path + "." + f.Name, ignore))];
+        _children = [.. type.Fields.Select((f, i) => For(f, builder.Children[i], path.Length == 0 ? f.Name : path + "." + f.Name, ignore, strict))];
         _seen = new bool[_names.Length];
         if (_names.Length > LinearFields)
         {
@@ -621,6 +635,7 @@ internal sealed class StructColumn : JsonColumn
             int index = Find(in reader, expected);
             if (index < 0 || seen[index])
             {
+                if (index < 0 && _strict) Unknown(in reader);
                 reader.Skip();
                 continue;
             }
@@ -635,6 +650,23 @@ internal sealed class StructColumn : JsonColumn
                 if (!seen[i]) _children[i].Missing();
         _b.EndStruct();
     }
+
+    // A field the inferred type lacks: an error, unless it is a column left out of the read.
+    private void Unknown(in Utf8JsonReader reader)
+    {
+        string name = reader.GetString()!;
+        if (_passedOver.Length > 0)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(name);
+            foreach (byte[] passed in _passedOver)
+                if (bytes.AsSpan().SequenceEqual(passed)) return;
+        }
+        throw Extra(Path, name);
+    }
+
+    /// <summary>The error of a field first seen after the records the columns were inferred from.</summary>
+    public static JsonValueException Extra(string path, string name) =>
+        new($"{(path.Length == 0 ? "The" : $"Column '{path}': the")} field '{name}' is not in the records the columns were inferred from (infer from more records, or give the schema to pass such fields over).");
 
     private int Find(in Utf8JsonReader reader, int expected)
     {
