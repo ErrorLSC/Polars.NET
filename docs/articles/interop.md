@@ -266,6 +266,7 @@ use result =
 > A scan over a .NET source (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) is read when the query runs:
 > * `Sink*` (Parquet, CSV, IPC, NDJSON, partitioned), `SinkBatches` / `SinkTo` and `CollectBatchesAsync(engine: Engine.Streaming)` write the source batch by batch to a temporary Arrow IPC file and stream from it, so memory stays bounded by a batch. Pass the same frame twice (a self-join, `CollectAll`) and the source is still read once.
 > * `Collect()`, and `CollectBatchesAsync` on the default engine, read the whole source into memory first: `Engine.Auto` runs in memory.
+> * Only the columns and leading rows the query uses are kept (`Select`, `Head`): the rest of a batch is dropped as it arrives, and reading stops once the rows are there. `ScanAvro` goes further and decodes only those columns. `ScanDatabaseBuffered` and `useBuffered: true` read every column, since the query is not known when they read.
 >
 > The temporary file goes in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and disappears when the query ends. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk to keep large sinks out of RAM. `ScanDatabaseBuffered` and `useBuffered: true` use the same kind of file, but read the source as soon as the frame is created. The file then lives until the last frame that scans it is released.
 
@@ -717,7 +718,7 @@ reading.GetAwaiter().GetResult()
 Avro files are read and written by Seseragi.Files, a managed implementation of the Avro 1.12 object container format (`Kaminari.Seseragi.Files`, referenced by `Polars.NET.Core`). The native library no longer contains an Avro reader. Files stream block by block: `ReadAvro` and `ScanAvro` read one block at a time into native memory and hand the rows to the engine as Arrow batches, so a `Stream` is never buffered whole. Codecs: `Uncompressed`, `Deflate`, `Snappy` and `Zstandard`.
 
 * `DataFrame.ReadAvro(path | byte[] | ReadOnlySpan<byte> | ReadOnlyMemory<byte> | Stream, nRows, columns, projection, parallel)`: `parallel` (default `true`; F#: `paralleling`) decodes the file's blocks on several threads; row order is kept. Columns come back in file order.
-* `LazyFrame.ScanAvro(path, ...)`: reads the header now for the schema and streams the data each time the query runs, also on the streaming engine.
+* `LazyFrame.ScanAvro(path, ...)`: reads the header now for the schema and streams the data each time the query runs, also on the streaming engine. Only the columns and leading rows the query uses are decoded.
 * `DataFrame.WriteAvro(...)` (path, `Stream`, async `Stream` and `PipeWriter`, `WriteAvroMemory`, `WriteAvroNativeMemory`) and `LazyFrame.SinkAvro(path | Stream, ...)`, which writes the result of the streaming engine as its batches arrive. An empty record name writes `topLevelRecord`.
 
 ```csharp

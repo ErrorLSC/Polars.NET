@@ -34,6 +34,13 @@ internal static unsafe class ArrowCExport
 
     /// <summary>Exports a record batch as a struct array of its columns into <paramref name="destination"/>.</summary>
     public static void ExportRecordBatch(RecordBatch batch, CArrowArray* destination)
+        => ExportRecordBatch(batch, null, destination);
+
+    /// <summary>
+    /// Exports a record batch as a struct array of the columns at <paramref name="columns"/> (all when null), in that
+    /// order, into <paramref name="destination"/>.
+    /// </summary>
+    public static void ExportRecordBatch(RecordBatch batch, int[]? columns, CArrowArray* destination)
     {
         ArgumentNullException.ThrowIfNull(batch);
         var state = new Exported();
@@ -42,14 +49,14 @@ internal static unsafe class ArrowCExport
         {
             var buffers = (byte**)state.Allocate(sizeof(nint));
             buffers[0] = null; // no validity
-            int columns = batch.ColumnCount;
-            NativeCArray** children = Children(state, columns);
-            for (int c = 0; c < columns; c++) Fill(children[c], batch.Column(c).Data);
+            int count = columns?.Length ?? batch.ColumnCount;
+            NativeCArray** children = Children(state, count);
+            for (int c = 0; c < count; c++) Fill(children[c], batch.Column(columns is null ? c : columns[c]).Data);
             *root = new NativeCArray
             {
                 Length = batch.Length,
                 BufferCount = 1,
-                ChildCount = columns,
+                ChildCount = count,
                 Buffers = buffers,
                 Children = children,
                 Release = &Release,

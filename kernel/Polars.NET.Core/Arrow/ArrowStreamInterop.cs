@@ -8,6 +8,7 @@ using Apache.Arrow.Ipc;
 using System.Reflection;
 using Polars.NET.Core.Native;
 using Polars.NET.Core.Wrappers;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Arrow.Interop;
 using CArrowArrayStream = Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream;
 
@@ -20,7 +21,7 @@ public static unsafe class ArrowStreamInterop
     // Context Object
     private class ScanContext
     {
-        public Func<IEnumerable<RecordBatch>> Factory = default!;
+        public Func<StreamScanRequest, IEnumerable<RecordBatch>> Factory = default!;
         public Schema Schema = default!;
         public List<IntPtr> AllocatedStreams = [];
     }
@@ -32,7 +33,7 @@ public static unsafe class ArrowStreamInterop
     {
         var context = new ScanContext
         {
-            Factory = () => data.ToArrowBatches(batchSize),
+            Factory = _ => data.ToArrowBatches(batchSize),
             Schema = schema
         };
 
@@ -45,7 +46,7 @@ public static unsafe class ArrowStreamInterop
     // ---------------------------------------------------------
 
     // Get steramfactory callback function pointer
-    public static delegate* unmanaged[Cdecl]<void*, CArrowArrayStream*> GetFactoryCallback()
+    public static delegate* unmanaged[Cdecl]<void*, byte**, nint, long, CArrowArrayStream*> GetFactoryCallback()
     {
         return &StreamFactoryCallbackStatic;
     }
@@ -57,7 +58,7 @@ public static unsafe class ArrowStreamInterop
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static CArrowArrayStream* StreamFactoryCallbackStatic(void* userData)
+    private static CArrowArrayStream* StreamFactoryCallbackStatic(void* userData, byte** columns, nint columnCount, long rowLimit)
     {
         try
         {
@@ -65,8 +66,11 @@ public static unsafe class ArrowStreamInterop
             var handle = GCHandle.FromIntPtr((IntPtr)userData);
             var context = (ScanContext)handle.Target!;
 
-            // Create
-            var enumerable = context.Factory();
+            // Create: the engine says which columns and how many leading rows the query needs. The stream has
+            // exactly the requested columns, whatever the source gives.
+            var request = StreamScanRequest.FromNative(columns, columnCount, rowLimit);
+            var schema = request.Columns is { } names ? ArrowProjection.Select(context.Schema, names) : context.Schema;
+            var enumerable = context.Factory(request);
             var rawEnumerator = enumerable.GetEnumerator();
             var safeEnumerator = new SafeEnumerator<RecordBatch>(rawEnumerator);
 
@@ -79,7 +83,11 @@ public static unsafe class ArrowStreamInterop
             }
 
             // Init Exporter and export
-            var exporter = new ArrowStreamExporter(safeEnumerator, context.Schema) { SchemaExported = PatchWideIntegers };
+            var exporter = new ArrowStreamExporter(safeEnumerator, schema)
+            {
+                SchemaExported = PatchWideIntegers,
+                SelectByName = request.Columns is not null,
+            };
             exporter.Export(ptr);
 
             return ptr;
@@ -164,7 +172,7 @@ public static unsafe class ArrowStreamInterop
     }
 
     public static void* CreateDirectScanContext(
-        Func<IEnumerable<RecordBatch>> factory,
+        Func<StreamScanRequest, IEnumerable<RecordBatch>> factory,
         Schema schema)
     {
         var context = new ScanContext
@@ -188,19 +196,34 @@ public static unsafe class ArrowStreamInterop
         Func<IEnumerable<RecordBatch>> streamFactory,
         Schema schema,
         bool strict = false)
+        => Scan(_ => streamFactory(), schema, buffered: false, strict);
+
+    /// <summary>
+    /// A lazy scan whose stream is opened for what the query needs: the columns it reads and the leading rows it
+    /// keeps (<see cref="StreamScanRequest"/>), as the engine's optimizer found them. The factory may return more
+    /// (any columns of the schema, in any order, and more rows): the engine keeps only what was asked.
+    /// </summary>
+    /// <param name="streamFactory">Opens the stream for a request each time the plan runs.</param>
+    /// <param name="schema">The stream's full schema.</param>
+    /// <param name="strict">As for <see cref="ScanStream(Func{IEnumerable{RecordBatch}}, Schema, bool)"/>.</param>
+    public static LazyFrameHandle ScanStream(
+        Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory,
+        Schema schema,
+        bool strict = false)
         => Scan(streamFactory, schema, buffered: false, strict);
 
     /// <summary>
     /// Reads the stream now into an anonymous temporary Arrow IPC file and scans that file. The engine owns the file:
-    /// it is removed when the last frame that scans it is released.
+    /// it is removed when the last frame that scans it is released. The whole stream is read: the query is not
+    /// known yet.
     /// </summary>
     public static LazyFrameHandle ScanStreamBuffered(
         Func<IEnumerable<RecordBatch>> streamFactory,
         Schema schema,
         bool strict = false)
-        => Scan(streamFactory, schema, buffered: true, strict);
+        => Scan(_ => streamFactory(), schema, buffered: true, strict);
 
-    private static LazyFrameHandle Scan(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict)
+    private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict)
     {
         var cSchema = CArrowSchema.Create();
         try

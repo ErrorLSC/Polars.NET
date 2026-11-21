@@ -87,13 +87,25 @@ public readonly partial struct PolarsWrapper
         var options = AvroOptions(nRows, columns, projection, parallel) with { LeaveOpen = false };
         Schema arrowSchema;
         using (var probe = AvroReader.Open(path, options)) arrowSchema = probe.Schema;
-        var schema = PolarsArrowCompat.Adapt(arrowSchema, out bool convert);
+        var schema = PolarsArrowCompat.Adapt(arrowSchema, out _);
         return ArrowStreamInterop.ScanStream(Batches, schema, strict: true);
 
-        IEnumerable<RecordBatch> Batches()
+        // Decodes only the columns and leading rows the query needs.
+        IEnumerable<RecordBatch> Batches(StreamScanRequest request)
         {
-            using var reader = AvroReader.Open(path, options);
-            foreach (var b in reader.ReadBatches()) yield return convert ? PolarsArrowCompat.Convert(b, schema) : b;
+            var read = options with
+            {
+                Columns = request.Columns ?? options.Columns,
+                ColumnIndices = request.Columns is null ? options.ColumnIndices : null,
+                RowLimit = (options.RowLimit, request.RowLimit) switch
+                {
+                    ({ } a, { } b) => Math.Min(a, b),
+                    var (a, b) => a ?? b,
+                },
+            };
+            using var reader = AvroReader.Open(path, read);
+            var adapted = PolarsArrowCompat.Adapt(reader.Schema, out bool convert);
+            foreach (var b in reader.ReadBatches()) yield return convert ? PolarsArrowCompat.Convert(b, adapted) : b;
         }
     }
 

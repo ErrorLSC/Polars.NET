@@ -191,6 +191,10 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 
 Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) now work on the streaming engine. Polars's streaming engine cannot run these scans, so the source is replaced just before the query runs.
 
+### New
+
+* A scan over .NET data reads only the columns and the leading rows the query uses, on every engine (in memory, `Collect(Engine.Streaming)`, sinks): the engine's optimizer finds them (`Select`, `Head` / `Limit`, also through joins and `CollectAll`) and the source is asked for them. `ScanAvro` decodes only those columns and stops after those rows; the temporary file of a sink holds only those columns. Your own sources get the request through `ArrowStreamInterop.ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>>, schema, strict)` (Polars.NET.Core); a source may ignore it.
+
 ### Fixed
 
 * `SinkCsv`, `SinkIpc`, `SinkNdJson`, the partitioned sinks and `Collect(Engine.Streaming)` over a .NET source failed with `not yet implemented: AnonymousScan`.
@@ -201,6 +205,7 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 * `SinkBatches` / `SinkTo` hand over logical Arrow types (`Decimal128`, dictionaries) instead of the engine's physical arrays. `decimal` columns used to fail with `Data type is not yet supported in import` on the streaming path.
 * `CollectBatchesAsync` / `RowsAsync` (and LINQ async enumeration) no longer end silently when the engine fails mid-stream: the error is thrown.
 * `CollectBatchesAsync` starts the query off the caller's thread.
+* The engine releases a .NET source's stream when it stops reading, which disposes the source's enumerator, also when a query needs only the first rows. The stream's handle used to stay allocated after every read.
 
 ### Behaviour changes
 

@@ -8,15 +8,22 @@
 //!
 //! Each scan is read once per execution, even when several plans (collect_all) or several branches (a self-join)
 //! share it: a single-use IDataReader cannot be read twice.
+//!
+//! A scan reads only what the plans need: the plans are optimized first, and each scan's projection and leading
+//! slice in the optimized IR (all its uses together) are what it is asked for. The replacement keeps the scan's
+//! full schema, the columns not read filled with typed nulls, because the plan above it is the unoptimized DSL,
+//! which may still name them (`with_columns(b * 2).select(a)`, `drop(b)`); the optimizer prunes the fillers again.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use polars::prelude::*;
-use polars_plan::dsl::{DslPlan, FileScanDsl};
-use polars_plan::plans::{AnonymousScan, AnonymousScanArgs};
+use polars_plan::dsl::{DslPlan, FileScanDsl, FileScanIR};
+use polars_plan::plans::{AnonymousScan, AnonymousScanArgs, IR};
+use polars_utils::arena::Node;
+use polars_utils::slice_enum::Slice;
 
-use crate::pl_io::arrow::scan::{CSharpStreamScanner, scan_spooled_ipc};
+use crate::pl_io::arrow::scan::{CSharpStreamScanner, ScanRequest, scan_spooled_ipc};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum AnonymousScanMode {
@@ -52,18 +59,26 @@ pub(crate) fn resolve_anonymous_scans(lf: LazyFrame, mode: AnonymousScanMode) ->
         return Ok(lf);
     }
     let opt_flags = lf.get_current_optimizations();
-    let mut rewriter = Rewriter::new(mode);
+    let requests = scan_requests([LazyFrame::from(lf.logical_plan.clone()).with_optimizations(opt_flags)]);
+    let mut rewriter = Rewriter::new(mode, requests);
     let plan = rewriter.plan(&lf.logical_plan)?.unwrap_or_else(|| lf.logical_plan.clone());
     // A fresh frame: the old one's cached arena holds the IR of the old plan.
     Ok(LazyFrame::from(plan).with_optimizations(opt_flags))
 }
 
-/// The plans with their anonymous scans replaced, each scan read once across all of them.
-pub(crate) fn resolve_anonymous_scans_in_plans(plans: Vec<DslPlan>, mode: AnonymousScanMode) -> PolarsResult<Vec<DslPlan>> {
+/// The plans with their anonymous scans replaced, each scan read once across all of them. `opt_flags` are the
+/// flags the plans run with.
+pub(crate) fn resolve_anonymous_scans_in_plans(
+    plans: Vec<DslPlan>,
+    mode: AnonymousScanMode,
+    opt_flags: OptFlags,
+) -> PolarsResult<Vec<DslPlan>> {
     if !plans.iter().any(has_anonymous_scan) {
         return Ok(plans);
     }
-    let mut rewriter = Rewriter::new(mode);
+    let requests =
+        scan_requests(plans.iter().map(|p| LazyFrame::from(p.clone()).with_optimizations(opt_flags.clone())));
+    let mut rewriter = Rewriter::new(mode, requests);
     plans
         .into_iter()
         .map(|plan| Ok(rewriter.plan(&plan)?.unwrap_or(plan)))
@@ -84,8 +99,89 @@ fn has_anonymous_scan(plan: &DslPlan) -> bool {
     })
 }
 
+/// What each anonymous scan (by function pointer) is asked for, from the frames' optimized plans: the union of the
+/// columns its uses read and the most leading rows a use needs. A use without a projection or without a leading
+/// slice needs all columns or all rows. When a plan fails to optimize nothing is asked of any scan (they read
+/// everything; running the plan reports the error): a scan shared with that plan must not be narrowed.
+fn scan_requests(frames: impl IntoIterator<Item = LazyFrame>) -> HashMap<usize, ScanUse> {
+    let mut uses: HashMap<usize, ScanUse> = HashMap::new();
+    for lf in frames {
+        let Ok(ir) = lf.to_alp_optimized() else { return HashMap::new() };
+        let mut seen = HashSet::new();
+        let mut stack: Vec<Node> = vec![ir.lp_top];
+        while let Some(node) = stack.pop() {
+            if !seen.insert(node) {
+                continue;
+            }
+            let plan = ir.lp_arena.get(node);
+            if let IR::Scan { scan_type, unified_scan_args, output_schema, .. } = plan
+                && let FileScanIR::Anonymous { function, .. } = scan_type.as_ref()
+            {
+                let columns = unified_scan_args
+                    .projection
+                    .as_deref()
+                    .map(|p| p.iter().cloned().collect::<HashSet<_>>())
+                    .or_else(|| output_schema.as_ref().map(|s| s.iter_names().cloned().collect()));
+                let n_rows = match unified_scan_args.pre_slice {
+                    Some(Slice::Positive { offset: 0, len }) => Some(len),
+                    _ => None,
+                };
+                let this = ScanUse { columns, n_rows };
+                uses.entry(function_key(function)).and_modify(|u| u.merge(&this)).or_insert(this);
+            }
+            plan.copy_inputs(&mut stack);
+        }
+    }
+    uses
+}
+
+/// The scan function's identity: the same function is the same source (read once).
+fn function_key(function: &Arc<dyn AnonymousScan>) -> usize {
+    Arc::as_ptr(function) as *const () as usize
+}
+
+/// What the uses of one scan need together.
+#[derive(Clone)]
+struct ScanUse {
+    /// None: all columns.
+    columns: Option<HashSet<PlSmallStr>>,
+    /// None: all rows.
+    n_rows: Option<usize>,
+}
+
+impl ScanUse {
+    fn merge(&mut self, other: &ScanUse) {
+        self.columns = match (self.columns.take(), &other.columns) {
+            (Some(mut a), Some(b)) => {
+                a.extend(b.iter().cloned());
+                Some(a)
+            },
+            _ => None,
+        };
+        self.n_rows = self.n_rows.zip(other.n_rows).map(|(a, b)| a.max(b));
+    }
+
+    /// The request for a scan of `schema`: the columns in the schema's order, at least one (a source tells the row
+    /// count through a column); None columns when all are needed.
+    fn request(&self, schema: &Schema) -> ScanRequest {
+        let columns = self.columns.as_ref().and_then(|needed| {
+            let mut names: Vec<PlSmallStr> = schema.iter_names().filter(|n| needed.contains(*n)).cloned().collect();
+            if names.len() == schema.len() {
+                return None;
+            }
+            if names.is_empty() {
+                names.extend(schema.iter_names().next().cloned());
+            }
+            Some(Arc::from(names))
+        });
+        ScanRequest { columns, n_rows: self.n_rows }
+    }
+}
+
 struct Rewriter {
     mode: AnonymousScanMode,
+    /// What each scan function is asked for; a scan missing here reads everything.
+    requests: HashMap<usize, ScanUse>,
     /// Replacement plan per scan function (by pointer).
     scans: HashMap<usize, DslPlan>,
     /// Rewritten shared inputs (by pointer), so a subplan shared between branches stays shared.
@@ -93,8 +189,8 @@ struct Rewriter {
 }
 
 impl Rewriter {
-    fn new(mode: AnonymousScanMode) -> Self {
-        Self { mode, scans: HashMap::new(), inputs: HashMap::new() }
+    fn new(mode: AnonymousScanMode, requests: HashMap<usize, ScanUse>) -> Self {
+        Self { mode, requests, scans: HashMap::new(), inputs: HashMap::new() }
     }
 
     fn arc(&mut self, input: &Arc<DslPlan>) -> PolarsResult<Option<Arc<DslPlan>>> {
@@ -116,24 +212,39 @@ impl Rewriter {
     }
 
     fn scan(&mut self, function: &Arc<dyn AnonymousScan>) -> PolarsResult<DslPlan> {
-        let key = Arc::as_ptr(function) as *const () as usize;
+        let key = function_key(function);
         if let Some(done) = self.scans.get(&key) {
             return Ok(done.clone());
         }
+        let schema = function.schema(None)?;
+        let request = self.requests.get(&key).map(|u| u.request(&schema)).unwrap_or_default();
         let csharp = function.as_any().downcast_ref::<CSharpStreamScanner>();
-        let replacement = match (self.mode, csharp) {
-            (AnonymousScanMode::Spool, Some(scanner)) => scan_spooled_ipc(scanner.spool_to_ipc()?)?.logical_plan,
+        let read = match (self.mode, csharp) {
+            (AnonymousScanMode::Spool, Some(scanner)) => scan_spooled_ipc(scanner.spool_to_ipc(&request)?)?,
             _ => {
-                let schema = function.schema(None)?;
                 let df = function.scan(AnonymousScanArgs {
-                    n_rows: None,
-                    with_columns: None,
-                    schema,
+                    n_rows: request.n_rows,
+                    with_columns: request.columns.clone(),
+                    schema: schema.clone(),
                     output_schema: None,
                     predicate: None,
                 })?;
                 let schema = df.schema().clone();
-                DslPlan::DataFrameScan { df: Arc::new(df), schema }
+                LazyFrame::from(DslPlan::DataFrameScan { df: Arc::new(df), schema })
+            },
+        };
+        let replacement = match &request.columns {
+            None => read.logical_plan,
+            // The scan's full schema again: the columns not read as typed nulls (never evaluated by the plan).
+            Some(columns) => {
+                let read_columns: HashSet<&PlSmallStr> = columns.iter().collect();
+                let fillers: Vec<Expr> = schema
+                    .iter()
+                    .filter(|(name, _)| !read_columns.contains(name))
+                    .map(|(name, dtype)| lit(Null {}).cast(dtype.clone()).alias(name.clone()))
+                    .collect();
+                let order: Vec<Expr> = schema.iter_names().map(|n| col(n.clone())).collect();
+                read.with_columns(fillers).select(order).logical_plan
             },
         };
         self.scans.insert(key, replacement.clone());

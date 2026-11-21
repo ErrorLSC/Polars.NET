@@ -63,100 +63,126 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
 // ==========================================
 // Unified Stream Parse Engine
 // ==========================================
-#[inline(always)]
-unsafe fn consume_stream_impl(
-    stream_ptr: *mut polars_arrow::ffi::ArrowArrayStream,
-    strict: bool,
-) -> PolarsResult<DataFrame> {
+
+/// What a query needs from a C# stream: the columns it reads, in this order (None: all), and at most how many
+/// leading rows (None: all). A source may ignore it; the reading side applies it either way.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub(crate) struct ScanRequest {
+    pub(crate) columns: Option<Arc<[PlSmallStr]>>,
+    pub(crate) n_rows: Option<usize>,
+}
+
+impl ScanRequest {
+    /// The request of the in-memory engine's scan arguments (a projection of every column asks for all).
+    fn from_args(args: &AnonymousScanArgs) -> Self {
+        let columns = args.with_columns.clone().filter(|c| c.len() < args.schema.len());
+        Self { columns, n_rows: args.n_rows }
+    }
+}
+
+/// Reads an Arrow C stream batch by batch, keeping only the requested columns (in the request's order) and
+/// stopping once the requested rows are read. The stream is moved out of the caller's struct (which is left
+/// released, C stream interface "move") and released when reading ends, early or on error, so a C# source's
+/// enumerator is disposed then. `on_chunk` gets the kept columns' fields and arrays and the chunk's row count.
+/// Returns the kept columns' fields.
+unsafe fn read_stream_chunks(
+    stream_ptr: *mut ArrowArrayStream,
+    request: &ScanRequest,
+    mut on_chunk: impl FnMut(&[Field], Vec<Box<dyn polars_arrow::array::Array>>, usize) -> PolarsResult<()>,
+) -> PolarsResult<Vec<Field>> {
     if stream_ptr.is_null() {
         return Err(PolarsError::ComputeError("Stream pointer is null".into()));
     }
-
-    let stream = unsafe { &mut *stream_ptr };
-    let mut reader = unsafe { ArrowArrayStreamReader::try_new(stream)
-        .map_err(|e| PolarsError::ComputeError(format!("Failed to create Reader: {}", e).into())) }?;
-
-    let root_field = reader.field().clone();
-    let ArrowDataType::Struct(fields) = root_field.dtype() else {
+    let stream = Box::new(unsafe { std::ptr::replace(stream_ptr, ArrowArrayStream::empty()) });
+    let mut reader = unsafe { ArrowArrayStreamReader::try_new(stream) }
+        .map_err(|e| PolarsError::ComputeError(format!("Failed to create Reader: {}", e).into()))?;
+    let ArrowDataType::Struct(fields) = reader.field().dtype().clone() else {
         return Err(PolarsError::ComputeError("Stream data type is not Struct".into()));
     };
-
-    let num_cols = fields.len();
-    let mut columns_chunks: Vec<Vec<Box<dyn polars_arrow::array::Array>>> = vec![Vec::new(); num_cols];
-    let mut has_data = false;
-
-    // ==========================================
-    // Public Path
-    // ==========================================
-    while let Some(chunk_result) = unsafe {reader.next()} {
-        has_data = true;
+    let keep: Vec<usize> = match request.columns.as_deref() {
+        None => (0..fields.len()).collect(),
+        Some(names) => names
+            .iter()
+            .map(|name| {
+                fields
+                    .iter()
+                    .position(|f| f.name == *name)
+                    .ok_or_else(|| polars_err!(ColumnNotFound: "the stream has no column \"{name}\""))
+            })
+            .collect::<PolarsResult<_>>()?,
+    };
+    let kept: Vec<Field> = keep.iter().map(|&i| fields[i].clone()).collect();
+    let mut remaining = request.n_rows.unwrap_or(usize::MAX);
+    while remaining > 0 {
+        let Some(chunk_result) = (unsafe { reader.next() }) else { break };
         let chunk = chunk_result.map_err(|e| PolarsError::ComputeError(format!("Read error: {}", e).into()))?;
-        let struct_array = chunk.as_any().downcast_ref::<polars_arrow::array::StructArray>()
+        let struct_array = chunk.as_any().downcast_ref::<StructArray>()
             .ok_or_else(|| PolarsError::ComputeError("Batch is not a StructArray".into()))?;
+        let rows = struct_array.len().min(remaining);
+        remaining -= rows;
+        let values = struct_array.values();
+        let arrays = keep
+            .iter()
+            .map(|&i| if rows < struct_array.len() { values[i].sliced(0, rows) } else { values[i].clone() })
+            .collect();
+        on_chunk(&kept, arrays, rows)?;
+    }
+    Ok(kept)
+}
 
-        for (col_idx, column) in struct_array.values().iter().enumerate() {
-            if col_idx < num_cols {
-                columns_chunks[col_idx].push(column.clone());
+/// The column of one stream field from its arrays: strict converts every array through the Arrow import (any
+/// standard layout); otherwise the arrays are taken as the engine's physical layout under the field's dtype,
+/// except dictionary data, which must become Categorical / Enum.
+fn stream_column(field: &Field, chunks: Vec<Box<dyn polars_arrow::array::Array>>, strict: bool) -> PolarsResult<Column> {
+    let name = PlSmallStr::from_str(&field.name);
+    let series = if strict || contains_dictionary(&field.dtype) {
+        let mut safe_chunks = Vec::with_capacity(chunks.len());
+        let mut safe_dtype = None;
+        for arr in chunks {
+            let temp_s = series_from_arrow_with_metadata(name.clone(), arr, field.metadata.clone())?;
+            if safe_dtype.is_none() {
+                safe_dtype = Some(temp_s.dtype().clone());
             }
+            safe_chunks.extend(temp_s.chunks().iter().cloned());
         }
-    }
+        match safe_dtype {
+            Some(dtype) => unsafe { Series::from_chunks_and_dtype_unchecked(name, safe_chunks, &dtype) },
+            None => Series::new_empty(name, &PolarsField::from(field).dtype),
+        }
+    } else if chunks.is_empty() {
+        Series::new_empty(name, &PolarsField::from(field).dtype)
+    } else {
+        unsafe { Series::from_chunks_and_dtype_unchecked(name, chunks, &PolarsField::from(field).dtype) }
+    };
+    Ok(Column::from(series))
+}
 
-    // Blank Flow to Blank DataFrame with Schema
-    if !has_data {
-        let columns = fields.iter().map(|f| {
-            let p_field = PolarsField::from(f);
-            Column::from(Series::new_empty(PlSmallStr::from_str(&f.name), &p_field.dtype))
-        }).collect::<Vec<_>>();
-        return DataFrame::new(0, columns);
-    }
-
-    // ==========================================
-    // Assemble by column
-    // ==========================================
-    let mut series_vec = Vec::with_capacity(num_cols);
-
-    for (i, chunks) in columns_chunks.into_iter().enumerate() {
-        let arrow_field = &fields[i];
-        let name = PlSmallStr::from_str(&arrow_field.name);
-
-        // Dictionary data must be converted to its Categorical / Enum physical form; the unstrict path's
-        // reinterpretation under the field's dtype would be invalid for it.
-        let final_series = if strict || contains_dictionary(&arrow_field.dtype) {
-            // ----------------------------------------
-            // Strict Path(with type safety) 
-            // ----------------------------------------
-            let mut safe_chunks = Vec::with_capacity(chunks.len());
-            let mut safe_dtype = None;
-
-            for arr in chunks {
-                // Logic type kept here
-                let temp_s = series_from_arrow_with_metadata(name.clone(), arr, arrow_field.metadata.clone())?;
-                
-                // Lock Polars DataType
-                if safe_dtype.is_none() {
-                    safe_dtype = Some(temp_s.dtype().clone());
-                }
-                
-                // Get Memory Chunk
-                safe_chunks.extend(temp_s.chunks().iter().cloned());
+/// Reads a whole Arrow C stream into one DataFrame (the requested columns and rows); an empty stream gives an
+/// empty DataFrame with the stream's schema.
+unsafe fn consume_stream_impl(
+    stream_ptr: *mut ArrowArrayStream,
+    strict: bool,
+    request: &ScanRequest,
+) -> PolarsResult<DataFrame> {
+    let mut columns_chunks: Vec<Vec<Box<dyn polars_arrow::array::Array>>> = Vec::new();
+    let mut height = 0usize;
+    let fields = unsafe {
+        read_stream_chunks(stream_ptr, request, |fields, arrays, rows| {
+            columns_chunks.resize_with(fields.len(), Vec::new);
+            for (chunks, array) in columns_chunks.iter_mut().zip(arrays) {
+                chunks.push(array);
             }
-
-            // Assemble to series
-            unsafe { Series::from_chunks_and_dtype_unchecked(name, safe_chunks, safe_dtype.as_ref().unwrap()) }
-        } else {
-            // ----------------------------------------
-            // Unstrict Path
-            // ----------------------------------------
-            let p_field = PolarsField::from(arrow_field); 
-            unsafe { Series::from_chunks_and_dtype_unchecked(name, chunks, &p_field.dtype) }
-        };
-
-        series_vec.push(Column::from(final_series));
-    }
-
-    // Assemble Final DataFrame
-    let height = series_vec.first().map(|s: &Column| s.len()).unwrap_or(0);
-    DataFrame::new(height, series_vec)
+            height += rows;
+            Ok(())
+        })?
+    };
+    columns_chunks.resize_with(fields.len(), Vec::new);
+    let columns = fields
+        .iter()
+        .zip(columns_chunks)
+        .map(|(field, chunks)| stream_column(field, chunks, strict))
+        .collect::<PolarsResult<Vec<_>>>()?;
+    DataFrame::new(height, columns)
 }
 
 #[unsafe(no_mangle)]
@@ -164,7 +190,7 @@ pub unsafe extern "C" fn pl_dataframe_new_from_stream(
     stream_ptr: *mut ArrowArrayStream,
 ) -> *mut DataFrameContext {
     ffi_try!({
-        let df = unsafe {consume_stream_impl(stream_ptr, false)?};
+        let df = unsafe { consume_stream_impl(stream_ptr, false, &ScanRequest::default())? };
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -174,7 +200,7 @@ pub unsafe extern "C" fn pl_dataframe_new_from_stream_strict_type(
     stream_ptr: *mut ArrowArrayStream,
 ) -> *mut DataFrameContext {
     ffi_try!({
-        let df = unsafe {consume_stream_impl(stream_ptr, true)?};
+        let df = unsafe { consume_stream_impl(stream_ptr, true, &ScanRequest::default())? };
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -222,8 +248,14 @@ pub extern "C" fn pl_to_arrow(
     })
 }
 
-// Define Callback：C# will return ArrowArrayStream Pointer
-type StreamFactoryCallback = unsafe extern "C" fn(*mut core::ffi::c_void) -> *mut polars_arrow::ffi::ArrowArrayStream;
+/// Opens a new C# stream: (user data, requested column names as NUL-terminated UTF-8, their count or -1 for all
+/// columns, the leading rows needed or -1 for all) → the stream, null on failure. The source may ignore the request.
+type StreamFactoryCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    *const *const std::ffi::c_char,
+    isize,
+    i64,
+) -> *mut polars_arrow::ffi::ArrowArrayStream;
 type DestroyUserDataCallback = unsafe extern "C" fn(*mut core::ffi::c_void); 
 // Define scanner struct
 pub(crate) struct CSharpStreamScanner {
@@ -250,21 +282,41 @@ impl Drop for CSharpStreamScanner {
 }
 
 impl CSharpStreamScanner {
-    /// Writes the rows of a new C# stream to an anonymous temporary Arrow IPC file, batch by batch (memory stays
-    /// bounded by one batch), and returns the file: removed from the directory already (on Windows, removed when
-    /// its last handle closes), so it lives exactly as long as the plans that scan it.
-    pub(crate) fn spool_to_ipc(&self) -> PolarsResult<SpooledIpc> {
-        let stream_ptr = unsafe { (self.callback)(self.user_data) };
+    /// Opens a new C# stream for the request (an empty column list is sent as "all": a source needs a column to
+    /// tell the row count).
+    fn open_stream(&self, request: &ScanRequest) -> PolarsResult<*mut ArrowArrayStream> {
+        let names = match request.columns.as_deref() {
+            Some(columns) if !columns.is_empty() => Some(
+                columns
+                    .iter()
+                    .map(|c| std::ffi::CString::new(c.as_str()))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| PolarsError::ComputeError(format!("column name: {e}").into()))?,
+            ),
+            _ => None,
+        };
+        let pointers: Vec<*const std::ffi::c_char> = names.iter().flatten().map(|n| n.as_ptr()).collect();
+        let n_columns = names.as_ref().map_or(-1, |n| n.len() as isize);
+        let n_rows = request.n_rows.map_or(-1, |n| i64::try_from(n).unwrap_or(i64::MAX));
+        let stream_ptr = unsafe { (self.callback)(self.user_data, pointers.as_ptr(), n_columns, n_rows) };
         if stream_ptr.is_null() {
             return Err(PolarsError::ComputeError("C# callback returned null stream".into()));
         }
+        Ok(stream_ptr)
+    }
+
+    /// Writes the rows of a new C# stream to an anonymous temporary Arrow IPC file, batch by batch (memory stays
+    /// bounded by one batch), and returns the file: removed from the directory already (on Windows, removed when
+    /// its last handle closes), so it lives exactly as long as the plans that scan it.
+    pub(crate) fn spool_to_ipc(&self, request: &ScanRequest) -> PolarsResult<SpooledIpc> {
+        let stream_ptr = self.open_stream(request)?;
         let file = anonymous_temp_file()?;
         type Writer<'f> = polars_arrow::io::ipc::write::FileWriter<std::io::BufWriter<&'f std::fs::File>>;
         let mut writer: Option<Writer> = None;
         let mut restore: Vec<(PlSmallStr, DataType)> = Vec::new();
         // An empty stream still gives one (empty) batch, so the file always has a schema.
         unsafe {
-            for_each_stream_batch(stream_ptr, self.strict, |mut df| {
+            for_each_stream_batch(stream_ptr, self.strict, request, |mut df| {
                 if writer.is_none() {
                     // The first batch's dtypes are the ones the scan restores.
                     restore = df
@@ -351,45 +403,29 @@ fn anonymous_temp_file() -> PolarsResult<std::fs::File> {
     Ok(file)
 }
 
-/// Reads an Arrow C stream batch by batch, converting each batch to a DataFrame as the stream import does
-/// (strict: every column through the Arrow import; non-strict: dictionary columns convert to Categorical / Enum,
-/// the rest take the field's dtype as is). An empty stream gives one empty DataFrame with the stream's schema.
-/// The stream is released when reading ends.
+/// Reads an Arrow C stream batch by batch (the requested columns and rows), converting each batch to a DataFrame
+/// as the stream import does. An empty stream gives one empty DataFrame with the stream's schema. The stream is
+/// released when reading ends.
 pub(crate) unsafe fn for_each_stream_batch(
-    stream_ptr: *mut polars_arrow::ffi::ArrowArrayStream,
+    stream_ptr: *mut ArrowArrayStream,
     strict: bool,
+    request: &ScanRequest,
     mut on_batch: impl FnMut(DataFrame) -> PolarsResult<()>,
 ) -> PolarsResult<()> {
-    let stream = unsafe { &mut *stream_ptr };
-    let mut reader = unsafe { ArrowArrayStreamReader::try_new(stream)
-        .map_err(|e| PolarsError::ComputeError(format!("Failed to create Reader: {}", e).into())) }?;
-    let root_field = reader.field().clone();
-    let ArrowDataType::Struct(fields) = root_field.dtype() else {
-        return Err(PolarsError::ComputeError("Stream data type is not Struct".into()));
-    };
     let mut has_data = false;
-    while let Some(chunk_result) = unsafe { reader.next() } {
-        has_data = true;
-        let chunk = chunk_result.map_err(|e| PolarsError::ComputeError(format!("Read error: {}", e).into()))?;
-        let struct_array = chunk.as_any().downcast_ref::<StructArray>()
-            .ok_or_else(|| PolarsError::ComputeError("Batch is not a StructArray".into()))?;
-        let columns = fields.iter().zip(struct_array.values()).map(|(field, arr)| {
-            let name = PlSmallStr::from_str(&field.name);
-            let series = if strict || contains_dictionary(&field.dtype) {
-                series_from_arrow_with_metadata(name, arr.clone(), field.metadata.clone())?
-            } else {
-                let p_field = PolarsField::from(field);
-                unsafe { Series::from_chunks_and_dtype_unchecked(name, vec![arr.clone()], &p_field.dtype) }
-            };
-            Ok(Column::from(series))
-        }).collect::<PolarsResult<Vec<_>>>()?;
-        on_batch(DataFrame::new(struct_array.len(), columns)?)?;
-    }
+    let fields = unsafe {
+        read_stream_chunks(stream_ptr, request, |fields, arrays, rows| {
+            has_data = true;
+            let columns = fields
+                .iter()
+                .zip(arrays)
+                .map(|(field, array)| stream_column(field, vec![array], strict))
+                .collect::<PolarsResult<Vec<_>>>()?;
+            on_batch(DataFrame::new(rows, columns)?)
+        })?
+    };
     if !has_data {
-        let columns = fields.iter().map(|f| {
-            let p_field = PolarsField::from(f);
-            Column::from(Series::new_empty(PlSmallStr::from_str(&f.name), &p_field.dtype))
-        }).collect::<Vec<_>>();
+        let columns = fields.iter().map(|f| stream_column(f, Vec::new(), strict)).collect::<PolarsResult<Vec<_>>>()?;
         on_batch(DataFrame::new(0, columns)?)?;
     }
     Ok(())
@@ -399,20 +435,12 @@ impl AnonymousScan for CSharpStreamScanner {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn scan(&self, _scan_opts: AnonymousScanArgs) -> PolarsResult<DataFrame> {
-        unsafe {
-            // Call C# for new pointer for stream
-            let stream_ptr = (self.callback)(self.user_data);
-            
-            if stream_ptr.is_null() {
-                return Err(PolarsError::ComputeError("C# callback returned null stream".into()));
-            }
-
-            consume_stream_impl(stream_ptr, self.strict)
-        }
+    fn scan(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<DataFrame> {
+        let request = ScanRequest::from_args(&scan_opts);
+        let stream_ptr = self.open_stream(&request)?;
+        unsafe { consume_stream_impl(stream_ptr, self.strict, &request) }
     }
 
-    // Tell Polars the schema of data
     fn schema(&self, _infer_schema_length: Option<usize>) -> PolarsResult<SchemaRef> {
         Ok(self.schema.clone())
     }
@@ -487,7 +515,7 @@ pub unsafe extern "C" fn pl_lazy_frame_scan_stream_buffered(
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let scanner = unsafe { csharp_scanner(ptr_schema, callback, destroy_callback, user_data, strict)? };
-        let inner = scan_spooled_ipc(scanner.spool_to_ipc()?)?;
+        let inner = scan_spooled_ipc(scanner.spool_to_ipc(&ScanRequest::default())?)?;
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner })))
     })
 }

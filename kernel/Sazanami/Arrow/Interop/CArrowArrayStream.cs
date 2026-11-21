@@ -30,6 +30,32 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
     /// </summary>
     public Action<Schema, nint>? SchemaExported { get; init; }
 
+    /// <summary>
+    /// When true, each batch is exported with the schema's columns only, found by name (a batch may have more, in
+    /// any order); the batch is still disposed whole once exported.
+    /// </summary>
+    public bool SelectByName { get; init; }
+
+    /// <summary>The batch schema the last column indices were found for, and those indices.</summary>
+    private Schema? _selectedFrom;
+    private int[]? _selected;
+
+    /// <summary>The indices of the exported schema's columns in the batch (null: the batch as it is).</summary>
+    private int[]? Selection(RecordBatch batch)
+    {
+        if (!SelectByName) return null;
+        if (ReferenceEquals(batch.Schema, _selectedFrom)) return _selected;
+        var fields = _schema.FieldsList;
+        var indices = new int[fields.Count];
+        for (int i = 0; i < indices.Length; i++)
+        {
+            indices[i] = batch.Schema.GetFieldIndex(fields[i].Name);
+            if (indices[i] < 0) throw new InvalidOperationException($"The batch has no column \"{fields[i].Name}\".");
+        }
+        (_selectedFrom, _selected) = (batch.Schema, indices);
+        return indices;
+    }
+
     // Export as C pointer
     public void Export(CArrowArrayStream* outStream)
     {
@@ -81,7 +107,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
             {
                 // The stream consumes its batches: the export retains the buffers it hands on.
                 using var batch = exporter._enumerator.Current;
-                ArrowCExport.ExportRecordBatch(batch, outArray);
+                ArrowCExport.ExportRecordBatch(batch, exporter.Selection(batch), outArray);
             }
             else
             {

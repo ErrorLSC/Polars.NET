@@ -653,7 +653,7 @@ pub extern "C" fn pl_lazy_collect_all(
         };
 
         let plans = match AnonymousScanMode::for_collect_all(engine, &plans) {
-            Some(mode) => resolve_anonymous_scans_in_plans(plans, mode)?,
+            Some(mode) => resolve_anonymous_scans_in_plans(plans, mode, OptFlags::default())?,
             None => plans,
         };
         let dfs = LazyFrame::collect_all_with_engine(plans, engine, OptFlags::default())?;
