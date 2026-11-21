@@ -13,9 +13,14 @@ public class DeltaFileSkippingTests
 {
     public record Row(long Id, string Name);
 
-    private static string NewTable()
+    private static string NewTable(bool rowTracking = false)
     {
         string path = Path.Combine(Path.GetTempPath(), $"delta_skipping_{Guid.NewGuid():N}");
+        if (rowTracking)
+        {
+            using var schema = PolarsSchema.From<Row>();
+            Delta.CreateTable(path, schema, properties: new() { [DeltaTableProperties.EnableRowTracking] = "true" });
+        }
         string? middle = null;
         foreach (var (first, prefix) in new[] { (1L, "a"), (11L, "b"), (21L, "c") })
         {
@@ -31,9 +36,9 @@ public class DeltaFileSkippingTests
     private static string[] DataFiles(string path) =>
         Directory.Exists(path) ? Directory.GetFiles(path, "*.parquet", SearchOption.AllDirectories) : [];
 
-    private static void InTable(Action<string> body)
+    private static void InTable(Action<string> body, bool rowTracking = false)
     {
-        string path = NewTable();
+        string path = NewTable(rowTracking);
         try { body(path); }
         finally { Directory.Delete(path, true); }
     }
@@ -97,6 +102,42 @@ public class DeltaFileSkippingTests
             Assert.Empty(withFiles.AsQueryable<RowWithFile>().Where(r => r.Id > 1000).ToList());
             Assert.All(withFiles.AsQueryable<RowWithFile>().Where(r => r.Id > 20).ToList(), r => Assert.EndsWith(".parquet", r.File));
         });
+    }
+
+    public record RowWithIds(long Id, string Name, long? RowId, long? RowVersion);
+
+    [Fact]
+    public void AFilterThatRulesOutEveryFile_ReadsNoRows_WithRowIds()
+    {
+        InTable(path =>
+        {
+            // Row ids come from the files' base row ids: 0–2, 3–5, 6–8, committed in versions 1–3.
+            using var lf = LazyFrame.ScanDelta(path, rowIdColumn: "RowId", rowCommitVersionColumn: "RowVersion");
+            var rows = lf.AsQueryable<RowWithIds>();
+            Assert.Empty(rows.Where(r => r.Id > 1000).ToList());
+            Assert.Equal(0, rows.Count(r => r.Id > 1000));
+            Assert.Empty(rows.Where(r => r.Id > 1000).Select(r => new { r.RowId, r.RowVersion }).ToList());
+            Assert.Equal([(21L, 6L, 3L), (22L, 7L, 3L), (23L, 8L, 3L)],
+                rows.Where(r => r.Id > 20).ToList().Select(r => (r.Id, r.RowId!.Value, r.RowVersion!.Value)).Order());
+        }, rowTracking: true);
+    }
+
+    [Fact]
+    public void ATableWithoutFiles_ReadsNoRows_WithRowIds()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"delta_skipping_empty_{Guid.NewGuid():N}");
+        try
+        {
+            using (var schema = PolarsSchema.From<Row>())
+                Delta.CreateTable(path, schema, properties: new() { [DeltaTableProperties.EnableRowTracking] = "true" });
+            using var df = LazyFrame.ScanDelta(path, rowIdColumn: "RowId", rowCommitVersionColumn: "RowVersion", includePathColumn: "File").Collect();
+            Assert.Equal(0, df.Height);
+            Assert.Equal(["Id", "Name", "File", "RowId", "RowVersion"], df.Columns);
+            Assert.Equal(DataType.String, df.Schema["File"]);
+            Assert.Equal(DataType.Int64, df.Schema["RowId"]);
+            Assert.Equal(DataType.Int64, df.Schema["RowVersion"]);
+        }
+        finally { Directory.Delete(path, true); }
     }
 
     [Fact]

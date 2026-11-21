@@ -31,7 +31,10 @@ public class NativeArrayTests
     {
         using var array = new NativeArray<long>();
         array.Grow(100_000, keep: 0);
-        Assert.InRange(array.Capacity, 100_000, 125_000);
+        // A whole block of the request's class or, when the pool kept one from earlier use, of the next two.
+        int c = NativeMemoryPool.ClassOf(100_000 * sizeof(long));
+        long[] whole = [.. Enumerable.Range(c, 3).Select(k => NativeMemoryPool.ClassSize(k) / sizeof(long))];
+        Assert.Contains((long)array.Capacity, whole);
         array.Span.Fill(7);
         array.Grow(array.Capacity + 1, keep: array.Capacity);
         Assert.All(array.AsSpan(0, 100_000).ToArray(), v => Assert.Equal(7, v));
