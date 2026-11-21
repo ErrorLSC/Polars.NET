@@ -54,6 +54,16 @@ A Parquet implementation of its own, for .NET code that reads or writes Parquet 
 * **Datasets** (`ParquetDataset`): many files as one table, from directories, globs or file lists; Hive partitions and the file path column (both pruned by the filter: `file == "…"`, prefixes, suffixes); schemas from the first file, united by name, or given, with lossless widening between files (a map also reads as the list of its key/value entries, for engines without a map type); INT96 timestamps as UTC instants on request (`ParquetReadOptions.Int96Timezone`, as Spark stores them); local files, memory, HTTP and the cloud stores, read ahead and in parallel. Typed rows too (`ParquetDataset.OpenReader<T>`).
 * **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches to a stream or a path, synchronously or asynchronously; flat and nested columns of every Arrow type Parquet holds (maps as MAP), field ids, statistics, page indexes, size statistics, Bloom filters, every encoding, the codecs Snappy, Zstandard, GZIP, Brotli and LZ4_RAW, data page v1 and v2; columns encoded and pages compressed on several threads. Values Parquet cannot hold exactly are refused, never changed. Files are read by pyarrow, DuckDB, Polars and Spark (verified).
 
+## JSON: managed reader (Kaminari.Seseragi.Files)
+
+A newline-delimited JSON reader of its own, for .NET code that reads NDJSON without the engine (`DataFrame.ReadJson` and `LazyFrame.ScanNdjson` still run on the engine).
+
+### New
+
+* **Reading** (`JsonReader`, `JsonReadOptions`): one object per line, as Polars' `read_ndjson` reads it, from a path (memory-mapped), a stream or any source of ranged reads, synchronously or asynchronously, as Arrow record batches in native memory, decoded on all cores and handed over in order; gzip, zlib and zstd input is decompressed on the way. A projection decodes only the columns asked for, a row limit stops early. Each line is checked to be UTF-8 and one JSON object; failures name their line.
+* **Columns**: given (a full schema: nothing inferred), inferred from the first records (or all) with Polars' types and column order, or inferred with some types overridden. Values convert to every Arrow type JSON holds: integers of every width, floats, decimals (exact), strings, base64 binaries, dates, timestamps, times and durations in ISO 8601, lists, fixed-size lists, structs, maps and dictionary-encoded strings.
+* Where Polars changes or drops values, the reader refuses them instead: fractions of a second finer than a column's unit (Polars cuts them), lone surrogate escapes (Polars reads `\0`), values of mixed kinds in an array without strings (Polars sometimes makes them strings). Unlike Polars, a leading byte order mark is accepted, and integers into Int8 / UInt8, times, durations, decimals and binaries are read (Polars fails or panics on them). A column of empty objects only is refused (Apache Arrow for .NET has no struct type without fields).
+
 ## Delta Lake: managed Parquet writer
 
 Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files) instead of the engine's Parquet sink. The engine still computes the rows, batch by batch; the writer encodes them and the store takes the bytes as they come: a temporary file renamed on a local disk, parts uploaded on a cloud store.

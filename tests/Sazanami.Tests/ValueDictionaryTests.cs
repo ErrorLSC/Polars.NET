@@ -35,6 +35,17 @@ public class ValueDictionaryTests
     }
 
     [Fact]
+    public void IndexOf_FindsWhatWasAdded_AndAddsNothing()
+    {
+        using var dictionary = new ByteArrayDictionary();
+        for (int i = 0; i < 1000; i++) dictionary.GetOrAdd(Encoding.UTF8.GetBytes($"name{i}"));
+        for (int i = 0; i < 1000; i++) Assert.Equal(i, dictionary.IndexOf(Encoding.UTF8.GetBytes($"name{i}")));
+        Assert.Equal(-1, dictionary.IndexOf("name1000"u8));
+        Assert.Equal(-1, dictionary.IndexOf(""u8));
+        Assert.Equal(1000, dictionary.Count);
+    }
+
+    [Fact]
     public void FixedValues_AreEqualByTheirBytes()
     {
         using var doubles = new FixedValueDictionary<double>();

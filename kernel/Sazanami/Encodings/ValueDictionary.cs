@@ -154,6 +154,20 @@ internal sealed class ByteArrayDictionary : IDisposable
         }
     }
 
+    /// <summary>The index of <paramref name="value"/>, or -1 when it is not there (nothing is added).</summary>
+    public int IndexOf(ReadOnlySpan<byte> value)
+    {
+        uint hash = ByteHash.Of(value);
+        Span<int> slots = _slots.AsSpan(0, _slotCount);
+        int mask = slots.Length - 1;
+        for (int slot = (int)hash & mask; ; slot = (slot + 1) & mask)
+        {
+            int entry = slots[slot];
+            if (entry == 0) return -1;
+            if (_hashes.At(entry - 1) == hash && this[entry - 1].SequenceEqual(value)) return entry - 1;
+        }
+    }
+
     public void Clear()
     {
         _count = 0;

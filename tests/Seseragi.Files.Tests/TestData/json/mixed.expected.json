@@ -1,0 +1,70 @@
+{
+ "rows": 1500,
+ "schema": {
+  "id": "Int64",
+  "score": "Float64",
+  "name": "String",
+  "flag": "Boolean",
+  "tags": "List(String)",
+  "nums": "List(Int64)",
+  "big": "Int128",
+  "obj": "Struct({'a': Int64, 'b': String, 'c': Struct({'d': Float64})})",
+  "mixed": "String"
+ },
+ "columns": {
+  "id": {
+   "nulls": 0,
+   "sum": "1124250"
+  },
+  "score": {
+   "nulls": 582,
+   "sum": -14768420.455
+  },
+  "name": {
+   "nulls": 317,
+   "bytes": 7805
+  },
+  "flag": {
+   "nulls": 693,
+   "true": 441
+  },
+  "tags": {
+   "nulls": 816,
+   "items": 918
+  },
+  "nums": {
+   "nulls": 429,
+   "items": 2621
+  },
+  "big": {
+   "nulls": 1430,
+   "sum": "-24331255433222898581409"
+  },
+  "obj": {
+   "nulls": 884,
+   "fields": {
+    "a": {
+     "nulls": 1190,
+     "sum": "1494"
+    },
+    "b": {
+     "nulls": 1179,
+     "bytes": 642
+    },
+    "c": {
+     "nulls": 1315,
+     "fields": {
+      "d": {
+       "nulls": 1368,
+       "sum": 231.0
+      }
+     }
+    }
+   }
+  },
+  "mixed": {
+   "nulls": 1089,
+   "bytes": 1646
+  }
+ }
+}

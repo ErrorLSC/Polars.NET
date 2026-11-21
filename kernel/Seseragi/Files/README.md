@@ -2,8 +2,8 @@
 
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
-**Parquet** (files and their full footer metadata read and written) and **Arrow IPC** (the file format, Feather v2, and
-the stream format, read and written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+**Parquet** (files and their full footer metadata read and written), **Arrow IPC** (the file format, Feather v2, and
+the stream format, read and written) and **JSON** (newline-delimited, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -461,6 +461,33 @@ variadic counts the schema takes, decompressed sizes as declared (and declared s
 to, so a forged length allocates nothing). Values themselves (decimal precision, date64 whole days) are not checked.
 Damaged or invalid data fails with `IpcFormatException`.
 
+## JSON (newline-delimited)
+
+**Reading** (`JsonReader`, `JsonReadOptions`): one JSON object per line, as Polars' `read_ndjson` reads it, from a path,
+a stream or any `IRandomAccess` source, synchronously or asynchronously, as Arrow record batches in native memory. The
+input is cut into units of whole lines (a unit holds the lines that start in its block), decoded on several threads
+and handed over in order through a bounded window; a local file is read through a memory mapping (`MemoryMap`), other
+sources by ranged reads, a stream that cannot seek in order. gzip, zlib and zstd input is found by its header and
+decompressed on the way. Blank lines are skipped, CRLF and a leading byte order mark accepted; each line is checked to
+be UTF-8 and exactly one object (no comments, trailing commas, `NaN` or raw control characters). `Columns` decodes only
+the named columns (other values are passed over), `MaxRows` stops after the first rows, `BatchSize` cuts batches
+(they never span units). Failures name their line: `JsonFormatException` for the input, `JsonValueException` for a value
+its column's type cannot hold (or a null with `IgnoreErrors`).
+
+**Columns**: a given `Schema` (nothing inferred; other fields passed over, missing ones null), or inferred from the first
+`InferSchemaLength` records (100; null for all) as Polars infers them: integers with floats Float64, anything with
+strings String (other values as their text in the input), integers beyond Int64 Int128 (decimal(38, 0) marked
+`kaminari:int128`), objects structs of every field seen, arrays lists of their items' type, nulls alone Null, the
+fields ordered as Polars merges record types; `SchemaOverrides` types some inferred columns. Booleans with numbers,
+objects or arrays with numbers or each other, and columns of empty objects only (no Arrow struct type has no fields)
+are refused. Fields first seen after the inference window are passed over.
+
+**Values into types**: integers of every width (in range, whole numbers only), floats, Decimal128 (numbers or decimal
+strings, exact at the scale), strings (strings unescaped, other values as their text), binaries (base64 strings),
+dates (`yyyy-MM-dd`), timestamps (ISO 8601; with an offset or `Z` the instant, else the wall clock read as UTC), times
+of day, durations (ISO 8601, `PT1.5S`), lists, fixed-size lists (exact length), structs, maps (objects, string keys)
+and dictionary-encoded strings. A fraction finer than a temporal column's unit is refused, never cut.
+
 ## Avro features
 
 **Reading** (`AvroReader`, `AvroReadOptions`): from a path or a stream, synchronously or asynchronously, as record
@@ -631,6 +658,11 @@ written synchronously on completion.
 | `Avro/AvroGivenSchema.cs` | Encoders for a given writer schema: fields matched to columns by name or id, defaults for missing fields, the reading rules in reverse, `[T, "null"]` unions, fixed decimals, enums, array-encoded maps. |
 | `Avro/AvroEncoders.cs` | Encoders over pinned Arrow buffers; `EncodeRange` loops for list items. |
 | `Avro/AvroWriter.cs` | Container writer: blocks by size, header with the first block, failure handling. |
+| `Json/JsonReader.cs`, `JsonReadOptions.cs` | Public JSON API: the reader (opening, compression detection, schema given / inferred / overridden / projected, the ordered window over units, exact `MaxRows`), options, `JsonMemoryMap`, `JsonFormatException`, `JsonValueException`. |
+| `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
+| `Json/Reading/JsonDecode.cs` | A unit's lines to record batches: line splitting, UTF-8 (the first bad byte fails its line, in input order), one `Utf8JsonReader` per line, builders reserved per batch; failures at their line in the unit. |
+| `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |
+| `Json/Reading/JsonInference.cs` | `JsonShape`: what the records held, folded record by record, resolved to Arrow types as Polars resolves them. |
 | `Excel/ExcelWorkbook.cs`, `ExcelReader.cs`, `ExcelWriter.cs`, `ExcelTypes.cs` | Public Excel API: workbook (format detection, sheets, tables), reader and options, writer and options, sheet and table records, `ExcelFormatException`, `ExcelValueException`. |
 | `Excel/ExcelNumberFormat.cs` | Number format classification (Number, Date, DateTime, Time, Duration): built-in ids and format codes (first section; quotes, escapes, fills, brackets skipped except elapsed-time brackets; `m` as minutes or months by its neighbours). |
 | `Excel/ExcelDates.cs`, `ExcelCellReference.cs` | Serial numbers ↔ Unix days and microseconds (1900 leap bug, 1904 system); A1 references and ranges. |

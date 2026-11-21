@@ -21,6 +21,7 @@
     <Compile Include="..\Seseragi.Files.Tests\Parquet\ParquetWriteData.cs" Link="Shared\ParquetWriteData.cs" />
     <Compile Include="..\Seseragi.Files.Tests\Parquet\ParquetNestedData.cs" Link="Shared\ParquetNestedData.cs" />
     <Compile Include="..\Seseragi.Files.Tests\Parquet\CanonicalRender.cs" Link="Shared\CanonicalRender.cs" />
+    <Compile Include="..\Seseragi.Files.Tests\ArrowRender.cs" Link="Shared\ArrowRender.cs" />
   </ItemGroup>
 
 </Project>

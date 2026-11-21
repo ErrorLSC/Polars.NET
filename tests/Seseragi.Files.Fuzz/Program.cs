@@ -159,7 +159,12 @@ internal static class Parent
     public static bool IsIpc(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "ipc";
 
     /// <summary>The cases of the corpus's format.</summary>
-    public static IFuzzCases CasesFor(string dir) => IsIpc(dir) ? new IpcCases(CorpusFilesOf(dir)) : new Cases(CorpusFilesOf(dir));
+    public static IFuzzCases CasesFor(string dir) =>
+        IsIpc(dir) ? new IpcCases(CorpusFilesOf(dir))
+        : IsJson(dir) ? new JsonCases([.. Directory.EnumerateFiles(dir, "*.ndjson", SearchOption.AllDirectories).Order(StringComparer.Ordinal)])
+        : new Cases(CorpusFilesOf(dir));
+
+    public static bool IsJson(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "json";
 
     /// <summary>
     /// The corpus files: Arrow IPC files and streams of an ipc directory; else Parquet files, and those of the

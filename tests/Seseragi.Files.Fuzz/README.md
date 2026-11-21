@@ -75,3 +75,13 @@ Other modes:
 
 Fixed findings go to `tests/Seseragi.Files.Tests/TestData/parquet-fuzz/` with a test in
 `ParquetFuzzRegressionTests`.
+
+## JSON cases
+
+With `tests/Seseragi.Files.Tests/TestData/json` as the corpus directory, each case takes a newline-delimited JSON file
+of it, applies a few mutations (aimed in part at line starts), gzips one case in eight, and reads it twice: a reference
+read (one thread, the defaults) and a read with random options (unit size down to one byte, threads, the source kind:
+memory, a stream that cannot seek, ranged reads; a row limit, a batch size, a given schema, ignored errors). Contract:
+each read ends or is refused with `JsonFormatException` / `JsonValueException`, and the two agree: the same rows (the
+first ones under a row limit) or the same refusal.
+

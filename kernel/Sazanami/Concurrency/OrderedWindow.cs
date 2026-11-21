@@ -26,8 +26,9 @@ internal sealed class OrderedWindow<T> : IDisposable where T : class, IDisposabl
     /// <param name="size">The size of item <c>i</c> counted against <paramref name="budget"/>.</param>
     /// <param name="budget">The most size started and not yet taken (at least the next item always starts).</param>
     /// <param name="cancellationToken">Cancels the items not yet taken.</param>
+    /// <param name="opened">The window starts fully open (for a consumer that takes every item) instead of opening gradually.</param>
     public OrderedWindow(int count, Func<int, CancellationToken, Task<T>> start, int window, Func<int, long> size, long budget,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool opened = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(window);
@@ -37,6 +38,7 @@ internal sealed class OrderedWindow<T> : IDisposable where T : class, IDisposabl
         _budget = budget;
         _cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _tasks = new Task<T>?[count];
+        if (opened) _open = window;
     }
 
     /// <summary>More items: <paramref name="count"/> in all (a source that finds its items as they are read); fewer change nothing.</summary>
