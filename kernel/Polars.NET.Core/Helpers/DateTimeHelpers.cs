@@ -52,11 +52,14 @@ public static partial class DateTimeFormatHelper
                 "ffffff" => "%6f",
                 "fff" => "%3f",
 
+                // Optional fractional seconds with their dot (".FFFFFFF"): chrono's %.f reads nothing when no dot follows.
+                ['.', 'F', ..] => "%.f",
+
                 _ => match.Value
             })
         };
     }
 
-    [GeneratedRegex(@"(yyyy|YYYY|yy|YY|MMMM|MMM|MM|dddd|ddd|dd|DD|HH|hh|mm|ss|ffffff|fff)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"(yyyy|YYYY|yy|YY|MMMM|MMM|MM|dddd|ddd|dd|DD|HH|hh|mm|ss|ffffff|fff|\.F{1,7})", RegexOptions.Compiled)]
     private static partial Regex ChronoFormatRegex();
 }

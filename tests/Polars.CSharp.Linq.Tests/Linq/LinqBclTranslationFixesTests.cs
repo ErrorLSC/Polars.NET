@@ -101,12 +101,16 @@ public class LinqBclTranslationFixesTests
     [Fact]
     public void Udf_Reads_And_Returns_Char()
     {
-        AssertSame(r => char.IsDigit(r.Text[0]), Udf);
-        AssertSame(r => char.IsLetter(r.Text[1]), Udf);
+        AssertSame(r => IsVowel(r.Text[1]), Udf);
         AssertSame(r => Upper(r.Text[0]), Udf);
+        // char.IsDigit and its kin are native (see Char_Classification_Matches_Dotnet_On_Every_Char).
+        AssertSame(r => char.IsDigit(r.Text[0]), Native);
+        AssertSame(r => char.IsLetter(r.Text[1]), Native);
     }
 
     public static char Upper(char c) => char.ToUpperInvariant(c);
+
+    public static bool IsVowel(char c) => "aeiou".Contains(c);
 
     [Fact]
     public void GetByteCount_Is_Native_Only_For_Utf8()
@@ -258,5 +262,138 @@ public class LinqBclTranslationFixesTests
         var filtered = df.AsQueryable<NumRow>().Where(r => !double.IsNaN(r.D) && double.IsFinite(r.F)).Select(r => r.Id);
         Assert.Contains(Native, filtered.Explain().Split('\n')[0]);
         Assert.Equal(rows.Where(r => !double.IsNaN(r.D) && double.IsFinite(r.F)).Select(r => r.Id), filtered.ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // char.IsDigit and its kin are anchored Unicode-category matches of a char's one-character string; compared with
+    // .NET on every char a string column can hold (all but the lone surrogates). The remaining classifications of
+    // double, float and Half (normal, subnormal, integer, even, odd) are comparisons; Half is checked on every value.
+    // ---------------------------------------------------------------------------------------------
+
+    public record CharRow(int Code, char C, string S);
+
+    private static readonly CharRow[] EveryChar =
+        [.. Enumerable.Range(0, 65536).Where(c => c is < 0xD800 or > 0xDFFF).Select(c => new CharRow(c, (char)c, "a" + (char)c))];
+
+    [Fact]
+    public void Char_Classification_Matches_Dotnet_On_Every_Char()
+    {
+        Expression<Func<CharRow, bool>>[] classifications =
+        [
+            r => char.IsDigit(r.C), r => char.IsNumber(r.C), r => char.IsLetter(r.C), r => char.IsLetterOrDigit(r.C),
+            r => char.IsUpper(r.C), r => char.IsLower(r.C), r => char.IsPunctuation(r.C), r => char.IsSymbol(r.C),
+            r => char.IsSeparator(r.C), r => char.IsControl(r.C), r => char.IsWhiteSpace(r.C), r => char.IsAscii(r.C),
+            r => char.IsAsciiDigit(r.C), r => char.IsAsciiLetter(r.C), r => char.IsAsciiLetterLower(r.C),
+            r => char.IsAsciiLetterUpper(r.C), r => char.IsAsciiLetterOrDigit(r.C), r => char.IsAsciiHexDigit(r.C),
+            r => char.IsAsciiHexDigitLower(r.C), r => char.IsAsciiHexDigitUpper(r.C),
+            r => char.IsDigit(r.S, 1), r => char.IsWhiteSpace(r.S, 1), r => char.IsLetter(r.S, 1),
+        ];
+        foreach (var classification in classifications)
+            AssertSameOver(EveryChar, classification);
+        using var df = DataFrame.FromRows(EveryChar);
+        var filtered = df.AsQueryable<CharRow>().Where(r => char.IsUpper(r.C) && !char.IsAscii(r.C)).Select(r => r.Code);
+        Assert.Contains(Native, filtered.Explain().Split('\n')[0]);
+        Assert.Equal(EveryChar.Where(r => char.IsUpper(r.C) && !char.IsAscii(r.C)).Select(r => r.Code), filtered.ToList());
+    }
+
+    public record HalfRow(int Bits, Half H);
+    public record FloatRow(int Id, double D, float F);
+
+    [Fact]
+    public void Floating_Integer_And_Normal_Classification_Runs_Natively()
+    {
+        HalfRow[] halves = [.. Enumerable.Range(0, 65536).Select(b => new HalfRow(b, BitConverter.UInt16BitsToHalf((ushort)b)))];
+        AssertSameOver(halves, r => Half.IsNormal(r.H));
+        AssertSameOver(halves, r => Half.IsSubnormal(r.H));
+        AssertSameOver(halves, r => Half.IsInteger(r.H));
+        AssertSameOver(halves, r => Half.IsEvenInteger(r.H));
+        AssertSameOver(halves, r => Half.IsOddInteger(r.H));
+
+        var random = new Random(2);
+        double[] specials =
+        [
+            0, -0.0, double.Epsilon, -double.Epsilon, Math.ScaleB(1, -1022), Math.BitDecrement(Math.ScaleB(1, -1022)),
+            double.MaxValue, double.NaN, double.PositiveInfinity, double.NegativeInfinity, 1, -1, 2, 3, -3, 2.5, 1e300,
+            4503599627370497.0, -4503599627370497.0, 9007199254740992.0, 1.5e-45, 1.2e-38,
+        ];
+        FloatRow[] rows =
+        [
+            .. specials.Concat(Enumerable.Range(0, 4000).Select(_ => BitConverter.Int64BitsToDouble(random.NextInt64())))
+                .Concat(Enumerable.Range(0, 2000).Select(_ => random.Next(-100000, 100000) / 2.0))
+                .Select((d, i) => new FloatRow(i, d, (float)d)),
+        ];
+        AssertSameOver(rows, r => double.IsNormal(r.D));
+        AssertSameOver(rows, r => double.IsSubnormal(r.D));
+        AssertSameOver(rows, r => double.IsInteger(r.D));
+        AssertSameOver(rows, r => double.IsEvenInteger(r.D));
+        AssertSameOver(rows, r => double.IsOddInteger(r.D));
+        AssertSameOver(rows, r => float.IsNormal(r.F));
+        AssertSameOver(rows, r => float.IsSubnormal(r.F));
+        AssertSameOver(rows, r => float.IsInteger(r.F));
+        AssertSameOver(rows, r => float.IsEvenInteger(r.F));
+        AssertSameOver(rows, r => float.IsOddInteger(r.F));
+    }
+
+    public record ConvertRow(int Id, int? NI, string S, bool B);
+
+    [Fact]
+    public void Convert_Of_Nulls_Boxed_Values_And_Bools_Runs_Natively()
+    {
+        ConvertRow[] rows = [new(1, null, null, true), new(2, 5, "42", false), new(3, -7, "-3", true)];
+        // A null string or a boxed null converts to 0, as Convert does.
+        AssertSameOver(rows, r => Convert.ToInt32(r.S));
+        AssertSameOver(rows, r => Convert.ToDouble(r.S));
+        AssertSameOver(rows, r => Convert.ToInt64((object)r.NI));
+        AssertSameOver(rows, r => Convert.ToDouble((object)r.NI, System.Globalization.CultureInfo.InvariantCulture));
+        AssertSameOver(rows, r => Convert.ToBoolean((object)r.NI));
+        AssertSameOver(rows, r => Convert.ToInt32((object)r.S));
+        AssertSameOver(rows, r => Convert.ToString(r.B));
+        AssertSameOver(rows, r => Convert.ToString(r.B, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // DateTime.Parse (and Convert.ToDateTime, DateOnly.Parse, TimeOnly.Parse) read ISO 8601 text row by row: the
+    // engine's own parse infers one format from the first value and applied it to every row, so a date-only first row
+    // dropped the time of the others. bool.Parse and Convert.ToBoolean(string) read "true" / "false" ignoring case and
+    // white space (the engine casts no string to a boolean: the query failed).
+    // ---------------------------------------------------------------------------------------------
+
+    public record TextRow(int Id, string At, string Flag, string Day, string Time);
+
+    private static readonly TextRow[] Texts =
+    [
+        new(1, "2024-01-02", "true", "2024-01-02", "10:00"),
+        new(2, "2023-12-31 10:00:00", " FALSE ", "2024-02-03", "10:00:30"),
+        new(3, "2023-12-31T10:00:00", "True", "2024-03-04", "10:00:30.25"),
+        new(4, "2023-12-31 10:00:00.123", "False", "2024-04-05", "23:59"),
+        new(5, " 2023-12-31T10:05 ", "\ttrue\n", "2024-05-06", "00:00:00.123456"),
+        new(6, "2023-12-31 23:59:59.999999", "false", "2024-06-07", "12:34:56"),
+    ];
+
+    [Fact]
+    public void Date_And_Time_Parse_Read_Every_Row_In_Its_Own_Iso_Form()
+    {
+        AssertSameOver(Texts, r => DateTime.Parse(r.At));
+        AssertSameOver(Texts, r => Convert.ToDateTime(r.At));
+        AssertSameOver(Texts, r => DateOnly.Parse(r.Day));
+        AssertSameOver(Texts, r => TimeOnly.Parse(r.Time));
+        // Runtime-independent: the times of rows after a date-only first row are kept.
+        using var df = DataFrame.FromRows(Texts);
+        Assert.Equal(new DateTime(2023, 12, 31, 10, 0, 0), df.AsQueryable<TextRow>().Select(r => DateTime.Parse(r.At)).ToList()[1]);
+        // Convert takes a null string as DateTime.MinValue.
+        TextRow[] withNull = [new(1, null, "true", "2024-01-02", "10:00")];
+        AssertSameOver(withNull, r => Convert.ToDateTime(r.At));
+    }
+
+    [Fact]
+    public void Boolean_Parse_Ignores_Case_And_White_Space()
+    {
+        AssertSameOver(Texts, r => bool.Parse(r.Flag));
+        AssertSameOver(Texts, r => Convert.ToBoolean(r.Flag));
+        // Other text, where .NET throws FormatException, is null; Convert takes a null string as false.
+        TextRow[] other = [new(1, "", "yes", "", ""), new(2, "", null, "", "")];
+        using var df = DataFrame.FromRows(other);
+        Assert.Equal([null, null], df.AsQueryable<TextRow>().Select(r => (bool?)bool.Parse(r.Flag)).ToList());
+        Assert.Equal([null, false], df.AsQueryable<TextRow>().Select(r => (bool?)Convert.ToBoolean(r.Flag)).ToList());
     }
 }

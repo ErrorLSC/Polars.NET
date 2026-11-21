@@ -47,11 +47,13 @@ module internal NumericTranslator =
         && (m.DeclaringType = typeof<double> || m.DeclaringType = typeof<float32> || m.DeclaringType = typeof<Half>)
         && m.GetParameters().Length = 1
         && (match m.Name with
-            | "IsNaN" | "IsRealNumber" | "IsInfinity" | "IsPositiveInfinity" | "IsNegativeInfinity" | "IsFinite" -> true
+            | "IsNaN" | "IsRealNumber" | "IsInfinity" | "IsPositiveInfinity" | "IsNegativeInfinity" | "IsFinite"
+            | "IsNormal" | "IsSubnormal" | "IsInteger" | "IsEvenInteger" | "IsOddInteger" -> true
             | _ -> false)
 
     /// double.IsNaN and its kin (also of float and Half) over the translated value, as comparisons with the infinity
-    /// of the value's own type: the engine orders NaN above every number, so NaN is neither infinite nor finite.
+    /// of the value's own type: the engine orders NaN above every number, so NaN is neither infinite nor finite (every
+    /// test below starts from one that NaN fails). A Half is tested as the double it converts to exactly.
     let internal translateFloatingClassification
         (translateExpr: Expression -> ScalarExpr option)
         (m: MethodInfo)
@@ -64,15 +66,85 @@ module internal NumericTranslator =
                     if x.Type = typeof<float32> then LiteralValue.Float32(if positive then Single.PositiveInfinity else Single.NegativeInfinity)
                     elif x.Type = typeof<Half> then LiteralValue.Float16(if positive then Half.PositiveInfinity else Half.NegativeInfinity)
                     else LiteralValue.Float64(if positive then Double.PositiveInfinity else Double.NegativeInfinity))
+            // The least normal magnitude of the value's type, and a literal of that type.
+            let leastNormal, literal =
+                if x.Type = typeof<float32> then Math.ScaleB(1.0, -126), (fun (d: float) -> ScalarExpr.Literal(LiteralValue.Float32(float32 d)))
+                elif x.Type = typeof<Half> then Math.ScaleB(1.0, -14), (fun (d: float) -> ScalarExpr.Literal(LiteralValue.Float64 d))
+                else Math.ScaleB(1.0, -1022), (fun (d: float) -> ScalarExpr.Literal(LiteralValue.Float64 d))
+            let both a b = ScalarExpr.Binary(BinaryOp.And, a, b)
             translateExpr x
             |> Option.map (fun v ->
+                let abs = ScalarExpr.Unary(UnaryOp.Abs, v)
+                let finite = ScalarExpr.Binary(BinaryOp.Lt, abs, infinity true)
+                // Floor and remainder of a Half as its double (exact).
+                let wide = if x.Type = typeof<Half> then ScalarExpr.Cast(v, LogicalTypes.Float64, false) else v
+                let integer = both finite (ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Function(ScalarFunction.Floor, [ wide ], LogicalType.Unknown), wide))
+                let halved = ScalarExpr.Binary(BinaryOp.Modulo, wide, literal 2.0)
                 match m.Name with
                 | "IsNaN" -> ScalarExpr.Unary(UnaryOp.IsNan, v)
                 | "IsRealNumber" -> ScalarExpr.Unary(UnaryOp.Not, ScalarExpr.Unary(UnaryOp.IsNan, v))
                 | "IsPositiveInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, v, infinity true)
                 | "IsNegativeInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, v, infinity false)
-                | "IsInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Unary(UnaryOp.Abs, v), infinity true)
-                | _ -> ScalarExpr.Binary(BinaryOp.Lt, ScalarExpr.Unary(UnaryOp.Abs, v), infinity true))
+                | "IsInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, abs, infinity true)
+                | "IsNormal" -> both finite (ScalarExpr.Binary(BinaryOp.GtEq, ScalarExpr.Unary(UnaryOp.Abs, wide), literal leastNormal))
+                | "IsSubnormal" ->
+                    let absWide = ScalarExpr.Unary(UnaryOp.Abs, wide)
+                    both (ScalarExpr.Binary(BinaryOp.Gt, absWide, literal 0.0)) (ScalarExpr.Binary(BinaryOp.Lt, absWide, literal leastNormal))
+                | "IsInteger" -> integer
+                | "IsEvenInteger" -> both integer (ScalarExpr.Binary(BinaryOp.Eq, halved, literal 0.0))
+                | "IsOddInteger" -> both integer (ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Unary(UnaryOp.Abs, halved), literal 1.0))
+                | _ -> finite)
+        | _ -> None
+
+    /// <summary>
+    /// The pattern of a char classification (char.IsDigit and its kin), matched against the one-character string a char
+    /// is in a column, or None. Unicode general categories as .NET's char methods use them (checked over every char
+    /// outside the surrogates, which a string column cannot hold alone).
+    /// </summary>
+    let internal charClassPattern (name: string) : string option =
+        match name with
+        | "IsDigit" -> Some @"\p{Nd}"
+        | "IsNumber" -> Some @"\p{N}"
+        | "IsLetter" -> Some @"\p{L}"
+        | "IsLetterOrDigit" -> Some @"[\p{L}\p{Nd}]"
+        | "IsUpper" -> Some @"\p{Lu}"
+        | "IsLower" -> Some @"\p{Ll}"
+        | "IsPunctuation" -> Some @"\p{P}"
+        | "IsSymbol" -> Some @"\p{S}"
+        | "IsSeparator" -> Some @"\p{Z}"
+        | "IsControl" -> Some @"\p{Cc}"
+        | "IsWhiteSpace" -> Some @"[\t\n\v\f\r\x{85}\p{Z}]"
+        | "IsAscii" -> Some @"[\x00-\x7F]"
+        | "IsAsciiDigit" -> Some "[0-9]"
+        | "IsAsciiLetter" -> Some "[A-Za-z]"
+        | "IsAsciiLetterLower" -> Some "[a-z]"
+        | "IsAsciiLetterUpper" -> Some "[A-Z]"
+        | "IsAsciiLetterOrDigit" -> Some "[A-Za-z0-9]"
+        | "IsAsciiHexDigit" -> Some "[0-9A-Fa-f]"
+        | "IsAsciiHexDigitLower" -> Some "[0-9a-f]"
+        | "IsAsciiHexDigitUpper" -> Some "[0-9A-F]"
+        | _ -> None
+
+    /// char.IsDigit(c) and its kin, also of `s[i]` (char.IsDigit(s, i)), as an anchored match of the char's string.
+    let internal translateCharClassification
+        (translateExpr: Expression -> ScalarExpr option)
+        (m: MethodInfo)
+        (args: Expression list)
+        : ScalarExpr option =
+        let charOf (args: Expression list) : Expression option =
+            match args with
+            | [ c ] when c.Type = typeof<char> -> Some c
+            | [ s; i ] when s.Type = typeof<string> && i.Type = typeof<int> ->
+                Some(Expression.Call(s, typeof<string>.GetProperty("Chars").GetMethod, i))
+            | _ -> None
+        match charClassPattern m.Name, charOf args with
+        | Some pattern, Some c ->
+            translateExpr c
+            |> Option.map (fun s ->
+                ScalarExpr.Function(
+                    ScalarFunction.StrContains,
+                    [ s; ScalarExpr.Literal(LiteralValue.String("^" + pattern + "$")); ScalarExpr.Literal(LiteralValue.Bool false) ],
+                    LogicalTypes.Boolean))
         | _ -> None
 
     /// Number and boolean types System.Convert converts between natively.
@@ -92,31 +164,50 @@ module internal NumericTranslator =
     /// <c>ToInt32(x)</c> of a floating or decimal x is <c>checked((int)Math.Round(x))</c> (rounded half to even,
     /// OverflowException out of range or for NaN; a float is rounded as a double), of an integer
     /// <c>checked((int)x)</c>; <c>ToDouble</c>, <c>ToSingle</c> and <c>ToDecimal</c> are casts; <c>ToBoolean(x)</c> is
-    /// <c>x != 0</c> (true for NaN); a bool converts to 1 or 0. None for other conversions (strings, chars, objects,
-    /// dates), which stay calls.
+    /// <c>x != 0</c> (true for NaN); a bool converts to 1 or 0. Also: a boxed value (the object overloads) as its own
+    /// overload, a boxed null as 0; <c>ToString(bool)</c> as "True" / "False"; <c>ToDateTime(string)</c> as
+    /// <c>DateTime.Parse</c>. None for other conversions (chars, other strings), which stay calls.
     /// </summary>
     let internal tryConvertEquivalent (m: MethodInfo) (args: Expression list) : Expression option =
         let parameters = m.GetParameters()
         let target = m.ReturnType
-        // The object overloads (`ToDouble(object, provider)`, chosen with a provider) convert a boxed value as its own
-        // overload does; a boxed non-nullable value is never null (Convert takes null as 0).
-        let args =
-            match args with
-            | (:? UnaryExpression as boxed) :: rest when
-                boxed.NodeType = ExpressionType.Convert
-                && boxed.Type = typeof<obj>
-                && boxed.Operand.Type.IsValueType
-                && isNull (Nullable.GetUnderlyingType boxed.Operand.Type)
-                ->
-                boxed.Operand :: rest
-            | _ -> args
+        let isProvider (rest: Expression list) = rest.IsEmpty || rest.Length = 1 && parameters.[1].ParameterType = typeof<IFormatProvider>
+        // Convert's own overload of the same name for these argument types, if any.
+        let overload (types: Type list) =
+            typeof<Convert>.GetMethod(m.Name, [| yield! types |])
+            |> Option.ofObj
+            |> Option.filter (fun own -> own.GetParameters() |> Array.map (fun p -> p.ParameterType) |> List.ofArray = types)
         match args with
+        | _ when not (m.IsStatic && m.DeclaringType = typeof<Convert>) -> None
+        // The object overloads (chosen with a provider, or for a boxed nullable) convert a boxed value as its own
+        // overload does, and null as 0 (false). The provider is dropped for a number or bool, which Convert formats
+        // without it; a string with a provider is parsed by its culture and stays a call.
+        | (:? UnaryExpression as boxed) :: rest when
+            boxed.NodeType = ExpressionType.Convert && boxed.Type = typeof<obj> && isProvider rest
+            ->
+            let operand = boxed.Operand
+            let valueType = match Nullable.GetUnderlyingType operand.Type with null -> operand.Type | u -> u
+            let own =
+                if valueType = typeof<string> && rest.IsEmpty then overload [ valueType ]
+                elif isConvertible valueType then overload [ valueType ]
+                else None
+            match own, Nullable.GetUnderlyingType operand.Type with
+            | None, _ -> None
+            | Some own, null -> Some(Expression.Call(own, operand) :> Expression)
+            | Some own, _ ->
+                Some(
+                    Expression.Condition(
+                        Expression.Property(operand, "HasValue"),
+                        Expression.Call(own, Expression.Property(operand, "Value")),
+                        Expression.Constant(Activator.CreateInstance target, target)))
+        | value :: rest when m.Name = "ToString" && value.Type = typeof<bool> && isProvider rest ->
+            Some(Expression.Condition(value, Expression.Constant "True", Expression.Constant "False"))
+        | [ value ] when m.Name = "ToDateTime" && value.Type = typeof<string> ->
+            Some(Expression.Call(typeof<DateTime>.GetMethod("Parse", [| typeof<string> |]), value))
         | value :: rest when
-            m.IsStatic
-            && m.DeclaringType = typeof<Convert>
-            && m.Name.StartsWith("To", StringComparison.Ordinal)
-            && (parameters.[0].ParameterType = value.Type || parameters.[0].ParameterType = typeof<obj>)
-            && (rest.IsEmpty || rest.Length = 1 && parameters.[1].ParameterType = typeof<IFormatProvider>)
+            m.Name.StartsWith("To", StringComparison.Ordinal)
+            && parameters.[0].ParameterType = value.Type
+            && isProvider rest
             && isConvertible value.Type
             && isConvertible target
             ->

@@ -98,7 +98,9 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 
 * A sum over a group's distinct values (`g.Select(x => x.L).Distinct().Sum()`) wrapped on overflow instead of throwing `OverflowException`.
 * A `decimal` cast to an integer (`(int)m`, `checked((int)m)`, `decimal.ToInt32(m)`) rounded (`(int)2.9m` was 3, `(int)-2.9m` was -3); it truncates, as in .NET (out of range it still gives null, where .NET throws).
-* `Convert.ToXxx` between numbers and `bool`, and `double.IsNaN` and its kin (`IsInfinity`, `IsFinite`, ... on `double`, `float` and `Half`), ran as row-by-row .NET callbacks; they are native expressions now, with .NET's results (`Convert.ToInt32(2.5)` is 2; out of range or `NaN`, where .NET throws, null).
+* `Convert.ToXxx` between numbers and `bool` (also of boxed values, and `Convert.ToString(bool)`), `double.IsNaN` and its kin (`IsInfinity`, `IsFinite`, `IsNormal`, `IsInteger`, ... on `double`, `float` and `Half`) and `char.IsDigit` and its kin (`IsLetter`, `IsUpper`, `IsWhiteSpace`, `IsAsciiXxx`, ...) ran as row-by-row .NET callbacks; they are native expressions now, with .NET's results (`Convert.ToInt32(2.5)` is 2; out of range or `NaN`, where .NET throws, null). `Convert.ToInt32((string)null)` is 0, as in .NET (it was null); `Convert.ToDateTime(string)` is `DateTime.Parse`.
+* `DateTime.Parse` (and `DateOnly.Parse`, `TimeOnly.Parse`) applied the format of the column's first value to every row: after a date-only first row (`"2024-01-02"`), `"2023-12-31 10:00:00"` lost its time. ISO 8601 text (`T` or a space before the time, seconds and fraction optional, surrounding white space ignored) is read row by row; other text is parsed as before.
+* `bool.Parse(s)` and `Convert.ToBoolean(s)` failed the query (the engine casts no string to a boolean); they read `true` / `false` ignoring case and white space, as .NET does, and give null for other text.
 
 ## Native memory
 

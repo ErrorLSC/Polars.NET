@@ -494,6 +494,19 @@ module internal StringTemporalTranslator =
 
         | _ -> None
 
+    /// ISO 8601 date-times as .NET formats: a date, then a time after `T` or a space, seconds and their fraction optional.
+    let private isoDateTimeFormats =
+        [ "yyyy-MM-ddTHH:mm:ss.FFFFFFF"; "yyyy-MM-dd HH:mm:ss.FFFFFFF"; "yyyy-MM-ddTHH:mm"; "yyyy-MM-dd HH:mm"; "yyyy-MM-dd" ]
+
+    /// A Parse of the trimmed text by each ISO 8601 format exactly, else by `inferred` (the engine's parse of a format
+    /// inferred from the column's first value). The engine applies an inferred format to every row, so the ISO forms,
+    /// which .NET reads alike in every culture, are matched row by row first ("2024-01-02" before
+    /// "2023-12-31 10:00:00" lost the time).
+    let private isoParses (parse: ScalarFunction) (resultType: LogicalType) (formats: string list) (strS: ScalarExpr) (inferred: ScalarExpr) =
+        let trimmed = ScalarExpr.Function(ScalarFunction.Strip, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String) ], LogicalTypes.String)
+        let exact (format: string) =
+            ScalarExpr.Function(parse, [ trimmed; ScalarExpr.Literal(LiteralValue.String format); ScalarExpr.Literal(LiteralValue.Bool true) ], resultType)
+        ScalarExpr.Coalesce [ yield! List.map exact formats; inferred ]
 
     let internal translateTemporalMethod
         (eval: ScalarExprEvaluator)
@@ -515,7 +528,8 @@ module internal StringTemporalTranslator =
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateTime> ->
             eval ctx strExpr
             |> Option.map (fun strS ->
-                ScalarExpr.Function(ScalarFunction.StrToDatetime, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Datetime))
+                isoParses ScalarFunction.StrToDatetime LogicalTypes.Datetime isoDateTimeFormats strS
+                    (ScalarExpr.Function(ScalarFunction.StrToDatetime, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Datetime)))
 
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
             match eval ctx strExpr, PartialEvaluator.tryEvaluate formatExpr with
@@ -527,7 +541,8 @@ module internal StringTemporalTranslator =
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
             eval ctx strExpr
             |> Option.map (fun strS ->
-                ScalarExpr.Function(ScalarFunction.StrToDate, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Date))
+                isoParses ScalarFunction.StrToDate LogicalTypes.Date [ "yyyy-MM-dd" ] strS
+                    (ScalarExpr.Function(ScalarFunction.StrToDate, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Date)))
 
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
             match eval ctx strExpr, PartialEvaluator.tryEvaluate formatExpr with
@@ -539,7 +554,8 @@ module internal StringTemporalTranslator =
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
             eval ctx strExpr
             |> Option.map (fun strS ->
-                ScalarExpr.Function(ScalarFunction.StrToTime, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Time))
+                isoParses ScalarFunction.StrToTime LogicalTypes.Time [ "HH:mm:ss.FFFFFFF"; "HH:mm" ] strS
+                    (ScalarExpr.Function(ScalarFunction.StrToTime, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Time)))
 
         | "IsLeapYear", [ yearExpr ] when isNull target && m.DeclaringType = typeof<DateTime> ->
             eval ctx yearExpr

@@ -410,6 +410,30 @@ module internal WindowAndMethodTranslator =
 
         | _ -> None
 
+    /// bool.Parse: "true" or "false" ignoring case and surrounding white space; null for other text (where .NET throws).
+    /// The engine casts no string to a boolean.
+    let private parseBoolean (strS: ScalarExpr) : ScalarExpr =
+        let trimmed = ScalarExpr.Function(ScalarFunction.Strip, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String) ], LogicalTypes.String)
+        let word = ScalarExpr.Function(ScalarFunction.ToLower, [ trimmed ], LogicalTypes.String)
+        let is (text: string) = ScalarExpr.Binary(BinaryOp.Eq, word, ScalarExpr.Literal(LiteralValue.String text))
+        ScalarExpr.Conditional(
+            is "true",
+            ScalarExpr.Literal(LiteralValue.Bool true),
+            ScalarExpr.Conditional(is "false", ScalarExpr.Literal(LiteralValue.Bool false), ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Boolean)))
+
+    /// Convert takes a null string as 0 (false, DateTime.MinValue), where parsing it gives null.
+    let private convertNullDefault (eval: ScalarExprEvaluator) (ctx: TranslationContext) (m: MethodInfo) (args: Expression list) (converted: ScalarExpr) =
+        match args with
+        | s :: _ when m.DeclaringType = typeof<Convert> && s.Type = typeof<string> && m.ReturnType.IsValueType ->
+            match eval ctx s with
+            | Some str ->
+                ScalarExpr.Conditional(
+                    ScalarExpr.Unary(UnaryOp.IsNull, str),
+                    ScalarExprOps.toLiteral (Activator.CreateInstance m.ReturnType) m.ReturnType,
+                    converted)
+            | None -> converted
+        | _ -> converted
+
     let private translateConversionOrParseMethod (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
         (m: MethodInfo)
@@ -430,7 +454,9 @@ module internal WindowAndMethodTranslator =
                         | None -> None
                     elif targetType = typeof<decimal> then
                         Some(ScalarExpr.Function(ScalarFunction.StrToDecimal, [ strS; ScalarExpr.Literal(LiteralValue.Int32 4) ], LogicalTypes.Decimal))
-                    elif targetType = typeof<double> || targetType = typeof<float> || targetType = typeof<bool> then
+                    elif targetType = typeof<bool> then
+                        Some(parseBoolean strS)
+                    elif targetType = typeof<double> || targetType = typeof<float> then
                         tryTranslateCast targetType strS
                     else
                         None
@@ -493,8 +519,7 @@ module internal WindowAndMethodTranslator =
                 |> Option.bind (tryTranslateCast typeof<float>)
 
             | "ToBoolean", [ strExpr ] when strExpr.Type = typeof<string> ->
-                eval ctx strExpr
-                |> Option.bind (tryTranslateCast typeof<bool>)
+                eval ctx strExpr |> Option.map parseBoolean
 
             // Between numbers and booleans: the C# expression of equal value.
             | _ -> tryConvertEquivalent m args |> Option.bind (eval ctx)
@@ -614,7 +639,7 @@ module internal WindowAndMethodTranslator =
             || (isNull target && (m.Name = "Parse" || m.Name = "TryParse"))
         then
             match translateConversionOrParseMethod eval ctx m target args with
-            | Some s -> Some s
+            | Some s -> Some(convertNullDefault eval ctx m args s)
             | None ->
                 if m.DeclaringType = typeof<DateTime> || m.DeclaringType = typeof<DateOnly> || m.DeclaringType = typeof<TimeOnly> then
                     translateTemporalMethod eval ctx m target args
@@ -665,7 +690,7 @@ module internal WindowAndMethodTranslator =
                 eval ctx charExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.ToUpper, [ s ], LogicalTypes.String))
             | ("ToLower" | "ToLowerInvariant"), [ charExpr ] ->
                 eval ctx charExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.ToLower, [ s ], LogicalTypes.String))
-            | _ -> None
+            | _ -> translateCharClassification (eval ctx) m args
 
         elif
             m.DeclaringType = typeof<string>
