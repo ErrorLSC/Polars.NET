@@ -468,14 +468,14 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle DotNetCheckedSum(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_dotnet_checked_sum, expr);
 
     /// <summary>
-    /// .NET checked narrowing of an integer (or scale-0 decimal) expression to the integer type
-    /// <paramref name="target"/>, element by element: each value as the target, or an <see cref="OverflowException"/>
-    /// when one leaves its range; null stays null. In a group context it narrows each group's value (an exact wide
-    /// sum taken back to its result type).
+    /// .NET checked narrowing of an integer, decimal or floating expression (truncated toward zero) to the integer type
+    /// <paramref name="target"/>, element by element: each value as the target, or, when one leaves its range (or is
+    /// NaN), an <see cref="OverflowException"/> (null with <paramref name="nullOnOverflow"/>); null stays null. In a
+    /// group context it narrows each group's value (an exact wide sum taken back to its result type).
     /// </summary>
-    public static ExprHandle DotNetCheckedNarrow(ExprHandle expr, PlDataType target)
+    public static ExprHandle DotNetCheckedNarrow(ExprHandle expr, PlDataType target, bool nullOnOverflow)
     {
-        var h = NativeBindings.pl_expr_dotnet_checked_narrow(expr, (int)target);
+        var h = NativeBindings.pl_expr_dotnet_checked_narrow(expr, (int)target, nullOnOverflow);
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -495,8 +495,8 @@ public readonly partial struct PolarsWrapper
     /// <summary>
     /// A float or double expression as Decimal(<paramref name="precision"/>, <paramref name="scale"/>): .NET 11's
     /// (decimal)x of each value (its exact binary value, rounded half to even where System.Decimal's 28-29 digits end),
-    /// rounded half to even at the scale, as Math.Round; an <see cref="OverflowException"/> for NaN, an infinity or a
-    /// value beyond the precision; null stays null. Element by element.
+    /// rounded half to even at the scale, as Math.Round; null for NaN, an infinity or a value beyond the precision
+    /// (where .NET throws); null stays null. Element by element.
     /// </summary>
     public static ExprHandle DotNetFloatToDecimal(ExprHandle expr, int precision, int scale)
     {

@@ -2791,3 +2791,25 @@ module QueryTests =
         Assert.Equal<decimal>([| 0.100000000000000006M; 945001529.969740986824035644M |], decimals)
         let fromSingles = query { for x in q do select (decimal x.F) } |> assertPlan nativePushdown |> Seq.toArray
         Assert.Equal<decimal>([| 0.100000001490116119M; 16777216M |], fromSingles)
+
+    // F#'s `int` of a decimal truncates, Convert rounds half to even, Double.IsNaN and Double.IsInfinity classify: all
+    // natively, as in .NET. A value .NET could not convert (it throws) is null, so a guard before it keeps working.
+    [<Fact; Trait("LINQ", "Conversion")>]
+    let ``Decimal truncation, Convert and IsNaN run natively`` () =
+        let rows =
+            [| { Id = 1; F = nanf; D = 2.5; M = -2.9M }
+               { Id = 2; F = infinityf; D = nan; M = 488023.5M }
+               { Id = 3; F = 1.5f; D = -3.5; M = 0.5M } |]
+        use df = DataFrame.ofSeq rows
+        let q = df.AsQueryable<DecimalFloatRecord>()
+        let truncated = query { for x in q do select (int x.M) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<int[]>([| -2; 488023; 0 |], truncated)
+        let rounded = query { for x in q do select (Convert.ToInt32 x.M) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<int[]>([| -3; 488024; 0 |], rounded)
+        let fromDoubles = query { for x in q do where (not (Double.IsNaN x.D)) ; select (Convert.ToInt64 x.D) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<int64[]>([| 2L; -4L |], fromDoubles)
+        let classified = query { for x in q do select (Single.IsNaN x.F, Single.IsInfinity x.F, Double.IsFinite x.D) } |> Seq.toArray
+        Assert.Equal<(bool * bool * bool)[]>([| (true, false, true); (false, true, false); (false, false, true) |], classified)
+        let guarded = query { for x in q do where (x.M >= 0M && x.M < 256M && byte x.M >= 0uy); select x.Id } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<int[]>([| 3 |], guarded)
+

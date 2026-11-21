@@ -5,7 +5,7 @@
 /// as .NET Equals does: every NaN is one value (whatever its payload or sign) and -0.0 equals 0.0.
 /// DecimalToFloating is .NET 11's (double)decimal / (float)decimal: correctly rounded, once. FloatingToDecimal is .NET
 /// 11's (decimal)x (the exact binary value, rounded half to even where System.Decimal's digits end) rounded half to even
-/// at the target scale; NaN, an infinity or a value beyond the precision raise OverflowException.
+/// at the target scale; NaN, an infinity or a value beyond the precision give null.
 module Polars.NET.Linq.Conformance.Tests.FloatConformance
 
 open System
@@ -118,9 +118,8 @@ let ``DecimalToFloating rounds once, FloatingToDecimal takes the exact value to 
     ]
 
 [<Fact>]
-let ``FloatingToDecimal raises Overflow on NaN and beyond the precision`` () =
-    for x in [ nan; infinity; 1e20 ] do
-        let t = Tables()
-        let rows: DX array = [| { Id = 1L; M = Nullable(); X = Nullable x; F = Nullable() } |]
-        let plan = project (t.Scan rows) [ "m", ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ col "X" ], LogicalTypes.Decimal) ]
-        Conformance.raises<OverflowException> t plan "Value was either too large or too small for a Decimal."
+let ``FloatingToDecimal is null on NaN, infinities and beyond the precision`` () =
+    let t = Tables()
+    let rows: DX array = [| for i, x in List.indexed [ nan; infinity; -infinity; 1e20; 1.5 ] -> { Id = int64 i; M = Nullable(); X = Nullable x; F = Nullable() } |]
+    let plan = project (t.Scan rows) [ "m", ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ col "X" ], LogicalTypes.Decimal) ]
+    Conformance.rowsInOrder t plan [ [ null ]; [ null ]; [ null ]; [ null ]; [ 1.5m ] ]

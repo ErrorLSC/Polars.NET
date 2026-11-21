@@ -91,12 +91,14 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 
 ### Changed
 
-* Checked conversions (`checked((int)x)`) throw `OverflowException` when the value leaves the target type's range or is NaN, as .NET does (floating values truncated toward zero). They wrapped before.
-* Conversions between `decimal` and `double` / `float` follow .NET 11 on every runtime. `(double)m` and `(float)m` are correctly rounded (the engine's cast was one unit in the last place off for about a quarter of the values, and `(float)m` now rounds once, not through a double). `(decimal)x` converts the exact binary value of `x`, as .NET 11 does (`(decimal)0.1f` is `0.100000001490116119`, where .NET 10 gave `0.1`; the engine's cast, computed in floating point, could be off in the last digits), kept to the provider's 18 fractional digits as `Math.Round(value, 18)`. `NaN`, infinities and values of `1e20` or more in magnitude throw `OverflowException`: the provider's decimals hold 20 integer digits, where `System.Decimal` holds up to 7.9e28.
+* Checked conversions (`checked((int)x)`) give null where .NET throws `OverflowException` (the value leaves the target type's range or is NaN; floating values are truncated toward zero). They wrapped before. A conversion cannot fail the query: the engine evaluates both sides of `&&` and `?:` and merges `Where` filters, so it would fail on rows the query guards against.
+* Conversions between `decimal` and `double` / `float` follow .NET 11 on every runtime. `(double)m` and `(float)m` are correctly rounded (the engine's cast was one unit in the last place off for about a quarter of the values, and `(float)m` now rounds once, not through a double). `(decimal)x` converts the exact binary value of `x`, as .NET 11 does (`(decimal)0.1f` is `0.100000001490116119`, where .NET 10 gave `0.1`; the engine's cast, computed in floating point, could be off in the last digits), kept to the provider's 18 fractional digits as `Math.Round(value, 18)`. `NaN`, infinities and values of `1e20` or more in magnitude give null (the provider's decimals hold 20 integer digits, where `System.Decimal` holds up to 7.9e28).
 
 ### Fixed
 
 * A sum over a group's distinct values (`g.Select(x => x.L).Distinct().Sum()`) wrapped on overflow instead of throwing `OverflowException`.
+* A `decimal` cast to an integer (`(int)m`, `checked((int)m)`, `decimal.ToInt32(m)`) rounded (`(int)2.9m` was 3, `(int)-2.9m` was -3); it truncates, as in .NET (out of range it still gives null, where .NET throws).
+* `Convert.ToXxx` between numbers and `bool`, and `double.IsNaN` and its kin (`IsInfinity`, `IsFinite`, ... on `double`, `float` and `Half`), ran as row-by-row .NET callbacks; they are native expressions now, with .NET's results (`Convert.ToInt32(2.5)` is 2; out of range or `NaN`, where .NET throws, null).
 
 ## Native memory
 

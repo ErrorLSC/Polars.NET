@@ -10,10 +10,6 @@ use std::fmt::Write as _;
 
 use crate::types::ExprContext;
 
-/// The marker the managed side raises as the System.OverflowException of a conversion to decimal (Polars.NET.Core
-/// ManagedErrorRelay).
-const DOTNET_DECIMAL_OVERFLOW: &str = "[[polars-net-decimal-overflow]] Value was either too large or too small for a Decimal.";
-
 const fn powers(base: u128) -> [u128; 39] {
     let mut table = [1u128; 39];
     let mut i = 1;
@@ -297,23 +293,18 @@ fn dotnet_decimal_to_float(c: Column, target: &DataType) -> PolarsResult<Column>
 }
 
 /// A float or double column as Decimal(`precision`, `scale`), each value .NET 11's (decimal)x rounded to the scale;
-/// fails with the overflow marker on NaN, an infinity or a value beyond the precision; null stays null. A column of
-/// any other type takes the engine's cast.
+/// null for NaN, an infinity or a value beyond the precision (where .NET throws: an engine cannot fail one row only, and
+/// a guard the query puts before the conversion, `!double.IsNaN(x) && …`, must keep working); null stays null. A column
+/// of any other type takes the engine's cast.
 fn dotnet_float_to_decimal(c: Column, precision: usize, scale: usize) -> PolarsResult<Column> {
     let s = c.as_materialized_series();
     if !s.dtype().is_float() {
         return Ok(s.cast(&DataType::Decimal(precision, scale))?.into_column());
     }
     let doubles = s.cast(&DataType::Float64)?; // exact for a float
-    let mut overflow = false;
     let ca: Int128Chunked = polars_core::prelude::arity::unary_elementwise(doubles.f64()?, |v: Option<f64>| {
-        v.and_then(|x| {
-            let stored = float_to_decimal(x, precision as u32, scale as u32);
-            overflow |= stored.is_none();
-            stored
-        })
+        v.and_then(|x| float_to_decimal(x, precision as u32, scale as u32))
     });
-    polars_ensure!(!overflow, ComputeError: "{}", DOTNET_DECIMAL_OVERFLOW);
     Ok(ca.into_decimal_unchecked(precision, scale).into_series().with_name(s.name().clone()).into_column())
 }
 
@@ -335,8 +326,7 @@ pub extern "C" fn pl_expr_dotnet_decimal_to_float(expr_ptr: *mut ExprContext, co
 }
 
 /// A float or double expression as Decimal(`precision`, `scale`): .NET 11's (decimal)x of each value, rounded half to
-/// even at the scale; the query fails with System.OverflowException on NaN, an infinity or a value beyond the
-/// precision. Element by element.
+/// even at the scale; null for NaN, an infinity or a value beyond the precision. Element by element.
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_dotnet_float_to_decimal(expr_ptr: *mut ExprContext, precision: i32, scale: i32) -> *mut ExprContext {
     ffi_try!({
@@ -422,17 +412,15 @@ mod tests {
     }
 
     #[test]
-    fn float_to_decimal_expression_keeps_nulls_and_fails_on_overflow() {
+    fn float_to_decimal_expression_keeps_nulls_and_gives_null_on_overflow() {
         let out = convert_column(Series::new("a".into(), &[Some(0.1f64), None, Some(-1.5)]), pl_expr_dotnet_float_to_decimal(input(col("a")), 38, 18)).unwrap();
         assert_eq!(out.dtype(), &DataType::Decimal(38, 18));
         assert_eq!(out.name().as_str(), "a");
         assert_eq!((0..out.len()).map(|i| out.decimal().unwrap().physical().get(i)).collect::<Vec<_>>(), [Some(100_000_000_000_000_006), None, Some(-1_500_000_000_000_000_000)]);
         let floats = convert_column(Series::new("a".into(), &[0.1f32]), pl_expr_dotnet_float_to_decimal(input(col("a")), 38, 18)).unwrap();
         assert_eq!(floats.decimal().unwrap().physical().get(0), Some(100_000_001_490_116_119));
-        for bad in [f64::NAN, f64::INFINITY, 1e20] {
-            let error = convert_column(Series::new("a".into(), &[1.0, bad]), pl_expr_dotnet_float_to_decimal(input(col("a")), 38, 18)).unwrap_err().to_string();
-            assert!(error.contains(DOTNET_DECIMAL_OVERFLOW), "{bad}: {error}");
-        }
+        let out = convert_column(Series::new("a".into(), &[1.0, f64::NAN, f64::INFINITY, 1e20]), pl_expr_dotnet_float_to_decimal(input(col("a")), 38, 18)).unwrap();
+        assert_eq!((0..out.len()).map(|i| out.decimal().unwrap().physical().get(i)).collect::<Vec<_>>(), [Some(1_000_000_000_000_000_000), None, None, None]);
         // A literal converts as a column does.
         let out = convert_column(Series::new("b".into(), &[1i32]), pl_expr_dotnet_float_to_decimal(input(lit(0.1f64)), 38, 18)).unwrap();
         assert_eq!(out.decimal().unwrap().physical().get(0), Some(100_000_000_000_000_006));

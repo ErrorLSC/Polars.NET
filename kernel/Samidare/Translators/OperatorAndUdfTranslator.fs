@@ -282,17 +282,20 @@ module internal OperatorAndUdfTranslator =
             ->
             eval ctx operand |> Option.bind (fun x -> translateEnumConvert x operand.Type targetType)
         // A checked conversion (checked((int)x)) to an integer type that does not hold every value of the operand's
-        // (a narrower or other-signed integer, a floating value, which is truncated): the value, or OverflowException
-        // when it leaves the range (or is NaN), as .NET throws. Where the backend cannot fail a query, the plain cast.
+        // (a narrower or other-signed integer, a floating value, which is truncated): the value, or null where .NET
+        // throws OverflowException (out of range, NaN; see NarrowOrNull). A decimal converts so checked or not: its
+        // explicit conversion (op_Explicit) truncates and throws out of range.
+        | ExpressionType.Convert
         | ExpressionType.ConvertChecked when
             isIntegralClrType targetType
-            && (if isIntegralClrType operand.Type then not (holdsEveryValue targetType operand.Type)
+            && (if isDecimalClrType operand.Type then true
+                elif op = ExpressionType.Convert then false
+                elif isIntegralClrType operand.Type then not (holdsEveryValue targetType operand.Type)
                 else NaNSemantics.isFloatingClrType operand.Type)
-            && CompilationScope.TryCurrent |> Option.forall (fun scope -> scope.Backend.SupportsAssertions)
             ->
             let core = match Nullable.GetUnderlyingType targetType with null -> targetType | u -> u
             Option.map2
-                (fun x t -> ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ x ], t))
+                (fun x t -> ScalarExpr.Function(ScalarFunction.NarrowOrNull, [ x ], t))
                 (eval ctx operand)
                 (LogicalTypes.tryOfClrType core)
         // .NET converts a floating value to an integer by truncating and saturating: NaN is 0, and values beyond

@@ -139,4 +139,124 @@ public class LinqBclTranslationFixesTests
         Assert.Contains(Native, query.Explain().Split('\n')[0]);
         Assert.Equal([1], query.ToList());
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // System.Convert between numbers and booleans, double.IsNaN and its kin, and decimal-to-integer conversions run
+    // natively, with .NET's values: Convert rounds half to even, a decimal cast truncates (checked or not),
+    // Convert.ToBoolean(NaN) is true; where .NET throws OverflowException (out of range, NaN) the value is null.
+    // ---------------------------------------------------------------------------------------------
+
+    public record NumRow(int Id, float F, double D, decimal M, long L, bool B, Half H);
+
+    // Ties at .5 both ways, negative values, -0.0; doubles and floats exact at 18 decimals, so (decimal)x needs no rounding.
+    private static readonly NumRow[] Nums =
+    [
+        new(1, 0.5f, 2.5, 2.5m, 7, true, (Half)1.5),
+        new(2, -1.5f, -3.5, -2.9m, -300, false, (Half)(-2)),
+        new(3, 254.5f, 0.375, -488023.5m, 40_000, true, (Half)0),
+        new(4, -0.0f, -0.0, 0.5m, 0, false, (Half)0.25),
+        new(5, 1e6f + 0.5f, 1e9 + 0.5, 123456789.987654321m, long.MaxValue, true, (Half)8),
+    ];
+
+    private static void AssertSameOver<TRow, T>(TRow[] rows, Expression<Func<TRow, T>> selector)
+    {
+        using var df = DataFrame.FromRows(rows);
+        var query = df.AsQueryable<TRow>().Select(selector);
+        Assert.Contains(Native, query.Explain().Split('\n')[0]);
+        Assert.Equal(rows.AsQueryable().Select(selector).ToList(), query.ToList());
+    }
+
+    private static void AssertNullWhereDotnetThrows<TRow, T>(TRow row, Expression<Func<TRow, T?>> selector) where T : struct
+    {
+        TRow[] rows = [row];
+        using var df = DataFrame.FromRows(rows);
+        Assert.Throws<OverflowException>(() => rows.Select(selector.Compile()).ToList());
+        Assert.Equal([(T?)null], df.AsQueryable<TRow>().Select(selector).ToList());
+    }
+
+    [Fact]
+    public void Convert_Between_Numbers_Runs_Natively()
+    {
+        AssertSameOver(Nums, r => Convert.ToInt32(r.D));
+        AssertSameOver(Nums, r => Convert.ToInt32(r.F));
+        AssertSameOver(Nums, r => Convert.ToInt64(r.M));
+        AssertSameOver(Nums, r => Convert.ToInt32(r.M));
+        AssertSameOver(Nums, r => Convert.ToByte(r.Id));
+        AssertSameOver(Nums, r => Convert.ToInt16(r.Id * 1000));
+        AssertSameOver(Nums, r => Convert.ToUInt64(r.Id));
+        AssertSameOver(Nums, r => Convert.ToDouble(r.M));
+        AssertSameOver(Nums, r => Convert.ToSingle(r.M));
+        AssertSameOver(Nums, r => Convert.ToDouble(r.L));
+        AssertSameOver(Nums, r => Convert.ToDecimal(r.D));
+        AssertSameOver(Nums, r => Convert.ToDecimal(r.F));
+        AssertSameOver(Nums, r => Convert.ToDecimal(r.Id));
+        AssertSameOver(Nums, r => Convert.ToBoolean(r.L));
+        AssertSameOver(Nums, r => Convert.ToBoolean(r.D));
+        AssertSameOver(Nums, r => Convert.ToInt32(r.B));
+        AssertSameOver(Nums, r => Convert.ToDouble(r.B));
+        AssertSameOver(Nums, r => Convert.ToDouble(r.D, System.Globalization.CultureInfo.InvariantCulture));
+        AssertSameOver(Nums, r => Convert.ToInt32(r.M, System.Globalization.CultureInfo.InvariantCulture));
+        // In a group's aggregate.
+        using var df = DataFrame.FromRows(Nums);
+        var grouped = df.AsQueryable<NumRow>().GroupBy(r => r.B).Select(g => new { g.Key, S = Convert.ToDouble(g.Sum(r => r.M)) }).OrderBy(r => r.Key);
+        Assert.Contains(Native, grouped.Explain().Split('\n')[0]);
+        Assert.Equal(Nums.GroupBy(r => r.B).Select(g => new { g.Key, S = Convert.ToDouble(g.Sum(r => r.M)) }).OrderBy(r => r.Key), grouped.ToList());
+    }
+
+    [Fact]
+    public void Convert_Gives_Null_Out_Of_Range_And_For_NaN()
+    {
+        AssertNullWhereDotnetThrows(Nums[0] with { D = double.NaN }, r => (int?)Convert.ToInt32(r.D));
+        AssertNullWhereDotnetThrows(Nums[0] with { D = 2147483647.5 }, r => (int?)Convert.ToInt32(r.D)); // rounds to 2^31
+        AssertNullWhereDotnetThrows(Nums[0] with { M = 255.5m }, r => (byte?)Convert.ToByte(r.M)); // rounds to 256
+        AssertNullWhereDotnetThrows(Nums[0] with { L = 40_000 }, r => (short?)Convert.ToInt16(r.L));
+        AssertNullWhereDotnetThrows(Nums[0] with { F = -0.6f }, r => (uint?)Convert.ToUInt32(r.F)); // rounds to -1
+    }
+
+    [Fact]
+    public void Decimal_To_Integer_Truncates_Checked_Or_Not()
+    {
+        AssertSameOver(Nums, r => (int)r.M);
+        AssertSameOver(Nums, r => checked((int)r.M));
+        AssertSameOver(Nums, r => (long)r.M);
+        AssertSameOver(Nums, r => (short)(r.M / 10000m));
+        AssertSameOver(Nums, r => (int?)(r.Id > 2 ? r.M : (decimal?)null));
+        AssertSameOver(Nums, r => decimal.ToInt32(r.M));
+        AssertSameOver(Nums, r => decimal.ToInt64(r.M));
+        AssertSameOver(Nums, r => decimal.ToDouble(r.M));
+        // Runtime-independent: truncated toward zero (the engine's cast rounded: 3, -3, -488024).
+        using var df = DataFrame.FromRows(Nums);
+        Assert.Equal([2, -2, -488023, 0, 123456789], df.AsQueryable<NumRow>().Select(r => (int)r.M).ToList());
+        AssertNullWhereDotnetThrows(Nums[0] with { M = -1.5m }, r => (byte?)r.M);
+        AssertNullWhereDotnetThrows(Nums[0] with { M = 3e9m }, r => (int?)r.M);
+        AssertNullWhereDotnetThrows(Nums[0] with { M = 3e9m }, r => (int?)decimal.ToInt32(r.M));
+    }
+
+    [Fact]
+    public void Floating_Classification_Runs_Natively()
+    {
+        NumRow[] rows =
+        [
+            new(1, float.NaN, double.PositiveInfinity, 0m, 0, false, Half.NaN),
+            new(2, float.NegativeInfinity, double.NaN, 0m, 0, false, Half.NegativeInfinity),
+            new(3, 1.5f, -0.0, 0m, 0, false, Half.PositiveInfinity),
+            new(4, float.PositiveInfinity, double.NegativeInfinity, 0m, 0, false, (Half)2),
+        ];
+        AssertSameOver(rows, r => double.IsNaN(r.D));
+        AssertSameOver(rows, r => float.IsNaN(r.F));
+        AssertSameOver(rows, r => Half.IsNaN(r.H));
+        AssertSameOver(rows, r => double.IsInfinity(r.D));
+        AssertSameOver(rows, r => float.IsInfinity(r.F));
+        AssertSameOver(rows, r => Half.IsInfinity(r.H));
+        AssertSameOver(rows, r => double.IsPositiveInfinity(r.D));
+        AssertSameOver(rows, r => float.IsNegativeInfinity(r.F));
+        AssertSameOver(rows, r => double.IsFinite(r.D));
+        AssertSameOver(rows, r => float.IsFinite(r.F));
+        AssertSameOver(rows, r => Half.IsFinite(r.H));
+        AssertSameOver(rows, r => double.IsRealNumber(r.D));
+        using var df = DataFrame.FromRows(rows);
+        var filtered = df.AsQueryable<NumRow>().Where(r => !double.IsNaN(r.D) && double.IsFinite(r.F)).Select(r => r.Id);
+        Assert.Contains(Native, filtered.Explain().Split('\n')[0]);
+        Assert.Equal(rows.Where(r => !double.IsNaN(r.D) && double.IsFinite(r.F)).Select(r => r.Id), filtered.ToList());
+    }
 }

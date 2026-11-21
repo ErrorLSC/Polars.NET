@@ -306,10 +306,11 @@ module internal PolarsScalarLowerer =
                 conversion
                 (LogicalPlanOps.formatScalar inner)
 
-        // .NET checked narrowing: one shim kernel, element by element (per group, each group's value). An exact sum
+        // .NET checked narrowing (null where .NET throws, for NarrowOrNull): one shim kernel, element by element (per
+        // group, each group's value). An exact sum
         // of integers in Decimal(38, 0), the IR's widest exact integer, is summed in the engine's Int128: the same
         // values, about half the time of its decimal sum.
-        | ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ value ], returnType) ->
+        | ScalarExpr.Function((ScalarFunction.CheckedNarrow | ScalarFunction.NarrowOrNull) as narrowing, [ value ], returnType) ->
             let target =
                 match returnType with
                 | LogicalType.Arrow(:? Apache.Arrow.Types.Int8Type) -> PlDataType.Int8
@@ -332,7 +333,7 @@ module internal PolarsScalarLowerer =
                     let castH = PolarsWrapper.ExprCast(lower integers, PolarsWrapper.DataTypeExprFromDataType int128, strict = false, wrapNumerical = false)
                     PolarsWrapper.Sum(if distinct then PolarsWrapper.ExprUnique castH else castH)
                 | _ -> lower value
-            PolarsWrapper.DotNetCheckedNarrow(valueH, target)
+            PolarsWrapper.DotNetCheckedNarrow(valueH, target, nullOnOverflow = (match narrowing with ScalarFunction.NarrowOrNull -> true | _ -> false))
 
         // .NET 11's conversions between decimals and floating values: shim kernels (the engine's casts round otherwise).
         | ScalarExpr.Function(ScalarFunction.DecimalToFloating, [ value ], returnType) ->

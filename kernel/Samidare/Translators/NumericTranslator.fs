@@ -41,6 +41,99 @@ module internal NumericTranslator =
             || t = typeof<decimal>
             || t = typeof<System.Numerics.BitOperations>)
 
+    /// The static classification methods of double, float and Half translated natively.
+    let internal isFloatingClassification (m: MethodInfo) =
+        m.IsStatic
+        && (m.DeclaringType = typeof<double> || m.DeclaringType = typeof<float32> || m.DeclaringType = typeof<Half>)
+        && m.GetParameters().Length = 1
+        && (match m.Name with
+            | "IsNaN" | "IsRealNumber" | "IsInfinity" | "IsPositiveInfinity" | "IsNegativeInfinity" | "IsFinite" -> true
+            | _ -> false)
+
+    /// double.IsNaN and its kin (also of float and Half) over the translated value, as comparisons with the infinity
+    /// of the value's own type: the engine orders NaN above every number, so NaN is neither infinite nor finite.
+    let internal translateFloatingClassification
+        (translateExpr: Expression -> ScalarExpr option)
+        (m: MethodInfo)
+        (args: Expression list)
+        : ScalarExpr option =
+        match args with
+        | [ x ] ->
+            let infinity positive =
+                ScalarExpr.Literal(
+                    if x.Type = typeof<float32> then LiteralValue.Float32(if positive then Single.PositiveInfinity else Single.NegativeInfinity)
+                    elif x.Type = typeof<Half> then LiteralValue.Float16(if positive then Half.PositiveInfinity else Half.NegativeInfinity)
+                    else LiteralValue.Float64(if positive then Double.PositiveInfinity else Double.NegativeInfinity))
+            translateExpr x
+            |> Option.map (fun v ->
+                match m.Name with
+                | "IsNaN" -> ScalarExpr.Unary(UnaryOp.IsNan, v)
+                | "IsRealNumber" -> ScalarExpr.Unary(UnaryOp.Not, ScalarExpr.Unary(UnaryOp.IsNan, v))
+                | "IsPositiveInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, v, infinity true)
+                | "IsNegativeInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, v, infinity false)
+                | "IsInfinity" -> ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Unary(UnaryOp.Abs, v), infinity true)
+                | _ -> ScalarExpr.Binary(BinaryOp.Lt, ScalarExpr.Unary(UnaryOp.Abs, v), infinity true))
+        | _ -> None
+
+    /// Number and boolean types System.Convert converts between natively.
+    let private isConvertible (t: Type) =
+        match Type.GetTypeCode t with
+        | TypeCode.Boolean | TypeCode.SByte | TypeCode.Byte | TypeCode.Int16 | TypeCode.UInt16 | TypeCode.Int32
+        | TypeCode.UInt32 | TypeCode.Int64 | TypeCode.UInt64 | TypeCode.Single | TypeCode.Double | TypeCode.Decimal ->
+            not t.IsEnum
+        | _ -> false
+
+    let private isIntegerType (t: Type) =
+        not (t = typeof<bool> || t = typeof<float32> || t = typeof<double> || t = typeof<decimal>)
+
+    /// <summary>
+    /// A System.Convert conversion of a number or bool to a number or bool (an IFormatProvider argument is ignored, as
+    /// Convert does for numbers), as the C# expression of equal value (checked against Convert on .NET 11):
+    /// <c>ToInt32(x)</c> of a floating or decimal x is <c>checked((int)Math.Round(x))</c> (rounded half to even,
+    /// OverflowException out of range or for NaN; a float is rounded as a double), of an integer
+    /// <c>checked((int)x)</c>; <c>ToDouble</c>, <c>ToSingle</c> and <c>ToDecimal</c> are casts; <c>ToBoolean(x)</c> is
+    /// <c>x != 0</c> (true for NaN); a bool converts to 1 or 0. None for other conversions (strings, chars, objects,
+    /// dates), which stay calls.
+    /// </summary>
+    let internal tryConvertEquivalent (m: MethodInfo) (args: Expression list) : Expression option =
+        let parameters = m.GetParameters()
+        let target = m.ReturnType
+        // The object overloads (`ToDouble(object, provider)`, chosen with a provider) convert a boxed value as its own
+        // overload does; a boxed non-nullable value is never null (Convert takes null as 0).
+        let args =
+            match args with
+            | (:? UnaryExpression as boxed) :: rest when
+                boxed.NodeType = ExpressionType.Convert
+                && boxed.Type = typeof<obj>
+                && boxed.Operand.Type.IsValueType
+                && isNull (Nullable.GetUnderlyingType boxed.Operand.Type)
+                ->
+                boxed.Operand :: rest
+            | _ -> args
+        match args with
+        | value :: rest when
+            m.IsStatic
+            && m.DeclaringType = typeof<Convert>
+            && m.Name.StartsWith("To", StringComparison.Ordinal)
+            && (parameters.[0].ParameterType = value.Type || parameters.[0].ParameterType = typeof<obj>)
+            && (rest.IsEmpty || rest.Length = 1 && parameters.[1].ParameterType = typeof<IFormatProvider>)
+            && isConvertible value.Type
+            && isConvertible target
+            ->
+            let source = value.Type
+            let constant (n: int) (t: Type) = Expression.Constant(Convert.ChangeType(n, t), t) :> Expression
+            let rounded (t: Type) (e: Expression) = Expression.Call(typeof<Math>.GetMethod("Round", [| t |]), e) :> Expression
+            Some(
+                if target = source then value
+                elif target = typeof<bool> then Expression.NotEqual(value, constant 0 source)
+                elif source = typeof<bool> then Expression.Condition(value, constant 1 target, constant 0 target)
+                elif not (isIntegerType target) then Expression.Convert(value, target)
+                elif source = typeof<double> || source = typeof<decimal> then Expression.ConvertChecked(rounded source value, target)
+                elif source = typeof<float32> then
+                    Expression.ConvertChecked(rounded typeof<double> (Expression.Convert(value, typeof<double>)), target)
+                else Expression.ConvertChecked(value, target))
+        | _ -> None
+
     let internal translateNumericMethod
         (translateExpr: Expression -> ScalarExpr option)
         (m: MethodInfo)
@@ -119,14 +212,8 @@ module internal NumericTranslator =
         | "PopCount", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function(ScalarFunction.BitwiseCountOnes, [ a ], LogicalTypes.UInt32))
         | "LeadingZeroCount", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function(ScalarFunction.BitwiseLeadingZeros, [ a ], LogicalTypes.UInt32))
         | "TrailingZeroCount", [ x ] -> t1 x |> Option.map (fun a -> ScalarExpr.Function(ScalarFunction.BitwiseTrailingZeros, [ a ], LogicalTypes.UInt32))
-        | "ToInt32", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<int>)
-        | "ToUInt32", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<uint32>)
-        | "ToInt64", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<int64>)
-        | "ToUInt64", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<uint64>)
-        | "ToSingle", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<float32>)
-        | "ToDouble", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<double>)
-        | "ToByte", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<byte>)
-        | "ToSByte", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<sbyte>)
-        | "ToInt16", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<int16>)
-        | "ToUInt16", [ x ] -> t1 x |> Option.bind (tryTranslateCast typeof<uint16>)
+        // decimal.ToInt32(d) and its kin are the explicit conversions (truncated, OverflowException out of range).
+        | ("ToInt32" | "ToUInt32" | "ToInt64" | "ToUInt64" | "ToSingle" | "ToDouble" | "ToByte" | "ToSByte" | "ToInt16" | "ToUInt16"), [ x ]
+            when x.Type = typeof<decimal> ->
+            t1 (Expression.Convert(x, m.ReturnType))
         | _ -> None

@@ -2844,46 +2844,57 @@ fn integer_range(dtype: &DataType) -> Option<(i128, i128)> {
 }
 
 /// .NET checked narrowing (a checked conversion, or an exact wide sum taken back to its result type): integer values,
-/// decimals of scale 0, or floating values truncated toward zero, as `target`, failing with the overflow marker when one
-/// leaves its range (or is NaN); null stays null.
-fn dotnet_checked_narrow(c: Column, target: &DataType) -> PolarsResult<Column> {
+/// or decimals and floating values truncated toward zero, as `target`; a value outside its range (or NaN) fails with the
+/// overflow marker, or with `null_on_overflow` is null; null stays null.
+fn dotnet_checked_narrow(c: Column, target: &DataType, null_on_overflow: bool) -> PolarsResult<Column> {
     let s = c.as_materialized_series();
     let (min, max) = integer_range(target).ok_or_else(|| polars_err!(ComputeError: "a checked narrowing goes to an integer type, not {}", target))?;
     let wide: Int128Chunked = match s.dtype() {
         DataType::Decimal(_, 0) => s.decimal()?.physical().clone(),
+        // i128 division truncates toward zero, as .NET's (int)decimal.
+        DataType::Decimal(_, scale) => {
+            let unit = 10i128.pow(*scale as u32);
+            s.decimal()?.physical().apply_values(|m| m / unit)
+        }
         DataType::Int128 => s.i128()?.clone(),
         dt if dt.is_integer() => s.cast(&DataType::Int128)?.i128()?.clone(),
         dt if dt.is_float() => {
             // Truncated toward zero into i128 (which saturates: infinities and huge values land outside every target's
-            // range, checked below); NaN, which the cast would take as 0, fails here.
+            // range, checked below); NaN, which the cast would take as 0, has no value.
             let mut nan = false;
             let f = s.cast(&DataType::Float64)?;
             let truncated: Int128Chunked = polars_core::prelude::arity::unary_elementwise(f.f64()?, |v: Option<f64>| {
-                v.map(|v| {
+                v.and_then(|v| {
                     nan |= v.is_nan();
-                    v.trunc() as i128
+                    (!v.is_nan()).then(|| v.trunc() as i128)
                 })
             });
-            polars_ensure!(!nan, ComputeError: "{}", DOTNET_OVERFLOW);
+            polars_ensure!(null_on_overflow || !nan, ComputeError: "{}", DOTNET_OVERFLOW);
             truncated
         }
-        other => polars_bail!(ComputeError: "a checked narrowing is defined for integers, decimals of scale 0 and floats, not {}", other),
+        other => polars_bail!(ComputeError: "a checked narrowing is defined for integers, decimals and floats, not {}", other),
     };
-    for arr in wide.downcast_iter() {
-        let outside = if polars_arrow::array::Array::null_count(arr) == 0 {
-            arr.values().iter().any(|&v| v < min || v > max)
-        } else {
-            arr.iter().flatten().any(|&v| v < min || v > max)
-        };
-        polars_ensure!(!outside, ComputeError: "{}", DOTNET_OVERFLOW);
-    }
+    let wide = if null_on_overflow {
+        polars_core::prelude::arity::unary_elementwise(&wide, |v: Option<i128>| v.filter(|v| (min..=max).contains(v)))
+    } else {
+        for arr in wide.downcast_iter() {
+            let outside = if polars_arrow::array::Array::null_count(arr) == 0 {
+                arr.values().iter().any(|&v| v < min || v > max)
+            } else {
+                arr.iter().flatten().any(|&v| v < min || v > max)
+            };
+            polars_ensure!(!outside, ComputeError: "{}", DOTNET_OVERFLOW);
+        }
+        wide
+    };
     Ok(wide.into_series().cast(target)?.with_name(s.name().clone()).into_column())
 }
 
-/// .NET checked narrowing of an integer (or scale-0 decimal) expression to the integer type of `code`
-/// (PlDataTypeKind): element by element, so a group context narrows each group's value.
+/// .NET checked narrowing of an integer, decimal or floating expression (truncated toward zero) to the integer type of `code`
+/// (PlDataTypeKind): element by element, so a group context narrows each group's value. A value outside the range (or
+/// NaN) fails the query, or with `null_on_overflow` is null.
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dotnet_checked_narrow(expr_ptr: *mut ExprContext, code: i32) -> *mut ExprContext {
+pub extern "C" fn pl_expr_dotnet_checked_narrow(expr_ptr: *mut ExprContext, code: i32, null_on_overflow: bool) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let target = crate::datatypes::PlDataTypeKind::from_i32(code)
@@ -2891,7 +2902,7 @@ pub extern "C" fn pl_expr_dotnet_checked_narrow(expr_ptr: *mut ExprContext, code
             .ok_or_else(|| polars_err!(ComputeError: "invalid DataType code: {}", code))?;
         polars_ensure!(integer_range(&target).is_some(), ComputeError: "a checked narrowing goes to an integer type, not {}", target);
         let output = target.clone();
-        let function = move |c: Column| dotnet_checked_narrow(c, &target);
+        let function = move |c: Column| dotnet_checked_narrow(c, &target, null_on_overflow);
         let output_map = move |_input_schema: &Schema, input_field: &Field| Ok(Field::new(input_field.name().clone(), output.clone()));
         Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
     })
@@ -2902,7 +2913,20 @@ mod tests {
     use super::*;
 
     fn narrow(values: Series, target: DataType) -> PolarsResult<Series> {
-        dotnet_checked_narrow(values.into_column(), &target).map(|c| c.as_materialized_series().clone())
+        dotnet_checked_narrow(values.into_column(), &target, false).map(|c| c.as_materialized_series().clone())
+    }
+
+    #[test]
+    fn checked_narrow_gives_null_outside_the_range_on_request() {
+        let values = Series::new("a".into(), &[Some(2.9f64), Some(f64::NAN), Some(256.0), None, Some(-1.0), Some(255.9)]);
+        let out = dotnet_checked_narrow(values.into_column(), &DataType::UInt8, true).unwrap();
+        let out = out.as_materialized_series();
+        assert_eq!(out.dtype(), &DataType::UInt8);
+        assert_eq!((0..out.len()).map(|i| out.u8().unwrap().get(i)).collect::<Vec<_>>(), [Some(2), None, None, None, None, Some(255)]);
+        let wide = Series::new("a".into(), &[i64::MAX, 7]);
+        let out = dotnet_checked_narrow(wide.into_column(), &DataType::Int32, true).unwrap();
+        let out = out.as_materialized_series();
+        assert_eq!((0..out.len()).map(|i| out.i32().unwrap().get(i)).collect::<Vec<_>>(), [None, Some(7)]);
     }
 
     fn expect_values(values: Series, target: DataType, expected: &[Option<i64>]) {
@@ -2925,6 +2949,9 @@ mod tests {
         expect_values(wide, DataType::Int32, &[Some(5), None, Some(-3)]);
         let decimal = Series::new("a".into(), &[Some(i64::MAX), None, Some(i64::MIN)]).cast(&DataType::Decimal(38, 0)).unwrap();
         expect_values(decimal, DataType::Int64, &[Some(i64::MAX), None, Some(i64::MIN)]);
+        // A decimal of any scale is truncated toward zero: -488023.5 → -488023, 2.9 → 2.
+        let scaled = Int128Chunked::from_slice_options("a".into(), &[Some(-4_880_235), Some(29), None]).into_decimal_unchecked(38, 1).into_series();
+        expect_values(scaled, DataType::Int32, &[Some(-488_023), Some(2), None]);
         expect_values(Series::new("a".into(), &[0i64, 255]), DataType::UInt8, &[Some(0), Some(255)]);
         expect_values(Series::new("a".into(), &[-32768i32, 32767]), DataType::Int16, &[Some(-32768), Some(32767)]);
         // Floating values are truncated toward zero.
@@ -2941,13 +2968,14 @@ mod tests {
         expect_overflow(Series::new("a".into(), &[f64::NEG_INFINITY]), DataType::Int64);
         expect_overflow(Series::new("a".into(), &[2147483648.0f64]), DataType::Int32);
         expect_overflow(Series::new("a".into(), &[-1.0f32]), DataType::UInt8);
+        expect_overflow(Int128Chunked::from_slice("a".into(), &[2_560]).into_decimal_unchecked(38, 1).into_series(), DataType::UInt8);
     }
 
     #[test]
     fn checked_narrow_expression_has_the_target_type() {
         let df = df!("a" => [Some(1i64), None, Some(-7)]).unwrap();
         let code = crate::datatypes::map_dtype_to_kind(&DataType::Int16) as i32;
-        let expr = pl_expr_dotnet_checked_narrow(Box::into_raw(Box::new(ExprContext { inner: col("a") })), code);
+        let expr = pl_expr_dotnet_checked_narrow(Box::into_raw(Box::new(ExprContext { inner: col("a") })), code, false);
         assert!(!expr.is_null());
         let expr = unsafe { Box::from_raw(expr) }.inner;
         let mut plan = df.lazy().select([expr]);

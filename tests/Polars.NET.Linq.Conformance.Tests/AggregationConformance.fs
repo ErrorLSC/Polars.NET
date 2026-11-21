@@ -124,6 +124,22 @@ let ``CheckedNarrow converts row by row, failing with Overflow outside the range
     Conformance.raises<OverflowException> t2 (project (t2.Scan beyond) [ "i", narrow Apache.Arrow.Types.Int32Type.Default (col "V") ])
         "Arithmetic operation resulted in an overflow."
 
+type NX = { Id: int64; L: Nullable<int64>; X: Nullable<float>; M: Nullable<decimal> }
+
+/// NarrowOrNull is a row conversion .NET checks: truncated toward zero, null outside the range or for NaN.
+[<Fact>]
+let ``NarrowOrNull truncates, null outside the range`` () =
+    let t = Tables()
+    let rows: NX array =
+        [|
+            { Id = 1L; L = n (int64 Int32.MaxValue); X = Nullable -2.9; M = Nullable -488023.5m }
+            { Id = 2L; L = n (int64 Int32.MaxValue + 1L); X = Nullable nan; M = Nullable 3e9m }
+            { Id = 3L; L = nul; X = Nullable 2147483648.0; M = Nullable() }
+        |]
+    let narrowOrNull e = ScalarExpr.Function(ScalarFunction.NarrowOrNull, [ e ], LogicalTypes.Int32)
+    Conformance.rowsInOrder t (project (t.Scan rows) [ "l", narrowOrNull (col "L"); "x", narrowOrNull (col "X"); "m", narrowOrNull (col "M") ])
+        [ [ Int32.MaxValue; -2; -488023 ]; [ null; null; null ]; [ null; null; null ] ]
+
 type GV = { Id: int64; S: string; D: decimal; T: DateTimeOffset }
 
 let private keyed: GV array =

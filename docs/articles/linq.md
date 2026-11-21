@@ -271,7 +271,9 @@ The LINQ provider automatically translates standard .NET Base Class Library (BCL
 | `decimal.Round`, `Floor`, `Ceiling`, `Truncate`, `ToDouble` and the other `decimal.ToXxx` conversions; `d.ToString()`, `d.ToString("F2")` | Only `F` formats are native |
 | `int`, `long`, `short`, `byte`, `sbyte`, `uint`, `ulong`, `ushort`, `decimal`, `double`, `bool` `.Parse(s)` | A failed parse gives null |
 | `Convert.ToInt16/32/64`, `ToUInt16/32/64`, `ToByte`, `ToSByte`, `ToDecimal`, `ToDouble`, `ToSingle`, `ToBoolean` over a string; `Convert.ToInt32(s, base)`, `Convert.ToInt64(s, base)`; `ToHexString`, `FromHexString`, `ToBase64String`, `FromBase64String` | |
-| Numeric casts `(int)x`, `(double)x`, ... | Follow `Query Semantics` (wrap or saturate) |
+| `Convert.ToXxx` between numbers and `bool` (also with an `IFormatProvider`) | As in .NET: a floating or decimal value converted to an integer is rounded half to even, and a value out of range (or NaN) gives null (see *Where .NET would throw*); `ToBoolean(x)` is `x != 0` |
+| `double.IsNaN`, `IsInfinity`, `IsPositiveInfinity`, `IsNegativeInfinity`, `IsFinite`, `IsRealNumber`, and the same on `float` and `Half` | |
+| Numeric casts `(int)x`, `(double)x`, ... | Follow `Query Semantics` (wrap or saturate). A `decimal` cast to an integer truncates, as in .NET; out of range (where .NET throws, checked or not) it gives null |
 | `DateTime`, `DateOnly`, `TimeOnly`, `DateTimeOffset`: `Year`, `Month`, `Day`, `DayOfYear`, `DayOfWeek`, `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`, `Date`, `TimeOfDay` | |
 | `AddDays`, `AddHours`, `AddMinutes`, `AddSeconds` | The amount must be a constant |
 | `TimeSpan`: `TotalDays`, `TotalHours`, `TotalMinutes`, `TotalSeconds`, `TotalMilliseconds`, `TotalMicroseconds`, `TotalNanoseconds`, `Days`, `Hours`, `Minutes`, `Seconds`, `Milliseconds`, `Microseconds`, `Nanoseconds`, also on a date subtraction | |
@@ -290,7 +292,7 @@ The LINQ provider automatically translates standard .NET Base Class Library (BCL
 
 These members are not translated. Those that take row values run as managed UDFs by default, and the others follow the client evaluation policy:
 
-* **Managed UDF**: `AddMonths`, `AddYears`, `AddMilliseconds`, `AddDays(columnValue)`, `int.ToString()`, `double.ToString(format)`, `double.IsNaN`, `float.Parse`, `Guid.Parse`, `char.IsDigit` and the other `char.IsXxx`, `Count(predicate)` and `Sum(selector)` over a list column.
+* **Managed UDF**: `AddMonths`, `AddYears`, `AddMilliseconds`, `AddDays(columnValue)`, `int.ToString()`, `double.ToString(format)`, `float.Parse`, `Guid.Parse`, `char.IsDigit` and the other `char.IsXxx`, `Count(predicate)` and `Sum(selector)` over a list column.
 * **Client evaluation**: a method that takes the whole row object, and any other expression with no translation and no column inputs. Under the Strict policy it throws `PolarsPushdownException` in `Where`, and runs on the client in a final `Select`.
 
 ---
@@ -668,8 +670,9 @@ For `double`, `float` and `Half`:
 * Conversions between `decimal` and `double` / `float` follow .NET 11 on every runtime. `(double)m` and `(float)m`
   give the nearest value, rounded once. `(decimal)x` converts the exact binary value of `x` (`(decimal)0.1f` is
   `0.100000001490116119`, where .NET 10 gave `0.1`) and keeps 18 fractional digits, rounded as
-  `Math.Round(value, 18)`. `NaN`, an infinity or a value of `1e20` or more in magnitude throws `OverflowException`:
-  `System.Decimal` holds up to 7.9e28, the provider's decimals 20 integer digits. A conversion of a captured
+  `Math.Round(value, 18)`. `NaN`, an infinity or a value of `1e20` or more in magnitude gives null (.NET throws
+  `OverflowException` below 7.9e28 only for `NaN` and infinities: `System.Decimal` holds up to 7.9e28, the
+  provider's decimals 20 integer digits). A conversion of a captured
   variable or constant (`(decimal)threshold`) is computed by .NET before the query runs, so it follows the
   runtime the application runs on.
 
@@ -692,7 +695,13 @@ does):
 * indexing past the end of a list or array, `Substring` beyond the string's length;
 * a member or method called on a null value (`x.Name.Length` with `Name` null);
 * a failed `Parse` (`int.Parse`, `DateTime.Parse`);
-* integer or decimal division or remainder by zero.
+* integer or decimal division or remainder by zero;
+* a conversion out of range or of `NaN` that .NET checks: `checked((int)x)`, a `decimal` cast to an integer,
+  `Convert.ToInt32(x)` and the other `Convert.ToXxx` between numbers, `(decimal)x` of a `double` or `float`.
+
+The engine evaluates every row of an expression, both sides of `&&` and `?:` included, and merges consecutive
+`Where` filters, so an operation that failed would fail on rows your query guards against
+(`!double.IsNaN(x.D) && (decimal)x.D > 0m`); the null keeps such queries working as in .NET.
 
 If such a null reaches a non-nullable member of your result type, materialization throws
 `InvalidOperationException` naming the member and the column, so it never silently becomes `0` or `default`.

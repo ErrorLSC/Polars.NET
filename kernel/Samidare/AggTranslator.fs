@@ -561,6 +561,12 @@ module AggTranslator =
                 m
                 args
 
+        | MethodCall(m, _, args) when isFloatingClassification m ->
+            translateFloatingClassification (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape) m args
+
+        | MethodCall(m, target, args) when m.DeclaringType = typeof<Convert> && isNull target ->
+            tryConvertEquivalent m args |> Option.bind (tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape)
+
         | :? ConditionalExpression as cond ->
             match
                 tryTranslateAggCore groupParamName scalarColOpt wholeRowStructOpt rowShape cond.Test,

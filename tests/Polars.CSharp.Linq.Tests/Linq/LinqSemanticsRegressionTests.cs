@@ -1310,8 +1310,9 @@ public class LinqSemanticsRegressionTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Checked conversions (checked((int)x)) throw OverflowException when the value leaves the target's range (or is
-    // NaN), as .NET does; the engine's cast would wrap.
+    // Checked conversions (checked((int)x)) give null where .NET throws OverflowException (the value leaves the
+    // target's range, or is NaN); the engine's cast would wrap. They cannot throw: the engine evaluates both sides of
+    // `&&` and `?:` and merges filters, so a throwing conversion would fail on rows a guard excludes.
     // ---------------------------------------------------------------------------------------------
 
     public class Conv
@@ -1341,31 +1342,52 @@ public class LinqSemanticsRegressionTests
     }
 
     [Fact]
-    public void Checked_Conversions_Throw_Outside_The_Range()
+    public void Checked_Conversions_Give_Null_Where_Dotnet_Throws()
     {
-        Overflows(new() { L = (long)int.MaxValue + 1 }, x => checked((int)x.L));
-        Overflows(new() { L = long.MinValue }, x => checked((int)x.L));
-        Overflows(new() { I = -1 }, x => checked((uint)x.I));
-        Overflows(new() { U = ulong.MaxValue }, x => checked((long)x.U));
-        Overflows(new() { NL = -1 }, x => checked((byte?)x.NL) ?? 0);
-        Overflows(new() { D = double.NaN }, x => checked((int)x.D));
-        Overflows(new() { D = double.NegativeInfinity }, x => checked((long)x.D));
-        Overflows(new() { D = 2147483648.0 }, x => checked((int)x.D));
-        Overflows(new() { D = 9.2233720368547758E18 }, x => checked((long)x.D)); // long.MaxValue as a double: 2^63
+        Overflows(new() { L = (long)int.MaxValue + 1 }, x => checked((int)x.L), null);
+        Overflows(new() { L = long.MinValue }, x => checked((int)x.L), null);
+        Overflows(new() { I = -1 }, x => checked((uint)x.I), null);
+        Overflows(new() { U = ulong.MaxValue }, x => checked((long)x.U), null);
+        Overflows(new() { NL = -1 }, x => checked((byte?)x.NL) ?? 0, 0);
+        Overflows(new() { D = double.NaN }, x => checked((int)x.D), null);
+        Overflows(new() { D = double.NegativeInfinity }, x => checked((long)x.D), null);
+        Overflows(new() { D = 2147483648.0 }, x => checked((int)x.D), null);
+        Overflows(new() { D = 9.2233720368547758E18 }, x => checked((long)x.D), null); // long.MaxValue as a double: 2^63
 
-        static void Overflows(Conv row, System.Linq.Expressions.Expression<Func<Conv, long>> selector)
+        static void Overflows(Conv row, System.Linq.Expressions.Expression<Func<Conv, long?>> selector, long? expected)
         {
             Conv[] rows = [row];
             using var df = DataFrame.From(rows);
-            AssertSameFailure(() => rows.Select(selector.Compile()).ToList(), () => df.AsQueryable<Conv>().Select(selector).ToList());
+            Assert.Throws<OverflowException>(() => rows.Select(selector.Compile()).ToList());
+            Assert.Equal([expected], df.AsQueryable<Conv>().Select(selector).ToList());
         }
+        // Into a non-nullable member, the null fails materialization.
+        Conv[] bad = [new() { L = long.MinValue }];
+        using var badDf = DataFrame.From(bad);
+        Assert.Throws<InvalidOperationException>(() => badDf.AsQueryable<Conv>().Select(x => checked((int)x.L)).ToList());
+    }
+
+    // A conversion .NET would fail on, guarded by `&&`, `?:` or an earlier Where, is never failed on: the rows the guard
+    // excludes give null, which the guard discards (the engine evaluates every row; HEAD of 1e921846 threw here).
+    [Fact]
+    public void Guarded_Conversions_Run_As_In_Dotnet()
+    {
+        Mix[] rows = [new() { Id = 1, D = 1.5, M = 2.5m, F = 3.5f }, new() { Id = 2, D = double.NaN, M = 3e9m, F = float.NaN }, new() { Id = 3, D = 1e300, M = -3e10m, F = float.PositiveInfinity }];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<Mix>();
+        Assert.Equal(rows.Where(x => x.Id == 1 && (decimal)x.D > 0m).Select(x => x.Id), [.. q.Where(x => x.Id == 1 && (decimal)x.D > 0m).Select(x => x.Id)]);
+        Assert.Equal(rows.Where(x => x.Id == 1).Where(x => (decimal)x.D > 0m).Select(x => x.Id), [.. q.Where(x => x.Id == 1).Where(x => (decimal)x.D > 0m).Select(x => x.Id)]);
+        Assert.Equal(rows.Select(x => double.IsFinite(x.D) && x.D < 1e20 ? (decimal)x.D : 0m), [.. q.Select(x => double.IsFinite(x.D) && x.D < 1e20 ? (decimal)x.D : 0m)]);
+        Assert.Equal(rows.Where(x => x.M < 1e9m && x.M > -1e9m && (int)x.M > 0).Select(x => x.Id), [.. q.Where(x => x.M < 1e9m && x.M > -1e9m && (int)x.M > 0).Select(x => x.Id)]);
+        Assert.Equal(rows.Select(x => x.Id == 1 ? checked((int)x.D) : -1), [.. q.Select(x => x.Id == 1 ? checked((int)x.D) : -1)]);
+        Assert.Equal(rows.Select(x => float.IsNaN(x.F) || float.IsInfinity(x.F) ? 0 : Convert.ToInt32(x.F)), [.. q.Select(x => float.IsNaN(x.F) || float.IsInfinity(x.F) ? 0 : Convert.ToInt32(x.F))]);
     }
 
     // ---------------------------------------------------------------------------------------------
     // Conversions between decimals and floating values follow .NET 11 on every runtime (the engine's casts round
     // otherwise): a decimal as a double or a float is correctly rounded, once; a double or a float as a decimal is
     // System.Decimal's value of its exact binary value, held at the provider's scale 18 rounded half to even
-    // (Math.Round(value, 18)). NaN, infinities and values from 1e20 up (beyond 20 integer digits) throw.
+    // (Math.Round(value, 18)). NaN, infinities and values from 1e20 up (beyond 20 integer digits) give null.
     // ---------------------------------------------------------------------------------------------
 
     public class Mix
@@ -1453,21 +1475,14 @@ public class LinqSemanticsRegressionTests
     }
 
     [Fact]
-    public void Floating_To_Decimal_Throws_On_NaN_Infinity_And_Beyond_20_Digits()
+    public void Floating_To_Decimal_Gives_Null_On_NaN_Infinity_And_Beyond_20_Digits()
     {
-        foreach (double d in (double[])[double.NaN, double.PositiveInfinity, double.NegativeInfinity, 8e28])
-        {
-            Mix[] rows = [new() { D = d }];
-            using var df = DataFrame.From(rows);
-            AssertSameFailure(() => rows.Select(x => (decimal)x.D).ToList(), () => df.AsQueryable<Mix>().Select(x => (decimal)x.D).ToList());
-        }
-        // System.Decimal holds these; the provider's decimal (20 integer digits) does not.
-        foreach (double d in (double[])[1e20, -1e20, 7e28])
-        {
-            Mix[] rows = [new() { D = d }];
-            using var df = DataFrame.From(rows);
-            Assert.Throws<OverflowException>(() => df.AsQueryable<Mix>().Select(x => (decimal)x.D).ToList());
-        }
+        // .NET throws for the first four; System.Decimal holds the last three, the provider's decimal (20 integer
+        // digits) does not.
+        double[] values = [double.NaN, double.PositiveInfinity, double.NegativeInfinity, 8e28, 1e20, -1e20, 7e28];
+        Mix[] rows = [.. values.Select((d, i) => new Mix { Id = i, D = d })];
+        using var df = DataFrame.From(rows);
+        Assert.Equal(values.Select(_ => (decimal?)null), [.. df.AsQueryable<Mix>().Select(x => (decimal?)x.D)]);
         // A null converts to null; a NaN in a row a filter drops before the projection is never converted.
         Mix[] mixed = [new() { Id = 1, D = 1.5, ND = null }, new() { Id = 2, D = double.NaN }];
         using var mixedDf = DataFrame.From(mixed);

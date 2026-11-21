@@ -496,7 +496,8 @@ module internal WindowAndMethodTranslator =
                 eval ctx strExpr
                 |> Option.bind (tryTranslateCast typeof<bool>)
 
-            | _ -> None
+            // Between numbers and booleans: the C# expression of equal value.
+            | _ -> tryConvertEquivalent m args |> Option.bind (eval ctx)
 
         else
             None
@@ -682,6 +683,9 @@ module internal WindowAndMethodTranslator =
 
         elif isNumericDeclaringType m.DeclaringType && isNull target then
             translateNumericMethod (eval ctx) m args
+
+        elif isFloatingClassification m then
+            translateFloatingClassification (eval ctx) m args
 
         elif
             m.Name = "Sum"
