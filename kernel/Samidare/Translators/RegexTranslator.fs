@@ -231,10 +231,11 @@ module internal RegexTranslator =
 
         | _ -> None
 
-    /// Synthesizes Rust-compatible inline flag expressions from .NET RegexOptions.
-    /// Returns Some(validPattern) if compatible with Rust regex engine, otherwise None.
-    let private tryBuildRustRegexPattern (pat: string) (options: RegexOptions) : string option =
-        // Options that alter regex execution semantics unsupported natively by Rust regex
+    /// The .NET pattern with its RegexOptions written inline (`(?imsx:...)`), the form of every IR pattern, where the
+    /// backend runs it natively; None for options no inline flag carries, or a pattern the backend's engine does not
+    /// read as .NET does (lookaround and backreferences for a Rust regex engine), which then runs as a UDF.
+    let private tryNativePattern (pat: string) (options: RegexOptions) : string option =
+        // Options with no inline flag (RightToLeft, ECMAScript), or none the backend's engine shares (ExplicitCapture's `n`)
         let unsupported =
             RegexOptions.RightToLeft
             ||| RegexOptions.ECMAScript
@@ -263,7 +264,7 @@ module internal RegexTranslator =
                 else
                     sprintf "(?%s:%s)" flags pat
 
-            // Ask the backend whether its native regex engine accepts the candidate (e.g. Rust regex rejects lookaround)
+            // Ask the backend whether its native regex engine reads the candidate (Rust regex rejects lookaround)
             if CompilationScope.Current.Backend.IsRegexPatternSupported candidate then
                 Some candidate
             else
@@ -291,7 +292,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     Some(ScalarExpr.Function(ScalarFunction.StrContains, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Boolean))
                 | None ->
@@ -307,7 +308,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     Some(ScalarExpr.Function(ScalarFunction.ReplaceAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.String))
                 | None ->
@@ -323,7 +324,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     Some(ScalarExpr.Function(ScalarFunction.Replace, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.String rep); ScalarExpr.Literal(LiteralValue.Int64 (int64 count)) ], LogicalTypes.String))
                 | None ->
@@ -350,7 +351,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     let extracted = ScalarExpr.Function(ScalarFunction.StrExtract, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Int32 groupIndex) ], LogicalTypes.String)
                     let nonNullExtracted = ScalarExpr.Coalesce [ extracted; ScalarExpr.Literal(LiteralValue.String "") ]
@@ -376,7 +377,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     let structExpr = ScalarExpr.Function(ScalarFunction.StrExtractGroups, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], LogicalType.Unknown)
                     let fieldExpr = ScalarExpr.Function(ScalarFunction.StructFieldByName, [ structExpr; ScalarExpr.Literal(LiteralValue.String groupName) ], LogicalTypes.String)
@@ -403,7 +404,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     Some(ScalarExpr.Function(ScalarFunction.StrExtractAll, [ t; ScalarExpr.Literal(LiteralValue.String validPat) ], LogicalTypes.ListOfUnknown))
                 | None ->
@@ -422,7 +423,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     Some(ScalarExpr.Function(ScalarFunction.StrCountMatches, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.UInt32))
                 | None ->
@@ -448,7 +449,7 @@ module internal RegexTranslator =
             eval ctx target
             |> Option.bind (fun t ->
                 let options = getOptions rxOpt
-                match tryBuildRustRegexPattern pat options with
+                match tryNativePattern pat options with
                 | Some validPat ->
                     Some(ScalarExpr.Function(ScalarFunction.StrSplit, [ t; ScalarExpr.Literal(LiteralValue.String validPat); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.ListOfUnknown))
                 | None ->

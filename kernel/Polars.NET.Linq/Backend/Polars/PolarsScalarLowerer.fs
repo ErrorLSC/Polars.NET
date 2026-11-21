@@ -481,6 +481,20 @@ module internal PolarsScalarLowerer =
                 PolarsWrapper.DtIsLeapYear(lower e)
             | ScalarFunction.DtToString, [ e; ScalarExpr.Literal(LiteralValue.String fmt) ] ->
                 PolarsWrapper.DtToString(lower e, DateTimeFormatHelper.ToChronoFormat fmt)
+            | ScalarFunction.DtToText(format, culture), [ e ] ->
+                match PolarsDateText.tryStrftime (format, culture) with
+                | Some pattern -> PolarsWrapper.DtToString(lower e, pattern)
+                | None -> failwithf "[Polars.NET.Linq Bug] date text '%s' of culture '%s', which IsDateTextSupported refuses" format culture
+            | ScalarFunction.FloatToText symbols, [ e ] ->
+                PolarsWrapper.DotNetFloatToString(
+                    lower e,
+                    symbols.NegativeSign,
+                    symbols.PositiveSign,
+                    symbols.DecimalSeparator,
+                    symbols.NaN,
+                    symbols.PositiveInfinity,
+                    symbols.NegativeInfinity
+                )
             | ScalarFunction.DtOffsetBy, [ e; ScalarExpr.Literal(LiteralValue.TimeSpan offset) ] ->
                 PolarsWrapper.DtOffsetBy(lower e, PolarsWrapper.Lit(DurationFormatter.ToPolarsString offset))
 

@@ -15,6 +15,7 @@ type internal PolarsQueryBackend private () =
 
     interface IBackendCapabilities with
         member _.IsRegexPatternSupported(pattern: string) = PolarsWrapper.RegexIsValid pattern
+        member _.IsDateTextSupported(format: string, culture: string) = (PolarsDateText.tryStrftime (format, culture)).IsSome
         // The check runs as a managed callback, which DisallowUdfPushdown rules out.
         member _.SupportsAssertions = not Kaminari.Samidare.Config.SamidareConfig.DisallowUdfPushdown
         // A row-indexed query read twice is how a correlated EXISTS is decorrelated: one selective outer query, whose

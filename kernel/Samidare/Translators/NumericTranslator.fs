@@ -98,8 +98,8 @@ module internal NumericTranslator =
 
     /// <summary>
     /// The pattern of a char classification (char.IsDigit and its kin), matched against the one-character string a char
-    /// is in a column, or None. Unicode general categories as .NET's char methods use them (checked over every char
-    /// outside the surrogates, which a string column cannot hold alone).
+    /// is in a column, or None: a .NET regular expression (as every IR pattern), of Unicode general categories as .NET's
+    /// char methods use them (checked over every char outside the surrogates, which a string column cannot hold alone).
     /// </summary>
     let internal charClassPattern (name: string) : string option =
         match name with
@@ -113,7 +113,7 @@ module internal NumericTranslator =
         | "IsSymbol" -> Some @"\p{S}"
         | "IsSeparator" -> Some @"\p{Z}"
         | "IsControl" -> Some @"\p{Cc}"
-        | "IsWhiteSpace" -> Some @"[\t\n\v\f\r\x{85}\p{Z}]"
+        | "IsWhiteSpace" -> Some @"[\t\n\v\f\r\u0085\p{Z}]"
         | "IsAscii" -> Some @"[\x00-\x7F]"
         | "IsAsciiDigit" -> Some "[0-9]"
         | "IsAsciiLetter" -> Some "[A-Za-z]"
@@ -202,6 +202,10 @@ module internal NumericTranslator =
                         Expression.Constant(Activator.CreateInstance target, target)))
         | value :: rest when m.Name = "ToString" && value.Type = typeof<bool> && isProvider rest ->
             Some(Expression.Condition(value, Expression.Constant "True", Expression.Constant "False"))
+        // Convert.ToString of a number, date or time is the value's own ToString (with the provider given).
+        | value :: rest when m.Name = "ToString" && isTextType value.Type && isProvider rest ->
+            let own = value.Type.GetMethod("ToString", [| for a in rest -> typeof<IFormatProvider> |])
+            Option.ofObj own |> Option.map (fun own -> Expression.Call(value, own, rest) :> Expression)
         | [ value ] when m.Name = "ToDateTime" && value.Type = typeof<string> ->
             Some(Expression.Call(typeof<DateTime>.GetMethod("Parse", [| typeof<string> |]), value))
         | value :: rest when

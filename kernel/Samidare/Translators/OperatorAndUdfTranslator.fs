@@ -3,6 +3,7 @@ namespace Kaminari.Samidare
 open Kaminari.Samidare
 open Kaminari.Samidare.IR
 open System
+open System.Globalization
 open System.Linq.Expressions
 open System.Reflection
 open Kaminari.Sazanami.Data.Udf
@@ -103,7 +104,9 @@ module internal OperatorAndUdfTranslator =
         if isComparison && resultType = typeof<Nullable<bool>> then
             None
         elif op = ExpressionType.Add && (leftType = typeof<string> || rightType = typeof<string>) then
-            match leftS, rightS with
+            // Each operand as .NET's text of it; `leftType` and `rightType` are the operands' own (unboxed) types.
+            let text (t: Type) (s: ScalarExpr option) = s |> Option.bind (asDotNetText CultureInfo.CurrentCulture t)
+            match text leftType leftS, text rightType rightS with
             | Some l, Some r -> Some(ScalarExpr.Binary(BinaryOp.StringConcat, l, r))
             | _ -> None
         else
@@ -220,12 +223,13 @@ module internal OperatorAndUdfTranslator =
                 with ConversionFailure ->
                     None
             | _ -> None
-        // Intercept String concatenation (+) to synthesize native string concatenation
+        // String concatenation (+): each operand as .NET's text of it (ToString under the current culture).
         elif
             op = ExpressionType.Add
             && (left.Type = typeof<string> || right.Type = typeof<string>)
         then
-            match eval ctx left, eval ctx right with
+            let text (e: Expression) = eval ctx e |> Option.bind (asDotNetText CultureInfo.CurrentCulture (operandTextType e))
+            match text left, text right with
             | Some l, Some r -> Some(ScalarExpr.Binary(BinaryOp.StringConcat, l, r))
             | _ -> None
         else

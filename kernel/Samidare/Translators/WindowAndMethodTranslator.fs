@@ -2,6 +2,7 @@ namespace Kaminari.Samidare
 
 open Kaminari.Samidare.IR
 open System
+open System.Globalization
 open System.Text
 open System.Linq
 open System.Text.RegularExpressions
@@ -588,6 +589,28 @@ module internal WindowAndMethodTranslator =
             eval ctx args.Head
             |> Option.orElseWith (fun () -> tryResolveEntityNullTarget ctx args.Head)
             |> Option.map (fun s -> ScalarExpr.Unary(UnaryOp.IsNull, s))
+        // x.ToString() and x.ToString(culture) of a number, bool, date or time: .NET's text under the current culture
+        // (or the one given). A Nullable's null is "".
+        elif
+            m.Name = "ToString"
+            && not (isNull target)
+            && isTextType target.Type
+            && (match args with
+                | [] -> true
+                | [ provider ] -> provider.Type = typeof<IFormatProvider> || provider.Type = typeof<CultureInfo>
+                | _ -> false)
+        then
+            let culture =
+                match args with
+                | [ provider ] -> tryCultureOf provider
+                | _ -> Some CultureInfo.CurrentCulture
+            match culture, eval ctx target with
+            | Some culture, Some value ->
+                asDotNetText culture target.Type value
+                |> Option.map (fun text ->
+                    if isNull (Nullable.GetUnderlyingType target.Type) then text
+                    else ScalarExpr.Coalesce [ text; ScalarExpr.Literal(LiteralValue.String "") ])
+            | _ -> None
         elif not (isNull effectiveTarget) && m.Name = "Shift" then
             translateShiftMethod eval ctx effectiveTarget effectiveArgs
         elif

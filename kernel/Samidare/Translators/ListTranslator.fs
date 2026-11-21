@@ -145,10 +145,12 @@ module internal ListTranslator =
             let target = unwrapSpanOrArray spanExpr
             if isListContainer target.Type then Some(ListContains(target, itemExpr)) else None
 
+        // A list column joined; items written inline (`string.Join(sep, new object[] { a, b })`) join as values.
         | MethodCall(m, null, [ sepExpr; target ]) when
             m.DeclaringType = typeof<string>
             && m.Name = "Join"
             && isListContainer target.Type
+            && target.NodeType <> ExpressionType.NewArrayInit
             ->
             Some(ListJoin(target, sepExpr))
 

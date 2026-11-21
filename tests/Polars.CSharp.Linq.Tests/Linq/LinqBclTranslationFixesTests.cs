@@ -85,7 +85,9 @@ public class LinqBclTranslationFixesTests
     [Fact]
     public void Concat_Of_One_Argument_Is_A_String()
     {
-        AssertSame(r => string.Concat(r.Id), Udf);
+        AssertSame(r => string.Concat(r.Id), Native);
+        AssertSame(r => string.Concat(r.Value), Native);
+        AssertSame(r => string.Concat(r.Span), Udf);
         AssertSame(r => string.Concat((object)r.Text), Native);
     }
 

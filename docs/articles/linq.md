@@ -263,7 +263,8 @@ The LINQ provider automatically translates standard .NET Base Class Library (BCL
 | `Split(sep[, count][, StringSplitOptions.None])`, `Split(sep)[i]`, `Normalize([form])`, `CompareTo(other)` | The separator must be a constant, and the count a constant up to 32. Other options or larger counts run as a managed UDF |
 | `Equals(other[, StringComparison])`, `string.Equals(a, b[, StringComparison])` | |
 | `string.IsNullOrEmpty`, `string.IsNullOrWhiteSpace` | |
-| `a + b`, `string.Concat(a, b, ...)`, interpolation, `string.Format(constantFormat, ...)`, `string.Join(constantSep, items)` | A null operand reads as `""`. A format with an alignment or specifier (`{0,8}`, `{0:F2}`) or escaped braces runs as a managed UDF, as does `string.Concat(x)` with one non-string argument |
+| `a + b`, `string.Concat(a, b, ...)`, interpolation, `string.Format(constantFormat, ...)`, `string.Join(constantSep, items)` | A null operand reads as `""`; values are written as .NET writes them (see *Strings*). A format with an alignment or specifier (`{0,8}`, `{0:F2}`) or escaped braces runs as a managed UDF |
+| `x.ToString()`, `x.ToString(culture)` and `Convert.ToString(x)` of numbers, `bool`, `DateTime`, `DateOnly`, `TimeOnly` | As .NET writes them under the current culture or the one given (see *Strings*) |
 | `char.ToUpper(c)`, `char.ToLower(c)` and the invariant forms | |
 | `Encoding.UTF8.GetByteCount(s)` | Any other `Encoding` runs as a managed UDF |
 | `Math` / `MathF`: `Abs`, `Ceiling`, `Floor`, `Truncate`, `Sign`, `Round` (digits, `MidpointRounding`), `Min`, `Max`, `Clamp`, `Sqrt`, `Cbrt`, `Exp`, `Log`, `Log2`, `Log10`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Pow`, `PI`, `E`, `Tau` | `MathF` results are `Float64` columns |
@@ -293,7 +294,7 @@ The LINQ provider automatically translates standard .NET Base Class Library (BCL
 
 These members are not translated. Those that take row values run as managed UDFs by default, and the others follow the client evaluation policy:
 
-* **Managed UDF**: `AddMonths`, `AddYears`, `AddMilliseconds`, `AddDays(columnValue)`, `int.ToString()`, `double.ToString(format)`, `float.Parse`, `Guid.Parse`, `Count(predicate)` and `Sum(selector)` over a list column.
+* **Managed UDF**: `AddMonths`, `AddYears`, `AddMilliseconds`, `AddDays(columnValue)`, `double.ToString(format)`, `float.Parse`, `Guid.Parse`, `Count(predicate)` and `Sum(selector)` over a list column.
 * **Client evaluation**: a method that takes the whole row object, and any other expression with no translation and no column inputs. Under the Strict policy it throws `PolarsPushdownException` in `Where`, and runs on the client in a final `Select`.
 
 ---
@@ -681,6 +682,14 @@ For `double`, `float` and `Half`:
 
 * Concatenation (`a + b`, `string.Concat`, `string.Format`, interpolation, `string.Join`) reads null as `""`, as in
   .NET.
+* A value's text (concatenation, interpolation, `string.Format`, `ToString()`, `Convert.ToString`) is .NET's under the
+  current culture, or the culture a call names (`x.ToString(CultureInfo.InvariantCulture)`): `double` and `float` in
+  .NET's shortest round-trip form (`2`, `1E+17`, `1E-05`, `-0`, `∞`), integers and `decimal` with the culture's signs
+  and decimal separator, `bool` as `True` / `False`, `DateTime`, `DateOnly` and `TimeOnly` by the culture's general
+  patterns (`12/31/2023 10:05:00 AM` in en-US). The culture is the one current when the query is compiled; a query
+  compiled under another culture is compiled again. A `decimal` keeps its column's scale (`2.50` in a `decimal(10, 2)`
+  column), where .NET keeps each value's own; the text of a date in a culture with another calendar (Thai Buddhist,
+  Persian, ...) or non-English month, day or AM/PM names is left to .NET, as a managed UDF.
 * **Strings sort and compare ordinally**, by Unicode code point: `"Banana" < "apple" < "äpfel"`. This applies to
   `OrderBy`, `ThenBy`, `Min` / `Max` over strings, and `CompareTo`. .NET defaults to the current culture, so orderings over mixed-case or
   accented text can differ from LINQ to Objects. `string.Compare(a, b, ...)` is evaluated exactly as in .NET.

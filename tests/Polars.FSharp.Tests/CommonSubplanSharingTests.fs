@@ -22,6 +22,7 @@ module CommonSubplanSharingTests =
     let private backendSharing (sharesItself: LogicalPlan -> bool) =
         { new IBackendCapabilities with
             member _.IsRegexPatternSupported _ = true
+            member _.IsDateTextSupported(_, _) = true
             member _.SupportsAssertions = true
             member _.SharesRepeatedSubplanItself subplan = sharesItself subplan
             member _.IsEngineAssembly _ = false }

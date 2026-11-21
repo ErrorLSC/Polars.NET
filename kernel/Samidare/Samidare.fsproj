@@ -40,6 +40,7 @@
     <Compile Include="Translators/NullSemantics.fs" />
     <Compile Include="Translators/ColumnResolver.fs" />
     <Compile Include="Translators/MemberAccessTranslator.fs" />
+    <Compile Include="Translators/DotNetText.fs" />
     <Compile Include="Translators/StringTemporalTranslator.fs" />
     <Compile Include="Translators/NumericTranslator.fs" />
     <Compile Include="Translators/RegexTranslator.fs" />

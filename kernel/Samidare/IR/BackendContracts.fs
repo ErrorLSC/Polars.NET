@@ -5,8 +5,11 @@ open System
 /// Translation-time capability queries answered by the execution backend.
 /// Lets the frontend decide between native pushdown and managed fallback without referencing the backend.
 type internal IBackendCapabilities =
-    /// Whether the backend's native regex engine can compile the pattern (inline flags already applied).
+    /// Whether the backend's native regex engine reads the .NET pattern (inline flags already applied) as .NET does.
     abstract IsRegexPatternSupported: pattern: string -> bool
+    /// Whether the backend writes dates and times by the .NET custom format under the named culture as .NET does
+    /// (ScalarFunction.DtToText).
+    abstract IsDateTextSupported: format: string * culture: string -> bool
     /// Whether the backend can evaluate ScalarFunction.AssertCount (fail the query while it runs).
     abstract SupportsAssertions: bool
     /// Whether the backend computes this repeated subplan once by itself, and better than beneath a shared

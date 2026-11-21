@@ -344,6 +344,140 @@ pub extern "C" fn pl_expr_dotnet_float_to_decimal(expr_ptr: *mut ExprContext, pr
     })
 }
 
+/// The culture symbols .NET's ToString() of a float or double writes (NumberFormatInfo).
+struct NumberSymbols {
+    negative: String,
+    positive: String,
+    separator: String,
+    nan: String,
+    positive_infinity: String,
+    negative_infinity: String,
+}
+
+/// The shortest digits that round-trip a finite value and its decimal exponent (`d.ddd × 10^exponent`), from ryu's
+/// text of it (`123.456`, `1.2345e17`, `-0.0`). Ryu takes the nearest of the shortest forms and, of two equally near
+/// (`630179542433601.25`), the even one, as .NET does. The digits go to `digits`; zero is "0" at exponent 0.
+fn shortest_digits(text: &str, digits: &mut String) -> (bool, i32) {
+    let (negative, body) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (mantissa, exponent) = match body.split_once('e') {
+        Some((m, e)) => (m, e.parse::<i32>().expect("an exponent")),
+        None => (body, 0),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    digits.clear();
+    digits.push_str(whole);
+    digits.push_str(fraction);
+    // value = digits × 10^(exponent - fraction digits); leading and trailing zeros are not significant.
+    let leading = digits.bytes().take_while(|&b| b == b'0').count();
+    digits.drain(..leading);
+    let trailing = digits.bytes().rev().take_while(|&b| b == b'0').count();
+    digits.truncate(digits.len() - trailing);
+    if digits.is_empty() {
+        digits.push('0');
+        return (negative, 0);
+    }
+    let scaled = exponent - fraction.len() as i32 + trailing as i32;
+    (negative, scaled + digits.len() as i32 - 1)
+}
+
+/// Writes a finite value as .NET's ToString() does ("R": the shortest digits that round-trip): fixed-point unless the
+/// decimal point lies beyond `round_trip_digits` (17 for a double, 9 for a float: .NET's max(digits, round-trip digits),
+/// as the shortest form has no more) or more than three places left of the digits, then `d.dddE+XX` (two exponent
+/// digits at least). -0.0 is "-0".
+fn write_dotnet_shortest(out: &mut String, negative: bool, digits: &str, exponent: i32, round_trip_digits: usize, symbols: &NumberSymbols) {
+    let count = digits.len();
+    let scale = exponent + 1; // digits before the decimal point
+    if negative {
+        out.push_str(&symbols.negative);
+    }
+    if scale > round_trip_digits as i32 || scale < -3 {
+        out.push_str(&digits[..1]);
+        if count > 1 {
+            out.push_str(&symbols.separator);
+            out.push_str(&digits[1..]);
+        }
+        out.push('E');
+        out.push_str(if exponent < 0 { &symbols.negative } else { &symbols.positive });
+        write!(out, "{:02}", exponent.unsigned_abs()).expect("writing to a String");
+    } else if scale <= 0 {
+        out.push('0');
+        out.push_str(&symbols.separator);
+        (0..-scale).for_each(|_| out.push('0'));
+        out.push_str(digits);
+    } else if (scale as usize) < count {
+        out.push_str(&digits[..scale as usize]);
+        out.push_str(&symbols.separator);
+        out.push_str(&digits[scale as usize..]);
+    } else {
+        out.push_str(digits);
+        (count..scale as usize).for_each(|_| out.push('0'));
+    }
+}
+
+/// A float or double column as .NET's ToString() writes each value under the culture of `symbols`; null stays null.
+fn dotnet_float_to_string(c: Column, symbols: &NumberSymbols) -> PolarsResult<Column> {
+    let s = c.as_materialized_series();
+    let (mut ryu, mut digits) = (ryu::Buffer::new(), String::new());
+    let ca = match s.dtype() {
+        DataType::Float64 => s.f64()?.apply_into_string_amortized(|x: f64, out: &mut String| {
+            if x.is_nan() {
+                out.push_str(&symbols.nan)
+            } else if x.is_infinite() {
+                out.push_str(if x > 0.0 { &symbols.positive_infinity } else { &symbols.negative_infinity })
+            } else {
+                let (negative, exponent) = shortest_digits(ryu.format_finite(x), &mut digits);
+                write_dotnet_shortest(out, negative, &digits, exponent, 17, symbols)
+            }
+        }),
+        DataType::Float32 => s.f32()?.apply_into_string_amortized(|x: f32, out: &mut String| {
+            if x.is_nan() {
+                out.push_str(&symbols.nan)
+            } else if x.is_infinite() {
+                out.push_str(if x > 0.0 { &symbols.positive_infinity } else { &symbols.negative_infinity })
+            } else {
+                let (negative, exponent) = shortest_digits(ryu.format_finite(x), &mut digits);
+                write_dotnet_shortest(out, negative, &digits, exponent, 9, symbols)
+            }
+        }),
+        other => polars_bail!(ComputeError: ".NET float formatting takes Float32 or Float64, not {}", other),
+    };
+    Ok(ca.into_series().with_name(s.name().clone()).into_column())
+}
+
+/// A float or double expression as .NET's ToString() of each value (the shortest round-trip digits, laid out as .NET
+/// does) with the culture symbols given (UTF-8): negative and positive signs, decimal separator, NaN, infinities.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dotnet_float_to_string(
+    expr_ptr: *mut ExprContext,
+    negative: *const std::os::raw::c_char,
+    positive: *const std::os::raw::c_char,
+    separator: *const std::os::raw::c_char,
+    nan: *const std::os::raw::c_char,
+    positive_infinity: *const std::os::raw::c_char,
+    negative_infinity: *const std::os::raw::c_char,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let text = |p: *const std::os::raw::c_char| {
+            crate::utils::ptr_to_str(p).map(str::to_owned).map_err(|e| polars_err!(ComputeError: "a culture symbol is not UTF-8: {}", e))
+        };
+        let symbols = std::sync::Arc::new(NumberSymbols {
+            negative: text(negative)?,
+            positive: text(positive)?,
+            separator: text(separator)?,
+            nan: text(nan)?,
+            positive_infinity: text(positive_infinity)?,
+            negative_infinity: text(negative_infinity)?,
+        });
+        let function = move |c: Column| dotnet_float_to_string(c, &symbols);
+        let output_map = |_input_schema: &Schema, input_field: &Field| Ok(Field::new(input_field.name().clone(), DataType::String));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,5 +561,45 @@ mod tests {
         // An invalid precision or scale is refused.
         assert!(pl_expr_dotnet_float_to_decimal(input(col("a")), 39, 18).is_null());
         assert!(pl_expr_dotnet_float_to_decimal(input(col("a")), 10, 11).is_null());
+    }
+
+    mod format_cases {
+        include!("dotnet_format_cases.rs");
+    }
+
+    fn symbols(separator: &str, infinity: &str) -> NumberSymbols {
+        NumberSymbols {
+            negative: "-".into(),
+            positive: "+".into(),
+            separator: separator.into(),
+            nan: "NaN".into(),
+            positive_infinity: infinity.into(),
+            negative_infinity: format!("-{infinity}"),
+        }
+    }
+
+    fn formatted(values: Series, symbols: &NumberSymbols) -> Vec<Option<String>> {
+        let out = dotnet_float_to_string(values.into_column(), symbols).unwrap();
+        let out = out.as_materialized_series().str().unwrap().clone();
+        (0..out.len()).map(|i| out.get(i).map(str::to_owned)).collect()
+    }
+
+    #[test]
+    fn doubles_and_floats_are_written_as_dotnet_writes_them() {
+        let (invariant, german) = (symbols(".", "Infinity"), symbols(",", "\u{221E}"));
+        let doubles: Vec<f64> = format_cases::DOUBLE_TEXT.iter().map(|&(bits, _, _)| f64::from_bits(bits)).collect();
+        let floats: Vec<f32> = format_cases::FLOAT_TEXT.iter().map(|&(bits, _, _)| f32::from_bits(bits)).collect();
+        for (symbols, pick) in [(&invariant, 0usize), (&german, 1)] {
+            let got = formatted(Series::new("a".into(), &doubles), symbols);
+            for (i, &(bits, inv, de)) in format_cases::DOUBLE_TEXT.iter().enumerate() {
+                assert_eq!(got[i].as_deref(), Some([inv, de][pick]), "double 0x{bits:016X}");
+            }
+            let got = formatted(Series::new("a".into(), &floats), symbols);
+            for (i, &(bits, inv, de)) in format_cases::FLOAT_TEXT.iter().enumerate() {
+                assert_eq!(got[i].as_deref(), Some([inv, de][pick]), "float 0x{bits:08X}");
+            }
+        }
+        let specials = formatted(Series::new("a".into(), &[Some(f64::NAN), Some(f64::INFINITY), Some(f64::NEG_INFINITY), None, Some(-0.0)]), &german);
+        assert_eq!(specials, [Some("NaN".into()), Some("\u{221E}".into()), Some("-\u{221E}".into()), None, Some("-0".into())]);
     }
 }

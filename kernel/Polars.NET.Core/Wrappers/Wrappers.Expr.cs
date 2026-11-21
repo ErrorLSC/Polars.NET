@@ -506,6 +506,17 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
+    /// A float or double expression as .NET's ToString() of each value (the shortest digits that round-trip, laid out
+    /// as .NET does: <c>1E+17</c>, <c>1E-05</c>, <c>-0</c>), written with the culture symbols given.
+    /// </summary>
+    public static ExprHandle DotNetFloatToString(ExprHandle expr, string negative, string positive, string separator, string nan, string positiveInfinity, string negativeInfinity)
+    {
+        var h = NativeBindings.pl_expr_dotnet_float_to_string(expr, negative, positive, separator, nan, positiveInfinity, negativeInfinity);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    /// <summary>
     /// The expression unchanged when every non-null value is one of <paramref name="values"/>; otherwise the query
     /// fails with <paramref name="message"/>, its first "{}" replaced by the offending value.
     /// </summary>

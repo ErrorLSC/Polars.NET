@@ -108,6 +108,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dotnet_float_to_decimal(ExprHandle expr, int precision, int scale);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_dotnet_float_to_string(ExprHandle expr, string negative, string positive, string separator, string nan, string positiveInfinity, string negativeInfinity);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_require_listed_ints(ExprHandle expr, ReadOnlySpan<long> values, nuint valuesLen, string message);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_bit_shr(ExprHandle expr, int n);

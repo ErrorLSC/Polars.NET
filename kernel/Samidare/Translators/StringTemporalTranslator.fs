@@ -2,6 +2,7 @@ namespace Kaminari.Samidare
 
 open Kaminari.Samidare.IR
 open System
+open System.Globalization
 open System.Text
 open System.Reflection
 open System.Linq.Expressions
@@ -71,6 +72,9 @@ module internal StringTemporalTranslator =
         (args: Expression list)
         : ScalarExpr option =
         let targetS () = eval ctx target
+        // An argument as .NET's text of it under `culture` (ToString of its own, unboxed type).
+        let textIn (culture: CultureInfo) (e: Expression) = eval ctx e |> Option.bind (asDotNetText culture (operandTextType e))
+        let text = textIn CultureInfo.CurrentCulture
 
         match m.Name, args with
         // --- 1. String.Concat ---
@@ -97,10 +101,12 @@ module internal StringTemporalTranslator =
                         ScalarExpr.Function(ScalarFunction.FormatString, [ ScalarExpr.Literal(LiteralValue.String "{}"); arg ], LogicalTypes.String))
                 elif typeof<System.Collections.Generic.IEnumerable<char>>.IsAssignableFrom argType then
                     eval ctx flatArgs.Head
+                elif isTextType (operandTextType flatArgs.Head) then
+                    text flatArgs.Head |> Option.map (fun t -> ScalarExpr.Coalesce [ t; ScalarExpr.Literal(LiteralValue.String "") ])
                 else
                     None
             else
-                let argExprs = flatArgs |> List.choose (eval ctx)
+                let argExprs = flatArgs |> List.choose text
                 if argExprs.Length = flatArgs.Length then
                     let rustFmt = String.replicate argExprs.Length "{}"
                     Some(ScalarExpr.Function(ScalarFunction.FormatString, ScalarExpr.Literal(LiteralValue.String rustFmt) :: argExprs, LogicalTypes.String))
@@ -126,7 +132,7 @@ module internal StringTemporalTranslator =
 
             match sepStrOpt with
             | Some sep ->
-                let itemExprs = flatItems |> List.choose (eval ctx)
+                let itemExprs = flatItems |> List.choose text
                 if itemExprs.Length = flatItems.Length && not itemExprs.IsEmpty then
                     Some(ScalarExpr.Function(ScalarFunction.ConcatString, ScalarExpr.Literal(LiteralValue.String sep) :: itemExprs, LogicalTypes.String))
                 else
@@ -135,6 +141,11 @@ module internal StringTemporalTranslator =
 
         // --- 2. String.Format ---
         | "Format", _ when isNull target ->
+            // The provider's culture, or the current one; a provider that is not a constant culture runs as a UDF.
+            let culture =
+                match args with
+                | providerExpr :: _ when typeof<IFormatProvider>.IsAssignableFrom(providerExpr.Type) -> tryCultureOf providerExpr
+                | _ -> Some CultureInfo.CurrentCulture
             let formatExprOpt, rawItems =
                 match args with
                 | providerExpr :: formatExpr :: rest when typeof<IFormatProvider>.IsAssignableFrom(providerExpr.Type) ->
@@ -170,7 +181,10 @@ module internal StringTemporalTranslator =
                         Some(ScalarExpr.Literal(LiteralValue.String netFormat))
                     elif referencedIndices |> List.forall (fun idx -> idx >= 0 && idx < rawItems.Length) then
                         let orderedExprs = referencedIndices |> List.map (fun idx -> rawItems.[idx])
-                        let argExprs = orderedExprs |> List.choose (eval ctx)
+                        let argExprs =
+                            match culture with
+                            | Some culture -> orderedExprs |> List.choose (textIn culture)
+                            | None -> []
                         if argExprs.Length = orderedExprs.Length then
                             let rustFmt = Regex.Replace(netFormat, @"\{(\d+)\}", "{}")
                             Some(ScalarExpr.Function(ScalarFunction.FormatString, ScalarExpr.Literal(LiteralValue.String rustFmt) :: argExprs, LogicalTypes.String))

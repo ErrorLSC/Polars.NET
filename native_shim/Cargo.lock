@@ -1431,6 +1431,7 @@ dependencies = [
  "polars-utils",
  "rand 0.9.4",
  "regex-syntax",
+ "ryu",
 ]
 
 [[package]]

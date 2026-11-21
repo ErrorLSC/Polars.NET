@@ -19,6 +19,7 @@
     <Compile Include="Backend/Polars/PolarsPlanSource.fs" />
     <Compile Include="Backend/Polars/NativeOpsApplier.fs" />
     <Compile Include="Backend/Polars/PolarsVocabulary.fs" />
+    <Compile Include="Backend/Polars/PolarsDateText.fs" />
     <Compile Include="Backend/Polars/PolarsScalarLowerer.fs" />
     <Compile Include="Backend/Polars/PolarsColumnStatistics.fs" />
     <Compile Include="Backend/Polars/DeltaKernelSource.fs" />

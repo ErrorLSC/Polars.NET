@@ -584,7 +584,10 @@ module AggTranslator =
             with
             // C# semantics as in row expressions (null, NaN, truncating and decimal division, string +).
             | Some leftS, Some rightS ->
-                OperatorAndUdfTranslator.combineBinary op (left.Type, Some leftS) (right.Type, Some rightS) cleanExpr.Type
+                // A string concatenation writes each operand as its own (unboxed) type's text.
+                let textual = op = ExpressionType.Add && (left.Type = typeof<string> || right.Type = typeof<string>)
+                let typeOf (e: Expression) = if textual then operandTextType e else e.Type
+                OperatorAndUdfTranslator.combineBinary op (typeOf left, Some leftS) (typeOf right, Some rightS) cleanExpr.Type
             | _ -> None
 
         | Unary(op, operand) ->

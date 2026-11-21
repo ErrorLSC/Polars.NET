@@ -49,6 +49,8 @@ type internal CompiledQueryKey =
         AllowUnstableOrdering: bool
         CollectColumnStatistics: bool
         StatisticsGeneration: int64
+        /// The current culture's name: a value's text (string concatenation, ToString) is compiled for it.
+        Culture: string
         /// Whether the pipeline is for grafting into another query, which leaves its plan unoptimized.
         ForGraft: bool
     }
@@ -334,6 +336,7 @@ type QueryPlanCache private () =
                         UseRelationalNulls = SamidareConfig.UseRelationalNulls
                         AllowUnstableOrdering = SamidareConfig.AllowUnstableOrdering
                         CollectColumnStatistics = SamidareConfig.CollectColumnStatistics
+                        Culture = System.Globalization.CultureInfo.CurrentCulture.Name
                         StatisticsGeneration = Kaminari.Samidare.IR.QueryStatistics.Generation
                         ForGraft = false
                     }

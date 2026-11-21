@@ -270,6 +270,17 @@ type CountCheck =
         TooMany: QueryError
     }
 
+/// The culture symbols a number's text is written with (System.Globalization.NumberFormatInfo).
+type NumberTextSymbols =
+    {
+        NegativeSign: string
+        PositiveSign: string
+        DecimalSeparator: string
+        NaN: string
+        PositiveInfinity: string
+        NegativeInfinity: string
+    }
+
 /// Strongly-typed built-in scalar functions for intermediate representation
 [<RequireQualifiedAccess>]
 type ScalarFunction =
@@ -298,6 +309,9 @@ type ScalarFunction =
     | Clamp
 
     // --- String ---
+    // A pattern argument of Replace, ReplaceAll, StrContains, StrSplit, StrExtract, StrExtractGroups, StrExtractAll and
+    // StrCountMatches that is not literal is a .NET regular expression, its RegexOptions written inline as `(?imsx:...)`:
+    // a backend runs it natively only where its own engine reads it alike (IBackendCapabilities.IsRegexPatternSupported).
     | ToUpper
     | ToLower
     | ToTitlecase
@@ -330,6 +344,7 @@ type ScalarFunction =
     | StrExtractGroups
     | StrExtractAll
     | StrCountMatches
+    /// `[text]`: Regex.Escape of it.
     | RegexEscape
     | Head
     | Tail
@@ -370,6 +385,13 @@ type ScalarFunction =
     | DtIsLeapYear
     /// The format argument is a .NET date and time format string.
     | DtToString
+    /// `[value]` over dates, times and date-times: its text by the .NET custom format `format` under the culture named
+    /// `culture` (`""` the invariant one), as `value.ToString(format, CultureInfo.GetCultureInfo(culture))`. Emitted
+    /// where the backend writes it natively (IBackendCapabilities.IsDateTextSupported).
+    | DtToText of format: string * culture: string
+    /// `[value]` over floating values (Float32 or Float64): .NET's ToString() of it, the shortest digits that round-trip
+    /// laid out as .NET does (`1E+17`, `1E-05`, `-0`), with these symbols.
+    | FloatToText of symbols: NumberTextSymbols
     /// The offset argument is a TimeSpan literal.
     | DtOffsetBy
 
@@ -562,6 +584,8 @@ type ScalarFunction =
         | ScalarFunction.StrToTime -> "str_to_time"
         | ScalarFunction.DtIsLeapYear -> "dt_is_leap_year"
         | ScalarFunction.DtToString -> "dt_to_string"
+        | ScalarFunction.DtToText _ -> "dt_to_text"
+        | ScalarFunction.FloatToText _ -> "float_to_text"
         | ScalarFunction.DtOffsetBy -> "dt_offset_by"
         | ScalarFunction.FillNull -> "fill_null"
         | ScalarFunction.Coalesce -> "coalesce"
