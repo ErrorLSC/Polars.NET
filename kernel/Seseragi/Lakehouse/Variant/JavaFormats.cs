@@ -92,7 +92,7 @@ internal static class JavaNumbers
 /// <summary>Dates and times as Java's <c>LocalDate.toString</c> and ISO local date-time formats print them, any year.</summary>
 internal static class JavaTime
 {
-    private const long MicrosPerDay = 86_400_000_000;
+    private const long SecondsPerDay = 86_400;
 
     /// <summary>A date (days since 1970-01-01) as <c>yyyy-MM-dd</c>; years beyond 9999 with a plus sign.</summary>
     public static string Date(long days)
@@ -111,18 +111,42 @@ internal static class JavaTime
     /// Microseconds since the epoch as <c>yyyy-MM-dd HH:mm:ss</c> and, when not zero, the fraction of the second
     /// without trailing zeros.
     /// </summary>
-    public static string DateTime(long micros)
+    public static string DateTime(long micros) => DateTime(micros, 1_000_000, 6);
+
+    /// <summary>Nanoseconds since the epoch as <see cref="DateTime(long)"/> prints microseconds, up to nine fraction digits.</summary>
+    public static string DateTimeNanos(long nanos) => DateTime(nanos, 1_000_000_000, 9);
+
+    /// <summary>
+    /// Microseconds since midnight as <c>HH:mm:ss</c> and, when not zero, the fraction of the second without trailing
+    /// zeros (Spark's text of a TIME value).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not within a day.</exception>
+    public static string Time(long micros)
     {
-        long days = Math.DivRem(micros, MicrosPerDay, out long ofDay);
+        ArgumentOutOfRangeException.ThrowIfNegative(micros);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(micros, SecondsPerDay * 1_000_000);
+        return TimeOfDay(micros, 1_000_000, 6);
+    }
+
+    // Units since the epoch (perSecond of them a second) as a date and a time of day.
+    private static string DateTime(long units, long perSecond, int digits)
+    {
+        long perDay = SecondsPerDay * perSecond;
+        long days = Math.DivRem(units, perDay, out long ofDay);
         if (ofDay < 0)
         {
             days--;
-            ofDay += MicrosPerDay;
+            ofDay += perDay;
         }
-        long seconds = ofDay / 1_000_000, fraction = ofDay % 1_000_000;
+        return Date(days) + " " + TimeOfDay(ofDay, perSecond, digits);
+    }
+
+    // Units since midnight as HH:mm:ss and the fraction without trailing zeros, when not zero.
+    private static string TimeOfDay(long units, long perSecond, int digits)
+    {
+        long seconds = Math.DivRem(units, perSecond, out long fraction);
         string time = string.Create(CultureInfo.InvariantCulture, $"{seconds / 3600:D2}:{seconds / 60 % 60:D2}:{seconds % 60:D2}");
-        if (fraction != 0) time += "." + fraction.ToString("D6", CultureInfo.InvariantCulture).TrimEnd('0');
-        return Date(days) + " " + time;
+        return fraction == 0 ? time : time + "." + fraction.ToString("D" + digits, CultureInfo.InvariantCulture).TrimEnd('0');
     }
 
     /// <summary>The proleptic Gregorian date of a day number (days since 1970-01-01).</summary>

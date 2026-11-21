@@ -117,6 +117,50 @@ public class VariantJsonTests
             Json(Primitive(20, [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF])));
     }
 
+    [Theory]
+    [InlineData(0L, "00:00:00")]
+    [InlineData(45234_123456L, "12:33:54.123456")]
+    [InlineData(45234_120000L, "12:33:54.12")]
+    [InlineData(1L, "00:00:00.000001")]
+    [InlineData(86399_999999L, "23:59:59.999999")]
+    public void Times_AreStringsAsSparkPrintsATime(long micros, string text) =>
+        Assert.Equal($"\"{text}\"", Json(Primitive(17, Le(micros, 8))));
+
+    [Theory]
+    [InlineData(-1L)]
+    [InlineData(86400_000000L)]
+    public void Times_OutsideADay_AreDamaged(long micros) =>
+        Assert.Throws<InvalidDataException>(() => Json(Primitive(17, Le(micros, 8))));
+
+    [Theory]
+    [InlineData(0L, "1970-01-01 00:00:00")]
+    [InlineData(1L, "1970-01-01 00:00:00.000000001")]
+    [InlineData(-1L, "1969-12-31 23:59:59.999999999")]
+    [InlineData(1730982834_123456789L, "2024-11-07 12:33:54.123456789")]
+    [InlineData(1730982834_500000000L, "2024-11-07 12:33:54.5")]
+    [InlineData(long.MinValue, "1677-09-21 00:12:43.145224192")]
+    [InlineData(long.MaxValue, "2262-04-11 23:47:16.854775807")]
+    public void NanosecondTimestamps_KeepEveryDigit(long nanos, string text)
+    {
+        Assert.Equal($"\"{text}+00:00\"", Json(Primitive(18, Le(nanos, 8))));
+        Assert.Equal($"\"{text}\"", Json(Primitive(19, Le(nanos, 8))));
+    }
+
+    [Fact]
+    public void TimesAndNanosecondTimestamps_OfOtherWriters_AreRead()
+    {
+        // parquet-testing's variant/primitive_time, primitive_timestamp_nanos, primitive_timestampntz_nanos (made by
+        // Iceberg's test code): every one with the metadata 01 00 00.
+        Assert.Equal("\"12:33:54.123456\"", Json(Convert.FromHexString("44c0f229880a000000")));
+        Assert.Equal("\"2024-11-07 12:33:54.123456789+00:00\"", Json(Convert.FromHexString("4815413a6cb7af0518")));
+        Assert.Equal("\"2024-11-07 12:33:54.123456789\"", Json(Convert.FromHexString("4c15413a6cb7af0518")));
+        // DuckDB 2.0: {'a': TIME '01:02:03.5', 'b': [TIMESTAMP_NS '1960-01-01 00:00:00.000000001']}::VARIANT written
+        // to Parquet; DuckDB renders it as JSON the same way.
+        Assert.Equal("""{"a":"01:02:03.5","b":["1960-01-01 00:00:00.000000001"]}""", Json(
+            Convert.FromHexString("0202000100091644e019f0dd00000000030100094c0100b58302b29efb"),
+            Convert.FromHexString("01020001026162")));
+    }
+
     [Fact]
     public void Strings_AreEscapedAsJacksonEscapes()
     {

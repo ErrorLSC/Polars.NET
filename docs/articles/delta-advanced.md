@@ -196,7 +196,7 @@ Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateH
 
 ## 5. Variant Columns
 
-Tables with `VARIANT` columns (Spark 4 and Databricks semi-structured data, the `variantType` feature) are read, at any depth: top-level columns, struct fields, array elements and map values. A variant is read as it is stored, a struct of its `value` and `metadata` binaries (the Parquet Variant encoding), or, with `variantAsJson: true`, as JSON text, exactly as Spark's `to_json` renders it (timestamps in UTC). Such tables are read only.
+Tables with `VARIANT` columns (Spark 4 and Databricks semi-structured data, the `variantType` feature) are read, at any depth: top-level columns, struct fields, array elements and map values. A variant is read as it is stored, a struct of its `value` and `metadata` binaries (the Parquet Variant encoding), or, with `variantAsJson: true`, as JSON text, exactly as Spark's `to_json` renders it (timestamps in UTC; times and nanosecond timestamps, which Spark does not write, in the same style). Such tables are read only.
 
 The Polars engine cannot open these files yet, so Polars.NET's own Parquet reader reads them, only the columns and rows a query uses (see [Compatibility & Known Limitations](/articles/delta-limitations)).
 

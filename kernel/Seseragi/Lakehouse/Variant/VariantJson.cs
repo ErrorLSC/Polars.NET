@@ -11,7 +11,8 @@ namespace Kaminari.Seseragi.Lakehouse.Variant;
 /// byte for byte as Spark's <c>to_json</c> renders them (<c>org.apache.spark.types.variant.Variant.toJson</c>):
 /// compact, object fields in their stored order, integers and decimals as plain numbers, doubles and floats as
 /// Java prints them (non-finite ones quoted), dates, timestamps, binaries (base64) and UUIDs as strings.
-/// Timestamps with a time zone are rendered in UTC.
+/// Timestamps with a time zone are rendered in UTC. Times and nanosecond timestamps, which Spark does not have, are
+/// rendered in the same style (as DuckDB renders them): <c>HH:mm:ss</c> and up to nine fraction digits.
 /// </summary>
 public static class VariantJson
 {
@@ -54,7 +55,7 @@ public static class VariantJson
 
     private const int Null = 0, True = 1, False = 2, Int8 = 3, Int16 = 4, Int32 = 5, Int64 = 6, Double = 7, Decimal4 = 8,
         Decimal8 = 9, Decimal16 = 10, Date = 11, Timestamp = 12, TimestampNtz = 13, Float = 14, Binary = 15, String = 16,
-        Uuid = 20;
+        Time = 17, TimestampNanos = 18, TimestampNtzNanos = 19, Uuid = 20;
 
     /// <summary>The metadata's dictionary of field names.</summary>
     private readonly ref struct Dictionary
@@ -202,6 +203,15 @@ public static class VariantJson
                     break;
                 case TimestampNtz:
                     Quoted(output, JavaTime.DateTime(BinaryPrimitives.ReadInt64LittleEndian(data)));
+                    break;
+                case Time:
+                    Quoted(output, JavaTime.Time(BinaryPrimitives.ReadInt64LittleEndian(data)));
+                    break;
+                case TimestampNanos:
+                    Quoted(output, JavaTime.DateTimeNanos(BinaryPrimitives.ReadInt64LittleEndian(data)) + "+00:00");
+                    break;
+                case TimestampNtzNanos:
+                    Quoted(output, JavaTime.DateTimeNanos(BinaryPrimitives.ReadInt64LittleEndian(data)));
                     break;
                 case Binary:
                 {
