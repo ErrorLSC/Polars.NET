@@ -419,7 +419,14 @@ public static class DeltaKernelScan
         var frames = new List<LazyFrameHandle>();
         try
         {
-            foreach (var (group, oldTypes) in groups.Values)
+            // A table with variant columns is read by the managed reader: its files as one dataset, partition values
+            // as the dataset's partition columns (one reader at full parallelism instead of one per partition), unless
+            // a widened column needs each file's own types.
+            LazyFrameHandle? together = variants is not null && widened.Length == 0 && groups.Count > 0
+                ? ScanVariantTable(snapshot, tableRoot, [.. groups.Values.SelectMany(g => g.Files)], partitionColumns, cloud, options, rowFilter, keepPath)
+                : null;
+            if (together is not null) frames.Add(together);
+            else foreach (var (group, oldTypes) in groups.Values)
             {
                 using SchemaHandle fileSchema = PhysicalFileSchema(schema, partitionColumns, oldTypes: oldTypes);
                 string[] paths = [.. group.Select(f => Combine(tableRoot, f.DecodedPath))];
@@ -708,8 +715,13 @@ public static class DeltaKernelScan
     /// is read) and a path column when asked. Nothing is read when the frame is created (with no schema, the first
     /// file's footer); each run reads only the columns and leading rows the query uses, by ranged reads.
     /// </summary>
+    /// <param name="datasetFiles">The files with what is known of them (sizes, partition values); null: <paramref name="paths"/> alone.</param>
+    /// <param name="partitionSchema">The types of the partition columns <paramref name="datasetFiles"/> give values of.</param>
+    /// <param name="filter">Rows a query keeps (the query compiler's IR, by the files' column names): the reader leaves
+    /// out the row groups and pages that cannot hold one and the rows it can tell fail it (the query still filters).</param>
     private static LazyFrameHandle ScanManaged(
-        string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName, KernelScanOptions? options)
+        string[] paths, CloudArgs cloud, SchemaHandle? schema, string? rowIndexName, KernelScanOptions? options,
+        ParquetDatasetFile[]? datasetFiles = null, Apache.Arrow.Schema? partitionSchema = null, ScalarExpr? filter = null)
     {
         Apache.Arrow.Schema? given = null;
         if (schema is not null)
@@ -717,7 +729,7 @@ public static class DeltaKernelScan
             using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(schema, 0);
             given = PolarsWrapper.ArrowSchemaOf(empty);
         }
-        ParquetDatasetFile[] files = [.. paths.Select(p => new ParquetDatasetFile(p))];
+        ParquetDatasetFile[] files = datasetFiles ?? [.. paths.Select(p => new ParquetDatasetFile(p))];
         string? pathColumn = options?.IncludePathColumn;
         int parallelism = options?.Parallel == PlParallelStrategy.None ? 1 : Environment.ProcessorCount;
 
@@ -736,6 +748,7 @@ public static class DeltaKernelScan
             AllowMissingColumns = true,
             AllowLossyCasts = true,
             Partitioning = HivePartitioning.Off,
+            PartitionSchema = partitionSchema,
             FilePathColumn = pathColumn,
         };
 
@@ -755,8 +768,88 @@ public static class DeltaKernelScan
                 RowIndexColumn = rowIndexName,
                 MaxDegreeOfParallelism = parallelism,
                 Int96Timezone = "UTC", // a Spark TIMESTAMP: the instants the table's type says
+                Filter = filter,
+                FilterRows = filter is not null,
             });
             foreach (var batch in reader.ReadBatches()) yield return batch;
+        }
+    }
+
+    /// <summary>
+    /// The files of a table with variant columns (none with a deletion vector or a widened column) read by
+    /// <see cref="ScanManaged"/> as one dataset: a partition column is the dataset's, of the file's partition value
+    /// (named by its physical name); the table's columns in schema order under their logical names, then
+    /// <paramref name="extra"/>. A row filter (by logical names) prunes when the names are the files' (no column
+    /// mapping). Null when a partition column's type cannot be a dataset's partition column.
+    /// </summary>
+    private static LazyFrameHandle? ScanVariantTable(
+        Snapshot snapshot, string tableRoot, AddAction[] files, HashSet<string> partitionColumns, CloudArgs cloud,
+        KernelScanOptions? options, ScalarExpr? rowFilter, Action<List<ExprHandle>>? extra)
+    {
+        StructField[] partitions = [.. snapshot.Schema.Fields.Where(f => partitionColumns.Contains(f.Name))];
+        Apache.Arrow.Schema? partitionSchema = null;
+        if (partitions.Length > 0)
+        {
+            using SchemaHandle logical = LogicalSchema(snapshot.Schema);
+            using DataFrameHandle empty = PolarsWrapper.DataFrameFromSchema(logical, 0);
+            Apache.Arrow.Schema arrow = PolarsWrapper.ArrowSchemaOf(empty);
+            Apache.Arrow.Field[] fields = [.. partitions.Select(p => new Apache.Arrow.Field(p.PhysicalName, arrow.GetFieldByName(p.Name).DataType, nullable: true))];
+            if (!fields.All(f => PartitionType(f.DataType))) return null;
+            partitionSchema = new Apache.Arrow.Schema(fields, null);
+        }
+        ParquetDatasetFile[] datasetFiles = [.. files.Select(f => new ParquetDatasetFile(
+            Combine(tableRoot, f.DecodedPath), f.Size, partitionSchema is null ? null : PartitionValues(snapshot.PartitionValuesOf(f))))];
+        bool mapped = snapshot.ColumnMappingMode != ColumnMappingMode.None;
+        using SchemaHandle fileSchema = PhysicalFileSchema(snapshot.Schema, partitionColumns);
+        LazyFrameHandle lf = ScanManaged([.. datasetFiles.Select(f => f.Path)], cloud, fileSchema, null, options,
+            datasetFiles, partitionSchema, mapped ? null : rowFilter);
+
+        List<ExprHandle> exprs = [];
+        try
+        {
+            foreach (StructField field in snapshot.Schema.Fields)
+            {
+                ExprHandle column = PolarsWrapper.Col(field.PhysicalName);
+                exprs.Add(PolarsWrapper.Alias(partitionColumns.Contains(field.Name) ? column : ToLogical(column, field.Type), field.Name));
+            }
+            extra?.Invoke(exprs);
+            ExprHandle[] all = [.. exprs];
+            exprs.Clear();
+            return PolarsWrapper.LazySelect(lf, all);
+        }
+        finally
+        {
+            foreach (ExprHandle expr in exprs) expr.Dispose();
+        }
+
+        // The types a dataset's partition column may have (binary may not).
+        static bool PartitionType(Apache.Arrow.Types.IArrowType type) => type is Apache.Arrow.Types.BooleanType
+            or Apache.Arrow.Types.Int8Type or Apache.Arrow.Types.Int16Type or Apache.Arrow.Types.Int32Type or Apache.Arrow.Types.Int64Type
+            or Apache.Arrow.Types.FloatType or Apache.Arrow.Types.DoubleType or Apache.Arrow.Types.Decimal128Type
+            or Apache.Arrow.Types.Date32Type or Apache.Arrow.Types.TimestampType
+            or Apache.Arrow.Types.StringType or Apache.Arrow.Types.StringViewType;
+
+        // A file's partition values by physical name, as the log writes them (see PartitionLiteral): text the dataset
+        // reads as numbers and strings, dates, times and flags parsed here; empty for null.
+        Dictionary<string, object?> PartitionValues(Dictionary<string, string?> byLogicalName)
+        {
+            var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (StructField field in partitions)
+            {
+                string? value = byLogicalName[field.Name];
+                values[field.PhysicalName] = string.IsNullOrEmpty(value) ? null : (field.Type as PrimitiveType)?.Name switch
+                {
+                    PrimitiveType.Date when DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly date) => date,
+                    PrimitiveType.Timestamp or PrimitiveType.TimestampNtz
+                        when DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset ts) => ts.UtcDateTime,
+                    PrimitiveType.Boolean when bool.TryParse(value, out bool flag) => flag,
+                    PrimitiveType.Float or PrimitiveType.Double when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double real) => real,
+                    PrimitiveType.Date or PrimitiveType.Timestamp or PrimitiveType.TimestampNtz or PrimitiveType.Boolean or PrimitiveType.Float or PrimitiveType.Double =>
+                        throw new PolarsException($"The partition value '{value}' of column '{field.Name}' is not a valid {((PrimitiveType)field.Type).Name}."),
+                    _ => value,
+                };
+            }
+            return values;
         }
     }
 

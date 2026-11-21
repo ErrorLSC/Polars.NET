@@ -342,6 +342,108 @@ public class SparkVariantTests
         }
     }
 
+    /// <summary>
+    /// A partitioned table with a variant column is read as one dataset whose partition columns hold the files'
+    /// partition values: of every type a partition column may have, null included, the same rows and types as the
+    /// engine reads from a table without the variant; a binary partition column, which a dataset cannot have, falls
+    /// back to one scan per partition.
+    /// </summary>
+    [SparkTheory]
+    [InlineData("pi INT", "ps STRING", "pd DATE", "pt TIMESTAMP", "pn TIMESTAMP_NTZ", "pb BOOLEAN", "pf DOUBLE", "pc DECIMAL(10, 2)", "pl BIGINT")]
+    [InlineData("pi INT", "pbin BINARY")]
+    [Trait("DeltaKernel", "Spark")]
+    public void PartitionColumns_OfAVariantTable_ReadAsInATableWithout(params string[] columns)
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"seseragi_variant_parts_{Guid.NewGuid():N}");
+        string with = Path.Combine(root, "with"), without = Path.Combine(root, "without");
+        try
+        {
+            string partitions = string.Join(", ", columns);
+            string[] names = [.. columns.Select(c => c.Split(' ')[0])];
+            string Value(string name, string id) => name switch
+            {
+                "pi" => $"CAST({id} % 3 AS INT)",
+                "ps" => $"concat('a b/c=', {id} % 2)",
+                "pd" => $"date_add(DATE'1969-12-30', CAST({id} % 3 AS INT))",
+                "pt" => $"TIMESTAMP'2024-03-10 01:30:00.123456' + make_interval(0, 0, 0, 0, CAST({id} % 2 AS INT), 0, 0)",
+                "pn" => $"TIMESTAMP_NTZ'1900-01-01 00:00:00' + make_interval(0, 0, 0, CAST({id} % 2 AS INT), 0, 0, 0)",
+                "pb" => $"{id} % 2 = 0",
+                "pf" => $"{id} / 4.0",
+                "pc" => $"CAST({id} / 8.0 AS DECIMAL(10, 2))",
+                "pl" => $"{id} * 10000000000",
+                "pbin" => $"CAST(concat('b', {id} % 2) AS BINARY)",
+                _ => throw new ArgumentException(name),
+            };
+            string select = $"SELECT CAST(id AS INT) AS id, {string.Join(", ", names.Select(n => $"{Value(n, "id")} AS {n}"))} FROM range(6)"
+                + $" UNION ALL SELECT 6, {string.Join(", ", names.Select(_ => "NULL"))}";
+            string by = string.Join(", ", names);
+            LocalSpark.Run("sql", with, $"CREATE TABLE {{table}} (id INT, {partitions}, v VARIANT) USING delta PARTITIONED BY ({by})");
+            LocalSpark.Run("sql", with, $"INSERT INTO {{table}} SELECT *, parse_json(concat('{{\"k\":', id, '}}')) FROM ({select})");
+            LocalSpark.Run("sql", without, $"CREATE TABLE {{table}} (id INT, {partitions}) USING delta PARTITIONED BY ({by})");
+            LocalSpark.Run("sql", without, $"INSERT INTO {{table}} {select}");
+
+            using DataFrame expected = DataFrame.ReadDelta(without).Sort("id");
+            Assert.Equal(7, expected.Height);
+            Polars.CSharp.Expr[] shared = [.. expected.Columns.Select(n => Polars.CSharp.Polars.Col(n))];
+            using LazyFrame scan = LazyFrame.ScanDelta(with);
+            using DataFrame actual = scan.Select(shared).Collect().Sort("id");
+            Assert.Equal(expected.Schema.ToString(), actual.Schema.ToString());
+            Assert.True(expected.Equals(actual), $"expected\n{expected}\nactual\n{actual}");
+            using DataFrame variants = DataFrame.ReadDelta(with, variantAsJson: true).Sort("id");
+            Assert.Equal("{\"k\":4}", variants["v"].ToArray<string?>()[4]);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    /// <summary>A row of the pruning test's table, as LINQ reads it (the variant column left out).</summary>
+    private sealed record PadRow(long id, string pad);
+
+    /// <summary>
+    /// A LINQ filter over a variant table reaches the managed reader: on a table without file statistics (no file
+    /// can be skipped by the log) the reader leaves out the files whose footers rule every row out, reading less than
+    /// half of what the same query without the filter reads.
+    /// </summary>
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void LinqFilters_OverAVariantTable_PruneInTheReader()
+    {
+        InTable(table =>
+        {
+            LocalSpark.Run("sql", table,
+                "CREATE TABLE {table} (id BIGINT, pad STRING, v VARIANT) USING delta TBLPROPERTIES ('delta.dataSkippingNumIndexedCols'='0')");
+            LocalSpark.Run("sql", table, """
+                INSERT INTO {table} SELECT /*+ REPARTITION_BY_RANGE(4, id) */ id, repeat(md5(CAST(id AS STRING)), 4), parse_json('1')
+                FROM range(40000)
+                """);
+            Assert.Equal(4, Directory.EnumerateFiles(table, "*.parquet", SearchOption.AllDirectories).Count());
+
+            var counter = new ReadCounter();
+            DeltaKernelScan.ManagedStorage.WrapForTests = store => new CountingStore(store, counter, table);
+            try
+            {
+                using var lf = LazyFrame.ScanDelta(table);
+                long before = counter.Bytes;
+                PadRow[] all = [.. Polars.CSharp.Linq.LinqExtensions.AsQueryable<PadRow>(lf).Where(r => r.id >= 0)];
+                long whole = counter.Bytes - before;
+                Assert.Equal(40_000, all.Length);
+
+                before = counter.Bytes;
+                PadRow[] rows = [.. Polars.CSharp.Linq.LinqExtensions.AsQueryable<PadRow>(lf).Where(r => r.id < 10)];
+                Assert.Equal(Enumerable.Range(0, 10).Select(i => (long)i), rows.Select(r => r.id).Order());
+                Assert.All(rows, r => Assert.Equal(128, r.pad.Length));
+                // One file of four holds the rows (footers read either way).
+                Assert.InRange(counter.Bytes - before, 1, whole / 2);
+            }
+            finally
+            {
+                DeltaKernelScan.ManagedStorage.WrapForTests = null;
+            }
+        });
+    }
+
     /// <summary>The bytes read from files below a table.</summary>
     private sealed class ReadCounter
     {
