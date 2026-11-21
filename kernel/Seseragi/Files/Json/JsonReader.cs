@@ -130,7 +130,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
             {
                 (true, JsonFormat.Document) => DocumentInput.Of(decompressed, leaveOpen: false, options.UnitBytes),
                 (true, _) => new StreamInput(decompressed, leaveOpen: false, options.UnitBytes),
-                (false, JsonFormat.Document) => DocumentInput.Of(source, null, map, options.UnitBytes),
+                (false, JsonFormat.Document) => DocumentInput.Of(source, null, map, options.UnitBytes, options.MaxDegreeOfParallelism),
                 _ => new BlockInput(source, null, map, options.UnitBytes),
             };
         }

@@ -271,7 +271,7 @@ public class JsonDocumentTests
         // 40 elements of about 10 bytes after 30 bytes of whitespace, in segments of 16: a cut in nearly every segment
         // past the '[' (whitespace before it must not read as a closed array: the document would be one unit).
         string document = new string(' ', 30) + "[" + string.Join(",", Enumerable.Range(0, 40).Select(i => $"{{\"a\":{i,3}}}")) + "]";
-        using var input = Kaminari.Seseragi.Files.Json.Reading.DocumentInput.Of(new MemoryRandomAccess(Encoding.UTF8.GetBytes(document)), null, map: false, 16);
+        using var input = Kaminari.Seseragi.Files.Json.Reading.DocumentInput.Of(new MemoryRandomAccess(Encoding.UTF8.GetBytes(document)), null, map: false, 16, threads: 4);
         Assert.True(input.InPlace);
         int units = 0;
         while (await input.GetAsync(units, useAsync: true, default) is { } bytes)
@@ -280,6 +280,85 @@ public class JsonDocumentTests
             units++;
         }
         Assert.InRange(units, 20, 30);
+    }
+
+    /// <summary>Bytes read at offsets slowly, as a store's object is: the reads at once and the bytes read are counted.</summary>
+    private sealed class SlowAccess(byte[] bytes) : Kaminari.Seseragi.Files.IO.IRandomAccess
+    {
+        private int _now;
+
+        public int MostAtOnce;
+        public long BytesRead;
+
+        public long Length => bytes.Length;
+
+        public int ReadAt(long offset, Span<byte> destination)
+        {
+            int now = Interlocked.Increment(ref _now);
+            InterlockedMax(ref MostAtOnce, now);
+            Thread.Sleep(2);
+            int n = (int)Math.Max(0, Math.Min(destination.Length, bytes.Length - offset));
+            bytes.AsSpan((int)offset, n).CopyTo(destination);
+            Interlocked.Add(ref BytesRead, n);
+            Interlocked.Decrement(ref _now);
+            return n;
+        }
+
+        public ValueTask<int> ReadAtAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(ReadAt(offset, destination.Span));
+
+        private static void InterlockedMax(ref int target, int value)
+        {
+            for (int seen = target; value > seen; seen = target)
+                if (Interlocked.CompareExchange(ref target, value, seen) == seen) return;
+        }
+    }
+
+    [Fact]
+    public void ASourceReadAtOffsets_IsReadInParallel_EachByteOnce()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(AsDocument(Messy(2000)));
+        var expected = Read(bytes, Doc()).Rows;
+        var schema = Read(bytes, Doc(new JsonReadOptions { InferSchemaLength = null })).Schema;
+        var source = new SlowAccess(bytes);
+        using (var reader = JsonReader.Open(source, Doc(new JsonReadOptions { Schema = schema, UnitBytes = 4096, MaxDegreeOfParallelism = 4 })))
+        {
+            var batches = reader.ReadBatches().ToList();
+            Assert.Equal(expected, ArrowRender.Rows(batches));
+            batches.ForEach(b => b.Dispose());
+        }
+        Assert.True(source.MostAtOnce > 1, $"at most {source.MostAtOnce} read at once");
+        // Every byte once, plus the first 4 (whether it is compressed) and the start (where the array opens).
+        Assert.Equal(bytes.Length + 4 + Math.Min(bytes.Length, 64 << 10), source.BytesRead);
+    }
+
+    [Fact]
+    public async Task ASourceReadAtOffsets_IsCutPerSegment_AndItsSegmentsAreFreed()
+    {
+        string document = new string(' ', 30) + "[" + string.Join(",", Enumerable.Range(0, 40).Select(i => $"{{\"a\":{i,3}}}")) + "]";
+        byte[] bytes = Encoding.UTF8.GetBytes(document);
+        using (var input = Kaminari.Seseragi.Files.Json.Reading.DocumentInput.Of(new BytesAccess(bytes), null, map: false, 16, threads: 2))
+        {
+            Assert.False(input.InPlace);
+            int units = 0;
+            StringBuilder joined = new();
+            while (await input.GetAsync(units, useAsync: true, default) is { } unit)
+            {
+                using (unit) joined.Append(Encoding.UTF8.GetString(unit.Memory.Span)).Append(unit.FileEnd ? "" : ",");
+                units++;
+            }
+            Assert.InRange(units, 20, 30);
+            Assert.Equal(document, joined.ToString());
+            Assert.Equal(0, input.HeldSegments);
+            // Read again: by range.
+            using var again = await input.GetAsync(3, useAsync: true, default);
+            Assert.NotNull(again);
+        }
+        // Disposed half way: nothing kept.
+        var early = Kaminari.Seseragi.Files.Json.Reading.DocumentInput.Of(new BytesAccess(bytes), null, map: false, 16, threads: 2);
+        using (await early.GetAsync(5, useAsync: true, default)) { }
+        early.Dispose();
+        Assert.Equal(0, early.HeldSegments);
     }
 
     [Fact]

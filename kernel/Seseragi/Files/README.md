@@ -496,9 +496,12 @@ and whitespace around are accepted. `[]` has no columns and no rows, `{}` and `[
 Anything else is refused at its line (and array index): elements that are not objects (`null`, scalars, arrays),
 missing elements (`[,`, `,,`, `,]`), data after the document (a second array or object), an unclosed array, a top-level
 scalar, `null` or nothing. The array is cut between elements in parallel: segments of the input are summarized (quotes,
-escapes, bracket depth for either starting state, vectorized) by the threads that need units, the summaries taken in
-order give each segment's state, and a segment's first comma between top-level elements is a cut; a stream is scanned
-in order as it is read. Units then decode as lines do, one `Utf8JsonReader` per element. Values are read as in lines;
+bracket depth for either starting state, vectorized; escapes from the backslashes ending the segment before) by the
+threads that need units, the summaries taken in order give each segment's state, and a segment's first comma between
+top-level elements is a cut. Memory and mapped files are read in place; other sources (a store's object, a file not
+mapped) have each segment read by the thread that claims it, a bounded number ahead, and a unit is lent its first
+segment with the next one's first element copied after it (copied whole only past a long element). A stream that
+cannot seek, or compressed input, is scanned in order as it is read. Units then decode as lines do, one `Utf8JsonReader` per element. Values are read as in lines;
 where Polars' `read_json` changes them (booleans with integers read as integers, fractions into integer columns cut),
 they are refused, and objects or arrays into string columns are their text (Polars refuses them).
 
@@ -678,7 +681,7 @@ written synchronously on completion.
 | `Json/JsonReader.cs`, `JsonReadOptions.cs` | Public JSON API: the reader (opening, compression detection, schema given / inferred / overridden / projected, the ordered window over units, exact `MaxRows`), options, `JsonMemoryMap`, `JsonFormatException`, `JsonValueException`. |
 | `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
 | `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: line splitting, UTF-8 (the first bad byte fails its line or element, in input order), one `Utf8JsonReader` per line or element, builders reserved per batch; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
-| `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: in place (memory, mappings) by parallel segment summaries resolved in order, else read and scanned in order (units handed over, read again by range when the source allows). |
+| `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |
 | `Json/Reading/JsonInference.cs` | `JsonShape`: what the records held, folded record by record, resolved to Arrow types as Polars resolves them. |
 | `Excel/ExcelWorkbook.cs`, `ExcelReader.cs`, `ExcelWriter.cs`, `ExcelTypes.cs` | Public Excel API: workbook (format detection, sheets, tables), reader and options, writer and options, sheet and table records, `ExcelFormatException`, `ExcelValueException`. |
