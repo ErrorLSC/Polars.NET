@@ -194,7 +194,7 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 
 ### New
 
-* A scan over .NET data reads only the columns and the leading rows the query uses, on every engine (in memory, `Collect(Engine.Streaming)`, sinks): the engine's optimizer finds them (`Select`, `Head` / `Limit`, also through joins and `CollectAll`) and the source is asked for them. `ScanAvro` decodes only those columns and stops after those rows; the temporary file of a sink holds only those columns. Your own sources get the request through `ArrowStreamInterop.ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>>, schema, strict)` (Polars.NET.Core); a source may ignore it.
+* A scan over .NET data reads only the columns and the leading rows the query uses, on every engine (in memory, `Collect(Engine.Streaming)`, sinks): the engine's optimizer finds them (`Select`, `Head` / `Limit`, also through joins and `CollectAll`) and the source is asked for them. `ScanAvro` decodes only those columns and stops after those rows, `ScanExcel` stops parsing the sheet after those rows; the temporary file of a sink holds only those columns. Your own sources get the request through `ArrowStreamInterop.ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>>, schema, strict)` (Polars.NET.Core); a source may ignore it.
 
 ### Fixed
 

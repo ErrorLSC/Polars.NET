@@ -148,6 +148,24 @@ public class StreamScanPushdownTests
 
     [Theory]
     [MemberData(nameof(Runs))]
+    public void A_Projection_Of_Every_Column_Keeps_Its_Order(Run run)
+    {
+        foreach (bool honours in (bool[])[true, false])
+        {
+            var source = new Source { Honours = honours };
+            using var lf = source.Scan();
+            using var df = Execute(lf.Select(Pl.Col("V"), Pl.Col("G"), Pl.Col("Id")), run);
+
+            Assert.Equal(["V", "G", "Id"], df.Columns);
+            Assert.Equal(Rows, df.Height);
+            Assert.Equal(1.5, Convert.ToDouble(df[3, "V"]));
+            Assert.Equal("b", df[3, "G"]);
+            Assert.Equal(3, Convert.ToInt32(df[3, "Id"]));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Runs))]
     public void A_Failing_Source_Fails_The_Query(Run run)
     {
         // The error reaches the query: the source's stream does not just end (a truncated result).
@@ -322,5 +340,42 @@ public class StreamScanPushdownTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Theory]
+    [MemberData(nameof(Runs))]
+    public void Excel_Scan_Stops_After_The_Requested_Rows(Run run)
+    {
+        var dir = Directory.CreateTempSubdirectory("scan-pushdown-excel-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "t.xlsx");
+            using (var source = DataFrame.From<ExcelRow>([.. Enumerable.Range(0, Rows).Select(i => new ExcelRow(i, $"s{i}"))]))
+                source.WriteExcel(path);
+
+            // Read as Int8, Id overflows from row 128 on: a read of the whole sheet fails there, the leading rows
+            // are read without parsing that far.
+            using (var lf = LazyFrame.ScanExcel(path, schema: PolarsSchema.From<ExcelNarrowRow>()))
+            {
+                using (var df = Execute(lf.Select(Pl.Col("Name"), Pl.Col("Id")).Head(4), run))
+                {
+                    Assert.Equal(["Name", "Id"], df.Columns);
+                    Assert.Equal([0, 1, 2, 3], Ids(df));
+                    Assert.Equal("s3", df[3, "Name"]);
+                }
+                Assert.ThrowsAny<Exception>(() => Execute(lf.Select(Pl.Col("Id")), run).Dispose());
+            }
+            // Leading rows after empty rows: the rows of the whole read, as many as asked.
+            using (var gaps = DataFrame.From<ExcelRow>([new(0, "a"), new(1, "b"), new(2, "c"), new(3, "d")]))
+                gaps.WriteExcel(path);
+            using (var lf = LazyFrame.ScanExcel(path))
+            using (var df = Execute(lf.Head(3), run))
+                Assert.Equal([0, 1, 2], Ids(df));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     public record AvroRow(int Id, string Name, double Score);
+
+    public record ExcelRow(long Id, string Name);
+
+    public record ExcelNarrowRow(sbyte Id);
 }

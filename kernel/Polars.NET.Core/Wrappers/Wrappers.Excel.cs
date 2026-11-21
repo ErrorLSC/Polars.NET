@@ -112,9 +112,13 @@ public readonly partial struct PolarsWrapper
         if (arrowSchema.FieldsList.Count == 0) { using var empty = DataFrameNew([]); return DataFrameToLazy(empty); }
         return ArrowStreamInterop.ScanStream(Batches, arrowSchema, strict: true);
 
-        IEnumerable<RecordBatch> Batches()
+        // A query keeping leading rows gets them in a first batch of that size: the engine stops reading after it, so
+        // the rest of the sheet is never parsed. The columns are all read (the engine keeps the requested ones): a
+        // projection in the reader would judge empty rows by the requested columns only.
+        IEnumerable<RecordBatch> Batches(StreamScanRequest request)
         {
-            using var reader = ExcelReader.Open(path, options);
+            var read = request.RowLimit is { } limit ? options with { BatchSize = (int)Math.Clamp(limit, 1, options.BatchSize) } : options;
+            using var reader = ExcelReader.Open(path, read);
             foreach (var b in reader.ReadBatches()) yield return b;
         }
     }

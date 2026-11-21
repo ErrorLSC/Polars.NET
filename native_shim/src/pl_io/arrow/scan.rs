@@ -73,9 +73,13 @@ pub(crate) struct ScanRequest {
 }
 
 impl ScanRequest {
-    /// The request of the in-memory engine's scan arguments (a projection of every column asks for all).
+    /// The request of the in-memory engine's scan arguments: a projection of every column in the schema's order asks
+    /// for all; in another order it is kept, since the scan's output takes the projection's order.
     fn from_args(args: &AnonymousScanArgs) -> Self {
-        let columns = args.with_columns.clone().filter(|c| c.len() < args.schema.len());
+        let columns = args
+            .with_columns
+            .clone()
+            .filter(|c| c.len() < args.schema.len() || !c.iter().eq(args.schema.iter_names()));
         Self { columns, n_rows: args.n_rows }
     }
 }
