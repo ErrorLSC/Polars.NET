@@ -199,6 +199,8 @@ type DeepUserRecord =
         Location: DetailedAddress
     }
 
+type DecimalFloatRecord = { Id: int; F: float32; D: float; M: decimal }
+
 module QueryTests =
     [<Literal>]
     let nativePushdown = "100% Native Pushdown"
@@ -2772,8 +2774,20 @@ module QueryTests =
         Assert.Equal("United States", athleteCrossSportStars.[0].Region)
         Assert.Equal(3, athleteCrossSportStars.[0].UniqueSportsCount)
 
-
-
-
-
-
+    // F#'s `float`, `float32` and `decimal` between decimals and floating values convert as .NET 11 does (and C#'s
+    // casts): a decimal correctly rounded, once; a floating value from its exact binary value, at scale 18.
+    [<Fact; Trait("LINQ", "Conversion")>]
+    let ``Decimal and floating conversions follow dotnet 11`` () =
+        let rows =
+            [| { Id = 1; F = 0.1f; D = 0.1; M = 1.000000059604644776M }
+               { Id = 2; F = 16777216.0f; D = 945001529.969741; M = -12345.678901234567M } |]
+        use df = DataFrame.ofSeq rows
+        let q = df.AsQueryable<DecimalFloatRecord>()
+        let doubles = query { for x in q do select (float x.M) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<float>(rows |> Array.map (fun x -> float x.M), doubles)
+        let singles = query { for x in q do select (float32 x.M) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<float32>([| 1.0000001f; -12345.679f |], singles)
+        let decimals = query { for x in q do select (decimal x.D) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<decimal>([| 0.100000000000000006M; 945001529.969740986824035644M |], decimals)
+        let fromSingles = query { for x in q do select (decimal x.F) } |> assertPlan nativePushdown |> Seq.toArray
+        Assert.Equal<decimal>([| 0.100000001490116119M; 16777216M |], fromSingles)

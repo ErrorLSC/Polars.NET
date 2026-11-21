@@ -92,6 +92,7 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 ### Changed
 
 * Checked conversions (`checked((int)x)`) throw `OverflowException` when the value leaves the target type's range or is NaN, as .NET does (floating values truncated toward zero). They wrapped before.
+* Conversions between `decimal` and `double` / `float` follow .NET 11 on every runtime. `(double)m` and `(float)m` are correctly rounded (the engine's cast was one unit in the last place off for about a quarter of the values, and `(float)m` now rounds once, not through a double). `(decimal)x` converts the exact binary value of `x`, as .NET 11 does (`(decimal)0.1f` is `0.100000001490116119`, where .NET 10 gave `0.1`; the engine's cast, computed in floating point, could be off in the last digits), kept to the provider's 18 fractional digits as `Math.Round(value, 18)`. `NaN`, infinities and values of `1e20` or more in magnitude throw `OverflowException`: the provider's decimals hold 20 integer digits, where `System.Decimal` holds up to 7.9e28.
 
 ### Fixed
 

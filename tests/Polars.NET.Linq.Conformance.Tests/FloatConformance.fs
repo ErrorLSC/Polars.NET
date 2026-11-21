@@ -3,6 +3,9 @@
 /// NaN, false for a number, null for null. Min is .NET Min (NaN as soon as one value is NaN); Max skips NaN unless
 /// every value is NaN. Float16 literals compare with Half columns exactly. Grouping and Distinct compare floating keys
 /// as .NET Equals does: every NaN is one value (whatever its payload or sign) and -0.0 equals 0.0.
+/// DecimalToFloating is .NET 11's (double)decimal / (float)decimal: correctly rounded, once. FloatingToDecimal is .NET
+/// 11's (decimal)x (the exact binary value, rounded half to even where System.Decimal's digits end) rounded half to even
+/// at the target scale; NaN, an infinity or a value beyond the precision raise OverflowException.
 module Polars.NET.Linq.Conformance.Tests.FloatConformance
 
 open System
@@ -84,3 +87,40 @@ let ``Distinct takes -0.0 as 0.0 and every NaN as one value`` () =
     let t = Tables()
     let plan = project (LogicalPlan.Distinct(t.Scan floatKeys, Some [ "X" ], DistinctKeep.First, true)) [ "Id", col "Id" ]
     Conformance.rowsInOrder t plan [ [ 1L ]; [ 3L ]; [ 5L ] ]
+
+type DX = { Id: int64; M: Nullable<decimal>; X: Nullable<float>; F: Nullable<float32> }
+
+let private conversions: DX array =
+    [|
+        { Id = 1L; M = Nullable 0.1m; X = Nullable 0.1; F = Nullable 0.1f }
+        // M's nearest double is the midpoint of 1 and the next float (which ties to 1); System.Decimal keeps X to 19
+        // fractional digits, its last a 5 that ties to even at 18.
+        { Id = 2L; M = Nullable 1.000000059604644776m; X = Nullable 945001529.969741; F = Nullable 16777216.0f }
+        { Id = 3L; M = Nullable(); X = Nullable(); F = Nullable() }
+    |]
+
+[<Fact>]
+let ``DecimalToFloating rounds once, FloatingToDecimal takes the exact value to the scale`` () =
+    let t = Tables()
+    let toFloat target e = ScalarExpr.Function(ScalarFunction.DecimalToFloating, [ e ], target)
+    let toDecimal e = ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ e ], LogicalTypes.Decimal)
+    let plan =
+        project (t.Scan conversions) [
+            "d", toFloat LogicalTypes.Float64 (col "M")
+            "f", toFloat LogicalTypes.Float32 (col "M")
+            "m", toDecimal (col "X")
+            "mf", toDecimal (col "F")
+        ]
+    Conformance.rowsInOrder t plan [
+        [ 0.1; float 0.1f; 0.100000000000000006m; 0.100000001490116119m ]
+        [ 1.0000000596046448; float 1.0000001f; 945001529.969740986824035644m; 16777216m ]
+        [ null; null; null; null ]
+    ]
+
+[<Fact>]
+let ``FloatingToDecimal raises Overflow on NaN and beyond the precision`` () =
+    for x in [ nan; infinity; 1e20 ] do
+        let t = Tables()
+        let rows: DX array = [| { Id = 1L; M = Nullable(); X = Nullable x; F = Nullable() } |]
+        let plan = project (t.Scan rows) [ "m", ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ col "X" ], LogicalTypes.Decimal) ]
+        Conformance.raises<OverflowException> t plan "Value was either too large or too small for a Decimal."

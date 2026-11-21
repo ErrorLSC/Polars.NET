@@ -665,6 +665,13 @@ For `double`, `float` and `Half`:
   (`(byte)-2.7 == 254`); the provider deliberately follows .NET 11 on every runtime.
 * `decimal` values are fixed-point in Polars. A decimal division keeps 18 fractional digits (C# keeps up to 28
   significant digits), and a value carries its column's scale, so `ToString()` may print `2.500` for `2.5m`.
+* Conversions between `decimal` and `double` / `float` follow .NET 11 on every runtime. `(double)m` and `(float)m`
+  give the nearest value, rounded once. `(decimal)x` converts the exact binary value of `x` (`(decimal)0.1f` is
+  `0.100000001490116119`, where .NET 10 gave `0.1`) and keeps 18 fractional digits, rounded as
+  `Math.Round(value, 18)`. `NaN`, an infinity or a value of `1e20` or more in magnitude throws `OverflowException`:
+  `System.Decimal` holds up to 7.9e28, the provider's decimals 20 integer digits. A conversion of a captured
+  variable or constant (`(decimal)threshold`) is computed by .NET before the query runs, so it follows the
+  runtime the application runs on.
 
 ### Strings
 

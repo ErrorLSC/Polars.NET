@@ -103,6 +103,10 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_dotnet_checked_sum(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dotnet_checked_narrow(ExprHandle expr, int code);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_dotnet_decimal_to_float(ExprHandle expr, int code);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_dotnet_float_to_decimal(ExprHandle expr, int precision, int scale);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_require_listed_ints(ExprHandle expr, ReadOnlySpan<long> values, nuint valuesLen, string message);
     [LibraryImport(LibName)]

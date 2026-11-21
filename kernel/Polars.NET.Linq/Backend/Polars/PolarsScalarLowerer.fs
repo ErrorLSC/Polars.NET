@@ -334,6 +334,17 @@ module internal PolarsScalarLowerer =
                 | _ -> lower value
             PolarsWrapper.DotNetCheckedNarrow(valueH, target)
 
+        // .NET 11's conversions between decimals and floating values: shim kernels (the engine's casts round otherwise).
+        | ScalarExpr.Function(ScalarFunction.DecimalToFloating, [ value ], returnType) ->
+            let target =
+                match returnType with
+                | LogicalType.Arrow(:? Apache.Arrow.Types.FloatType) -> PlDataType.Float32
+                | LogicalType.Arrow(:? Apache.Arrow.Types.DoubleType) -> PlDataType.Float64
+                | other -> failwithf "[Polars.NET.Linq Bug] a decimal converted to %A" other
+            PolarsWrapper.DotNetDecimalToFloat(lower value, target)
+        | ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ value ], LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type as d)) ->
+            PolarsWrapper.DotNetFloatToDecimal(lower value, d.Precision, d.Scale)
+
         | ScalarExpr.Function(fn, args, _) ->
             match fn, args with
             // Math

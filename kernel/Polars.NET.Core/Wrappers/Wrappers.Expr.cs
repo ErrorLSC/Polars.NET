@@ -481,6 +481,31 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
+    /// A decimal expression as <paramref name="target"/> (<see cref="PlDataType.Float32"/> or
+    /// <see cref="PlDataType.Float64"/>), each value correctly rounded (once, to the target), as .NET 11's
+    /// (float)decimal and (double)decimal; null stays null. Element by element.
+    /// </summary>
+    public static ExprHandle DotNetDecimalToFloat(ExprHandle expr, PlDataType target)
+    {
+        var h = NativeBindings.pl_expr_dotnet_decimal_to_float(expr, (int)target);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    /// <summary>
+    /// A float or double expression as Decimal(<paramref name="precision"/>, <paramref name="scale"/>): .NET 11's
+    /// (decimal)x of each value (its exact binary value, rounded half to even where System.Decimal's 28-29 digits end),
+    /// rounded half to even at the scale, as Math.Round; an <see cref="OverflowException"/> for NaN, an infinity or a
+    /// value beyond the precision; null stays null. Element by element.
+    /// </summary>
+    public static ExprHandle DotNetFloatToDecimal(ExprHandle expr, int precision, int scale)
+    {
+        var h = NativeBindings.pl_expr_dotnet_float_to_decimal(expr, precision, scale);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    /// <summary>
     /// The expression unchanged when every non-null value is one of <paramref name="values"/>; otherwise the query
     /// fails with <paramref name="message"/>, its first "{}" replaced by the offending value.
     /// </summary>

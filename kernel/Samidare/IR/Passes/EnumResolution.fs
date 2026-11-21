@@ -4,8 +4,9 @@ open System
 open Kaminari.Sazanami.Marshalling
 
 /// Resolves the expressions whose translation depends on the types of the columns they read: EnumConvert nodes,
-/// the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals), and the checked sums of integers
-/// (OverflowException, as .NET's Sum of int / long and Average of long).
+/// the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals), the checked sums of integers
+/// (OverflowException, as .NET's Sum of int / long and Average of long), and the conversions between decimals and
+/// floating values (DecimalToFloating, FloatingToDecimal: .NET 11's, on every runtime).
 ///
 /// A .NET enum is stored either as an engine Enum column (categories in underlying-value order) or as an integer
 /// column of its underlying values (data written elsewhere, or a [Flags] enum). The translator does not know which,
@@ -233,7 +234,18 @@ module internal EnumResolution =
         | ScalarExpr.Column _
         | ScalarExpr.Literal _ -> expr
         | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, resolve inner)
-        | ScalarExpr.Cast(inner, t, strict) -> ScalarExpr.Cast(resolve inner, t, strict)
+        // A decimal as a float or double, and a float or double as a decimal, convert as .NET 11 does, which an
+        // engine's cast does not: correctly rounded, and from the exact binary value.
+        | ScalarExpr.Cast(inner, t, strict) ->
+            let inner' = resolve inner
+            match typeOf inner', t with
+            | LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type),
+              LogicalType.Arrow(:? Apache.Arrow.Types.FloatType | :? Apache.Arrow.Types.DoubleType) ->
+                ScalarExpr.Function(ScalarFunction.DecimalToFloating, [ inner' ], t)
+            | LogicalType.Arrow(:? Apache.Arrow.Types.FloatType | :? Apache.Arrow.Types.DoubleType),
+              LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type) ->
+                ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ inner' ], t)
+            | _ -> ScalarExpr.Cast(inner', t, strict)
         // A checked sum resolved before (a plan resolved again under a scalar terminal).
         | ScalarExpr.Function(ScalarFunction.AssertCount check, _, _) when check.TooMany = overflow -> expr
         | ScalarExpr.Function(fn, args, t) -> ScalarExpr.Function(fn, args |> List.map resolve, t)

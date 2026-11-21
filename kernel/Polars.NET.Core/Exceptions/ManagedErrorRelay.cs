@@ -8,17 +8,34 @@ namespace Polars.NET.Core.Exceptions;
 /// <see cref="PolarsException"/> holding its text. The callback throws the token <see cref="Capture"/> returns;
 /// the native error that comes back names the token, and the error check rethrows the captured exception.
 /// A native kernel that implements .NET checked arithmetic names <see cref="OverflowMarker"/> instead, which is
-/// raised as an <see cref="OverflowException"/>.
+/// raised as an <see cref="OverflowException"/>; one that converts to decimal names <see cref="DecimalOverflowMarker"/>,
+/// raised as the OverflowException a conversion to System.Decimal throws.
 /// </summary>
 internal static class ManagedErrorRelay
 {
     private const string Prefix = "[[polars-net-relay:";
     /// <summary>The marker a native kernel raises for .NET's OverflowException (checked arithmetic).</summary>
     private const string OverflowMarker = "[[polars-net-overflow]]";
+    /// <summary>The marker a native kernel raises for the OverflowException of a conversion to decimal.</summary>
+    private const string DecimalOverflowMarker = "[[polars-net-decimal-overflow]]";
     private const string Suffix = "]]";
     private const int MaxPending = 1024;
 
     private static readonly ConcurrentDictionary<string, Exception> Pending = new();
+
+    /// <summary>The runtime's own (localized) message for a value System.Decimal does not hold.</summary>
+    private static readonly Lazy<string> DecimalOverflowMessage = new(static () =>
+    {
+        try
+        {
+            _ = new decimal(double.NaN);
+        }
+        catch (OverflowException e)
+        {
+            return e.Message;
+        }
+        return "Value was either too large or too small for a Decimal.";
+    });
 
     /// <summary>
     /// Registers the exception the caller should see and returns the exception the callback throws instead.
@@ -39,6 +56,8 @@ internal static class ManagedErrorRelay
     {
         if (message.Contains(OverflowMarker, StringComparison.Ordinal))
             return new OverflowException();
+        if (message.Contains(DecimalOverflowMarker, StringComparison.Ordinal))
+            return new OverflowException(DecimalOverflowMessage.Value);
 
         int start = message.IndexOf(Prefix, StringComparison.Ordinal);
         if (start < 0)

@@ -1362,6 +1362,120 @@ public class LinqSemanticsRegressionTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Conversions between decimals and floating values follow .NET 11 on every runtime (the engine's casts round
+    // otherwise): a decimal as a double or a float is correctly rounded, once; a double or a float as a decimal is
+    // System.Decimal's value of its exact binary value, held at the provider's scale 18 rounded half to even
+    // (Math.Round(value, 18)). NaN, infinities and values from 1e20 up (beyond 20 integer digits) throw.
+    // ---------------------------------------------------------------------------------------------
+
+    public class Mix
+    {
+        public int Id { get; set; }
+        public float F { get; set; }
+        public double D { get; set; }
+        public decimal M { get; set; }
+        public double? ND { get; set; }
+        public decimal? NM { get; set; }
+    }
+
+    private static readonly Mix[] MixRows = BuildMixRows();
+
+    private static Mix[] BuildMixRows()
+    {
+        var random = new Random(17);
+        Mix[] edges =
+        [
+            new() { Id = -1, F = 0.1f, D = 0.1, M = 0.1m },
+            // The nearest double to M is the midpoint of 1 and the next float, which would tie to 1: (float)M is not
+            // (float)(double)M. System.Decimal keeps D to 19 fractional digits, ending in a 5 that ties to even at 18.
+            new() { Id = -2, F = 16777216f, D = 945001529.969741, M = 1.000000059604644776m, ND = -0.0, NM = -1.000000059604644776m },
+            new() { Id = -3, F = float.Epsilon, D = 99999999999999983616.0, M = -79228162514264.337593543950335m, ND = 1e-30, NM = 0.000000000000000001m },
+        ];
+        return
+        [
+            .. edges,
+            .. Enumerable.Range(0, 4000).Select(i => new Mix
+            {
+                Id = i,
+                F = (float)((random.NextDouble() - 0.5) * Math.Pow(10, random.Next(-3, 8))),
+                D = Math.Round((random.NextDouble() - 0.5) * Math.Pow(10, random.Next(-3, 12)), random.Next(1, 16)),
+                M = decimal.Round(new decimal(random.NextInt64(-999_999_999_999_999, 999_999_999_999_999)) / (decimal)Math.Pow(10, random.Next(0, 16)), 15),
+                ND = i % 3 == 0 ? null : random.NextDouble() * 1e6,
+                NM = i % 4 == 0 ? null : new decimal(random.NextInt64(-999_999_999_999, 999_999_999_999)) / 1_000_000m,
+            }),
+        ];
+    }
+
+    private static decimal Scale18(decimal value) => Math.Round(value, 18);
+    private static decimal? Scale18(decimal? value) => value is { } v ? Math.Round(v, 18) : null;
+
+    [Fact]
+    public void Decimal_To_Floating_Is_Correctly_Rounded()
+    {
+        using var df = DataFrame.From(MixRows);
+        var q = df.AsQueryable<Mix>();
+
+        Assert.Equal(MixRows.Select(x => (double)x.M), [.. q.Select(x => (double)x.M)]);
+        Assert.Equal(MixRows.Select(x => (float)x.M), [.. q.Select(x => (float)x.M)]);
+        Assert.Equal(MixRows.Select(x => (double?)x.NM), [.. q.Select(x => (double?)x.NM)]);
+        Assert.Equal(MixRows.Select(x => (float?)x.NM), [.. q.Select(x => (float?)x.NM)]);
+        Assert.Equal(MixRows.Select(x => decimal.ToDouble(x.M * 3m)), [.. q.Select(x => decimal.ToDouble(x.M * 3m))]);
+        Assert.Equal(MixRows.Where(x => (double)x.M < x.D).Select(x => x.Id), [.. q.Where(x => (double)x.M < x.D).Select(x => x.Id)]);
+        Assert.Equal(
+            MixRows.GroupBy(x => x.Id % 5).Select(g => new { g.Key, Max = g.Max(x => (double)x.M) }).OrderBy(r => r.Key),
+            [.. q.GroupBy(x => x.Id % 5).Select(g => new { g.Key, Max = g.Max(x => (double)x.M) }).OrderBy(r => r.Key)]);
+        // Runtime-independent: rounded once, not through the double (which ties to 1).
+        Assert.Equal([1.0000001f], [.. q.Where(x => x.Id == -2).Select(x => (float)x.M)]);
+        Assert.Equal([(float?)-1.0000001f], [.. q.Where(x => x.Id == -2).Select(x => (float?)x.NM)]);
+    }
+
+    [Fact]
+    public void Floating_To_Decimal_Is_The_Dotnet_Value_At_Scale_18()
+    {
+        using var df = DataFrame.From(MixRows);
+        var q = df.AsQueryable<Mix>();
+
+        Assert.Equal(MixRows.Select(x => Scale18((decimal)x.D)), [.. q.Select(x => (decimal)x.D)]);
+        Assert.Equal(MixRows.Select(x => Scale18((decimal)x.F)), [.. q.Select(x => (decimal)x.F)]);
+        Assert.Equal(MixRows.Select(x => Scale18((decimal?)x.ND)), [.. q.Select(x => (decimal?)x.ND)]);
+        Assert.Equal(MixRows.Select(x => Scale18((decimal)(x.D + x.F))), [.. q.Select(x => (decimal)(x.D + x.F))]);
+        Assert.Equal(MixRows.Where(x => (decimal)x.D > x.M).Select(x => x.Id), [.. q.Where(x => (decimal)x.D > x.M).Select(x => x.Id)]);
+        Assert.Equal(MixRows.Where(x => (decimal)x.F == 0.1m).Select(x => x.Id), [.. q.Where(x => (decimal)x.F == 0.1m).Select(x => x.Id)]);
+        Assert.Equal(
+            MixRows.GroupBy(x => x.Id % 5).Select(g => new { g.Key, Min = Scale18(g.Min(x => (decimal)x.F)) }).OrderBy(r => r.Key),
+            [.. q.GroupBy(x => x.Id % 5).Select(g => new { g.Key, Min = g.Min(x => (decimal)x.F) }).OrderBy(r => r.Key)]);
+        // Runtime-independent (.NET 10 rounded to 15 significant digits: 0.1, 945001529.969741): the exact values,
+        // System.Decimal's 19th digit tying to even at 18 for 945001529.969741 (one rounding would end in 645).
+        Assert.Equal(
+            [0.100000000000000006m, 945001529.969740986824035644m, 99999999999999983616m],
+            [.. q.Where(x => x.Id < 0).OrderByDescending(x => x.Id).Select(x => (decimal)x.D)]);
+        Assert.Equal([0.100000001490116119m], [.. q.Where(x => x.Id == -1).Select(x => (decimal)x.F)]);
+    }
+
+    [Fact]
+    public void Floating_To_Decimal_Throws_On_NaN_Infinity_And_Beyond_20_Digits()
+    {
+        foreach (double d in (double[])[double.NaN, double.PositiveInfinity, double.NegativeInfinity, 8e28])
+        {
+            Mix[] rows = [new() { D = d }];
+            using var df = DataFrame.From(rows);
+            AssertSameFailure(() => rows.Select(x => (decimal)x.D).ToList(), () => df.AsQueryable<Mix>().Select(x => (decimal)x.D).ToList());
+        }
+        // System.Decimal holds these; the provider's decimal (20 integer digits) does not.
+        foreach (double d in (double[])[1e20, -1e20, 7e28])
+        {
+            Mix[] rows = [new() { D = d }];
+            using var df = DataFrame.From(rows);
+            Assert.Throws<OverflowException>(() => df.AsQueryable<Mix>().Select(x => (decimal)x.D).ToList());
+        }
+        // A null converts to null; a NaN in a row a filter drops before the projection is never converted.
+        Mix[] mixed = [new() { Id = 1, D = 1.5, ND = null }, new() { Id = 2, D = double.NaN }];
+        using var mixedDf = DataFrame.From(mixed);
+        Assert.Equal([(decimal?)null], [.. mixedDf.AsQueryable<Mix>().Where(x => x.Id == 1).Select(x => (decimal?)x.ND)]);
+        Assert.Equal([1.5m], [.. mixedDf.AsQueryable<Mix>().Where(x => x.Id == 1).Select(x => (decimal)x.D)]);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // A subquery held in a variable keeps its operators when a Select / Distinct follows it (the Where and Take
     // of `ob` used to be dropped under `ob.Select(..).Contains(..)`).
     // ---------------------------------------------------------------------------------------------

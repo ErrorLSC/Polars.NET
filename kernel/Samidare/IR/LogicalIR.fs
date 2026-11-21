@@ -457,6 +457,14 @@ type ScalarFunction =
     /// the query fails with `QueryErrorKind.Overflow` when a value leaves that type's range (.NET's checked
     /// conversion; over an exact wide sum, a checked sum per group). Null stays null. It has an effect, as AssertCount.
     | CheckedNarrow
+    /// `[value]` over decimals: the value as the function's floating type (Float32 or Float64), correctly rounded
+    /// once to it, as .NET 11's (float)decimal and (double)decimal. Null stays null.
+    | DecimalToFloating
+    /// `[value]` over floating values: .NET 11's (decimal)value (the exact binary value, rounded half to even where
+    /// System.Decimal's 28-29 significant digits end) as the function's decimal type, rounded half to even at its
+    /// scale; the query fails with `QueryErrorKind.Overflow` on NaN, an infinity or a value beyond its precision, as
+    /// .NET throws OverflowException. Null stays null. It has an effect, as CheckedNarrow.
+    | FloatingToDecimal
 
     // --- Custom / Extension Function ---
     | Custom of name: string
@@ -604,6 +612,8 @@ type ScalarFunction =
         | ScalarFunction.ReplaceStrict _ -> "replace_strict"
         | ScalarFunction.AssertCount _ -> "assert_count"
         | ScalarFunction.CheckedNarrow -> "checked_narrow"
+        | ScalarFunction.DecimalToFloating -> "decimal_to_floating"
+        | ScalarFunction.FloatingToDecimal -> "floating_to_decimal"
         | ScalarFunction.RequireListed _ -> "require_listed"
         | ScalarFunction.FloatOrderKey -> "float_order_key"
         | ScalarFunction.Custom name -> name
