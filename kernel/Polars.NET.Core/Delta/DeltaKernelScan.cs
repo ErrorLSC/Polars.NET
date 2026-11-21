@@ -6,6 +6,8 @@ using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using Kaminari.Seseragi.Lakehouse.Skipping;
+using Kaminari.Seseragi.Lakehouse.Delta.Skipping;
+using Kaminari.Samidare.IR;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
@@ -62,6 +64,9 @@ public static class DeltaKernelScan
 {
     internal const string RowIndexColumn = "__seseragi_row_index";
 
+    /// <summary>Tests only: told how many data files each scan of a snapshot made in this async flow reads.</summary>
+    internal static readonly AsyncLocal<Action<int>?> ScannedFilesForTests = new();
+
     /// <summary>A row's id under row tracking (Int64), as <see cref="ScanFile"/> gives it on request.</summary>
     internal const string RowIdColumn = "__seseragi_row_id";
 
@@ -102,10 +107,19 @@ public static class DeltaKernelScan
     }
 
     /// <summary>As <see cref="Scan"/>, reporting how many data files are scanned.</summary>
+    /// <param name="rowFilter">Rows a query keeps (the query compiler's IR, by logical column name): leaves out files
+    /// that cannot hold one, as <paramref name="filter"/> does.</param>
     internal static LazyFrameHandle ScanPath(
         string tablePath, long? version, DateTimeOffset? asOf, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles,
-        KernelScanOptions? options = null)
+        KernelScanOptions? options = null, ScalarExpr? rowFilter = null) =>
+        ScanPath(tablePath, version, asOf, filter, cloud, scannedFiles, options, rowFilter, out _, out _);
+
+    /// <summary>As <see cref="ScanPath(string, long?, DateTimeOffset?, Predicate?, CloudArgs?, Action{int}?, KernelScanOptions?, ScalarExpr?)"/>, giving the version read.</summary>
+    internal static LazyFrameHandle ScanPath(
+        string tablePath, long? version, DateTimeOffset? asOf, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles,
+        KernelScanOptions? options, ScalarExpr? rowFilter, out long readVersion, out bool castsTypes)
     {
+        castsTypes = false;
         if (version.HasValue && asOf.HasValue)
             throw new ArgumentException("Give a version or a time, not both.");
 
@@ -117,9 +131,11 @@ public static class DeltaKernelScan
             Snapshot snapshot = asOf is DateTimeOffset time
                 ? Snapshot.LoadAsOf(fileSystem, time)
                 : Snapshot.Load(fileSystem, version);
-            LazyFrameHandle scanned = ScanSnapshot(fileSystem, root, snapshot, filter, cloud, scannedFiles, options);
+            readVersion = snapshot.Version;
+            LazyFrameHandle scanned = ScanSnapshot(fileSystem, root, snapshot, filter, cloud, scannedFiles, options, rowFilter);
             if (options is null) return scanned;
             if (options.VariantAsJson) scanned = VariantColumns.AsJson(scanned, snapshot.Schema);
+            castsTypes = options.Schema is SchemaHandle wanted && CastsTypes(wanted, scanned);
             return ApplyOptions(scanned, snapshot.Schema, options);
         }
         catch (DeltaException e)
@@ -300,6 +316,26 @@ public static class DeltaKernelScan
     /// The scan options that act on the whole result: the columns of <see cref="KernelScanOptions.Schema"/> (strict
     /// casts), then a row index, then the row limit.
     /// </summary>
+    /// <summary>Whether a given schema gives a column of the frame another type than it has.</summary>
+    private static bool CastsTypes(SchemaHandle wanted, LazyFrameHandle frame)
+    {
+        var types = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, type) in PolarsSchemaExtractor.GetFields(frame))
+        {
+            using (type) types[name] = PolarsWrapper.GetDataTypeString(type);
+        }
+        ulong count = PolarsWrapper.GetSchemaLen(wanted);
+        for (ulong i = 0; i < count; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(wanted, i, out string name, out DataTypeHandle type);
+            using (type)
+            {
+                if (types.TryGetValue(name, out string? had) && had != PolarsWrapper.GetDataTypeString(type)) return true;
+            }
+        }
+        return false;
+    }
+
     private static LazyFrameHandle ApplyOptions(LazyFrameHandle lf, StructType tableSchema, KernelScanOptions options)
     {
         if (options.Schema is SchemaHandle wanted)
@@ -340,14 +376,21 @@ public static class DeltaKernelScan
 
     private static LazyFrameHandle ScanSnapshot(
         IFileSystem fileSystem, string tableRoot, Snapshot snapshot, Predicate? filter, CloudArgs? cloud, Action<int>? scannedFiles,
-        KernelScanOptions? options = null)
+        KernelScanOptions? options = null, ScalarExpr? rowFilter = null)
     {
         string? pathColumn = options?.IncludePathColumn;
         Action<List<ExprHandle>>? keepPath = pathColumn is null ? null : exprs => exprs.Add(PolarsWrapper.Col(pathColumn));
         cloud ??= CloudArgs.Local;
         StructType schema = snapshot.Schema;
-        IReadOnlyList<AddAction> files = filter is null ? snapshot.Files : snapshot.FilesMatching(filter);
+        IReadOnlyList<AddAction> files = (filter, rowFilter) switch
+        {
+            (null, null) => snapshot.Files,
+            (_, null) => snapshot.FilesMatching(filter),
+            (null, _) => snapshot.FilesMatching(rowFilter),
+            _ => snapshot.FilesMatching(ScalarExpr.NewBinary(BinaryOp.And, FileFilter.ToFilter(filter, snapshot.Schema), rowFilter)),
+        };
         scannedFiles?.Invoke(files.Count);
+        ScannedFilesForTests.Value?.Invoke(files.Count);
 
         var partitionColumns = new HashSet<string>(snapshot.PartitionColumns, StringComparer.Ordinal);
         string[] widened = WidenedColumns(snapshot);

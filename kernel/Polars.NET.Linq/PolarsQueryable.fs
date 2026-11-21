@@ -46,7 +46,7 @@ type internal PolarsQueryProvider(rootSource: Lazy<ILogicalTableSource>, materia
 
     // The root frame's schema is read once per provider. Lowering clones the handle, so the binding never hands it out.
     new(initialLazyFrame: LazyFrameHandle, materializer: IDataFrameMaterializer, language: QueryLanguage) =
-        PolarsQueryProvider(lazy (PolarsPhysicalLowerer.tableSourceOfLazyFrame initialLazyFrame), materializer, language)
+        PolarsQueryProvider(lazy (DeltaKernelSources.ofLazyFrame initialLazyFrame initialLazyFrame), materializer, language)
 
     /// Root table source, bound to slot 0 of every query this provider compiles.
     member _.RootSource : ILogicalTableSource = rootSource.Value

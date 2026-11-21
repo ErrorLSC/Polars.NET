@@ -8,38 +8,6 @@ open Polars.NET.Core.Helpers
 open Kaminari.Samidare.IR
 open Kaminari.Samidare.Config
 
-/// Physical Polars LazyFrame implementation of ILogicalTableSource.
-type internal PolarsTableSource(handle: LazyFrameHandle, schema: LogicalSchema) =
-    let estimatedRows =
-        lazy (
-            let rows = PolarsWrapper.LazyEstimatedRows handle
-            if rows.HasValue then Some rows.Value else None
-        )
-    let identity =
-        lazy (
-            let plan = PolarsWrapper.Explain(handle, false)
-            if plan.Contains "SCAN [" then Some plan else None
-        )
-    member _.Handle = handle
-    interface ILogicalTableSource with
-        member _.Name = "PolarsLazyFrame"
-        member _.Schema = schema
-    interface ISourceStatistics with
-        member _.EstimatedRows = estimatedRows.Value
-    interface ISourceIdentity with
-        member _.SourceIdentity = identity.Value
-    interface IColumnStatisticsSource with
-        member _.TryGetColumnStatistics column =
-            if SamidareConfig.CollectColumnStatistics then
-                PolarsColumnStatistics.tryGet handle schema estimatedRows.Value column
-            else
-                None
-        member _.TryGetColumnRange column =
-            if SamidareConfig.CollectColumnStatistics then
-                PolarsColumnStatistics.tryGetRange handle schema column
-            else
-                None
-
 /// Physical lowerer that translates LogicalPlan trees into native Polars operations.
 module internal PolarsPhysicalLowerer =
 
@@ -48,16 +16,10 @@ module internal PolarsPhysicalLowerer =
         PolarsWrapper.DataFrameToLazy df
 
     /// The schema, with column types, of a physical LazyFrameHandle.
-    let schemaOfLazyFrame (lf: LazyFrameHandle) : LogicalSchema =
-        PolarsSchemaExtractor.GetFields lf
-        |> Array.map (fun struct (name, dataType) ->
-            use dataType = dataType
-            name, PolarsVocabulary.ofDataTypeHandle dataType)
-        |> LogicalSchema.OfFields
+    let schemaOfLazyFrame (lf: LazyFrameHandle) : LogicalSchema = PolarsTableSources.schemaOf lf
 
     /// Wraps a physical LazyFrameHandle as an opaque ILogicalTableSource (schema, with column types, read from the frame).
-    let tableSourceOfLazyFrame (lf: LazyFrameHandle) : ILogicalTableSource =
-        PolarsTableSource(lf, schemaOfLazyFrame lf)
+    let tableSourceOfLazyFrame (lf: LazyFrameHandle) : ILogicalTableSource = PolarsTableSources.ofLazyFrame lf
 
     /// Materializes an in-memory row snapshot into a LazyFrame, verifying that the transposed columns
     /// match the schema the frontend declared for the Scan node.

@@ -58,7 +58,7 @@ df.WriteDelta(
     mkdir: true
 );
 
-// 2. Lazily scan the Delta table (with automatic partition pruning)
+// 2. Lazily scan the Delta table and filter its rows
 var lf = LazyFrame.ScanDelta("./lake/devices");
 var collected = lf.Filter(Col("Device") == "A").Collect();
 
@@ -83,11 +83,48 @@ df.WriteDelta(
     mkdir = true
 )
 
-// 2. Scan and filter with partition pruning
+// 2. Scan and filter the rows
 let collected =
     LazyFrame.ScanDelta "./lake/devices"
     |> LazyFrame.filter (pl.col "Device" .== pl.lit "A")
     |> LazyFrame.collect
+```
+
+:::
+
+### Skipping files with LINQ
+
+A LINQ query over the frame `ScanDelta` (or `ScanCatalogTable`) returns reads only the data files that may hold a row its `Where` keeps: the partition values and file statistics of the log rule the others out, before anything is read. It reads the version the scan read. What can rule files out: comparisons with values, ranges, `&&`, `||` and `!`, `Contains` on a list of values, null checks, `StartsWith` (ordinal), `double.IsNaN`, integer arithmetic and two columns compared, on top-level columns and struct fields. Not: array and map columns, culture-sensitive string comparisons (`CompareTo`), queries over a frame changed after the scan (`ScanDelta(...).Filter(...).AsQueryable()`), and scans with `nRows` or `rowIndexName` (leaving files out would change which rows those are). The DataFrame API's `Filter` filters the rows read but leaves no file out. Should the table not be scanned again (the catalog client was disposed, or the version's log was cleaned up), the query reads the frame whole: the same rows, without skipping.
+
+::: code-group
+
+```csharp [C# (LINQ)]
+using Polars.CSharp;
+using Polars.CSharp.Linq;
+
+using var lf = LazyFrame.ScanDelta("./lake/devices");
+// Only the files of partition A, and of those only files whose readings reach 50, are read.
+var high = lf.AsQueryable<DeviceReading>()
+    .Where(r => r.Device == "A" && r.Reading >= 50)
+    .ToList();
+
+record DeviceReading(int Id, string Device, double Reading);
+```
+
+```fsharp [F# (Query)]
+open Polars.FSharp
+open Polars.FSharp.Query
+
+type DeviceReading = { Id: int; Device: string; Reading: float }
+
+use lf = LazyFrame.ScanDelta "./lake/devices"
+let high =
+    query {
+        for r in lf.AsQueryable<DeviceReading>() do
+        where (r.Device = "A" && r.Reading >= 50.0)
+        select r
+    }
+    |> Seq.toList
 ```
 
 :::

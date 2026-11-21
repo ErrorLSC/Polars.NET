@@ -192,7 +192,9 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues,
         string? rowIdColumn = null,
         string? rowCommitVersionColumn = null,
-        bool variantAsJson = false)
+        bool variantAsJson = false,
+        Kaminari.Samidare.IR.ScalarExpr? rowFilter = null,
+        Action<int>? scannedFiles = null)
     {
         // The managed Delta kernel resolves the table; partition values come from the log, so the glob and Hive
         // options do not apply.
@@ -203,7 +205,23 @@ public readonly partial struct PolarsWrapper
         long? atVersion = version is ulong v ? checked((long)v) : null;
         var options = new Delta.KernelScanOptions(nRows, rowIndexName, rowIndexOffset, includePathColumn, parallel, lowMemory,
             useStatistics, rechunk, cache, schema, rowIdColumn, rowCommitVersionColumn, variantAsJson);
-        return Delta.DeltaKernelScan.Scan(path, atVersion, asOf, filter: null, cloud, options);
+        LazyFrameHandle lf = Delta.DeltaKernelScan.ScanPath(path, atVersion, asOf, null, cloud, scannedFiles, options, rowFilter,
+            out long read, out bool castsTypes);
+        // A query over this frame (LINQ) may scan it again at the same version, leaving out the files its filter rules
+        // out: not when a given schema changes a column's type (the filter then reads values other than the
+        // statistics describe).
+        if (Delta.DeltaScanOrigin.AllowsSkipping(nRows, rowIndexName) && !castsTypes)
+        {
+            // The given schema is the caller's, released after this call: the origin keeps its own copy (the
+            // collector releases it with the origin).
+            SchemaHandle? ownSchema = schema is null ? null : SchemaClone(schema);
+            lf.DeltaOrigin = new Delta.DeltaScanOrigin(read, (filter, scanned) => ScanDelta(path, (ulong)read, null, nRows, parallel, lowMemory,
+                useStatistics, glob, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, ownSchema, hivePartitioning,
+                null, tryParseHiveDates, cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
+                cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues, rowIdColumn, rowCommitVersionColumn, variantAsJson,
+                filter, scanned));
+        }
+        return lf;
     }
     public static void SinkDelta(
         LazyFrameHandle lf,

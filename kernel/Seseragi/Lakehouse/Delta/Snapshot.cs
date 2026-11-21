@@ -72,9 +72,18 @@ public sealed class Snapshot
     /// The data files that can hold a row matching a predicate, judged by partition values and file statistics.
     /// Files are left out only when it is certain they hold none.
     /// </summary>
-    public List<AddAction> FilesMatching(Predicate predicate)
+    public List<AddAction> FilesMatching(Predicate predicate) => FilesMatching(new Skipping.FileFilter(Schema, PartitionColumns, predicate));
+
+    /// <summary>
+    /// The data files that can hold a row a filter of the query compiler's IR keeps (columns by logical name), judged
+    /// by partition values and file statistics. Files are left out only when it is certain they hold none.
+    /// </summary>
+    public List<AddAction> FilesMatching(Kaminari.Samidare.IR.ScalarExpr filter) =>
+        FilesMatching(new Skipping.FileFilter(Schema, PartitionColumns, filter));
+
+    private List<AddAction> FilesMatching(Skipping.FileFilter filter)
     {
-        var filter = new Skipping.FileFilter(Schema, PartitionColumns, predicate);
+        if (!filter.CanSkip) return [.. Files];
         var files = new List<AddAction>();
         foreach (AddAction file in Files)
         {

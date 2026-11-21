@@ -66,6 +66,36 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
     }
 
     [SparkFact]
+    public async Task LinqQueries_OverACatalogTableScan_LeaveOutTheFilesTheFilterRulesOut()
+    {
+        // Three inserts: the files of the middle one (ids 11..13) are then damaged.
+        string catalog = await uc.NewCatalogAsync();
+        string table = $"{catalog}.s.t";
+        LocalSpark.Run(["uc_sql", uc.Url, catalog,
+            $"CREATE TABLE {table} (id BIGINT, s STRING) USING delta TBLPROPERTIES ('delta.feature.catalogManaged' = 'supported')"]);
+        string location;
+        using (JsonDocument state = Load(catalog))
+            location = new Uri(state.RootElement.GetProperty("metadata").GetProperty("location").GetString()!).LocalPath;
+        string[] DataFiles() => Directory.GetFiles(location, "*.parquet", SearchOption.AllDirectories);
+        string[] middle = [];
+        foreach (int first in (int[])[1, 11, 21])
+        {
+            string[] before = DataFiles();
+            LocalSpark.Run(["uc_sql", uc.Url, catalog, $"INSERT INTO {table} VALUES ({first}, 'x'), ({first + 1}, 'y'), ({first + 2}, 'z')"]);
+            if (first == 11) middle = [.. DataFiles().Except(before)];
+        }
+        Assert.NotEmpty(middle);
+        foreach (string file in middle) File.WriteAllBytes(file, "not a parquet file"u8.ToArray());
+
+        using var client = new UnityCatalog(uc.Url, "");
+        using LazyFrame lf = client.ScanCatalogTable(catalog, "s", "t");
+        var rows = Polars.CSharp.Linq.LinqExtensions.AsQueryable<Row>(lf);
+        Assert.Equal([21L, 22L, 23L], rows.Where(r => r.id > 20).Select(r => r.id).ToList().Order());
+        Assert.Equal([1L, 2L, 3L], rows.Where(r => r.id < 5).Select(r => r.id).ToList().Order());
+        Assert.ThrowsAny<Exception>(() => rows.Where(r => r.id == 12).ToList());
+    }
+
+    [SparkFact]
     public async Task SparksTable_IsReadAndWrittenThroughTheCatalog_AndSparkSeesEveryCommit()
     {
         var (catalog, table) = await SparksTableAsync();

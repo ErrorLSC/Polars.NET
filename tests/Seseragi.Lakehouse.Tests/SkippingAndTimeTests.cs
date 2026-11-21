@@ -1,3 +1,4 @@
+using Kaminari.Samidare.IR;
 using Kaminari.Seseragi.Lakehouse.Delta;
 using Kaminari.Seseragi.Lakehouse.Delta.Actions;
 using Kaminari.Seseragi.Lakehouse.Delta.Log;
@@ -46,6 +47,14 @@ public class FileFilterTests
     private static bool Might(Predicate predicate, AddAction? file = null) =>
         new FileFilter(s_schema, s_partitions, predicate).MightMatch(file ?? s_file);
 
+    private static bool MightIr(ScalarExpr filter, AddAction? file = null) =>
+        new FileFilter(s_schema, s_partitions, filter).MightMatch(file ?? s_file);
+
+    /// <summary>The predicate's IR with the C# front end's NaN guard on <paramref name="column"/> (NOT isnan(column)).</summary>
+    internal static ScalarExpr NaNGuarded(Predicate predicate, string column, StructType? schema = null) =>
+        ScalarExpr.NewBinary(BinaryOp.And, FileFilter.ToFilter(predicate, schema ?? s_schema),
+            ScalarExpr.NewUnary(UnaryOp.Not, ScalarExpr.NewUnary(UnaryOp.IsNan, ScalarExpr.NewColumn(column))));
+
     [Theory]
     [InlineData(CompareOp.Eq, 9L, false)]
     [InlineData(CompareOp.Eq, 10L, true)]
@@ -68,7 +77,10 @@ public class FileFilterTests
         Assert.False(Might(P.Lt("name", "bob")));
         Assert.True(Might(P.Eq("name", "carol")));
         Assert.False(Might(P.Gt("name", "dave")));
-        Assert.False(Might(P.Gt("price", 9.5)));
+        // NaN is greater than every number and the log counts no NaN: only a NaN guard (as the C# front end adds
+        // for > and >=) lets the upper bound rule the file out.
+        Assert.True(Might(P.Gt("price", 9.5)));
+        Assert.False(MightIr(NaNGuarded(P.Gt("price", 9.5), "price")));
         Assert.True(Might(P.Ge("price", 9)));
         Assert.False(Might(P.Eq("amount", 7.26m)));
         Assert.True(Might(P.Eq("amount", 7.25m)));
@@ -115,6 +127,14 @@ public class FileFilterTests
     }
 
     [Fact]
+    public void ValuesOfOtherTypes_KeepTheFile_AlsoNegated()
+    {
+        Assert.True(Might(P.Eq("id", Guid.NewGuid())));
+        Assert.True(Might(P.Not(P.Eq("id", Guid.NewGuid()))));
+        Assert.False(Might(P.And(P.Eq("id", Guid.NewGuid()), P.Gt("id", 25L))));
+    }
+
+    [Fact]
     public void Ne_SkipsOnlyWhenEveryValueIsTheLiteral()
     {
         AddAction constant = File("""{"numRecords":5,"minValues":{"id":7,"name":"x"},"maxValues":{"id":7,"name":"x"},"nullCount":{"id":0,"name":0}}""");
@@ -122,7 +142,10 @@ public class FileFilterTests
         Assert.False(Might(P.Ne("id", 7), constant));
         Assert.True(Might(P.Ne("id", 8), constant));
         Assert.False(Might(P.Not(P.Eq("id", 7)), constant));
-        Assert.True(Might(P.Ne("name", "x"), constant)); // strings may be truncated
+        // A string maximum in the log is never cut (a cut one would be no upper bound: writers leave it out) and a
+        // cut minimum is still a lower bound, so equal bounds mean every value is x.
+        Assert.False(Might(P.Ne("name", "x"), constant));
+        Assert.True(Might(P.Ne("name", "y"), constant));
     }
 
     [Fact]
@@ -223,12 +246,15 @@ public class FileFilterTests
             Stats = """{"numRecords":1,"minValues":{"f":0.1,"i":7,"d":"2024-01-02","m":1.25,"g":0.1},"maxValues":{"f":0.1,"i":7,"d":"2024-01-02","m":1.25,"g":0.1},"nullCount":{"f":0,"i":0,"d":0,"m":0,"g":0}}""",
         };
         bool Might(Predicate p) => new FileFilter(schema, [], p).MightMatch(old);
+        bool MightGuarded(Predicate p, string column) => new FileFilter(schema, [], NaNGuarded(p, column, schema)).MightMatch(old);
 
         Assert.True(Might(P.Gt(new ColumnPath("f"), 0.1)), "the float value is above the double 0.1");
         Assert.True(Might(P.Ne(new ColumnPath("f"), 0.1)));
-        Assert.False(Might(P.Gt(new ColumnPath("f"), 0.1000001)));
+        Assert.True(Might(P.Gt(new ColumnPath("f"), 0.1000001)), "NaN may be there, greater than every number");
+        Assert.False(MightGuarded(P.Gt(new ColumnPath("f"), 0.1000001), "f"));
         Assert.False(Might(P.Lt(new ColumnPath("f"), 0.0999999)));
-        Assert.False(Might(P.Gt(new ColumnPath("g"), 0.1)), "an unwidened double keeps exact bounds");
+        Assert.True(MightGuarded(P.Gt(new ColumnPath("g"), Math.BitDecrement(0.1)), "g"));
+        Assert.False(MightGuarded(P.Gt(new ColumnPath("g"), 0.1), "g"), "an unwidened double keeps exact bounds");
 
         Assert.True(Might(P.Eq(new ColumnPath("i"), 7L)));
         Assert.False(Might(P.Gt(new ColumnPath("i"), 7L)));

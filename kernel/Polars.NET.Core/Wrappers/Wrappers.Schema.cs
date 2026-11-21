@@ -31,6 +31,9 @@ public readonly partial struct PolarsWrapper
             NativeBindings.pl_schema_new(names, typePtrs, (UIntPtr)names.Length)
         );
     }
+    /// <summary>A copy of the schema owned by the caller (the given one may be released meanwhile).</summary>
+    public static SchemaHandle SchemaClone(SchemaHandle schema) => ErrorHelper.Check(NativeBindings.pl_schema_clone(schema));
+
     /// <summary>
     /// Get the length of Schema
     /// </summary>

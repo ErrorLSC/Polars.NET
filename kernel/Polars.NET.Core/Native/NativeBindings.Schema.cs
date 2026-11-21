@@ -7,6 +7,8 @@ unsafe internal partial class NativeBindings
     // Schema
     [LibraryImport(LibName)]
     public static partial void pl_schema_free(IntPtr ptr);
+    [LibraryImport(LibName)]
+    public static partial SchemaHandle pl_schema_clone(SchemaHandle schema);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SchemaHandle pl_schema_new(

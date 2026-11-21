@@ -4,6 +4,7 @@ open System
 open System.IO
 open Xunit
 open Polars.FSharp
+open Polars.FSharp.Query
 
 [<Fact>]
 let ``Scenario 1: Delta Lake Base Read Write and Append`` () =
@@ -453,5 +454,32 @@ let ``Delta Update of an identity column is refused`` () =
             Assert.ThrowsAny<Exception>(fun () ->
                 Delta.Update(path, [ ("id", pl.lit 5L) ], predicate = (pl.col "v" .== pl.lit "a")) |> ignore)
         Assert.Contains("UPDATE on IDENTITY column", ex.Message)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+type SkippingRow = { Id: int64; Name: string }
+
+/// A query over a frame ScanDelta returned leaves out the data files the filter rules out: the middle of three
+/// files (ids 11..13) is damaged, and only queries that rule it out succeed.
+[<Fact>]
+let ``LINQ queries over ScanDelta leave out files the filter rules out`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_skipping_fs_{Guid.NewGuid():N}")
+    let files () = if Directory.Exists path then Directory.GetFiles(path, "*.parquet", SearchOption.AllDirectories) else [||]
+    try
+        let mutable middle = ""
+        for first, prefix in [ 1L, "a"; 11L, "b"; 21L, "c" ] do
+            let before = files ()
+            use df = DataFrame.ofRecords [ for i in 0L .. 2L -> { Id = first + i; Name = $"{prefix}{i}" } ]
+            df.WriteDelta(path, mode = DeltaSaveMode.Append, mkdir = true)
+            if prefix = "b" then middle <- files () |> Array.except before |> Array.exactlyOne
+        File.WriteAllBytes(middle, "not a parquet file"B)
+
+        use lf = LazyFrame.ScanDelta path
+        let rows = lf.AsQueryable<SkippingRow>()
+        let high = query { for r in rows do where (r.Id > 20L); select r.Id } |> Seq.sort |> Seq.toList
+        Assert.Equal<int64 list>([ 21L; 22L; 23L ], high)
+        let named = query { for r in rows do where (r.Name.StartsWith "a"); select r.Name } |> Seq.sort |> Seq.toList
+        Assert.Equal<string list>([ "a0"; "a1"; "a2" ], named)
+        Assert.ThrowsAny<exn>(fun () -> query { for r in rows do where (r.Id = 12L); select r.Id } |> Seq.toList |> ignore) |> ignore
     finally
         if Directory.Exists path then Directory.Delete(path, true)

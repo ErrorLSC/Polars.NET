@@ -69,6 +69,12 @@ public class DataFrameHandle : PolarsHandle
 // 4. LazyFrame Handle
 public class LazyFrameHandle : PolarsHandle
 {
+    /// <summary>
+    /// The Delta table this frame scans as it is (no operation applied since), to be scanned again with the rows a
+    /// query keeps, so files that hold none are left out; null for any other frame (a clone has none either).
+    /// </summary>
+    internal Delta.DeltaScanOrigin? DeltaOrigin { get; set; }
+
     protected override bool ReleaseHandle()
     {
         NativeBindings.pl_lazy_frame_free(handle);

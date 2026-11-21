@@ -582,9 +582,9 @@ let ``LINQ filters reach the kernel and skip files`` () =
         Assert.Equal<int list>([ 27..30 ], query { for r in q do where (r.price > 40.0); select r } |> ids)
         assertScanned 1 scanned
 
-        // No filter at all.
+        // No filter at all: the frame the source was made from, not a new scan.
         Assert.Equal(30, query { for r in q do select r } |> Seq.length)
-        assertScanned 3 scanned)
+        Assert.Empty scanned)
 
 // ---------------------------------------------------------------------------------------------------------------
 // Column mapping inside nested types

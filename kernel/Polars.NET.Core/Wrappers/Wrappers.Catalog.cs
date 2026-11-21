@@ -143,8 +143,12 @@ public readonly partial struct PolarsWrapper
         string[]? cloudValues,
         string? rowIdColumn = null,
         string? rowCommitVersionColumn = null,
-        bool variantAsJson = false)
+        bool variantAsJson = false,
+        Kaminari.Samidare.IR.ScalarExpr? rowFilter = null,
+        Action<int>? scannedFiles = null)
     {
+        // The caller's keys: resolving the table replaces them with the catalog's credentials.
+        string[]? givenKeys = cloudKeys, givenValues = cloudValues;
         using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
 
         string? format = access.Table.DataSourceFormat;
@@ -153,7 +157,7 @@ public readonly partial struct PolarsWrapper
         if (!string.Equals(format, UnityDataSourceFormats.Delta, StringComparison.OrdinalIgnoreCase))
             throw new PolarsException($"Unsupported data source format: {format}");
 
-        return ScanDelta(
+        LazyFrameHandle lf = ScanDelta(
             access.Location,
             version,
             datetime,
@@ -181,7 +185,20 @@ public readonly partial struct PolarsWrapper
             cloudValues,
             rowIdColumn,
             rowCommitVersionColumn,
-            variantAsJson);
+            variantAsJson,
+            rowFilter,
+            scannedFiles);
+        // Scanned again through the catalog (its credentials, its scope for a catalog-managed table) at the same version.
+        if (lf.DeltaOrigin is { } origin)
+        {
+            SchemaHandle? ownSchema = schema is null ? null : SchemaClone(schema); // the caller's is released after this call
+            lf.DeltaOrigin = new Delta.DeltaScanOrigin(origin.Version, (filter, scanned) => ScanCatalogTable(handle, catalogName, schemaName,
+                tableName, (ulong)origin.Version, null, nRows, parallel, lowMemory, useStatistics, glob, rechunk, cache, rowIndexName,
+                rowIndexOffset, includePathColumn, ownSchema, hivePartitioning, null, tryParseHiveDates, cloudProvider,
+                cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs, cloudRetryMaxBackoffMs, cloudCacheTtl, givenKeys, givenValues,
+                rowIdColumn, rowCommitVersionColumn, variantAsJson, filter, scanned));
+        }
+        return lf;
     }
 
     public static void SinkCatalogTable

@@ -122,3 +122,14 @@ pub unsafe extern "C" fn pl_schema_free(ptr: *mut SchemaContext) {
         let _ = unsafe {Box::from_raw(ptr)};
     }
 }
+/// A copy of the schema owned by the caller (it shares the fields: a reference count), so the original can be released.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_schema_clone(ptr: *mut SchemaContext) -> *mut SchemaContext {
+    ffi_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "Schema pointer is null");
+        }
+        let ctx = unsafe { &*ptr };
+        Ok(Box::into_raw(Box::new(SchemaContext { schema: ctx.schema.clone() })))
+    })
+}

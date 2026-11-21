@@ -81,20 +81,20 @@ module internal PolarsObjectConverter =
     /// Binds a backend-native runtime object (compiled queryable, LazyFrame/DataFrame handle, or a wrapper
     /// exposing a Handle property) as an opaque table source. In-memory collections return None.
     let tryBindExternalSource (value: obj) : ILogicalTableSource option =
-        let lfOpt =
-            match value with
-            | null -> None
-            | :? IPolarsPlanSource as plan -> Some(plan.GetCompiledLazyFrameHandle())
-            | :? LazyFrameHandle as lf -> Some(PolarsWrapper.LazyClone lf)
-            | :? DataFrameHandle as df -> Some(PolarsWrapper.DataFrameToLazy df)
-            | v ->
-                let handleProp =
-                    v.GetType().GetProperty("Handle", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
-                if isNull handleProp then
-                    None
-                else
-                    match handleProp.GetValue v with
-                    | :? LazyFrameHandle as lf -> Some(PolarsWrapper.LazyClone lf)
-                    | :? DataFrameHandle as df -> Some(PolarsWrapper.DataFrameToLazy df)
-                    | _ -> None
-        lfOpt |> Option.map PolarsPhysicalLowerer.tableSourceOfLazyFrame
+        // A frame a Delta scan returned keeps its origin (file skipping); its clone is the frame the source reads.
+        let ofFrame (lf: LazyFrameHandle) = DeltaKernelSources.ofLazyFrame lf (PolarsWrapper.LazyClone lf)
+        match value with
+        | null -> None
+        | :? IPolarsPlanSource as plan -> Some(PolarsPhysicalLowerer.tableSourceOfLazyFrame (plan.GetCompiledLazyFrameHandle()))
+        | :? LazyFrameHandle as lf -> Some(ofFrame lf)
+        | :? DataFrameHandle as df -> Some(PolarsPhysicalLowerer.tableSourceOfLazyFrame (PolarsWrapper.DataFrameToLazy df))
+        | v ->
+            let handleProp =
+                v.GetType().GetProperty("Handle", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+            if isNull handleProp then
+                None
+            else
+                match handleProp.GetValue v with
+                | :? LazyFrameHandle as lf -> Some(ofFrame lf)
+                | :? DataFrameHandle as df -> Some(PolarsPhysicalLowerer.tableSourceOfLazyFrame (PolarsWrapper.DataFrameToLazy df))
+                | _ -> None
