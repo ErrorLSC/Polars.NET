@@ -165,7 +165,8 @@ internal sealed class Shredder(ShredStep[] steps) : IDisposable
     {
         if (!_emit) return;
         int at = Levels;
-        if (at == _def.Capacity) GrowLevels();
+        // The pool may hand the two arrays different capacities: each is checked.
+        if (at == _def.Capacity || at == _rep.Capacity) GrowLevels();
         _def.At(at) = (byte)def;
         _rep.At(at) = (byte)rep;
         Levels = at + 1;
