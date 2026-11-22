@@ -35,8 +35,11 @@ internal sealed class ParsedStatsText(IReadOnlySet<string> instantLeaves)
     /// <summary>A struct field to write: its name ready for JSON, whether a timestamp in it is an instant, its own fields.</summary>
     private sealed record Field(JsonEncodedText Name, bool Instant, Field[] Children);
 
-    /// <summary>The statistics text of row <paramref name="index"/> of the struct; null when the struct is null there.</summary>
-    public string? Text(StructArray stats, int index)
+    /// <summary>
+    /// The statistics text of row <paramref name="index"/> of the struct as UTF-8, kept in <paramref name="texts"/>; null
+    /// when the struct is null there.
+    /// </summary>
+    public ReadOnlyMemory<byte>? Utf8(StructArray stats, int index, Kaminari.Sazanami.Buffers.ByteArena texts)
     {
         if (stats.IsNull(index)) return null;
         var type = (StructType)stats.Data.DataType;
@@ -50,7 +53,7 @@ internal sealed class ParsedStatsText(IReadOnlySet<string> instantLeaves)
         else _json.Reset(_buffer);
         WriteStruct(_json, _plan, stats, index);
         _json.Flush();
-        return Encoding.UTF8.GetString(_buffer.WrittenSpan);
+        return texts.Add(_buffer.WrittenSpan);
     }
 
     private Field[] Plan(StructType type, string path) =>

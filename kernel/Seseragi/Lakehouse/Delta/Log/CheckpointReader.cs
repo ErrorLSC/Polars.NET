@@ -46,9 +46,10 @@ internal static class CheckpointReader
             {
                 ColumnPaths = columns, BatchSize = BatchSize, BinaryAsString = true, ViewTypes = false, MaxDegreeOfParallelism = 1,
             });
+            using var shared = new CheckpointActions.Shared();
             foreach (RecordBatch batch in reader.ReadBatches())
             {
-                using (batch) CheckpointActions.Read(batch, stats, actions);
+                using (batch) CheckpointActions.Read(batch, stats, shared, actions);
             }
             return actions;
         }

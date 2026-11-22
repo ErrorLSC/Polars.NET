@@ -46,6 +46,9 @@ public sealed class FileFilter
         return _skipping?.MightMatch(file) ?? true;
     }
 
+    /// <summary>The files that may hold a matching row, in their order (judged on several threads when many).</summary>
+    internal List<AddAction> Matching(IReadOnlyList<AddAction> files) => _skipping?.Matching(files) ?? [.. files];
+
     // ------------------------------------------------------------------ a kernel predicate as IR
 
     /// <summary>

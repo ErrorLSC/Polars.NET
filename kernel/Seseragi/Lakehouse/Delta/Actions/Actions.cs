@@ -58,7 +58,34 @@ public sealed class AddAction : DeltaAction
     /// <summary>False when the action only rearranges existing data.</summary>
     public bool DataChange { get; init; } = true;
     /// <summary>File statistics as JSON text, if present.</summary>
-    public string? Stats { get; init; }
+    public string? Stats
+    {
+        // Read from the log, the statistics are kept as UTF-8 (StatsText) and made a string only when asked for.
+        get => _stats ??= _statsText is { } text ? System.Text.Encoding.UTF8.GetString(text.Span) : null;
+        init
+        {
+            _stats = value;
+            _statsText = null;
+        }
+    }
+
+    /// <summary>
+    /// The statistics as UTF-8 JSON text, when they were read as such (a commit's line); null otherwise (then see
+    /// <see cref="Stats"/>). File skipping reads them without making a string.
+    /// </summary>
+    internal ReadOnlyMemory<byte>? StatsText
+    {
+        get => _statsText;
+        init
+        {
+            _statsText = value;
+            _stats = null;
+        }
+    }
+
+    private string? _stats;
+    private ReadOnlyMemory<byte>? _statsText;
+
     /// <summary>File tags, if present.</summary>
     public IReadOnlyDictionary<string, string?>? Tags { get; init; }
     /// <summary>The deletion vector of the file, if it has one.</summary>

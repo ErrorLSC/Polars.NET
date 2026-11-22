@@ -38,7 +38,23 @@ public class IrFileFilterTests
             """,
     };
 
-    private static bool Might(ScalarExpr filter) => new FileFilter(s_schema, ["region"], filter).MightMatch(s_file);
+    // The decision, the same with the statistics as a string or as UTF-8 (as a commit's reader keeps them), and as the
+    // reader they replaced (a JsonDocument per file) decides.
+    private static bool Might(ScalarExpr filter)
+    {
+        var fileFilter = new FileFilter(s_schema, ["region"], filter);
+        bool might = fileFilter.MightMatch(s_file);
+        Assert.Equal(might, fileFilter.MightMatch(s_utf8File));
+        Assert.Equal(JsonDocumentFileSkipping.Create(s_schema, ["region"], filter)?.MightMatch(s_file) ?? true, might);
+        return might;
+    }
+
+    private static readonly AddAction s_utf8File = new()
+    {
+        Path = s_file.Path,
+        PartitionValues = s_file.PartitionValues,
+        StatsText = System.Text.Encoding.UTF8.GetBytes(s_file.Stats!),
+    };
 
     private static ScalarExpr Col(string name) => ScalarExpr.NewColumn(name);
     private static ScalarExpr Lit(long v) => ScalarExpr.NewLiteral(LiteralValue.NewInt64(v));

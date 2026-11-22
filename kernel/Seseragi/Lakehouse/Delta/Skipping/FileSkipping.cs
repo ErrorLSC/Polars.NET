@@ -1,9 +1,14 @@
 using System.Buffers.Binary;
+using System.Buffers.Text;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Json;
+using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Pruning;
@@ -37,8 +42,9 @@ internal sealed class FileSkipping
 
     private readonly PruneNode _root;
     private readonly Leaf[] _leaves;
+    private readonly StatsPaths _paths;
 
-    private FileSkipping(PruneNode root, Leaf[] leaves) => (_root, _leaves) = (root, leaves);
+    private FileSkipping(PruneNode root, Leaf[] leaves, StatsPaths paths) => (_root, _leaves, _paths) = (root, leaves, paths);
 
     /// <summary>The filter compiled for the table; null when the statistics can rule no file out.</summary>
     /// <param name="schema">The table's schema.</param>
@@ -71,11 +77,43 @@ internal sealed class FileSkipping
         };
         var compiler = new FilterCompiler(ParquetSchemaTree.Build(all), meta, new ParquetReadOptions());
         // The canonical shapes the compiler reads (a StartsWith call as the operator, constants folded), as a reader's filter.
-        return compiler.Compile(FilterShapes.normalize(filter)) is { } root ? new FileSkipping(root, [.. leaves]) : null;
+        if (compiler.Compile(FilterShapes.normalize(filter)) is not { } root) return null;
+        // Only the leaves the filter tests are looked for in a file's statistics (partition values are elsewhere).
+        int[] tested = [.. compiler.Leaves.Select(static d => d.Leaf).Distinct().Where(l => !leaves[l].IsPartition).Order()];
+        Leaf[] tableLeaves = [.. leaves];
+        return new FileSkipping(root, tableLeaves, new StatsPaths(tableLeaves, tested));
     }
 
     /// <summary>Whether <paramref name="file"/> may hold a row the filter keeps.</summary>
-    public bool MightMatch(AddAction file) => (_root.Evaluate(new FileStatistics(file, _leaves)) & Outcomes.True) != 0;
+    public bool MightMatch(AddAction file)
+    {
+        using var statistics = new FileStatistics(this);
+        return statistics.MightMatch(file);
+    }
+
+    /// <summary>The files that may hold a row the filter keeps, in their order (judged on several threads when many).</summary>
+    public List<AddAction> Matching(IReadOnlyList<AddAction> files)
+    {
+        const int Chunk = 4096;
+        var keep = new bool[files.Count];
+        if (files.Count <= Chunk)
+        {
+            using var statistics = new FileStatistics(this);
+            for (int i = 0; i < files.Count; i++) keep[i] = statistics.MightMatch(files[i]);
+        }
+        else
+        {
+            Parallel.ForEach(Partitioner.Create(0, files.Count, Chunk), () => new FileStatistics(this), (range, _, statistics) =>
+            {
+                for (int i = range.Item1; i < range.Item2; i++) keep[i] = statistics.MightMatch(files[i]);
+                return statistics;
+            }, static statistics => statistics.Dispose());
+        }
+        List<AddAction> matching = [];
+        for (int i = 0; i < files.Count; i++)
+            if (keep[i]) matching.Add(files[i]);
+        return matching;
+    }
 
     // ------------------------------------------------------------------ the table as Parquet leaves
 
@@ -191,36 +229,129 @@ internal sealed class FileSkipping
 
     // ------------------------------------------------------------------ a file's statistics
 
-    /// <summary>A data file as one unit: its statistics by leaf, in the stored representation of Parquet statistics.</summary>
-    private sealed class FileStatistics(AddAction file, Leaf[] leaves) : IUnitStatistics
+    /// <summary>
+    /// The paths of the leaves a filter tests, as a tree of the statistics' field names (physical names, UTF-8): where a
+    /// file's <c>minValues</c>, <c>maxValues</c> and <c>nullCount</c> hold their values. Each tested leaf has a number
+    /// (its place among them).
+    /// </summary>
+    private sealed class StatsPaths
     {
+        public StatsPaths(Leaf[] leaves, int[] tested)
+        {
+            Root = new Node([]);
+            Numbers = new int[leaves.Length];
+            Array.Fill(Numbers, -1);
+            Count = tested.Length;
+            for (int number = 0; number < tested.Length; number++)
+            {
+                int leaf = tested[number];
+                Numbers[leaf] = number;
+                Node node = Root;
+                foreach (string name in leaves[leaf].Physical)
+                {
+                    node.Below.Add(number);
+                    byte[] bytes = Encoding.UTF8.GetBytes(name);
+                    Node? child = node.Children.FirstOrDefault(c => c.Name.AsSpan().SequenceEqual(bytes));
+                    if (child is null) node.Children.Add(child = new Node(bytes));
+                    node = child;
+                }
+                node.Below.Add(number);
+                node.Number = number;
+            }
+        }
+
+        public Node Root { get; }
+
+        /// <summary>The number of each leaf of the table among the tested ones; -1 for the others.</summary>
+        public int[] Numbers { get; }
+
+        public int Count { get; }
+
+        public sealed class Node(byte[] name)
+        {
+            public byte[] Name { get; } = name;
+
+            public List<Node> Children { get; } = [];
+
+            /// <summary>The numbers of the tested leaves at or under this node.</summary>
+            public List<int> Below { get; } = [];
+
+            /// <summary>The leaf's number when the node is a tested leaf; -1 when it is a struct.</summary>
+            public int Number { get; set; } = -1;
+
+            public Node? Find(ReadOnlySpan<byte> name)
+            {
+                foreach (Node child in Children)
+                    if (name.SequenceEqual(child.Name)) return child;
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Data files as units, one at a time: their statistics by leaf, in the stored representation of Parquet
+    /// statistics. A file's statistics text is read (once, token by token, UTF-8) only when the filter asks for a leaf
+    /// that is not a partition column, and only the tested leaves' values are kept (where they are in the text).
+    /// </summary>
+    /// <remarks>
+    /// The text is read as a JSON document reader reads it: it must be one valid JSON object nested at most 64 levels
+    /// deep (else the file has no statistics); of fields named more than once the last counts, a struct's whole object
+    /// included; a null value is no value.
+    /// </remarks>
+    private sealed class FileStatistics(FileSkipping skipping) : IUnitStatistics, IDisposable
+    {
+        private const int Min = 0, Max = 1, Nulls = 2, MaxDepth = 64;
+
+        private readonly Leaf[] _leaves = skipping._leaves;
+        private readonly StatsPaths _paths = skipping._paths;
+        private readonly Value[] _values = new Value[3 * skipping._paths.Count];
+        private NativeArray<byte>? _transcoded;    // a string's statistics as UTF-8
+        private AddAction? _file;
+        private ReadOnlyMemory<byte> _text;         // the statistics read from the log, as UTF-8
+        private int _transcodedLength = -1;         // or, when not negative, the transcoded ones
+        private bool _read, _readable;
+        private long? _records;
+
+        /// <summary>Where a value is in the text: a string's content, a number's text, or another kind (no usable value).</summary>
+        private readonly record struct Value(JsonTokenType Type, int Start, int Length, bool Escaped);
+
+        public bool MightMatch(AddAction file)
+        {
+            _file = file;
+            _read = false;
+            return (skipping._root.Evaluate(this) & Outcomes.True) != 0;
+        }
+
         public bool TryGet(int leaf, LeafDomain domain, out LeafStatistics statistics)
         {
             statistics = default;
-            if ((uint)leaf >= (uint)leaves.Length) return false;
-            Leaf column = leaves[leaf];
-            FileStats? stats = file.ParsedStats;
-            long? records = stats?.NumRecords is long n && n >= 0 ? n : null;
+            if ((uint)leaf >= (uint)_leaves.Length) return false;
+            Leaf column = _leaves[leaf];
+            AddAction file = _file!;
 
             if (column.IsPartition)
             {
-                // Every row holds the partition value; a missing entry tells nothing.
-                if (!file.PartitionValues.TryGetValue(column.Physical[0], out string? text)) return false;
-                long rows = Math.Max(records ?? 1, 1);
-                if (text is null)
+                // Every row holds the partition value; a missing entry tells nothing. The row count is any positive
+                // number: with no nulls, or all rows null, what the filter decides does not depend on it, so the
+                // statistics are not read for it.
+                if (!file.PartitionValues.TryGetValue(column.Physical[0], out string? partition)) return false;
+                if (partition is null)
                 {
-                    statistics = new LeafStatistics(null, null, rows, rows, 0);
+                    statistics = new LeafStatistics(null, null, 1, 1, 0);
                     return true;
                 }
-                if (FromText(text, column) is not { } value) return false;
-                statistics = new LeafStatistics(value, value, 0, rows, 0);
+                if (FromText(partition, column) is not { } value) return false;
+                statistics = new LeafStatistics(value, value, 0, 1, 0);
                 return true;
             }
 
-            if (stats is null || records is not long count) return false;
-            long? nulls = stats.NullCount(column.Physical) is long k && k >= 0 && k <= count ? k : null;
-            byte[]? min = stats.TryGetMin(column.Physical, out JsonElement minJson) ? FromStat(minJson, column) : null;
-            byte[]? max = stats.TryGetMax(column.Physical, out JsonElement maxJson) ? FromStat(maxJson, column) : null;
+            if (!_read) Read(file);
+            int number = _paths.Numbers[leaf];
+            if (!_readable || number < 0 || _records is not long count || count < 0) return false;
+            ReadOnlySpan<byte> text = Text;
+            long? nulls = Integer(text, _values[3 * number + Nulls]) is long k && k >= 0 && k <= count ? k : null;
+            byte[]? min = FromStat(text, _values[3 * number + Min], column);
+            byte[]? max = FromStat(text, _values[3 * number + Max], column);
             switch (column.Kind)
             {
                 case Kind.Timestamp when max is not null:
@@ -236,23 +367,165 @@ internal sealed class FileSkipping
             statistics = new LeafStatistics(min, max, nulls, count, null); // NaN counts are not written
             return true;
         }
-    }
 
-    /// <summary>A statistics value (a JSON number, or text for dates, timestamps, strings and decimals) as stored bytes; null when unusable.</summary>
-    private static byte[]? FromStat(JsonElement stat, Leaf column) => stat.ValueKind switch
-    {
-        JsonValueKind.Number => column.Kind switch
+        // The file's statistics text (UTF-8 as read from the log, or its string's UTF-8), and the tested leaves' values.
+        private void Read(AddAction file)
         {
-            Kind.Integer when stat.TryGetInt64(out long l) => IntegerBytes(l, column.Storage),
-            Kind.Float when stat.TryGetDouble(out double d) && Fits((float)d, d) => FloatBytes((float)d),
-            Kind.Double when stat.TryGetDouble(out double d) && double.IsFinite(d) => DoubleBytes(d),
-            Kind.Decimal => DecimalBytes(stat.GetRawText(), column),
-            _ => null,
-        },
-        // Integers and floats as text are not trusted; booleans have no statistics.
-        JsonValueKind.String when column.Kind is Kind.String or Kind.Date or Kind.Timestamp or Kind.Decimal => FromText(stat.GetString()!, column),
-        _ => null,
-    };
+            _read = true;
+            _readable = false;
+            _records = null;
+            Array.Clear(_values);
+            _transcodedLength = -1;
+            if (file.StatsText is { } utf8) _text = utf8;
+            else if (file.Stats is { Length: > 0 } stats)
+            {
+                _transcoded ??= new NativeArray<byte>();
+                _transcoded.Reserve(Encoding.UTF8.GetMaxByteCount(stats.Length));
+                _transcodedLength = Encoding.UTF8.GetBytes(stats, _transcoded.Span);
+            }
+            else return;
+            if (Text.IsEmpty) return;
+            try
+            {
+                _readable = Walk(Text);
+            }
+            catch (JsonSyntaxException)
+            {
+                _readable = false; // unreadable statistics are the same as none
+            }
+        }
+
+        private ReadOnlySpan<byte> Text => _transcodedLength >= 0 ? _transcoded!.AsSpan(0, _transcodedLength) : _text.Span;
+
+        private bool Walk(ReadOnlySpan<byte> text)
+        {
+            var reader = JsonTokenReader.Value(text);
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+            {
+                Skip(ref reader);
+                return false;
+            }
+            Span<byte> scratch = stackalloc byte[256];
+            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+            {
+                ReadOnlySpan<byte> name = Name(in reader, scratch);
+                int section = name.SequenceEqual("minValues"u8) ? Min : name.SequenceEqual("maxValues"u8) ? Max : name.SequenceEqual("nullCount"u8) ? Nulls : -1;
+                bool records = section < 0 && name.SequenceEqual("numRecords"u8);
+                reader.Read();
+                if (records) _records = reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out long n) ? n : null;
+                if (section >= 0)
+                {
+                    // The last object of a section counts as a whole.
+                    Reset(_paths.Root, section);
+                    if (reader.TokenType == JsonTokenType.StartObject)
+                    {
+                        Within(ref reader, _paths.Root, section, scratch);
+                        continue;
+                    }
+                }
+                Skip(ref reader);
+            }
+            // One value, nothing but white space after it.
+            return text[reader.BytesConsumed..].IndexOfAnyExcept(" \t\r\n"u8) < 0;
+        }
+
+        // The fields of an object of a section (the reader on its start, left on its end) at node.
+        private void Within(ref JsonTokenReader reader, StatsPaths.Node node, int section, scoped Span<byte> scratch)
+        {
+            if (reader.CurrentDepth >= MaxDepth) throw TooDeep(reader.TokenStartIndex);
+            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+            {
+                StatsPaths.Node? child = node.Find(Name(in reader, scratch));
+                reader.Read();
+                if (child is null)
+                {
+                    Skip(ref reader);
+                    continue;
+                }
+                if (child.Number >= 0)
+                {
+                    int start = reader.TokenType == JsonTokenType.String ? reader.TokenStartIndex + 1 : reader.TokenStartIndex;
+                    _values[3 * child.Number + section] = new Value(reader.TokenType, start, reader.ValueSpan.Length, reader.ValueIsEscaped);
+                    Skip(ref reader);
+                    continue;
+                }
+                // A struct: its last object counts as a whole; anything else holds none of its leaves.
+                Reset(child, section);
+                if (reader.TokenType == JsonTokenType.StartObject) Within(ref reader, child, section, scratch);
+                else Skip(ref reader);
+            }
+        }
+
+        private void Reset(StatsPaths.Node node, int section)
+        {
+            foreach (int number in node.Below) _values[3 * number + section] = default;
+        }
+
+        public void Dispose() => _transcoded?.Dispose();
+
+        // The name the reader stands on, unescaped (empty when too long to be a column's).
+        private static ReadOnlySpan<byte> Name(in JsonTokenReader reader, Span<byte> scratch) =>
+            !reader.ValueIsEscaped ? reader.ValueSpan
+            : reader.ValueSpan.Length > scratch.Length ? [] : scratch[..reader.CopyString(scratch)];
+
+        // Past the value the reader stands on, refusing nesting deeper than a JSON document allows.
+        private static void Skip(ref JsonTokenReader reader)
+        {
+            if (reader.TokenType is not (JsonTokenType.StartObject or JsonTokenType.StartArray)) return;
+            if (reader.CurrentDepth >= MaxDepth) throw TooDeep(reader.TokenStartIndex);
+            int depth = reader.CurrentDepth;
+            while (reader.Read())
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject or JsonTokenType.StartArray:
+                        if (reader.CurrentDepth >= MaxDepth) throw TooDeep(reader.TokenStartIndex);
+                        break;
+                    case JsonTokenType.EndObject or JsonTokenType.EndArray when reader.CurrentDepth == depth:
+                        return;
+                }
+            }
+        }
+
+        private static JsonSyntaxException TooDeep(int position) => new($"Nesting deeper than {MaxDepth} levels.", position);
+
+        // A whole 64-bit integer; null for anything else.
+        private static long? Integer(ReadOnlySpan<byte> text, Value value) =>
+            value.Type == JsonTokenType.Number && TryInt64(text.Slice(value.Start, value.Length), out long n) ? n : null;
+
+        // A JSON number as a JSON document reader reads it as Int64 / as Double.
+        private static bool TryInt64(ReadOnlySpan<byte> raw, out long value) =>
+            JsonNumbers.TryInt64(raw, out value) || (Utf8Parser.TryParse(raw, out value, out int used) && used == raw.Length);
+
+        private static bool TryDouble(ReadOnlySpan<byte> raw, out double value) =>
+            JsonNumbers.TryExactDouble(raw, out value) || (Utf8Parser.TryParse(raw, out value, out int used) && used == raw.Length);
+
+        /// <summary>A statistics value (a JSON number, or text for dates, timestamps, strings and decimals) as stored bytes; null when unusable.</summary>
+        private static byte[]? FromStat(ReadOnlySpan<byte> text, Value value, Leaf column)
+        {
+            ReadOnlySpan<byte> raw = text.Slice(value.Start, value.Length);
+            switch (value.Type)
+            {
+                case JsonTokenType.Number:
+                    return column.Kind switch
+                    {
+                        Kind.Integer when TryInt64(raw, out long l) => IntegerBytes(l, column.Storage),
+                        Kind.Float when TryDouble(raw, out double d) && Fits((float)d, d) => FloatBytes((float)d),
+                        Kind.Double when TryDouble(raw, out double d) && double.IsFinite(d) => DoubleBytes(d),
+                        Kind.Decimal => DecimalBytes(Encoding.UTF8.GetString(raw), column),
+                        _ => null,
+                    };
+                // Integers and floats as text are not trusted; booleans have no statistics.
+                case JsonTokenType.String when column.Kind is Kind.String or Kind.Date or Kind.Timestamp or Kind.Decimal:
+                    if (!value.Escaped) return column.Kind == Kind.String ? raw.ToArray() : FromText(Encoding.UTF8.GetString(raw), column);
+                    byte[] unescaped = new byte[raw.Length];
+                    int length = JsonStrings.Unescape(raw, unescaped, value.Start);
+                    return column.Kind == Kind.String ? unescaped[..length] : FromText(Encoding.UTF8.GetString(unescaped, 0, length), column);
+                default:
+                    return null;
+            }
+        }
+    }
 
     /// <summary>A value as the log writes partition values (text) as stored bytes; null when unusable.</summary>
     private static byte[]? FromText(string text, Leaf column)

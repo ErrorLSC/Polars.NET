@@ -255,4 +255,77 @@ public class FileSkippingDifferentialTests
         }
         Assert.True(skipped > checks / 10, $"only {skipped} of {checks} files left out");
     }
+
+    [Theory]
+    [InlineData(11, false)]
+    [InlineData(12, true)]
+    public void Statistics_ReadAsTheJsonDocumentOracleReadsThem(int seed, bool arrowNaN)
+    {
+        // The statistics read token by token (from a string, or from UTF-8 as a commit's reader keeps them) against
+        // the reader they replaced (a JsonDocument per file): the same decision for every file, its statistics valid
+        // or mutated (repeated sections and fields, values of other kinds, escaped names, broken text, deep nesting),
+        // file by file and for a whole list at once (judged on several threads).
+        var random = new Random(seed);
+        List<AddAction> files = [];
+        for (int f = 0; f < 6000; f++)
+        {
+            var (_, file) = MakeFile(random, nans: true, arrowNaN);
+            string? stats = file.Stats is null || random.Next(3) == 0 ? file.Stats : MutateStats(random, file.Stats);
+            if (random.Next(40) == 0) stats = null;
+            files.Add(random.Next(2) == 0
+                ? new AddAction { Path = file.Path, PartitionValues = file.PartitionValues, Stats = stats }
+                : new AddAction { Path = file.Path, PartitionValues = file.PartitionValues, StatsText = stats is null ? null : Encoding.UTF8.GetBytes(stats) });
+        }
+        int skipped = 0;
+        for (int round = 0; round < 300; round++)
+        {
+            P predicate = RandomPredicate(random, random.Next(4), withDoubles: true);
+            var filter = new FileFilter(s_schema, s_partitions, predicate);
+            JsonDocumentFileSkipping? oracle = JsonDocumentFileSkipping.Create(s_schema, s_partitions, FileFilter.ToFilter(predicate, s_schema));
+            List<AddAction> expected = [.. files.Where(f => oracle?.MightMatch(f) ?? true)];
+            for (int i = 0; i < files.Count; i += 7)
+                Assert.True(filter.MightMatch(files[i]) == (oracle?.MightMatch(files[i]) ?? true), $"{predicate}; stats {files[i].Stats}");
+            List<AddAction> matching = filter.Matching(files);
+            Assert.True(expected.SequenceEqual(matching), $"{predicate}: {matching.Count} files kept, the oracle keeps {expected.Count}");
+            skipped += files.Count - matching.Count;
+        }
+        Assert.True(skipped > 0);
+    }
+
+    private static string MutateStats(Random random, string stats)
+    {
+        switch (random.Next(11))
+        {
+            case 0:
+            {
+                // A few bytes changed: mostly broken text.
+                var text = new StringBuilder(stats);
+                for (int m = random.Next(1, 3); m > 0 && text.Length > 0; m--)
+                {
+                    int at = random.Next(text.Length);
+                    const string Chars = "{}[]:,\"\\ 0-.x";
+                    char c = Chars[random.Next(Chars.Length)];
+                    if (random.Next(2) == 0) text[at] = c;
+                    else text.Insert(at, c);
+                }
+                return text.ToString();
+            }
+            case 1: return stats.Insert(1, "\"minValues\":{},\"numRecords\":\"x\",");          // earlier copies, overridden
+            case 2: return stats[..^1] + ",\"minValues\":{\"i\":3,\"s\":null}}";               // a later section counts as a whole
+            case 3: return stats[..^1] + ",\"maxValues\":5,\"nullCount\":[1]}";                // sections that are not objects
+            case 4: return random.Next(2) == 0
+                ? stats.Replace("\"numRecords\":", "\"numRecords\":1.5,\"numRecords\":")
+                : stats[..^1] + ",\"numRecords\":-1}";                                                 // the last count, unusable, counts
+            case 5: return stats.Replace("\"i\":", "\"\\u0069\":").Replace("\"ts\":", "\"t\\u0073\":");
+            case 6: return stats.Replace("\"n\":{", "\"n\":{\"x\":7},\"n\":{").Replace("\"s\":", "\"s\":{\"y\":1},\"s\":");
+            case 7: return stats.Replace("\"i\":", "\"i\":true,\"i\":").Replace("\"d\":", "\"d\":\"1\",\"x\":");
+            case 8: return stats[..^1] + ",\"z\":" + new string('[', random.Next(60, 66)) + new string(']', 0) + "}"; // broken
+            case 9:
+            {
+                int depth = random.Next(60, 66); // the object itself is level 1
+                return stats[..^1] + ",\"z\":" + new string('[', depth - 1) + new string(']', depth - 1) + "}";
+            }
+            default: return stats + (random.Next(2) == 0 ? " \n" : " x");
+        }
+    }
 }

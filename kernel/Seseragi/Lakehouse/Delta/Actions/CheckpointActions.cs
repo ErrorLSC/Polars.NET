@@ -1,4 +1,6 @@
 using Apache.Arrow;
+using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Encodings;
 using Kaminari.Seseragi.Lakehouse.Delta.Schema;
 using ArrowStruct = Apache.Arrow.Types.StructType;
 
@@ -22,13 +24,14 @@ internal static class CheckpointActions
     /// <summary>Appends the actions of every row of <paramref name="batch"/> to <paramref name="actions"/>.</summary>
     /// <param name="batch">Checkpoint rows.</param>
     /// <param name="stats">Turns <c>add.stats_parsed</c> into statistics text when the batch has no <c>add.stats</c>; null to ignore it.</param>
+    /// <param name="shared">What the adds of the checkpoint share (their statistics' bytes, their partition values).</param>
     /// <param name="actions">Receives the actions, in row order.</param>
     /// <exception cref="DeltaException">An action lacks a required field, or a field has the wrong type.</exception>
-    public static void Read(RecordBatch batch, ParsedStatsText? stats, List<DeltaAction> actions)
+    public static void Read(RecordBatch batch, ParsedStatsText? stats, Shared shared, List<DeltaAction> actions)
     {
         SidecarColumns? sidecar = Node.Of(batch, "sidecar") is { } s ? new(s) : null;
         CheckpointMetadataColumns? checkpointMetadata = Node.Of(batch, "checkpointMetadata") is { } c ? new(c) : null;
-        AddColumns? add = Node.Of(batch, "add") is { } a ? new(a, stats) : null;
+        AddColumns? add = Node.Of(batch, "add") is { } a ? new(a, stats, shared) : null;
         RemoveColumns? remove = Node.Of(batch, "remove") is { } r ? new(r) : null;
         MetadataColumns? metadata = Node.Of(batch, "metaData") is { } m ? new(m) : null;
         ProtocolColumns? protocol = Node.Of(batch, "protocol") is { } p ? new(p) : null;
@@ -91,10 +94,68 @@ internal static class CheckpointActions
             !n.IsNull(row) && _version.Get(n.ChildIndex(row)) is long version ? new CheckpointMetadataAction { Version = version } : null;
     }
 
-    private sealed class AddColumns(Node n, ParsedStatsText? statsText)
+    /// <summary>
+    /// What the adds of a checkpoint share: their statistics' bytes (slices of shared chunks, no string per file), and
+    /// their partition values (one read-only map for each distinct set, as files of a partition repeat it).
+    /// </summary>
+    internal sealed class Shared : IDisposable
+    {
+        private const int MostMaps = 4096;
+        private ByteArrayDictionary? _mapKeys;  // made at the first map
+        private readonly List<IReadOnlyDictionary<string, string?>> _maps = [];
+        private NativeBufferWriter? _key;
+
+        public ByteArena Texts { get; } = new();
+
+        /// <summary>The map at <paramref name="i"/>, the same instance for the same entries.</summary>
+        public IReadOnlyDictionary<string, string?>? PartitionValues(MapArray? map, int i, string name)
+        {
+            if (map is null || map.IsNull(i)) return null;
+            var keys = (StringArray)map.Keys;
+            var values = (StringArray)map.Values;
+            int start = map.ValueOffsets[i], end = map.ValueOffsets[i + 1], entries = map.KeyValues.Offset;
+            // The entries as one key: each key and value with its length (-1: a null value).
+            _mapKeys ??= new ByteArrayDictionary();
+            _key ??= new NativeBufferWriter();
+            _key.ResetWrittenCount();
+            for (int k = start; k < end; k++)
+            {
+                if (keys.IsNull(entries + k)) throw new DeltaException($"The map '{name}' has a null key.");
+                Append(keys.GetBytes(entries + k), false);
+                Append(values.GetBytes(entries + k), values.IsNull(entries + k));
+            }
+            ReadOnlySpan<byte> key = _key.WrittenSpan;
+            int index = _mapKeys.IndexOf(key);
+            if (index >= 0) return _maps[index];
+            IReadOnlyDictionary<string, string?> read = new Maps(map, name).Get(i)!;
+            if (_maps.Count < MostMaps)
+            {
+                _mapKeys.GetOrAdd(key);
+                _maps.Add(read);
+            }
+            return read;
+
+            void Append(ReadOnlySpan<byte> bytes, bool isNull)
+            {
+                Span<byte> span = _key!.GetSpan(4 + bytes.Length);
+                BitConverter.TryWriteBytes(span, isNull ? -1 : bytes.Length);
+                bytes.CopyTo(span[4..]);
+                _key.Advance(4 + bytes.Length);
+            }
+        }
+
+        public void Dispose()
+        {
+            _mapKeys?.Dispose();
+            _key?.Dispose();
+        }
+    }
+
+    private sealed class AddColumns(Node n, ParsedStatsText? statsText, Shared shared)
     {
         private readonly Text _path = n.Text("path"), _stats = n.Text("stats"), _clustering = n.Text("clusteringProvider");
-        private readonly Maps _partitionValues = n.Maps("partitionValues"), _tags = n.Maps("tags");
+        private readonly Maps _tags = n.Maps("tags");
+        private readonly MapArray? _partitionValues = n.Map("partitionValues");
         private readonly Ints _size = n.Ints("size"), _modified = n.Ints("modificationTime"),
             _baseRowId = n.Ints("baseRowId"), _defaultRowCommitVersion = n.Ints("defaultRowCommitVersion");
         private readonly Bools _dataChange = n.Bools("dataChange");
@@ -110,11 +171,11 @@ internal static class CheckpointActions
             return new AddAction
             {
                 Path = path,
-                PartitionValues = _partitionValues.Get(i) ?? EmptyMap.Nullable,
+                PartitionValues = shared.PartitionValues(_partitionValues, i, $"{n.Name}.partitionValues") ?? EmptyMap.Nullable,
                 Size = _size.Get(i) ?? 0,
                 ModificationTime = _modified.Get(i) ?? 0,
                 DataChange = _dataChange.Get(i) ?? true,
-                Stats = _statsParsed is null ? _stats.Get(i) : statsText!.Text(_statsParsed, i),
+                StatsText = _statsParsed is null ? _stats.Utf8(i, shared.Texts) : statsText!.Utf8(_statsParsed, i, shared.Texts),
                 Tags = _tags.Get(i),
                 DeletionVector = _deletionVector?.Read(i),
                 BaseRowId = _baseRowId.Get(i),
@@ -328,10 +389,12 @@ internal static class CheckpointActions
             IArrowArray other => throw WrongType(field, other, "a boolean"),
         });
 
-        public Maps Maps(string field) => _fields.GetValueOrDefault(field) switch
+        public Maps Maps(string field) => new(Map(field), $"{Name}.{field}");
+
+        public MapArray? Map(string field) => _fields.GetValueOrDefault(field) switch
         {
-            null => default,
-            MapArray { Keys: StringArray, Values: StringArray } map => new(map, $"{Name}.{field}"),
+            null => null,
+            MapArray { Keys: StringArray, Values: StringArray } map => map,
             IArrowArray other => throw WrongType(field, other, "a map of strings"),
         };
 
@@ -350,6 +413,10 @@ internal static class CheckpointActions
     private readonly struct Text(StringArray? array)
     {
         public string? Get(int i) => array?.GetString(i);
+
+        /// <summary>The UTF-8 of the value, kept in <paramref name="texts"/>; null for a null or a missing field.</summary>
+        public ReadOnlyMemory<byte>? Utf8(int i, ByteArena texts) =>
+            array is null || array.IsNull(i) ? (ReadOnlyMemory<byte>?)null : texts.Add(array.GetBytes(i));
     }
 
     /// <summary>A boolean field; a missing field reads as null.</summary>

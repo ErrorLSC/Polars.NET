@@ -81,16 +81,7 @@ public sealed class Snapshot
     public List<AddAction> FilesMatching(Kaminari.Samidare.IR.ScalarExpr filter) =>
         FilesMatching(new Skipping.FileFilter(Schema, PartitionColumns, filter));
 
-    private List<AddAction> FilesMatching(Skipping.FileFilter filter)
-    {
-        if (!filter.CanSkip) return [.. Files];
-        var files = new List<AddAction>();
-        foreach (AddAction file in Files)
-        {
-            if (filter.MightMatch(file)) files.Add(file);
-        }
-        return files;
-    }
+    private List<AddAction> FilesMatching(Skipping.FileFilter filter) => filter.Matching(Files);
 
     /// <summary>Reads the table at its latest version, or at <paramref name="version"/>.</summary>
     /// <param name="fileSystem">The table storage.</param>
