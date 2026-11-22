@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using Apache.Arrow;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
@@ -20,9 +22,16 @@ internal enum CheckpointContent
 /// sidecar) straight from its columns: only the action columns needed are read, and of <c>add</c> neither
 /// <c>partitionValues_parsed</c> nor, when the text statistics are there, <c>stats_parsed</c>.
 /// </summary>
+/// <remarks>
+/// The file is decoded on the calling thread (<see cref="IFileSystem"/> promises nothing about concurrent ranged
+/// reads); the actions of its batches are made side by side, a few batches at a time, and kept in row order.
+/// </remarks>
 internal static class CheckpointReader
 {
     private const int BatchSize = 8_192;
+
+    /// <summary>Checkpoints of at most this many rows (two batches) are read on the calling thread alone.</summary>
+    private const int InlineRows = 2 * BatchSize;
 
     /// <summary>Reads the actions of a checkpoint file, in its row order.</summary>
     /// <param name="fileSystem">The table storage.</param>
@@ -37,21 +46,17 @@ internal static class CheckpointReader
             using ParquetFile file = Open(fileSystem, path, size);
             Apache.Arrow.Schema schema = file.Schema;
             List<string[]> columns = Projection(schema, content);
-            List<DeltaAction> actions = [];
-            if (columns.Count == 0) return actions;
+            if (columns.Count == 0) return [];
 
-            using ParsedStatsText? stats = columns.Any(static c => c is ["add", "stats_parsed"]) ? new ParsedStatsText(Int96StatsLeaves(file)) : null;
-            // One thread: IFileSystem promises nothing about concurrent ranged reads. Utf8, which the actions read.
+            IReadOnlySet<string>? instantLeaves = columns.Any(static c => c is ["add", "stats_parsed"]) ? Int96StatsLeaves(file) : null;
+            // Utf8, which the actions read.
             using ParquetReader reader = file.OpenReader(new ParquetReadOptions
             {
                 ColumnPaths = columns, BatchSize = BatchSize, BinaryAsString = true, ViewTypes = false, MaxDegreeOfParallelism = 1,
             });
-            using var shared = new CheckpointActions.Shared();
-            foreach (RecordBatch batch in reader.ReadBatches())
-            {
-                using (batch) CheckpointActions.Read(batch, stats, shared, actions);
-            }
-            return actions;
+            return file.Metadata.RowCount <= InlineRows || Environment.ProcessorCount == 1
+                ? ReadInline(reader.ReadBatches(), instantLeaves)
+                : ReadSideBySide(reader.ReadBatches(), instantLeaves);
         }
         catch (Exception e) when (e is ParquetFormatException or NotSupportedException)
         {
@@ -60,6 +65,118 @@ internal static class CheckpointReader
         catch (FileNotFoundException e)
         {
             throw new DeltaException($"The checkpoint file {path} disappeared while reading the log.", e);
+        }
+    }
+
+    private static List<DeltaAction> ReadInline(IEnumerable<RecordBatch> batches, IReadOnlySet<string>? instantLeaves)
+    {
+        using var converter = new Converter(instantLeaves);
+        List<DeltaAction> actions = [];
+        foreach (RecordBatch batch in batches)
+        {
+            using (batch) converter.Read(batch, actions);
+        }
+        return actions;
+    }
+
+    /// <summary>
+    /// Decodes the batches here and makes their actions on the thread pool, at most one batch per core in flight. The
+    /// first failure in row order is thrown (as reading the batches one by one would throw it), once every batch in
+    /// flight is done.
+    /// </summary>
+    private static List<DeltaAction> ReadSideBySide(IEnumerable<RecordBatch> batches, IReadOnlySet<string>? instantLeaves)
+    {
+        int width = Environment.ProcessorCount;
+        using var slots = new SemaphoreSlim(width);
+        var idle = new ConcurrentBag<Converter>();
+        List<Converter> made = [];
+        List<Part> parts = [];
+        ExceptionDispatchInfo? decodeFailure = null;
+        int failed = 0;
+        IEnumerator<RecordBatch> source = batches.GetEnumerator();
+        try
+        {
+            while (true)
+            {
+                slots.Wait();
+                RecordBatch batch;
+                try
+                {
+                    if (Volatile.Read(ref failed) != 0 || !source.MoveNext())
+                    {
+                        slots.Release();
+                        break;
+                    }
+                    batch = source.Current;
+                }
+                catch (Exception e)
+                {
+                    slots.Release();
+                    decodeFailure = ExceptionDispatchInfo.Capture(e);
+                    break;
+                }
+                if (!idle.TryTake(out Converter? converter)) made.Add(converter = new Converter(instantLeaves));
+                var part = new Part(batch.Length);
+                parts.Add(part);
+                part.Done = Task.Run(() =>
+                {
+                    try
+                    {
+                        using (batch) converter.Read(batch, part.Actions);
+                    }
+                    catch (Exception e)
+                    {
+                        part.Failure = ExceptionDispatchInfo.Capture(e);
+                        Volatile.Write(ref failed, 1);
+                    }
+                    finally
+                    {
+                        idle.Add(converter);
+                        slots.Release();
+                    }
+                });
+            }
+        }
+        finally
+        {
+            // Nothing the batches use is freed while one is read; the parts never throw.
+            foreach (Part part in parts) part.Done.Wait();
+            source.Dispose();
+            foreach (Converter converter in made) converter.Dispose();
+        }
+
+        foreach (Part part in parts) part.Failure?.Throw();
+        decodeFailure?.Throw();
+        List<DeltaAction> actions = new(parts.Sum(static p => p.Actions.Count));
+        foreach (Part part in parts) actions.AddRange(part.Actions);
+        return actions;
+    }
+
+    /// <summary>The actions of one batch, or its failure.</summary>
+    private sealed class Part(int rows)
+    {
+        public List<DeltaAction> Actions { get; } = new(rows);
+
+        public Task Done { get; set; } = Task.CompletedTask;
+
+        public ExceptionDispatchInfo? Failure { get; set; }
+    }
+
+    /// <summary>
+    /// Makes actions from batches on one thread at a time: what the adds share (statistics bytes, partition maps) and
+    /// the writer of <c>stats_parsed</c> text are its own.
+    /// </summary>
+    private sealed class Converter(IReadOnlySet<string>? instantLeaves) : IDisposable
+    {
+        private readonly ParsedStatsText? _stats = instantLeaves is null ? null : new ParsedStatsText(instantLeaves);
+        private readonly CheckpointActions.Shared _shared = new();
+
+        public void Read(RecordBatch batch, List<DeltaAction> actions) => CheckpointActions.Read(batch, _stats, _shared, actions);
+
+        public void Dispose()
+        {
+            _stats?.Dispose();
+            _shared.Dispose();
         }
     }
 

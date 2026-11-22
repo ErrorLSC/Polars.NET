@@ -108,26 +108,23 @@ internal static class CheckpointActions
         public ByteArena Texts { get; } = new();
 
         /// <summary>The map at <paramref name="i"/>, the same instance for the same entries.</summary>
-        public IReadOnlyDictionary<string, string?>? PartitionValues(MapArray? map, int i, string name)
+        public IReadOnlyDictionary<string, string?>? PartitionValues(Maps maps, int i)
         {
-            if (map is null || map.IsNull(i)) return null;
-            var keys = (StringArray)map.Keys;
-            var values = (StringArray)map.Values;
-            int start = map.ValueOffsets[i], end = map.ValueOffsets[i + 1];
+            if (!maps.Entries(i, out StringArray keys, out StringArray values, out int start, out int end)) return null;
             // The entries as one key: each key and value with its length (-1: a null value).
             _mapKeys ??= new ByteArrayDictionary();
             _key ??= new NativeBufferWriter();
             _key.ResetWrittenCount();
             for (int k = start; k < end; k++)
             {
-                if (keys.IsNull(k)) throw new DeltaException($"The map '{name}' has a null key.");
+                if (keys.IsNull(k)) throw maps.NullKey();
                 Append(keys.GetBytes(k), false);
                 Append(values.GetBytes(k), values.IsNull(k));
             }
             ReadOnlySpan<byte> key = _key.WrittenSpan;
             int index = _mapKeys.IndexOf(key);
             if (index >= 0) return _maps[index];
-            IReadOnlyDictionary<string, string?> read = new Maps(map, name).Get(i)!;
+            IReadOnlyDictionary<string, string?> read = maps.Get(i)!;
             if (_maps.Count < MostMaps)
             {
                 _mapKeys.GetOrAdd(key);
@@ -154,8 +151,7 @@ internal static class CheckpointActions
     private sealed class AddColumns(Node n, ParsedStatsText? statsText, Shared shared)
     {
         private readonly Text _path = n.Text("path"), _stats = n.Text("stats"), _clustering = n.Text("clusteringProvider");
-        private readonly Maps _tags = n.Maps("tags");
-        private readonly MapArray? _partitionValues = n.Map("partitionValues");
+        private readonly Maps _tags = n.Maps("tags"), _partitionValues = n.Maps("partitionValues");
         private readonly Ints _size = n.Ints("size"), _modified = n.Ints("modificationTime"),
             _baseRowId = n.Ints("baseRowId"), _defaultRowCommitVersion = n.Ints("defaultRowCommitVersion");
         private readonly Bools _dataChange = n.Bools("dataChange");
@@ -171,7 +167,7 @@ internal static class CheckpointActions
             return new AddAction
             {
                 Path = path,
-                PartitionValues = shared.PartitionValues(_partitionValues, i, $"{n.Name}.partitionValues") ?? EmptyMap.Nullable,
+                PartitionValues = shared.PartitionValues(_partitionValues, i) ?? EmptyMap.Nullable,
                 Size = _size.Get(i) ?? 0,
                 ModificationTime = _modified.Get(i) ?? 0,
                 DataChange = _dataChange.Get(i) ?? true,
@@ -392,7 +388,7 @@ internal static class CheckpointActions
 
         public Maps Maps(string field) => new(Map(field), $"{Name}.{field}");
 
-        public MapArray? Map(string field) => _fields.GetValueOrDefault(field) switch
+        private MapArray? Map(string field) => _fields.GetValueOrDefault(field) switch
         {
             null => null,
             MapArray { Keys: StringArray, Values: StringArray } map => map,
@@ -444,24 +440,41 @@ internal static class CheckpointActions
     }
 
     /// <summary>A map of strings (null values kept); a missing field or null map reads as null.</summary>
-    private readonly struct Maps(MapArray? map, string name)
+    /// <remarks>
+    /// Its keys and values are resolved once: Apache.Arrow's <see cref="MapArray.Keys"/> allocates at every call.
+    /// </remarks>
+    internal readonly struct Maps(MapArray? map, string name)
     {
+        private readonly StringArray? _keys = (StringArray?)map?.Keys;
+        private readonly StringArray? _values = (StringArray?)map?.Values;
+
+        /// <summary>
+        /// The keys, the values and the range of the entries of map <paramref name="i"/>; false for a null or missing map.
+        /// The offsets are the entries' indices in the key / value struct, whose fields are sliced as it is.
+        /// </summary>
+        public bool Entries(int i, out StringArray keys, out StringArray values, out int start, out int end)
+        {
+            if (map is null || map.IsNull(i))
+            {
+                (keys, values, start, end) = (null!, null!, 0, 0);
+                return false;
+            }
+            (keys, values) = (_keys!, _values!);
+            ReadOnlySpan<int> offsets = map.ValueOffsets;
+            (start, end) = (offsets[i], offsets[i + 1]);
+            return true;
+        }
+
         public Dictionary<string, string?>? Get(int i)
         {
-            if (map is null || map.IsNull(i)) return null;
-            var keys = (StringArray)map.Keys;
-            var values = (StringArray)map.Values;
-            // The offsets are the entries' indices in the key / value struct, whose fields are sliced as it is.
-            int start = map.ValueOffsets[i];
-            int end = map.ValueOffsets[i + 1];
+            if (!Entries(i, out StringArray keys, out StringArray values, out int start, out int end)) return null;
             var result = new Dictionary<string, string?>(end - start, StringComparer.Ordinal);
             for (int k = start; k < end; k++)
-            {
-                string key = keys.GetString(k) ?? throw new DeltaException($"The map '{name}' has a null key.");
-                result[key] = values.GetString(k);
-            }
+                result[keys.GetString(k) ?? throw NullKey()] = values.GetString(k);
             return result;
         }
+
+        public DeltaException NullKey() => new($"The map '{name}' has a null key.");
     }
 
     /// <summary>A list of strings; a missing field or null list reads as null.</summary>
