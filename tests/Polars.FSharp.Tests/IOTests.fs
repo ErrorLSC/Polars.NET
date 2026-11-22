@@ -270,6 +270,33 @@ Charlie,35,true"""
             if File.Exists path then File.Delete path
             if File.Exists tempStub then File.Delete tempStub
     [<Fact>]
+    member _.``IO: NDJSON overrides, Hive partitions and existing data`` () =
+        let root = Path.Combine(Path.GetTempPath(), $"fs-json-{Guid.NewGuid():N}")
+        try
+            let ids = [ 0L .. 89L ]
+            use df = DataFrame.create [ Series.create("Id", ids); Series.create("K", ids |> List.map (fun i -> i % 3L)) ]
+            use lf = df.Lazy()
+            use keys = pl.cs.byName [ "K" ]
+            lf.SinkJsonPartitioned(root, keys, includeKeys = false)
+            Assert.ThrowsAny<exn>(fun () -> lf.SinkJsonPartitioned(root, keys)) |> ignore
+            lf.SinkJsonPartitioned(root, keys, includeKeys = false, existingData = ExistingData.Append, compression = ExternalCompression.Gzip)
+
+            use hive = LazyFrame.ScanNdjson(root, hivePartitioning = true).Collect()
+            Assert.Equal(180L, hive.Height)
+            Assert.Equal<string[]>([| "Id"; "K" |], hive.Columns)
+            use plain = LazyFrame.ScanNdjson(root).Collect()
+            Assert.Equal<string[]>([| "Id" |], plain.Columns)
+
+            use overrides = new PolarsSchema([ ("Id", DataType.Int16) ])
+            use typed = LazyFrame.ScanNdjson(root, schemaOverrides = overrides).Collect()
+            Assert.Equal(DataType.Int16, typed.Column("Id").DataType)
+            use eager = DataFrame.ReadJson(Path.Combine(root, "K=1", Directory.GetFiles(Path.Combine(root, "K=1"))[0] |> Path.GetFileName),
+                                           jsonFormat = JsonFormat.JsonLines, schemaOverrides = overrides)
+            Assert.Equal(DataType.Int16, eager.Column("Id").DataType)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     member _.``IO: Read IPC (All Modes)`` () =
 
         let tempStub = Path.GetTempFileName()

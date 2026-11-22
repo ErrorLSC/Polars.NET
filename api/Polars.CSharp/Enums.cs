@@ -480,6 +480,22 @@ public enum DeltaSaveMode
     Ignore = 3
 }
 
+/// <summary>What a partitioned write does with files under its path already.</summary>
+public enum ExistingData
+{
+    /// <summary>The write fails when any file is there (the default).</summary>
+    Error,
+
+    /// <summary>The files are added beside those there (named apart by the write's id).</summary>
+    Append,
+
+    /// <summary>
+    /// The files there in the partitions written are deleted once every file of the write is published (a failed write
+    /// leaves them); the other partitions are left as they are.
+    /// </summary>
+    ReplacePartitions,
+}
+
 public enum ExternalCompression : byte
 {
     Uncompressed = 0,
@@ -883,6 +899,13 @@ internal static class EnumExtensions
         ExternalCompression.Gzip => CoreEnums.PlExternalCompression.Gzip,
         ExternalCompression.ZSTD => CoreEnums.PlExternalCompression.ZSTD,
         _ => throw new ArgumentOutOfRangeException(nameof(compression), compression, null)
+    };
+    internal static Kaminari.Seseragi.Files.ExistingData ToNative(this ExistingData existing) => existing switch
+    {
+        ExistingData.Error => Kaminari.Seseragi.Files.ExistingData.Error,
+        ExistingData.Append => Kaminari.Seseragi.Files.ExistingData.Append,
+        ExistingData.ReplacePartitions => Kaminari.Seseragi.Files.ExistingData.ReplacePartitions,
+        _ => throw new ArgumentOutOfRangeException(nameof(existing), existing, null)
     };
     internal static CoreEnums.PlSyncOnClose ToNative(this SyncOnClose syncOnClose) => syncOnClose switch
     {

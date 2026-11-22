@@ -200,6 +200,14 @@ public sealed class CloudOptions
         };
     }
 
+    /// <summary>The settings as Core's managed IO takes them (null: none given).</summary>
+    internal static global::Polars.NET.Core.Delta.CloudArgs? ToCloudArgs(CloudOptions? options)
+    {
+        if (options is null) return null;
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = ParseCloudOptions(options);
+        return new(provider.ToNative(), retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values);
+    }
+
     internal static (
         CloudProvider Provider,
         nuint Retries,

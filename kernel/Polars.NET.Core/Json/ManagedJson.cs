@@ -236,12 +236,42 @@ public static class ManagedJson
         return given.CastBack(Import(reader));
     }
 
-    // The reader's batches into a frame (the reader's output owns its memory: the input may go once this returns).
+    /// <summary>
+    /// The reader's batches into a frame (the reader's output owns its memory: the input may go once this returns). A
+    /// read failing is rethrown as it is (<see cref="JsonFormatException"/>, <see cref="JsonValueException"/>, …), not as
+    /// the engine's report of a failed import.
+    /// </summary>
     private static DataFrameHandle Import(JsonReader reader)
     {
         Schema schema = PolarsArrowCompat.Adapt(reader.Schema, out bool convert);
-        IEnumerable<RecordBatch> batches = reader.ReadBatches();
-        return ArrowStreamInterop.ImportEagerStrict(convert ? batches.Select(b => PolarsArrowCompat.Convert(b, schema)) : batches, schema);
+        Exception? failure = null;
+        try
+        {
+            return ArrowStreamInterop.ImportEagerStrict(convert ? Batches().Select(b => PolarsArrowCompat.Convert(b, schema)) : Batches(), schema);
+        }
+        catch when (failure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failure);
+            throw;
+        }
+
+        IEnumerable<RecordBatch> Batches()
+        {
+            using IEnumerator<RecordBatch> batches = reader.ReadBatches().GetEnumerator();
+            while (true)
+            {
+                try
+                {
+                    if (!batches.MoveNext()) yield break;
+                }
+                catch (Exception e)
+                {
+                    failure = e;
+                    throw;
+                }
+                yield return batches.Current;
+            }
+        }
     }
 
     // ================================================================= scan
@@ -815,10 +845,12 @@ public static class ManagedJson
         }
     }
 
-    /// <summary>The partition columns a selector picks from a query's schema (the query borrowed).</summary>
+    /// <summary>The partition columns a selector picks from a query's schema (the query and the selector borrowed).</summary>
     public static string[] SelectedColumns(LazyFrameHandle lf, SelectorHandle selector)
     {
-        using LazyFrameHandle selected = PolarsWrapper.LazySelect(PolarsWrapper.LazyClone(lf), [PolarsWrapper.SelectorToExpr(selector)]);
+        // The expression takes its own copy of the selector (making one consumes the selector given to it).
+        using LazyFrameHandle selected = PolarsWrapper.LazySelect(PolarsWrapper.LazyClone(lf),
+            [PolarsWrapper.SelectorToExpr(PolarsWrapper.CloneSelector(selector))]);
         using SchemaHandle schema = PolarsWrapper.GetLazySchema(selected);
         ulong count = PolarsWrapper.GetSchemaLen(schema);
         string[] names = new string[count];

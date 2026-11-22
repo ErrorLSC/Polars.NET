@@ -1,7 +1,7 @@
 #pragma warning disable CS1573
 using System.IO.Pipelines;
 using Polars.NET.Core;
-using Polars.NET.Core.Wrappers;
+using Polars.NET.Core.Json;
 
 namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable
@@ -12,7 +12,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="path">Output file path.</param>
     /// <param name="compression">Compression method (Gzip/Zstd).</param>
     /// <param name="compressionLevel">Compression level.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.json' or '.ndjson'.</param>
+    /// <param name="checkExtension">Whether the path's extension must match the compression: none or <c>.gz</c> / <c>.zst</c> when compressed, not one of those when not.</param>
     /// <param name="maintainOrder">Maintain the order of data.</param>
     /// <param name="syncOnClose">Sync to disk on close.</param>
     /// <param name="mkdir">Create parent directories.</param>
@@ -26,29 +26,8 @@ public partial class LazyFrame : IDisposable
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
-    {
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-
-        PolarsWrapper.SinkJson(
-            CloneHandle(),
-            path,
-            compression.ToNative(),
-            compressionLevel,
-            checkExtension,
-            maintainOrder,
-            syncOnClose.ToNative(),
-            mkdir,
-            // Cloud
-            provider.ToNative(),
-            retries,
-            timeout,
-            initBackoff,
-            maxBackoff,
-            cacheTtl,
-            keys,
-            values
-        );
-    }
+        => ManagedJson.SinkJson(CloneHandle(), path, compression.ToNative(), compressionLevel, checkExtension, maintainOrder, syncOnClose.ToNative(), mkdir,
+            CloudOptions.ToCloudArgs(cloudOptions));
     /// <inheritdoc cref="SinkJson(string, ExternalCompression, int, bool, bool, SyncOnClose, bool, CloudOptions?)"/>
     /// <param name="partitionBy">The selector(s) to partition the data by.</param>
     /// <param name="includeKeys">Whether to include the partition keys in the output files.</param>
@@ -58,6 +37,12 @@ public partial class LazyFrame : IDisposable
     /// </param>
     /// <param name="maxRowsPerFile">Maximum number of rows per file. 0 means no limit.</param>
     /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
+    /// <param name="existingData">What happens to files under <paramref name="path"/> already (an error by default).</param>
+    /// <remarks>
+    /// Files are written in Hive directories of the keys' values (<c>key=value</c>), named
+    /// <c>part-{index:D5}-{write id}.jsonl</c> (<c>.gz</c>, <c>.zst</c> when compressed), each published whole. Keys said to
+    /// be pre-grouped while they are not write more files, never wrong ones.
+    /// </remarks>
     public void SinkJsonPartitioned(
         string path,
         IntoSelector partitionBy,
@@ -71,35 +56,14 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        ExistingData existingData = ExistingData.Error)
     {
-        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-
-        PolarsWrapper.SinkJsonPartitioned(
-            CloneHandle(),
-            path,
-            // --- Partition Params ---
-            partitionBy.Consume().CloneHandle(), 
-            includeKeys,
-            keysPreGrouped,
-            maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
-            approxBytesPerFile > 0 ? (ulong)approxBytesPerFile : 0,
-            compression.ToNative(),
-            compressionLevel,
-            checkExtension,
-            maintainOrder,
-            syncOnClose.ToNative(),
-            mkdir,
-            // Cloud
-            provider.ToNative(),
-            retries,
-            timeout,
-            initBackoff,
-            maxBackoff,
-            cacheTtl,
-            keys,
-            values
-        );
+        string[] keys;
+        using (Selector selector = partitionBy.Consume()) keys = ManagedJson.SelectedColumns(Handle, selector.Handle);
+        ManagedJson.SinkJsonPartitioned(CloneHandle(), path, keys, includeKeys, keysPreGrouped,
+            maxRowsPerFile > 0 ? (ulong)maxRowsPerFile : 0, approxBytesPerFile > 0 ? (ulong)approxBytesPerFile : 0,
+            compression.ToNative(), compressionLevel, maintainOrder, syncOnClose.ToNative(), existingData.ToNative(), CloudOptions.ToCloudArgs(cloudOptions));
     }
     /// <summary>
     /// Alias for SinkJson with format=JsonLines.
@@ -126,7 +90,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="stream">Writable destination stream.</param>
     /// <param name="compression">Compression method (Gzip/Zstd).</param>
     /// <param name="compressionLevel">Compression level.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.json' or '.ndjson'.</param>
+    /// <param name="checkExtension">Whether the path's extension must match the compression: none or <c>.gz</c> / <c>.zst</c> when compressed, not one of those when not.</param>
     /// <param name="maintainOrder">Maintain the order of data.</param>
     public void SinkJson(
         Stream stream,
@@ -136,9 +100,7 @@ public partial class LazyFrame : IDisposable
         bool maintainOrder = true)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        var handle = CloneHandle();
-        NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkJsonCallback(
-            handle, target, compression.ToNative(), compressionLevel, checkExtension, maintainOrder));
+        ManagedJson.SinkJson(CloneHandle(), stream, compression.ToNative(), compressionLevel, maintainOrder);
     }
 
     /// <summary>
@@ -160,10 +122,7 @@ public partial class LazyFrame : IDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        var handle = CloneHandle();
-        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkJsonCallback(
-            handle, target, compression.ToNative(), compressionLevel, checkExtension, maintainOrder),
-            cancellationToken);
+        return ManagedJson.SinkJsonAsync(CloneHandle(), stream, compression.ToNative(), compressionLevel, maintainOrder, cancellationToken);
     }
 
     /// <summary>
@@ -182,10 +141,7 @@ public partial class LazyFrame : IDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        var handle = CloneHandle();
-        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkJsonCallback(
-            handle, target, compression.ToNative(), compressionLevel, checkExtension, maintainOrder),
-            cancellationToken);
+        return ManagedJson.SinkJsonAsync(CloneHandle(), writer, compression.ToNative(), compressionLevel, maintainOrder, cancellationToken);
     }
 
     /// <summary>
@@ -197,13 +153,7 @@ public partial class LazyFrame : IDisposable
         bool checkExtension = true,
         bool maintainOrder = true)
     {
-        return PolarsWrapper.SinkJsonMemory(
-            CloneHandle(),
-            compression.ToNative(),
-            compressionLevel,
-            checkExtension,
-            maintainOrder
-        );
+        return ManagedJson.SinkJsonToMemory(CloneHandle(), compression.ToNative(), compressionLevel, maintainOrder);
     }
 
     /// <summary>
@@ -218,12 +168,6 @@ public partial class LazyFrame : IDisposable
         bool checkExtension = true,
         bool maintainOrder = true)
     {
-        return PolarsWrapper.SinkJsonNativeMemory(
-            CloneHandle(),
-            compression.ToNative(),
-            compressionLevel,
-            checkExtension,
-            maintainOrder
-        );
+        return ManagedJson.SinkJsonNativeMemory(CloneHandle(), compression.ToNative(), compressionLevel, maintainOrder);
     }
 }

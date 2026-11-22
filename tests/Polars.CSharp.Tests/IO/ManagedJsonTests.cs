@@ -320,7 +320,7 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
         using DataFrame df = DataFrame.From<Keyed>([.. Enumerable.Range(0, 3000).Select(i => new Keyed(i, i % 3, $"n{i}"))]);
         string root = At("parts");
         ManagedJson.SinkJsonPartitioned(df.Lazy().CloneHandle(), root, ["K"], false, false, 400, 0, PlExternalCompression.Uncompressed, -1, true,
-            PlSyncOnClose.None, ExistingData.Error, null);
+            PlSyncOnClose.None, Kaminari.Seseragi.Files.ExistingData.Error, null);
         string[] directories = [.. Directory.GetDirectories(root).Select(Path.GetFileName).Order()];
         Assert.Equal(["K=0", "K=1", "K=2"], directories);
         string[] files = Directory.GetFiles(Path.Combine(root, "K=1"));
@@ -335,9 +335,9 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(df.Column("K").ToArray<long>(), sorted.Column("K").ToArray<long>());
         }
         Assert.ThrowsAny<Exception>(() => ManagedJson.SinkJsonPartitioned(df.Lazy().CloneHandle(), root, ["K"], false, false, 0, 0,
-            PlExternalCompression.Uncompressed, -1, true, PlSyncOnClose.None, ExistingData.Error, null));
+            PlExternalCompression.Uncompressed, -1, true, PlSyncOnClose.None, Kaminari.Seseragi.Files.ExistingData.Error, null));
         ManagedJson.SinkJsonPartitioned(df.Lazy().CloneHandle(), root, ["K"], true, true, 0, 0, PlExternalCompression.Gzip, -1, true,
-            PlSyncOnClose.None, ExistingData.Append, null);
+            PlSyncOnClose.None, Kaminari.Seseragi.Files.ExistingData.Append, null);
         // Keys declared grouped while they are not: more files, each of its partition's rows only.
         string[] appended = Directory.GetFiles(Path.Combine(root, "K=1"));
         Assert.Equal(4, appended.Length);
@@ -349,4 +349,40 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
     }
 
     private sealed record Keyed(long Id, long K, string Name);
+
+    // ---------------------------------------------------------------- the public API on it
+
+    /// <summary>
+    /// The public entry points: a read error keeps its type, overrides and Hive partitions on scans, partitioned writes
+    /// refusing, adding to or replacing what is there.
+    /// </summary>
+    [Fact]
+    public void ThePublicApi_TakesTheNewOptions()
+    {
+        byte[] bad = Encoding.UTF8.GetBytes("""{"a":1}""" + "\n" + """{"a":"x"}""" + "\n");
+        var e = Assert.Throws<Kaminari.Seseragi.Files.Json.JsonValueException>(() =>
+            DataFrame.ReadJson(bad, jsonFormat: JsonFormat.JsonLines, schema: new Dictionary<string, DataType> { ["a"] = DataType.Int64 }));
+        Assert.Contains("Line 2", e.Message);
+        using (DataFrame nulls = DataFrame.ReadJson(bad, jsonFormat: JsonFormat.JsonLines, ignoreErrors: true,
+                   schemaOverrides: new Dictionary<string, DataType> { ["a"] = DataType.Int16 }))
+        {
+            Assert.Equal("i16", nulls.Schema["a"].ToString());
+            Assert.Equal([(short?)1, null], nulls.Column("a").ToArray<short?>());
+        }
+
+        using DataFrame df = DataFrame.From<Keyed>([.. Enumerable.Range(0, 90).Select(i => new Keyed(i, i % 3, $"n{i}"))]);
+        string root = At("api");
+        df.WriteJsonPartitioned(root, "K", includeKeys: false);
+        Assert.ThrowsAny<Exception>(() => df.WriteJsonPartitioned(root, "K"));
+        df.WriteJsonPartitioned(root, "K", existingData: ExistingData.Append, compression: ExternalCompression.Gzip);
+        using (DataFrame both = LazyFrame.ScanNdjson(Path.Combine(root, "**", "*"), hivePartitioning: true).Collect())
+        {
+            Assert.Equal(180, both.Height);
+            Assert.Equal(["Id", "Name", "K"], both.Columns); // partition columns after the files' columns
+        }
+        using (DataFrame noHive = LazyFrame.ScanNdjson(root).Collect()) Assert.Equal(["Id", "Name"], noHive.Columns);
+        df.Lazy().Filter(Col("K") == 1).SinkJsonPartitioned(root, "K", includeKeys: false, existingData: ExistingData.ReplacePartitions);
+        using DataFrame replaced = LazyFrame.ScanNdjson(root, hivePartitioning: true).Collect();
+        Assert.Equal(150, replaced.Height); // K=1 replaced (30 rows), K=0 and K=2 kept (60 each)
+    }
 }

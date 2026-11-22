@@ -1,7 +1,7 @@
 #pragma warning disable CS1573
 using System.IO.Pipelines;
 using Polars.NET.Core;
-using Polars.NET.Core.Wrappers;
+using Polars.NET.Core.Json;
 
 namespace Polars.CSharp;
 
@@ -14,7 +14,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <param name="format">JSON format (Json Array or JsonLines). Defaults to Json.</param>
     public void WriteJson(string path, JsonFormat format = JsonFormat.Json)
     {
-        PolarsWrapper.WriteJson(Handle, path, format.ToNative());
+        ManagedJson.WriteJson(Handle, path, format.ToNative());
     }
     /// <summary>
     /// Writes the DataFrame to a JSON format in memory.
@@ -23,10 +23,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <returns>A byte array containing the JSON data.</returns>
     public byte[] WriteJsonMemory(JsonFormat jsonFormat = JsonFormat.Json)
     {
-        return PolarsWrapper.WriteJsonMemory(
-            Handle,
-            jsonFormat.ToNative()
-        );
+        return ManagedJson.WriteJsonToMemory(Handle, jsonFormat.ToNative());
     }
 
     /// <summary>
@@ -38,10 +35,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// </returns>
     public NativeBuffer WriteJsonNativeMemory(JsonFormat jsonFormat = JsonFormat.Json)
     {
-        return PolarsWrapper.WriteJsonNativeMemory(
-            Handle,
-            jsonFormat.ToNative()
-        );
+        return ManagedJson.WriteJsonNativeMemory(Handle, jsonFormat.ToNative());
     }
     /// <summary>
     /// Write the DataFrame to a JSON format into a <see cref="Stream"/>.
@@ -54,8 +48,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     public void WriteJson(Stream stream, JsonFormat format = JsonFormat.Json)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        NativeStreamWriter.Write(stream, target =>
-            PolarsWrapper.WriteJsonCallback(Handle, target, format.ToNative()));
+        ManagedJson.WriteJson(Handle, stream, format.ToNative());
     }
 
     /// <summary>
@@ -74,9 +67,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        return NativeStreamWriter.WriteAsync(stream, target =>
-            PolarsWrapper.WriteJsonCallback(Handle, target, format.ToNative()),
-            cancellationToken);
+        return ManagedJson.WriteJsonAsync(Handle, stream, format.ToNative(), cancellationToken);
     }
 
     /// <summary>
@@ -92,9 +83,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        return NativeStreamWriter.WriteAsync(writer, target =>
-            PolarsWrapper.WriteJsonCallback(Handle, target, format.ToNative()),
-            cancellationToken);
+        return ManagedJson.WriteJsonAsync(Handle, writer, format.ToNative(), cancellationToken);
     }
 
     /// <inheritdoc cref="LazyFrame.SinkJsonPartitioned"/>
@@ -111,12 +100,13 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        ExistingData existingData = ExistingData.Error)
     {
-        var lf = Lazy();
+        using var lf = Lazy();
         lf.SinkJsonPartitioned(
             path, partitionBy, includeKeys, keysPreGrouped, maxRowsPerFile, approxBytesPerFile,
-            compression, compressionLevel, checkExtension, maintainOrder, syncOnClose, mkdir, cloudOptions
+            compression, compressionLevel, checkExtension, maintainOrder, syncOnClose, mkdir, cloudOptions, existingData
         );
     }
 
@@ -129,7 +119,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <param name="path">Output file path.</param>
     /// <param name="compression">Compression method (Gzip/Zstd). Defaults to None.</param>
     /// <param name="compressionLevel">Compression level. -1 for default.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.json' or '.ndjson'.</param>
+    /// <param name="checkExtension">Whether the path's extension must match the compression: none or <c>.gz</c> / <c>.zst</c> when compressed, not one of those when not.</param>
     /// <param name="maintainOrder">Maintain the order of data.</param>
     /// <param name="syncOnClose">Sync to disk on close.</param>
     /// <param name="mkdir">Create parent directories.</param>
@@ -144,7 +134,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
     {
-        var lf = Lazy();
+        using var lf = Lazy();
 
         lf.SinkJson(
             path,

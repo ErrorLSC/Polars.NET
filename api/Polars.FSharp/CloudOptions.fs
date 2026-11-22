@@ -47,6 +47,13 @@ type CloudOptions =
         | None ->
             // Default: NotCloud
             CloudProvider.NotCloud.ToNative(), unativeint 0, 0UL, 0UL, 0UL, 0UL, null, null
+    /// <summary>The settings as Core's managed IO takes them (null: none given).</summary>
+    static member internal ToCloudArgs(cloudOptions: CloudOptions option) : Polars.NET.Core.Delta.CloudArgs =
+        match cloudOptions with
+        | None -> null
+        | Some _ ->
+            let provider, retries, timeoutMs, initBackoffMs, maxBackoffMs, cacheTtl, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+            Polars.NET.Core.Delta.CloudArgs(provider, retries, timeoutMs, initBackoffMs, maxBackoffMs, cacheTtl, keys, values)
     // ==========================================
     // Helper Methods (Factory Functions)
     // ==========================================

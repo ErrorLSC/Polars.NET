@@ -546,6 +546,22 @@ type DeltaSaveMode =
         | ErrorIfExists -> PlDeltaSaveMode.ErrorIfExists
         | Ignore -> PlDeltaSaveMode.Ignore
 
+/// <summary>What a partitioned write does with files under its path already.</summary>
+[<RequireQualifiedAccess>]
+type ExistingData =
+    /// <summary>The write fails when any file is there (the default).</summary>
+    | Error
+    /// <summary>The files are added beside those there (named apart by the write's id).</summary>
+    | Append
+    /// <summary>The files there in the partitions written are deleted once every file of the write is published (a failed write leaves them); the other partitions are left as they are.</summary>
+    | ReplacePartitions
+
+    member internal this.ToNative() =
+        match this with
+        | Error -> Kaminari.Seseragi.Files.ExistingData.Error
+        | Append -> Kaminari.Seseragi.Files.ExistingData.Append
+        | ReplacePartitions -> Kaminari.Seseragi.Files.ExistingData.ReplacePartitions
+
 [<RequireQualifiedAccess>]
 type ExternalCompression =
     | Uncompressed

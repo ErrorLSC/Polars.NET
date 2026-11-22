@@ -144,9 +144,10 @@ public class IoTests
                 using var schema = new PolarsSchema()
                     .Add("val", DataType.Int32);
 
+                // Overrides type some inferred columns; a schema is the whole schema (its columns only).
                 using var lf = LazyFrame.ScanNdjson(
                     path, 
-                    schema: schema,
+                    schemaOverrides: schema,
                     nRows: 3 
                 );
                 
@@ -157,6 +158,10 @@ public class IoTests
                 Assert.Equal(DataType.Int32, df.Column("val").DataType);
                 Assert.Equal(100, df.GetValue<int>(0, "val"));
                 Assert.Equal("A", df.GetValue<string>(0, "tag"));
+
+                using var only = LazyFrame.ScanNdjson(path, schema: schema).Collect();
+                Assert.Equal(["val"], only.Columns);
+                Assert.Equal(300, only.GetValue<int>(2, "val"));
             }
             // Memory Mode
             {

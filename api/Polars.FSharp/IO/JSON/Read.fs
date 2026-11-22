@@ -1,14 +1,37 @@
 namespace Polars.FSharp
 
-open Polars.NET.Core.Wrappers
+open Polars.NET.Core.Json
 
 [<AutoOpen>]
 module JsonRead =
     open System.IO
+
+    // The schema handles given (null: none); the schemas are the caller's.
+    let private handleOf (schema: PolarsSchema option) = match schema with Some s -> s.Handle | None -> null
+
+    // 100 rows by default; null (none given) never: 0 or a value above 16,777,216 infers from the whole input.
+    let private inferLength (rows: uint64 option) = System.Nullable(defaultArg rows 100UL)
+
     type LazyFrame with
         /// <summary>
-        /// Lazily read a NDJSON file.
+        /// Lazily read newline delimited JSON (NDJSON): a file, a directory of files, a glob, or any of them on a cloud
+        /// store. The files are listed and the columns inferred now (from the first file holding records); the data is
+        /// read each time the query runs: only the columns it reads and the leading rows it keeps.
         /// </summary>
+        /// <param name="path">The file, directory or glob (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
+        /// <param name="schema">Every column and its type: nothing is inferred, fields it does not name are passed over, fields a record lacks are nulls.</param>
+        /// <param name="inferSchemaLen">Rows to infer the schema from (100 by default); 0 or a value above 16,777,216 infers it from the whole input (of the first file).</param>
+        /// <param name="batchSize">Rows per batch read.</param>
+        /// <param name="nRows">Limit the number of rows to read.</param>
+        /// <param name="lowMemory">Accepted for compatibility; reading streams its input whatever it says.</param>
+        /// <param name="rechunk">Accepted for compatibility; it changes nothing.</param>
+        /// <param name="ignoreErrors">A value that does not fit its column's type is a null instead of an error (syntax errors still are errors).</param>
+        /// <param name="rowIndexName">If provided, adds a first column (UInt32) numbering the rows across the files.</param>
+        /// <param name="rowIndexOffset">Offset for the row index (default: 0).</param>
+        /// <param name="includePathColumn">If provided, adds a last column with each row's file path.</param>
+        /// <param name="cloudOptions">Options for cloud storage.</param>
+        /// <param name="schemaOverrides">The types of some inferred columns (with <paramref name="schema"/>: of some of its columns).</param>
+        /// <param name="hivePartitioning">Whether <c>key=value</c> directories of the paths are columns (off by default).</param>
         static member ScanNdjson(path: string,
                                 ?schema: PolarsSchema,
                                 ?inferSchemaLen: uint64,
@@ -20,54 +43,21 @@ module JsonRead =
                                 ?rowIndexName: string,
                                 ?rowIndexOffset: uint32,
                                 ?includePathColumn: string,
-                                ?cloudOptions: CloudOptions) : LazyFrame =
-            
-            let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
-            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
-            let batch = Option.toNullable batchSize
-            let rows = Option.toNullable nRows
-            
-            let lowMem = defaultArg lowMemory false
-            let rechk = defaultArg rechunk false
-            let ignoreErr = defaultArg ignoreErrors false
-            
-            let idxName = Option.toObj rowIndexName
-            let idxOffset = defaultArg rowIndexOffset 0u
-            let pathCol = Option.toObj includePathColumn
-
-            // Parse Cloud Options
-            let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = 
-                CloudOptions.ParseCloudOptions cloudOptions
-
-            let h = PolarsWrapper.ScanNdjson(
-                path, 
-                schemaHandle, 
-                batch, 
-                inferLen, 
-                rows, 
-                lowMem, 
-                rechk, 
-                ignoreErr, 
-                idxName, 
-                idxOffset, 
-                pathCol,
-                // Cloud
-                cProv,
-                cRet,
-                cToMs,
-                cInitMs,
-                cMaxMs,
-                cCache,
-                cKeys,
-                cVals
-            )
+                                ?cloudOptions: CloudOptions,
+                                ?schemaOverrides: PolarsSchema,
+                                ?hivePartitioning: bool) : LazyFrame =
+            ignore (lowMemory, rechunk)
+            let h =
+                ManagedJson.ScanNdjson(
+                    path, handleOf schema, handleOf schemaOverrides, Option.toNullable batchSize, inferLength inferSchemaLen,
+                    Option.toNullable nRows, defaultArg ignoreErrors false, Option.toObj rowIndexName, defaultArg rowIndexOffset 0u,
+                    Option.toObj includePathColumn, defaultArg hivePartitioning false, CloudOptions.ToCloudArgs cloudOptions)
             new LazyFrame(h)
 
         /// <summary>
         /// Lazily read NDJSON from in-memory bytes.
         /// </summary>
-        /// <remarks>The bytes are copied; the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
+        /// <remarks>The bytes are copied (into native memory the scan keeps); the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
         static member ScanNdjson(buffer: byte[],
                                 ?schema: PolarsSchema,
                                 ?inferSchemaLen: uint64,
@@ -77,23 +67,20 @@ module JsonRead =
                                 ?rechunk: bool,
                                 ?ignoreErrors: bool,
                                 ?rowIndexName: string,
-                                ?rowIndexOffset: uint32) : LazyFrame =
-            LazyFrame.ScanNdjson(
-                System.ReadOnlyMemory<byte>(Array.copy buffer),
-                ?schema = schema,
-                ?inferSchemaLen = inferSchemaLen,
-                ?batchSize = batchSize,
-                ?nRows = nRows,
-                ?lowMemory = lowMemory,
-                ?rechunk = rechunk,
-                ?ignoreErrors = ignoreErrors,
-                ?rowIndexName = rowIndexName,
-                ?rowIndexOffset = rowIndexOffset)
+                                ?rowIndexOffset: uint32,
+                                ?schemaOverrides: PolarsSchema) : LazyFrame =
+            ignore (lowMemory, rechunk)
+            let h =
+                ManagedJson.ScanNdjson(
+                    System.ReadOnlySpan<byte>(buffer), handleOf schema, handleOf schemaOverrides, Option.toNullable batchSize,
+                    inferLength inferSchemaLen, Option.toNullable nRows, defaultArg ignoreErrors false, Option.toObj rowIndexName,
+                    defaultArg rowIndexOffset 0u)
+            new LazyFrame(h)
 
         /// <summary>
         /// Lazily read NDJSON from in-memory bytes.
         /// </summary>
-        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once the engine unpins it (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once it is unpinned (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
         static member ScanNdjson(buffer: System.ReadOnlyMemory<byte>,
                                 ?schema: PolarsSchema,
                                 ?inferSchemaLen: uint64,
@@ -103,38 +90,18 @@ module JsonRead =
                                 ?rechunk: bool,
                                 ?ignoreErrors: bool,
                                 ?rowIndexName: string,
-                                ?rowIndexOffset: uint32) : LazyFrame =
-            
-            let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
-            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
-            let batch = Option.toNullable batchSize
-            let rows = Option.toNullable nRows
-            
-            let lowMem = defaultArg lowMemory false
-            let rechk = defaultArg rechunk false
-            let ignoreErr = defaultArg ignoreErrors false
-            
-            let idxName = Option.toObj rowIndexName
-            let idxOffset = defaultArg rowIndexOffset 0u
-            
-            let h = PolarsWrapper.ScanNdjson(
-                NativeBytes.Share buffer, 
-                schemaHandle, 
-                batch, 
-                inferLen, 
-                rows, 
-                lowMem, 
-                rechk, 
-                ignoreErr, 
-                idxName, 
-                idxOffset, 
-                null 
-            )
+                                ?rowIndexOffset: uint32,
+                                ?schemaOverrides: PolarsSchema) : LazyFrame =
+            ignore (lowMemory, rechunk)
+            let h =
+                ManagedJson.ScanNdjson(
+                    buffer, handleOf schema, handleOf schemaOverrides, Option.toNullable batchSize, inferLength inferSchemaLen,
+                    Option.toNullable nRows, defaultArg ignoreErrors false, Option.toObj rowIndexName, defaultArg rowIndexOffset 0u)
             new LazyFrame(h)
 
         /// <summary>
-        /// Lazily read NDJSON from a Stream.
+        /// Lazily read NDJSON from a Stream: read now (from its position; the stream is left open), once, into native
+        /// memory the scan keeps.
         /// </summary>
         static member ScanNdjson(stream: Stream,
                                 ?schema: PolarsSchema,
@@ -145,95 +112,78 @@ module JsonRead =
                                 ?rechunk: bool,
                                 ?ignoreErrors: bool,
                                 ?rowIndexName: string,
-                                ?rowIndexOffset: uint32) : LazyFrame =
-            
-            use ms = new MemoryStream()
-            stream.CopyTo ms
-            let bytes = ms.ToArray()
+                                ?rowIndexOffset: uint32,
+                                ?schemaOverrides: PolarsSchema) : LazyFrame =
+            ignore (lowMemory, rechunk)
+            let h =
+                ManagedJson.ScanNdjson(
+                    stream, handleOf schema, handleOf schemaOverrides, Option.toNullable batchSize, inferLength inferSchemaLen,
+                    Option.toNullable nRows, defaultArg ignoreErrors false, Option.toObj rowIndexName, defaultArg rowIndexOffset 0u)
+            new LazyFrame(h)
 
-            LazyFrame.ScanNdjson(
-                bytes,
-                ?schema=schema,
-                ?inferSchemaLen=inferSchemaLen,
-                ?batchSize=batchSize,
-                ?nRows=nRows,
-                ?lowMemory=lowMemory,
-                ?rechunk=rechunk,
-                ?ignoreErrors=ignoreErrors,
-                ?rowIndexName=rowIndexName,
-                ?rowIndexOffset=rowIndexOffset
-            )
     type DataFrame with
         /// <summary>
-        /// Read a JSON file into a DataFrame.
+        /// Read a JSON file into a DataFrame: one document (an array of objects, or one object) or newline-delimited
+        /// JSON, decoded on every core.
         /// </summary>
-        static member ReadJson(path: string, 
-                            ?columns: string seq, 
-                            ?schema: PolarsSchema, 
-                            ?inferSchemaLen: uint64, 
-                            ?batchSize: uint64, 
+        /// <param name="path">Path to the JSON file.</param>
+        /// <param name="columns">Select specific columns to read.</param>
+        /// <param name="schema">Every column and its type: nothing is inferred, fields it does not name are passed over, fields a record lacks are nulls.</param>
+        /// <param name="inferSchemaLen">Rows to infer the schema from (100 by default); 0 or a value above 16,777,216 infers it from the whole input.</param>
+        /// <param name="batchSize">Rows per batch read.</param>
+        /// <param name="ignoreErrors">A value that does not fit its column's type is a null instead of an error (syntax errors still are errors).</param>
+        /// <param name="jsonFormat">Format: Json (a document) or JsonLines (NDJSON).</param>
+        /// <param name="schemaOverrides">The types of some inferred columns (with <paramref name="schema"/>: of some of its columns).</param>
+        static member ReadJson(path: string,
+                            ?columns: string seq,
+                            ?schema: PolarsSchema,
+                            ?inferSchemaLen: uint64,
+                            ?batchSize: uint64,
                             ?ignoreErrors: bool,
-                            ?jsonFormat: JsonFormat) : DataFrame =
-            
+                            ?jsonFormat: JsonFormat,
+                            ?schemaOverrides: PolarsSchema) : DataFrame =
             let cols = columns |> Option.map Seq.toArray |> Option.toObj
-            
-            let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            
-            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
-            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
-            let batch = Option.toNullable batchSize
-            
-            let ignoreErr = defaultArg ignoreErrors false
-            
             let fmt = defaultArg jsonFormat JsonFormat.Json
-
-            let h = PolarsWrapper.ReadJson(path, cols, schemaHandle, inferLen, batch, ignoreErr, fmt.ToNative())
+            let h =
+                ManagedJson.ReadJson(
+                    path, cols, handleOf schema, handleOf schemaOverrides, inferLength inferSchemaLen, Option.toNullable batchSize,
+                    defaultArg ignoreErrors false, fmt.ToNative())
             new DataFrame(h)
 
         /// <summary>
-        /// Read JSON from in-memory bytes.
+        /// Read JSON from in-memory bytes (read in place during the call).
         /// </summary>
-        static member ReadJson(buffer: byte[], 
-                            ?columns: string seq, 
-                            ?schema: PolarsSchema, 
-                            ?inferSchemaLen: uint64, 
-                            ?batchSize: uint64, 
+        static member ReadJson(buffer: byte[],
+                            ?columns: string seq,
+                            ?schema: PolarsSchema,
+                            ?inferSchemaLen: uint64,
+                            ?batchSize: uint64,
                             ?ignoreErrors: bool,
-                            ?jsonFormat: JsonFormat) : DataFrame =
-            
+                            ?jsonFormat: JsonFormat,
+                            ?schemaOverrides: PolarsSchema) : DataFrame =
             let cols = columns |> Option.map Seq.toArray |> Option.toObj
-            let schemaHandle = match schema with Some s -> s.Handle | None -> null
-            // 100 rows by default; 0 or a value above 16,777,216 infers from the whole input.
-            let inferLen = System.Nullable(defaultArg inferSchemaLen 100UL)
-            let batch = Option.toNullable batchSize
-            let ignoreErr = defaultArg ignoreErrors false
-            
             let fmt = defaultArg jsonFormat JsonFormat.Json
-
-            let h = PolarsWrapper.ReadJson(buffer, cols, schemaHandle, inferLen, batch, ignoreErr, fmt.ToNative())
+            let h =
+                ManagedJson.ReadJson(
+                    System.ReadOnlyMemory<byte>(buffer), cols, handleOf schema, handleOf schemaOverrides, inferLength inferSchemaLen,
+                    Option.toNullable batchSize, defaultArg ignoreErrors false, fmt.ToNative())
             new DataFrame(h)
 
         /// <summary>
-        /// Read JSON from a Stream.
+        /// Read JSON from a Stream, decoded as it arrives (from its position; the stream is left open).
         /// </summary>
-        static member ReadJson(stream: Stream, 
-                            ?columns: string seq, 
-                            ?schema: PolarsSchema, 
-                            ?inferSchemaLen: uint64, 
-                            ?batchSize: uint64, 
+        static member ReadJson(stream: Stream,
+                            ?columns: string seq,
+                            ?schema: PolarsSchema,
+                            ?inferSchemaLen: uint64,
+                            ?batchSize: uint64,
                             ?ignoreErrors: bool,
-                            ?jsonFormat: JsonFormat) : DataFrame =
-            
-            use ms = new MemoryStream()
-            stream.CopyTo ms
-            let bytes = ms.ToArray()
-            
-            DataFrame.ReadJson(
-                bytes, 
-                ?columns=columns, 
-                ?schema=schema, 
-                ?inferSchemaLen=inferSchemaLen, 
-                ?batchSize=batchSize, 
-                ?ignoreErrors=ignoreErrors, 
-                ?jsonFormat=jsonFormat
-            )
+                            ?jsonFormat: JsonFormat,
+                            ?schemaOverrides: PolarsSchema) : DataFrame =
+            let cols = columns |> Option.map Seq.toArray |> Option.toObj
+            let fmt = defaultArg jsonFormat JsonFormat.Json
+            let h =
+                ManagedJson.ReadJson(
+                    stream, cols, handleOf schema, handleOf schemaOverrides, inferLength inferSchemaLen, Option.toNullable batchSize,
+                    defaultArg ignoreErrors false, fmt.ToNative())
+            new DataFrame(h)
