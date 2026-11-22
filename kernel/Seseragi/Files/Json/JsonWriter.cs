@@ -448,6 +448,30 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
             if (owned) batch.Dispose();
             throw;
         }
+        // Pieces of about a piece's bytes, smaller when that leaves threads idle on this batch (four per thread at least).
+        int threads = _options.MaxDegreeOfParallelism, length = batch.Length;
+        double rowBytes = Math.Max(1, Volatile.Read(ref _rowBytes));
+        long target = Math.Min(_options.PieceBytes, Math.Max((long)(rowBytes * length) / (4 * threads), Math.Min(_options.PieceBytes, 16L << 10)));
+        int pieceRows = (int)Math.Clamp(target / rowBytes, 1, length);
+        int pieces = (length + pieceRows - 1) / pieceRows;
+        long bytes = (long)(rowBytes * length);
+        if (pieces == 1)
+        {
+            // A batch of one piece: encoded here, after the rows appended before, into the piece being filled (one
+            // worker would encode it alone, the caller waiting): small batches cost no task and no write each.
+            bool full;
+            try
+            {
+                full = Append(cells, 0, length);
+            }
+            finally
+            {
+                cells.Expect(1);
+                cells.Release();
+            }
+            if (full) await HandOffAsync(useAsync).ConfigureAwait(false);
+            return;
+        }
         try
         {
             await HandOffAsync(useAsync).ConfigureAwait(false); // rows appended before go first
@@ -458,13 +482,6 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
             cells.Release();
             throw;
         }
-        // Pieces of about a piece's bytes, smaller when that leaves threads idle on this batch (four per thread at least).
-        int threads = _options.MaxDegreeOfParallelism, length = batch.Length;
-        double rowBytes = Math.Max(1, Volatile.Read(ref _rowBytes));
-        long target = Math.Min(_options.PieceBytes, Math.Max((long)(rowBytes * length) / (4 * threads), Math.Min(_options.PieceBytes, 16L << 10)));
-        int pieceRows = (int)Math.Clamp(target / rowBytes, 1, length);
-        int pieces = (length + pieceRows - 1) / pieceRows;
-        long bytes = (long)(rowBytes * length);
         cells.Expect(pieces);
         try
         {
@@ -487,16 +504,10 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
         _rows += length;
         var slots = new EncodedPiece?[pieces];
         int next = 0, workers = Math.Min(threads, pieces);
-        var tasks = new Task[workers];
-        for (int w = 0; w < workers; w++)
-            tasks[w] = Task.Run(() =>
-            {
-                for (int k; (k = Interlocked.Increment(ref next) - 1) < pieces;)
-                {
-                    int from = k * pieceRows;
-                    slots[k] = Encode(cells, from, Math.Min(length, from + pieceRows), first + from);
-                }
-            });
+        // The caller's batch: the caller, waiting for its pieces anyway, encodes them with the workers.
+        var tasks = new Task[owned ? workers : workers - 1];
+        for (int w = 0; w < tasks.Length; w++) tasks[w] = Task.Run(EncodePieces);
+        if (!owned) EncodePieces();
         Task encoded = Task.WhenAll(tasks);
         _chain = WriteInOrderAsync(_chain, encoded, slots, useAsync);
         _ahead.Enqueue((_chain, bytes));
@@ -515,6 +526,15 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
                 }
         }
         ThrowIfFailed();
+
+        void EncodePieces()
+        {
+            for (int k; (k = Interlocked.Increment(ref next) - 1) < pieces;)
+            {
+                int from = k * pieceRows;
+                slots[k] = Encode(cells, from, Math.Min(length, from + pieceRows), first + from);
+            }
+        }
     }
 
     // A failure met behind (a piece's, a write's) fails the writer at the next call.
@@ -634,8 +654,18 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     internal void AppendRows(BatchCells cells, int start, int count)
     {
         CheckWritable();
+        if (count == 0)
+        {
+            ThrowIfFailed();
+            return;
+        }
+        if (Append(cells, start, count)) Sync(HandOffAsync(false));
+    }
+
+    // Rows encoded on this thread into the piece being filled; true once it holds a piece's bytes (to hand off).
+    private bool Append(BatchCells cells, int start, int count)
+    {
         ThrowIfFailed();
-        if (count == 0) return;
         NativeBufferWriter open = _open ??= Rent(count);
         try
         {
@@ -647,7 +677,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
             throw;
         }
         _rows += count;
-        if (open.WrittenCount >= _options.PieceBytes) Sync(HandOffAsync(false));
+        return open.WrittenCount >= _options.PieceBytes;
     }
 
     /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>

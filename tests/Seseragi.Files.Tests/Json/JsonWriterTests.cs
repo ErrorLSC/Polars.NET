@@ -188,15 +188,15 @@ public class JsonWriterTests
         byte[] expected;
         try { expected = Encoding.UTF8.GetBytes(JsonWriter.WriteString(schema, whole, new JsonWriteOptions { Format = format })); }
         finally { whole.ForEach(b => b.Dispose()); }
-        foreach (int piece in (int[])[1, 300, 1 << 20])
+        foreach (int piece in (int[])[1, 300, 1000, 1 << 20])
             foreach (int threads in (int[])[1, 4])
                 foreach (BatchOwnership ownership in (BatchOwnership[])[BatchOwnership.Caller, BatchOwnership.Writer])
-                    foreach (int slice in (int[])[1, 5, 1000])
+                    foreach (int slice in (int[])[1, 5, 1000, 0])
                     {
                         var (_, batches) = ReadArrow("written.arrow");
-                        // Slices of the batches (rows at offsets in every array); the originals stay with the test.
-                        List<RecordBatch> slices = [.. batches.SelectMany(b => Enumerable.Range(0, (b.Length + slice - 1) / slice)
-                            .Select(k => b.Slice(k * slice, Math.Min(slice, b.Length - k * slice))))];
+                        // Slices of the batches (rows at offsets in every array); the originals stay with the test. 0: small
+                        // and large in turn (rows the caller encodes, then pieces encoded side by side).
+                        List<RecordBatch> slices = [.. batches.SelectMany(b => Slices(b, slice))];
                         try
                         {
                             var options = new JsonWriteOptions { Format = format, PieceBytes = piece, MaxDegreeOfParallelism = threads, InFlightBytes = 2000 };
@@ -217,6 +217,16 @@ public class JsonWriterTests
                         }
                         finally { batches.ForEach(b => b.Dispose()); }
                     }
+    }
+
+    private static IEnumerable<RecordBatch> Slices(RecordBatch batch, int rows)
+    {
+        for (int start = 0, k = 0; start < batch.Length; k++)
+        {
+            int length = Math.Min(rows > 0 ? rows : k % 2 == 0 ? 1 : 7, batch.Length - start);
+            yield return batch.Slice(start, length);
+            start += length;
+        }
     }
 
     // ---------------------------------------------------------------- compression
@@ -308,6 +318,29 @@ public class JsonWriterTests
             var writer = JsonWriter.Create(output, schema, new JsonWriteOptions { PieceBytes = 1, MaxDegreeOfParallelism = 1 + i % 4 });
             var e = Assert.Throws<JsonValueException>(() => writer.Write(batch));
             Assert.Equal("Row 2: Column 's': a string that is not UTF-8.", e.Message);
+            Assert.Throws<InvalidOperationException>(() => writer.Complete());
+            writer.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(JsonFormat.Lines)]
+    [InlineData(JsonFormat.Document)]
+    public void ASmallBatch_EncodedByTheCaller_FailsAtItsRowAmongAll(JsonFormat format)
+    {
+        var schema = new Schema([F("s", StringType.Default)], null);
+        byte[] data = [.. "okfine"u8, 0xFF];
+        var strings = new StringArray(new ArrayData(StringType.Default, 3, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Bytes<int>([0, 2, 6, 7])), new ArrowBuffer(data)]));
+        using var batch = new RecordBatch(schema, [strings], 3);
+        foreach (int threads in (int[])[1, 4])
+        {
+            // Batches of one piece each, encoded on this thread into one piece: the third row of the second batch fails.
+            using var output = new MemoryStream();
+            var writer = JsonWriter.Create(output, schema, new JsonWriteOptions { Format = format, MaxDegreeOfParallelism = threads });
+            writer.Write(batch.Slice(0, 2));
+            var e = Assert.Throws<JsonValueException>(() => writer.Write(batch));
+            Assert.Equal("Row 4: Column 's': a string that is not UTF-8.", e.Message);
+            Assert.Throws<InvalidOperationException>(() => writer.Write(batch.Slice(0, 1)));
             Assert.Throws<InvalidOperationException>(() => writer.Complete());
             writer.Dispose();
         }

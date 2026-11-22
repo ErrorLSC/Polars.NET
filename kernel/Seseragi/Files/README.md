@@ -545,7 +545,9 @@ TimeZoneInfo, whole minutes; fixed `±HH:MM` zones), durations `PT…S` (`P0D` f
 maps (string keys) as objects, dictionaries as their values. Intervals, Decimal256 and maps with other keys are
 refused at `Create`. A batch is cut into pieces encoded by up to `MaxDegreeOfParallelism` workers (the physical cores
 by default) into native memory, written in order behind the encoding (a file's batch in one gathering write); the bytes
-do not depend on threads, pieces or batches. `BatchOwnership.Writer` encodes several batches at once. `Compression`
+do not depend on threads, pieces or batches. A batch of one piece is encoded by the caller into the piece being filled,
+written once it holds a piece's bytes (or at the next large batch, `Flush`, `Complete`); with `BatchOwnership.Caller`
+the caller also encodes pieces of its batch beside the workers. `BatchOwnership.Writer` encodes several batches at once. `Compression`
 (gzip, Zstandard) compresses each piece as a member or frame of its own, side by side: one valid file. `JsonWriter<T>`
 writes rows of records (`ArrowRowBuilder<T>`'s layout, with GUIDs as strings and dictionaries keyed by strings as
 objects, as JSON serializers write them).
