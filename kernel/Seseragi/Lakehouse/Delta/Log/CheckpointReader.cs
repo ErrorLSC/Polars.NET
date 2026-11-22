@@ -40,7 +40,7 @@ internal static class CheckpointReader
             List<DeltaAction> actions = [];
             if (columns.Count == 0) return actions;
 
-            ParsedStatsText? stats = columns.Any(static c => c is ["add", "stats_parsed"]) ? new ParsedStatsText(Int96StatsLeaves(file)) : null;
+            using ParsedStatsText? stats = columns.Any(static c => c is ["add", "stats_parsed"]) ? new ParsedStatsText(Int96StatsLeaves(file)) : null;
             // One thread: IFileSystem promises nothing about concurrent ranged reads. Utf8, which the actions read.
             using ParquetReader reader = file.OpenReader(new ParquetReadOptions
             {

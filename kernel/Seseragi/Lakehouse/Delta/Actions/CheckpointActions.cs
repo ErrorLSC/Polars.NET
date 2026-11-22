@@ -113,16 +113,16 @@ internal static class CheckpointActions
             if (map is null || map.IsNull(i)) return null;
             var keys = (StringArray)map.Keys;
             var values = (StringArray)map.Values;
-            int start = map.ValueOffsets[i], end = map.ValueOffsets[i + 1], entries = map.KeyValues.Offset;
+            int start = map.ValueOffsets[i], end = map.ValueOffsets[i + 1];
             // The entries as one key: each key and value with its length (-1: a null value).
             _mapKeys ??= new ByteArrayDictionary();
             _key ??= new NativeBufferWriter();
             _key.ResetWrittenCount();
             for (int k = start; k < end; k++)
             {
-                if (keys.IsNull(entries + k)) throw new DeltaException($"The map '{name}' has a null key.");
-                Append(keys.GetBytes(entries + k), false);
-                Append(values.GetBytes(entries + k), values.IsNull(entries + k));
+                if (keys.IsNull(k)) throw new DeltaException($"The map '{name}' has a null key.");
+                Append(keys.GetBytes(k), false);
+                Append(values.GetBytes(k), values.IsNull(k));
             }
             ReadOnlySpan<byte> key = _key.WrittenSpan;
             int index = _mapKeys.IndexOf(key);
@@ -326,8 +326,9 @@ internal static class CheckpointActions
     // ------------------------------------------------------------------ columns
 
     /// <summary>
-    /// A struct column with its fields by name. Rows are the struct's own (logical) indices; its fields, like every
-    /// Arrow child array, are indexed from the struct's offset on (<see cref="ChildIndex"/>).
+    /// A struct column with its fields by name. Rows are the struct's own (logical) indices, and so are its fields':
+    /// Apache.Arrow gives a struct's fields sliced as the struct is (a field of a sliced struct starts at the struct's
+    /// first row), so a row is the same index in the struct and in its fields (<see cref="ChildIndex"/>).
     /// </summary>
     private sealed class Node
     {
@@ -357,7 +358,7 @@ internal static class CheckpointActions
 
         public bool IsNull(int row) => Array.IsNull(row);
 
-        public int ChildIndex(int row) => Array.Offset + row;
+        public int ChildIndex(int row) => row;
 
         public bool Has(string field) => _fields.ContainsKey(field);
 
@@ -450,14 +451,14 @@ internal static class CheckpointActions
             if (map is null || map.IsNull(i)) return null;
             var keys = (StringArray)map.Keys;
             var values = (StringArray)map.Values;
+            // The offsets are the entries' indices in the key / value struct, whose fields are sliced as it is.
             int start = map.ValueOffsets[i];
             int end = map.ValueOffsets[i + 1];
-            int entries = map.KeyValues.Offset;
             var result = new Dictionary<string, string?>(end - start, StringComparer.Ordinal);
             for (int k = start; k < end; k++)
             {
-                string key = keys.GetString(entries + k) ?? throw new DeltaException($"The map '{name}' has a null key.");
-                result[key] = values.GetString(entries + k);
+                string key = keys.GetString(k) ?? throw new DeltaException($"The map '{name}' has a null key.");
+                result[key] = values.GetString(k);
             }
             return result;
         }
