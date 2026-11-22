@@ -141,10 +141,10 @@ public sealed class JsonDatasetWriterTests : IDisposable
         List<Trade> read = JsonDataset.ReadList<Trade>(At("t"));
         Assert.Equal(rows.Select(Show).Order(), read.Select(Show).Order());
         using JsonDataset dataset = JsonDataset.Open(At("t"));
-        // (An enum compares as its number: a predicate on the enum partition is not pushed, the policy here is Strict.)
-        using JsonDatasetReader<Trade> few = dataset.OpenReader<Trade>(t => t.Id < 100 && t.Fee > 10);
+        // A predicate on the enum partition compares its names (pushed: the policy here is Strict).
+        using JsonDatasetReader<Trade> few = dataset.OpenReader<Trade>(t => t.Id < 100 && t.Fee > 10 && t.Side != Side.Hold);
         Assert.True(few.FiltersExactly);
-        Assert.Equal(rows.Where(t => t.Id < 100 && t.Fee > 10).Select(t => t.Id).Order(), few.ReadRows().Select(t => t.Id).Order());
+        Assert.Equal(rows.Where(t => t.Id < 100 && t.Fee > 10 && t.Side != Side.Hold).Select(t => t.Id).Order(), few.ReadRows().Select(t => t.Id).Order());
     }
 
     // A trade as text, its lists included, its price without trailing zeros.

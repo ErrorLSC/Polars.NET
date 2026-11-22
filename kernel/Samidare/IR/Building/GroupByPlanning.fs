@@ -58,7 +58,7 @@ module internal GroupByPlanning =
         | MethodCall(m, target, callArgs) when
             isGroupReductionCall target callArgs && targetColExprOpt.IsSome
             ->
-            ScalarExprOps.translateReductionOp m.Name targetColExprOpt.Value
+            ScalarExprOps.translateReduction m targetColExprOpt.Value
 
         | _ ->
             match tryMatchNestedListAgg argExpr with
@@ -910,7 +910,7 @@ module internal GroupByPlanning =
                                 | CleanLambda lam ->
                                     let ctx = TranslationContext.Entity lam.Parameters.[0].Name
                                     ExprTranslator.tryTranslateToScalar ctx lam.Body
-                                    |> Option.bind (fun s -> ScalarExprOps.translateReductionOp m.Name s)
+                                    |> Option.bind (fun s -> ScalarExprOps.translateReduction m s)
                                     |> Option.map (fun s -> false, s)
                                 | _ -> None
                             elif args.Length = 1 then
@@ -918,7 +918,7 @@ module internal GroupByPlanning =
                                 | MethodCall(sm, _, [ _; CleanLambda lam ]) when sm.Name = "Select" ->
                                     let ctx = TranslationContext.Entity lam.Parameters.[0].Name
                                     ExprTranslator.tryTranslateToScalar ctx lam.Body
-                                    |> Option.bind (fun s -> ScalarExprOps.translateReductionOp m.Name s)
+                                    |> Option.bind (fun s -> ScalarExprOps.translateReduction m s)
                                     |> Option.map (fun s -> false, s)
                                 | _ -> None
                             else

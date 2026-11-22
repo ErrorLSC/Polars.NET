@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Kaminari.Sazanami.Marshalling;
 
@@ -13,6 +15,12 @@ namespace Kaminari.Sazanami.Marshalling;
 /// A <see cref="FlagsAttribute"/> enum is stored as its underlying integer instead: its combined values are not
 /// members, so they have no category.
 /// </para>
+/// <para>
+/// A column of names (an engine Enum, a dictionary of strings, strings) holds member names exactly: a value is read
+/// back from its member name, an alias (another member of the same value) too, compared ordinally; any other text is
+/// not a value of the enum (<see cref="TryGetMember{TEnum}"/>). Readers that take other spellings (a JSON reader
+/// taking names in any case or numbers) turn them into the member names as they read them.
+/// </para>
 /// </summary>
 public static class EnumCategories
 {
@@ -21,13 +29,24 @@ public static class EnumCategories
         string[] categories,
         object[] values,
         Dictionary<object, string> names,
-        Dictionary<object, int> indexes)
+        Dictionary<object, int> indexes,
+        (string Name, object Value)[] members,
+        FrozenDictionary<string, object> byName)
     {
         public bool UsesEnumDataType { get; } = usesEnumDataType;
         public string[] Categories { get; } = categories;
         public object[] Values { get; } = values;
         public Dictionary<object, string> Names { get; } = names;
         public Dictionary<object, int> Indexes { get; } = indexes;
+        public (string Name, object Value)[] Members { get; } = members;
+        public FrozenDictionary<string, object> ByName { get; } = byName;
+    }
+
+    /// <summary>The members of <typeparamref name="TEnum"/> by name (aliases too), compared ordinally.</summary>
+    private static class MembersByName<TEnum> where TEnum : struct, Enum
+    {
+        public static readonly FrozenDictionary<string, TEnum> Values =
+            Enum.GetNames<TEnum>().Zip(Enum.GetValues<TEnum>()).ToFrozenDictionary(p => p.First, p => p.Second, StringComparer.Ordinal);
     }
 
     private static readonly ConcurrentDictionary<Type, Layout> Layouts = new();
@@ -95,6 +114,31 @@ public static class EnumCategories
     public static object[] GetUnderlyingValues(Type enumType) => [.. GetLayout(enumType).Values];
 
     /// <summary>
+    /// Every member of <paramref name="enumType"/>: its name and its underlying value (boxed as the underlying integer
+    /// type), aliases (members sharing a value with another) included, ordered by their values (as unsigned numbers, as
+    /// <see cref="Enum.GetNames(Type)"/> lists them).
+    /// </summary>
+    public static (string Name, object Value)[] GetMembers(Type enumType) => [.. GetLayout(enumType).Members];
+
+    /// <summary>
+    /// The member of <typeparamref name="TEnum"/> named <paramref name="name"/> exactly (an alias too, compared
+    /// ordinally): how a column of names is read.
+    /// </summary>
+    public static bool TryGetMember<TEnum>(string name, out TEnum value) where TEnum : struct, Enum =>
+        MembersByName<TEnum>.Values.TryGetValue(name, out value);
+
+    /// <summary>
+    /// The member of <paramref name="enumType"/> named <paramref name="name"/> exactly, boxed as the enum (see
+    /// <see cref="TryGetMember{TEnum}"/>).
+    /// </summary>
+    public static bool TryGetMember(Type enumType, string name, [NotNullWhen(true)] out object? value) =>
+        GetLayout(enumType).ByName.TryGetValue(name, out value);
+
+    /// <summary>The error of a text that is not a member name of <paramref name="enumType"/>.</summary>
+    public static FormatException NotAMemberName(Type enumType, string name) =>
+        new($"'{name}' is not a member name of enum {enumType.FullName}; a column of an enum's names holds its member names exactly.");
+
+    /// <summary>
     /// The category holding <paramref name="value"/>, a boxed value of <paramref name="enumType"/>.
     /// </summary>
     /// <exception cref="ArgumentException">The value is not a defined member of the enum.</exception>
@@ -152,8 +196,14 @@ public static class EnumCategories
                 underlyingValues[i] = values[i];
             }
 
+            // Every member, aliases too (GetNames and GetValuesAsUnderlyingType list them in the same order).
+            string[] memberNames = Enum.GetNames(t);
+            Array memberValues = Enum.GetValuesAsUnderlyingType(t);
+            (string Name, object Value)[] members = [.. memberNames.Select((name, i) => (name, memberValues.GetValue(i)!))];
+            FrozenDictionary<string, object> byName = members.ToFrozenDictionary(m => m.Name, m => Enum.ToObject(t, m.Value), StringComparer.Ordinal);
+
             bool isFlags = t.IsDefined(typeof(FlagsAttribute), inherit: false);
-            return new Layout(!isFlags, categories, underlyingValues, names, indexes);
+            return new Layout(!isFlags, categories, underlyingValues, names, indexes, members, byName);
         });
     }
 }

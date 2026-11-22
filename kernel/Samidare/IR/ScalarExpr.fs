@@ -57,10 +57,16 @@ module ScalarExprOps =
                 let underlyingType = Enum.GetUnderlyingType coreType
                 LogicalTypes.tryOfClrType underlyingType
                 |> Option.map (fun underlying ->
+                    let categories = EnumCategories.GetCategories coreType
                     {
                         Name = coreType.FullName
-                        Categories = List.ofArray (EnumCategories.GetCategories coreType)
+                        Categories = List.ofArray categories
                         Values = EnumCategories.GetUnderlyingValues coreType |> Array.map LiteralValue.OfObject |> List.ofArray
+                        Aliases =
+                            EnumCategories.GetMembers coreType
+                            |> Array.filter (fun struct (name, _) -> not (Array.contains name categories))
+                            |> Array.map (fun struct (name, value) -> name, LiteralValue.OfObject value)
+                            |> List.ofArray
                         Underlying = underlying
                     })
             else
@@ -141,6 +147,17 @@ module ScalarExprOps =
         | "Var"
         | "Variance" -> Some(ScalarExpr.Aggregation(AggKind.Var 1uy, Some targetColExpr, false))
         | _ -> None
+
+    /// The operand of the reduction `m`: an enum's, for Min / Max, ordered as its underlying values.
+    let reductionOperand (m: System.Reflection.MethodInfo) (operand: ScalarExpr) : ScalarExpr =
+        match m.Name, tryEnumMapping m.ReturnType with
+        | ("Min" | "Max"), Some mapping -> ScalarExpr.EnumConvert(EnumConversion.Ordered, operand, mapping)
+        | _ -> operand
+
+    /// The reduction `m` (Min, Max, Sum, ...) of `targetColExpr`: an enum's Min / Max ordered as its underlying values
+    /// (EnumConversion.Ordered).
+    let translateReduction (m: System.Reflection.MethodInfo) (targetColExpr: ScalarExpr) : ScalarExpr option =
+        translateReductionOp m.Name (reductionOperand m targetColExpr)
 
     /// Pure symbolic translation of statistical dispersion reduction operations.
     let translateDispersionOp

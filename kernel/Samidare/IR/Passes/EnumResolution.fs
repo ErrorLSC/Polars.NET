@@ -8,20 +8,90 @@ open Kaminari.Sazanami.Marshalling
 /// (OverflowException, as .NET's Sum of int / long and Average of long), and the conversions between decimals and
 /// floating values (DecimalToFloating, FloatingToDecimal: .NET 11's, on every runtime).
 ///
-/// A .NET enum is stored either as an engine Enum column (categories in underlying-value order) or as an integer
-/// column of its underlying values (data written elsewhere, or a [Flags] enum). The translator does not know which,
-/// so it emits EnumConvert nodes; this pass picks the form from the inferred type of each converted expression:
-/// - ToValue of an Enum maps categories to values; of anything else it is the expression itself.
+/// A .NET enum is stored as an engine Enum column (categories in underlying-value order), as a column of its member
+/// names (strings or a dictionary of strings: files, JSON, partition values, categoricals) or as an integer column of
+/// its underlying values (data written elsewhere, or a [Flags] enum). The translator does not know which, so it emits
+/// EnumConvert nodes; this pass picks the form from the inferred type of each converted expression:
+/// - ToValue of an Enum maps categories to values, of names maps names to values; of anything else it is the
+///   expression itself.
 /// - FromValue gives an Enum: a literal becomes its category, any other expression maps values to categories.
-///   An enum literal compared with, or chosen alongside, a non-Enum expression stays its underlying value.
-/// - ToName of an Enum is its string form; of a value it maps values to names, keeping an undefined value's number.
+///   An enum literal compared with, or chosen alongside, an expression of names becomes its member name, alongside a
+///   value expression it stays its underlying value.
+/// - ToName of an Enum is its string form, of names the canonical name of an alias; of a value it maps values to
+///   names, keeping an undefined value's number.
+/// - A comparison of a member's value with a constant compares the names: equality with the constant's names, an
+///   ordering with the set of names whose values satisfy it, so that readers filter (and prune) by names.
+/// A column of names holds member names exactly (EnumCategories): any other text is not a value of the enum.
 /// An expression of unknown type is taken to hold underlying values, as before columns carried types.
 module internal EnumResolution =
 
-    let private isEnumType (t: LogicalType) =
+    /// How an expression of an enum is stored.
+    [<RequireQualifiedAccess>]
+    type private Layout =
+        /// An engine Enum.
+        | Categories
+        /// Member names: strings or a dictionary of strings.
+        | Names
+        /// Underlying values.
+        | Values
+
+    let private isText (t: Apache.Arrow.Types.IArrowType) =
         match t with
-        | LogicalType.Enum _ -> true
+        | :? Apache.Arrow.Types.StringType
+        | :? Apache.Arrow.Types.LargeStringType
+        | :? Apache.Arrow.Types.StringViewType -> true
         | _ -> false
+
+    let private layoutOf (t: LogicalType) =
+        match t with
+        | LogicalType.Enum _ -> Layout.Categories
+        | LogicalType.Arrow text when isText text -> Layout.Names
+        | LogicalType.Arrow(:? Apache.Arrow.Types.DictionaryType as d) when isText d.ValueType -> Layout.Names
+        | _ -> Layout.Values
+
+    let private isEnumType (t: LogicalType) = layoutOf t = Layout.Categories
+
+    /// The integer of an integer literal.
+    let private integerOf (literal: LiteralValue) : decimal option =
+        match literal with
+        | LiteralValue.Int8 v -> Some(decimal v)
+        | LiteralValue.Int16 v -> Some(decimal v)
+        | LiteralValue.Int32 v -> Some(decimal v)
+        | LiteralValue.Int64 v -> Some(decimal v)
+        | LiteralValue.UInt8 v -> Some(decimal v)
+        | LiteralValue.UInt16 v -> Some(decimal v)
+        | LiteralValue.UInt32 v -> Some(decimal v)
+        | LiteralValue.UInt64 v -> Some(decimal v)
+        | _ -> None
+
+    /// The range of an integer type.
+    let private integerRange (t: LogicalType) : (decimal * decimal) option =
+        match t with
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int8Type) -> Some(decimal SByte.MinValue, decimal SByte.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int16Type) -> Some(decimal Int16.MinValue, decimal Int16.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int32Type) -> Some(decimal Int32.MinValue, decimal Int32.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) -> Some(decimal Int64.MinValue, decimal Int64.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt8Type) -> Some(0m, decimal Byte.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt16Type) -> Some(0m, decimal UInt16.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt32Type) -> Some(0m, decimal UInt32.MaxValue)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.UInt64Type) -> Some(0m, decimal UInt64.MaxValue)
+        | _ -> None
+
+    /// Every member of the enum (aliases too) with its value.
+    let private members (mapping: EnumMapping) : (string * decimal) list =
+        List.zip mapping.Categories mapping.Values @ mapping.Aliases
+        |> List.choose (fun (name, value) -> integerOf value |> Option.map (fun n -> name, n))
+
+    /// The value of a member: `(int)e` and a C# enum comparison, also widened to a type that holds every member's
+    /// value (`(int)b` of a byte enum, which C# compares as int).
+    let private (|EnumValue|_|) (expr: ScalarExpr) =
+        match expr with
+        | ScalarExpr.EnumConvert(EnumConversion.ToValue, enumExpr, mapping) -> Some(enumExpr, mapping)
+        | ScalarExpr.Cast(ScalarExpr.EnumConvert(EnumConversion.ToValue, enumExpr, mapping), t, _) ->
+            match integerRange t with
+            | Some(low, high) when members mapping |> List.forall (fun (_, n) -> low <= n && n <= high) -> Some(enumExpr, mapping)
+            | _ -> None
+        | _ -> None
 
     let private categoryLiterals (mapping: EnumMapping) =
         mapping.Categories |> List.map LiteralValue.String
@@ -61,6 +131,66 @@ module internal EnumResolution =
             [ ScalarExpr.Cast(enumExpr, LogicalTypes.String, true) ],
             mapping.Underlying
         )
+
+    /// An expression of names as strings (a dictionary's values).
+    let private asText (t: LogicalType) (namesExpr: ScalarExpr) =
+        match t with
+        | LogicalType.Arrow text when isText text -> namesExpr
+        | _ -> ScalarExpr.Cast(namesExpr, LogicalTypes.String, true)
+
+    /// The underlying value of an expression of names (ToValue in its names form); a text no member names fails.
+    let private valueOfNames (mapping: EnumMapping) (t: LogicalType) (namesExpr: ScalarExpr) : ScalarExpr =
+        let all = List.zip mapping.Categories mapping.Values @ mapping.Aliases
+        ScalarExpr.Function(
+            ScalarFunction.ReplaceStrict(all |> List.map (fst >> LiteralValue.String), all |> List.map snd),
+            [ asText t namesExpr ],
+            mapping.Underlying
+        )
+
+    /// The member name of an enum constant beside an expression of names; a value no member names fails the query
+    /// as it does in an Enum column.
+    let private nameOfValue (mapping: EnumMapping) (literal: ScalarExpr) : ScalarExpr =
+        match literal with
+        | ScalarExpr.Literal(LiteralValue.Null _) -> ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String)
+        | ScalarExpr.Literal value when List.contains value mapping.Values ->
+            ScalarExpr.Literal(LiteralValue.String mapping.Categories.[List.findIndex ((=) value) mapping.Values])
+        | _ -> ScalarExpr.Cast(enumOfValue mapping literal, LogicalTypes.String, true)
+
+    /// The comparison `value op k` of the value of an expression of names with the integer `k`, as a comparison of
+    /// the names (null for a null name, as the comparison of values): equality with the names of `k` (none: a text no
+    /// member is named, a number), an ordering as membership in the names whose values satisfy it.
+    let private compareNames (op: BinaryOp) (namesExpr: ScalarExpr) (mapping: EnumMapping) (k: decimal) : ScalarExpr =
+        let text (s: string) = ScalarExpr.Literal(LiteralValue.String s)
+        // No member name is a number: an identifier does not start with a digit or a sign.
+        let noName = text (k.ToString(Globalization.CultureInfo.InvariantCulture))
+        let all = members mapping
+        match op with
+        | BinaryOp.Eq
+        | BinaryOp.NotEq
+        | BinaryOp.EqMissing
+        | BinaryOp.NotEqMissing ->
+            let joiner =
+                match op with
+                | BinaryOp.Eq
+                | BinaryOp.EqMissing -> BinaryOp.Or
+                | _ -> BinaryOp.And
+            match all |> List.filter (fun (_, n) -> n = k) |> List.map fst with
+            | [] -> ScalarExpr.Binary(op, namesExpr, noName)
+            | names -> names |> List.map (fun name -> ScalarExpr.Binary(op, namesExpr, text name)) |> List.reduce (fun a b -> ScalarExpr.Binary(joiner, a, b))
+        | _ ->
+            let satisfies (n: decimal) =
+                match op with
+                | BinaryOp.Lt -> n < k
+                | BinaryOp.LtEq -> n <= k
+                | BinaryOp.Gt -> n > k
+                | _ -> n >= k
+            let inside, outside = all |> List.partition (snd >> satisfies)
+            let names (list: (string * decimal) list) = InListSource.Collection(list |> List.map fst |> Array.ofList, typeof<string>)
+            match inside, outside with
+            | [], _ -> ScalarExpr.Binary(BinaryOp.Eq, namesExpr, noName)
+            | _, [] -> ScalarExpr.Binary(BinaryOp.NotEq, namesExpr, noName)
+            | _ when inside.Length <= outside.Length -> ScalarExpr.InList(namesExpr, names inside, false, false)
+            | _ -> ScalarExpr.InList(namesExpr, names outside, true, false)
 
     /// An enum constant awaiting resolution: FromValue of a literal.
     let private (|EnumLiteral|_|) (expr: ScalarExpr) =
@@ -139,9 +269,13 @@ module internal EnumResolution =
         let resolve = resolveScalarIn grouped schema
         let typeOf = SchemaInference.inferScalarType schema
 
-        /// Resolves an enum literal next to an already resolved sibling: an Enum literal beside an Enum, else its value.
+        /// Resolves an enum literal next to an already resolved sibling: an Enum literal beside an Enum, a name beside
+        /// names, else its value.
         let besides (sibling: ScalarExpr) (literal: ScalarExpr) (mapping: EnumMapping) =
-            if isEnumType (typeOf sibling) then enumOfValue mapping literal else literal
+            match layoutOf (typeOf sibling) with
+            | Layout.Categories -> enumOfValue mapping literal
+            | Layout.Names -> nameOfValue mapping literal
+            | Layout.Values -> literal
 
         let resolvePair (a: ScalarExpr) (b: ScalarExpr) =
             match a, b with
@@ -159,37 +293,95 @@ module internal EnumResolution =
             resolve value
 
         | ScalarExpr.EnumConvert(conversion, inner, mapping) ->
-            let inner' = resolve inner
-            let innerIsEnum = isEnumType (typeOf inner')
+            // The name of (and whether there is a member of) an enum made from a value is the value's: an undefined
+            // value has its number (no member), where an Enum could not hold it.
+            let inner', layout =
+                match conversion, inner with
+                | (EnumConversion.ToName | EnumConversion.IsDefined), ScalarExpr.EnumConvert(EnumConversion.FromValue, value, _) ->
+                    resolve value, Layout.Values
+                | _ ->
+                    let inner' = resolve inner
+                    inner', layoutOf (typeOf inner')
+            let innerType = typeOf inner'
 
-            match conversion with
-            | EnumConversion.ToValue -> if innerIsEnum then valueOfEnum mapping inner' else inner'
-            | EnumConversion.FromValue -> if innerIsEnum then inner' else enumOfValue mapping inner'
-            | EnumConversion.ToName ->
-                if innerIsEnum then
-                    ScalarExpr.Cast(inner', LogicalTypes.String, true)
-                else
-                    ScalarExpr.Function(
-                        ScalarFunction.ReplaceStrict(mapping.Values, categoryLiterals mapping),
-                        [ inner'; ScalarExpr.Cast(inner', LogicalTypes.String, true) ],
-                        LogicalTypes.String
-                    )
+            match conversion, layout with
+            | EnumConversion.ToValue, Layout.Categories -> valueOfEnum mapping inner'
+            | EnumConversion.ToValue, Layout.Names -> valueOfNames mapping innerType inner'
+            | EnumConversion.ToValue, Layout.Values -> inner'
+            | EnumConversion.FromValue, Layout.Categories -> inner'
+            | EnumConversion.FromValue, _ -> enumOfValue mapping inner'
+            | EnumConversion.ToName, Layout.Categories -> ScalarExpr.Cast(inner', LogicalTypes.String, true)
+            // An alias reads as its value's member: the name .NET gives that value.
+            | EnumConversion.ToName, Layout.Names when mapping.Aliases.IsEmpty -> asText innerType inner'
+            | EnumConversion.ToName, Layout.Names ->
+                let text = asText innerType inner'
+                let canonical =
+                    mapping.Aliases
+                    |> List.map (fun (_, value) -> LiteralValue.String mapping.Categories.[List.findIndex ((=) value) mapping.Values])
+                ScalarExpr.Function(
+                    ScalarFunction.ReplaceStrict(mapping.Aliases |> List.map (fst >> LiteralValue.String), canonical),
+                    [ text; text ],
+                    LogicalTypes.String
+                )
+            // A member: any value of an Enum of the enum's categories; else a member's name or value.
+            | EnumConversion.IsDefined, Layout.Categories when hasCategoriesOf mapping innerType -> ScalarExpr.Unary(UnaryOp.IsNotNull, inner')
+            | EnumConversion.IsDefined, (Layout.Categories | Layout.Names) ->
+                let names = members mapping |> List.map fst |> Array.ofList
+                ScalarExpr.InList(asText innerType inner', InListSource.Collection(names, typeof<string>), false, false)
+            | EnumConversion.IsDefined, Layout.Values ->
+                let values = mapping.Values |> List.map (fun v -> v.BoxedValue) |> Array.ofList
+                let array = Array.CreateInstance((if values.Length = 0 then typeof<int> else values[0].GetType()), values.Length)
+                values |> Array.iteri (fun i v -> array.SetValue(v, i))
+                ScalarExpr.InList(inner', InListSource.Collection(array, array.GetType().GetElementType()), false, false)
+            // Ordered by the underlying values: an Enum of the enum's categories and values are, names are not.
+            | EnumConversion.Ordered, Layout.Names -> valueOfNames mapping innerType inner'
+            | EnumConversion.Ordered, Layout.Categories when not (hasCategoriesOf mapping innerType) -> valueOfEnum mapping inner'
+            | EnumConversion.Ordered, _ -> inner'
+            | EnumConversion.ToName, Layout.Values ->
+                ScalarExpr.Function(
+                    ScalarFunction.ReplaceStrict(mapping.Values, categoryLiterals mapping),
+                    [ inner'; ScalarExpr.Cast(inner', LogicalTypes.String, true) ],
+                    LogicalTypes.String
+                )
 
         // Comparing the value of an Enum whose categories are the enum's members with a member's value is
-        // comparing the Enum with that member, as categories follow value order.
-        | ScalarExpr.Binary(op, ScalarExpr.EnumConvert(EnumConversion.ToValue, enumExpr, mapping), ScalarExpr.Literal literal)
-            when isComparison op && List.contains literal mapping.Values ->
+        // comparing the Enum with that member, as categories follow value order. Comparing the value of names with
+        // a constant compares the names (compareNames).
+        // A comparison with null compares the names with null (a value is null where its name is).
+        | ScalarExpr.Binary(op, (EnumValue(enumExpr, mapping) as enumValue), ScalarExpr.Literal literal) when
+            isComparison op
+            && (match literal with
+                | LiteralValue.Null _ -> true
+                | other -> (integerOf other).IsSome)
+            ->
             let enumExpr' = resolve enumExpr
-            if hasCategoriesOf mapping (typeOf enumExpr') then
-                ScalarExpr.Binary(op, enumExpr', enumOfValue mapping (ScalarExpr.Literal literal))
-            else
-                ScalarExpr.Binary(op, resolve (ScalarExpr.EnumConvert(EnumConversion.ToValue, enumExpr, mapping)), ScalarExpr.Literal literal)
+            let enumType = typeOf enumExpr'
+            match layoutOf enumType, integerOf literal with
+            | Layout.Names, None -> ScalarExpr.Binary(op, enumExpr', ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String))
+            | Layout.Names, Some k -> compareNames op enumExpr' mapping k
+            | Layout.Categories, Some k when hasCategoriesOf mapping enumType ->
+                match mapping.Values |> List.tryFind (fun v -> integerOf v = Some k) with
+                | Some value -> ScalarExpr.Binary(op, enumExpr', enumOfValue mapping (ScalarExpr.Literal value))
+                | None -> ScalarExpr.Binary(op, resolve enumValue, ScalarExpr.Literal literal)
+            | _ -> ScalarExpr.Binary(op, resolve enumValue, ScalarExpr.Literal literal)
 
-        | ScalarExpr.Binary(op, (ScalarExpr.Literal _ as literal), (ScalarExpr.EnumConvert(EnumConversion.ToValue, _, _) as enumValue))
+        // `k op value` is `value (mirror op) k` (resolved as such: its form may be another comparison, or none).
+        | ScalarExpr.Binary(op, (ScalarExpr.Literal _ as literal), (EnumValue _ as enumValue))
             when isComparison op ->
-            match resolve (ScalarExpr.Binary(mirror op, enumValue, literal)) with
-            | ScalarExpr.Binary(_, left, right) -> ScalarExpr.Binary(op, right, left)
-            | other -> other
+            resolve (ScalarExpr.Binary(mirror op, enumValue, literal))
+
+        // An enum compared with an enum constant (F# compares enums without converting them to their values).
+        | ScalarExpr.Binary(op, other, EnumLiteral(ScalarExpr.Literal literal, mapping)) when isComparison op ->
+            let other' = resolve other
+            match layoutOf (typeOf other'), integerOf literal with
+            | Layout.Names, Some k -> compareNames op other' mapping k
+            | Layout.Names, None -> ScalarExpr.Binary(op, other', ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String))
+            | Layout.Categories, Some k when (mapping.Values |> List.exists (fun v -> integerOf v = Some k)) |> not ->
+                // No member has the value: compared as values (an Enum cannot hold it).
+                ScalarExpr.Binary(op, valueOfEnum mapping other', ScalarExpr.Literal literal)
+            | _ -> ScalarExpr.Binary(op, other', besides other' (ScalarExpr.Literal literal) mapping)
+        | ScalarExpr.Binary(op, (EnumLiteral _ as literal), other) when isComparison op ->
+            resolve (ScalarExpr.Binary(mirror op, other, literal))
 
         | ScalarExpr.Binary(op, left, right) ->
             let left', right' = resolvePair left right
@@ -205,11 +397,13 @@ module internal EnumResolution =
                 |> List.choose (function
                     | EnumLiteral _ -> None
                     | other -> Some(resolve other))
-            let anyEnum = resolvedOthers |> List.exists (typeOf >> isEnumType)
+            let layouts = resolvedOthers |> List.map (typeOf >> layoutOf)
             exprs
             |> List.map (function
                 | EnumLiteral(literal, mapping) ->
-                    if anyEnum || resolvedOthers.IsEmpty then enumOfValue mapping literal else literal
+                    if List.contains Layout.Categories layouts || resolvedOthers.IsEmpty then enumOfValue mapping literal
+                    elif List.contains Layout.Names layouts then nameOfValue mapping literal
+                    else literal
                 | other -> resolve other)
             |> ScalarExpr.Coalesce
 
@@ -217,6 +411,22 @@ module internal EnumResolution =
             let inner' = resolve inner
             let source' =
                 match source with
+                // Over names, the names of the collection's members (aliases too); a value no member names is in no row.
+                | InListSource.Collection(values, elementType) when
+                    (tryEnumMapping elementType).IsSome && layoutOf (typeOf inner') = Layout.Names
+                    ->
+                    let all = members (tryEnumMapping elementType).Value
+                    let names =
+                        values
+                        |> Seq.cast<obj>
+                        |> Seq.collect (fun item ->
+                            if isNull item then
+                                Seq.singleton (null: string)
+                            else
+                                let n = Convert.ToDecimal item
+                                all |> Seq.filter (fun (_, value) -> value = n) |> Seq.map fst)
+                        |> Seq.toArray
+                    InListSource.Collection(names, typeof<string>)
                 | InListSource.Collection(values, elementType) when
                     (tryEnumMapping elementType).IsSome && not (isEnumType (typeOf inner'))
                     ->
@@ -233,6 +443,8 @@ module internal EnumResolution =
 
         | ScalarExpr.Column _
         | ScalarExpr.Literal _ -> expr
+        // A member's value is null where the member is, whatever its layout.
+        | ScalarExpr.Unary((UnaryOp.IsNull | UnaryOp.IsNotNull) as op, EnumValue(enumExpr, _)) -> ScalarExpr.Unary(op, resolve enumExpr)
         | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, resolve inner)
         // A decimal as a float or double, and a float or double as a decimal, convert as .NET 11 does, which an
         // engine's cast does not: correctly rounded, and from the exact binary value.
@@ -338,6 +550,16 @@ module internal EnumResolution =
                     ScalarFunction.AssertCount { Min = 0L; Max = Some 0L; TooFew = overflow; TooMany = overflow },
                     [ overflowed; value ],
                     typeOf value)
+        // The least / greatest of names is the name of the least / greatest value (an engine's min_by / max_by: a
+        // function over the rows that gives one value, which an aggregation context keeps as one).
+        | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max) as kind, Some(ScalarExpr.EnumConvert(EnumConversion.Ordered, inner, mapping)), distinct) ->
+            let inner' = resolve inner
+            let innerType = typeOf inner'
+            match layoutOf innerType with
+            | Layout.Names ->
+                let by = if kind = AggKind.Min then ScalarFunction.MinBy else ScalarFunction.MaxBy
+                ScalarExpr.Function(by, [ inner'; valueOfNames mapping innerType inner' ], innerType)
+            | _ -> ScalarExpr.Aggregation(kind, Some inner', distinct)
         | ScalarExpr.Aggregation(kind, inner, distinct) -> ScalarExpr.Aggregation(kind, inner |> Option.map resolve, distinct)
         | ScalarExpr.Window(inner, partitionBy, orderBy) ->
             ScalarExpr.Window(
@@ -365,7 +587,11 @@ module internal EnumResolution =
 
     and resolveAssignment (schema: LogicalSchema) (columnType: LogicalType) (expr: ScalarExpr) : ScalarExpr =
         match expr with
-        | EnumLiteral(literal, mapping) -> if isEnumType columnType then enumOfValue mapping literal else literal
+        | EnumLiteral(literal, mapping) ->
+            match layoutOf columnType with
+            | Layout.Categories -> enumOfValue mapping literal
+            | Layout.Names -> nameOfValue mapping literal
+            | Layout.Values -> literal
         | _ -> resolveScalar schema expr
 
     /// Resolves the EnumConvert nodes of every expression in `plan`, each against the schema of the rows it reads.

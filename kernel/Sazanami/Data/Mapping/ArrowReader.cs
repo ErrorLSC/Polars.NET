@@ -256,7 +256,10 @@ public static class ArrowReader
         {
             if (array is StringViewArray or StringArray or LargeStringArray)
             {
-                return idx => array.GetStringValue(idx) is { } name ? Enum.Parse(type, name) : null;
+                // A [Flags] enum's .NET text; any other enum's member names exactly (EnumCategories).
+                if (!EnumCategories.UsesEnumDataType(type)) return idx => array.GetStringValue(idx) is { } text ? Enum.Parse(type, text, ignoreCase: true) : null;
+                return idx => array.GetStringValue(idx) is not { } name ? null
+                    : EnumCategories.TryGetMember(type, name, out object? value) ? value : throw EnumCategories.NotAMemberName(type, name);
             }
             return idx => array.IsNull(idx) ? null : Enum.ToObject(type, array.GetInt64Value(idx)!.Value);
         }

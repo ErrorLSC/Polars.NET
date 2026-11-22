@@ -573,7 +573,7 @@ module internal ScalarPlanner =
 
             match translatedColExprOpt with
             | Some colExpr ->
-                let aggPlan = LogicalPlan.Project(src.Plan, [ (m.Name, resolveScalarAggExpr m.Name colExpr) ])
+                let aggPlan = LogicalPlan.Project(src.Plan, [ (m.Name, resolveScalarAggExpr m.Name (ScalarExprOps.reductionOperand m colExpr)) ])
                 {
                     Terminal = ScalarTerminal.ScalarValue aggPlan
                     Finish = fun outcome -> boxScalarResult<'TResult> (valueOf outcome, m.Name)

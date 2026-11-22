@@ -817,11 +817,14 @@ type EnumMapping =
         Name: string
         Categories: string list
         Values: LiteralValue list
+        /// The members that name the value of another (aliases, which Categories leave out), with their values.
+        Aliases: (string * LiteralValue) list
         Underlying: LogicalType
     }
 
 /// A conversion involving a .NET enum whose column representation is not known when it is translated: an Enum
-/// column (categories) or an integer column (underlying values). EnumResolution picks the form from the schema.
+/// column (categories), a column of member names (strings, a dictionary of strings) or an integer column (underlying
+/// values). EnumResolution picks the form from the schema.
 [<RequireQualifiedAccess>]
 type EnumConversion =
     /// The underlying value of an enum (`(int)e`, and enum comparisons, which C# performs on underlying values).
@@ -830,6 +833,11 @@ type EnumConversion =
     | FromValue
     /// The member name of an enum (`e.ToString()`); an undefined value gives its number, as in .NET.
     | ToName
+    /// An enum where its order counts (a sort key, the operand of Min / Max): the enum itself, ordered as its
+    /// underlying values, which a column of names is not.
+    | Ordered
+    /// Whether an enum is one of its members (`Enum.IsDefined`): a boolean.
+    | IsDefined
 
 /// Pure symbolic scalar and column expression tree
 type [<RequireQualifiedAccess>] ScalarExpr =

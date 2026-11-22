@@ -46,12 +46,21 @@ internal static class JsonRowSchema
                 return With(field, new LargeListType(Field(list.ValueField, node.Children[0], write)));
             case StructType structType:
                 return With(field, new StructType([.. structType.Fields.Select((f, i) => Field(f, node.Children[i], write))]));
+            case DictionaryType when !write && EnumOf(node) is { } enumType:
+                // An enum's names (in any case) or numbers, read as its member names.
+                return new Field(field.Name, StringViewType.Default, field.IsNullable,
+                    new Dictionary<string, string>(field.Metadata ?? new Dictionary<string, string>()) { [JsonColumn.EnumKey] = EnumNameColumn.Members(enumType) });
             case DictionaryType when !write:
-                return With(field, StringViewType.Default); // an enum's names (or numbers) as text
+                return With(field, StringViewType.Default);
             default:
                 return field;
         }
     }
+
+    // The enum a dictionary node lays out as its member names: its writer's (EnumWriter<E>, or the optional
+    // wrapper's around it: NullableWriter<E>, OptionWriter<E>, ValueOptionWriter<E>).
+    private static Type? EnumOf(RowNode node) =>
+        node.WriterType is { IsGenericType: true } writer && writer.GetGenericArguments() is [{ IsEnum: true } enumType] ? enumType : null;
 
     private static Field With(Field field, IArrowType type) => new(field.Name, type, field.IsNullable, field.Metadata);
 

@@ -294,7 +294,7 @@ module internal WindowAndMethodTranslator =
         match m.Name, effectiveArgs with
         | ("Sum" | "Mean" | "Average" | "Min" | "Max" | "Median" | "First" | "Last"), [] ->
             eval ctx effectiveTarget
-            |> Option.bind (translateReductionOp m.Name)
+            |> Option.bind (translateReduction m)
 
         | "Count", [] ->
             eval ctx effectiveTarget
@@ -535,7 +535,8 @@ module internal WindowAndMethodTranslator =
         | t when t.Type.IsEnum -> Some t
         | _ -> None
 
-    /// Instance methods of an enum value: ToString (the member name), Equals and HasFlag (on underlying values).
+    /// Instance methods of an enum value: ToString (the member name; "G" too, "D" the underlying value as text),
+    /// Equals, HasFlag and CompareTo (on underlying values).
     let private translateEnumMethod
         (eval: ScalarExprEvaluator)
         (ctx: TranslationContext)
@@ -567,6 +568,144 @@ module internal WindowAndMethodTranslator =
         | "HasFlag", [ flag ] ->
             sameEnum flag
             |> Option.bind (fun f -> eval ctx (Expression.Equal(Expression.And(valueOf receiver, valueOf f), valueOf f)))
+        // The sign of the comparison of the underlying values (compared as 64-bit integers, which expression trees
+        // compare for every underlying type).
+        | "CompareTo", [ other ] ->
+            let wide = if underlying = typeof<uint64> then typeof<uint64> else typeof<int64>
+            sameEnum other
+            |> Option.bind (fun o ->
+                let a, b = Expression.Convert(receiver, wide), Expression.Convert(o, wide)
+                eval ctx (
+                    Expression.Condition(
+                        Expression.LessThan(a, b),
+                        Expression.Constant(-1),
+                        Expression.Condition(Expression.GreaterThan(a, b), Expression.Constant(1), Expression.Constant(0)))))
+        | "ToString", [ format ] ->
+            match PartialEvaluator.tryEvaluate format with
+            | Some null
+            | Some(:? string as ("" | "G" | "g")) ->
+                eval ctx (Expression.Call(receiver, receiver.Type.GetMethod("ToString", Type.EmptyTypes)))
+            // The underlying value as the current culture writes the integer (as .NET's "D").
+            | Some(:? string as ("D" | "d")) ->
+                eval ctx (Expression.Call(valueOf receiver, underlying.GetMethod("ToString", Type.EmptyTypes)))
+            | _ -> None
+        | _ -> None
+
+    /// The enum type an Enum method's call names: its type argument, else its Type argument.
+    let private enumTypeOf (m: MethodInfo) (args: Expression list) : Type option =
+        if m.IsGenericMethod then
+            Some(m.GetGenericArguments()[0])
+        else
+            match args with
+            | first :: _ when first.Type = typeof<Type> ->
+                match PartialEvaluator.tryEvaluate first with
+                | Some(:? Type as t) when t.IsEnum -> Some t
+                | _ -> None
+            | _ -> None
+
+    /// A value boxed to object (Enum.GetName(Type, object), Convert.ToInt32(object)), seen through its boxing.
+    let private unboxed (arg: Expression) : Expression =
+        match arg with
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert && arg.Type = typeof<obj> -> u.Operand
+        | _ -> arg
+
+    /// Static methods of Enum over a non-[Flags] enum: GetName (null for a value no member has), IsDefined (of a
+    /// value of the enum, of its underlying type, or of a name), Parse (a name, in any case with ignoreCase, or a
+    /// number, around white space; null where .NET throws, as the provider's other conversions of row values).
+    let private translateEnumStatic
+        (eval: ScalarExprEvaluator)
+        (ctx: TranslationContext)
+        (m: MethodInfo)
+        (args: Expression list)
+        : ScalarExpr option =
+        match enumTypeOf m args with
+        | None -> None
+        | Some enumType ->
+            match ScalarExprOps.tryEnumMapping enumType with
+            | None -> None
+            | Some mapping ->
+                let underlying = Enum.GetUnderlyingType enumType
+                let valueArgs = if m.IsGenericMethod then args else List.tail args
+                let names = EnumCategories.GetMembers enumType |> Array.map (fun struct (name, _) -> name)
+                let isDefined (value: Expression) : ScalarExpr option =
+                    match unboxed value with
+                    | v when ClrTypeHelper.UnwrapCoreType v.Type = enumType ->
+                        eval ctx v |> Option.map (fun s -> ScalarExpr.EnumConvert(EnumConversion.IsDefined, s, mapping))
+                    | v when v.Type = underlying ->
+                        let values = Array.CreateInstance(underlying, mapping.Values.Length)
+                        mapping.Values |> List.iteri (fun i literal -> values.SetValue(literal.BoxedValue, i))
+                        eval ctx v |> Option.map (fun s -> ScalarExpr.InList(s, InListSource.Collection(values, underlying), false, false))
+                    | v when v.Type = typeof<string> ->
+                        eval ctx v |> Option.map (fun s -> ScalarExpr.InList(s, InListSource.Collection(names, typeof<string>), false, false))
+                    | _ -> None
+                match m.Name, valueArgs with
+                | "IsDefined", [ value ] -> isDefined value
+                | "GetName", [ value ] ->
+                    match unboxed value with
+                    | v when ClrTypeHelper.UnwrapCoreType v.Type = enumType ->
+                        eval ctx v
+                        |> Option.map (fun s ->
+                            ScalarExpr.Conditional(
+                                ScalarExpr.EnumConvert(EnumConversion.IsDefined, s, mapping),
+                                ScalarExpr.EnumConvert(EnumConversion.ToName, s, mapping),
+                                ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String)))
+                    | v when v.Type = underlying ->
+                        eval ctx v
+                        |> Option.map (fun s ->
+                            ScalarExpr.Function(
+                                ScalarFunction.ReplaceStrict(mapping.Values, mapping.Categories |> List.map LiteralValue.String),
+                                [ s; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String) ],
+                                LogicalTypes.String))
+                    | _ -> None
+                | "Parse", (text :: rest) when text.Type = typeof<string> ->
+                    let ignoreCase =
+                        match rest with
+                        | [] -> Some false
+                        | [ flag ] ->
+                            match PartialEvaluator.tryEvaluate flag with
+                            | Some(:? bool as b) -> Some b
+                            | _ -> None
+                        | _ -> None
+                    match ignoreCase, eval ctx (Expression.Call(text, typeof<string>.GetMethod("Trim", Type.EmptyTypes))) with
+                    | Some ignoreCase, Some trimmed ->
+                        // A member's name (exactly, or lower-cased on both sides), else the number the text is.
+                        let members =
+                            EnumCategories.GetMembers enumType
+                            |> Array.map (fun struct (name, value) -> (if ignoreCase then name.ToLowerInvariant() else name), LiteralValue.OfObject value)
+                            |> Array.distinctBy fst
+                        let key = if ignoreCase then ScalarExpr.Function(ScalarFunction.ToLower, [ trimmed ], LogicalTypes.String) else trimmed
+                        let byName =
+                            ScalarExpr.Function(
+                                ScalarFunction.ReplaceStrict(members |> Array.map (fst >> LiteralValue.String) |> List.ofArray, members |> Array.map snd |> List.ofArray),
+                                [ key; ScalarExpr.Literal(LiteralValue.Null mapping.Underlying) ],
+                                mapping.Underlying)
+                        let byNumber =
+                            ScalarExpr.Function(ScalarFunction.StrToInteger mapping.Underlying, [ trimmed; ScalarExpr.Literal(LiteralValue.Int32 10) ], mapping.Underlying)
+                        Some(ScalarExpr.EnumConvert(EnumConversion.FromValue, ScalarExpr.Coalesce [ byName; byNumber ], mapping))
+                    | _ -> None
+                | _ -> None
+
+    /// Convert.ToString / Convert.ToInt32 & co of a (boxed) enum: its name, its underlying value converted as .NET
+    /// converts it (checked); a null (a Nullable enum's) gives the conversion's null default ("", 0).
+    let private translateEnumConvertCall (eval: ScalarExprEvaluator) (ctx: TranslationContext) (m: MethodInfo) (args: Expression list) : ScalarExpr option =
+        match args with
+        | value :: rest when (unboxed value).Type <> value.Type && (ClrTypeHelper.UnwrapCoreType (unboxed value).Type).IsEnum ->
+            let v = unboxed value
+            let enumType = ClrTypeHelper.UnwrapCoreType v.Type
+            let core = if v.Type = enumType then v else Expression.Convert(v, enumType) :> Expression
+            let converted =
+                match m.Name, rest with
+                | "ToString", ([] | [ _ ]) -> Some(Expression.Call(core, enumType.GetMethod("ToString", Type.EmptyTypes)) :> Expression)
+                | ("ToInt32" | "ToInt64" | "ToInt16" | "ToByte" | "ToSByte" | "ToUInt32" | "ToUInt64" | "ToUInt16"), ([] | [ _ ]) ->
+                    Some(Expression.ConvertChecked(Expression.Convert(core, Enum.GetUnderlyingType enumType), m.ReturnType) :> Expression)
+                | _ -> None
+            converted
+            |> Option.bind (fun c ->
+                if v.Type = enumType then
+                    eval ctx c
+                else
+                    let fallback = if m.ReturnType = typeof<string> then Expression.Constant("") :> Expression else Expression.Constant(Activator.CreateInstance m.ReturnType, m.ReturnType)
+                    eval ctx (Expression.Condition(Expression.Equal(v, Expression.Constant(null, v.Type)), fallback, c)))
         | _ -> None
 
     let internal translateMethodCall
@@ -656,6 +795,17 @@ module internal WindowAndMethodTranslator =
             | [ strExpr ] ->
                 eval ctx strExpr |> Option.map (fun s -> ScalarExpr.Function(ScalarFunction.RegexEscape, [ s ], LogicalTypes.String))
             | _ -> None
+
+        elif isNull target && m.DeclaringType = typeof<Enum> then
+            translateEnumStatic eval ctx m args
+
+        elif
+            m.DeclaringType = typeof<Convert>
+            && (match args with
+                | value :: _ -> (unboxed value).Type <> value.Type && (ClrTypeHelper.UnwrapCoreType (unboxed value).Type).IsEnum
+                | [] -> false)
+        then
+            translateEnumConvertCall eval ctx m args
 
         elif
             m.DeclaringType = typeof<Convert>

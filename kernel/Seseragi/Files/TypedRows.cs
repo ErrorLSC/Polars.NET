@@ -70,9 +70,14 @@ internal static class TypedRows
             else
                 uncast.Add(field.Name);
         }
+        // The columns as read, for the enum conversions: a member's value read from names (strings, a dictionary of
+        // strings) is compared by its names, so that the reader filters (and prunes) by them.
+        LogicalSchema columnTypes = LogicalSchema.OfFields(read.FieldsList.Select(f => Tuple.Create(f.Name, LogicalType.NewArrow(f.DataType))));
         foreach (Expression conjunct in Conjuncts(where.Body))
         {
             FSharpOption<ScalarExpr> translated = ExprTranslator.tryTranslateToScalar(context, conjunct);
+            if (FSharpOption<ScalarExpr>.get_IsSome(translated))
+                translated = EnumResolution.resolveScalarIn(false, columnTypes, translated.Value);
             if (FSharpOption<ScalarExpr>.get_IsSome(translated) && uncast.Count > 0 && FilterArithmetic.Columns(translated.Value).Overlaps(uncast))
                 translated = FSharpOption<ScalarExpr>.None; // computed in a type the reader does not know: on the rows
             if (memberTypes.Count > 0 && FSharpOption<ScalarExpr>.get_IsSome(translated))

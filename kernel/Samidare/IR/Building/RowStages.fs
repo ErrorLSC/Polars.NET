@@ -128,6 +128,11 @@ module internal RowStages =
             let ctx = makeCtx p.Type p.Name state.Plan
             match ExprTranslator.tryTranslateToScalar ctx lam.Body with
             | Some s ->
+                // An enum key sorts by its underlying values (a column of its names does not).
+                let s =
+                    match ScalarExprOps.tryEnumMapping lam.Body.Type with
+                    | Some mapping -> ScalarExpr.EnumConvert(EnumConversion.Ordered, s, mapping)
+                    | None -> s
                 // A floating key sorts NaN as .NET does (see NaNSemantics.sortOrders).
                 let newOrders =
                     NaNSemantics.sortOrders lam.Body.Type { SortOrder.Expr = s; Descending = isDesc; NullsLast = nullsLast }

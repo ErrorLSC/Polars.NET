@@ -133,6 +133,16 @@ module internal PipelineStageParser =
     let boxScalarResult<'TResult> (rawScalar: obj, methodName: string) : 'TResult =
         let targetType = typeof<'TResult>
 
+        // A value as `t`: an enum from its member name (an Enum or a column of names) or its underlying value.
+        let changeType (raw: obj) (t: Type) : obj =
+            match raw with
+            | :? string as name when t.IsEnum ->
+                match EnumCategories.TryGetMember(t, name) with
+                | true, value -> value
+                | _ -> Enum.Parse(t, name)
+            | _ when t.IsEnum -> Enum.ToObject(t, raw)
+            | _ -> Convert.ChangeType(raw, t)
+
         let isEmpty = isNull rawScalar
 
         if isEmpty then
@@ -158,19 +168,19 @@ module internal PipelineStageParser =
                 let someMethod = targetType.GetMethod "Some"
 
                 let converted =
-                    Convert.ChangeType(rawScalar, ClrTypeHelper.GetUnderlyingOrSelf targetType)
+                    changeType rawScalar (ClrTypeHelper.GetUnderlyingOrSelf targetType)
 
                 someMethod.Invoke(null, [| converted |]) :?> 'TResult
             | OptionalKind.FSharpValueOption ->
                 let vSomeMethod = targetType.GetMethod "NewValueSome"
 
                 let converted =
-                    Convert.ChangeType(rawScalar, ClrTypeHelper.GetUnderlyingOrSelf targetType)
+                    changeType rawScalar (ClrTypeHelper.GetUnderlyingOrSelf targetType)
 
                 vSomeMethod.Invoke(null, [| converted |]) :?> 'TResult
             | OptionalKind.Nullable ->
-                Convert.ChangeType(rawScalar, ClrTypeHelper.GetUnderlyingOrSelf targetType) :?> 'TResult
-            | _ -> Convert.ChangeType(rawScalar, targetType) :?> 'TResult
+                changeType rawScalar (ClrTypeHelper.GetUnderlyingOrSelf targetType) :?> 'TResult
+            | _ -> changeType rawScalar targetType :?> 'TResult
 
     let private invokeWithBoxedParam (lambda: LambdaExpression) : InvocationExpression * ParameterExpression =
         let paramType = lambda.Parameters.[0].Type
@@ -899,6 +909,12 @@ module internal PipelineStageParser =
                 match m.Name with
                 | "Distinct" -> Some LinqStage.Distinct
                 | "Index" -> Some LinqStage.Index
+                // An enum sorts by its underlying values, through the key x => x (Ordered), not its stored form.
+                | "Order"
+                | "OrderDescending" when (ScalarExprOps.tryEnumMapping (m.GetGenericArguments().[0])).IsSome ->
+                    let element = Expression.Parameter(m.GetGenericArguments().[0], "x")
+                    let isDescending = m.Name = "OrderDescending"
+                    Some(LinqStage.Sort(Expression.Lambda(element, element), isDescending, isDescending))
                 | "Order" -> Some(LinqStage.SortDefault(isDescending = false, nullsLast = false))
                 | "OrderDescending" -> Some(LinqStage.SortDefault(isDescending = true, nullsLast = true))
                 | "Reverse" -> Some LinqStage.Reverse

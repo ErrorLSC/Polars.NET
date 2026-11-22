@@ -183,8 +183,10 @@ module internal SchemaInference =
         | ScalarExpr.Alias(inner, _) -> inferScalarType schema inner
         | ScalarExpr.Udf(_, _, returnType, _) -> returnType
         | ScalarExpr.InList _ -> LogicalTypes.Boolean
-        | ScalarExpr.EnumConvert(conversion, _, mapping) ->
+        | ScalarExpr.EnumConvert(conversion, inner, mapping) ->
             match conversion with
+            | EnumConversion.Ordered -> inferScalarType schema inner
+            | EnumConversion.IsDefined -> LogicalTypes.Boolean
             | EnumConversion.ToValue -> mapping.Underlying
             | EnumConversion.FromValue -> LogicalType.Enum mapping.Categories
             | EnumConversion.ToName -> LogicalTypes.String

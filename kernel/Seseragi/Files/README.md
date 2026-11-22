@@ -222,7 +222,9 @@ Sazanami's `OrderedParallel`); `ParquetFile.ReadList<T>(path, where)` / `ReadLis
 predicate (`Expression<Func<T, bool>>`) is translated by Samidare as the LINQ provider translates it (captured values
 evaluated first) and pushed into the read as `Filter` with `FilterRows`; the conjuncts it cannot translate, or that
 the reader cannot evaluate, are evaluated on the rows as `T` when Samidare's client evaluation policy allows it
-(Strict, the default, refuses them). Filters reach pruning and lowering in canonical shapes (`FilterShapes.canonical`:
+(Strict, the default, refuses them). An enum member stored as its names (a dictionary of names, strings, a partition
+path) is compared by its names: equality with the constant's names, an ordering as the names whose values satisfy it,
+so that enum predicates prune and filter exactly. Filters reach pruning and lowering in canonical shapes (`FilterShapes.canonical`:
 a starts-with or ends-with call as the operator, an IN over a collection as an IN over literals), whoever built them.
 
 **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches as a Parquet file, to a stream, a path or an
@@ -568,7 +570,8 @@ dataset writer (Hive partitions, `ExistingData`, files cut by rows or size, name
 **Typed rows** (`JsonReader<T>`, `JsonReader.ReadList<T>` / `ReadListAsync<T>` of a path, `ParseList<T>` of a string):
 records read as rows of `T`, mapped as `DataFrame.Rows<T>()` maps them. The columns are `T`'s members (the layout
 `JsonWriter<T>` writes, nothing inferred), fields matched ignoring case when none has the exact name, other fields passed
-over; GUIDs from strings, enums from names (any case) or numbers, dictionaries keyed by strings from objects. A member
+over; GUIDs from strings, enums from names (any case) or numbers, read as the member names (so that a predicate on an
+enum compares names), dictionaries keyed by strings from objects. A member
 of a value type takes no null or missing field (the row named among all the rows read); an object of nulls is an object. A `where` predicate is translated by the query compiler and evaluated
 by the reader on each unit (`FilterRows`), its other conjuncts on the rows when the client evaluation policy allows;
 units are decoded, filtered and turned into rows on several threads, the rows delivered in order. JSON from

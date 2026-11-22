@@ -439,6 +439,11 @@ module AggTranslator =
 
             tryTranslateToScalar ctx byBody
             |> Option.bind (fun byExpr ->
+                // An enum key compares by its underlying values.
+                let byExpr =
+                    match ScalarExprOps.tryEnumMapping byBody.Type with
+                    | Some mapping -> ScalarExpr.EnumConvert(EnumConversion.Ordered, byExpr, mapping)
+                    | None -> byExpr
                 let targetExpr = ScalarExpr.Column memberInfo.Name
                 match m.Name with
                 | "MinBy" -> Some(ScalarExpr.Function(ScalarFunction.MinBy, [ targetExpr; byExpr ], LogicalType.Unknown))
@@ -521,7 +526,7 @@ module AggTranslator =
             | Some seq ->
                 evalGroupSeq groupParamName scalarColOpt wholeRowStructOpt rowShape seq
                 |> Option.bind getFilteredTarget
-                |> Option.bind (translateReductionOp m.Name)
+                |> Option.bind (translateReduction m)
             | None -> None
 
         // ---------------------------------------------------------------------
@@ -535,7 +540,7 @@ module AggTranslator =
                 let memberCol = ScalarExpr.Column memberInfo.Name
                 let resolvedWithTarget = { resolved with Target = Some memberCol }
                 getFilteredTarget resolvedWithTarget
-                |> Option.bind (translateReductionOp m.Name)
+                |> Option.bind (translateReduction m)
             | None -> None
 
         // ---------------------------------------------------------------------

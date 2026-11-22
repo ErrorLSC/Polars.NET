@@ -286,7 +286,7 @@ The LINQ provider automatically translates standard .NET Base Class Library (BCL
 | `collection.Contains(x.Id)` over an in-memory collection | Compiles to an `IN` predicate |
 | `SelectMany(x => x.Tags)` | Compiles to `Explode` |
 | Group aggregates: `Sum`, `Average`, `Min`, `Max`, `Count`, `LongCount`, `First`, `FirstOrDefault`, `Last`, `LastOrDefault`, `ElementAt`, `MinBy(...).Member`, `MaxBy(...).Member`, `ToList`, `ToArray`, `string.Join(sep, g.Select(...))`, composed with `Where`, `Select`, `OrderBy`, `ThenBy`, `Take`, `Skip`, `Distinct`, `DistinctBy` | |
-| `enum.ToString()`, `enum.Equals(other)`, `enum.HasFlag(flag)`, `(int)e`, `(Enum)i` | |
+| `enum.ToString()`, `enum.ToString("G")`, `enum.ToString("D")`, `enum.Equals(other)`, `enum.HasFlag(flag)`, `enum.CompareTo(other)`, `(int)e`, `(Enum)i`, `Enum.GetName`, `Enum.IsDefined`, `Enum.Parse` (with or without `ignoreCase`), `Convert.ToString(e)`, `Convert.ToInt32(e)` and the other `Convert.ToXxx` | See `Enums` under `Query Semantics`. `ToString("X")` and `ToString("F")` run as managed UDFs |
 | `Nullable<T>.Value`, `.HasValue`, `x == null`, `x != null`, `a ?? b`, `x ? a : b` | |
 | Operators `+ - * / % && \|\| ! & \| ^`, `<<` and `>>` with a constant count, comparisons | Follow `Query Semantics` |
 
@@ -697,6 +697,17 @@ For `double`, `float` and `Half`:
   `DistinctBy(..., comparer)`, `GroupBy(..., comparer)`) is not translated. The whole query is evaluated in .NET
   under the client evaluation policy: Strict raises `PolarsPushdownException`, Allow runs it with LINQ to Objects.
 
+### Enums
+
+* A .NET enum is read from a Polars `Enum` column (what `DataFrame.From` writes: its member names in the order of their
+  values), from an integer column of its values, or from a column of its member names (`String` or `Categorical`, as
+  files written elsewhere hold them). A `[Flags]` enum is stored as its integer.
+* Comparisons, sorting (`OrderBy`, `ThenBy`) and `Min` / `Max` follow the members' values, as in .NET, in every
+  layout: over names, `x.Side > Side.Buy` compares with the names of the members whose values are greater.
+* A column of names holds member names exactly, as written: an alias (a second member of the same value) reads as
+  its value; any other text (another case, a number) fails materialization with `FormatException`.
+* `Enum.GetName` gives null for a value no member has, `ToString()` its number, as in .NET.
+
 ### Where .NET would throw
 
 Polars does not raise per-row exceptions, so a few operations that throw in .NET produce null instead (as EF Core
@@ -704,7 +715,8 @@ does):
 
 * indexing past the end of a list or array, `Substring` beyond the string's length;
 * a member or method called on a null value (`x.Name.Length` with `Name` null);
-* a failed `Parse` (`int.Parse`, `DateTime.Parse`);
+* a failed `Parse` (`int.Parse`, `DateTime.Parse`, `Enum.Parse` of text that is neither a member's name nor a number;
+  a comma-separated list of names is not combined);
 * integer or decimal division or remainder by zero;
 * a conversion out of range or of `NaN` that .NET checks: `checked((int)x)`, a `decimal` cast to an integer,
   `Convert.ToInt32(x)` and the other `Convert.ToXxx` between numbers, `(decimal)x` of a `double` or `float`.

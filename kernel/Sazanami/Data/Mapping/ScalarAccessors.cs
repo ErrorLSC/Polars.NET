@@ -316,6 +316,8 @@ internal sealed unsafe class EnumAccessor<[DynamicallyAccessedMembers(Dynamicall
     private ColumnAccessor? _numericAccessor;
     private DictionaryArray? _dictArray;
     private TEnum[]? _dictEnumLookup;
+    // The dictionary entries that are no value of the enum (null: all are), refused when a row reads them.
+    private bool[]? _dictInvalid;
     private MemoryHandle _indicesBufferHandle;
     private byte* _indicesPtr;
     private delegate*<byte*, int, int> _readKeyFn;
@@ -350,18 +352,24 @@ internal sealed unsafe class EnumAccessor<[DynamicallyAccessedMembers(Dynamicall
             strAcc.SetBatch(dictArr.Dictionary);
             int dictLen = dictArr.Dictionary.Length;
             var lookup = new TEnum[dictLen];
+            bool[]? invalid = null;
             for (int i = 0; i < dictLen; i++)
             {
                 if (!strAcc.IsNull(i))
                 {
-                    string val = strAcc.GetTypedValue(i);
-                    if (Enum.TryParse<TEnum>(val, ignoreCase: true, out var parsed))
+                    if (TryParse(strAcc.GetTypedValue(i), out var parsed))
                     {
                         lookup[i] = parsed;
+                    }
+                    else
+                    {
+                        // Refused only if a row reads it: a dictionary may hold entries no row uses.
+                        (invalid ??= new bool[dictLen])[i] = true;
                     }
                 }
             }
             _dictEnumLookup = lookup;
+            _dictInvalid = invalid;
         }
         else if (_stringAccessor != null)
         {
@@ -387,13 +395,14 @@ internal sealed unsafe class EnumAccessor<[DynamicallyAccessedMembers(Dynamicall
         if (_dictArray != null)
         {
             int key = _readKeyFn(_indicesPtr, index);
+            if (_dictInvalid is not null && _dictInvalid[key]) throw NotAValue(_dictArray.Dictionary.GetStringValue(key)!);
             return _dictEnumLookup![key];
         }
 
         if (_stringAccessor != null)
         {
             string s = _stringAccessor.GetTypedValue(index);
-            return Enum.Parse<TEnum>(s, ignoreCase: true);
+            return TryParse(s, out var parsed) ? parsed : throw NotAValue(s);
         }
 
         if (_numericAccessor is ITypedAccessor<int> i32)
@@ -442,6 +451,16 @@ internal sealed unsafe class EnumAccessor<[DynamicallyAccessedMembers(Dynamicall
 
     TEnum? ITypedAccessor<TEnum?>.GetTypedValue(int index) => IsNull(index) ? null : GetTypedValue(index);
 
+    // A [Flags] enum's text is its .NET form (combined members "A, B", in any case); any other enum's is a member name
+    // exactly (EnumCategories), so that a filter comparing the names finds the rows read as the member.
+    private static readonly bool IsFlags = !EnumCategories.UsesEnumDataType(typeof(TEnum));
+
+    private static bool TryParse(string text, out TEnum value) =>
+        IsFlags ? Enum.TryParse(text, ignoreCase: true, out value) : EnumCategories.TryGetMember(text, out value);
+
+    private static Exception NotAValue(string text) =>
+        IsFlags ? new FormatException($"'{text}' is not a value of enum {typeof(TEnum).FullName}.") : EnumCategories.NotAMemberName(typeof(TEnum), text);
+
     public override void Dispose()
     {
         _indicesBufferHandle.Dispose();
@@ -450,6 +469,7 @@ internal sealed unsafe class EnumAccessor<[DynamicallyAccessedMembers(Dynamicall
         _stringAccessor?.Dispose();
         _dictArray = null;
         _dictEnumLookup = null;
+        _dictInvalid = null;
         base.Dispose();
     }
 }

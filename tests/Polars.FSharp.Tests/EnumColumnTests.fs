@@ -12,6 +12,7 @@ type EcShade =
 
 type EcOptionRow = { Id: int; Shade: EcShade option }
 type EcRow = { Id: int; Shade: EcShade; Code: int }
+type EcNameRow = { Id: int; Shade: string; Code: int }
 type EcInner = { X: int; Shade: EcShade option }
 type EcNestedRow = { Id: int; Inner: EcInner; Shades: EcShade list; Maybe: EcShade option list }
 type EcValueOptionRow = { Id: int; Shade: EcShade voption }
@@ -46,18 +47,25 @@ module EnumColumnTests =
             { Id = 4; Shade = EcShade.Red; Code = 1 }
         |]
 
-    /// Runs `query` over a Polars frame (Enum column) and over the array; the results must agree in order.
+    /// Runs `query` over Polars frames (an Enum column, a column of the members' names) and over the array; the
+    /// results must agree in order.
     let private assertMatches (query: IQueryable<EcRow> -> seq<'T>) =
-        use df = DataFrame.ofRecords rows
         let expected = query (rows.AsQueryable()) |> Seq.map (sprintf "%A") |> List.ofSeq
-        let actual = query (df.AsQueryable<EcRow>()) |> Seq.map (sprintf "%A") |> List.ofSeq
-        Assert.Equal<string list>(expected, actual)
+        let names = rows |> Array.map (fun r -> { EcNameRow.Id = r.Id; Shade = string r.Shade; Code = r.Code })
+        for df in [ DataFrame.ofRecords rows; DataFrame.ofRecords names ] do
+            use df = df
+            let actual = query (df.AsQueryable<EcRow>()) |> Seq.map (sprintf "%A") |> List.ofSeq
+            Assert.Equal<string list>(expected, actual)
 
     [<Fact>]
     let ``Query comparisons on an Enum column follow underlying values`` () =
         assertMatches (fun q -> query { for r in q do where (r.Shade = EcShade.Red); select r.Id })
         assertMatches (fun q -> query { for r in q do where (r.Shade <> EcShade.Red); select r.Id })
         assertMatches (fun q -> query { for r in q do where (r.Shade < EcShade.Red); select r.Id })
+        assertMatches (fun q -> query { for r in q do where (r.Shade >= EcShade.Green); select r.Id })
+        assertMatches (fun q -> query { for r in q do where (r.Shade = enum<EcShade> 42); select r.Id })
+        assertMatches (fun q -> query { for r in q do where (enum<EcShade> 42 < r.Shade); select r.Id })
+        assertMatches (fun q -> query { for r in q do where (EcShade.Green < r.Shade); select r.Id })
         assertMatches (fun q -> query { for r in q do where ([| EcShade.Black; EcShade.Green |].Contains r.Shade); select r.Id })
 
     [<Fact>]

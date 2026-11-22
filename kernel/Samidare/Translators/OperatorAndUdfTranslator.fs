@@ -279,6 +279,20 @@ module internal OperatorAndUdfTranslator =
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked when targetType = operand.Type || Nullable.GetUnderlyingType targetType = operand.Type ->
             eval ctx operand
+        // (E)Enum.Parse(typeof(E), text): the parse already gives the enum.
+        | ExpressionType.Convert when
+            (match operand with
+             | :? MethodCallExpression as call ->
+                 call.Method.DeclaringType = typeof<Enum>
+                 && call.Method.Name = "Parse"
+                 && not call.Method.IsGenericMethod
+                 && call.Arguments.Count > 0
+                 && (match call.Arguments.[0] with
+                     | :? ConstantExpression as c -> obj.ReferenceEquals(c.Value, ClrTypeHelper.UnwrapCoreType targetType)
+                     | _ -> false)
+             | _ -> false)
+            ->
+            eval ctx operand
         | ExpressionType.Convert
         | ExpressionType.ConvertChecked when
             (ScalarExprOps.tryEnumUnderlyingType operand.Type).IsSome
