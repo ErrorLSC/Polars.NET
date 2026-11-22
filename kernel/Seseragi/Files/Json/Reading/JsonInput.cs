@@ -289,9 +289,7 @@ internal sealed class StreamInput(Stream stream, bool leaveOpen, int unitBytes) 
                 // Read until the block is full (or the stream ends), then cut after its last newline.
                 while (!_ended && length < buffer.Capacity)
                 {
-                    int n = useAsync
-                        ? await stream.ReadAsync(buffer.Memory[length..], ct).ConfigureAwait(false)
-                        : stream.Read(buffer.Span[length..]);
+                    int n = await ReadAsync(stream, buffer, length, useAsync, ct).ConfigureAwait(false);
                     if (n == 0) _ended = true;
                     length += n;
                 }
@@ -336,6 +334,24 @@ internal sealed class StreamInput(Stream stream, bool leaveOpen, int unitBytes) 
         }
         _carry?.Release();
         if (!leaveOpen) stream.Dispose();
+    }
+
+    /// <summary>
+    /// Reads into <paramref name="buffer"/> from <paramref name="at"/>; damaged compressed input (a header that is not
+    /// one, a broken stream) is a <see cref="JsonFormatException"/>.
+    /// </summary>
+    public static async ValueTask<int> ReadAsync(Stream stream, NativeByteBuffer buffer, int at, bool useAsync, CancellationToken ct)
+    {
+        try
+        {
+            return useAsync
+                ? await stream.ReadAsync(buffer.Memory[at..], ct).ConfigureAwait(false)
+                : stream.Read(buffer.Span[at..]);
+        }
+        catch (Exception e) when (e is InvalidDataException or ZstdSharp.ZstdException)
+        {
+            throw new JsonFormatException($"The compressed input is damaged: {e.Message}", e);
+        }
     }
 
     /// <summary>

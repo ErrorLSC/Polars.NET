@@ -5,7 +5,7 @@ namespace Kaminari.Sazanami.Text;
 /// to the nanosecond: the caller decides what a unit coarser than the text means (a fraction it cannot hold is not
 /// silently cut here). Years have four digits.
 /// </summary>
-internal static class IsoTemporal
+internal static partial class IsoTemporal
 {
     private const long NanosPerSecond = 1_000_000_000;
     private const long NanosPerDay = 86_400 * NanosPerSecond;

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Concurrency;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Json.Reading;
@@ -60,6 +61,28 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     /// <inheritdoc cref="Open(IRandomAccess, JsonReadOptions?)"/>
     public static Task<JsonReader> OpenAsync(IRandomAccess source, JsonReadOptions? options = null, CancellationToken cancellationToken = default) =>
         OpenSourceAsync(source, null, options ?? new JsonReadOptions(), mappable: false, useAsync: true, cancellationToken).AsTask();
+
+    /// <summary>Opens bytes in memory (UTF-8), read in place: the caller keeps them unchanged while reading.</summary>
+    public static JsonReader Open(ReadOnlyMemory<byte> bytes, JsonReadOptions? options = null) =>
+        OpenSourceAsync(new MemoryRandomAccess(bytes), null, options ?? new JsonReadOptions(), mappable: false, useAsync: false, default).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Opens JSON text (a string): it is encoded to UTF-8 once, into native memory the reader keeps. Unpaired
+    /// surrogates are refused (<see cref="JsonFormatException"/>).
+    /// </summary>
+    public static JsonReader Parse(ReadOnlySpan<char> json, JsonReadOptions? options = null)
+    {
+        int length = System.Text.Encoding.UTF8.GetByteCount(json);
+        var buffer = new NativeByteBuffer(Math.Max(1, length), pooled: true);
+        if (System.Text.Unicode.Utf8.FromUtf16(json, buffer.Span, out int read, out int written, replaceInvalidSequences: false) != System.Buffers.OperationStatus.Done)
+        {
+            buffer.Release();
+            throw new JsonFormatException($"The text holds an unpaired surrogate at character {read}.");
+        }
+        // The reader owns the bytes from here (released with it, or when opening fails).
+        var source = new MemoryRandomAccess(buffer.Memory[..written]);
+        return OpenSourceAsync(source, new Releaser(buffer), options ?? new JsonReadOptions(), mappable: false, useAsync: false, default).GetAwaiter().GetResult();
+    }
 
     private static ValueTask<JsonReader> OpenPathAsync(string path, JsonReadOptions options, bool useAsync, CancellationToken ct)
     {

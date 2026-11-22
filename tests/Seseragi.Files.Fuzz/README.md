@@ -84,5 +84,6 @@ and element starts), gzips one case in eight, and reads it twice: a reference
 read (one thread, the defaults) and a read with random options (unit size down to one byte, threads, the source kind:
 memory, a stream that cannot seek, ranged reads; a row limit, a batch size, a given schema, ignored errors). Contract:
 each read ends or is refused with `JsonFormatException` / `JsonValueException`, and the two agree: the same rows (the
-first ones under a row limit) or the same refusal.
+first ones under a row limit) or the same refusal. Half the inputs read are written back with random options (layout, threads, piece size, in-flight
+budget, compression): the bytes, decompressed, must be those of a one-thread write, and must read back as the rows read.
 

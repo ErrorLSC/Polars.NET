@@ -11,7 +11,9 @@ namespace Seseragi.Files.Fuzz;
 /// in part at line and element starts, sometimes gzipped, read in its layout twice: once as the reference (one thread,
 /// defaults) and once with random options (unit size, threads, source kind, row limit, a given schema, ignoring errors).
 /// Contract: a read ends or is refused with JsonFormatException / JsonValueException, and the two reads agree (the same
-/// rows, the row limit's first ones, or the same refusal).
+/// rows, the row limit's first ones, or the same refusal). Half the inputs read are written back with random options
+/// (layout, threads, pieces, budget, compression): the bytes, decompressed, are those of a one-thread write, and they
+/// read back (with the schema) as the rows read.
 /// </summary>
 internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
 {
@@ -59,12 +61,60 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
                 int at = expected.Zip(candidate.Rows!).TakeWhile(p => p.First == p.Second).Count();
                 return new Outcome(true, "different rows", $"{expected.Count} vs {candidate.Rows!.Count} rows ({described}); row {at}:\n{expected.ElementAtOrDefault(at)}\n{candidate.Rows!.ElementAtOrDefault(at)}");
             }
+            if (random.Next(2) == 0 && WriteBack(random, bytes, format, given, ignore, reference.Rows!) is { } written) return written;
             return Outcome.Read;
         }
         catch (Exception e)
         {
             return Outcome.From(e);
         }
+    }
+
+    // The rows read, written back: the same bytes whatever the options, read back as the same rows.
+    private static Outcome? WriteBack(Random random, byte[] bytes, JsonFormat format, Schema? given, bool ignore, List<string> rows)
+    {
+        using JsonReader reader = JsonReader.Open(new MemoryStream(bytes), new JsonReadOptions { Format = format, Schema = given, IgnoreErrors = ignore, MaxDegreeOfParallelism = 1 });
+        List<RecordBatch> batches = [.. reader.ReadBatches()];
+        try
+        {
+            JsonFormat layout = random.Next(2) == 0 ? JsonFormat.Lines : JsonFormat.Document;
+            string text = JsonWriter.WriteString(reader.Schema, batches, new JsonWriteOptions { Format = layout, MaxDegreeOfParallelism = 1 });
+            var compression = (JsonCompression)random.Next(3);
+            var options = new JsonWriteOptions
+            {
+                Format = layout,
+                Compression = compression,
+                MaxDegreeOfParallelism = random.Next(1, 5),
+                PieceBytes = random.Next(2) == 0 ? random.Next(1, 4096) : 1 << 20,
+                InFlightBytes = random.Next(2) == 0 ? random.Next(1, 100_000) : 256L << 20,
+            };
+            using var output = new MemoryStream();
+            JsonWriter.Write(output, reader.Schema, batches, options with { LeaveOpen = true });
+            byte[] written = output.ToArray();
+            if (compression != JsonCompression.None)
+            {
+                using Stream unpacked = compression == JsonCompression.Gzip
+                    ? new GZipStream(new MemoryStream(written), CompressionMode.Decompress)
+                    : new ZstdSharp.DecompressionStream(new MemoryStream(written));
+                using var plain = new MemoryStream();
+                unpacked.CopyTo(plain);
+                written = plain.ToArray();
+            }
+            string described = $"{layout}, {compression}, threads {options.MaxDegreeOfParallelism}, piece {options.PieceBytes}, in flight {options.InFlightBytes}";
+            if (!System.Text.Encoding.UTF8.GetBytes(text).AsSpan().SequenceEqual(written))
+                return new Outcome(true, "written differently", described);
+            using JsonReader back = JsonReader.Parse(text, new JsonReadOptions { Format = layout, Schema = reader.Schema });
+            List<string> read = [];
+            foreach (RecordBatch batch in back.ReadBatches())
+                using (batch) read.AddRange(ArrowRender.Rows(batch));
+            if (!read.SequenceEqual(rows))
+            {
+                int at = read.Zip(rows).TakeWhile(p => p.First == p.Second).Count();
+                return new Outcome(true, "written rows read back differently", $"{described}; row {at}:\n{rows.ElementAtOrDefault(at)}\n{read.ElementAtOrDefault(at)}");
+            }
+            return null;
+        }
+        finally { batches.ForEach(b => b.Dispose()); }
     }
 
     public byte[] FileOf(long seed, long n, out string source) => Mutate(Cases.RandomFor(seed, n), out source);

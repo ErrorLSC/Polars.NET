@@ -3,7 +3,7 @@
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
 **Parquet** (files and their full footer metadata read and written), **Arrow IPC** (the file format, Feather v2, and
-the stream format, read and written) and **JSON** (newline-delimited and documents, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+the stream format, read and written) and **JSON** (newline-delimited and documents, read and written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -508,6 +508,28 @@ they are refused, and objects or arrays into string columns are their text (Pola
 **No columns** (`Columns = []`, an empty given schema, or a document of empty objects): batches without columns that
 count the rows, every record still checked.
 
+**Memory and text**: `JsonReader.Open(ReadOnlyMemory<byte>)` reads UTF-8 in place (the caller keeps it unchanged);
+`JsonReader.Parse(ReadOnlySpan<char>)` reads a string, encoded to UTF-8 once into native memory the reader keeps
+(unpaired surrogates refused).
+
+**Writing** (`JsonWriter`, `JsonWriteOptions`): record batches as Polars' `write_ndjson` (`Format = Lines`: an object
+per line) and `write_json` (`Document`: an array of objects) write them, byte for byte: compact, every field of every
+row (nulls included). To a path, a stream, an `IBufferWriter<byte>` (UTF-8; a `PipeWriter` is flushed after every
+piece, so writing waits for its reader, and is left uncompleted), a `TextWriter` or a string (`WriteString`). Integers of every width as numbers (128-bit ones too), floats as their shortest round-trip digits
+(Ryū), in decimal notation from 1e-5 to below 1e16 (`1.0`, `0.00001`) and `1e+16` / `1.5e-6` beyond, NaN and
+infinities null; strings with quotes, backslashes and control characters escaped (`\u00xx` lowercase), the rest as it
+is (a string that is not UTF-8 is refused at its row); binaries as base64; decimals as strings with every digit of
+their scale; dates `yyyy-MM-dd` (years beyond 0000–9999 signed: `+10000-01-01`), times and naive timestamps with the
+shortest of 3, 6 or 9 fraction digits, zoned timestamps in RFC 3339 with the zone's offset at that instant (IANA zones
+from the system's TZif files, local mean time before the first transition, as Polars' own database has them; Windows:
+TimeZoneInfo, whole minutes; fixed `±HH:MM` zones), durations `PT…S` (`P0D` for zero); lists as arrays, structs and
+maps (string keys) as objects, dictionaries as their values. Intervals, Decimal256 and maps with other keys are
+refused at `Create`. A batch is cut into pieces encoded by up to `MaxDegreeOfParallelism` workers (the physical cores
+by default) into native memory, written in order behind the encoding (a file's batch in one gathering write); the bytes
+do not depend on threads, pieces or batches. `BatchOwnership.Writer` encodes several batches at once. `Compression`
+(gzip, Zstandard) compresses each piece as a member or frame of its own, side by side: one valid file. `JsonWriter<T>`
+writes rows of records (`ArrowRowBuilder<T>`'s layout).
+
 ## Avro features
 
 **Reading** (`AvroReader`, `AvroReadOptions`): from a path or a stream, synchronously or asynchronously, as record
@@ -681,6 +703,8 @@ written synchronously on completion.
 | `Json/JsonReader.cs`, `JsonReadOptions.cs` | Public JSON API: the reader (opening, compression detection, schema given / inferred / overridden / projected, the ordered window over units, exact `MaxRows`), options, `JsonMemoryMap`, `JsonFormatException`, `JsonValueException`. |
 | `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
 | `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: line splitting, UTF-8 (the first bad byte fails its line or element, in input order), one `Utf8JsonReader` per line or element, builders reserved per batch; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
+| `Json/JsonWriter.cs`, `JsonWriteOptions.cs`, `JsonWriterOfT.cs` | Public JSON writing API: outputs, pieces encoded by workers and written in order by a task chain (a file's batch gathered), spare piece buffers, document start and end, compression options, typed rows. |
+| `Json/Writing/JsonCells.cs`, `JsonOut.cs`, `JsonSinks.cs` | A cell per Arrow type over pinned buffers (values, validity, offsets, views, children); the output span writer and JSON text of floats (Ryū digits laid out) and strings (escapes, UTF-8 checked); the outputs (stream, file, buffer writer, pipe, text, string) and pieces compressed as gzip members or Zstandard frames. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |
 | `Json/Reading/JsonInference.cs` | `JsonShape`: what the records held, folded record by record, resolved to Arrow types as Polars resolves them. |
@@ -737,6 +761,8 @@ In Sazanami (generic, reusable by other formats):
 | `Buffers/NativeBufferWriter.cs`, `NativeStreamWriter.cs` | `IBufferWriter<byte>` in native memory: a growable one shaped like `ArrayBufferWriter` (Parquet pages, levels, scratch), and a small window that hands its bytes to a stream (JSON written line by line). |
 | `Buffers/NativeMemoryPool.cs` | The process's native memory for large buffers: blocks kept by size class and released when idle; `Poison` (the tests and the fuzzer) hands every block out filled with 0xCC, so code counting on zeroed memory fails. |
 | `Buffers/NativeArray.cs` | A growable array of unmanaged values in pooled native memory (page values, levels, indices, hash tables): growth keeps what it is told to keep, memory is not zeroed. |
+| `Text/ShortestDouble.cs` | The shortest round-trip digits of a double (Ryū; tables computed once), with digits removed several at a time in the common case. |
+| `Text/IsoTemporalFormat.cs`, `TimeZoneOffsets.cs` | Dates, times, fractions and offsets written as ISO 8601 (any year); a zone's UTC offset at an instant to the second (TZif files, TimeZoneInfo past them or without them, fixed offsets). |
 | `Json/JsonArrayScanner.cs` | Where a JSON array can be cut between top-level elements: a 64-byte bitmask scan (quotes, escapes by odd backslash runs, a prefix XOR for strings, depth by population counts) on portable vectors, a byte-at-a-time reference, piece summaries for an exact parallel cut. |
 | `Text/GlobPattern.cs` | Globs over '/'-separated paths as the `glob` crate (Polars' local expansion) matches them: the literal prefix to list from, whether to list recursively, segment-wise matching with `**` backtracking. |
 | `Arrow/Builders/ConstantArrays.cs` | Arrays of one value on every row (a dataset's file path and partition columns): string views over one copy, repeated strings, any flat type repeated from one element of an array. |

@@ -56,7 +56,7 @@ A Parquet implementation of its own, for .NET code that reads or writes Parquet 
 
 ## JSON: managed reader (Kaminari.Seseragi.Files)
 
-A JSON reader of its own, newline-delimited and documents, for .NET code that reads JSON without the engine (`DataFrame.ReadJson` and `LazyFrame.ScanNdjson` still run on the engine).
+A JSON reader and writer of its own, newline-delimited and documents, for .NET code that reads and writes JSON without the engine (`DataFrame.ReadJson` and `LazyFrame.ScanNdjson` still run on the engine).
 
 ### New
 
@@ -64,6 +64,8 @@ A JSON reader of its own, newline-delimited and documents, for .NET code that re
 * **Columns**: given (a full schema: nothing inferred), inferred from the first records (or all) with Polars' types and column order, or inferred with some types overridden. Values convert to every Arrow type JSON holds: integers of every width, floats, decimals (exact), strings, base64 binaries, dates, timestamps, times and durations in ISO 8601, lists, fixed-size lists, structs, maps and dictionary-encoded strings.
 * **Documents** (`Format = JsonFormat.Document`): an array of objects (indented or compact) or a single object, as Polars' `read_json` reads them, cut between elements by a vectorized scan in parallel (a store's object or an unmapped file read in parallel too) and decoded on all cores like lines (Polars reads a document on one thread); a field first seen after the inferred records is an error, as in Polars. Broken documents (elements that are not objects, missing elements, data after the document, an unclosed array) are refused at their line and array index.
 * **No columns** (`Columns = []`): batches that only count the rows, every record still checked.
+* **Memory and text**: `JsonReader.Open(ReadOnlyMemory<byte>)` reads UTF-8 in place, `JsonReader.Parse(string)` reads JSON text.
+* **Writing** (`JsonWriter`, `JsonWriter<T>`): record batches or rows of records written as Polars' `write_ndjson` / `write_json` write them, byte for byte (time zones, years beyond 9999 and floats included), to a path, a stream, an `IBufferWriter<byte>` (a `PipeWriter` flushed as it goes), a `TextWriter` or a string, encoded on all cores (documents several times faster than Polars, which writes them on one thread); gzip and Zstandard compression side by side. Binaries are written as base64 and maps as objects (Polars fails on both); strings that are not UTF-8 are refused.
 * Where Polars changes or drops values, the reader refuses them instead: fractions of a second finer than a column's unit (Polars cuts them), lone surrogate escapes (Polars reads `\0`), values of mixed kinds in an array without strings (Polars sometimes makes them strings). Unlike Polars, a leading byte order mark is accepted, and integers into Int8 / UInt8, times, durations, decimals and binaries are read (Polars fails or panics on them). A column of empty objects only is refused (Apache Arrow for .NET has no struct type without fields). In documents, booleans mixed with integers and fractions into integer columns are refused (Polars' `read_json` reads `true` as 1 and cuts 2.5 to 2), objects and arrays into string columns are read as their text (Polars refuses them), and `[{}]` or `{}` is one row (Polars reads none).
 
 ## Delta Lake: managed Parquet writer

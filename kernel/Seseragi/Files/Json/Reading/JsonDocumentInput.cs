@@ -562,9 +562,7 @@ internal sealed class DocumentInput : JsonInput
                 return;
             }
             if (_filled == _buffer.Capacity) _buffer.EnsureCapacity((long)_buffer.Capacity * 2);
-            int n = useAsync
-                ? await _stream!.ReadAsync(_buffer.Memory[_filled..], ct).ConfigureAwait(false)
-                : _stream!.Read(_buffer.Span[_filled..]);
+            int n = await StreamInput.ReadAsync(_stream!, _buffer, _filled, useAsync, ct).ConfigureAwait(false);
             if (n == 0) _ended = true;
             _filled += n;
         }

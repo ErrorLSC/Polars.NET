@@ -492,6 +492,16 @@ public class JsonReadTests
     }
 
     [Fact]
+    public void DamagedCompressedInput_IsAFormatError()
+    {
+        // 0x78 0x01 reads as a zlib header; what follows is not deflate (fuzz finding, seed 20261127).
+        byte[] bytes = [0x78, 0x01, .. "[{\"a\":1}]"u8];
+        foreach (JsonFormat format in (JsonFormat[])[JsonFormat.Lines, JsonFormat.Document])
+            foreach (Source source in Sources)
+                Assert.StartsWith("The compressed input is damaged", Assert.Throws<JsonFormatException>(() => Read(bytes, new JsonReadOptions { Format = format }, source)).Message);
+    }
+
+    [Fact]
     public async Task AsyncReading_ReadsTheSameRows()
     {
         string text = Messy(300);
