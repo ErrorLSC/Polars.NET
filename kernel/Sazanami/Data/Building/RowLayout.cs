@@ -17,13 +17,16 @@ namespace Kaminari.Sazanami.Data.Building;
 
 /// <summary>How one .NET type is laid out: its Arrow type, and how to make a writer over a builder of that type.</summary>
 internal sealed class RowNode(IArrowType type, bool nullable, Dictionary<string, string>? metadata, Type writerType,
-    Func<NativeColumnBuilder, ArrowValueWriter> createWriter, RowNode[]? children = null, bool isMap = false)
+    Func<NativeColumnBuilder, ArrowValueWriter> createWriter, RowNode[]? children = null, bool isMap = false, bool isGuid = false)
 {
     /// <summary>The nodes inside: a struct's members, a list's item.</summary>
     public RowNode[] Children { get; } = children ?? [];
 
     /// <summary>Whether this list holds a dictionary's entries (a list of Key / Value structs).</summary>
     public bool IsMap { get; } = isMap;
+
+    /// <summary>Whether this is a <see cref="Guid"/> (its 16 bytes, as <see cref="Guid.TryWriteBytes(Span{byte})"/> writes them).</summary>
+    public bool IsGuid { get; } = isGuid;
 
     public IArrowType Type { get; } = type;
     public bool Nullable { get; } = nullable;
@@ -84,7 +87,7 @@ internal static class RowLayout
             {
                 Type nullableFixed = typeof(NullableFixedWriter<,,>).MakeGenericType(core, fixedScalar.Stored!, conv);
                 return new RowNode(inner.Type, true, metadata, nullableFixed, b => (ArrowValueWriter)Activator.CreateInstance(nullableFixed, b)!,
-                    inner.Children, inner.IsMap);
+                    inner.Children, inner.IsMap, inner.IsGuid);
             }
             Type wrapper = (kind switch
             {
@@ -93,7 +96,7 @@ internal static class RowLayout
                 _ => typeof(ValueOptionWriter<>),
             }).MakeGenericType(core);
             return new RowNode(inner.Type, true, metadata, wrapper, b => (ArrowValueWriter)Activator.CreateInstance(wrapper, inner.CreateWriter(b))!,
-                inner.Children, inner.IsMap);
+                inner.Children, inner.IsMap, inner.IsGuid);
         }
 
         bool nullable = !type.IsValueType;
@@ -102,7 +105,8 @@ internal static class RowLayout
             Type writer = scalar.Converter is { } conv
                 ? typeof(FixedWriter<,,>).MakeGenericType(type, scalar.Stored!, conv)
                 : scalar.Writer!;
-            return new RowNode(scalar.Type, nullable, Metadata(type), writer, b => (ArrowValueWriter)Activator.CreateInstance(writer, b)!);
+            return new RowNode(scalar.Type, nullable, Metadata(type), writer, b => (ArrowValueWriter)Activator.CreateInstance(writer, b)!,
+                isGuid: type == typeof(Guid));
         }
 
         if (Grouping(type) is null && ElementType(type) is { } element)

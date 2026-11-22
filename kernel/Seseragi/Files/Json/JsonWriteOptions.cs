@@ -26,7 +26,8 @@ public sealed record JsonWriteOptions
     /// Who owns the batches (<see cref="BatchOwnership.Caller"/> by default: a batch is encoded before Write returns).
     /// With <see cref="BatchOwnership.Writer"/> the writer takes every batch given to it, returns once the batch is
     /// checked, encodes several batches side by side and disposes each once encoded (also when writing fails, or the
-    /// writer is aborted or disposed). The bytes written do not depend on it.
+    /// writer is aborted or disposed). The bytes written do not depend on it. Many small batches (a few hundred rows each)
+    /// are written much faster by the writer's own: with the caller's, each is encoded before the next is given.
     /// </summary>
     public BatchOwnership BatchOwnership { get; init; } = BatchOwnership.Caller;
 

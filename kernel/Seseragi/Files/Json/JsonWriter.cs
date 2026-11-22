@@ -247,7 +247,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
         var sink = new StringSink();
         try
         {
-            using (var writer = JsonWriter<T>.Over(new JsonWriter(sink, Kaminari.Sazanami.Data.Building.ArrowRowBuilder<T>.Schema, JsonWriter<T>.Owned(options)), options))
+            using (var writer = JsonWriter<T>.Over(new JsonWriter(sink, JsonRowSchema<T>.Write, JsonWriter<T>.Owned(options)), options))
                 WriteAllRows(writer, rows);
             return sink.TakeText();
         }

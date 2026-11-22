@@ -107,9 +107,23 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
 
     /// <summary>
     /// The decoder of a column of <paramref name="field"/>'s type over <paramref name="builder"/>; with
-    /// <paramref name="strict"/>, an object's field its struct type lacks is an error (in structs, also in lists).
+    /// <paramref name="strict"/>, an object's field its struct type lacks is an error (in structs, also in lists); with
+    /// <paramref name="keysIgnoreCase"/>, fields match struct members ignoring case when none matches exactly. A field
+    /// that is not nullable takes no nulls (unless <paramref name="ignoreErrors"/>).
     /// </summary>
-    public static JsonColumn For(Field field, NativeColumnBuilder builder, string path, bool ignoreErrors, bool strict = false) => field.DataType switch
+    public static JsonColumn For(Field field, NativeColumnBuilder builder, string path, bool ignoreErrors, bool strict = false, bool keysIgnoreCase = false)
+    {
+        JsonColumn column = Of(field, builder, path, ignoreErrors, strict, keysIgnoreCase);
+        return field.IsNullable || ignoreErrors ? column : new RequiredColumn(column);
+    }
+
+    /// <summary>The metadata key of a binary column of 16-byte GUIDs (as .NET lays them out) written and read as GUID strings.</summary>
+    public const string GuidKey = "kaminari.json.guid";
+
+    /// <summary>The metadata key of a large list of key / value structs (string keys) written as JSON objects.</summary>
+    public const string ObjectKey = "kaminari.json.object";
+
+    private static JsonColumn Of(Field field, NativeColumnBuilder builder, string path, bool ignoreErrors, bool strict, bool keysIgnoreCase) => field.DataType switch
     {
         NullType => new NullColumn(builder, path, ignoreErrors),
         BooleanType => new BooleanColumn(builder, path, ignoreErrors),
@@ -127,6 +141,7 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
         Decimal128Type when WideIntegers.KindOf(field) is not null => new WideIntegerColumn(builder, path, ignoreErrors, WideIntegers.KindOf(field) == WideIntegers.Unsigned),
         Decimal128Type d => new DecimalColumn(d, builder, path, ignoreErrors),
         StringType or LargeStringType or StringViewType => new StringColumn(builder, path, ignoreErrors),
+        BinaryType or LargeBinaryType or BinaryViewType when field.Metadata?.ContainsKey(GuidKey) == true => new GuidColumn(builder, path, ignoreErrors),
         BinaryType or LargeBinaryType or BinaryViewType => new BinaryColumn(builder, path, ignoreErrors),
         Date32Type => new DateColumn(builder, path, ignoreErrors, millis: false),
         Date64Type => new DateColumn(builder, path, ignoreErrors, millis: true),
@@ -135,11 +150,11 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
         Time64Type t => new TemporalColumn(builder, path, ignoreErrors, TemporalKind.Time64, UnitNanos(t.Unit)),
         DurationType t => new TemporalColumn(builder, path, ignoreErrors, TemporalKind.Duration, UnitNanos(t.Unit)),
         DictionaryType { ValueType: StringType or BinaryType } d => new DictionaryColumn((NativeDictionaryBuilder)builder, path, ignoreErrors, d.ValueType is BinaryType),
-        MapType m => new MapColumn(m, (NativeListBuilder)builder, path, ignoreErrors),
-        ListType l => new ListColumn(builder, ((NativeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1, strict),
-        LargeListType l => new ListColumn(builder, ((NativeLargeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1, strict),
-        FixedSizeListType l => new ListColumn(builder, ((NativeFixedSizeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, l.ListSize, strict),
-        StructType s => new StructColumn(s, (NativeStructBuilder)builder, path, ignoreErrors, strict),
+        MapType m => new MapColumn(m, (NativeListBuilder)builder, path, ignoreErrors, keysIgnoreCase),
+        ListType l => new ListColumn(builder, ((NativeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1, strict, keysIgnoreCase),
+        LargeListType l => new ListColumn(builder, ((NativeLargeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, fixedSize: -1, strict, keysIgnoreCase),
+        FixedSizeListType l => new ListColumn(builder, ((NativeFixedSizeListBuilder)builder).Values, l.ValueField, path, ignoreErrors, l.ListSize, strict, keysIgnoreCase),
+        StructType s => new StructColumn(s, (NativeStructBuilder)builder, path, ignoreErrors, strict, keysIgnoreCase: keysIgnoreCase),
         _ => throw new NotSupportedException($"Column '{path}': JSON cannot be read as {field.DataType.Name}."),
     };
 
@@ -353,6 +368,48 @@ internal sealed class BinaryColumn(NativeColumnBuilder b, string path, bool igno
     }
 }
 
+/// <summary>GUIDs: strings such as <c>0f8fad5b-d9cb-469f-a165-70867728950e</c>, kept as .NET's 16 bytes.</summary>
+internal sealed class GuidColumn(NativeColumnBuilder b, string path, bool ignore) : JsonColumn(b, path, ignore)
+{
+    private readonly IBytesBuilder _b = (IBytesBuilder)b;
+
+    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            Builder.AppendNull();
+            return;
+        }
+        if (reader.TokenType == JsonTokenType.String && !reader.ValueIsEscaped
+            && Utf8Parser.TryParse(reader.ValueSpan, out Guid value, out int used, 'D') && used == reader.ValueSpan.Length)
+        {
+            Span<byte> bytes = stackalloc byte[16];
+            value.TryWriteBytes(bytes);
+            _b.Append(bytes);
+            return;
+        }
+        Mismatch(ref reader, line, "a GUID", "GUIDs are strings such as 0f8fad5b-d9cb-469f-a165-70867728950e");
+    }
+}
+
+/// <summary>A column that takes no nulls: a null or a missing field is an error.</summary>
+internal sealed class RequiredColumn(JsonColumn inner) : JsonColumn(inner.Builder, inner.Path, ignoreErrors: false)
+{
+    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    {
+        if (reader.TokenType == JsonTokenType.Null) throw new JsonValueException($"Column '{Path}': null, but the column takes no nulls.");
+        inner.Read(ref reader, line);
+    }
+
+    public override void Missing() => throw new JsonValueException($"Column '{Path}': the field is missing, but the column takes no nulls.");
+
+    public override void Reserve(long rows, long dataBytes) => inner.Reserve(rows, dataBytes);
+
+    public override void EndBatch() => inner.EndBatch();
+
+    public override void Dispose() => inner.Dispose();
+}
+
 /// <summary>Dates: <c>yyyy-MM-dd</c> strings.</summary>
 internal sealed class DateColumn(NativeColumnBuilder b, string path, bool ignore, bool millis) : JsonColumn(b, path, ignore)
 {
@@ -403,7 +460,7 @@ internal sealed class TemporalColumn(NativeColumnBuilder b, string path, bool ig
             bool parsed = kind switch
             {
                 TemporalKind.Timestamp => IsoTemporal.TryParseDatetime(text, out nanos, out _),
-                TemporalKind.Duration => IsoTemporal.TryParseDuration(text, out nanos),
+                TemporalKind.Duration => IsoTemporal.TryParseDuration(text, out nanos) || TryClock(text, out nanos),
                 _ => TryTime(text, out nanos),
             };
             if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
@@ -433,9 +490,18 @@ internal sealed class TemporalColumn(NativeColumnBuilder b, string path, bool ig
         Mismatch(ref reader, line, type, why ?? (kind switch
         {
             TemporalKind.Timestamp => "date-times are ISO 8601 strings",
-            TemporalKind.Duration => "durations are ISO 8601 strings such as PT1.5S",
+            TemporalKind.Duration => "durations are ISO 8601 strings such as PT1.5S, or [-][d.]hh:mm:ss[.f]",
             _ => "times are HH:mm:ss[.f] strings",
         }));
+
+        // .NET's constant time span text, [-][d.]hh:mm:ss[.fffffff] (never a bare number: hours and minutes are there).
+        static bool TryClock(ReadOnlySpan<byte> text, out Int128 nanos)
+        {
+            nanos = 0;
+            if (text.IndexOf((byte)':') < 0 || !Utf8Parser.TryParse(text, out TimeSpan span, out int used, 'c') || used != text.Length) return false;
+            nanos = (Int128)span.Ticks * 100;
+            return true;
+        }
 
         static bool TryTime(ReadOnlySpan<byte> text, out Int128 nanos)
         {
@@ -483,10 +549,11 @@ internal sealed class ListColumn : JsonColumn
     private readonly JsonColumn _items;
     private readonly int _fixedSize;
 
-    public ListColumn(NativeColumnBuilder builder, NativeColumnBuilder values, Field item, string path, bool ignore, int fixedSize, bool strict)
+    public ListColumn(NativeColumnBuilder builder, NativeColumnBuilder values, Field item, string path, bool ignore, int fixedSize, bool strict,
+        bool keysIgnoreCase)
         : base(builder, path, ignore)
     {
-        _items = For(item, values, path + "[]", ignore, strict);
+        _items = For(item, values, path + "[]", ignore, strict, keysIgnoreCase);
         _fixedSize = fixedSize;
     }
 
@@ -535,14 +602,14 @@ internal sealed class MapColumn : JsonColumn
     private readonly IBytesBuilder _keys;
     private readonly JsonColumn _values;
 
-    public MapColumn(MapType type, NativeListBuilder builder, string path, bool ignore) : base(builder, path, ignore)
+    public MapColumn(MapType type, NativeListBuilder builder, string path, bool ignore, bool keysIgnoreCase) : base(builder, path, ignore)
     {
         if (type.KeyField.DataType is not (StringType or LargeStringType or StringViewType))
             throw new NotSupportedException($"Column '{path}': the keys of a map read from JSON are strings, not {type.KeyField.DataType.Name}.");
         _list = builder;
         _entries = (NativeStructBuilder)builder.Values;
         _keys = (IBytesBuilder)_entries.Children[0];
-        _values = For(type.ValueField, _entries.Children[1], path + "{}", ignore);
+        _values = For(type.ValueField, _entries.Children[1], path + "{}", ignore, keysIgnoreCase: keysIgnoreCase);
     }
 
     public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
@@ -592,6 +659,11 @@ internal sealed class StructColumn : JsonColumn
     private readonly ByteArrayDictionary? _lookup;
     private readonly bool _strict;
     private readonly byte[][] _passedOver;
+    // Ignoring case: the members by name, and the field names met so far with the member each matches (-1: none).
+    private readonly Dictionary<string, int>? _folded;
+    private readonly ByteArrayDictionary? _met;
+    private readonly List<int>? _metMember;
+    private const int MostMet = 1024;
 
     /// <param name="type">The struct type (the records' columns at the top).</param>
     /// <param name="builder">Its builder.</param>
@@ -599,14 +671,23 @@ internal sealed class StructColumn : JsonColumn
     /// <param name="ignore">Values that do not fit their type are nulls.</param>
     /// <param name="strict">An object's field the type lacks is an error (the type was inferred from other objects).</param>
     /// <param name="passedOver">Fields passed over without an error even when strict (columns left out of a read).</param>
-    public StructColumn(StructType type, NativeStructBuilder builder, string path, bool ignore, bool strict = false, IEnumerable<string>? passedOver = null)
+    /// <param name="keysIgnoreCase">A field matches a member ignoring case when none matches exactly (here and below).</param>
+    public StructColumn(StructType type, NativeStructBuilder builder, string path, bool ignore, bool strict = false, IEnumerable<string>? passedOver = null,
+        bool keysIgnoreCase = false)
         : base(builder, path, ignore)
     {
         _b = builder;
         _strict = strict;
         _passedOver = [.. (passedOver ?? []).Select(Encoding.UTF8.GetBytes)];
         _names = [.. type.Fields.Select(f => Encoding.UTF8.GetBytes(f.Name))];
-        _children = [.. type.Fields.Select((f, i) => For(f, builder.Children[i], path.Length == 0 ? f.Name : path + "." + f.Name, ignore, strict))];
+        _children = [.. type.Fields.Select((f, i) => For(f, builder.Children[i], path.Length == 0 ? f.Name : path + "." + f.Name, ignore, strict, keysIgnoreCase))];
+        if (keysIgnoreCase)
+        {
+            _folded = new(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < type.Fields.Count; i++) _folded.TryAdd(type.Fields[i].Name, i);
+            _met = new ByteArrayDictionary();
+            _metMember = [];
+        }
         _seen = new bool[_names.Length];
         if (_names.Length > LinearFields)
         {
@@ -674,24 +755,41 @@ internal sealed class StructColumn : JsonColumn
         {
             ReadOnlySpan<byte> name = reader.ValueSpan;
             if (expected < _names.Length && name.SequenceEqual(_names[expected])) return expected;
-            if (_lookup is not null) return _lookup.IndexOf(name);
-            for (int i = 0; i < _names.Length; i++)
-                if (name.SequenceEqual(_names[i])) return i;
-            return -1;
+            int found = Exact(name);
+            return found < 0 && _folded is not null ? IgnoringCase(name) : found;
         }
         return FindEscaped(in reader);
+    }
+
+    private int Exact(ReadOnlySpan<byte> name)
+    {
+        if (_lookup is not null) return _lookup.IndexOf(name);
+        for (int i = 0; i < _names.Length; i++)
+            if (name.SequenceEqual(_names[i])) return i;
+        return -1;
     }
 
     private int FindEscaped(in Utf8JsonReader reader)
     {
         Span<byte> scratch = stackalloc byte[StackBytes];
         ReadOnlySpan<byte> unescaped = Unescaped(in reader, scratch, out byte[]? rented);
-        int found = -1;
-        if (_lookup is not null) found = _lookup.IndexOf(unescaped);
-        else
-            for (int i = 0; i < _names.Length && found < 0; i++)
-                if (unescaped.SequenceEqual(_names[i])) found = i;
+        int found = Exact(unescaped);
+        if (found < 0 && _folded is not null) found = IgnoringCase(unescaped);
         if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
+        return found;
+    }
+
+    // The member a field matches ignoring case (-1: none), remembered for the field names met (records repeat them).
+    private int IgnoringCase(ReadOnlySpan<byte> name)
+    {
+        int met = _met!.IndexOf(name);
+        if (met >= 0) return _metMember![met];
+        int found = _folded!.TryGetValue(Encoding.UTF8.GetString(name), out int member) ? member : -1;
+        if (_metMember!.Count < MostMet)
+        {
+            _met.GetOrAdd(name);
+            _metMember.Add(found);
+        }
         return found;
     }
 
@@ -710,6 +808,7 @@ internal sealed class StructColumn : JsonColumn
     public override void Dispose()
     {
         _lookup?.Dispose();
+        _met?.Dispose();
         foreach (JsonColumn child in _children) child.Dispose();
     }
 }

@@ -9,7 +9,8 @@ namespace Kaminari.Seseragi.Files.Json;
 /// Writes rows of <typeparamref name="T"/> (records, classes, structs, F# records) as JSON: one field per public
 /// readable property, laid out as <c>DataFrame.From&lt;T&gt;</c> lays them out (<see cref="ArrowRowBuilder{T}"/>:
 /// nested records as objects, collections as arrays, enums as their member names, decimals as strings of
-/// decimal(38, 18), dictionaries as arrays of key / value objects, ...); any other <typeparamref name="T"/> as one field
+/// decimal(38, 18), GUIDs as strings, dictionaries keyed by strings as objects and other dictionaries as arrays of key /
+/// value objects, ...; <see cref="JsonReader{T}"/> reads it back); any other <typeparamref name="T"/> as one field
 /// named <c>value</c>. The rows are gathered into record batches of <see cref="BatchRows"/> in native memory, each
 /// handed to a <see cref="JsonWriter"/> (which owns and frees it, encoding several side by side); the output depends on
 /// the rows alone. The rows of an array or a <see cref="List{T}"/> given to <see cref="WriteRows"/> are turned into
@@ -53,18 +54,18 @@ public sealed class JsonWriter<[DynamicallyAccessedMembers(DynamicallyAccessedMe
     }
 
     /// <summary>Creates a writer over a stream.</summary>
-    public static JsonWriter<T> Create(Stream stream, JsonWriteOptions? options = null) => new(JsonWriter.Create(stream, ArrowRowBuilder<T>.Schema, Owned(options)), options);
+    public static JsonWriter<T> Create(Stream stream, JsonWriteOptions? options = null) => new(JsonWriter.Create(stream, JsonRowSchema<T>.Write, Owned(options)), options);
 
     /// <summary>Creates (or overwrites) a file.</summary>
-    public static JsonWriter<T> Create(string path, JsonWriteOptions? options = null) => new(JsonWriter.Create(path, ArrowRowBuilder<T>.Schema, Owned(options)), options);
+    public static JsonWriter<T> Create(string path, JsonWriteOptions? options = null) => new(JsonWriter.Create(path, JsonRowSchema<T>.Write, Owned(options)), options);
 
     /// <summary>Creates a writer into a buffer writer (UTF-8).</summary>
     public static JsonWriter<T> Create(IBufferWriter<byte> output, JsonWriteOptions? options = null) =>
-        new(JsonWriter.Create(output, ArrowRowBuilder<T>.Schema, Owned(options)), options);
+        new(JsonWriter.Create(output, JsonRowSchema<T>.Write, Owned(options)), options);
 
     /// <summary>Creates a writer of text (UTF-16, uncompressed).</summary>
     public static JsonWriter<T> Create(TextWriter output, JsonWriteOptions? options = null) =>
-        new(JsonWriter.Create(output, ArrowRowBuilder<T>.Schema, Owned(options)), options);
+        new(JsonWriter.Create(output, JsonRowSchema<T>.Write, Owned(options)), options);
 
     /// <summary>A writer over a JSON writer made for <typeparamref name="T"/>'s schema (whose options it took).</summary>
     internal static JsonWriter<T> Over(JsonWriter writer, JsonWriteOptions? options) => new(writer, options);

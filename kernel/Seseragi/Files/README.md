@@ -480,8 +480,15 @@ sources by ranged reads, a stream that cannot seek in order. gzip, zlib and zstd
 decompressed on the way. Blank lines are skipped, CRLF and a leading byte order mark accepted; each line is checked to
 be UTF-8 and exactly one object (no comments, trailing commas, `NaN` or raw control characters). `Columns` decodes only
 the named columns (other values are passed over), `MaxRows` stops after the first rows, `BatchSize` cuts batches
-(they never span units). Failures name their line: `JsonFormatException` for the input, `JsonValueException` for a value
-its column's type cannot hold (or a null with `IgnoreErrors`).
+(they never span units). Fields match columns by exact name; `KeysIgnoreCase` also matches them ignoring case when no
+field has the exact name (the first matching field of an object gives the value). A column that is not nullable takes
+no null or missing field. Failures name their line: `JsonFormatException` for the input, `JsonValueException` for a
+value its column's type cannot hold (or a null with `IgnoreErrors`).
+
+**Row filter** (`Filter`, an IR predicate, with `FilterRows`): each unit is filtered once decoded, on the thread that
+decoded it (the comparisons, arithmetic, casts and IN lists the filter kernels evaluate; `FiltersExactly` says whether
+every conjunct was); the columns the filter reads are decoded even when not selected, and `MaxRows` counts the rows
+delivered. Errors still name the line and array index of the record, whatever the filter dropped before it.
 
 **Columns**: a given `Schema` (nothing inferred; other fields passed over, missing ones null), or inferred from the first
 `InferSchemaLength` records (100; null for all) as Polars infers them: integers with floats Float64, anything with
@@ -495,8 +502,8 @@ are refused. Fields first seen after the inference window are passed over (lines
 **Values into types**: integers of every width (in range, whole numbers only), floats, Decimal128 (numbers or decimal
 strings, exact at the scale), strings (strings unescaped, other values as their text), binaries (base64 strings),
 dates (`yyyy-MM-dd`), timestamps (ISO 8601; with an offset or `Z` the instant, else the wall clock read as UTC), times
-of day, durations (ISO 8601, `PT1.5S`), lists, fixed-size lists (exact length), structs, maps (objects, string keys)
-and dictionary-encoded strings. A fraction finer than a temporal column's unit is refused, never cut.
+of day, durations (ISO 8601, `PT1.5S`, or .NET's `[-][d.]hh:mm:ss[.f]`), lists, fixed-size lists (exact length),
+structs, maps (objects, string keys) and dictionary-encoded strings. A fraction finer than a temporal column's unit is refused, never cut.
 
 **Documents** (`JsonFormat.Document`, as Polars' `read_json` reads them): an array of objects (a row per element,
 indented or compact) or a single object (one row; an object of arrays is one row of lists); a leading byte order mark
@@ -536,7 +543,17 @@ refused at `Create`. A batch is cut into pieces encoded by up to `MaxDegreeOfPar
 by default) into native memory, written in order behind the encoding (a file's batch in one gathering write); the bytes
 do not depend on threads, pieces or batches. `BatchOwnership.Writer` encodes several batches at once. `Compression`
 (gzip, Zstandard) compresses each piece as a member or frame of its own, side by side: one valid file. `JsonWriter<T>`
-writes rows of records (`ArrowRowBuilder<T>`'s layout).
+writes rows of records (`ArrowRowBuilder<T>`'s layout, with GUIDs as strings and dictionaries keyed by strings as
+objects, as JSON serializers write them).
+
+**Typed rows** (`JsonReader<T>`, `JsonReader.ReadList<T>` / `ReadListAsync<T>` of a path, `ParseList<T>` of a string):
+records read as rows of `T`, mapped as `DataFrame.Rows<T>()` maps them. The columns are `T`'s members (the layout
+`JsonWriter<T>` writes, nothing inferred), fields matched ignoring case when none has the exact name, other fields passed
+over; GUIDs from strings, enums from names (any case) or numbers, dictionaries keyed by strings from objects. A member
+of a value type takes no null or missing field. A `where` predicate is translated by the query compiler and evaluated
+by the reader on each unit (`FilterRows`), its other conjuncts on the rows when the client evaluation policy allows;
+units are decoded, filtered and turned into rows on several threads, the rows delivered in order. JSON from
+System.Text.Json reads as it is (camelCase names, GUIDs, enums as numbers or names, time spans as .NET writes them).
 
 ## Avro features
 
@@ -717,6 +734,7 @@ written synchronously on completion.
 | `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
 | `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: line splitting, UTF-8 (the first bad byte fails its line or element, in input order), one `Utf8JsonReader` per line or element, builders reserved per batch; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
 | `Json/JsonWriter.cs`, `JsonWriteOptions.cs`, `JsonWriterOfT.cs` | Public JSON writing API: outputs, pieces encoded by workers and written in order by a task chain (a file's batch gathered), spare piece buffers, document start and end, compression options, typed rows. |
+| `Json/JsonReaderOfT.cs`, `JsonRowSchema.cs`, `Reading/JsonRowFilter.cs` | Typed rows: `JsonReader<T>` (the members' columns, keys ignoring case, the predicate's pushed conjuncts, `TypedRows` for the rows); the JSON layout of `ArrowRowBuilder<T>`'s columns (GUID columns marked, string-keyed dictionaries as objects or maps, enums as text); the row filter evaluated on each decoded unit (selected columns plus those it reads, compacted with `ArrowFilter`). |
 | `Json/Writing/JsonCells.cs`, `JsonOut.cs`, `JsonSinks.cs` | A cell per Arrow type over pinned buffers (values, validity, offsets, views, children); the output span writer and JSON text of floats (Ryū digits laid out) and strings (escapes, UTF-8 checked); the outputs (stream, file, buffer writer, pipe, text, string) and pieces compressed as gzip members or Zstandard frames. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |

@@ -112,13 +112,15 @@ internal sealed class JsonDecodeSettings
     /// <param name="ignoreErrors">Values that do not fit their type are nulls.</param>
     /// <param name="strict">An object's field its (inferred) struct type lacks is an error.</param>
     /// <param name="passedOver">Top-level fields passed over without an error (columns left out of the read).</param>
-    public JsonDecodeSettings(Schema schema, int batchSize, bool ignoreErrors, bool strict, IReadOnlyList<string> passedOver)
+    /// <param name="keysIgnoreCase">Fields match columns ignoring case when none matches exactly.</param>
+    public JsonDecodeSettings(Schema schema, int batchSize, bool ignoreErrors, bool strict, IReadOnlyList<string> passedOver, bool keysIgnoreCase = false)
     {
         Schema = schema;
         BatchSize = batchSize;
         IgnoreErrors = ignoreErrors;
         Strict = strict;
         PassedOver = passedOver;
+        KeysIgnoreCase = keysIgnoreCase;
         _passedOver = [.. passedOver];
         Type = schema.FieldsList.Count == 0 ? null : new StructType(schema.FieldsList);
     }
@@ -133,6 +135,8 @@ internal sealed class JsonDecodeSettings
 
     public IReadOnlyList<string> PassedOver { get; }
 
+    public bool KeysIgnoreCase { get; }
+
     /// <summary>The records' struct type; null without columns (Apache Arrow has no struct type without fields).</summary>
     public StructType? Type { get; }
 
@@ -141,7 +145,7 @@ internal sealed class JsonDecodeSettings
 
     /// <summary>The decoder of a unit's records over <paramref name="builder"/>.</summary>
     public StructColumn? Root(NativeStructBuilder? builder) =>
-        builder is null ? null : new StructColumn(Type!, builder, "", IgnoreErrors, Strict, PassedOver);
+        builder is null ? null : new StructColumn(Type!, builder, "", IgnoreErrors, Strict, PassedOver, KeysIgnoreCase);
 
     /// <summary>The batch of the rows built (a batch without columns has only its length).</summary>
     public RecordBatch Export(NativeStructBuilder? builder, int rows) => builder?.ExportBatch(Schema) ?? new RecordBatch(Schema, [], rows);

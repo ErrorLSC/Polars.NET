@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Samidare.IR;
 
 namespace Kaminari.Seseragi.Files.Json;
 
@@ -52,6 +53,30 @@ public sealed record JsonReadOptions
     /// did not see are passed over (syntax errors still are errors).
     /// </summary>
     public bool IgnoreErrors { get; init; }
+
+    /// <summary>
+    /// Whether a field matches its column ignoring case when no field has the column's exact name (off by default: names
+    /// are matched exactly). Within an object, the first field matching a column gives its value. <see cref="JsonReader{T}"/>
+    /// always matches this way, as rows map columns to members.
+    /// </summary>
+    public bool KeysIgnoreCase { get; init; }
+
+    /// <summary>
+    /// A row filter in the query compiler's IR, evaluated with <see cref="FilterRows"/> (JSON has no statistics to skip
+    /// input by, so without it the filter does nothing). Columns are the top-level names, struct fields are reached with
+    /// <c>StructFieldByName</c>; the semantics are the IR's (Kleene logic, NaN greater than every number).
+    /// </summary>
+    public ScalarExpr? Filter { get; init; }
+
+    /// <summary>
+    /// Whether only the rows where <see cref="Filter"/> is true are delivered (off by default), each chunk filtered once
+    /// decoded, in parallel. Comparisons of columns with literals or with each other, integer and floating arithmetic
+    /// (operands of one type), casts between numbers and IN lists are evaluated here; conjuncts the reader cannot
+    /// evaluate (functions, powers, …) are left out, so the rows delivered may still include some the filter drops:
+    /// <see cref="JsonReader.FiltersExactly"/> tells. Columns the filter reads are decoded even when not selected.
+    /// <see cref="MaxRows"/> counts the rows delivered.
+    /// </summary>
+    public bool FilterRows { get; init; }
 
     /// <summary>Whether a local file opened by its path is read through a memory mapping.</summary>
     public JsonMemoryMap MemoryMap { get; init; } = JsonMemoryMap.Auto;

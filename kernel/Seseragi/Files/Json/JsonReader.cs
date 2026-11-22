@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Apache.Arrow;
@@ -25,18 +27,28 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     private readonly IDisposable? _owned;
     private readonly JsonReadOptions _options;
     private readonly JsonDecodeSettings _settings;
+    private readonly JsonRowFilter? _filter;
     private bool _read, _disposed;
 
-    private JsonReader(JsonInput input, IDisposable? owned, JsonReadOptions options, JsonDecodeSettings settings)
+    private JsonReader(JsonInput input, IDisposable? owned, JsonReadOptions options, JsonDecodeSettings settings, JsonRowFilter? filter, bool exact)
     {
         _input = input;
         _owned = owned;
         _options = options;
         _settings = settings;
+        _filter = filter;
+        FiltersExactly = exact;
     }
 
     /// <summary>The columns read (after <see cref="JsonReadOptions.Columns"/>).</summary>
-    public Schema Schema => _settings.Schema;
+    public Schema Schema => _filter?.Selected ?? _settings.Schema;
+
+    /// <summary>
+    /// Whether the rows delivered are exactly those <see cref="JsonReadOptions.Filter"/> keeps: true without a filter
+    /// (or without <see cref="JsonReadOptions.FilterRows"/>, when every row is delivered as asked), false when a
+    /// conjunct of it cannot be evaluated by the reader (the rows then include some the filter drops).
+    /// </summary>
+    public bool FiltersExactly { get; }
 
     /// <summary>Opens a file.</summary>
     public static JsonReader Open(string path, JsonReadOptions? options = null) =>
@@ -82,6 +94,35 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         // The reader owns the bytes from here (released with it, or when opening fails).
         var source = new MemoryRandomAccess(buffer.Memory[..written]);
         return OpenSourceAsync(source, new Releaser(buffer), options ?? new JsonReadOptions(), mappable: false, useAsync: false, default).GetAwaiter().GetResult();
+    }
+
+    /// <summary>Reads the records of the file at <paramref name="path"/> as rows of <typeparamref name="T"/> (see <see cref="JsonReader{T}"/>).</summary>
+    /// <inheritdoc cref="JsonReader{T}.Open(string, Expression{Func{T, bool}}?, JsonReadOptions?)" path="/exception"/>
+    public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, Expression<Func<T, bool>>? where = null,
+        JsonReadOptions? options = null)
+    {
+        using JsonReader<T> reader = JsonReader<T>.Open(path, where, options);
+        return reader.ReadList();
+    }
+
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, JsonReadOptions?)"/>
+    public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        Expression<Func<T, bool>>? where = null, JsonReadOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        await using JsonReader<T> reader = await JsonReader<T>.OpenAsync(path, where, options, cancellationToken).ConfigureAwait(false);
+        return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads JSON text as rows of <typeparamref name="T"/> (see <see cref="JsonReader{T}"/>; named apart from
+    /// <see cref="ReadList{T}(string, Expression{Func{T, bool}}?, JsonReadOptions?)"/>, which takes a path).
+    /// </summary>
+    /// <inheritdoc cref="JsonReader{T}.Open(string, Expression{Func{T, bool}}?, JsonReadOptions?)" path="/exception"/>
+    public static List<T> ParseList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(ReadOnlySpan<char> json,
+        Expression<Func<T, bool>>? where = null, JsonReadOptions? options = null)
+    {
+        using JsonReader<T> reader = JsonReader<T>.Parse(json, where, options);
+        return reader.ReadList();
     }
 
     private static ValueTask<JsonReader> OpenPathAsync(string path, JsonReadOptions options, bool useAsync, CancellationToken ct)
@@ -178,13 +219,23 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
             if (!Enum.IsDefined(options.Format)) throw new ArgumentOutOfRangeException(nameof(options), $"Unknown JSON format {options.Format}.");
             Schema schema = options.Schema ?? await InferAsync(input, options, useAsync, ct).ConfigureAwait(false);
             if (options.SchemaOverrides is { } overrides) schema = Override(schema, overrides);
+            Schema full = schema;
             List<string> passedOver = [];
             if (options.Columns is { } columns) schema = Project(schema, columns, passedOver);
+            JsonRowFilter? filter = null;
+            bool exact = true;
+            if (options.FilterRows && options.Filter is { } expression)
+            {
+                // The columns the filter reads are decoded too.
+                filter = JsonRowFilter.Create(full, schema, expression, out exact);
+                schema = filter.Decoded;
+                passedOver = [.. full.FieldsList.Where(f => schema.GetFieldIndex(f.Name) < 0).Select(f => f.Name)];
+            }
             // A document's fields the inference did not see are errors (lines pass them over, as NDJSON readers do).
             bool strict = options.Format == JsonFormat.Document && options.Schema is null && !options.IgnoreErrors;
-            var settings = new JsonDecodeSettings(schema, options.BatchSize, options.IgnoreErrors, strict, passedOver);
+            var settings = new JsonDecodeSettings(schema, options.BatchSize, options.IgnoreErrors, strict, passedOver, options.KeysIgnoreCase);
             Validate(settings);
-            return new JsonReader(input, owned, options, settings);
+            return new JsonReader(input, owned, options, settings, filter, exact);
         }
         catch
         {
@@ -283,29 +334,32 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
 
         IEnumerable<RecordBatch> Batches()
         {
-            long max = _options.MaxRows ?? long.MaxValue, rows = 0, lines = 0;
+            long max = _options.MaxRows ?? long.MaxValue, rows = 0, records = 0, lines = 0;
             using OrderedWindow<JsonUnit> window = Window(default);
             for (int i = 0; rows < max && Has(window, i); i++)
             {
                 JsonUnit unit = window.Take(i).GetAwaiter().GetResult();
                 try
                 {
-                    if (unit.Error is { } error) throw error.At(lines, rows);
+                    if (unit.Error is { } error) throw error.At(lines, records);
                     if (unit.End) yield break;
-                    if (rows + unit.Rows > max)
+                    if (_filter is null && rows + unit.Rows > max)
                     {
                         unit.Dispose();
                         unit = DecodeAsync(i, max - rows, useAsync: false, default).GetAwaiter().GetResult();
-                        if (unit.Error is { } again) throw again.At(lines, rows);
+                        if (unit.Error is { } again) throw again.At(lines, records);
                     }
-                    for (int k = 0; k < unit.Batches.Count; k++)
+                    for (int k = 0; k < unit.Batches.Count && rows < max; k++)
                     {
                         RecordBatch batch = unit.Batches[k]!;
                         unit.Batches[k] = null;
+                        // Filtered rows are counted as they are delivered: the last batch is cut to the limit.
+                        if (rows + batch.Length > max) batch = JsonRowFilter.First(batch, (int)(max - rows));
                         rows += batch.Length;
                         yield return batch;
                     }
                     lines += unit.Lines;
+                    records += unit.Rows;
                 }
                 finally
                 {
@@ -324,29 +378,32 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
 
         async IAsyncEnumerable<RecordBatch> Batches([EnumeratorCancellation] CancellationToken ct)
         {
-            long max = _options.MaxRows ?? long.MaxValue, rows = 0, lines = 0;
+            long max = _options.MaxRows ?? long.MaxValue, rows = 0, records = 0, lines = 0;
             using OrderedWindow<JsonUnit> window = Window(ct);
             for (int i = 0; rows < max && Has(window, i); i++)
             {
                 JsonUnit unit = await window.Take(i).ConfigureAwait(false);
                 try
                 {
-                    if (unit.Error is { } error) throw error.At(lines, rows);
+                    if (unit.Error is { } error) throw error.At(lines, records);
                     if (unit.End) yield break;
-                    if (rows + unit.Rows > max)
+                    if (_filter is null && rows + unit.Rows > max)
                     {
                         unit.Dispose();
                         unit = await DecodeAsync(i, max - rows, useAsync: true, ct).ConfigureAwait(false);
-                        if (unit.Error is { } again) throw again.At(lines, rows);
+                        if (unit.Error is { } again) throw again.At(lines, records);
                     }
-                    for (int k = 0; k < unit.Batches.Count; k++)
+                    for (int k = 0; k < unit.Batches.Count && rows < max; k++)
                     {
                         RecordBatch batch = unit.Batches[k]!;
                         unit.Batches[k] = null;
+                        // Filtered rows are counted as they are delivered: the last batch is cut to the limit.
+                        if (rows + batch.Length > max) batch = JsonRowFilter.First(batch, (int)(max - rows));
                         rows += batch.Length;
                         yield return batch;
                     }
                     lines += unit.Lines;
+                    records += unit.Rows;
                 }
                 finally
                 {
@@ -370,6 +427,8 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         int threads = _options.MaxDegreeOfParallelism;
         long max = _options.MaxRows ?? long.MaxValue;
         int unit = _options.UnitBytes;
+        // A filter decides the rows delivered after decoding: every record of a unit is decoded.
+        if (_filter is not null) max = long.MaxValue;
         return new OrderedWindow<JsonUnit>(Math.Max(0, _input.Count), (i, token) => DecodeAsync(i, max, useAsync: false, token), threads,
             _ => unit, 2L * threads * unit, ct, opened: _options.MaxRows is null);
     }
@@ -385,9 +444,32 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     private async Task<JsonUnit> DecodeAsync(int index, long maxRows, bool useAsync, CancellationToken ct)
     {
         using JsonUnitBytes? bytes = await _input.GetAsync(index, useAsync, ct).ConfigureAwait(false);
-        return bytes is null ? JsonUnit.EndOfInput
+        JsonUnit unit = bytes is null ? JsonUnit.EndOfInput
             : _options.Format == JsonFormat.Document ? JsonDecode.DecodeDocument(bytes, _settings, maxRows)
             : JsonDecode.Decode(bytes.Memory.Span, bytes.FileStart, _settings, maxRows);
+        if (_filter is not null && unit.Error is null && !unit.End) Filter(unit);
+        return unit;
+    }
+
+    // A unit's batches filtered (on the thread that decoded it); batches left without rows are dropped.
+    private void Filter(JsonUnit unit)
+    {
+        try
+        {
+            int kept = 0;
+            for (int k = 0; k < unit.Batches.Count; k++)
+            {
+                RecordBatch batch = unit.Batches[k]!;
+                unit.Batches[k] = null;
+                if (_filter!.Apply(batch) is { } filtered) unit.Batches[kept++] = filtered;
+            }
+            unit.Batches.RemoveRange(kept, unit.Batches.Count - kept);
+        }
+        catch
+        {
+            unit.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Releases the input (and closes a file or stream the reader owns).</summary>

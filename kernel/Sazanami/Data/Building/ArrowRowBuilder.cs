@@ -67,6 +67,9 @@ public sealed class ArrowRowBuilder<[DynamicallyAccessedMembers(DynamicallyAcces
     /// </summary>
     public static IReadOnlySet<string> MapColumns => Plan.Value.MapColumns;
 
+    /// <summary>The layout of each column (<see cref="Schema"/>'s fields), for formats that write some .NET types their own way.</summary>
+    internal static IReadOnlyList<RowNode> Columns => Plan.Value.Columns;
+
     /// <summary>The rows appended since the last <see cref="ExportBatch"/>.</summary>
     public int Count => (int)_root.Length;
 

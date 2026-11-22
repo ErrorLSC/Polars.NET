@@ -123,6 +123,8 @@ internal abstract unsafe class JsonCell
         Decimal32Type d => new DecimalCell(data, pins, path, d.Scale, null, width: 4),
         Decimal64Type d => new DecimalCell(data, pins, path, d.Scale, null, width: 8),
         Decimal128Type d => new DecimalCell(data, pins, path, d.Scale, WideIntegers.KindOf(field), width: 16),
+        BinaryType or LargeBinaryType when IsGuid(field) => new BytesCell(data, pins, path, large: field.DataType is LargeBinaryType, binary: true, guid: true),
+        BinaryViewType when IsGuid(field) => new ViewCell(data, pins, path, binary: true, guid: true),
         StringType or BinaryType => new BytesCell(data, pins, path, large: false, binary: field.DataType is BinaryType),
         LargeStringType or LargeBinaryType => new BytesCell(data, pins, path, large: true, binary: field.DataType is LargeBinaryType),
         StringViewType or BinaryViewType => new ViewCell(data, pins, path, binary: field.DataType is BinaryViewType),
@@ -134,6 +136,9 @@ internal abstract unsafe class JsonCell
         Time64Type t => new TimeCell(data, pins, path, UnitNanos(t.Unit), wide: true),
         DurationType t => new DurationCell(data, pins, path, UnitNanos(t.Unit)),
         ListType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Offsets32),
+        LargeListType { ValueField.DataType: StructType entry } when field.Metadata?.ContainsKey(Reading.JsonColumn.ObjectKey) == true =>
+            new MapCell(data, pins, path, For(data.Children[0].Children[0], entry.Fields[0], pins, path + "{}"),
+                For(data.Children[0].Children[1], entry.Fields[1], pins, path + "{}"), large: true),
         LargeListType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Offsets64),
         ListViewType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Views32),
         LargeListViewType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Views64),
@@ -144,6 +149,8 @@ internal abstract unsafe class JsonCell
         DictionaryType d => new DictionaryCell(data, pins, path, d.IndexType, For(data.Dictionary, new Field(field.Name, d.ValueType, true), pins, path)),
         _ => throw new NotSupportedException($"Column '{path}': {field.DataType.Name} cannot be written as JSON."),
     };
+
+    private static bool IsGuid(Field field) => field.Metadata?.ContainsKey(Reading.JsonColumn.GuidKey) == true;
 
     private static long UnitNanos(TimeUnit unit) => unit switch
     {
@@ -250,10 +257,20 @@ internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string path,
 }
 
 /// <summary>Strings (checked to be UTF-8) and binaries (as base64 strings).</summary>
-internal abstract class TextCell(ArrayData data, Pins pins, string path, bool binary) : JsonCell(data, pins, path)
+internal abstract class TextCell(ArrayData data, Pins pins, string path, bool binary, bool guid = false) : JsonCell(data, pins, path)
 {
     protected void WriteValue(ref JsonOut o, scoped ReadOnlySpan<byte> bytes)
     {
+        if (guid)
+        {
+            if (bytes.Length != 16) throw new JsonValueException($"Column '{Path}': {bytes.Length} bytes are not a GUID.");
+            Span<byte> text = o.Room(38);
+            text[0] = (byte)'"';
+            new Guid(bytes).TryFormat(text[1..], out int length, "D");
+            text[length + 1] = (byte)'"';
+            o.Advance(length + 2);
+            return;
+        }
         if (binary)
         {
             Span<byte> room = o.Room(Base64.GetMaxEncodedToUtf8Length(bytes.Length) + 2);
@@ -267,7 +284,7 @@ internal abstract class TextCell(ArrayData data, Pins pins, string path, bool bi
     }
 }
 
-internal sealed unsafe class BytesCell(ArrayData data, Pins pins, string path, bool large, bool binary) : TextCell(data, pins, path, binary)
+internal sealed unsafe class BytesCell(ArrayData data, Pins pins, string path, bool large, bool binary, bool guid = false) : TextCell(data, pins, path, binary, guid)
 {
     private readonly byte* _offsets = pins.Pin(data.Buffers[1]);
     private readonly byte* _data = pins.Pin(data.Buffers[2]);
@@ -295,7 +312,7 @@ internal sealed unsafe class ViewCell : TextCell
     private readonly byte* _views;
     private readonly byte*[] _buffers;
 
-    public ViewCell(ArrayData data, Pins pins, string path, bool binary) : base(data, pins, path, binary)
+    public ViewCell(ArrayData data, Pins pins, string path, bool binary, bool guid = false) : base(data, pins, path, binary, guid)
     {
         _views = pins.Pin(data.Buffers[1]);
         _buffers = new byte*[Math.Max(0, data.Buffers.Length - 2)];
@@ -497,14 +514,15 @@ internal sealed class StructCell(ArrayData data, Pins pins, string path, (byte[]
 }
 
 /// <summary>Maps: objects, their (string) keys the names.</summary>
-internal sealed unsafe class MapCell(ArrayData data, Pins pins, string path, JsonCell keys, JsonCell values) : JsonCell(data, pins, path)
+internal sealed unsafe class MapCell(ArrayData data, Pins pins, string path, JsonCell keys, JsonCell values, bool large = false) : JsonCell(data, pins, path)
 {
     private readonly byte* _offsets = pins.Pin(data.Buffers[1]);
     private readonly int _entriesOffset = data.Children[0].Offset;
 
     public override void Write(ref JsonOut o, long row)
     {
-        int start = ((int*)_offsets)[row + Offset], end = ((int*)_offsets)[row + Offset + 1];
+        long start = large ? ((long*)_offsets)[row + Offset] : ((int*)_offsets)[row + Offset];
+        long end = large ? ((long*)_offsets)[row + Offset + 1] : ((int*)_offsets)[row + Offset + 1];
         o.Byte((byte)'{');
         for (long entry = start + (long)_entriesOffset; entry < end + (long)_entriesOffset; entry++)
         {
