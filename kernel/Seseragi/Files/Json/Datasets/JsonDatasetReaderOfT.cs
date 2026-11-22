@@ -13,9 +13,9 @@ namespace Kaminari.Seseragi.Files.Json;
 /// rows on several threads at once, the rows delivered in order.
 /// </summary>
 /// <remarks>
-/// The dataset's columns are its own (given, or inferred from its files): open it with the schema
-/// <c>JsonReader&lt;T&gt;</c> reads (or let the inference find the members' columns) for values such as GUIDs and enums to
-/// be read as the members take them.
+/// The columns from files are the members' (as <see cref="JsonReader{T}"/> reads a file: GUIDs from strings, enums from
+/// names or numbers, dictionaries keyed by strings from objects, nothing inferred), not the dataset's own; members a
+/// partition column names (ignoring case) are the paths' values.
 /// </remarks>
 public sealed class JsonDatasetReader<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T> : IDisposable, IAsyncDisposable
 {
@@ -25,6 +25,8 @@ public sealed class JsonDatasetReader<[DynamicallyAccessedMembers(DynamicallyAcc
     internal JsonDatasetReader(JsonDataset dataset, Expression<Func<T, bool>>? where, JsonReadOptions? options)
     {
         options ??= new JsonReadOptions();
+        // The members' columns, as JsonReader<T> reads them (GUIDs, enums, dictionaries as objects), not the dataset's own.
+        dataset = dataset.Typed(JsonRowSchema<T>.Read);
         string? path = dataset.Options.FilePathColumn;
         TypedPlan<T> plan = TypedRows.Plan(where, [.. dataset.Schema.FieldsList.Select(f => f.Name)], _ => dataset.FilterSchema(),
             new TypedRequest(options.Columns, false, options.Filter, options.MaxRows, "JSON"), "dataset");

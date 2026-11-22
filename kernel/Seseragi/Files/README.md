@@ -546,6 +546,25 @@ do not depend on threads, pieces or batches. `BatchOwnership.Writer` encodes sev
 writes rows of records (`ArrowRowBuilder<T>`'s layout, with GUIDs as strings and dictionaries keyed by strings as
 objects, as JSON serializers write them).
 
+**Datasets** (`JsonDataset`, `JsonDatasetOptions`, `JsonDatasetReader`, `JsonDatasetReader<T>`): files of one layout
+(`Format`) read as one table, found as the other datasets find theirs (paths, directories, globs, lists of files, stores,
+Hive partitions, the file path column). The columns are given (`Schema`), or inferred from the first records of the
+first file that holds any (`FirstFile`, as Polars' `scan_ndjson` infers them: a later file's fields are passed over, a
+value its column cannot hold is an error naming the file and the line), or of every file, merged by the rules that merge
+records (`UnionByName`; the files' first records inferred side by side); `SchemaOverrides` types inferred columns. Every
+file decodes straight into the dataset's types (no conversion: `AllowLossyCasts` and `UnifyDictionaries` are refused).
+The files' units (blocks of lines; a compressed file or a document found as it is read, a document cut in parallel) are
+decoded side by side in one window (`OrderedUnits`), files opened ahead, a remote store's requests bounded and let in by
+file order. Conjuncts of the filter over partition columns decide which files are read (the others are not opened); the
+others filter each unit as it is decoded, partition values in place; `MaxRows` counts across files. The read options'
+`Schema` / `SchemaOverrides` are refused, their `Format`, `InferSchemaLength` and `ViewTypes` not used. Typed rows read
+the members' columns (as `JsonReader<T>` does), partition members from the paths.
+
+**Writing datasets** (`JsonDatasetWriter`, `JsonDatasetWriter<T>`, `JsonDatasetWriteOptions { Writer }`): the shared
+dataset writer (Hive partitions, `ExistingData`, files cut by rows or size, names `part-{index}-{writeId}`) over
+`JsonFileFormat`: `.jsonl` or `.json`, `.gz` / `.zst` when compressed; short runs of a partition gathered
+(`ArrowBatchAppender`) before they are encoded; typed rows laid out as `JsonWriter<T>` lays them out.
+
 **Typed rows** (`JsonReader<T>`, `JsonReader.ReadList<T>` / `ReadListAsync<T>` of a path, `ParseList<T>` of a string):
 records read as rows of `T`, mapped as `DataFrame.Rows<T>()` maps them. The columns are `T`'s members (the layout
 `JsonWriter<T>` writes, nothing inferred), fields matched ignoring case when none has the exact name, other fields passed
@@ -734,6 +753,8 @@ written synchronously on completion.
 | `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
 | `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: line splitting, UTF-8 (the first bad byte fails its line or element, in input order), one `Utf8JsonReader` per line or element, builders reserved per batch; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
 | `Json/JsonWriter.cs`, `JsonWriteOptions.cs`, `JsonWriterOfT.cs` | Public JSON writing API: outputs, pieces encoded by workers and written in order by a task chain (a file's batch gathered), spare piece buffers, document start and end, compression options, typed rows. |
+| `Json/Datasets/JsonDataset.cs`, `JsonDatasetOptions.cs`, `JsonDatasetReader.cs`, `JsonDatasetReaderOfT.cs` | Datasets: files expanded and partitioned (shared `DatasetFiles`), columns given or inferred (first file holding records, or every file's heads merged: `JsonShape.Merge`); the reader's window (a file slot = source + `JsonInput` + plan; units known or found in the background, their bytes kept until decoded; a failed unit kept for a row limit's redo), `DatasetShape` for columns, pruning, partition values, the file path and the filter; typed rows over the members' columns. |
+| `Json/Datasets/JsonFileFormat.cs`, `JsonDatasetWriter.cs`, `JsonDatasetWriterOfT.cs` | Dataset writing: the format for `DatasetSink` (extension, `JsonWriter` per file, short runs gathered, sizes measured after a flush, the declared fields' metadata kept), the writers and their options. |
 | `Json/JsonReaderOfT.cs`, `JsonRowSchema.cs`, `Reading/JsonRowFilter.cs` | Typed rows: `JsonReader<T>` (the members' columns, keys ignoring case, the predicate's pushed conjuncts, `TypedRows` for the rows); the JSON layout of `ArrowRowBuilder<T>`'s columns (GUID columns marked, string-keyed dictionaries as objects or maps, enums as text); the row filter evaluated on each decoded unit (selected columns plus those it reads, compacted with `ArrowFilter`). |
 | `Json/Writing/JsonCells.cs`, `JsonOut.cs`, `JsonSinks.cs` | A cell per Arrow type over pinned buffers (values, validity, offsets, views, children); the output span writer and JSON text of floats (Ryū digits laid out) and strings (escapes, UTF-8 checked); the outputs (stream, file, buffer writer, pipe, text, string) and pieces compressed as gzip members or Zstandard frames. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |

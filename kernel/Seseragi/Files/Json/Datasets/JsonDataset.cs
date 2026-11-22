@@ -152,6 +152,18 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// The dataset over the same files whose columns from files are <paramref name="rows"/>' (the columns typed rows read,
+    /// nothing inferred), but those a partition column names (ignoring case: the paths give them).
+    /// </summary>
+    internal JsonDataset Typed(Schema rows)
+    {
+        HashSet<string> partitions = new(Partitions?.Fields.Select(f => f.Name) ?? [], StringComparer.OrdinalIgnoreCase);
+        var schema = new Schema([.. rows.FieldsList.Where(f => !partitions.Contains(f.Name))
+            .Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))], null);
+        return new JsonDataset(Store, Options, [.. Files], schema, inferred: false, Partitions);
+    }
+
+    /// <summary>
     /// The columns a filter reads: the columns from files (a partition column of the same name in its place), then the
     /// other partition columns, then the file path column.
     /// </summary>
