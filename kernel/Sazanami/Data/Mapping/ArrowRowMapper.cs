@@ -130,6 +130,30 @@ public sealed class ArrowBatchCursor<T> : IDisposable
     }
 }
 
+/// <summary>
+/// A null a member cannot hold: an <see cref="InvalidOperationException"/> naming the row of the batch mapped, its parts
+/// kept in <see cref="Exception.Data"/> so that a reader of several batches can name the row among all it read.
+/// </summary>
+internal static class RowNull
+{
+    private const string WhatKey = "kaminari.row-null.what", RowKey = "kaminari.row-null.row", AdviceKey = "kaminari.row-null.advice";
+
+    public static InvalidOperationException Create(string what, long row, string advice)
+    {
+        var e = new InvalidOperationException($"{what} at row {row}. {advice}");
+        e.Data[WhatKey] = what;
+        e.Data[RowKey] = row;
+        e.Data[AdviceKey] = advice;
+        return e;
+    }
+
+    /// <summary>The same failure at the row <paramref name="start"/> + its row in the batch; null when <paramref name="e"/> is another failure.</summary>
+    public static InvalidOperationException? At(Exception e, long start) =>
+        e is InvalidOperationException && e.Data[WhatKey] is string what && e.Data[RowKey] is long row && e.Data[AdviceKey] is string advice
+            ? Create(what, start + row, advice)
+            : null;
+}
+
 internal static class ArrowRowMapperHelpers
 {
     [DoesNotReturn]
@@ -140,8 +164,7 @@ internal static class ArrowRowMapperHelpers
         string declare = typeof(TField).IsValueType
             ? $"as '{type} option'"
             : $"as '{type} option', or as '{type} | null' with nullness checking enabled,";
-        throw new InvalidOperationException(
-            $"Record field '{fieldName}' of type '{type}' cannot hold the null in column '{colName}' at row {rowIndex}. " +
+        throw RowNull.Create($"Record field '{fieldName}' of type '{type}' cannot hold the null in column '{colName}'", rowIndex,
             $"Declare it {declare} to receive nulls, or fill the nulls before reading the rows.");
     }
 
@@ -167,8 +190,8 @@ internal static class ArrowRowMapperHelpers
 
     public static TMember ThrowNullInNonNullableMember<TMember>(string memberName, string colName, int rowIndex)
     {
-        throw new InvalidOperationException(
-            $"Member '{memberName}' of non-nullable type {typeof(TMember).Name} cannot hold the null in column '{colName}' at row {rowIndex}. Declare it as {typeof(TMember).Name}? to receive nulls.");
+        throw RowNull.Create($"Member '{memberName}' of non-nullable type {typeof(TMember).Name} cannot hold the null in column '{colName}'", rowIndex,
+            $"Declare it as {typeof(TMember).Name}? to receive nulls.");
     }
 
     public static readonly MethodInfo ThrowNullInNonNullableMemberDef =
@@ -252,15 +275,20 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
         return sb.ToString();
     }
 
-    public static CompiledArrowRowMapper<T> GetOrCreate(Schema schema)
+    /// <summary>
+    /// The mapper of rows of <paramref name="schema"/>. With <paramref name="foldNulls"/>, an object whose mapped columns
+    /// are all null is null (the row itself, a tuple's element, a nested record), as a query's outer join leaves a
+    /// missing side; without it (data read as rows), it is an object of nulls.
+    /// </summary>
+    public static CompiledArrowRowMapper<T> GetOrCreate(Schema schema, bool foldNulls = false)
     {
-        string signature = ComputeSchemaSignature(schema);
+        string signature = ComputeSchemaSignature(schema) + (foldNulls ? "|fold" : "");
         if (Cache.TryGetValue(signature, out var cached))
         {
             return cached;
         }
 
-        var compiled = BuildMapper(schema);
+        var compiled = BuildMapper(schema, foldNulls);
         return Cache.GetOrAdd(signature, compiled);
     }
 
@@ -271,16 +299,16 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
         => new(null, ownsBatch: false, [], static (_, _) => default!, 0);
 
     /// <summary>
-    /// Creates a row cursor over an existing Arrow RecordBatch.
+    /// Creates a row cursor over an existing Arrow RecordBatch (<paramref name="foldNulls"/>: see <see cref="GetOrCreate"/>).
     /// </summary>
-    public static ArrowBatchCursor<T> CreateCursor(RecordBatch batch, bool ownsBatch = false)
+    public static ArrowBatchCursor<T> CreateCursor(RecordBatch batch, bool ownsBatch = false, bool foldNulls = false)
     {
         if (batch.Length == 0)
         {
             return new ArrowBatchCursor<T>(batch, ownsBatch, [], static (_, _) => default!, 0);
         }
 
-        var mapper = GetOrCreate(batch.Schema);
+        var mapper = GetOrCreate(batch.Schema, foldNulls);
         var accessors = mapper.CreateAccessors();
         mapper.BindBatch(accessors, batch);
         return new ArrowBatchCursor<T>(batch, ownsBatch, accessors, mapper.HydrateRow, batch.Length);
@@ -365,7 +393,7 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
             : [.. t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name)];
     }
 
-    private static CompiledArrowRowMapper<T> BuildMapper(Schema schema)
+    private static CompiledArrowRowMapper<T> BuildMapper(Schema schema, bool foldNulls)
     {
         var targetType = typeof(T);
         var accessorsParam = Expression.Parameter(typeof(ColumnAccessor[]), "accessors");
@@ -387,9 +415,9 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
             }
 
             Field field = schema.GetFieldByIndex(colIdx);
-            ColumnAccessor sample = ColumnAccessorFactory.Create(field, memberType);
+            ColumnAccessor sample = ColumnAccessorFactory.Create(field, memberType, foldNulls);
             int slotIdx = accessorFactories.Count;
-            accessorFactories.Add(() => ColumnAccessorFactory.Create(field, memberType));
+            accessorFactories.Add(() => ColumnAccessorFactory.Create(field, memberType, foldNulls));
             arrowColIndices.Add(colIdx);
 
             Type concreteAccessorType = sample.GetType();
@@ -751,7 +779,7 @@ public static class ArrowRowMapper<[DynamicallyAccessedMembers(DynamicallyAccess
             }
 
             // Outer Join Null folding: If target accepts null and all mapped columns are null in current row, fold to null/None/ValueNone
-            if (isNullable && usedColIndices.Count > 0)
+            if (foldNulls && isNullable && usedColIndices.Count > 0)
             {
                 var distinctCols = usedColIndices.Distinct().ToArray();
                 var allNullExpr = distinctCols

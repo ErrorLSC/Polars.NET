@@ -32,9 +32,9 @@ public ref struct DataFrameRowEnumerator<[DynamicallyAccessedMembers(Dynamically
     private T? _current;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal DataFrameRowEnumerator(DataFrame df)
+    internal DataFrameRowEnumerator(DataFrame df, bool foldNulls = false)
     {
-        _cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle);
+        _cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle, foldNulls);
         Length = _cursor.Length;
         _index = -1L;
         _current = default;
@@ -269,15 +269,20 @@ public sealed class PolarsRowEnumerable<[DynamicallyAccessedMembers(DynamicallyA
     public int Count => checked((int)_df.Height);
     public bool IsReadOnly => true;
 
-    internal PolarsRowEnumerable(DataFrame df)
+    // With foldNulls (query results), an object whose mapped columns are all null is null, as an outer join leaves a
+    // missing side; a frame's rows are objects of nulls.
+    private readonly bool _foldNulls;
+
+    internal PolarsRowEnumerable(DataFrame df, bool foldNulls = false)
     {
         _df = df;
+        _foldNulls = foldNulls;
     }
 
     public void CopyTo(T[] array, int arrayIndex)
     {
         ArgumentNullException.ThrowIfNull(array);
-        using var cursor = DataFrameRowMapper<T>.CreateCursor(_df.Handle);
+        using var cursor = DataFrameRowMapper<T>.CreateCursor(_df.Handle, _foldNulls);
         int len = cursor.Length;
         if (arrayIndex < 0 || arrayIndex + len > array.Length)
             throw new ArgumentOutOfRangeException(nameof(arrayIndex));
@@ -294,13 +299,13 @@ public sealed class PolarsRowEnumerable<[DynamicallyAccessedMembers(DynamicallyA
     public bool Remove(T item) => throw new NotSupportedException();
 
     // Fast-path: duck-typed struct enumerator for foreach loops (Zero heap allocation)
-    public Enumerator GetEnumerator() => new(_df);
+    public Enumerator GetEnumerator() => new(_df, _foldNulls);
 
     // Generic interface fallback
-    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_df);
+    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_df, _foldNulls);
 
     // Non-generic interface fallback
-    IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_df);
+    IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_df, _foldNulls);
 
     public struct Enumerator : IEnumerator<T>
     {
@@ -309,9 +314,9 @@ public sealed class PolarsRowEnumerable<[DynamicallyAccessedMembers(DynamicallyA
         private long _index;
         private T? _current;
 
-        internal Enumerator(DataFrame df)
+        internal Enumerator(DataFrame df, bool foldNulls)
         {
-            _cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle);
+            _cursor = DataFrameRowMapper<T>.CreateCursor(df.Handle, foldNulls);
             _height = _cursor.Length;
             _index = -1L;
             _current = default;

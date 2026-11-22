@@ -192,6 +192,7 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
         if (left == 0) yield break;
         if (_parallelism == 1)
         {
+            long start = 0;
             foreach (RecordBatch batch in batches())
             {
                 using (batch)
@@ -199,16 +200,17 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
                     using ArrowBatchCursor<T> cursor = ArrowRowMapper<T>.CreateCursor(batch);
                     for (int i = 0; i < batch.Length; i++)
                     {
-                        T row = cursor.ReadRow(i);
+                        T row = Row(cursor, i, start);
                         if (_client is not null && !_client(row)) continue;
                         yield return row;
                         if (--left == 0) yield break;
                     }
+                    start += batch.Length;
                 }
             }
             yield break;
         }
-        foreach (Hydrated hydrated in OrderedParallel.Map(batches(), Hydrate, _parallelism))
+        foreach (Hydrated hydrated in OrderedParallel.Map(Numbered(batches()), Hydrate, _parallelism))
         {
             try
             {
@@ -233,6 +235,7 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
         if (left == 0) yield break;
         if (_parallelism == 1)
         {
+            long start = 0;
             await foreach (RecordBatch batch in batchesAsync(cancellationToken).ConfigureAwait(false))
             {
                 using (batch)
@@ -240,16 +243,17 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
                     using ArrowBatchCursor<T> cursor = ArrowRowMapper<T>.CreateCursor(batch);
                     for (int i = 0; i < batch.Length; i++)
                     {
-                        T row = cursor.ReadRow(i);
+                        T row = Row(cursor, i, start);
                         if (_client is not null && !_client(row)) continue;
                         yield return row;
                         if (--left == 0) yield break;
                     }
+                    start += batch.Length;
                 }
             }
             yield break;
         }
-        await foreach (Hydrated hydrated in OrderedParallel.MapAsync(batchesAsync(cancellationToken), Hydrate, _parallelism,
+        await foreach (Hydrated hydrated in OrderedParallel.MapAsync(NumberedAsync(batchesAsync(cancellationToken)), Hydrate, _parallelism,
             cancellationToken).ConfigureAwait(false))
         {
             try
@@ -281,7 +285,7 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
             long left = _maxRows ?? long.MaxValue;
             if (left > 0)
             {
-                foreach (Hydrated hydrated in OrderedParallel.Map(batches(), Hydrate, _parallelism))
+                foreach (Hydrated hydrated in OrderedParallel.Map(Numbered(batches()), Hydrate, _parallelism))
                     if (!Keep(chunks, hydrated, ref left)) break;
             }
             return Concatenate(chunks);
@@ -307,7 +311,7 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
             long left = _maxRows ?? long.MaxValue;
             if (left > 0)
             {
-                await foreach (Hydrated hydrated in OrderedParallel.MapAsync(batchesAsync(cancellationToken), Hydrate, _parallelism,
+                await foreach (Hydrated hydrated in OrderedParallel.MapAsync(NumberedAsync(batchesAsync(cancellationToken)), Hydrate, _parallelism,
                     cancellationToken).ConfigureAwait(false))
                     if (!Keep(chunks, hydrated, ref left)) break;
             }
@@ -361,8 +365,9 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
     /// A batch's rows (those the conjuncts evaluated on the rows keep), made on a pool thread, which frees the batch.
     /// A failure keeps the rows before it, for the consumer to have them first.
     /// </summary>
-    private Hydrated Hydrate(RecordBatch batch)
+    private Hydrated Hydrate((RecordBatch Batch, long Start) numbered)
     {
+        var (batch, start) = numbered;
         using (batch)
         {
             T[] rows = ArrayPool<T>.Shared.Rent(batch.Length);
@@ -372,7 +377,7 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
                 using ArrowBatchCursor<T> cursor = ArrowRowMapper<T>.CreateCursor(batch);
                 for (int i = 0; i < batch.Length; i++)
                 {
-                    T row = cursor.ReadRow(i);
+                    T row = Row(cursor, i, start);
                     if (_client is null || _client(row)) rows[count++] = row;
                 }
                 return new(rows, count, null);
@@ -381,6 +386,40 @@ internal sealed class TypedRows<[DynamicallyAccessedMembers(DynamicallyAccessedM
             {
                 return new(rows, count, ExceptionDispatchInfo.Capture(e));
             }
+        }
+    }
+
+    // A row of a batch: a null its member cannot hold is placed among all the rows read (the batch starting at start).
+    private static T Row(ArrowBatchCursor<T> cursor, int i, long start)
+    {
+        try
+        {
+            return cursor.ReadRow(i);
+        }
+        catch (InvalidOperationException e) when (RowNull.At(e, start) is { } placed)
+        {
+            throw placed;
+        }
+    }
+
+    // The batches with the number of the rows before each.
+    private static IEnumerable<(RecordBatch, long)> Numbered(IEnumerable<RecordBatch> batches)
+    {
+        long start = 0;
+        foreach (RecordBatch batch in batches)
+        {
+            yield return (batch, start);
+            start += batch.Length;
+        }
+    }
+
+    private static async IAsyncEnumerable<(RecordBatch, long)> NumberedAsync(IAsyncEnumerable<RecordBatch> batches)
+    {
+        long start = 0;
+        await foreach (RecordBatch batch in batches.ConfigureAwait(false))
+        {
+            yield return (batch, start);
+            start += batch.Length;
         }
     }
 

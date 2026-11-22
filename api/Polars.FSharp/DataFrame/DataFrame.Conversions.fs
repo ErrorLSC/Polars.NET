@@ -38,8 +38,12 @@ type RowEnumerator<'T> =
     val mutable private _current: 'T
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    internal new(df: DataFrame) =
-        let cursor = DataFrameRowMapper<'T>.CreateCursor df.Handle
+    internal new(df: DataFrame) = RowEnumerator<'T>(df, false)
+
+    /// <summary>With foldNulls (query results), an object whose mapped columns are all null is null (an outer join's missing side).</summary>
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    internal new(df: DataFrame, foldNulls: bool) =
+        let cursor = DataFrameRowMapper<'T>.CreateCursor(df.Handle, foldNulls)
 
         {
             _df = df
@@ -754,7 +758,7 @@ type FSharpRowCursorMaterializer() =
     interface IDataFrameMaterializer with
         member _.Materialize<'T>(handle: DataFrameHandle) : IEnumerable<'T> =
             seq {
-                use cursor = DataFrameRowMapper<'T>.CreateCursor handle
+                use cursor = DataFrameRowMapper<'T>.CreateCursor(handle, true)
                 let len = cursor.Length
 
                 for rowIdx = 0 to len - 1 do
@@ -787,7 +791,7 @@ type FSharpRowCursorMaterializer() =
             (handle: DataFrameHandle, seed: 'TAccum, folder: Func<'TAccum, 'TSource, 'TAccum>)
             : 'TAccum =
             use df = new DataFrame(handle)
-            let mutable enumerator = df.Rows<'TSource>()
+            let mutable enumerator = RowEnumerator<'TSource>(df, true)
 
             let mutable acc = seed
 
@@ -814,7 +818,7 @@ type FSharpRowCursorMaterializer() =
             let dict = Dictionary<'TKey, 'TAccum>(comparer)
 
             if df.Height > 0L then
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
 
                 while enumerator.MoveNext() do
                     let current = enumerator.Current
@@ -844,7 +848,7 @@ type FSharpRowCursorMaterializer() =
             let dict = Dictionary<'TKey, 'TAccum>(comparer)
 
             if df.Height > 0L then
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
 
                 while enumerator.MoveNext() do
                     let current = enumerator.Current
@@ -866,7 +870,7 @@ type FSharpRowCursorMaterializer() =
 
             seq {
                 if df.Height > 0L then
-                    let mutable enumerator = df.Rows<'T>()
+                    let mutable enumerator = RowEnumerator<'T>(df, true)
                     let buffer = ResizeArray<'T> chunkSize
 
                     while enumerator.MoveNext() do
@@ -886,7 +890,7 @@ type FSharpRowCursorMaterializer() =
             if df.Height = 0L then
                 false
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
 
                 if isNull (box predicate) then
                     enumerator.MoveNext()
@@ -907,7 +911,7 @@ type FSharpRowCursorMaterializer() =
             if df.Height = 0L then
                 true
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable allMatched = true
 
                 while allMatched && enumerator.MoveNext() do
@@ -918,12 +922,12 @@ type FSharpRowCursorMaterializer() =
 
         member _.First<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : 'TSource =
             use df = new DataFrame(handle)
-            let enumerator = df.Rows<'TSource>()
+            let enumerator = RowEnumerator<'TSource>(df, true)
 
             if isNull (box predicate) then
                 enumerator.First()
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
                 let mutable result = Unchecked.defaultof<'TSource>
 
@@ -941,14 +945,14 @@ type FSharpRowCursorMaterializer() =
             (handle: DataFrameHandle, predicate: Func<'TSource, bool>, defaultValue: 'TSource)
             : 'TSource =
             use df = new DataFrame(handle)
-            let enumerator = df.Rows<'TSource>()
+            let enumerator = RowEnumerator<'TSource>(df, true)
 
             if isNull (box predicate) then
                 match enumerator.TryFirstValue() with
                 | ValueSome row -> row
                 | ValueNone -> defaultValue
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
                 let mutable result = defaultValue
 
@@ -961,12 +965,12 @@ type FSharpRowCursorMaterializer() =
 
         member _.Last<'TSource>(handle: DataFrameHandle, predicate: Func<'TSource, bool>) : 'TSource =
             use df = new DataFrame(handle)
-            let enumerator = df.Rows<'TSource>()
+            let enumerator = RowEnumerator<'TSource>(df, true)
 
             if isNull (box predicate) then
                 enumerator.Last()
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
                 let mutable lastMatch = Unchecked.defaultof<'TSource>
 
@@ -985,14 +989,14 @@ type FSharpRowCursorMaterializer() =
             : 'TSource =
             use df = new DataFrame(handle)
 
-            let enumerator = df.Rows<'TSource>()
+            let enumerator = RowEnumerator<'TSource>(df, true)
 
             if isNull (box predicate) then
                 match enumerator.TryLastValue() with
                 | ValueSome row -> row
                 | ValueNone -> defaultValue
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
                 let mutable lastMatch = defaultValue
 
@@ -1012,7 +1016,7 @@ type FSharpRowCursorMaterializer() =
             elif height = 0L then
                 0L
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable count = 0L
 
                 while enumerator.MoveNext() do
@@ -1031,12 +1035,12 @@ type FSharpRowCursorMaterializer() =
                 elif height > 1L then
                     invalidOp "Sequence contains more than one element."
                 else
-                    df.Rows<'TSource>().First()
+                    RowEnumerator<'TSource>(df, true).First()
 
             elif height = 0L then
                 invalidOp "Sequence contains no matching element."
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
                 let mutable matchVal = Unchecked.defaultof<'TSource>
 
@@ -1065,13 +1069,13 @@ type FSharpRowCursorMaterializer() =
                 elif height > 1L then
                     invalidOp "Sequence contains more than one element."
                 else
-                    match df.Rows<'TSource>().TryFirstValue() with
+                    match RowEnumerator<'TSource>(df, true).TryFirstValue() with
                     | ValueSome row -> row
                     | ValueNone -> defaultValue
             elif height = 0L then
                 defaultValue
             else
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
                 let mutable matchVal = defaultValue
 
@@ -1091,7 +1095,7 @@ type FSharpRowCursorMaterializer() =
 
             use df = new DataFrame(handle)
 
-            df.Rows<'TSource>().Item index
+            RowEnumerator<'TSource>(df, true).Item index
 
         member _.ElementAtOrDefault<'TSource>(handle: DataFrameHandle, index: int64) : 'TSource =
             if index < 0L then
@@ -1099,7 +1103,7 @@ type FSharpRowCursorMaterializer() =
             else
                 use df = new DataFrame(handle)
 
-                match df.Rows<'TSource>().TryGetValueItem index with
+                match RowEnumerator<'TSource>(df, true).TryGetValueItem index with
                 | ValueSome row -> row
                 | ValueNone -> Unchecked.defaultof<'TSource>
 
@@ -1117,7 +1121,7 @@ type FSharpRowCursorMaterializer() =
                     else
                         comparer
 
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
                 let mutable found = false
 
                 while not found && enumerator.MoveNext() do
@@ -1143,8 +1147,8 @@ type FSharpRowCursorMaterializer() =
                     else
                         comparer
 
-                let mutable enum1 = df1.Rows<'TSource>()
-                let mutable enum2 = df2.Rows<'TSource>()
+                let mutable enum1 = RowEnumerator<'TSource>(df1, true)
+                let mutable enum2 = RowEnumerator<'TSource>(df2, true)
                 let mutable equal = true
 
                 while equal && enum1.MoveNext() && enum2.MoveNext() do
@@ -1171,7 +1175,7 @@ type FSharpRowCursorMaterializer() =
             | :? ICollection<'TSource> as c when df.Height <> int64 c.Count -> false
             | :? IReadOnlyCollection<'TSource> as rc when df.Height <> int64 rc.Count -> false
             | _ ->
-                let mutable enum1 = df.Rows<'TSource>()
+                let mutable enum1 = RowEnumerator<'TSource>(df, true)
                 use enum2 = second.GetEnumerator()
                 let mutable equal = true
 
@@ -1198,7 +1202,7 @@ type FSharpRowCursorMaterializer() =
                     else
                         comparer
 
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
 
                 if not (enumerator.MoveNext()) then
                     FSharpRowCursorMaterializer.handleEmptySequence<'TSource>()
@@ -1233,7 +1237,7 @@ type FSharpRowCursorMaterializer() =
                     else
                         comparer
 
-                let mutable enumerator = df.Rows<'TSource>()
+                let mutable enumerator = RowEnumerator<'TSource>(df, true)
 
                 if not (enumerator.MoveNext()) then
                     FSharpRowCursorMaterializer.handleEmptySequence<'TSource>()

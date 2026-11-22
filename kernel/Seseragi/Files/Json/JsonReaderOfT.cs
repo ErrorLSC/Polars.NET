@@ -14,8 +14,8 @@ namespace Kaminari.Seseragi.Files.Json;
 /// their names (ignoring case) or numbers, dictionaries keyed by strings from objects, time spans from ISO 8601 or
 /// <c>[-][d.]hh:mm:ss[.f]</c> strings. A member of a value type (not nullable) takes no null or missing field: an error
 /// with its line (with <see cref="JsonReadOptions.IgnoreErrors"/>, the rows refuse the null, as rows of a frame do;
-/// declare the member nullable to receive nulls). As rows of a frame are made, an object whose members are all null or
-/// missing is a null row. A <c>where</c> predicate is translated by the query
+/// declare the member nullable to receive nulls; the error names the row among all the rows read). An object whose
+/// members are all null or missing is an object of nulls. A <c>where</c> predicate is translated by the query
 /// compiler (Samidare, as the LINQ provider translates it) and evaluated by the reader on each decoded chunk
 /// (<see cref="JsonReadOptions.FilterRows"/>); the conjuncts it cannot evaluate are evaluated on the rows when the
 /// compiler's client evaluation policy allows it (<see cref="SamidareConfig.ClientEvaluationPolicy"/>: Strict refuses

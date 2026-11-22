@@ -129,6 +129,37 @@ public sealed class JsonTypedReaderTests : IDisposable
     }
 
     [Fact]
+    public void AnObjectOfNulls_IsAnObject_FromJsonParquetAndIpc()
+    {
+        Sparse[] rows = [new(1, "a", new(2, "b")), new(null, null, null), new(null, null, new(null, null))];
+        List<Sparse> json = JsonReader.ParseList<Sparse>("""
+            {"Id":1,"Name":"a","Nested":{"A":2,"B":"b"}}
+            {}
+            {"Nested":{}}
+            """);
+        Assert.Equal(rows, json);
+        string parquet = Path("sparse.parquet"), ipc = Path("sparse.arrow");
+        Kaminari.Seseragi.Files.Parquet.ParquetWriter.WriteRows(parquet, rows);
+        Kaminari.Seseragi.Files.Ipc.IpcWriter.WriteRows(ipc, rows);
+        Assert.Equal(rows, Kaminari.Seseragi.Files.Parquet.ParquetFile.ReadList<Sparse>(parquet));
+        Assert.Equal(rows, Kaminari.Seseragi.Files.Ipc.IpcFile.ReadList<Sparse>(ipc));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public void ANullAMemberCannotHold_IsPlacedAmongAllTheRowsRead(int threads)
+    {
+        string lines = string.Join("\n", Enumerable.Range(0, 1000).Select(i => i == 777 ? """{"Id":null,"Symbol":"x"}""" : $$"""{"Id":{{i}},"Symbol":"x"}"""));
+        var options = new JsonReadOptions { IgnoreErrors = true, BatchSize = 100, UnitBytes = 2048, MaxDegreeOfParallelism = threads };
+        var e = Assert.Throws<InvalidOperationException>(() => JsonReader.ParseList<Narrow>(lines, options: options));
+        Assert.Contains("cannot hold the null in column 'Id' at row 777.", e.Message);
+        using JsonReader<Narrow> reader = JsonReader<Narrow>.Parse(lines, options: options);
+        e = Assert.Throws<InvalidOperationException>(() => reader.ReadRows().ToList());
+        Assert.Contains("at row 777.", e.Message);
+    }
+
+    [Fact]
     public void GuidsEnumsAndTimeSpans_ReadFromTheirTexts()
     {
         Guid id = Guid.NewGuid();
@@ -259,6 +290,10 @@ public sealed class JsonTypedReaderTests : IDisposable
     }
 
     public sealed record Narrow(long Id, string Symbol);
+
+    public sealed record Part(int? A, string? B);
+
+    public sealed record Sparse(int? Id, string? Name, Part? Nested);
 
     public sealed record Small(Guid Id, Color Color, TimeSpan Span);
 

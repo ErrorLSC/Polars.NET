@@ -550,7 +550,7 @@ objects, as JSON serializers write them).
 records read as rows of `T`, mapped as `DataFrame.Rows<T>()` maps them. The columns are `T`'s members (the layout
 `JsonWriter<T>` writes, nothing inferred), fields matched ignoring case when none has the exact name, other fields passed
 over; GUIDs from strings, enums from names (any case) or numbers, dictionaries keyed by strings from objects. A member
-of a value type takes no null or missing field. A `where` predicate is translated by the query compiler and evaluated
+of a value type takes no null or missing field (the row named among all the rows read); an object of nulls is an object. A `where` predicate is translated by the query compiler and evaluated
 by the reader on each unit (`FilterRows`), its other conjuncts on the rows when the client evaluation policy allows;
 units are decoded, filtered and turned into rows on several threads, the rows delivered in order. JSON from
 System.Text.Json reads as it is (camelCase names, GUIDs, enums as numbers or names, time spans as .NET writes them).

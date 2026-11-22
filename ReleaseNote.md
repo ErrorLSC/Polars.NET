@@ -99,6 +99,13 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 
 * Arrow data handed between the engine and .NET (exports to Arrow, record-batch scans) no longer reports its native memory to the .NET garbage collector as memory pressure. Apache.Arrow's importer did so for every buffer, which forced a full (gen2) collection for nearly every batch.
 
+## Rows as objects
+
+### Changed
+
+* A row (or a nested record) whose mapped columns are all null is an object of nulls in `DataFrame.Rows<T>()` (and what is built on it) and every reader of typed rows (Parquet, Arrow IPC, JSON); it was `null`, which a `List<T>` of records then held as a null element. Query results keep folding such an object to `null`, as an outer join leaves a missing side (`from c in g.DefaultIfEmpty()`).
+* A null a member cannot hold names its row counted from the first row read (it named the row within the batch being mapped).
+
 ## LINQ
 
 ### New

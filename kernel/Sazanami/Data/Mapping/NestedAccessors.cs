@@ -33,7 +33,7 @@ internal sealed class ListAccessor<[DynamicallyAccessedMembers(DynamicallyAccess
     private readonly ITypedAccessor<TElement>? _typedChildAccessor;
     private readonly int _fixedListSize;
 
-    public ListAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
+    public ListAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType, bool foldNulls = false)
     {
         TargetType = targetType;
 
@@ -58,7 +58,7 @@ internal sealed class ListAccessor<[DynamicallyAccessedMembers(DynamicallyAccess
             FixedSizeListType fslt => fslt.ValueField,
             _ => new Field("item", innerArrowType, true),
         };
-        _childAccessor = ColumnAccessorFactory.Create(itemField, typeof(TElement));
+        _childAccessor = ColumnAccessorFactory.Create(itemField, typeof(TElement), foldNulls);
         _typedChildAccessor = _childAccessor as ITypedAccessor<TElement>;
     }
 
@@ -207,7 +207,7 @@ internal sealed class StructAccessor<[DynamicallyAccessedMembers(DynamicallyAcce
     private readonly string[]? _dictFieldNames;
     private readonly CompiledArrowRowMapper<T>? _compiledMapper;
 
-    public StructAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
+    public StructAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType, bool foldNulls = false)
     {
         TargetType = targetType;
 
@@ -226,13 +226,13 @@ internal sealed class StructAccessor<[DynamicallyAccessedMembers(DynamicallyAcce
                 var field = structType.Fields[i];
                 _dictFieldNames[i] = field.Name;
                 Type netType = ArrowTypeResolver.GetNetTypeFromArrowType(field.DataType);
-                _childAccessors[i] = ColumnAccessorFactory.Create(field, netType);
+                _childAccessors[i] = ColumnAccessorFactory.Create(field, netType, foldNulls);
             }
         }
         else
         {
             var structSchema = new Schema(structType.Fields, null);
-            _compiledMapper = ArrowRowMapper<T>.GetOrCreate(structSchema);
+            _compiledMapper = ArrowRowMapper<T>.GetOrCreate(structSchema, foldNulls);
             _childAccessors = _compiledMapper.CreateAccessors();
         }
     }
@@ -303,7 +303,7 @@ internal sealed class StructToListAccessor<[DynamicallyAccessedMembers(Dynamical
     private readonly ColumnAccessor[] _childAccessors;
     private readonly ITypedAccessor<TElement>?[] _typedChildAccessors;
 
-    public StructToListAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
+    public StructToListAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType, bool foldNulls = false)
     {
         TargetType = targetType;
 
@@ -316,7 +316,7 @@ internal sealed class StructToListAccessor<[DynamicallyAccessedMembers(Dynamical
         for (int i = 0; i < count; i++)
         {
             var field = structType.Fields[i];
-            _childAccessors[i] = ColumnAccessorFactory.Create(field, typeof(TElement));
+            _childAccessors[i] = ColumnAccessorFactory.Create(field, typeof(TElement), foldNulls);
             _typedChildAccessors[i] = _childAccessors[i] as ITypedAccessor<TElement>;
         }
     }
@@ -563,7 +563,7 @@ internal sealed class MapAccessor<TKey, TValue> : TypedColumnAccessor<Dictionary
     private readonly ITypedAccessor<TKey>? _typedKeys;
     private readonly ITypedAccessor<TValue>? _typedValues;
 
-    public MapAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType)
+    public MapAccessor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type targetType, IArrowType arrowType, bool foldNulls = false)
     {
         TargetType = targetType;
         StructType entries = MapAccessorTypes.Entries(arrowType) ?? throw new InvalidOperationException($"{arrowType} holds no map.");
@@ -578,8 +578,8 @@ internal sealed class MapAccessor<TKey, TValue> : TypedColumnAccessor<Dictionary
         _keyField = Find(entries.Fields, "key", 0);
         _valueField = Find(entries.Fields, "value", 1);
         if (_keyField == _valueField) (_keyField, _valueField) = (0, 1);
-        _keys = ColumnAccessorFactory.Create(entries.Fields[_keyField], typeof(TKey));
-        _values = ColumnAccessorFactory.Create(entries.Fields[_valueField], typeof(TValue));
+        _keys = ColumnAccessorFactory.Create(entries.Fields[_keyField], typeof(TKey), foldNulls);
+        _values = ColumnAccessorFactory.Create(entries.Fields[_valueField], typeof(TValue), foldNulls);
         _typedKeys = _keys as ITypedAccessor<TKey>;
         _typedValues = _values as ITypedAccessor<TValue>;
     }

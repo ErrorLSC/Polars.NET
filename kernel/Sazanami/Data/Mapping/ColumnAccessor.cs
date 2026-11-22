@@ -133,7 +133,12 @@ public abstract class TypedColumnAccessor<T> : ColumnAccessor, ITypedAccessor<T>
 
 public static class ColumnAccessorFactory
 {
-    public static ColumnAccessor Create(Field field, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
+    /// <summary>
+    /// The accessor of <paramref name="field"/>'s values as <paramref name="targetType"/>. With
+    /// <paramref name="foldNulls"/>, a nested object whose mapped fields are all null is read as null (as a query's outer
+    /// join leaves a missing side); without it, as an object of nulls (data holds such rows).
+    /// </summary>
+    public static ColumnAccessor Create(Field field, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType, bool foldNulls = false)
     {
         if (targetType.IsGenericType)
         {
@@ -144,7 +149,7 @@ public static class ColumnAccessorFactory
             if (isOption || isValueOption)
             {
                 Type innerType = targetType.GetGenericArguments()[0];
-                var innerAccessor = Create(field, innerType);
+                var innerAccessor = Create(field, innerType, foldNulls);
 
                 Type accessorClass = isOption ? typeof(FSharpOptionAccessor<>) : typeof(FSharpValueOptionAccessor<>);
                 Type concreteAccessorType = accessorClass.MakeGenericType(innerType);
@@ -165,7 +170,7 @@ public static class ColumnAccessorFactory
             && MapAccessorTypes.Entries(field.DataType) is not null)
         {
             Type mapAccessorType = typeof(MapAccessor<,>).MakeGenericType(keyType, valueType);
-            return (ColumnAccessor)Activator.CreateInstance(mapAccessorType, effectiveType, field.DataType)!;
+            return (ColumnAccessor)Activator.CreateInstance(mapAccessorType, effectiveType, field.DataType, foldNulls)!;
         }
 
         if (field.DataType is Decimal128Type { Scale: 0 } && (effectiveType == typeof(Int128) || effectiveType == typeof(UInt128)))
@@ -183,8 +188,8 @@ public static class ColumnAccessorFactory
 
         return field.DataType switch
         {
-            ListType or LargeListType or FixedSizeListType => CreateListAccessor(field.DataType, effectiveType),
-            StructType => CreateStructAccessor(field.DataType, effectiveType),
+            ListType or LargeListType or FixedSizeListType => CreateListAccessor(field.DataType, effectiveType, foldNulls),
+            StructType => CreateStructAccessor(field.DataType, effectiveType, foldNulls),
             DictionaryType => new DictionaryAccessor(),
 
             // 1. Primitives
@@ -241,7 +246,7 @@ public static class ColumnAccessorFactory
         };
     }
 
-    private static ColumnAccessor CreateListAccessor(IArrowType arrowType, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
+    private static ColumnAccessor CreateListAccessor(IArrowType arrowType, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType, bool foldNulls)
     {
         Type elementType;
         if (targetType.IsArray)
@@ -265,10 +270,10 @@ public static class ColumnAccessorFactory
         }
 
         Type accessorClass = typeof(ListAccessor<>).MakeGenericType(elementType);
-        return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType)!;
+        return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType, foldNulls)!;
     }
 
-    private static ColumnAccessor CreateStructAccessor(IArrowType arrowType, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType)
+    private static ColumnAccessor CreateStructAccessor(IArrowType arrowType, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type targetType, bool foldNulls)
     {
         if (targetType != typeof(byte[]))
         {
@@ -276,7 +281,7 @@ public static class ColumnAccessorFactory
             {
                 Type elementType = targetType.GetElementType()!;
                 Type accessorClass = typeof(StructToListAccessor<>).MakeGenericType(elementType);
-                return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType)!;
+                return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType, foldNulls)!;
             }
             if (targetType.IsGenericType)
             {
@@ -292,12 +297,12 @@ public static class ColumnAccessorFactory
                 {
                     Type elementType = targetType.GetGenericArguments()[0];
                     Type accessorClass = typeof(StructToListAccessor<>).MakeGenericType(elementType);
-                    return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType)!;
+                    return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType, foldNulls)!;
                 }
             }
         }
 
-        return (ColumnAccessor)Activator.CreateInstance(typeof(StructAccessor<>).MakeGenericType(targetType), targetType, arrowType)!;
+        return (ColumnAccessor)Activator.CreateInstance(typeof(StructAccessor<>).MakeGenericType(targetType), targetType, arrowType, foldNulls)!;
     }
 }
 

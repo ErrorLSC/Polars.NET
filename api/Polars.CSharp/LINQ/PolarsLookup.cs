@@ -63,7 +63,7 @@ public sealed class PolarsGrouping<TKey, [DynamicallyAccessedMembers(Dynamically
     public int Count => checked((int)DataFrame.Height);
 
     private ArrowBatchCursor<TElement> EnsureCursor()
-        => _cursor ??= DataFrameRowMapper<TElement>.CreateCursor(DataFrame.Handle);
+        => _cursor ??= DataFrameRowMapper<TElement>.CreateCursor(DataFrame.Handle, foldNulls: true);
 
     public TElement this[int index]
     {
