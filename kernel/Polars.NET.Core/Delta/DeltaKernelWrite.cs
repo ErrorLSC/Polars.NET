@@ -1037,7 +1037,7 @@ internal static class DeltaKernelWrite
     {
         LazyFrameHandle lf = PolarsWrapper.LazySelect(PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df)), exprs);
         using DataFrameHandle result = PolarsWrapper.LazyCollect(lf, PlEngine.Auto);
-        using NativeBuffer buffer = PolarsWrapper.WriteJsonNativeMemory(result, PlJsonFormat.JsonLines);
+        using NativeBuffer buffer = Json.ManagedJson.WriteJsonNativeMemory(result, PlJsonFormat.JsonLines);
         return JsonDocument.Parse(buffer.Memory.ToArray()); // the document keeps its memory; the buffer does not outlive this call
     }
 }

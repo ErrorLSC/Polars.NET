@@ -1184,7 +1184,7 @@ public class SparkInteropTests
             }
         }
         using DataFrameHandle df = PolarsWrapper.LazyCollect(PolarsWrapper.LazySelect(lf, [.. exprs]), PlEngine.Auto);
-        using NativeBuffer json = PolarsWrapper.WriteJsonNativeMemory(df, PlJsonFormat.Json);
+        using NativeBuffer json = Polars.NET.Core.Json.ManagedJson.WriteJsonNativeMemory(df, PlJsonFormat.Json);
         using JsonDocument doc = JsonDocument.Parse(json.Memory.ToArray());
         return doc.RootElement.Clone();
     }

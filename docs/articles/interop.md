@@ -266,7 +266,7 @@ use result =
 > A scan over a .NET source (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) is read when the query runs:
 > * `Sink*` (Parquet, CSV, IPC, NDJSON, partitioned), `SinkBatches` / `SinkTo` and `CollectBatchesAsync(engine: Engine.Streaming)` write the source batch by batch to a temporary Arrow IPC file and stream from it, so memory stays bounded by a batch. Pass the same frame twice (a self-join, `CollectAll`) and the source is still read once.
 > * `Collect()`, and `CollectBatchesAsync` on the default engine, read the whole source into memory first: `Engine.Auto` runs in memory.
-> * Only the columns and leading rows the query uses are kept (`Select`, `Head`): the rest of a batch is dropped as it arrives, and reading stops once the rows are there. `ScanAvro` goes further and decodes only those columns; `ScanExcel` stops parsing the sheet once the rows are there. `ScanDatabaseBuffered` and `useBuffered: true` read every column, since the query is not known when they read.
+> * Only the columns and leading rows the query uses are kept (`Select`, `Head`): the rest of a batch is dropped as it arrives, and reading stops once the rows are there. `ScanAvro` and `ScanNdjson` go further and decode only those columns; `ScanExcel` stops parsing the sheet once the rows are there. `ScanDatabaseBuffered` and `useBuffered: true` read every column, since the query is not known when they read.
 >
 > The temporary file goes in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and disappears when the query ends. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk to keep large sinks out of RAM. `ScanDatabaseBuffered` and `useBuffered: true` use the same kind of file, but read the source as soon as the frame is created. The file then lives until the last frame that scans it is released.
 
@@ -596,7 +596,7 @@ Each method returns a `NativeBuffer` (`Polars.NET.Core`) that holds the serializ
 | JSON / NDJSON | `WriteJsonNativeMemory` (C# only) | `SinkJsonNativeMemory` (NDJSON) |
 | Avro | `WriteAvroNativeMemory` | None |
 
-`WriteAvroNativeMemory` is written by the managed Avro writer (see [Avro](#10-avro-managed-reader-and-writer)) into memory allocated with `NativeMemory`; the `NativeBuffer` behaves the same.
+`WriteAvroNativeMemory` and the JSON methods are written by the managed writers (see [Avro](#10-avro-managed-reader-and-writer) and [JSON](#11-json-managed-reader-and-writer)) into memory allocated with `NativeMemory`; the `NativeBuffer` behaves the same.
 
 `NativeBuffer` is a `MemoryManager<byte>`, so it is also an `IMemoryOwner<byte>`:
 
@@ -768,3 +768,43 @@ A recursive record cannot become a column and is refused, unless the column is l
 
 **Writing.** A nullable column is written as `["null", T]`. `Int8` / `Int16` / `UInt8` / `UInt16` become `int`, `UInt32` and `UInt64` become `long`, `Float16` becomes `float`, decimals become `bytes` decimals, `Categorical` and `Enum` columns are written as their strings, `Array` as `array`, `Struct` as nested records named after their fields. A `Datetime` with a time zone is written as `timestamp-*` (the UTC instant) and the zone is kept in the attribute `kaminari.timezone`, which other readers ignore; without a time zone it is written as `local-timestamp-*`. `Duration` is written as Spark's day-time interval (a `long` of microseconds with `spark.sql.catalyst.type`). Values Avro cannot hold exactly are refused instead of being changed: a `UInt64` above `Int64.MaxValue`, a `Time` or `Duration` with nanoseconds that are not whole microseconds. A map read from Avro is a list of key/value structs in Polars and is written back as an array of records.
 
+## 11. JSON: Managed Reader and Writer
+
+JSON is read and written by Seseragi.Files, the managed reader and writer of `Kaminari.Seseragi.Files`; the native library no longer contains JSON input and output (the expression functions such as `Str.JsonDecode` and `Struct.JsonEncode` stay in the engine). Two layouts: one document, an array of objects or a single object (`JsonFormat.Json`), and newline-delimited JSON, one object per line (`JsonFormat.JsonLines`, NDJSON). The input is cut into chunks of lines or array elements and decoded on every core: a local file is mapped, a `Stream` is read as it arrives, and gzip, zlib and Zstandard input is decompressed on the way. The output is byte for byte what the engine wrote, encoded on every core.
+
+* `DataFrame.ReadJson(path | byte[] | ReadOnlySpan<byte> | ReadOnlyMemory<byte> | Stream, columns, schema, inferSchemaLen, batchSize, ignoreErrors, jsonFormat, schemaOverrides)`.
+* `LazyFrame.ScanNdjson(path, ..., cloudOptions, schemaOverrides, hivePartitioning)`: the path is a file, a directory, a glob, or any of them on a cloud store (`s3://`, `az://`, `gs://`). The files are listed and the columns inferred when the frame is created, from the first file holding records; the data is read each time the query runs, only the columns and leading rows it uses. `rowIndexName` adds a `UInt32` column numbering the rows across the files, `includePathColumn` each row's file, `hivePartitioning` the `key=value` directories as columns. The in-memory overloads copy a `byte[]`, a span or a `Stream` once into native memory the scan keeps, and pin a `ReadOnlyMemory<byte>`.
+* `DataFrame.WriteJson(...)` (path, `Stream`, async `Stream` and `PipeWriter`, `WriteJsonMemory`, `WriteJsonNativeMemory`), `WriteNdJson`, and `LazyFrame.SinkJson` / `SinkNdJson` (a local path or a store, published whole once written; a `Stream`, a `PipeWriter`, `SinkJsonMemory`, `SinkJsonNativeMemory`), which write the result of the streaming engine as its batches arrive. `compression` is `Gzip` or `ZSTD`; `checkExtension` refuses a compressed file whose name ends with another extension, and an uncompressed one ending with `.gz`, `.zst` or `.zstd`.
+* `LazyFrame.SinkJsonPartitioned` / `DataFrame.WriteJsonPartitioned(path, partitionBy, ..., existingData)`: Hive directories of the keys' values, files named `part-{index:D5}-{write id}.jsonl` (`.gz`, `.zst` when compressed), each published whole, cut by `maxRowsPerFile` and `approxBytesPerFile`. Files there already are refused (`ExistingData.Error`, the default), added to (`Append`) or replaced in the partitions written (`ReplacePartitions`).
+
+```csharp
+using Polars.CSharp;
+using static Polars.CSharp.Polars;
+
+using var df = DataFrame.From<Order>([new(1, "Widget", "EU", 19.99), new(2, "Gadget", "US", 5.5)]);
+df.WriteNdJson("orders.jsonl");
+df.WriteJson("orders.json");
+
+using var all = DataFrame.ReadJson("orders.json");
+using var typed = DataFrame.ReadJson("orders.jsonl", jsonFormat: JsonFormat.JsonLines,
+    schemaOverrides: new Dictionary<string, DataType> { ["Price"] = DataType.Float32 });
+
+df.Lazy().SinkJsonPartitioned("by-region", "Region", existingData: ExistingData.Append);
+using var regions = LazyFrame.ScanNdjson("by-region", hivePartitioning: true, rowIndexName: "row")
+    .Filter(Col("Price") > 10)
+    .Collect();
+
+record Order(long Id, string Name, string Region, double Price);
+```
+
+```fsharp
+open Polars.FSharp
+
+use df = DataFrame.ReadJson("orders.jsonl", jsonFormat = JsonFormat.JsonLines)
+use lf = LazyFrame.ScanNdjson("by-region", hivePartitioning = true)
+lf.Filter(pl.col "Price" .> pl.lit 10.0).SinkJson("expensive.jsonl.gz", compression = ExternalCompression.Gzip)
+```
+
+**Reading.** `schema` is the whole schema: nothing is inferred, fields it does not name are passed over, fields a record lacks are nulls. `schemaOverrides` types some inferred columns (with a schema, some of its columns). Otherwise the columns are inferred from the first `inferSchemaLen` records (100; 0 takes them all): integers and floats together are `Float64`, strings with anything else `String`, objects `Struct` (the union of their fields), arrays `List`; fields first seen after those records are passed over in newline-delimited JSON and are errors in a document. A `String` column takes any other JSON value as its JSON text, a `Binary` column base64 strings, `Date` and `Datetime` columns ISO 8601 strings, `Categorical` and `Enum` columns strings. A value its column cannot hold is an error naming the line (`JsonValueException`), or a null with `ignoreErrors`; input that is not JSON of the layout read is a `JsonFormatException`. A scan reports the same errors through the query that runs it.
+
+**Writing.** NaN and infinities are written as nulls; dates, times and datetimes as text (`2024-01-02 03:04:05.678`; with a time zone `2024-01-02T03:04:05.678+00:00`), durations as ISO 8601 durations (`PT1.5S`), decimals as strings with their full scale, binary values as base64, 128-bit integers as numbers.

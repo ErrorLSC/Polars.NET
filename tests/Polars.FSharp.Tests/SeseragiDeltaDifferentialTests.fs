@@ -642,7 +642,7 @@ let ``Nested column mapping gets logical names back at every depth`` () =
 
         use table = (new LazyFrame(Polars.NET.Core.Delta.DeltaKernelScan.Scan path)).Collect()
         use sorted = table.Sort(pl.col "id")
-        use json = Polars.NET.Core.Wrappers.PolarsWrapper.WriteJsonNativeMemory(sorted.Handle, Polars.NET.Core.Enums.PlJsonFormat.JsonLines)
+        use json = Polars.NET.Core.Json.ManagedJson.WriteJsonNativeMemory(sorted.Handle, Polars.NET.Core.Enums.PlJsonFormat.JsonLines)
         let lines = Text.Encoding.UTF8.GetString(json.Memory.Span).Split('\n', StringSplitOptions.RemoveEmptyEntries)
         Assert.Equal<string[]>(
             [| """{"id":1,"s":{"x":10,"l":[{"z":"a"}]},"m":[{"key":"a","value":{"v":10}}]}"""

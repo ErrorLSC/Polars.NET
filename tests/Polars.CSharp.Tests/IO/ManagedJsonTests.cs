@@ -2,7 +2,6 @@ using System.Text;
 using Kaminari.Seseragi.Files;
 using Polars.NET.Core;
 using Polars.NET.Core.Enums;
-using Polars.NET.Core.Exceptions;
 using Polars.NET.Core.Json;
 using Polars.NET.Core.Wrappers;
 using Xunit.Abstractions;
@@ -12,7 +11,7 @@ namespace Polars.CSharp.Tests;
 
 /// <summary>
 /// The managed JSON entry points of Core (<see cref="ManagedJson"/>): every data type written byte for byte as the
-/// engine's writer writes it, read back into the same frame; scans (projection, row limit, row index, file path, Hive
+/// engine's writer wrote it, read back into the same frame; scans (projection, row limit, row index, file path, Hive
 /// partitions, runs again), sinks to files, streams and pipes, partitioned sinks.
 /// </summary>
 public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
@@ -51,67 +50,54 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
             Col("Dur").Cast(DataType.Duration(TimeUnit.Nanoseconds)).Alias("DurNs")).Collect();
     }
 
+    private static string Engine(string name) => Path.Combine(AppContext.BaseDirectory, "TestData", "json", "engine", name);
+
     /// <summary>
-    /// Per column: the managed writer's bytes against the engine's (lines and documents, frame and sink), and the
-    /// engine's lines read back by the managed reader with the frame's schema (the same frame) and by the engine's.
-    /// Binary is left to the managed writer (the engine's panics): base64.
+    /// Every type written as the engine's own JSON writer wrote it (lines, a document, a sink: TestData/json/engine,
+    /// written by the engine before its JSON IO was removed; binary aside, which it could not write), and each column
+    /// read back into the same frame (NaN and infinities are written as nulls, as the engine writes them; binary as
+    /// base64).
     /// </summary>
     [Fact]
     public void EveryType_WritesAsTheEngine_AndReadsBack()
     {
         using DataFrame all = Types();
+        using (DataFrame noBinary = all.Lazy().Select(all.Columns.Where(c => c != "Bin")).Collect())
+        {
+            Assert.Equal(File.ReadAllText(Engine("types.ndjson")), Encoding.UTF8.GetString(ManagedJson.WriteJsonToMemory(noBinary.Handle, PlJsonFormat.JsonLines)));
+            Assert.Equal(File.ReadAllText(Engine("types.json")), Encoding.UTF8.GetString(ManagedJson.WriteJsonToMemory(noBinary.Handle, PlJsonFormat.Json)));
+            Assert.Equal(File.ReadAllText(Engine("types.ndjson")),
+                Encoding.UTF8.GetString(ManagedJson.SinkJsonToMemory(noBinary.Lazy().CloneHandle(), PlExternalCompression.Uncompressed, -1, true)));
+            using DataFrame none = noBinary.Head(0);
+            Assert.Equal(File.ReadAllText(Engine("types-empty.json")), Encoding.UTF8.GetString(ManagedJson.WriteJsonToMemory(none.Handle, PlJsonFormat.Json)));
+        }
+        using (DataFrame binary = all.Select("Bin"))
+            Assert.Equal("{\"Bin\":\"AQL/\"}\n{\"Bin\":null}\n{\"Bin\":\"\"}\n", Encoding.UTF8.GetString(ManagedJson.WriteJsonToMemory(binary.Handle, PlJsonFormat.JsonLines)));
+
         List<string> differences = [];
         foreach (string column in all.Columns)
         {
             using DataFrame one = all.Select(column);
             string type = one.Schema[column].ToString()!;
-            string stage = "write";
             try
             {
-                if (column != "Bin")
-                {
-                    foreach (PlJsonFormat format in (PlJsonFormat[])[PlJsonFormat.JsonLines, PlJsonFormat.Json])
-                    {
-                        byte[] native = PolarsWrapper.WriteJsonMemory(one.Handle, format);
-                        byte[] managed = ManagedJson.WriteJsonToMemory(one.Handle, format);
-                        if (!native.AsSpan().SequenceEqual(managed))
-                            differences.Add($"{column} ({type}) write {format}:\n  native  {Encoding.UTF8.GetString(native)}\n  managed {Encoding.UTF8.GetString(managed)}");
-                    }
-                    byte[] sunkNative = PolarsWrapper.SinkJsonMemory(one.Lazy().CloneHandle(), PlExternalCompression.Uncompressed, -1, true, true);
-                    byte[] sunk = ManagedJson.SinkJsonToMemory(one.Lazy().CloneHandle(), PlExternalCompression.Uncompressed, -1, true);
-                    if (!sunkNative.AsSpan().SequenceEqual(sunk))
-                        differences.Add($"{column} ({type}) sink:\n  native  {Encoding.UTF8.GetString(sunkNative)}\n  managed {Encoding.UTF8.GetString(sunk)}");
-                }
-                stage = "read";
-                byte[] lines = ManagedJson.WriteJsonToMemory(one.Handle, PlJsonFormat.JsonLines);
                 foreach (PlJsonFormat format in (PlJsonFormat[])[PlJsonFormat.JsonLines, PlJsonFormat.Json])
                 {
-                    byte[] bytes = format == PlJsonFormat.Json ? ManagedJson.WriteJsonToMemory(one.Handle, format) : lines;
+                    byte[] bytes = ManagedJson.WriteJsonToMemory(one.Handle, format);
                     using var back = new DataFrame(ManagedJson.ReadJson(bytes, null, one.Schema.Handle, null, 100, null, false, format));
-                    // NaN and infinities are written as nulls (as the engine writes them): floats are compared with the engine's read only.
-                    if (back.Schema[column].ToString() != type || column is not ("F32" or "F64") && !back.Equals(one))
+                    bool same = column switch
+                    {
+                        "F32" => back.Column(column).ToArray<float?>().SequenceEqual([1.5f, null, -1e-7f]),
+                        "F64" => back.Column(column).ToArray<double?>().SequenceEqual([null, -0.0, 1e300]),
+                        _ => back.Equals(one),
+                    };
+                    if (back.Schema[column].ToString() != type || !same)
                         differences.Add($"{column} ({type}) read {format}: {back.Schema[column]}\n{back}\nexpected\n{one}");
-                    if (column == "Bin") continue;
-                    DataFrame native;
-                    try
-                    {
-                        native = new DataFrame(PolarsWrapper.ReadJson(bytes, null, one.Schema.Handle, 100, null, false, format));
-                    }
-                    catch (PolarsException e)
-                    {
-                        output.WriteLine($"{column} ({type}) {format}: the engine's reader refuses it: {e.Message}");
-                        continue;
-                    }
-                    using (native)
-                    {
-                        if (!native.Equals(back) || native.Schema[column].ToString() != type)
-                            differences.Add($"{column} ({type}) read {format} differs from the engine's: {native.Schema[column]}\n{native}\nmanaged\n{back}");
-                    }
                 }
             }
             catch (Exception e)
             {
-                differences.Add($"{column} ({type}) {stage}: {e.GetType().Name}: {e.Message}");
+                differences.Add($"{column} ({type}): {e.GetType().Name}: {e.Message}");
             }
         }
         foreach (string difference in differences) output.WriteLine(difference);
@@ -245,7 +231,7 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
     public async Task Sinks_WriteWhatTheEngineWrites_ToFilesStreamsAndPipes()
     {
         using DataFrame df = DataFrame.From<Small>([.. Enumerable.Range(0, 5000).Select(i => new Small(i, $"s{i}", i % 7 == 0 ? null : i * 0.5))]);
-        byte[] expected = PolarsWrapper.SinkJsonMemory(df.Lazy().CloneHandle(), PlExternalCompression.Uncompressed, -1, true, true);
+        byte[] expected = ManagedJson.WriteJsonToMemory(df.Handle, PlJsonFormat.JsonLines);
 
         var stream = new AsyncOnly();
         await ManagedJson.SinkJsonAsync(df.Lazy().CloneHandle(), stream, PlExternalCompression.Uncompressed, -1, true);
@@ -287,18 +273,15 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
         ManagedJson.SinkJson(df.Lazy().Filter(Col("Id") < 0).CloneHandle(), At("empty.jsonl"), PlExternalCompression.Uncompressed, -1, true, true,
             PlSyncOnClose.None, false, null);
         Assert.Equal(0, new FileInfo(At("empty.jsonl")).Length);
-        // Compressed, no rows: an empty member (or frame), as the engine writes (a file of no bytes is not compressed data).
+        // Compressed, no rows: an empty member (or frame), as the engine wrote (a file of no bytes is not compressed data).
         foreach (PlExternalCompression compression in (PlExternalCompression[])[PlExternalCompression.Gzip, PlExternalCompression.ZSTD])
         {
-            byte[] native = PolarsWrapper.SinkJsonMemory(df.Lazy().Filter(Col("Id") < 0).CloneHandle(), compression, -1, true, true);
             byte[] managed = ManagedJson.SinkJsonToMemory(df.Lazy().Filter(Col("Id") < 0).CloneHandle(), compression, -1, true);
-            Assert.NotEmpty(native);
             Assert.NotEmpty(managed);
-            Assert.Empty(Decompressed(native, compression));
             Assert.Empty(Decompressed(managed, compression));
         }
         using DataFrame none = df.Lazy().Filter(Col("Id") < 0).Collect();
-        Assert.Equal(PolarsWrapper.WriteJsonMemory(none.Handle, PlJsonFormat.Json), ManagedJson.WriteJsonToMemory(none.Handle, PlJsonFormat.Json));
+        Assert.Equal("[]"u8.ToArray(), ManagedJson.WriteJsonToMemory(none.Handle, PlJsonFormat.Json));
     }
 
     private sealed record Small(long Id, string Name, double? Value);
@@ -374,7 +357,8 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
         string root = At("api");
         df.WriteJsonPartitioned(root, "K", includeKeys: false);
         Assert.ThrowsAny<Exception>(() => df.WriteJsonPartitioned(root, "K"));
-        df.WriteJsonPartitioned(root, "K", existingData: ExistingData.Append, compression: ExternalCompression.Gzip);
+        // Files of one layout (no key column in them): the columns are inferred from whichever file is listed first.
+        df.WriteJsonPartitioned(root, "K", includeKeys: false, existingData: ExistingData.Append, compression: ExternalCompression.Gzip);
         using (DataFrame both = LazyFrame.ScanNdjson(Path.Combine(root, "**", "*"), hivePartitioning: true).Collect())
         {
             Assert.Equal(180, both.Height);

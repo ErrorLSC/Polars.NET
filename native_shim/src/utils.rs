@@ -3,7 +3,6 @@ use polars::frame::UniqueKeepStrategy;
 use polars::prelude::{AsofStrategy, ClosedInterval, Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr, SchemaRef, TimeUnit};
 use polars::time::ClosedWindow;
 use polars_io::ExternalCompression;
-use polars_io::prelude::JsonFormat;
 use polars_io::utils::sync_on_close::SyncOnCloseType;
 
 use crate::types::{ExprContext,SchemaContext};
@@ -225,14 +224,6 @@ pub(crate) fn map_parallel_strategy(code: u8) -> ParallelStrategy {
         2 => ParallelStrategy::RowGroups,
         3 => ParallelStrategy::None,
         0 | _ => ParallelStrategy::Auto,
-    }
-}
-
-#[inline]
-pub(crate) fn map_json_format(code: u8) -> JsonFormat {
-    match code {
-        1 => JsonFormat::JsonLines, // .jsonl / .ndjson
-        0 | _ => JsonFormat::Json,  // standard .json array
     }
 }
 

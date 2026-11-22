@@ -1,6 +1,6 @@
 # Polars.NET 1.3.0 Release Note (draft)
 
-1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel and Parquet, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro and Excel functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
+1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel, Parquet and JSON, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro, Excel and JSON functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
 
 ## Avro: managed reader and writer
 
@@ -54,11 +54,29 @@ A Parquet implementation of its own, for .NET code that reads or writes Parquet 
 * **Datasets** (`ParquetDataset`): many files as one table, from directories, globs or file lists; Hive partitions and the file path column (both pruned by the filter: `file == "…"`, prefixes, suffixes); schemas from the first file, united by name, or given, with lossless widening between files (a map also reads as the list of its key/value entries, for engines without a map type); INT96 timestamps as UTC instants on request (`ParquetReadOptions.Int96Timezone`, as Spark stores them); local files, memory, HTTP and the cloud stores, read ahead and in parallel. Typed rows too (`ParquetDataset.OpenReader<T>`).
 * **Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches to a stream or a path, synchronously or asynchronously; flat and nested columns of every Arrow type Parquet holds (maps as MAP), field ids, statistics, page indexes, size statistics, Bloom filters, every encoding, the codecs Snappy, Zstandard, GZIP, Brotli and LZ4_RAW, data page v1 and v2; columns encoded and pages compressed on several threads. Values Parquet cannot hold exactly are refused, never changed. Files are read by pyarrow, DuckDB, Polars and Spark (verified).
 
-## JSON: managed reader (Kaminari.Seseragi.Files)
+## JSON: managed reader and writer (Kaminari.Seseragi.Files)
 
-A JSON reader and writer of its own, newline-delimited and documents, for .NET code that reads and writes JSON without the engine (`DataFrame.ReadJson` and `LazyFrame.ScanNdjson` still run on the engine).
+A JSON reader and writer of its own, newline-delimited and documents. Polars.NET's JSON functions (`ReadJson`, `ScanNdjson`, `WriteJson`, `WriteNdJson`, `SinkJson`, the partitioned sinks) now run on it; the native library no longer contains JSON input and output (the expression functions `Str.JsonDecode`, `Str.JsonPathMatch` and `Struct.JsonEncode` stay in the engine). Output is byte for byte what the engine wrote.
 
-### New
+### New in Polars.NET
+
+* `LazyFrame.ScanNdjson(path)` reads a directory of files, a glob, or any of them on a cloud store (`s3://`, `az://`, `gs://`, through the managed object store clients) as one table: the files are listed and the columns inferred when the frame is created, the data read each time the query runs (only the columns and leading rows it uses). The row index numbers rows across the files.
+* New trailing optional parameters: `schemaOverrides` on `ReadJson` and `ScanNdjson` (the types of some inferred columns, or of some of a schema's columns), `hivePartitioning` on `ScanNdjson(path)` (off by default), `existingData` on `SinkJsonPartitioned` / `WriteJsonPartitioned` with the new `ExistingData` enum (`Error`, the default, `Append`, `ReplacePartitions`). Recompile code built against an earlier version.
+* Types the engine's reader refused read now: `Int8`, `Int16`, `UInt8`, `UInt16`, `Time`, `Duration`, `Decimal`, `Array`, `Binary` (base64), and in documents datetimes with an offset; binaries are written (as base64) where the engine's writer panicked.
+* Faster (16 threads): writing 5–8× (the engine wrote on one thread), reading documents 9–17×, reading and scanning nested lines 3–7×; flat lines within 10 % of the engine. `ReadJson(Stream)` reads the stream as it arrives instead of copying it whole first; `ReadJson(byte[])` reads the bytes in place.
+* `JsonReadOptions.RowIndexColumn` (Seseragi.Files): an Int64 column numbering the records before any filter, across a dataset's files.
+
+### Changed in Polars.NET
+
+* `schema` is the whole schema, as in Python Polars: nothing is inferred, fields it does not name are passed over. It was passed to the engine as overrides (a partial schema inferred the rest, and a full one could still fail: "expected null in json value, got object"). Pass `schemaOverrides` to type some columns only.
+* `ignoreErrors`: a value that does not fit its column's type becomes a null (syntax errors are still errors).
+* A `String` column takes any other JSON value as its JSON text; a `Binary` column takes base64 strings.
+* Errors of `ReadJson` are `JsonFormatException` (not JSON of the layout read) and `JsonValueException` (a value its column cannot hold), naming the line, instead of `PolarsException`; a scan reports them through the query that runs it.
+* Partitioned sinks write Hive directories of files named `part-{index:D5}-{write id}.jsonl` (`.gz`, `.zst` when compressed), each published whole, and refuse files already under the path unless `existingData` says otherwise. `keysPreGrouped` is a hint: keys that are not grouped write more files, never wrong ones.
+* A sink with no rows and compression writes one empty gzip member or Zstandard frame (a file of no bytes is not compressed data).
+* `lowMemory` and `rechunk` of `ScanNdjson` are accepted and change nothing.
+
+### New in Seseragi.Files
 
 * **Reading** (`JsonReader`, `JsonReadOptions`): one object per line, as Polars' `read_ndjson` reads it, from a path (memory-mapped), a stream or any source of ranged reads, synchronously or asynchronously, as Arrow record batches in native memory, decoded on all cores and handed over in order; gzip, zlib and zstd input is decompressed on the way. A projection decodes only the columns asked for, a row limit stops early. Each line is checked to be UTF-8 and one JSON object; failures name their line.
 * **Columns**: given (a full schema: nothing inferred), inferred from the first records (or all) with Polars' types and column order, or inferred with some types overridden. Values convert to every Arrow type JSON holds: integers of every width, floats, decimals (exact), strings, base64 binaries, dates, timestamps, times and durations in ISO 8601, lists, fixed-size lists, structs, maps and dictionary-encoded strings.
