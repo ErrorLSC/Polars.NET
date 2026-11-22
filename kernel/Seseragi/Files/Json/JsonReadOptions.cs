@@ -78,6 +78,13 @@ public sealed record JsonReadOptions
     /// </summary>
     public bool FilterRows { get; init; }
 
+    /// <summary>
+    /// The name of an Int64 column put first in the batches, numbering each record from 0 in the order of the input
+    /// (before any filter: a row keeps its number); null adds none. A dataset numbers rows across its files. Typed
+    /// readers take none.
+    /// </summary>
+    public string? RowIndexColumn { get; init; }
+
     /// <summary>Whether a local file opened by its path is read through a memory mapping.</summary>
     public JsonMemoryMap MemoryMap { get; init; } = JsonMemoryMap.Auto;
 

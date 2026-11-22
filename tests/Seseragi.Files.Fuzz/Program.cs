@@ -189,7 +189,11 @@ internal static class Parent
             UseShellExecute = false,
         };
         // No core files: a guard-page hit is a SIGSEGV, and dumps would fill the disk.
-        foreach (string a in (string[])["--core=0", "--", Environment.ProcessPath!, typeof(Parent).Assembly.Location, "worker", $"{seed}", $"{first}", $"{count}", corpus])
+        // The child as this process was started: the dotnet host and the assembly, or the app host alone (given the
+        // assembly too, it would take its path for the command and run no case).
+        string host = Environment.ProcessPath!;
+        string[] child = Path.GetFileNameWithoutExtension(host) == "dotnet" ? [host, typeof(Parent).Assembly.Location] : [host];
+        foreach (string a in (string[])["--core=0", "--", .. child, "worker", $"{seed}", $"{first}", $"{count}", corpus])
             start.ArgumentList.Add(a);
         start.Environment["DOTNET_DbgEnableMiniDump"] = "0";
         start.Environment["DOTNET_EnableCrashReport"] = "0";

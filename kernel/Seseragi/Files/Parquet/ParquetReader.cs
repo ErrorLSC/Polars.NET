@@ -1173,17 +1173,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>The numbers of the rows of a batch (runs of consecutive rows) as an Int64 column.</summary>
-    private static IArrowArray RowIndex((long Start, int Count)[] runs, long firstRow, int length)
-    {
-        using var builder = new NativeFixedWidthBuilder<long>(Int64Type.Default);
-        Span<long> rows = builder.AppendSlots(length);
-        int at = 0;
-        foreach (var (start, count) in runs)
-        {
-            for (int i = 0; i < count; i++) rows[at++] = firstRow + start + i;
-        }
-        return builder.ExportArray();
-    }
+    private static IArrowArray RowIndex((long Start, int Count)[] runs, long firstRow, int length) => RowNumbers.Runs(runs, firstRow, length);
 
     /// <summary>
     /// Whether a column chunk is decoded from the file's mapping: all of them when it is on; when automatic, the

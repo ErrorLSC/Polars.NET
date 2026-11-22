@@ -25,6 +25,7 @@ public sealed class JsonDatasetReader<[DynamicallyAccessedMembers(DynamicallyAcc
     internal JsonDatasetReader(JsonDataset dataset, Expression<Func<T, bool>>? where, JsonReadOptions? options)
     {
         options ??= new JsonReadOptions();
+        if (options.RowIndexColumn is not null) throw new ArgumentException("Rows take no row index column.", nameof(options));
         // The members' columns, as JsonReader<T> reads them (GUIDs, enums, dictionaries as objects), not the dataset's own.
         dataset = dataset.Typed(JsonRowSchema<T>.Read);
         string? path = dataset.Options.FilePathColumn;

@@ -56,18 +56,24 @@ internal sealed class JsonRowFilter
     /// The rows of <paramref name="batch"/> (of the decoded columns, disposed here) the filter keeps, of the selected
     /// columns; null when it keeps none.
     /// </summary>
-    public RecordBatch? Apply(RecordBatch batch)
+    public RecordBatch? Apply(RecordBatch batch) => Apply(batch, out _);
+
+    /// <inheritdoc cref="Apply(RecordBatch)"/>
+    /// <param name="batch">The batch.</param>
+    /// <param name="kept">The rows kept (<see cref="Masks"/> layout); null when all of them are.</param>
+    public RecordBatch? Apply(RecordBatch batch, out ulong[]? kept)
     {
+        kept = null;
         int length = batch.Length;
         ulong[]? mask = null;
-        int kept = length;
+        int count = length;
         if (_program is not null && length > 0)
         {
             mask = new ulong[Masks.Words(length)];
             try
             {
                 IArrowArray[] arguments = [.. _arguments.Select(a => Argument(batch.Column(a.Column), a.Fields))];
-                kept = _program.Evaluate(arguments, length, mask);
+                count = _program.Evaluate(arguments, length, mask);
             }
             catch
             {
@@ -75,12 +81,14 @@ internal sealed class JsonRowFilter
                 throw;
             }
         }
-        if (kept == 0)
+        if (count == 0)
         {
             batch.Dispose();
             return null;
         }
-        return kept == length ? Select(batch) : Take(batch, mask!, kept);
+        if (count == length) return Select(batch);
+        kept = mask;
+        return Take(batch, mask!, count);
     }
 
     /// <summary>The first <paramref name="rows"/> rows of <paramref name="batch"/> (of the selected columns, disposed here).</summary>

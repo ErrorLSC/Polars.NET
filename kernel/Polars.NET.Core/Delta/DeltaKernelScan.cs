@@ -873,19 +873,8 @@ public static class DeltaKernelScan
 
         private static ManagedStorage OpenStore(string[] paths, CloudArgs cloud)
         {
-            if (paths.Length == 0 || !paths[0].Contains("://", StringComparison.Ordinal)) return new(null, null);
-            string root = AuthorityRoot(paths[0]);
-            if (paths.Any(p => !p.StartsWith(root + "/", StringComparison.Ordinal)))
-                throw new PolarsException($"The data files of one scan lie in different buckets: {root} and others.");
-            var fileSystem = new ObjectStoreFileSystem(root, cloud);
-            return new(new FileSystemStore(fileSystem, root), fileSystem);
-
-            static string AuthorityRoot(string url)
-            {
-                int start = url.IndexOf("://", StringComparison.Ordinal) + 3;
-                int slash = url.IndexOf('/', start);
-                return slash < 0 ? url : url[..slash];
-            }
+            var (store, owner) = ManagedStores.Open(paths, cloud);
+            return new(store, owner);
         }
 
         public void Dispose() => owner?.Dispose();

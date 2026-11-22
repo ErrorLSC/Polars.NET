@@ -281,6 +281,53 @@ public sealed class JsonDatasetTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The row index numbers rows across the files as if they were one: a file left out by a filter over partition
+    /// columns is counted (its records read, nothing delivered), rows a row filter drops keep their numbers taken.
+    /// </summary>
+    [Fact]
+    public void ARowIndex_NumbersRowsAcrossFiles_FilesLeftOutCounted()
+    {
+        Write("ri/k=1/a.jsonl", Lines(0, 1000));
+        Write("ri/k=2/a.jsonl", Lines(1000, 2000) + "\n\n");
+        Write("ri/k=3/a.jsonl", Lines(3000, 500));
+        using JsonDataset dataset = JsonDataset.Open(At("ri"), new JsonDatasetOptions { FilePathColumn = "file" });
+        foreach (int threads in (int[])[1, 8])
+        {
+            var options = new JsonReadOptions { RowIndexColumn = "row", Columns = ["id", "k"], MaxDegreeOfParallelism = threads, UnitBytes = 2048 };
+            using (JsonDatasetReader reader = dataset.OpenReader(options))
+            {
+                Assert.Equal(["row", "id", "k", "file"], reader.Schema.FieldsList.Select(f => f.Name));
+                List<string> rows = Rows(reader.ReadBatches());
+                Assert.Equal(3500, rows.Count);
+                Assert.All(rows, r => Assert.Equal(r.Split(" | ")[0], r.Split(" | ")[1])); // ids are the rows' numbers
+            }
+            // k = 2 left out (counted), id % 3 = 0 kept.
+            ScalarExpr filter = ScalarExpr.NewBinary(BinaryOp.And,
+                ScalarExpr.NewBinary(BinaryOp.NotEq, Col("k"), Lit(2)),
+                ScalarExpr.NewBinary(BinaryOp.Eq, ScalarExpr.NewBinary(BinaryOp.Modulo, Col("id"), Lit(3)), Lit(0)));
+            using (JsonDatasetReader reader = dataset.OpenReader(options with { Filter = filter, FilterRows = true }))
+            {
+                Assert.Equal([true, false, true], reader.FilesRead);
+                List<string> rows = Rows(reader.ReadBatches());
+                List<long> ids = [.. Enumerable.Range(0, 1000).Concat(Enumerable.Range(3000, 500)).Where(i => i % 3 == 0).Select(i => (long)i)];
+                Assert.Equal([.. ids.Select(i => $"{i} | {i} | {(i < 1000 ? 1 : 3)}")], [.. rows.Select(r => string.Join(" | ", r.Split(" | ")[..3]))]);
+            }
+            using (JsonDatasetReader reader = dataset.OpenReader(options with { MaxRows = 1500 }))
+                Assert.Equal([.. Enumerable.Range(0, 1500).Select(i => $"{i}")], [.. Rows(reader.ReadBatches()).Select(r => r.Split(" | ")[0])]);
+        }
+        Write("ri/k=2/a.jsonl", Lines(1000, 10) + "not json\n");
+        using JsonDataset broken = JsonDataset.Open(At("ri"));
+        ScalarExpr leaveOut = ScalarExpr.NewBinary(BinaryOp.NotEq, Col("k"), Lit(2));
+        // Without a row index the file left out is not opened; with one its records are read, and its error stands.
+        Assert.Equal(1500, Read(broken, new JsonReadOptions { Filter = leaveOut }).Count);
+        var e = Assert.Throws<JsonFormatException>(() => Read(broken, new JsonReadOptions { Filter = leaveOut, RowIndexColumn = "row" }));
+        Assert.StartsWith(At("ri/k=2/a.jsonl"), e.Message);
+        Assert.Throws<ArgumentException>(() => dataset.OpenReader<Indexed>(options: new JsonReadOptions { RowIndexColumn = "row" }));
+    }
+
+    private sealed record Indexed(long Id);
+
     [Fact]
     public void AnErrorNamesItsFileAndLine_UnlessARowLimitStopsBeforeIt()
     {

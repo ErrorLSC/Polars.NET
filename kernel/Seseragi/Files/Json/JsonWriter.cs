@@ -728,6 +728,18 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
             }
             _written += tail.Bytes.Length;
         }
+        else if (_options.Compression != JsonCompression.None && Interlocked.Read(ref _written) == 0)
+        {
+            // No rows: one empty member (or frame), for the output to be a compressed file still.
+            using var empty = new EncodedPiece(EncodedPiece.Compress(new NativeBufferWriter(1), _options.Compression, _options.CompressionLevel), null);
+            try { await _sink.WriteAsync(empty.Bytes, useAsync, ct).ConfigureAwait(false); }
+            catch
+            {
+                _faulted = true;
+                throw;
+            }
+            _written += empty.Bytes.Length;
+        }
         _completed = true;
         await _sink.CompleteAsync(useAsync, ct).ConfigureAwait(false);
     }

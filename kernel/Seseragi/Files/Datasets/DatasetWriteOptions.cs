@@ -59,6 +59,13 @@ public abstract record DatasetWriteOptions
     /// <summary>Whether a local file is synced to disk before it takes its name (off by default, as dataframe engines and pyarrow write).</summary>
     public bool SyncOnCommit { get; init; }
 
+    /// <summary>
+    /// Whether the rows come grouped by their partition keys (each partition's rows together, across batches): then
+    /// not gathered, and a partition's file is closed once the next partition's rows come. Rows not grouped write more
+    /// files, never wrong ones.
+    /// </summary>
+    internal bool KeysPreGrouped { get; init; }
+
     internal void Validate()
     {
         if (!Enum.IsDefined(ExistingData)) throw new ArgumentOutOfRangeException(nameof(ExistingData), ExistingData, "Unknown handling of existing data.");

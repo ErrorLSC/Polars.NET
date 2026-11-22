@@ -89,22 +89,7 @@ internal sealed class IpcDecoding
         RecordBatch batch = decoded.Batch;
         if (_rowIndex is null) return batch;
         int length = batch.Length;
-        using var builder = new NativeFixedWidthBuilder<long>(Int64Type.Default);
-        Span<long> numbers = builder.AppendSlots(length);
-        if (decoded.Kept is not { } kept)
-        {
-            for (int i = 0; i < length; i++) numbers[i] = start + i;
-        }
-        else
-        {
-            int at = 0;
-            for (int w = 0; w < kept.Length && at < length; w++)
-            {
-                for (ulong word = kept[w]; word != 0 && at < length; word &= word - 1)
-                    numbers[at++] = start + 64L * w + BitOperations.TrailingZeroCount(word);
-            }
-        }
-        IArrowArray index = builder.ExportArray();
+        IArrowArray index = decoded.Kept is { } kept ? RowNumbers.Selected(start, kept, length) : RowNumbers.Range(start, length);
         return new RecordBatch(OutputSchema, [index, .. batch.Arrays], length);
     }
 

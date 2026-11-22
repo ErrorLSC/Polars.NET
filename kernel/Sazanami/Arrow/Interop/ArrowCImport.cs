@@ -310,6 +310,12 @@ internal sealed unsafe class ArrowCStreamReader : IArrowArrayStream
 
     public Schema Schema => _schema ??= ReadSchema();
 
+    /// <summary>
+    /// Imports the stream's schema (the C schema's address; the caller releases it afterwards): Apache.Arrow's importer
+    /// unless set (one that knows types it lacks, such as the engine's 128-bit integers).
+    /// </summary>
+    public Func<nint, Schema>? SchemaImporter { get; init; }
+
     private Schema ReadSchema()
     {
         CArrowArrayStream* stream = Stream();
@@ -317,7 +323,7 @@ internal sealed unsafe class ArrowCStreamReader : IArrowArrayStream
         Check(stream->get_schema(stream, (CArrowSchema*)&schema));
         try
         {
-            return CArrowSchemaImporter.ImportSchema((CArrowSchema*)&schema);
+            return SchemaImporter is { } import ? import((nint)(&schema)) : CArrowSchemaImporter.ImportSchema((CArrowSchema*)&schema);
         }
         finally
         {

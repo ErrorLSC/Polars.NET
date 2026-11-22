@@ -127,6 +127,12 @@ internal sealed class JsonDecodeSettings
 
     public Schema Schema { get; }
 
+    /// <summary>
+    /// The schema of the batches delivered with a row index: its column first, then the columns delivered (the
+    /// selected ones when filtered); null without a row index.
+    /// </summary>
+    public Schema? Indexed { get; init; }
+
     public int BatchSize { get; }
 
     public bool IgnoreErrors { get; }

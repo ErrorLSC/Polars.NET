@@ -173,6 +173,37 @@ public abstract class CloudDatasetWriteContract
         Assert.Equal("no name", error.Message);
         Assert.Empty(await List(store, $"{root}/f/"));
     }
+
+    private sealed record JsonRow(long Id, long K, string S);
+
+    /// <summary>
+    /// The engine's JSON entry points on the store (Core's managed JSON): a query sunk as one compressed file and as Hive
+    /// partitions, scanned back (a row index, the file path, the partitions as columns).
+    /// </summary>
+    [Fact]
+    public void ManagedJson_SinksAndScansOnTheStore()
+    {
+        string root = NewRoot();
+        Polars.NET.Core.Delta.CloudArgs cloud = Polars.NET.Core.Delta.CloudArgs.ForLocation(root, [.. Keys.Keys], [.. Keys.Values]);
+        using var df = Polars.CSharp.DataFrame.From<JsonRow>([.. Enumerable.Range(0, 3000).Select(i => new JsonRow(i, i % 3, $"value {i}"))]);
+        Polars.NET.Core.Json.ManagedJson.SinkJson(df.Lazy().CloneHandle(), $"{root}/one.jsonl.gz", Polars.NET.Core.Enums.PlExternalCompression.Gzip, -1,
+            true, true, Polars.NET.Core.Enums.PlSyncOnClose.None, false, cloud);
+        using (var one = new Polars.CSharp.LazyFrame(Polars.NET.Core.Json.ManagedJson.ScanNdjson($"{root}/one.jsonl.gz", null, null, null, 100, null, false,
+                   "row", 0, "file", false, cloud)).Collect())
+        {
+            Assert.Equal(["row", "Id", "K", "S", "file"], one.Columns);
+            Assert.Equal(3000, one.Height);
+            Assert.Equal(Enumerable.Range(0, 3000).Select(i => (long)i), one.Column("Id").ToArray<long>());
+            Assert.Equal($"{root}/one.jsonl.gz", one.Column("file").ToArray<string>()[0]);
+        }
+        Polars.NET.Core.Json.ManagedJson.SinkJsonPartitioned(df.Lazy().CloneHandle(), $"{root}/parts", ["K"], false, false, 700, 0,
+            Polars.NET.Core.Enums.PlExternalCompression.Uncompressed, -1, true, Polars.NET.Core.Enums.PlSyncOnClose.None, ExistingData.Error, cloud);
+        using var parts = new Polars.CSharp.LazyFrame(Polars.NET.Core.Json.ManagedJson.ScanNdjson($"{root}/parts/", null, null, null, 100, null, false,
+            null, 0, null, true, cloud)).Collect();
+        Assert.Equal(3000, parts.Height);
+        Assert.Equal(3000L, parts.Column("K").ToArray<long>().Sum());
+        Assert.Equal(Enumerable.Range(0, 3000).Sum(i => (long)i), parts.Column("Id").ToArray<long>().Sum());
+    }
 }
 
 [Trait("Category", "Integration")]

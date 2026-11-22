@@ -6,6 +6,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Concurrency;
 using Kaminari.Seseragi.Files.IO;
@@ -41,8 +42,8 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         FiltersExactly = exact;
     }
 
-    /// <summary>The columns read (after <see cref="JsonReadOptions.Columns"/>).</summary>
-    public Schema Schema => _filter?.Selected ?? _settings.Schema;
+    /// <summary>The columns read (after <see cref="JsonReadOptions.Columns"/>), the row index first when asked.</summary>
+    public Schema Schema => _settings.Indexed ?? _filter?.Selected ?? _settings.Schema;
 
     /// <summary>
     /// Whether the rows delivered are exactly those <see cref="JsonReadOptions.Filter"/> keeps: true without a filter
@@ -264,9 +265,22 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
             schema = rows.Decoded;
             passedOver = [.. full.FieldsList.Where(f => schema.GetFieldIndex(f.Name) < 0).Select(f => f.Name)];
         }
-        var settings = new JsonDecodeSettings(schema, options.BatchSize, options.IgnoreErrors, strict, passedOver, options.KeysIgnoreCase);
+        var settings = new JsonDecodeSettings(schema, options.BatchSize, options.IgnoreErrors, strict, passedOver, options.KeysIgnoreCase)
+        {
+            Indexed = Indexed(rows?.Selected ?? schema, options.RowIndexColumn),
+        };
         Validate(settings);
         return (settings, rows, exact);
+    }
+
+    // The batches' schema with the row index column first (null without one).
+    private static Schema? Indexed(Schema delivered, string? rowIndex)
+    {
+        if (rowIndex is null) return null;
+        if (rowIndex.Length == 0) throw new ArgumentException("The row index column needs a name.", "options");
+        if (delivered.GetFieldIndex(rowIndex) >= 0)
+            throw new ArgumentException($"The row index column '{rowIndex}' has the name of another column read.", "options");
+        return new Schema([new Field(rowIndex, Int64Type.Default, nullable: false), .. delivered.FieldsList], delivered.Metadata);
     }
 
     // The columns of the first records (all of them without a length), every record taken in in input order (as
@@ -386,6 +400,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
                     {
                         RecordBatch batch = unit.Batches[k]!;
                         unit.Batches[k] = null;
+                        if (_settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), records);
                         // Filtered rows are counted as they are delivered: the last batch is cut to the limit.
                         if (rows + batch.Length > max) batch = JsonRowFilter.First(batch, (int)(max - rows));
                         rows += batch.Length;
@@ -430,6 +445,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
                     {
                         RecordBatch batch = unit.Batches[k]!;
                         unit.Batches[k] = null;
+                        if (_settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), records);
                         // Filtered rows are counted as they are delivered: the last batch is cut to the limit.
                         if (rows + batch.Length > max) batch = JsonRowFilter.First(batch, (int)(max - rows));
                         rows += batch.Length;
@@ -480,25 +496,35 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         return bytes is null ? JsonUnit.EndOfInput : Decode(bytes, _settings, _filter, _options.Format == JsonFormat.Document, maxRows);
     }
 
-    /// <summary>A unit's records decoded (up to <paramref name="maxRows"/>) and filtered.</summary>
+    /// <summary>
+    /// A unit's records decoded (up to <paramref name="maxRows"/>), filtered, and numbered from the unit's first record
+    /// when a row index is asked (<see cref="JsonDecodeSettings.Indexed"/>: the numbers are shifted by the records before
+    /// the unit as it is delivered).
+    /// </summary>
     internal static JsonUnit Decode(JsonUnitBytes bytes, JsonDecodeSettings settings, JsonRowFilter? filter, bool document, long maxRows)
     {
         JsonUnit unit = document ? JsonDecode.DecodeDocument(bytes, settings, maxRows) : JsonDecode.Decode(bytes.Memory.Span, bytes.FileStart, settings, maxRows);
-        if (filter is not null && unit.Error is null) Filter(unit, filter);
+        if (unit.Error is null && (filter is not null || settings.Indexed is not null)) Deliverable(unit, filter, settings.Indexed);
         return unit;
     }
 
-    // A unit's batches filtered (on the thread that decoded it); batches left without rows are dropped.
-    private static void Filter(JsonUnit unit, JsonRowFilter rowFilter)
+    // A unit's batches filtered and numbered (on the thread that decoded it); batches left without rows are dropped.
+    private static void Deliverable(JsonUnit unit, JsonRowFilter? rowFilter, Schema? indexed)
     {
         try
         {
             int kept = 0;
+            long first = 0; // the unit's records before the batch
             for (int k = 0; k < unit.Batches.Count; k++)
             {
                 RecordBatch batch = unit.Batches[k]!;
                 unit.Batches[k] = null;
-                if (rowFilter.Apply(batch) is { } filtered) unit.Batches[kept++] = filtered;
+                int length = batch.Length;
+                ulong[]? mask = null;
+                RecordBatch? output = rowFilter is null ? batch : rowFilter.Apply(batch, out mask);
+                if (output is not null && indexed is not null) output = Numbered(output, indexed, first, mask);
+                first += length;
+                if (output is not null) unit.Batches[kept++] = output;
             }
             unit.Batches.RemoveRange(kept, unit.Batches.Count - kept);
         }
@@ -506,6 +532,22 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         {
             unit.Dispose();
             throw;
+        }
+
+        // The batch with its rows' numbers first: from the batch's first record, the rows a filter kept.
+        static RecordBatch Numbered(RecordBatch batch, Schema indexed, long first, ulong[]? kept)
+        {
+            IArrowArray numbers;
+            try
+            {
+                numbers = kept is null ? RowNumbers.Range(first, batch.Length) : RowNumbers.Selected(first, kept, batch.Length);
+            }
+            catch
+            {
+                batch.Dispose();
+                throw;
+            }
+            return new RecordBatch(indexed, [numbers, .. batch.Arrays], batch.Length);
         }
     }
 

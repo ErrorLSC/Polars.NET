@@ -33,6 +33,7 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
             bool ignore = random.Next(4) == 0;
             var reference = Read(bytes, new JsonReadOptions { Format = format, Schema = given, IgnoreErrors = ignore, MaxDegreeOfParallelism = 1 }, 0);
             long? max = random.Next(4) == 0 ? random.Next(0, 300) : null;
+            bool indexed = random.Next(4) == 0;
             var options = new JsonReadOptions
             {
                 Format = format,
@@ -42,10 +43,11 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
                 UnitBytes = random.Next(3) switch { 0 => random.Next(1, 64), 1 => random.Next(64, 8192), _ => 1 << 20 },
                 MaxRows = max,
                 BatchSize = random.Next(2) == 0 ? random.Next(1, 100) : JsonReadOptions.DefaultBatchSize,
+                RowIndexColumn = indexed ? "__fuzz_row_index__" : null,
             };
             int kind = random.Next(4);
             var candidate = Read(bytes, options, kind);
-            string described = $"{format}, source {kind}, threads {options.MaxDegreeOfParallelism}, unit {options.UnitBytes}, batch {options.BatchSize}, max {max}, schema given {given is not null}, ignore {ignore}, gzip {bytes.Length > 1 && bytes[0] == 0x1F}";
+            string described = $"{format}, source {kind}, threads {options.MaxDegreeOfParallelism}, unit {options.UnitBytes}, batch {options.BatchSize}, max {max}, schema given {given is not null}, ignore {ignore}, row index {indexed}, gzip {bytes.Length > 1 && bytes[0] == 0x1F}";
             if (reference.Error is { } e1)
             {
                 // A limited read may stop before the refused line.
@@ -56,6 +58,8 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
             }
             if (candidate.Error is { } e) return new Outcome(true, "refused the second time only", e.ToString());
             var expected = max is long m ? reference.Rows!.Take((int)m).ToList() : reference.Rows!;
+            // The row index numbers the records read first.
+            if (indexed) expected = [.. expected.Select((row, i) => row.Length == 0 ? $"{i}" : $"{i} | {row}")];
             if (!expected.SequenceEqual(candidate.Rows!))
             {
                 int at = expected.Zip(candidate.Rows!).TakeWhile(p => p.First == p.Second).Count();

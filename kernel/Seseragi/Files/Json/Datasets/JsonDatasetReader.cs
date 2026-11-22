@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Kaminari.Samidare.IR;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Concurrency;
 using Kaminari.Sazanami.Network;
 using Kaminari.Seseragi.Files.IO;
@@ -26,6 +27,9 @@ namespace Kaminari.Seseragi.Files.Json;
 /// <item><see cref="JsonReadOptions.Filter"/>: its conjuncts over partition columns only decide which files are read
 /// (exactly, on the files' partition values: the others are not opened); with <see cref="JsonReadOptions.FilterRows"/> the
 /// others filter the rows of every file read as they are decoded, partition columns replaced by the file's values.</item>
+/// <item><see cref="JsonReadOptions.RowIndexColumn"/> numbers the rows across the files, in the order listed, as if they
+/// were one (the numbers of each file follow the previous files' records, those of files left out included: their
+/// records are read and counted, so a syntax error in them fails the read): the first column.</item>
 /// <item><see cref="JsonReadOptions.MaxRows"/> counts the rows delivered across the files.</item>
 /// </list>
 /// Errors in a file name it, and the line (and array index) in it.
@@ -37,6 +41,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     private readonly DatasetShape _shape; // the columns, the filter's split, partition values and the file path added
     private readonly bool[] _read;        // the files a filter over partition columns leaves
     private readonly bool _document;
+    private readonly bool _indexed;       // a row index is asked: files left out are counted
     private int _filteredAfter;
 
     internal JsonDatasetReader(JsonDataset dataset, JsonReadOptions options)
@@ -50,8 +55,9 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         _dataset = dataset;
         _options = options;
         _document = dataset.Options.Format == JsonFormat.Document;
+        _indexed = options.RowIndexColumn is not null;
         _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files.Count,
-            options.Columns, null, options.Filter, options.FilterRows, null, views: true,
+            options.Columns, null, options.Filter, options.FilterRows, options.RowIndexColumn, views: true,
             PathOf, static (message, inner) => new JsonFormatException(message, inner));
         _read = _shape.Read;
         Schema = _shape.Output;
@@ -133,16 +139,22 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
             long? left = _options.MaxRows;
             int file = -1;
             long lines = 0, records = 0; // in the file read, before the unit taken
+            long before = 0;             // the records of the files before it (row index)
             while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } taken)
             {
                 try
                 {
-                    if (taken.File != file) (file, lines, records) = (taken.File, 0, 0);
+                    if (taken.File != file)
+                    {
+                        before += records;
+                        (file, lines, records) = (taken.File, 0, 0);
+                    }
                     if (taken.Unit is not { } unit) continue;
                     if (unit.Error is { } error)
                     {
-                        // Past the rows still wanted the error is never met (as one file reads it): the unit read again up to them.
-                        if (left is long wanted && taken.Plan!.Filter is null && taken.Bytes is { } again)
+                        // Past the rows still wanted the error is never met (as one file reads it): the unit read again up to
+                        // them. A file only counted delivers no rows: its error stands.
+                        if (left is long wanted && taken.Plan!.Filter is null && !taken.Plan.CountOnly && taken.Bytes is { } again)
                         {
                             unit = taken.Redo(Decode(taken.Plan, again, wanted));
                             if (unit.Error is { } still) throw InFile(file, still.At(lines, records));
@@ -156,6 +168,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                         if (batch is null) continue;
                         if (taken.Raw) batch = _shape.Convert(batch, taken.Plan!.Converted, taken.Plan.FilterAfter, file);
                         if (batch is null) continue;
+                        if (_indexed) RowNumbers.Shift(batch.Column(0), before + records);
                         yield return _shape.Cut(batch, ref left, null);
                     }
                     lines += unit.Lines;
@@ -180,7 +193,12 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     /// How a file is decoded: the columns (and those the dataset's filter reads after decoding), its row filter (its
     /// partition values in place), and how its batches become the dataset's.
     /// </summary>
-    private sealed record FilePlan(JsonDecodeSettings Settings, JsonRowFilter? Filter, DatasetShape.Converted Converted, bool FilterAfter);
+    /// <remarks>A file only counted (<see cref="CountOnly"/>: left out by a filter over partition columns while a row index
+    /// is asked) has its records decoded without columns, their number taken, nothing delivered.</remarks>
+    private sealed record FilePlan(JsonDecodeSettings Settings, JsonRowFilter? Filter, DatasetShape.Converted Converted, bool FilterAfter, bool CountOnly = false);
+
+    /// <summary>The plan of the files only counted, made once.</summary>
+    private FilePlan? _counting;
 
     /// <summary>The file columns (every file holds the dataset's: a field a record lacks is null), made once.</summary>
     private FileColumnsOfAll? _fileColumns;
@@ -200,6 +218,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     private FilePlan Plan(int index)
     {
         string path = PathOf(index);
+        if (!_read[index]) return Volatile.Read(ref _counting) ?? Counting();
         if (Volatile.Read(ref _fileColumns) is not { } fileColumns) Volatile.Write(ref _fileColumns, fileColumns = Columns());
         var (has, columns) = fileColumns;
         var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped, has);
@@ -229,11 +248,20 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                 plan = Prepare(columns, fileFilter, after, path);
             }
             if (after) Interlocked.Increment(ref _filteredAfter);
-            Schema decoded = plan.Filter?.Selected ?? plan.Settings.Schema;
+            Schema decoded = plan.Settings.Indexed ?? plan.Filter?.Selected ?? plan.Settings.Schema;
             var made = new FilePlan(plan.Settings, plan.Filter, _shape.Conversions(decoded, after, path), after);
             Interlocked.Increment(ref _plansMade);
             Volatile.Write(ref _shared, new SharedPlan(fileFilter, complete, made));
             return made;
+        }
+
+        // Records decoded without columns (their syntax checked), counted.
+        FilePlan Counting()
+        {
+            var (settings, _, _) = Prepare(new DatasetShape.FileColumns([], [], [([], null), ([], null)]), null, false, path, rowIndex: false);
+            var made = new FilePlan(settings, null, new DatasetShape.Converted([], []), false, CountOnly: true);
+            Interlocked.CompareExchange(ref _counting, made, null);
+            return _counting!;
         }
 
         FileColumnsOfAll Columns()
@@ -244,19 +272,24 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         }
     }
 
-    private (JsonDecodeSettings Settings, JsonRowFilter? Filter, bool Exact) Prepare(DatasetShape.FileColumns columns, ScalarExpr? filter, bool after, string path)
+    private (JsonDecodeSettings Settings, JsonRowFilter? Filter, bool Exact) Prepare(DatasetShape.FileColumns columns, ScalarExpr? filter, bool after, string path,
+        bool rowIndex = true)
     {
         // A document's fields the inference did not see are errors, as in one file.
         bool strict = _document && _dataset.Inferred && !_options.IgnoreErrors;
         try
         {
-            return JsonReader.Prepare(_dataset.FileSchema, columns.Lists[after ? 1 : 0].Columns, _options.FilterRows ? filter : null, _options, strict);
+            return JsonReader.Prepare(_dataset.FileSchema, columns.Lists[after ? 1 : 0].Columns, _options.FilterRows ? filter : null,
+                rowIndex ? _options : _options with { RowIndexColumn = null }, strict);
         }
         catch (Exception e) when (JsonDataset.Named(path, e) is { } named)
         {
             throw named;
         }
     }
+
+    /// <summary>Whether file <paramref name="index"/> is read: its rows delivered, or (a row index asked) its records counted.</summary>
+    private bool Needed(int index) => _read[index] || _indexed;
 
     /// <summary>A unit's records decoded (up to <paramref name="rows"/>) and filtered by the file's filter.</summary>
     private JsonUnit Decode(FilePlan plan, JsonUnitBytes bytes, long rows) => JsonReader.Decode(bytes, plan.Settings, plan.Filter, _document, rows);
@@ -432,7 +465,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         {
             get
             {
-                while (_nextFile < owner._dataset.Files.Count && !owner._read[_nextFile]) _nextFile++;
+                while (_nextFile < owner._dataset.Files.Count && !owner.Needed(_nextFile)) _nextFile++;
                 return _nextFile < owner._dataset.Files.Count;
             }
         }
@@ -442,7 +475,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         {
             for (; _nextFile < owner._dataset.Files.Count; _nextFile++)
             {
-                if (owner._read[_nextFile]) return _nextFile++;
+                if (owner.Needed(_nextFile)) return _nextFile++;
             }
             return null;
         }
@@ -506,6 +539,13 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
             if (decoded.Error is not null) return new Output(slot, slot.Index, plan, decoded, bytes, unit, raw: false); // kept: decoded again if wanted
             bytes.Dispose();
             slot.Input.Release(unit);
+            if (plan.CountOnly)
+            {
+                // Only the records' number is wanted.
+                foreach (RecordBatch? batch in decoded.Batches) batch?.Dispose();
+                decoded.Batches.Clear();
+                return new Output(null, slot.Index, plan, decoded, null, unit, raw: false);
+            }
             try
             {
                 for (int k = 0; k < decoded.Batches.Count; k++)

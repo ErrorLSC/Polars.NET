@@ -144,7 +144,7 @@ internal sealed class DatasetWriting<TFile> : IDisposable where TFile : DatasetW
             throw new ArgumentException($"The batch's columns ({Describe(batch.Schema)}) are not the dataset's ({Describe(Schema)}).", nameof(batch));
         try
         {
-            _sink.Write(_keys.Length == 0 || batch.Length <= ChunkRows ? [batch] : Chunks(batch));
+            _sink.Write(_keys.Length == 0 || batch.Length <= ChunkRows ? [batch] : Chunks(batch), _options.KeysPreGrouped);
             _sink.HoldMemory();
         }
         catch (Exception e)

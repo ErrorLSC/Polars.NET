@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Samidare.IR;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Json;
 
@@ -545,4 +546,60 @@ public class JsonReadTests
         using (JsonReader.Open(stream)) { }
         Assert.False(stream.CanRead);
     }
+
+    // ---------------------------------------------------------------- row index
+
+    /// <summary>
+    /// The row index numbers records in input order from 0 (blank lines are not records), before the filter (a row keeps
+    /// its number), across chunks decoded side by side; the row limit cuts after it.
+    /// </summary>
+    [Theory]
+    [InlineData(JsonFormat.Lines)]
+    [InlineData(JsonFormat.Document)]
+    public void ARowIndex_NumbersRecordsBeforeTheFilter(JsonFormat format)
+    {
+        var text = new StringBuilder(format == JsonFormat.Document ? "[\n" : "");
+        for (int i = 0; i < 300; i++)
+        {
+            text.Append($$"""{"a":{{2 * i}}}""").Append(format == JsonFormat.Document && i < 299 ? ",\n" : "\n");
+            if (i % 7 == 0) text.Append('\n');
+        }
+        if (format == JsonFormat.Document) text.Append(']');
+        // a < 100 or a >= 560: rows 0..49 and 280..299, holes inside batches and chunks.
+        ScalarExpr filter = ScalarExpr.NewBinary(BinaryOp.Or,
+            ScalarExpr.NewBinary(BinaryOp.Lt, ScalarExpr.NewColumn("a"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(100))),
+            ScalarExpr.NewBinary(BinaryOp.GtEq, ScalarExpr.NewColumn("a"), ScalarExpr.NewLiteral(LiteralValue.NewInt64(560))));
+        List<string> all = [.. Enumerable.Range(0, 300).Select(i => $"{i} | {2 * i}")];
+        List<string> kept = [.. Enumerable.Range(0, 50).Concat(Enumerable.Range(280, 20)).Select(i => $"{i} | {2 * i}")];
+        foreach (Source source in Sources)
+        {
+            foreach (int unit in (int[])[40, 333, 1 << 20])
+            {
+                foreach (int threads in (int[])[1, 8])
+                {
+                    var options = new JsonReadOptions { Format = format, RowIndexColumn = "i", UnitBytes = unit, MaxDegreeOfParallelism = threads, BatchSize = 16 };
+                    var (schema, rows) = Read(text.ToString(), options, source);
+                    Assert.Equal("i: int64, a: int64", Types(schema));
+                    Assert.False(schema.GetFieldByName("i").IsNullable);
+                    Assert.Equal(all, rows);
+                    Assert.Equal(all[..17], Read(text.ToString(), options with { MaxRows = 17 }, source).Rows);
+                    var filtered = options with { Filter = filter, FilterRows = true };
+                    Assert.Equal(kept, Read(text.ToString(), filtered, source).Rows);
+                    Assert.Equal(kept[..55], Read(text.ToString(), filtered with { MaxRows = 55 }, source).Rows);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void ARowIndex_NeedsANameOfItsOwn_AndTypedRowsTakeNone()
+    {
+        Assert.Throws<ArgumentException>(() => Read("{\"a\":1}\n", new JsonReadOptions { RowIndexColumn = "a" }));
+        Assert.Throws<ArgumentException>(() => Read("{\"a\":1}\n", new JsonReadOptions { RowIndexColumn = "" }));
+        // A column not read may share its name.
+        Assert.Equal(["0 | 1"], Read("{\"a\":1,\"b\":2}\n", new JsonReadOptions { RowIndexColumn = "b", Columns = ["a"] }).Rows);
+        Assert.Throws<ArgumentException>(() => JsonReader.ParseList<RowIndexed>("{\"A\":1}\n", options: new JsonReadOptions { RowIndexColumn = "i" }));
+    }
+
+    private sealed record RowIndexed(long A);
 }

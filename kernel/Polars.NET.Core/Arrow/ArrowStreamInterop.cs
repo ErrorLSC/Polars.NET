@@ -24,6 +24,8 @@ public static unsafe class ArrowStreamInterop
         public Func<StreamScanRequest, IEnumerable<RecordBatch>> Factory = default!;
         public Schema Schema = default!;
         public List<IntPtr> AllocatedStreams = [];
+        /// <summary>What the scan's streams read from (a copy of the input, pinned memory, a store), released with the scan.</summary>
+        public IDisposable? Owner;
     }
 
     /// <summary>
@@ -125,6 +127,7 @@ public static unsafe class ArrowStreamInterop
                 }
 
                 handle.Free();
+                context.Owner?.Dispose();
             }
         }
         catch (Exception ex)
@@ -173,12 +176,14 @@ public static unsafe class ArrowStreamInterop
 
     public static void* CreateDirectScanContext(
         Func<StreamScanRequest, IEnumerable<RecordBatch>> factory,
-        Schema schema)
+        Schema schema,
+        IDisposable? owner = null)
     {
         var context = new ScanContext
         {
             Factory = factory,
-            Schema = schema
+            Schema = schema,
+            Owner = owner,
         };
 
         var gcHandle = GCHandle.Alloc(context);
@@ -213,6 +218,18 @@ public static unsafe class ArrowStreamInterop
         => Scan(streamFactory, schema, buffered: false, strict);
 
     /// <summary>
+    /// As <see cref="ScanStream(Func{StreamScanRequest, IEnumerable{RecordBatch}}, Schema, bool)"/>, with what the streams
+    /// read from: <paramref name="owner"/> is disposed once the engine releases the scan (the last frame reading it, and
+    /// any query still running on it, done), or now when the scan cannot be made.
+    /// </summary>
+    public static LazyFrameHandle ScanStream(
+        Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory,
+        Schema schema,
+        bool strict,
+        IDisposable owner)
+        => Scan(streamFactory, schema, buffered: false, strict, owner);
+
+    /// <summary>
     /// Reads the stream now into an anonymous temporary Arrow IPC file and scans that file. The engine owns the file:
     /// it is removed when the last frame that scans it is released. The whole stream is read: the query is not
     /// known yet.
@@ -223,14 +240,23 @@ public static unsafe class ArrowStreamInterop
         bool strict = false)
         => Scan(_ => streamFactory(), schema, buffered: true, strict);
 
-    private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict)
+    private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict,
+        IDisposable? owner = null)
     {
         var cSchema = CArrowSchema.Create();
         try
         {
-            CArrowSchemaExporter.ExportSchema(schema, cSchema);
+            try
+            {
+                CArrowSchemaExporter.ExportSchema(schema, cSchema);
+            }
+            catch
+            {
+                owner?.Dispose();
+                throw;
+            }
             // The engine owns userData from here on and releases it through the destroy callback.
-            var userData = CreateDirectScanContext(streamFactory, schema);
+            var userData = CreateDirectScanContext(streamFactory, schema, owner);
             return buffered
                 ? PolarsWrapper.LazyFrameScanStreamBuffered(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData, strict)
                 : PolarsWrapper.LazyFrameScanStream(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData, strict);
@@ -401,10 +427,16 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Export Polars DataFrame to C# IArrowArrayStream
     /// </summary>
+    /// <param name="dfHandle">The frame.</param>
+    /// <param name="columnIndices">The columns exported (all when empty).</param>
+    /// <param name="seed">A seed for the engine's export.</param>
+    /// <param name="wideIntegers">Whether 128-bit integer columns come as decimal(38, 0) columns marked by field
+    /// metadata (<see cref="Kaminari.Sazanami.Data.Building.WideIntegers"/>) instead of failing the import.</param>
     public static IArrowArrayStream ExportToStream(
         DataFrameHandle dfHandle,
         ReadOnlySpan<int> columnIndices = default,
-        ulong? seed = null)
+        ulong? seed = null,
+        bool wideIntegers = false)
     {
         var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
         int result;
@@ -431,8 +463,12 @@ public static unsafe class ArrowStreamInterop
 
         ErrorHelper.CheckStatus(result);
 
-        // The reader moves the stream out of the struct; SafePolarsExportStream frees the struct.
-        var managedStream = new ArrowCStreamReader(cStream);
+        // The reader moves the stream out of the struct; SafePolarsExportStream frees the struct. 128-bit integers come
+        // as marked decimals when asked (Apache.Arrow has no type for them).
+        var managedStream = new ArrowCStreamReader(cStream)
+        {
+            SchemaImporter = wideIntegers ? static schema => WideIntegerFormats.ImportSchema((CArrowSchema*)schema) : null,
+        };
 
         return new SafePolarsExportStream(managedStream, (IntPtr)cStream);
     }

@@ -250,6 +250,30 @@ public class JsonWriterTests
         finally { batches.ForEach(b => b.Dispose()); }
     }
 
+    /// <summary>No rows, compressed: one empty member (or frame), so that the output is compressed data still.</summary>
+    [Theory]
+    [InlineData(JsonCompression.Gzip, JsonFormat.Lines, "")]
+    [InlineData(JsonCompression.Zstd, JsonFormat.Lines, "")]
+    [InlineData(JsonCompression.Gzip, JsonFormat.Document, "[]")]
+    [InlineData(JsonCompression.None, JsonFormat.Lines, "")]
+    public void NoRows_Compressed_IsAnEmptyMember(JsonCompression compression, JsonFormat format, string text)
+    {
+        var schema = new Schema([F("a", Int64Type.Default)], null);
+        using var output = new MemoryStream();
+        JsonWriter.Write(output, schema, [], new JsonWriteOptions { Format = format, Compression = compression });
+        byte[] packed = output.ToArray();
+        Assert.Equal(compression == JsonCompression.None && text.Length == 0, packed.Length == 0);
+        using Stream unpacked = compression switch
+        {
+            JsonCompression.Gzip => new GZipStream(new MemoryStream(packed), CompressionMode.Decompress),
+            JsonCompression.Zstd => new ZstdSharp.DecompressionStream(new MemoryStream(packed)),
+            _ => new MemoryStream(packed),
+        };
+        using var plain = new MemoryStream();
+        unpacked.CopyTo(plain);
+        Assert.Equal(text, Encoding.UTF8.GetString(plain.ToArray()));
+    }
+
     [Fact]
     public void TextOutputs_RefuseCompression_AndLevelsAreChecked()
     {

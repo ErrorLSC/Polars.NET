@@ -113,6 +113,7 @@ public sealed class JsonReader<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         options ??= new JsonReadOptions();
         if (options.Schema is not null || options.SchemaOverrides is not null)
             throw new ArgumentException("The rows' members are the columns: give no schema (nor schema overrides).", nameof(options));
+        if (options.RowIndexColumn is not null) throw new ArgumentException("Rows take no row index column.", nameof(options));
         Schema schema = JsonRowSchema<T>.Read;
         TypedPlan<T> plan = TypedRows.Plan(where, [.. schema.FieldsList.Select(f => f.Name)], columns => Project(schema, columns),
             new TypedRequest(options.Columns, false, options.Filter, options.MaxRows, "JSON"), "JSON");
