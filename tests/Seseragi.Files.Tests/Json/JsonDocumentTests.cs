@@ -147,11 +147,12 @@ public class JsonDocumentTests
     [Fact]
     public void ABrokenLiteral_IsQuotedToItsEnd_WhateverTheUnits()
     {
-        // The reader quotes a broken literal to the end of its input: the rest of a unit, cut anywhere (fuzz finding).
+        // A broken literal is quoted to its delimiter, not to the end of the reader's input (the rest of a unit, cut
+        // anywhere: a fuzz finding when Utf8JsonReader read the elements).
         const string text = "[{\"a\":1},{\"a\":nul,\"b\":2},{\"a\":3},{\"a\":4}]";
         foreach (int unit in (int[])[1, 12, 20, 1 << 20])
             foreach (Source source in Sources)
-                Assert.Equal("Line 1 (array index 1): 'nul' is an invalid JSON literal. Expected the literal 'null'.",
+                Assert.Equal("Line 1 (array index 1): 'nul' is not a JSON literal (true, false or null).",
                     DocFails(text, new JsonReadOptions { UnitBytes = unit, Schema = Schema(("a", Int64Type.Default)) }, source).Message);
     }
 

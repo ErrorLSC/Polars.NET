@@ -13,7 +13,8 @@ namespace Seseragi.Files.Fuzz;
 /// Contract: a read ends or is refused with JsonFormatException / JsonValueException, and the two reads agree (the same
 /// rows, the row limit's first ones, or the same refusal). Half the inputs read are written back with random options
 /// (layout, threads, pieces, budget, compression): the bytes, decompressed, are those of a one-thread write, and they
-/// read back (with the schema) as the rows read.
+/// read back (with the schema) as the rows read. One case in four instead compares the mutated input's tokens as
+/// Sazanami's JsonTokenReader reads them (from guarded memory) with Utf8JsonReader's (<see cref="JsonTokenDiff"/>).
 /// </summary>
 internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
 {
@@ -27,6 +28,8 @@ internal sealed class JsonCases(IReadOnlyList<string> corpus) : IFuzzCases
         try
         {
             byte[] bytes = Mutate(random, out string source);
+            // One case in four compares the tokens of the input with Utf8JsonReader's instead.
+            if (random.Next(4) == 0) return JsonTokenDiff.Run(bytes, FormatOf(source) == JsonFormat.Lines);
             if (random.Next(8) == 0) bytes = Gzip(bytes);
             JsonFormat format = FormatOf(source);
             Schema? given = random.Next(3) == 0 ? SchemaOf(File.ReadAllBytes(source), format) : null;

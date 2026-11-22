@@ -480,7 +480,9 @@ input is cut into units of whole lines (a unit holds the lines that start in its
 and handed over in order through a bounded window; a local file is read through a memory mapping (`MemoryMap`), other
 sources by ranged reads, a stream that cannot seek in order. gzip, zlib and zstd input is found by its header and
 decompressed on the way. Blank lines are skipped, CRLF and a leading byte order mark accepted; each line is checked to
-be UTF-8 and exactly one object (no comments, trailing commas, `NaN` or raw control characters). `Columns` decodes only
+be UTF-8 and exactly one object (no comments, trailing commas, `NaN` or raw control characters). A unit is read in one
+pass by Sazanami's `JsonTokenReader` (strict JSON as `Utf8JsonReader` reads it, records framed by their lines, UTF-8
+checked inside strings). `Columns` decodes only
 the named columns (other values are passed over), `MaxRows` stops after the first rows, `BatchSize` cuts batches
 (they never span units). Fields match columns by exact name; `KeysIgnoreCase` also matches them ignoring case when no
 field has the exact name (the first matching field of an object gives the value). A column that is not nullable takes
@@ -518,7 +520,7 @@ threads that need units, the summaries taken in order give each segment's state,
 top-level elements is a cut. Memory and mapped files are read in place; other sources (a store's object, a file not
 mapped) have each segment read by the thread that claims it, a bounded number ahead, and a unit is lent its first
 segment with the next one's first element copied after it (copied whole only past a long element). A stream that
-cannot seek, or compressed input, is scanned in order as it is read. Units then decode as lines do, one `Utf8JsonReader` per element. Values are read as in lines;
+cannot seek, or compressed input, is scanned in order as it is read. Units then decode as lines do, one `JsonTokenReader` per element. Values are read as in lines;
 where Polars' `read_json` changes them (booleans with integers read as integers, fractions into integer columns cut),
 they are refused, and objects or arrays into string columns are their text (Polars refuses them).
 
@@ -756,7 +758,7 @@ written synchronously on completion.
 | `Avro/AvroWriter.cs` | Container writer: blocks by size, header with the first block, failure handling. |
 | `Json/JsonReader.cs`, `JsonReadOptions.cs` | Public JSON API: the reader (opening, compression detection, schema given / inferred / overridden / projected, the ordered window over units, exact `MaxRows`), options, `JsonMemoryMap`, `JsonFormatException`, `JsonValueException`. |
 | `Json/Reading/JsonInput.cs` | Units of whole lines: `BlockInput` (fixed blocks of a random-access source, in place for memory and mappings, else ranged reads finishing the last line), `StreamInput` (a stream read in order, the rest of a line carried over, units kept until released), decompression by header. |
-| `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: line splitting, UTF-8 (the first bad byte fails its line or element, in input order), one `Utf8JsonReader` per line or element, builders reserved per batch; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
+| `Json/Reading/JsonDecode.cs` | A unit's lines or document elements to record batches: one `JsonTokenReader` pass over a unit's lines (a failing line that is not UTF-8 fails as such), one per document element (UTF-8: the first bad byte fails its element, in input order), builders reserved as the records read so far measure the unit; `JsonElements` checks a document's start, separators and end; the decode settings (strict fields, columns passed over, batches without columns); failures at their line (and array index) in the unit. |
 | `Json/JsonWriter.cs`, `JsonWriteOptions.cs`, `JsonWriterOfT.cs` | Public JSON writing API: outputs, pieces encoded by workers and written in order by a task chain (a file's batch gathered), spare piece buffers, document start and end, compression options, typed rows. |
 | `Json/Datasets/JsonDataset.cs`, `JsonDatasetOptions.cs`, `JsonDatasetReader.cs`, `JsonDatasetReaderOfT.cs` | Datasets: files expanded and partitioned (shared `DatasetFiles`), columns given or inferred (first file holding records, or every file's heads merged: `JsonShape.Merge`); the reader's window (a file slot = source + `JsonInput` + plan; units known or found in the background, their bytes kept until decoded; a failed unit kept for a row limit's redo), `DatasetShape` for columns, pruning, partition values, the file path and the filter; typed rows over the members' columns. |
 | `Json/Datasets/JsonFileFormat.cs`, `JsonDatasetWriter.cs`, `JsonDatasetWriterOfT.cs` | Dataset writing: the format for `DatasetSink` (extension, `JsonWriter` per file, short runs encoded at once into the file's piece being filled — `JsonWriter.AppendRows`, a batch's cells made once for every file through `DatasetFileFormat.SourcesOpen` —, sizes measured after a flush, the declared fields' metadata kept), the writers and their options. |

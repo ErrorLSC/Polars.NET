@@ -5,6 +5,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Json;
 
 namespace Kaminari.Seseragi.Files.Json.Reading;
 
@@ -42,7 +43,7 @@ internal sealed class JsonShape(string path) : IDisposable
     public string Path => path;
 
     /// <summary>Takes in the value the reader stands on (leaving the reader on its last token).</summary>
-    public void Observe(ref Utf8JsonReader reader)
+    public void Observe(ref JsonTokenReader reader)
     {
         switch (reader.TokenType)
         {
@@ -61,7 +62,7 @@ internal sealed class JsonShape(string path) : IDisposable
     }
 
     /// <summary>Takes in an object's fields (the reader on its start).</summary>
-    public void ObserveObject(ref Utf8JsonReader reader)
+    public void ObserveObject(ref JsonTokenReader reader)
     {
         _kinds |= Kinds.Object;
         int expected = 0, known = _fields.Count;
@@ -95,7 +96,7 @@ internal sealed class JsonShape(string path) : IDisposable
             Reorder(_order);
         }
 
-        static ReadOnlySpan<byte> Copy(in Utf8JsonReader reader, Span<byte> scratch, out byte[]? rented)
+        static ReadOnlySpan<byte> Copy(in JsonTokenReader reader, Span<byte> scratch, out byte[]? rented)
         {
             rented = null;
             int max = reader.ValueSpan.Length;
@@ -173,7 +174,7 @@ internal sealed class JsonShape(string path) : IDisposable
         return -1;
     }
 
-    private static Kinds Number(ref Utf8JsonReader reader, string path)
+    private static Kinds Number(ref JsonTokenReader reader, string path)
     {
         if (reader.TryGetInt64(out _)) return Kinds.Integer;
         ReadOnlySpan<byte> text = reader.ValueSpan;

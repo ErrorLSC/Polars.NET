@@ -3,35 +3,50 @@ using System.Text.Unicode;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Json;
 
 namespace Kaminari.Seseragi.Files.Json.Reading;
 
 /// <summary>The lines of newline-delimited JSON.</summary>
 internal static class JsonLines
 {
-    /// <summary>The reader's options for one line: one value, strict JSON, deep nesting allowed.</summary>
-    public static readonly JsonReaderOptions ReaderOptions = new() { MaxDepth = 512 };
+    /// <summary>The failure of a line holding something else than one object.</summary>
+    public const string OneObject = "A line of newline-delimited JSON holds one object.";
 
     /// <summary>The UTF-8 byte order mark, skipped at the start of the input.</summary>
     public static ReadOnlySpan<byte> ByteOrderMark => [0xEF, 0xBB, 0xBF];
 
-    /// <summary>The line from <paramref name="position"/> (without its newline), moving past it; false at the end.</summary>
-    public static bool Next(ReadOnlySpan<byte> bytes, ref int position, out ReadOnlySpan<byte> line)
+    /// <summary>
+    /// The failure of the record that starts at <paramref name="start"/>: the input not being UTF-8 when the record's line
+    /// is not (as when the whole input is checked first), else <paramref name="failure"/>.
+    /// </summary>
+    public static Exception OnLine(ReadOnlySpan<byte> bytes, int start, Exception failure)
     {
-        if (position >= bytes.Length)
-        {
-            line = default;
-            return false;
-        }
-        int nl = bytes[position..].IndexOf((byte)'\n');
-        int end = nl < 0 ? bytes.Length : position + nl;
-        line = bytes[position..end];
-        position = nl < 0 ? bytes.Length : end + 1;
-        return true;
+        ReadOnlySpan<byte> rest = bytes[Math.Min(start, bytes.Length)..];
+        int newline = rest.IndexOf((byte)'\n');
+        return Utf8.IsValid(newline < 0 ? rest : rest[..newline]) ? failure : NotUtf8();
     }
 
-    /// <summary>A line of whitespace only (skipped, as dataframe engines skip it).</summary>
-    public static bool IsBlank(ReadOnlySpan<byte> line) => line.IndexOfAnyExcept(" \t\r"u8) < 0;
+    /// <summary>
+    /// Whether to reserve rows after the record that made <paramref name="inBatch"/> rows in the batch and
+    /// <paramref name="rows"/> in the unit, and how many more at most: 16 after its first, 256 after its 16th, the rest of
+    /// the batch after its 256th or once a batch measured the unit's records; null in between.
+    /// </summary>
+    public static long? ReserveNow(int inBatch, long rows) => inBatch switch
+    {
+        0 => long.MaxValue,
+        1 when rows == 1 => 16,
+        16 when rows == 16 => 256,
+        256 when rows == 256 => long.MaxValue,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The rows a unit of <paramref name="length"/> bytes is expected to hold after the first <paramref name="read"/>
+    /// bytes gave <paramref name="rows"/> records (a sixteenth more, at least one), at most <paramref name="limit"/>.
+    /// </summary>
+    public static long ExpectedRows(int length, int read, long rows, long limit) =>
+        Math.Max(0, Math.Min(limit, (long)((length - read) * (double)rows / Math.Max(1, read) * 1.0625) + 1));
 
     /// <summary>The input's bytes with a leading byte order mark left out.</summary>
     public static ReadOnlySpan<byte> WithoutMark(ReadOnlySpan<byte> bytes, bool fileStart) =>
@@ -73,7 +88,7 @@ internal sealed class UnitError(int line, Exception inner, long element = -1) : 
         {
             JsonValueException v => new JsonValueException($"{at}: {v.Message}"),
             JsonFormatException f => new JsonFormatException($"{at}: {f.Message}", f.InnerException),
-            JsonException j => new JsonFormatException($"{at}: {j.Message}", j),
+            JsonSyntaxException j => new JsonFormatException($"{at}: {j.Message}", j),
             InvalidOperationException o => new JsonFormatException($"{at}: {o.Message}", o),
             _ => InnerException!,
         };
@@ -146,6 +161,20 @@ internal sealed class JsonDecodeSettings
     /// <summary>The records' struct type; null without columns (Apache Arrow has no struct type without fields).</summary>
     public StructType? Type { get; }
 
+    /// <summary>
+    /// Whether a unit's newlines are counted before it is decoded, so that the builders take exactly its rows at once:
+    /// for many leaf columns (more than <see cref="CountedFrom"/>). Otherwise the rows are estimated from the records
+    /// read, in a few steps; each step grows every leaf's buffers, which costs more than the pass over the unit's bytes
+    /// once there are hundreds of leaves (GH Archive's 600: +9 % time, +17 % memory), and less below (one column: the
+    /// pass costs 30 %). Between 64 and 256 leaves both cost the same (measured 2026-11-22).
+    /// </summary>
+    public bool CountsLines => Type is not null && Leaves(Type) > CountedFrom;
+
+    /// <summary>The most leaf columns decoded with rows estimated instead of counted.</summary>
+    public const int CountedFrom = 64;
+
+    private static int Leaves(IArrowType type) => type is NestedType nested ? nested.Fields.Sum(f => Leaves(f.DataType)) : 1;
+
     /// <summary>The builder of a unit's records (null without columns).</summary>
     public NativeStructBuilder? Builder() => Type is null ? null : (NativeStructBuilder)NativeColumnBuilder.Create(Type);
 
@@ -160,7 +189,7 @@ internal sealed class JsonDecodeSettings
     /// An object passed over when there are no columns (the reader on its start, left on its end); strict, its fields
     /// must be ones passed over.
     /// </summary>
-    public void SkipObject(ref Utf8JsonReader reader)
+    public void SkipObject(ref JsonTokenReader reader)
     {
         if (!Strict)
         {
@@ -180,14 +209,6 @@ internal sealed class JsonDecodeSettings
 /// <summary>Decodes a unit of lines, or of a document's elements, into record batches of a schema.</summary>
 internal static class JsonDecode
 {
-    // One record (the reader on its object's start); false when the line holds more after it.
-    private static bool ReadRecord(JsonDecodeSettings settings, StructColumn? root, ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
-    {
-        if (root is null) settings.SkipObject(ref reader);
-        else root.ReadObject(ref reader, line);
-        return !reader.Read();
-    }
-
     /// <summary>
     /// The records of <paramref name="bytes"/> (whole lines) as batches of the settings' schema, at most
     /// <paramref name="maxRows"/> rows; a failure is the unit's <see cref="JsonUnit.Error"/>.
@@ -198,50 +219,54 @@ internal static class JsonDecode
         int batchSize = settings.BatchSize;
         NativeStructBuilder? builder = settings.Builder();
         StructColumn? root = settings.Root(builder);
+        bytes = JsonLines.WithoutMark(bytes, fileStart);
+        var reader = JsonTokenReader.Lines(bytes);
+        int start = 0, inBatch = 0;
+        // Many columns: the lines counted first, the rows reserved exactly (see JsonDecodeSettings.CountsLines).
+        long lines = root is not null && settings.CountsLines ? bytes.Count((byte)'\n') + (bytes.Length > 0 && bytes[^1] != '\n' ? 1 : 0) : -1;
         try
         {
-            bytes = JsonLines.WithoutMark(bytes, fileStart);
-            int invalid = JsonLines.FirstInvalidUtf8(bytes);
-            int position = 0, inBatch = 0;
-            // Lines bound the rows: the builders take each batch's rows at once.
-            long lines = bytes.Count((byte)'\n') + (bytes.Length > 0 && bytes[^1] != '\n' ? 1 : 0);
-            long Expected() => Math.Min(Math.Min(lines - unit.Lines, batchSize), maxRows - unit.Rows);
-            root?.Reserve(Expected(), bytes.Length);
-            try
+            if (lines >= 0) root!.Reserve(Math.Min(Math.Min(lines, batchSize), maxRows), bytes.Length);
+            while (unit.Rows < maxRows && reader.NextRecord())
             {
-                while (unit.Rows < maxRows && JsonLines.Next(bytes, ref position, out ReadOnlySpan<byte> line))
+                start = reader.BytesConsumed;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+                    throw new JsonFormatException(JsonLines.OneObject);
+                if (root is null) settings.SkipObject(ref reader);
+                else root.ReadObject(ref reader);
+                if (reader.Read()) throw new JsonFormatException(JsonLines.OneObject);
+                unit.Rows++;
+                if (++inBatch == batchSize)
                 {
-                    unit.Lines++;
-                    if (invalid >= 0 && invalid < position) throw JsonLines.NotUtf8();
-                    // A record's line starts with its object: blank lines are told only from other lines.
-                    if ((line.IsEmpty || line[0] != '{') && JsonLines.IsBlank(line)) continue;
-                    var reader = new Utf8JsonReader(line, JsonLines.ReaderOptions);
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject || !ReadRecord(settings, root, ref reader, line))
-                        throw new JsonFormatException("A line of newline-delimited JSON holds one object.");
-                    unit.Rows++;
-                    if (++inBatch == batchSize)
-                    {
-                        unit.Batches.Add(settings.Export(builder, inBatch));
-                        root?.EndBatch();
-                        inBatch = 0;
-                        root?.Reserve(Expected(), bytes.Length);
-                    }
+                    unit.Batches.Add(settings.Export(builder, inBatch));
+                    root?.EndBatch();
+                    inBatch = 0;
                 }
-            }
-            catch (Exception e) when (e is JsonException or JsonFormatException or JsonValueException or InvalidOperationException)
-            {
-                throw new UnitError(unit.Lines, e);
+                if (root is null) continue;
+                if (lines >= 0)
+                {
+                    if (inBatch == 0) root.Reserve(Math.Min(Math.Min(lines - reader.Line, batchSize), maxRows - unit.Rows), bytes.Length - reader.BytesConsumed);
+                }
+                // Otherwise the builders take the rows the batch is expected to hold (and their bytes), as the unit's
+                // records so far measure them: a few at first (records differ in size, and a reservation never shrinks),
+                // all of them once 256 records (or a batch) measured them; they grow past it if need be.
+                else if (JsonLines.ReserveNow(inBatch, unit.Rows) is long most)
+                {
+                    long rows = JsonLines.ExpectedRows(bytes.Length, reader.BytesConsumed, unit.Rows, Math.Min(Math.Min(batchSize - inBatch, maxRows - unit.Rows), most));
+                    root.Reserve(rows, (long)(rows * (double)reader.BytesConsumed / unit.Rows));
+                }
             }
             if (inBatch > 0)
             {
                 unit.Batches.Add(settings.Export(builder, inBatch));
                 root?.EndBatch();
             }
+            unit.Lines = unit.Rows == 0 && maxRows <= 0 ? 0 : reader.Line;
         }
-        catch (UnitError e)
+        catch (Exception e) when (e is JsonSyntaxException or JsonFormatException or JsonValueException or InvalidOperationException)
         {
             unit.Dispose();
-            unit.Error = e;
+            unit.Error = new UnitError(reader.Line, JsonLines.OnLine(bytes, start, e));
         }
         finally
         {
@@ -364,39 +389,24 @@ internal static class JsonDecode
     // inference (shape): the bytes it took, or an ElementFailure at its offset in rest.
     private static int ReadElement(ReadOnlySpan<byte> rest, JsonDecodeSettings? settings, StructColumn? root, JsonShape? shape)
     {
-        var reader = new Utf8JsonReader(rest, JsonLines.ReaderOptions);
+        var reader = JsonTokenReader.Value(rest);
         try
         {
             reader.Read();
             if (reader.TokenType != JsonTokenType.StartObject)
                 throw new JsonFormatException($"An array element is {Kind(reader.TokenType)}, not an object.");
             if (shape is not null) shape.ObserveObject(ref reader);
-            else if (root is not null) root.ReadObject(ref reader, rest);
+            else if (root is not null) root.ReadObject(ref reader);
             else settings!.SkipObject(ref reader);
-            return (int)reader.BytesConsumed;
+            return reader.BytesConsumed;
         }
-        catch (JsonException e)
+        catch (JsonSyntaxException e)
         {
-            // The reader's own position is the element's: the failure says where it is in the whole input instead.
-            string message = e.Message;
-            int cut = message.IndexOf(" LineNumber:", StringComparison.Ordinal);
-            throw new ElementFailure(Offset(rest, e.LineNumber ?? 0, e.BytePositionInLine ?? 0),
-                new JsonFormatException(Literal(cut < 0 ? message : message[..cut]), e));
+            throw new ElementFailure(e.Position, new JsonFormatException(e.Message, e));
         }
         catch (Exception e) when (e is JsonFormatException or JsonValueException or InvalidOperationException)
         {
-            throw new ElementFailure((int)reader.TokenStartIndex, e);
-        }
-
-        // A broken literal is quoted to the end of the reader's input (the rest of the unit here, which depends on
-        // where the units were cut): quoted up to the first delimiter instead.
-        static string Literal(string message)
-        {
-            const string Invalid = "' is an invalid JSON literal.";
-            int end = message.IndexOf(Invalid, StringComparison.Ordinal);
-            if (!message.StartsWith('\'') || end < 0) return message;
-            int stop = message.AsSpan(1, end - 1).IndexOfAny(",}] \t\r\n");
-            return stop < 0 ? message : $"'{message[1..(stop + 1)]}{message[end..]}";
+            throw new ElementFailure(reader.TokenStartIndex, e);
         }
 
         static string Kind(JsonTokenType token) => token switch
@@ -408,19 +418,6 @@ internal static class JsonDecode
             JsonTokenType.StartArray => "an array",
             _ => token.ToString(),
         };
-    }
-
-    // The offset of a line's byte (both counted from 0) in bytes.
-    private static int Offset(ReadOnlySpan<byte> bytes, long line, long column)
-    {
-        int at = 0;
-        for (long i = 0; i < line; i++)
-        {
-            int nl = bytes[at..].IndexOf((byte)'\n');
-            if (nl < 0) return bytes.Length;
-            at += nl + 1;
-        }
-        return (int)Math.Min(bytes.Length, at + column);
     }
 
     // The unit failed at offset at (the first byte that is not UTF-8 when it comes earlier).

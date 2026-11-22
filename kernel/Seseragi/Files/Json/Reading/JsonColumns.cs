@@ -8,6 +8,7 @@ using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Sazanami.Encodings;
+using Kaminari.Sazanami.Json;
 using Kaminari.Sazanami.Text;
 
 namespace Kaminari.Seseragi.Files.Json.Reading;
@@ -29,10 +30,9 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
     protected bool IgnoreErrors { get; } = ignoreErrors;
 
     /// <summary>
-    /// Reads the value the reader stands on (its first token) and leaves the reader on its last token;
-    /// <paramref name="line"/> is the reader's input (for raw value text).
+    /// Reads the value the reader stands on (its first token) and leaves the reader on its last token.
     /// </summary>
-    public abstract void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line);
+    public abstract void Read(ref JsonTokenReader reader);
 
     /// <summary>A record without the field.</summary>
     public virtual void Missing() => Builder.AppendNull();
@@ -50,7 +50,7 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
     public virtual void Dispose() { }
 
     /// <summary>A value that does not fit: a null (its tokens passed over) or an error.</summary>
-    protected void Mismatch(ref Utf8JsonReader reader, ReadOnlySpan<byte> line, string type, string? why = null)
+    protected void Mismatch(ref JsonTokenReader reader, string type, string? why = null)
     {
         if (IgnoreErrors)
         {
@@ -58,11 +58,11 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
             Builder.AppendNull();
             return;
         }
-        throw new JsonValueException($"Column '{Path}': {Describe(ref reader, line)} is not {type}{(why is null ? "" : $" ({why})")}.");
+        throw new JsonValueException($"Column '{Path}': {Describe(ref reader)} is not {type}{(why is null ? "" : $" ({why})")}.");
     }
 
     /// <summary>The value the reader stands on, for errors: its token kind and (shortened) text.</summary>
-    protected static string Describe(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    protected static string Describe(ref JsonTokenReader reader)
     {
         string kind = reader.TokenType switch
         {
@@ -83,7 +83,7 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
     /// The unescaped UTF-8 of the string (or number) the reader stands on: its bytes in the input when nothing is
     /// escaped, else a copy in <paramref name="rented"/>, to be returned to the pool.
     /// </summary>
-    protected static ReadOnlySpan<byte> Text(in Utf8JsonReader reader, out byte[]? rented)
+    protected static ReadOnlySpan<byte> Text(in JsonTokenReader reader, out byte[]? rented)
     {
         rented = null;
         if (!reader.ValueIsEscaped) return reader.ValueSpan;
@@ -95,7 +95,7 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
     /// The unescaped UTF-8 of the string the reader stands on: its bytes in the input when nothing is escaped, else a
     /// copy in <paramref name="scratch"/> (or in <paramref name="rented"/>, to be returned to the pool).
     /// </summary>
-    protected static ReadOnlySpan<byte> Unescaped(in Utf8JsonReader reader, Span<byte> scratch, out byte[]? rented)
+    protected static ReadOnlySpan<byte> Unescaped(in JsonTokenReader reader, Span<byte> scratch, out byte[]? rented)
     {
         rented = null;
         if (!reader.ValueIsEscaped) return reader.ValueSpan;
@@ -174,10 +174,10 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
 
 internal sealed class NullColumn(NativeColumnBuilder b, string path, bool ignore) : JsonColumn(b, path, ignore)
 {
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null) Builder.AppendNull();
-        else Mismatch(ref reader, line, "null", "the column held only nulls in the records its type was inferred from");
+        else Mismatch(ref reader, "null", "the column held only nulls in the records its type was inferred from");
     }
 }
 
@@ -185,14 +185,14 @@ internal sealed class BooleanColumn(NativeColumnBuilder b, string path, bool ign
 {
     private readonly NativeBooleanBuilder _b = (NativeBooleanBuilder)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         switch (reader.TokenType)
         {
             case JsonTokenType.True: _b.Append(true); break;
             case JsonTokenType.False: _b.Append(false); break;
             case JsonTokenType.Null: _b.AppendNull(); break;
-            default: Mismatch(ref reader, line, "a boolean"); break;
+            default: Mismatch(ref reader, "a boolean"); break;
         }
     }
 }
@@ -204,12 +204,12 @@ internal sealed class IntegerColumn<T>(NativeColumnBuilder b, string path, bool 
     private static readonly long Min = long.CreateSaturating(T.MinValue), Max = long.CreateSaturating(T.MaxValue);
     private readonly NativeFixedWidthBuilder<T> _b = (NativeFixedWidthBuilder<T>)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
-        if (reader.TokenType == JsonTokenType.Number && (JsonNumbers.TryInt64(reader.ValueSpan, out long v) || reader.TryGetInt64(out v)) && v >= Min && v <= Max)
+        if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out long v) && v >= Min && v <= Max)
             _b.Append(T.CreateTruncating(v));
         else if (reader.TokenType == JsonTokenType.Null) _b.AppendNull();
-        else Mismatch(ref reader, line, $"an {typeof(T).Name} integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
+        else Mismatch(ref reader, $"an {typeof(T).Name} integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
     }
 }
 
@@ -217,11 +217,11 @@ internal sealed class UInt64Column(NativeColumnBuilder b, string path, bool igno
 {
     private readonly NativeFixedWidthBuilder<ulong> _b = (NativeFixedWidthBuilder<ulong>)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Number && reader.TryGetUInt64(out ulong v)) _b.Append(v);
         else if (reader.TokenType == JsonTokenType.Null) _b.AppendNull();
-        else Mismatch(ref reader, line, "a UInt64 integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
+        else Mismatch(ref reader, "a UInt64 integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
     }
 }
 
@@ -230,7 +230,7 @@ internal sealed class WideIntegerColumn(NativeColumnBuilder b, string path, bool
 {
     private readonly NativeFixedWidthBuilder<Int128> _b = (NativeFixedWidthBuilder<Int128>)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -239,7 +239,7 @@ internal sealed class WideIntegerColumn(NativeColumnBuilder b, string path, bool
         }
         if (reader.TokenType == JsonTokenType.Number)
         {
-            if ((JsonNumbers.TryInt64(reader.ValueSpan, out long small) || reader.TryGetInt64(out small)) && (!unsigned || small >= 0))
+            if (reader.TryGetInt64(out long small) && (!unsigned || small >= 0))
             {
                 _b.Append(small);
                 return;
@@ -255,7 +255,7 @@ internal sealed class WideIntegerColumn(NativeColumnBuilder b, string path, bool
                 return;
             }
         }
-        Mismatch(ref reader, line, unsigned ? "a UInt128 integer" : "an Int128 integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
+        Mismatch(ref reader, unsigned ? "a UInt128 integer" : "an Int128 integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
     }
 }
 
@@ -265,13 +265,13 @@ internal sealed class FloatColumn<T>(NativeColumnBuilder b, string path, bool ig
 {
     private readonly NativeFixedWidthBuilder<T> _b = (NativeFixedWidthBuilder<T>)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
-        if (reader.TokenType == JsonTokenType.Number && (JsonNumbers.TryExactDouble(reader.ValueSpan, out double v) || reader.TryGetDouble(out v))
+        if (reader.TokenType == JsonTokenType.Number && reader.TryGetDouble(out double v)
             && double.IsFinite(v) && T.IsFinite(T.CreateSaturating(v)))
             _b.Append(T.CreateSaturating(v));
         else if (reader.TokenType == JsonTokenType.Null) _b.AppendNull();
-        else Mismatch(ref reader, line, $"a {typeof(T).Name} number", reader.TokenType == JsonTokenType.Number ? "out of range" : null);
+        else Mismatch(ref reader, $"a {typeof(T).Name} number", reader.TokenType == JsonTokenType.Number ? "out of range" : null);
     }
 }
 
@@ -280,7 +280,7 @@ internal sealed class DecimalColumn(Decimal128Type type, NativeColumnBuilder b, 
 {
     private readonly NativeFixedWidthBuilder<Int128> _b = (NativeFixedWidthBuilder<Int128>)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -298,7 +298,7 @@ internal sealed class DecimalColumn(Decimal128Type type, NativeColumnBuilder b, 
                 return;
             }
         }
-        Mismatch(ref reader, line, $"a decimal({type.Precision}, {type.Scale})", "not decimal text, or more digits than the type holds");
+        Mismatch(ref reader, $"a decimal({type.Precision}, {type.Scale})", "not decimal text, or more digits than the type holds");
     }
 }
 
@@ -310,7 +310,7 @@ internal sealed class StringColumn(NativeColumnBuilder b, string path, bool igno
 {
     private readonly IBytesBuilder _b = (IBytesBuilder)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         switch (reader.TokenType)
         {
@@ -327,9 +327,9 @@ internal sealed class StringColumn(NativeColumnBuilder b, string path, bool igno
                 break;
             case JsonTokenType.StartObject or JsonTokenType.StartArray:
             {
-                int start = (int)reader.TokenStartIndex;
+                int start = reader.TokenStartIndex;
                 reader.Skip();
-                _b.Append(line[start..(int)reader.BytesConsumed]);
+                _b.Append(reader.Source[start..reader.BytesConsumed]);
                 break;
             }
             default:
@@ -338,7 +338,7 @@ internal sealed class StringColumn(NativeColumnBuilder b, string path, bool igno
         }
     }
 
-    private void AppendEscaped(in Utf8JsonReader reader)
+    private void AppendEscaped(in JsonTokenReader reader)
     {
         Span<byte> scratch = stackalloc byte[StackBytes];
         ReadOnlySpan<byte> text = Unescaped(in reader, scratch, out byte[]? rented);
@@ -352,7 +352,7 @@ internal sealed class BinaryColumn(NativeColumnBuilder b, string path, bool igno
 {
     private readonly IBytesBuilder _b = (IBytesBuilder)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -371,7 +371,7 @@ internal sealed class BinaryColumn(NativeColumnBuilder b, string path, bool igno
             if (decoded is not null) ArrayPool<byte>.Shared.Return(decoded);
             if (ok) return;
         }
-        Mismatch(ref reader, line, "a binary", reader.TokenType == JsonTokenType.String ? "not base64 text" : "binaries are base64 strings");
+        Mismatch(ref reader, "a binary", reader.TokenType == JsonTokenType.String ? "not base64 text" : "binaries are base64 strings");
     }
 }
 
@@ -380,7 +380,7 @@ internal sealed class GuidColumn(NativeColumnBuilder b, string path, bool ignore
 {
     private readonly IBytesBuilder _b = (IBytesBuilder)b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -395,7 +395,7 @@ internal sealed class GuidColumn(NativeColumnBuilder b, string path, bool ignore
             _b.Append(bytes);
             return;
         }
-        Mismatch(ref reader, line, "a GUID", "GUIDs are strings such as 0f8fad5b-d9cb-469f-a165-70867728950e");
+        Mismatch(ref reader, "a GUID", "GUIDs are strings such as 0f8fad5b-d9cb-469f-a165-70867728950e");
     }
 }
 
@@ -467,7 +467,7 @@ internal sealed class EnumNameColumn : JsonColumn
         return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(text).ToLowerInvariant());
     }
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         switch (reader.TokenType)
         {
@@ -488,7 +488,7 @@ internal sealed class EnumNameColumn : JsonColumn
                 break;
             }
         }
-        Mismatch(ref reader, line, "a member of the enum", "an enum is read from a member's name, in any case, or its number");
+        Mismatch(ref reader, "a member of the enum", "an enum is read from a member's name, in any case, or its number");
     }
 
     private bool AppendText(ReadOnlySpan<byte> text)
@@ -527,10 +527,10 @@ internal sealed class EnumNameColumn : JsonColumn
 /// <summary>A column that takes no nulls: a null or a missing field is an error.</summary>
 internal sealed class RequiredColumn(JsonColumn inner) : JsonColumn(inner.Builder, inner.Path, ignoreErrors: false)
 {
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null) throw new JsonValueException($"Column '{Path}': null, but the column takes no nulls.");
-        inner.Read(ref reader, line);
+        inner.Read(ref reader);
     }
 
     public override void Missing() => throw new JsonValueException($"Column '{Path}': the field is missing, but the column takes no nulls.");
@@ -545,7 +545,7 @@ internal sealed class RequiredColumn(JsonColumn inner) : JsonColumn(inner.Builde
 /// <summary>Dates: <c>yyyy-MM-dd</c> strings.</summary>
 internal sealed class DateColumn(NativeColumnBuilder b, string path, bool ignore, bool millis) : JsonColumn(b, path, ignore)
 {
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -564,7 +564,7 @@ internal sealed class DateColumn(NativeColumnBuilder b, string path, bool ignore
                 return;
             }
         }
-        Mismatch(ref reader, line, "a date", "dates are yyyy-MM-dd strings");
+        Mismatch(ref reader, "a date", "dates are yyyy-MM-dd strings");
     }
 }
 
@@ -577,7 +577,7 @@ internal enum TemporalKind { Timestamp, Time32, Time64, Duration }
 /// </summary>
 internal sealed class TemporalColumn(NativeColumnBuilder b, string path, bool ignore, TemporalKind kind, long unitNanos) : JsonColumn(b, path, ignore)
 {
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -619,7 +619,7 @@ internal sealed class TemporalColumn(NativeColumnBuilder b, string path, bool ig
             TemporalKind.Duration => "a duration",
             _ => "a time of day",
         };
-        Mismatch(ref reader, line, type, why ?? (kind switch
+        Mismatch(ref reader, type, why ?? (kind switch
         {
             TemporalKind.Timestamp => "date-times are ISO 8601 strings",
             TemporalKind.Duration => "durations are ISO 8601 strings such as PT1.5S, or [-][d.]hh:mm:ss[.f]",
@@ -649,7 +649,7 @@ internal sealed class DictionaryColumn(NativeDictionaryBuilder b, string path, b
 {
     private readonly ByteArrayDictionary _values = new();
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -658,7 +658,7 @@ internal sealed class DictionaryColumn(NativeDictionaryBuilder b, string path, b
         }
         if (reader.TokenType != JsonTokenType.String || binary)
         {
-            Mismatch(ref reader, line, "a dictionary-encoded string", binary ? "dictionary-encoded binaries are not read" : null);
+            Mismatch(ref reader, "a dictionary-encoded string", binary ? "dictionary-encoded binaries are not read" : null);
             return;
         }
         Span<byte> scratch = stackalloc byte[StackBytes];
@@ -689,7 +689,7 @@ internal sealed class ListColumn : JsonColumn
         _fixedSize = fixedSize;
     }
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -698,13 +698,13 @@ internal sealed class ListColumn : JsonColumn
         }
         if (reader.TokenType != JsonTokenType.StartArray)
         {
-            Mismatch(ref reader, line, "a list");
+            Mismatch(ref reader, "a list");
             return;
         }
         int count = 0;
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
-            _items.Read(ref reader, line);
+            _items.Read(ref reader);
             count++;
         }
         switch (Builder)
@@ -744,7 +744,7 @@ internal sealed class MapColumn : JsonColumn
         _values = For(type.ValueField, _entries.Children[1], path + "{}", ignore, keysIgnoreCase: keysIgnoreCase);
     }
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
@@ -753,7 +753,7 @@ internal sealed class MapColumn : JsonColumn
         }
         if (reader.TokenType != JsonTokenType.StartObject)
         {
-            Mismatch(ref reader, line, "a map (an object)");
+            Mismatch(ref reader, "a map (an object)");
             return;
         }
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
@@ -762,7 +762,7 @@ internal sealed class MapColumn : JsonColumn
             _keys.Append(key);
             if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
             reader.Read();
-            _values.Read(ref reader, line);
+            _values.Read(ref reader);
             _entries.EndStruct();
         }
         _list.EndList();
@@ -830,15 +830,15 @@ internal sealed class StructColumn : JsonColumn
 
     public new NativeStructBuilder Builder => _b;
 
-    public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public override void Read(ref JsonTokenReader reader)
     {
-        if (reader.TokenType == JsonTokenType.StartObject) ReadObject(ref reader, line);
+        if (reader.TokenType == JsonTokenType.StartObject) ReadObject(ref reader);
         else if (reader.TokenType == JsonTokenType.Null) _b.AppendNull();
-        else Mismatch(ref reader, line, "a struct (an object)");
+        else Mismatch(ref reader, "a struct (an object)");
     }
 
     /// <summary>One object (the reader on its start), its fields into the children, then the struct's slot.</summary>
-    public void ReadObject(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
+    public void ReadObject(ref JsonTokenReader reader)
     {
         Span<bool> seen = _seen;
         seen.Clear();
@@ -853,7 +853,7 @@ internal sealed class StructColumn : JsonColumn
                 continue;
             }
             reader.Read();
-            _children[index].Read(ref reader, line);
+            _children[index].Read(ref reader);
             seen[index] = true;
             found++;
             expected = index + 1;
@@ -865,7 +865,7 @@ internal sealed class StructColumn : JsonColumn
     }
 
     // A field the inferred type lacks: an error, unless it is a column left out of the read.
-    private void Unknown(in Utf8JsonReader reader)
+    private void Unknown(in JsonTokenReader reader)
     {
         string name = reader.GetString()!;
         if (_passedOver.Length > 0)
@@ -881,7 +881,7 @@ internal sealed class StructColumn : JsonColumn
     public static JsonValueException Extra(string path, string name) =>
         new($"{(path.Length == 0 ? "The" : $"Column '{path}': the")} field '{name}' is not in the records the columns were inferred from (infer from more records, or give the schema to pass such fields over).");
 
-    private int Find(in Utf8JsonReader reader, int expected)
+    private int Find(in JsonTokenReader reader, int expected)
     {
         if (!reader.ValueIsEscaped)
         {
@@ -901,7 +901,7 @@ internal sealed class StructColumn : JsonColumn
         return -1;
     }
 
-    private int FindEscaped(in Utf8JsonReader reader)
+    private int FindEscaped(in JsonTokenReader reader)
     {
         Span<byte> scratch = stackalloc byte[StackBytes];
         ReadOnlySpan<byte> unescaped = Unescaped(in reader, scratch, out byte[]? rented);

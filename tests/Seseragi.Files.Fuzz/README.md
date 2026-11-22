@@ -90,4 +90,8 @@ memory, a stream that cannot seek, ranged reads; a row limit, a batch size, a gi
 each read ends or is refused with `JsonFormatException` / `JsonValueException`, and the two agree: the same rows (the
 first ones under a row limit, numbered from 0 with a row index) or the same refusal. Half the inputs read are written back with random options (layout, threads, piece size, in-flight
 budget, compression): the bytes, decompressed, must be those of a one-thread write, and must read back as the rows read.
+One case in four instead compares the mutated input's tokens, read by Sazanami's `JsonTokenReader` from guarded memory,
+with `Utf8JsonReader`'s (`JsonTokenDiff.cs`): lines record by record (the oracle line by line, blank lines passed over, a
+line that is not UTF-8 refused), a document as its first value; kinds, positions, lengths, escapes, depths, numbers,
+unescaped strings, skips and the failing line must agree.
 

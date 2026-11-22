@@ -5,6 +5,7 @@ using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Json;
+using Kaminari.Seseragi.Files.Json.Reading;
 
 namespace Seseragi.Files.Tests.Json;
 
@@ -428,6 +429,59 @@ public class JsonReadTests
                     var (s, rows) = Read(text, new JsonReadOptions { UnitBytes = unit, MaxDegreeOfParallelism = threads, InferSchemaLength = null }, source);
                     Assert.Equal(Types(schema), Types(s));
                     Assert.Equal(expected, rows);
+                }
+    }
+
+    [Fact]
+    public void ManyColumns_AreRead_WithEachUnitsLinesCounted()
+    {
+        // More leaf columns than JsonDecodeSettings.CountedFrom: a unit's lines are counted first and its rows reserved
+        // exactly; records of every size, blank lines, any unit, batch size and row limit.
+        int columns = JsonDecodeSettings.CountedFrom + 6;
+        var text = new StringBuilder();
+        List<string> expected = [];
+        for (int r = 0; r < 150; r++)
+        {
+            if (r % 50 == 7) text.Append(" \r\n");
+            text.Append('{').AppendJoin(',', Enumerable.Range(0, columns).Select(c => $"\"c{c}\":{r * c}"))
+                .Append(",\"pad\":\"").Append('x', r % 13 * 97).Append("\"}\n");
+            expected.Add(string.Join(" | ", [.. Enumerable.Range(0, columns).Select(c => (r * c).ToString()), $"\"{new string('x', r % 13 * 97)}\""]));
+        }
+        foreach (var (unit, batch) in ((int, int)[])[(500, JsonReadOptions.DefaultBatchSize), (3000, 7), (1 << 20, JsonReadOptions.DefaultBatchSize)])
+            foreach (long? max in (long?[])[null, 123])
+            {
+                var (_, rows) = Read(text.ToString(), new JsonReadOptions { UnitBytes = unit, BatchSize = batch, MaxRows = max });
+                Assert.Equal(max is long m ? expected.Take((int)m) : expected, rows);
+            }
+        // The rule's edge: rows counted past CountedFrom leaves (nested fields counted as their leaves), estimated up to it.
+        Assert.False(Settings(("a", Wide(JsonDecodeSettings.CountedFrom))).CountsLines);
+        Assert.True(Settings(("a", Wide(JsonDecodeSettings.CountedFrom)), ("b", Int64Type.Default)).CountsLines);
+
+        static IArrowType Wide(int leaves) => new StructType([.. Enumerable.Range(0, leaves).Select(c => new Field($"c{c}", Int64Type.Default, true))]);
+
+        static JsonDecodeSettings Settings(params (string, IArrowType)[] fields) =>
+            new(Schema(fields), 10, ignoreErrors: false, strict: false, passedOver: []);
+    }
+
+    [Fact]
+    public void AFailure_QuotesWhatItFound_WithinItsRecord_WhateverTheUnits()
+    {
+        // The text quoted for a failure stops at its line's end, whatever follows in the unit (fuzz seed 20261134,
+        // case 7585: a name's colon missing at a line's end once quoted the next line's start too; escapes alike).
+        (string Text, string Message)[] cases =
+        [
+            ("{\"a\":1}\n{\"a\":2,\"s\"\"}\n{\"a\":3}\n{\"a\":4}\n", "Line 2: Expected ':' after a property name, found '\"'."),
+            ("{\"a\":1}\n{\"a\":\"x\\q\n{\"a\":3}\n", "Line 2: Invalid escape '\\q' in a string."),
+            ("{\"a\":1}\n{\"a\":\"x\\\n{\"a\":3}\n", "Line 2: Invalid escape '\\' in a string."),
+            ("{\"a\":1}\n{\"a\":\"x\\u12\n{\"a\":3}\n", "Line 2: Invalid escape '\\u12' in a string."),
+            ("{\"a\":1}\n{\"a\":\"x\\u12\"}\n{\"a\":3}\n", "Line 2: Invalid escape '\\u12' in a string."),
+        ];
+        foreach (var (text, message) in cases)
+            foreach (int unit in (int[])[1, 12, 17, 31, 1 << 20])
+                foreach (Source source in Sources)
+                {
+                    var e = Assert.Throws<JsonFormatException>(() => Read(text, new JsonReadOptions { Schema = Schema(("a", Int64Type.Default)), UnitBytes = unit }, source));
+                    Assert.Equal(message, e.Message);
                 }
     }
 

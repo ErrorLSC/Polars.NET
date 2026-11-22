@@ -9,6 +9,7 @@ using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Concurrency;
+using Kaminari.Sazanami.Json;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Json.Reading;
 
@@ -313,39 +314,29 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         }
     }
 
-    // A unit's records taken in, up to the limit.
+    // A unit's records taken in, up to the limit: the unit's lines read, or its failure.
     private static (int Lines, UnitError? Error) Walk(JsonShape root, JsonUnitBytes bytes, long limit)
     {
-        int lines = 0;
+        ReadOnlySpan<byte> data = JsonLines.WithoutMark(bytes.Memory.Span, bytes.FileStart);
+        var reader = JsonTokenReader.Lines(data);
+        int start = 0;
+        bool read = false;
         try
         {
-            ReadOnlySpan<byte> data = JsonLines.WithoutMark(bytes.Memory.Span, bytes.FileStart);
-            int invalid = JsonLines.FirstInvalidUtf8(data);
-            int position = 0;
-            while (root.Records < limit && JsonLines.Next(data, ref position, out ReadOnlySpan<byte> line))
+            while (root.Records < limit && reader.NextRecord())
             {
-                lines++;
-                try
-                {
-                    if (invalid >= 0 && invalid < position) throw JsonLines.NotUtf8();
-                    if (JsonLines.IsBlank(line)) continue;
-                    var reader = new Utf8JsonReader(line, JsonLines.ReaderOptions);
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
-                        throw new JsonFormatException("A line of newline-delimited JSON holds one object.");
-                    root.ObserveObject(ref reader);
-                    if (reader.Read()) throw new JsonFormatException("A line of newline-delimited JSON holds one object.");
-                }
-                catch (Exception e) when (e is JsonException or JsonFormatException or JsonValueException or InvalidOperationException)
-                {
-                    throw new UnitError(lines, e);
-                }
+                read = true;
+                start = reader.BytesConsumed;
+                if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) throw new JsonFormatException(JsonLines.OneObject);
+                root.ObserveObject(ref reader);
+                if (reader.Read()) throw new JsonFormatException(JsonLines.OneObject);
                 root.Records++;
             }
-            return (lines, null);
+            return (read || root.Records < limit ? reader.Line : 0, null);
         }
-        catch (UnitError e)
+        catch (Exception e) when (e is JsonSyntaxException or JsonFormatException or JsonValueException or InvalidOperationException)
         {
-            return (lines, e);
+            return (reader.Line, new UnitError(reader.Line, JsonLines.OnLine(data, start, e)));
         }
     }
 
