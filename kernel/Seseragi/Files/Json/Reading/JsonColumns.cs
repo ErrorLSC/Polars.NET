@@ -206,7 +206,8 @@ internal sealed class IntegerColumn<T>(NativeColumnBuilder b, string path, bool 
 
     public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
     {
-        if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out long v) && v >= Min && v <= Max) _b.Append(T.CreateTruncating(v));
+        if (reader.TokenType == JsonTokenType.Number && (JsonNumbers.TryInt64(reader.ValueSpan, out long v) || reader.TryGetInt64(out v)) && v >= Min && v <= Max)
+            _b.Append(T.CreateTruncating(v));
         else if (reader.TokenType == JsonTokenType.Null) _b.AppendNull();
         else Mismatch(ref reader, line, $"an {typeof(T).Name} integer", reader.TokenType == JsonTokenType.Number ? "out of range, or not a whole number" : null);
     }
@@ -238,7 +239,7 @@ internal sealed class WideIntegerColumn(NativeColumnBuilder b, string path, bool
         }
         if (reader.TokenType == JsonTokenType.Number)
         {
-            if (reader.TryGetInt64(out long small) && (!unsigned || small >= 0))
+            if ((JsonNumbers.TryInt64(reader.ValueSpan, out long small) || reader.TryGetInt64(out small)) && (!unsigned || small >= 0))
             {
                 _b.Append(small);
                 return;
@@ -266,7 +267,8 @@ internal sealed class FloatColumn<T>(NativeColumnBuilder b, string path, bool ig
 
     public override void Read(ref Utf8JsonReader reader, ReadOnlySpan<byte> line)
     {
-        if (reader.TokenType == JsonTokenType.Number && reader.TryGetDouble(out double v) && double.IsFinite(v) && T.IsFinite(T.CreateSaturating(v)))
+        if (reader.TokenType == JsonTokenType.Number && (JsonNumbers.TryExactDouble(reader.ValueSpan, out double v) || reader.TryGetDouble(out v))
+            && double.IsFinite(v) && T.IsFinite(T.CreateSaturating(v)))
             _b.Append(T.CreateSaturating(v));
         else if (reader.TokenType == JsonTokenType.Null) _b.AppendNull();
         else Mismatch(ref reader, line, $"a {typeof(T).Name} number", reader.TokenType == JsonTokenType.Number ? "out of range" : null);

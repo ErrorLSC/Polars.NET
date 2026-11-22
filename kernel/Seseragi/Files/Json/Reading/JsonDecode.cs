@@ -213,7 +213,8 @@ internal static class JsonDecode
                 {
                     unit.Lines++;
                     if (invalid >= 0 && invalid < position) throw JsonLines.NotUtf8();
-                    if (JsonLines.IsBlank(line)) continue;
+                    // A record's line starts with its object: blank lines are told only from other lines.
+                    if ((line.IsEmpty || line[0] != '{') && JsonLines.IsBlank(line)) continue;
                     var reader = new Utf8JsonReader(line, JsonLines.ReaderOptions);
                     if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject || !ReadRecord(settings, root, ref reader, line))
                         throw new JsonFormatException("A line of newline-delimited JSON holds one object.");
