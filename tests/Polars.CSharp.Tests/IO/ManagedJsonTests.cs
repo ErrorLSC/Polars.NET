@@ -333,6 +333,19 @@ public sealed class ManagedJsonTests(ITestOutputHelper output) : IDisposable
 
     private sealed record Keyed(long Id, long K, string Name);
 
+    /// <summary>An eager read returns contiguous columns, however many chunks the input was decoded in.</summary>
+    [Fact]
+    public void AnEagerRead_IsOneChunk()
+    {
+        string path = At("many.jsonl");
+        File.WriteAllText(path, string.Concat(Enumerable.Range(0, 200_000).Select(i => $$"""{"id":{{i}},"name":"n{{i}}"}""" + "\n")));
+        using DataFrame read = DataFrame.ReadJson(path, jsonFormat: JsonFormat.JsonLines);
+        Assert.Equal(200_000, read.Height);
+        Assert.Equal(1, read.NChunks());
+        using DataFrame document = DataFrame.ReadJson(File.ReadAllBytes(path).AsSpan(), jsonFormat: JsonFormat.JsonLines, batchSize: 1000);
+        Assert.Equal(1, document.NChunks());
+    }
+
     // ---------------------------------------------------------------- the public API on it
 
     /// <summary>

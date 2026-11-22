@@ -4,6 +4,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
+using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Seseragi.Files;
@@ -237,39 +238,44 @@ public static class ManagedJson
     }
 
     /// <summary>
-    /// The reader's batches into a frame (the reader's output owns its memory: the input may go once this returns). A
-    /// read failing is rethrown as it is (<see cref="JsonFormatException"/>, <see cref="JsonValueException"/>, …), not as
-    /// the engine's report of a failed import.
+    /// The reader's batches into a frame of contiguous columns (one chunk each, as eager reads return them; the reader's
+    /// output owns its memory: the input may go once this returns). The batches are concatenated into one first, on
+    /// every core (the long values of views shared, not copied); columns of a type that cannot be (dictionaries) or past
+    /// 2 GB are imported as they come and rechunked by the engine. A read failing throws as it is
+    /// (<see cref="JsonFormatException"/>, <see cref="JsonValueException"/>, …).
     /// </summary>
+    /// <remarks>Batches handed to the engine are not disposed here: their buffers stay pinned until the engine releases them.</remarks>
     private static DataFrameHandle Import(JsonReader reader)
     {
         Schema schema = PolarsArrowCompat.Adapt(reader.Schema, out bool convert);
-        Exception? failure = null;
+        List<RecordBatch> batches = [];
         try
         {
-            return ArrowStreamInterop.ImportEagerStrict(convert ? Batches().Select(b => PolarsArrowCompat.Convert(b, schema)) : Batches(), schema);
+            foreach (RecordBatch batch in reader.ReadBatches()) batches.Add(convert ? PolarsArrowCompat.Convert(batch, schema) : batch);
+            if (batches.Count > 1 && Concatenated(batches) is { } one)
+            {
+                foreach (RecordBatch batch in batches) batch.Dispose(); // shared view data stays with the concatenated batch
+                batches = [one];
+            }
         }
-        catch when (failure is not null)
+        catch
         {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failure);
+            foreach (RecordBatch batch in batches) batch.Dispose();
             throw;
         }
+        if (batches.Count <= 1) return ArrowStreamInterop.ImportEagerStrict(batches, schema);
+        using DataFrameHandle chunked = ArrowStreamInterop.ImportEagerStrict(batches, schema);
+        return PolarsWrapper.DataFrameRechunk(chunked);
 
-        IEnumerable<RecordBatch> Batches()
+        static RecordBatch? Concatenated(List<RecordBatch> batches)
         {
-            using IEnumerator<RecordBatch> batches = reader.ReadBatches().GetEnumerator();
-            while (true)
+            try
             {
-                try
-                {
-                    if (!batches.MoveNext()) yield break;
-                }
-                catch (Exception e)
-                {
-                    failure = e;
-                    throw;
-                }
-                yield return batches.Current;
+                return ArrowConcat.Concatenate(batches, Environment.ProcessorCount);
+            }
+            catch (Exception e) when (e is NotSupportedException or OverflowException)
+            {
+                return null;
             }
         }
     }
