@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Concurrency;
@@ -180,23 +181,8 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         JsonInput input;
         try
         {
-            byte[] head = new byte[(int)Math.Min(4, source.Length)];
-            int got = 0;
-            while (got < head.Length)
-            {
-                int n = useAsync ? await source.ReadAtAsync(got, head.AsMemory(got), ct).ConfigureAwait(false) : source.ReadAt(got, head.AsSpan(got));
-                if (n <= 0) break;
-                got += n;
-            }
-            Stream decompressed = StreamInput.Decompressed(new RandomAccessStream(source, 0), head.AsSpan(0, got), out bool compressed);
-            bool map = mappable && options.MemoryMap == JsonMemoryMap.Auto;
-            input = (compressed, options.Format) switch
-            {
-                (true, JsonFormat.Document) => DocumentInput.Of(decompressed, leaveOpen: false, options.UnitBytes),
-                (true, _) => new StreamInput(decompressed, leaveOpen: false, options.UnitBytes),
-                (false, JsonFormat.Document) => DocumentInput.Of(source, null, map, options.UnitBytes, options.MaxDegreeOfParallelism),
-                _ => new BlockInput(source, null, map, options.UnitBytes),
-            };
+            input = await InputAsync(source, options.Format, mappable && options.MemoryMap == JsonMemoryMap.Auto, options.UnitBytes,
+                options.MaxDegreeOfParallelism, useAsync, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -204,6 +190,32 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
             throw;
         }
         return await CreateAsync(input, owned, options, useAsync, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The input of <paramref name="source"/> (which the caller keeps open while it is read): gzip, zlib and zstd found by
+    /// the first bytes and read in order; else lines cut into blocks, a document scanned (in parallel, by
+    /// <paramref name="threads"/>); a local file mapped when <paramref name="map"/> says so.
+    /// </summary>
+    internal static async ValueTask<JsonInput> InputAsync(IRandomAccess source, JsonFormat format, bool map, int unitBytes, int threads,
+        bool useAsync, CancellationToken ct)
+    {
+        byte[] head = new byte[(int)Math.Min(4, source.Length)];
+        int got = 0;
+        while (got < head.Length)
+        {
+            int n = useAsync ? await source.ReadAtAsync(got, head.AsMemory(got), ct).ConfigureAwait(false) : source.ReadAt(got, head.AsSpan(got));
+            if (n <= 0) break;
+            got += n;
+        }
+        Stream decompressed = StreamInput.Decompressed(new RandomAccessStream(source, 0), head.AsSpan(0, got), out bool compressed);
+        return (compressed, format) switch
+        {
+            (true, JsonFormat.Document) => DocumentInput.Of(decompressed, leaveOpen: false, unitBytes),
+            (true, _) => new StreamInput(decompressed, leaveOpen: false, unitBytes),
+            (false, JsonFormat.Document) => DocumentInput.Of(source, null, map, unitBytes, threads),
+            _ => new BlockInput(source, null, map, unitBytes),
+        };
     }
 
     private static async ValueTask<JsonReader> CreateAsync(JsonInput input, IDisposable? owned, JsonReadOptions options, bool useAsync, CancellationToken ct)
@@ -219,22 +231,9 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
             if (!Enum.IsDefined(options.Format)) throw new ArgumentOutOfRangeException(nameof(options), $"Unknown JSON format {options.Format}.");
             Schema schema = options.Schema ?? await InferAsync(input, options, useAsync, ct).ConfigureAwait(false);
             if (options.SchemaOverrides is { } overrides) schema = Override(schema, overrides);
-            Schema full = schema;
-            List<string> passedOver = [];
-            if (options.Columns is { } columns) schema = Project(schema, columns, passedOver);
-            JsonRowFilter? filter = null;
-            bool exact = true;
-            if (options.FilterRows && options.Filter is { } expression)
-            {
-                // The columns the filter reads are decoded too.
-                filter = JsonRowFilter.Create(full, schema, expression, out exact);
-                schema = filter.Decoded;
-                passedOver = [.. full.FieldsList.Where(f => schema.GetFieldIndex(f.Name) < 0).Select(f => f.Name)];
-            }
             // A document's fields the inference did not see are errors (lines pass them over, as NDJSON readers do).
             bool strict = options.Format == JsonFormat.Document && options.Schema is null && !options.IgnoreErrors;
-            var settings = new JsonDecodeSettings(schema, options.BatchSize, options.IgnoreErrors, strict, passedOver, options.KeysIgnoreCase);
-            Validate(settings);
+            var (settings, filter, exact) = Prepare(schema, options.Columns, options.FilterRows ? options.Filter : null, options, strict);
             return new JsonReader(input, owned, options, settings, filter, exact);
         }
         catch
@@ -245,6 +244,31 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// What decoding the columns <paramref name="columns"/> of <paramref name="full"/> takes (all when null), and the row
+    /// filter of <paramref name="filter"/> (null: none) with whether it is exact; the columns the filter reads are decoded
+    /// too, the others passed over (strictly: only those, see <see cref="JsonDecodeSettings"/>). Fails when a column's
+    /// type has no decoder.
+    /// </summary>
+    internal static (JsonDecodeSettings Settings, JsonRowFilter? Filter, bool Exact) Prepare(Schema full, IReadOnlyList<string>? columns, ScalarExpr? filter,
+        JsonReadOptions options, bool strict)
+    {
+        Schema schema = full;
+        List<string> passedOver = [];
+        if (columns is not null) schema = Project(full, columns, passedOver);
+        JsonRowFilter? rows = null;
+        bool exact = true;
+        if (filter is not null)
+        {
+            rows = JsonRowFilter.Create(full, schema, filter, out exact);
+            schema = rows.Decoded;
+            passedOver = [.. full.FieldsList.Where(f => schema.GetFieldIndex(f.Name) < 0).Select(f => f.Name)];
+        }
+        var settings = new JsonDecodeSettings(schema, options.BatchSize, options.IgnoreErrors, strict, passedOver, options.KeysIgnoreCase);
+        Validate(settings);
+        return (settings, rows, exact);
+    }
+
     // The columns of the first records (all of them without a length), every record taken in in input order (as
     // dataframe engines fold record types: the fields' order depends on it, so units are not walked apart and merged).
     // A document without elements (or of empty objects only) has no columns.
@@ -252,18 +276,27 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     {
         using var root = new JsonShape("");
         bool document = options.Format == JsonFormat.Document;
-        long lines = 0, limit = options.InferSchemaLength ?? long.MaxValue;
+        await ObserveAsync(root, input, document, options.InferSchemaLength, useAsync, ct).ConfigureAwait(false);
+        if (root.Records == 0 && !document) throw new JsonFormatException("The input holds no records to infer the columns from (give a schema).");
+        return new Schema(root.Columns(options.ViewTypes), null);
+    }
+
+    /// <summary>
+    /// Takes the first <paramref name="records"/> records of <paramref name="input"/> (all when null) into
+    /// <paramref name="root"/>, in input order; errors name the line (and the array index) in the input.
+    /// </summary>
+    internal static async ValueTask ObserveAsync(JsonShape root, JsonInput input, bool document, int? records, bool useAsync, CancellationToken ct)
+    {
+        long before = root.Records, lines = 0, limit = records is int count ? before + count : long.MaxValue;
         for (int i = 0; root.Records < limit && (input.Count < 0 || i < input.Count); i++)
         {
             using JsonUnitBytes? bytes = await input.GetAsync(i, useAsync, ct).ConfigureAwait(false);
             if (bytes is null) break;
-            long records = root.Records;
+            long taken = root.Records;
             var (unitLines, error) = document ? JsonDecode.ObserveDocument(root, bytes, limit) : Walk(root, bytes, limit);
-            if (error is not null) throw error.At(lines, records);
+            if (error is not null) throw error.At(lines, taken - before);
             lines += unitLines;
         }
-        if (root.Records == 0 && !document) throw new JsonFormatException("The input holds no records to infer the columns from (give a schema).");
-        return new Schema(root.Columns(options.ViewTypes), null);
     }
 
     // A unit's records taken in, up to the limit.
@@ -444,15 +477,19 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     private async Task<JsonUnit> DecodeAsync(int index, long maxRows, bool useAsync, CancellationToken ct)
     {
         using JsonUnitBytes? bytes = await _input.GetAsync(index, useAsync, ct).ConfigureAwait(false);
-        JsonUnit unit = bytes is null ? JsonUnit.EndOfInput
-            : _options.Format == JsonFormat.Document ? JsonDecode.DecodeDocument(bytes, _settings, maxRows)
-            : JsonDecode.Decode(bytes.Memory.Span, bytes.FileStart, _settings, maxRows);
-        if (_filter is not null && unit.Error is null && !unit.End) Filter(unit);
+        return bytes is null ? JsonUnit.EndOfInput : Decode(bytes, _settings, _filter, _options.Format == JsonFormat.Document, maxRows);
+    }
+
+    /// <summary>A unit's records decoded (up to <paramref name="maxRows"/>) and filtered.</summary>
+    internal static JsonUnit Decode(JsonUnitBytes bytes, JsonDecodeSettings settings, JsonRowFilter? filter, bool document, long maxRows)
+    {
+        JsonUnit unit = document ? JsonDecode.DecodeDocument(bytes, settings, maxRows) : JsonDecode.Decode(bytes.Memory.Span, bytes.FileStart, settings, maxRows);
+        if (filter is not null && unit.Error is null) Filter(unit, filter);
         return unit;
     }
 
     // A unit's batches filtered (on the thread that decoded it); batches left without rows are dropped.
-    private void Filter(JsonUnit unit)
+    private static void Filter(JsonUnit unit, JsonRowFilter rowFilter)
     {
         try
         {
@@ -461,7 +498,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
             {
                 RecordBatch batch = unit.Batches[k]!;
                 unit.Batches[k] = null;
-                if (_filter!.Apply(batch) is { } filtered) unit.Batches[kept++] = filtered;
+                if (rowFilter.Apply(batch) is { } filtered) unit.Batches[kept++] = filtered;
             }
             unit.Batches.RemoveRange(kept, unit.Batches.Count - kept);
         }

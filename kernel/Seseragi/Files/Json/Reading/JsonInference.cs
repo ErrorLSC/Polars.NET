@@ -105,6 +105,39 @@ internal sealed class JsonShape(string path) : IDisposable
         }
     }
 
+    /// <summary>
+    /// Takes in what <paramref name="other"/> took in (another input's records, after this one's): its kinds, its items,
+    /// its fields as one object holding them in its order (so that fields order as when objects are merged).
+    /// </summary>
+    public void Merge(JsonShape other)
+    {
+        _kinds |= other._kinds;
+        Records += other.Records;
+        if (other._items is { } items) (_items ??= new JsonShape(path + "[]")).Merge(items);
+        if (other._fields.Count == 0) return;
+        int known = _fields.Count;
+        int stamp = ++_objects;
+        _order.Clear();
+        foreach (var (name, shape) in other._fields)
+        {
+            int index = Find(name);
+            if (index < 0) index = Add(name);
+            if (index >= _stamp.Length) System.Array.Resize(ref _stamp, Math.Max(index + 1, _stamp.Length * 2));
+            if (_stamp[index] != stamp)
+            {
+                _stamp[index] = stamp;
+                _order.Add(index);
+            }
+            _fields[index].Shape.Merge(shape);
+        }
+        if (_order.Count > known && known > 0)
+        {
+            for (int i = 0; i < known; i++)
+                if (_stamp[i] != stamp) _order.Add(i);
+            Reorder(_order);
+        }
+    }
+
     // The fields in the order of their indices in order (a permutation of them all).
     private void Reorder(List<int> order)
     {
