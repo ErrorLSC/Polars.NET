@@ -1,8 +1,10 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Ipc;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Ipc;
 
@@ -66,6 +68,14 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
         if (!stream.CanWrite) throw new ArgumentException("The stream is not writable.", nameof(stream));
         return new(stream, schema, options ?? new());
     }
+
+    /// <summary>
+    /// Creates a writer into a buffer writer: an array or native buffer writer, a pipe (flushed once a mebibyte is written and on completion, so writing waits while its reader is behind; never completed here). Nothing is written before the first batch, or
+    /// <see cref="Complete"/>. A compressed batch is written once compressed whole (the output cannot be written back into).
+    /// </summary>
+    /// <exception cref="NotSupportedException">The schema has a type Arrow IPC cannot hold.</exception>
+    public static IpcWriter Create(IBufferWriter<byte> output, Schema schema, IpcWriteOptions? options = null) =>
+        Create(BufferWriterStream.Over(output), schema, options);
 
     /// <summary>Creates (or overwrites) a file.</summary>
     /// <exception cref="NotSupportedException">The schema has a type Arrow IPC cannot hold.</exception>
@@ -181,6 +191,28 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>Writes all batches to a buffer writer and completes the output. If writing fails, the output holds what was written so far.</summary>
+    public static void Write(IBufferWriter<byte> output, Schema schema, IEnumerable<RecordBatch> batches, IpcWriteOptions? options = null) =>
+        Write(BufferWriterStream.Over(output), schema, batches, options);
+
+    /// <inheritdoc cref="Write(IBufferWriter{byte}, Schema, IEnumerable{RecordBatch}, IpcWriteOptions?)"/>
+    public static Task WriteAsync(IBufferWriter<byte> output, Schema schema, IAsyncEnumerable<RecordBatch> batches, IpcWriteOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        WriteAsync(BufferWriterStream.Over(output), schema, batches, options, cancellationToken);
+
+    /// <summary>
+    /// Writes rows of <typeparamref name="T"/> to a buffer writer and completes the output (<see cref="IpcWriter{T}"/>).
+    /// If writing fails, the output holds what was written so far.
+    /// </summary>
+    public static void WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBufferWriter<byte> output, IEnumerable<T> rows,
+        IpcWriteOptions? options = null) =>
+        WriteRows(BufferWriterStream.Over(output), rows, options);
+
+    /// <inheritdoc cref="WriteRows{T}(IBufferWriter{byte}, IEnumerable{T}, IpcWriteOptions?)"/>
+    public static Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBufferWriter<byte> output, IAsyncEnumerable<T> rows,
+        IpcWriteOptions? options = null, CancellationToken cancellationToken = default) =>
+        WriteRowsAsync(BufferWriterStream.Over(output), rows, options, cancellationToken);
 
     private static void WriteAll(IpcWriter writer, IEnumerable<RecordBatch> batches)
     {

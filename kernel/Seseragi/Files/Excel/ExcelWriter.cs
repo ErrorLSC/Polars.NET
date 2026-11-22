@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using Apache.Arrow;
 using Kaminari.Seseragi.Files.Excel.Writing;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Excel;
 
@@ -136,6 +137,10 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
     public static ExcelWriter Create(Stream stream, Schema schema, ExcelWriteOptions? options = null) =>
         new(stream, schema, options ?? new());
 
+    /// <summary>Creates a writer into a buffer writer: an array or native buffer writer, a pipe (flushed once a mebibyte is written and on completion, so writing waits while its reader is behind; never completed here).</summary>
+    public static ExcelWriter Create(IBufferWriter<byte> output, Schema schema, ExcelWriteOptions? options = null) =>
+        Create(BufferWriterStream.Over(output), schema, options);
+
     /// <summary>Creates (or overwrites) a file.</summary>
     public static ExcelWriter Create(string path, Schema schema, ExcelWriteOptions? options = null)
     {
@@ -175,6 +180,15 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>Writes all batches to a buffer writer and completes the workbook.</summary>
+    public static void Write(IBufferWriter<byte> output, Schema schema, IEnumerable<RecordBatch> batches, ExcelWriteOptions? options = null) =>
+        Write(BufferWriterStream.Over(output), schema, batches, options);
+
+    /// <inheritdoc cref="Write(IBufferWriter{byte}, Schema, IEnumerable{RecordBatch}, ExcelWriteOptions?)"/>
+    public static Task WriteAsync(IBufferWriter<byte> output, Schema schema, IAsyncEnumerable<RecordBatch> batches,
+        ExcelWriteOptions? options = null, CancellationToken cancellationToken = default) =>
+        WriteAsync(BufferWriterStream.Over(output), schema, batches, options, cancellationToken);
 
     /// <inheritdoc cref="Write(Stream, Schema, IEnumerable{RecordBatch}, ExcelWriteOptions?)"/>
     public static async Task WriteAsync(Stream stream, Schema schema, IAsyncEnumerable<RecordBatch> batches,

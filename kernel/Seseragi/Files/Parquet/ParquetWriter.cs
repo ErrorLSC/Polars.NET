@@ -10,6 +10,7 @@ using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Files.Parquet.Writing;
@@ -352,6 +353,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
+    /// Creates a writer into a buffer writer: an array or native buffer writer, a pipe (flushed once a mebibyte is written and on completion, so writing waits while its reader is behind; never completed here). Nothing is written before the first row group closes (or the
+    /// file completes).
+    /// </summary>
+    public static ParquetWriter Create(IBufferWriter<byte> output, Apache.Arrow.Schema schema, ParquetWriteOptions? options = null) =>
+        Create(BufferWriterStream.Over(output), schema, options);
+
+    /// <summary>
     /// Creates a writer over a stream from a plan made beforehand (<see cref="WritePlan.Create"/>): the files a sink
     /// writes side by side share one.
     /// </summary>
@@ -512,6 +520,28 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             throw;
         }
     }
+
+    /// <summary>Writes all batches to a buffer writer and completes the file. If writing fails, the output holds a file without its footer.</summary>
+    public static void Write(IBufferWriter<byte> output, Apache.Arrow.Schema schema, IEnumerable<RecordBatch> batches, ParquetWriteOptions? options = null) =>
+        Write(BufferWriterStream.Over(output), schema, batches, options);
+
+    /// <inheritdoc cref="Write(IBufferWriter{byte}, Apache.Arrow.Schema, IEnumerable{RecordBatch}, ParquetWriteOptions?)"/>
+    public static Task WriteAsync(IBufferWriter<byte> output, Apache.Arrow.Schema schema, IAsyncEnumerable<RecordBatch> batches,
+        ParquetWriteOptions? options = null, CancellationToken cancellationToken = default) =>
+        WriteAsync(BufferWriterStream.Over(output), schema, batches, options, cancellationToken);
+
+    /// <summary>
+    /// Writes rows of <typeparamref name="T"/> to a buffer writer and completes the file (<see cref="ParquetWriter{T}"/>).
+    /// If writing fails, the output holds a file without its footer.
+    /// </summary>
+    public static void WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBufferWriter<byte> output, IEnumerable<T> rows,
+        ParquetWriteOptions? options = null) =>
+        WriteRows(BufferWriterStream.Over(output), rows, options);
+
+    /// <inheritdoc cref="WriteRows{T}(IBufferWriter{byte}, IEnumerable{T}, ParquetWriteOptions?)"/>
+    public static Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBufferWriter<byte> output, IAsyncEnumerable<T> rows,
+        ParquetWriteOptions? options = null, CancellationToken cancellationToken = default) =>
+        WriteRowsAsync(BufferWriterStream.Over(output), rows, options, cancellationToken);
 
     private void WriteAll(IEnumerable<RecordBatch> batches)
     {

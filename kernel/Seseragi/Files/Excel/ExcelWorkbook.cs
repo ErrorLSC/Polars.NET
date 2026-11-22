@@ -50,6 +50,9 @@ public sealed class ExcelWorkbook : IDisposable, IAsyncDisposable
     public static ExcelWorkbook Open(Stream stream, bool leaveOpen = false) =>
         OpenCoreAsync(stream, leaveOpen, false, default).AsTask().GetAwaiter().GetResult();
 
+    /// <summary>Opens a workbook held in memory, read in place (not copied): the memory must stay as it is until the workbook is disposed.</summary>
+    public static ExcelWorkbook Open(ReadOnlyMemory<byte> bytes) => Open(new RandomAccessStream(new MemoryRandomAccess(bytes), 0));
+
     /// <inheritdoc cref="Open(string)"/>
     public static async Task<ExcelWorkbook> OpenAsync(string path, CancellationToken cancellationToken = default) =>
         await OpenCoreAsync(OpenFile(path), false, true, cancellationToken).ConfigureAwait(false);

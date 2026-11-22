@@ -1,6 +1,8 @@
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 using Kaminari.Sazanami.Data.Building;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Ipc;
 
@@ -58,6 +60,10 @@ public sealed class IpcWriter<[DynamicallyAccessedMembers(DynamicallyAccessedMem
     /// <summary>Creates a writer over a stream (nothing is written before the first batch, or <see cref="Complete"/>).</summary>
     public static IpcWriter<T> Create(Stream stream, IpcWriteOptions? options = null) =>
         new(IpcWriter.Create(stream, ArrowRowBuilder<T>.Schema, Owned(options)), options);
+
+    /// <inheritdoc cref="IpcWriter.Create(IBufferWriter{byte}, Schema, IpcWriteOptions?)"/>
+    public static IpcWriter<T> Create(IBufferWriter<byte> output, IpcWriteOptions? options = null) =>
+        Create(BufferWriterStream.Over(output), options);
 
     /// <summary>Creates (or overwrites) a file.</summary>
     public static IpcWriter<T> Create(string path, IpcWriteOptions? options = null) =>

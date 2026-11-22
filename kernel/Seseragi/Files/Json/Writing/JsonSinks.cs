@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.IO.Pipelines;
 using System.Text.Unicode;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Json.Writing;
 
@@ -105,20 +106,10 @@ internal sealed class PipeSink(PipeWriter pipe) : JsonSink
             pipe.Advance(n);
             rest = rest[n..];
         }
-        await FlushAsync(useAsync, ct).ConfigureAwait(false);
+        await PipeFlush.FlushAsync(pipe, useAsync, ct).ConfigureAwait(false);
     }
 
-    public override ValueTask CompleteAsync(bool useAsync, CancellationToken ct) => FlushAsync(useAsync, ct);
-
-    private async ValueTask FlushAsync(bool useAsync, CancellationToken ct)
-    {
-        ValueTask<FlushResult> flush = pipe.FlushAsync(ct);
-        FlushResult result = flush.IsCompletedSuccessfully ? flush.Result
-            : useAsync ? await flush.ConfigureAwait(false)
-            : flush.AsTask().GetAwaiter().GetResult();
-        if (result.IsCanceled) throw new OperationCanceledException("The pipe's flush was canceled.", ct);
-        if (result.IsCompleted) throw new IOException("The destination stopped accepting data.");
-    }
+    public override ValueTask CompleteAsync(bool useAsync, CancellationToken ct) => PipeFlush.FlushAsync(pipe, useAsync, ct);
 }
 
 /// <summary>Text: UTF-8 rows decoded to UTF-16 a piece at a time.</summary>

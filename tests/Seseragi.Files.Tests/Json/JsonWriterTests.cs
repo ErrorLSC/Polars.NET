@@ -307,6 +307,7 @@ public class JsonWriterTests
         using (JsonWriter writer = JsonWriter.Create(output, schema, new JsonWriteOptions { Format = JsonFormat.Document, LeaveOpen = true }))
         {
             writer.Write(batch);
+            writer.Flush(); // rows still on their way when aborting are dropped: these are written
             writer.Abort();
             Assert.Throws<InvalidOperationException>(() => writer.Complete());
         }

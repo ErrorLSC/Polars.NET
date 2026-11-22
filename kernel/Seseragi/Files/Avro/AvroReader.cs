@@ -7,6 +7,7 @@ using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Avro;
 
@@ -168,6 +169,10 @@ public sealed class AvroReader : IAsyncDisposable, IDisposable
     /// <summary>Opens an Avro file and reads its header synchronously.</summary>
     public static AvroReader Open(string path, AvroReadOptions? options = null) =>
         Open(OpenFile(path), (options ?? new()) with { LeaveOpen = false });
+
+    /// <summary>Opens an Avro file held in memory and reads its header, read in place (not copied): the memory must stay as it is until the reader is disposed.</summary>
+    public static AvroReader Open(ReadOnlyMemory<byte> bytes, AvroReadOptions? options = null) =>
+        Open(new RandomAccessStream(new MemoryRandomAccess(bytes), 0), (options ?? new()) with { LeaveOpen = false });
 
     /// <summary>Opens an Avro stream and reads its header synchronously.</summary>
     public static AvroReader Open(Stream stream, AvroReadOptions? options = null)

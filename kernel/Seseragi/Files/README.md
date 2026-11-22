@@ -21,6 +21,12 @@ Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, 
 * Generic native infrastructure (builders, buffers, the row view) belongs in Sazanami, not here.
 * Modern .NET only (see `AGENTS.md`).
 
+**Buffer writers**: every writer that writes a stream also writes an `IBufferWriter<byte>` (`Create`, the static
+`Write` / `WriteAsync`, typed `WriteRows` / `WriteRowsAsync`): an `ArrayBufferWriter`, a native buffer writer, a
+`PipeWriter`. The output holds the bytes once the writer completes (or is disposed). A pipe is flushed as the bytes
+go (every mebibyte, and on completion), so writing waits while its reader is behind, and is never completed by the
+writer: the caller ends it. A reader that stops fails the writer with an `IOException`.
+
 ## Parquet
 
 **Files** (`ParquetFile`): opened from a path, memory (`ReadOnlyMemory<byte>`, read in place), a stream (memory
@@ -219,7 +225,8 @@ the reader cannot evaluate, are evaluated on the rows as `T` when Samidare's cli
 (Strict, the default, refuses them). Filters reach pruning and lowering in canonical shapes (`FilterShapes.canonical`:
 a starts-with or ends-with call as the operator, an IN over a collection as an IN over literals), whoever built them.
 
-**Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches as a Parquet file, to a stream or a path
+**Writing** (`ParquetWriter`, `ParquetWriteOptions`): Arrow record batches as a Parquet file, to a stream, a path or an
+`IBufferWriter<byte>` (see "Buffer writers" below)
 (`Create`, then `Write` / `WriteAsync` batch by batch and `Complete`; or the static `Write` / `WriteAsync` of a whole
 sequence, which delete a partial file on failure). Disposing an incomplete writer completes the file unless writing
 failed or the caller gave it up with `Abort` (a failure outside the writer: then nothing buffered is encoded or written,
@@ -433,7 +440,8 @@ before V4, tensor messages, buffers over 2 GiB, types Apache.Arrow cannot hold (
 binary of width 0). Apache.Arrow names map fields canonically (`entries`, `key`, `value`).
 
 **Writing** (`IpcWriter`, `IpcWriteOptions`): record batches as the file format (default) or the stream format
-(`IpcFormat`), to a stream or a path, sync or async (`Write`, `WriteAsync`, a batch's message metadata as an extra
+(`IpcFormat`), to a stream, a path or an `IBufferWriter<byte>` (a compressed batch written once compressed whole: a
+buffer writer cannot be written back into), sync or async (`Write`, `WriteAsync`, a batch's message metadata as an extra
 argument, `Complete`, `Abort`, `BytesWritten`; `IpcWriter.Write(path | stream, schema, batches)` / `WriteAsync` in one
 call; disposing completes unless aborted or failed, `LeaveOpen`). Metadata V5, little-endian; schema, field, message and
 footer (`FileMetadata`) metadata; extension types written as their storage with the `ARROW:extension:*` keys. Buffers
@@ -532,7 +540,8 @@ writes rows of records (`ArrowRowBuilder<T>`'s layout).
 
 ## Avro features
 
-**Reading** (`AvroReader`, `AvroReadOptions`): from a path or a stream, synchronously or asynchronously, as record
+**Reading** (`AvroReader`, `AvroReadOptions`): from a path, a stream or memory (`ReadOnlyMemory<byte>`, read in place:
+the caller keeps it unchanged until the reader is disposed), synchronously or asynchronously, as record
 batches of `BatchSize` rows backed by native memory. Columns can be projected (`Columns`, `ColumnIndices`; others are
 skipped without decoding), rows limited (`RowLimit`), and blocks decoded in parallel (`MaxDegreeOfParallelism`).
 `WriterSchema`, `Schema`, `Codec` and `Metadata` describe the file.
@@ -545,7 +554,8 @@ their precision, logical types must mean the same. Mismatches raise `AvroResolut
 **Schema cache** (`AvroReadCache`, `AvroReadOptions.Cache`): readers of many files with one schema (Iceberg manifests)
 share the parsed writer schema, the projection, the Arrow schema and the resolution plan.
 
-**Writing** (`AvroWriter`, `AvroWriteOptions`): Arrow batches to an object container file, with a codec
+**Writing** (`AvroWriter`, `AvroWriteOptions`): Arrow batches to an object container file (a path, a stream or an
+`IBufferWriter<byte>`), with a codec
 (`NoCompression`, `DeflateCompression`, `SnappyCompression`, `ZstandardCompression`), a block size and extra header
 metadata. By default the Avro schema is mapped from the Arrow schema; with `WriterSchema` the file is written as
 exactly the given Avro schema (record names, defaults, field ids, encodings).
@@ -579,7 +589,8 @@ Sazanami's `ArrowRows` reads the batches row by row, by name or by field id.
 
 ## Excel features
 
-**Workbooks** (`ExcelWorkbook`): opened from a path or a stream; the format is detected from the content (a zip whose
+**Workbooks** (`ExcelWorkbook`): opened from a path, a stream or memory (`ReadOnlyMemory<byte>`, read in place: the
+caller keeps it unchanged until the workbook is disposed; `ExcelReader.Open` takes the same); the format is detected from the content (a zip whose
 workbook part is XML: xlsx, transitional or strict OOXML; or BIFF12 records: xlsb; an OLE2 compound file with a BIFF8
 workbook stream: xls; a zip whose `mimetype` (or manifest) says OpenDocument spreadsheet: ods; XML whose root is
 `office:document` of that type: flat ods). `Sheets` (name, tab position, visibility, kind: worksheet, chart sheet or
@@ -657,7 +668,8 @@ decompressed and parsed as the batches are read.
 * Dates: the 1900 system with Lotus's fictitious 1900-02-29 (serial 60 reads as 1900-02-28), the 1904 system;
   times rounded to the nearest microsecond.
 
-**Writing** (`ExcelWriter`, `ExcelWriteOptions`): Arrow batches as one sheet, streaming. Rows are encoded as they
+**Writing** (`ExcelWriter`, `ExcelWriteOptions`): Arrow batches as one sheet, streaming, to a path, a stream or an
+`IBufferWriter<byte>`. Rows are encoded as they
 arrive and compressed into the sheet's zip entry; shared strings, styles, the workbook and the package parts follow
 on `Complete`. `SheetName` (validated as Excel requires), `IncludeHeader`, number formats per temporal kind
 (`DateFormat`, `DatetimeFormat`, `TimeFormat`, `DurationFormat`), `SharedStrings` (default on; off writes inline
@@ -684,6 +696,7 @@ written synchronously on completion.
 
 | Where | What |
 | :--- | :--- |
+| `IO/BufferWriterStream.cs` | A write-only stream into an `IBufferWriter<byte>` (the writers' buffer-writer outputs), a `PipeWriter` flushed every mebibyte and on `Flush`; `PipeFlush`, a pipe's flush checked (a stopped reader is an `IOException`). |
 | `CompressionType.cs` | Codec objects shared by formats. Which format accepts which codec is a compile-time fact: marker interfaces (`IAvroCompression`, with an `internal` member so only this package implements it). |
 | `Avro/AvroSchema.cs` | The schema model (`AvroSchema` and subclasses, `AvroField`, `AvroType`, `AvroLogicalKind`; internal constructors) and the parser: named types and namespaces, recursion, logical types (an invalid or unknown one falls back to the base type and stays in `Properties`), Spark's `spark.sql.catalyst.type` intervals, the `kaminari.timezone` attribute, every other attribute kept in `Properties`. Attributes on a named-type reference or a `{"type": {…}}` wrapper have no node of their own and are dropped. |
 | `Avro/AvroSchema.Construction.cs` | Factory methods (`AvroSchema.Record`, `Array`, `ArrayMap`, `Map`, `Union`, `Nullable`, `TimestampMicros`, `DecimalFixed`, `UuidFixed`, …; `AvroField.Required`, `Optional`). Every node is validated as built (names, logical types, unions, defaults); a built schema parses back to the same model; built schemas are not recursive. |

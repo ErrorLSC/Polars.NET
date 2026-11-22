@@ -71,7 +71,8 @@ public sealed class IpcStreamReader : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Opens a stream, reading its schema message. Unless <paramref name="leaveOpen"/>, the stream is disposed with the
-    /// reader, or when opening fails.
+    /// reader, or when opening fails. Data in memory opens with <see cref="IpcFile.Open(ReadOnlyMemory{byte})"/>, which
+    /// reads the stream format too (at offsets).
     /// </summary>
     /// <exception cref="IpcFormatException">The data is not an Arrow IPC stream, or its schema is damaged.</exception>
     /// <exception cref="ArgumentException">A column named in the options is not in the stream.</exception>

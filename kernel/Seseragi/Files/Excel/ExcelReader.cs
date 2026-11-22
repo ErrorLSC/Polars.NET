@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Excel.Reading;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Excel;
 
@@ -110,6 +111,10 @@ public sealed class ExcelReader : IDisposable, IAsyncDisposable
     /// <summary>Opens a sheet of a workbook in a stream (disposed with the reader unless <see cref="ExcelReadOptions.LeaveOpen"/>).</summary>
     public static ExcelReader Open(Stream stream, ExcelReadOptions? options = null) =>
         OpenStreamCoreAsync(stream, options ?? new(), false, default).AsTask().GetAwaiter().GetResult();
+
+    /// <summary>Opens a sheet of a workbook held in memory, read in place (not copied): the memory must stay as it is until the reader is disposed.</summary>
+    public static ExcelReader Open(ReadOnlyMemory<byte> bytes, ExcelReadOptions? options = null) =>
+        Open(new RandomAccessStream(new MemoryRandomAccess(bytes), 0), (options ?? new()) with { LeaveOpen = false });
 
     /// <inheritdoc cref="Open(string, ExcelReadOptions?)"/>
     public static async Task<ExcelReader> OpenAsync(string path, ExcelReadOptions? options = null, CancellationToken cancellationToken = default) =>

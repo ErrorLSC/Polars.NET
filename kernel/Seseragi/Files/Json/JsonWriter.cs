@@ -297,6 +297,24 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <inheritdoc cref="WriteRows{T}(IBufferWriter{byte}, IEnumerable{T}, JsonWriteOptions?)"/>
+    public static async Task WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IBufferWriter<byte> output, IAsyncEnumerable<T> rows,
+        JsonWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using var writer = JsonWriter<T>.Create(output, options);
+        try
+        {
+            await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            writer.Abort();
+            throw;
+        }
+    }
+
     private static void WriteAllRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(JsonWriter<T> writer, IEnumerable<T> rows)
     {
         try

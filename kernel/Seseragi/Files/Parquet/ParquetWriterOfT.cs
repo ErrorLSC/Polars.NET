@@ -1,7 +1,9 @@
+using System.Buffers;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Sazanami.Data.Mapping;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -75,6 +77,10 @@ public sealed class ParquetWriter<[DynamicallyAccessedMembers(DynamicallyAccesse
     /// <summary>Creates a writer over a stream. Nothing is written before the first row group closes (or the file completes).</summary>
     public static ParquetWriter<T> Create(Stream stream, ParquetWriteOptions? options = null) =>
         new(ParquetWriter.Create(stream, ArrowRowBuilder<T>.Schema, Typed(options)), options);
+
+    /// <inheritdoc cref="ParquetWriter.Create(IBufferWriter{byte}, Apache.Arrow.Schema, ParquetWriteOptions?)"/>
+    public static ParquetWriter<T> Create(IBufferWriter<byte> output, ParquetWriteOptions? options = null) =>
+        Create(BufferWriterStream.Over(output), options);
 
     /// <summary>Creates (or overwrites) a file.</summary>
     public static ParquetWriter<T> Create(string path, ParquetWriteOptions? options = null) =>

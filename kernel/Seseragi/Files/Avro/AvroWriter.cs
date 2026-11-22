@@ -1,7 +1,9 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using Apache.Arrow;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Avro;
 
@@ -109,6 +111,12 @@ public sealed class AvroWriter : IAsyncDisposable, IDisposable
     public static AvroWriter Create(Stream stream, Schema schema, AvroWriteOptions? options = null) =>
         new(stream, schema, options ?? new());
 
+    /// <summary>
+    /// Creates a writer into a buffer writer: an array or native buffer writer, a pipe (flushed once a mebibyte is written and on completion, so writing waits while its reader is behind; never completed here). The header is written with the first block (or on completion).
+    /// </summary>
+    public static AvroWriter Create(IBufferWriter<byte> output, Schema schema, AvroWriteOptions? options = null) =>
+        Create(BufferWriterStream.Over(output), schema, options);
+
     /// <summary>Creates (or overwrites) a file.</summary>
     public static AvroWriter Create(string path, Schema schema, AvroWriteOptions? options = null)
     {
@@ -152,6 +160,16 @@ public sealed class AvroWriter : IAsyncDisposable, IDisposable
         }
         await writer.DisposeAsync().ConfigureAwait(false);
     }
+
+    /// <summary>Writes all batches to a buffer writer and completes the file. If the source fails or is cancelled, the
+    /// final block is not written and the error propagates; what reached the output is the caller's to discard.</summary>
+    public static Task WriteAsync(IBufferWriter<byte> output, Schema schema, IAsyncEnumerable<RecordBatch> batches,
+        AvroWriteOptions? options = null, CancellationToken cancellationToken = default) =>
+        WriteAsync(BufferWriterStream.Over(output), schema, batches, options, cancellationToken);
+
+    /// <summary>Writes all batches to a buffer writer and completes the file synchronously.</summary>
+    public static void Write(IBufferWriter<byte> output, Schema schema, IEnumerable<RecordBatch> batches, AvroWriteOptions? options = null) =>
+        Write(BufferWriterStream.Over(output), schema, batches, options);
 
     /// <summary>Writes a stream of batches and completes the file. If the source fails or is cancelled, the
     /// file is left without its final block (incomplete, not silently short).</summary>
