@@ -115,6 +115,21 @@ public sealed class JsonDatasetTests : IDisposable
             Assert.Equal(Expected((0, 5010)), Read(dataset, new JsonReadOptions { MaxDegreeOfParallelism = threads, UnitBytes = 4096 }));
     }
 
+    /// <summary>
+    /// A directory may hold compressed files named with their compression's suffix beside plain ones (a.jsonl.gz is a
+    /// .jsonl, as Polars and Spark name them); files of another format still need a glob.
+    /// </summary>
+    [Fact]
+    public void CompressionSuffixes_AreTheirFormatsExtension()
+    {
+        Write("s/a.jsonl.gz", Lines(0, 100), "gzip");
+        Write("s/b.jsonl", Lines(100, 10));
+        Write("s/c.jsonl.zst", Lines(110, 20), "zstd");
+        using (JsonDataset dataset = JsonDataset.Open(At("s"))) Assert.Equal(Expected((0, 130)), Read(dataset));
+        Write("s/d.json", "[]");
+        Assert.Contains("different extensions", Assert.Throws<InvalidOperationException>(() => JsonDataset.Open(At("s"))).Message);
+    }
+
     // ---------------------------------------------------------------- columns
 
     [Fact]
@@ -207,6 +222,38 @@ public sealed class JsonDatasetTests : IDisposable
         using JsonDatasetReader reader = dataset.OpenReader(options);
         Assert.Equal([false, true, false], reader.FilesRead);
         Assert.Equal([.. Expected((10, 10)).Select(r => r + " | 2024")], Rows(reader.ReadBatches()));
+    }
+
+    /// <summary>
+    /// Files whose filters differ (the dataset's with each file's partition values in place) are planned apart; files
+    /// whose filters are the same share one plan.
+    /// </summary>
+    [Fact]
+    public void FilesWithOtherPartitionValues_FilterWithTheirOwn()
+    {
+        Write("m/k=1/a.jsonl", Lines(0, 100));
+        Write("m/k=1/b.jsonl", Lines(0, 100));
+        Write("m/k=2/a.jsonl", Lines(0, 100));
+        Write("m/k=3/a.jsonl", Lines(0, 100));
+        using JsonDataset dataset = JsonDataset.Open(At("m"));
+        // k = 1 or id < 10 * k: every row of k=1's files, then ids below 20 and 30.
+        ScalarExpr filter = ScalarExpr.NewBinary(BinaryOp.Or,
+            ScalarExpr.NewBinary(BinaryOp.Eq, Col("k"), Lit(1)),
+            ScalarExpr.NewBinary(BinaryOp.Lt, Col("id"), ScalarExpr.NewBinary(BinaryOp.Multiply, Col("k"), Lit(10))));
+        foreach (int threads in (int[])[1, 8])
+        {
+            using JsonDatasetReader reader = dataset.OpenReader(new JsonReadOptions { Filter = filter, FilterRows = true, MaxDegreeOfParallelism = threads });
+            Assert.True(reader.FiltersExactly);
+            Assert.Equal([.. Expected((0, 100), (0, 100)).Select(r => r + " | 1"), .. Expected((0, 20)).Select(r => r + " | 2"), .. Expected((0, 30)).Select(r => r + " | 3")],
+                Rows(reader.ReadBatches()));
+            // A plan per filter: k=1's two files share theirs (made again only if planned out of order).
+            Assert.InRange(reader.PlansMade, 3, 4);
+        }
+        using (JsonDatasetReader reader = dataset.OpenReader(new JsonReadOptions { MaxDegreeOfParallelism = 1 }))
+        {
+            Assert.Equal(400, Rows(reader.ReadBatches()).Count);
+            Assert.Equal(1, reader.PlansMade); // no filter: one plan for every file
+        }
     }
 
     [Fact]

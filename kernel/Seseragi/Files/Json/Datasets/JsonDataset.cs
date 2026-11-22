@@ -24,9 +24,11 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     /// <summary>How many files' first records are inferred at once (a dataset united by name reads every file's when it opens).</summary>
     internal const int HeadsAtOnce = 16;
 
-    private JsonDataset(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, Schema fileSchema, bool inferred, Partitions? partitions)
+    private JsonDataset(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, FileVersions versions, Schema fileSchema, bool inferred,
+        Partitions? partitions)
     {
         Store = store;
+        Versions = versions;
         Options = options;
         Files = files;
         FileSchema = fileSchema;
@@ -47,6 +49,9 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
         Schema = new Schema(fields, fileSchema.Metadata);
         PartitionSchema = partitions is null ? null : new Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
+
+    /// <summary>The versions the files were first opened at (reads ask for them: see <see cref="FileVersions"/>).</summary>
+    internal FileVersions Versions { get; }
 
     /// <summary>The partition values of the files (one row per file), when the dataset is partitioned.</summary>
     internal Partitions? Partitions { get; }
@@ -160,7 +165,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
         HashSet<string> partitions = new(Partitions?.Fields.Select(f => f.Name) ?? [], StringComparer.OrdinalIgnoreCase);
         var schema = new Schema([.. rows.FieldsList.Where(f => !partitions.Contains(f.Name))
             .Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))], null);
-        return new JsonDataset(Store, Options, [.. Files], schema, inferred: false, Partitions);
+        return new JsonDataset(Store, Options, [.. Files], Versions, schema, inferred: false, Partitions);
     }
 
     /// <summary>
@@ -210,12 +215,13 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     {
         Schema schema;
         bool inferred = options.Schema is null;
+        var versions = new FileVersions(files.Length);
         if (options.Schema is { } declared) schema = Nullable(declared);
         else
         {
             using JsonShape root = options.SchemaMode == DatasetSchemaMode.UnionByName
-                ? await UnitedAsync(store, options, files, ct).ConfigureAwait(false)
-                : await FirstAsync(store, options, files, useAsync, ct).ConfigureAwait(false);
+                ? await UnitedAsync(store, options, files, versions, ct).ConfigureAwait(false)
+                : await FirstAsync(store, options, files, versions, useAsync, ct).ConfigureAwait(false);
             if (root.Records == 0 && options.Format == JsonFormat.Lines)
                 throw new JsonFormatException("The dataset's files hold no records to infer the columns from (give a schema).");
             schema = new Schema(root.Columns(options.ViewTypes), null);
@@ -227,20 +233,21 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
             }
         }
         Partitions? partitions = DatasetFiles.PartitionsOf(files, options, hiveStart, schema);
-        return new JsonDataset(store, options, files, schema, inferred, partitions);
+        return new JsonDataset(store, options, files, versions, schema, inferred, partitions);
 
         static Schema Nullable(Schema schema) =>
             new([.. schema.FieldsList.Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))], schema.Metadata);
     }
 
     // The first records of the first file that holds any (a document of no element, or a file of no line, is passed over).
-    private static async ValueTask<JsonShape> FirstAsync(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, bool useAsync, CancellationToken ct)
+    private static async ValueTask<JsonShape> FirstAsync(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, FileVersions versions, bool useAsync,
+        CancellationToken ct)
     {
         var root = new JsonShape("");
         try
         {
             for (int i = 0; i < files.Length && root.Records == 0; i++)
-                await HeadAsync(root, store, options, files[i], useAsync, ct).ConfigureAwait(false);
+                await HeadAsync(root, store, options, files, versions, i, useAsync, ct).ConfigureAwait(false);
             return root;
         }
         catch
@@ -251,7 +258,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     }
 
     // Every file's first records, taken in side by side, united in file order.
-    private static async ValueTask<JsonShape> UnitedAsync(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, CancellationToken ct)
+    private static async ValueTask<JsonShape> UnitedAsync(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, FileVersions versions, CancellationToken ct)
     {
         var heads = new JsonShape?[files.Length];
         try
@@ -261,7 +268,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
                 {
                     var head = new JsonShape("");
                     heads[i] = head;
-                    await HeadAsync(head, store, options, files[i], useAsync: true, token).ConfigureAwait(false);
+                    await HeadAsync(head, store, options, files, versions, i, useAsync: true, token).ConfigureAwait(false);
                 }).ConfigureAwait(false);
             var root = new JsonShape("");
             foreach (JsonShape? head in heads) root.Merge(head!);
@@ -274,9 +281,11 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     }
 
     // A file's first records taken into a shape; errors name the file.
-    private static async ValueTask HeadAsync(JsonShape root, IFileStore store, JsonDatasetOptions options, JsonDatasetFile file, bool useAsync, CancellationToken ct)
+    private static async ValueTask HeadAsync(JsonShape root, IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, FileVersions versions, int index,
+        bool useAsync, CancellationToken ct)
     {
-        IRandomAccess source = await OpenSourceAsync(store, file, ct).ConfigureAwait(false);
+        JsonDatasetFile file = files[index];
+        IRandomAccess source = await OpenSourceAsync(store, file, versions, index, ct).ConfigureAwait(false);
         try
         {
             using JsonInput input = await JsonReader.InputAsync(source, options.Format, map: true, JsonInput.DefaultUnitBytes, threads: 1, useAsync, ct).ConfigureAwait(false);
@@ -288,18 +297,23 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
         }
         finally
         {
+            versions.Note(index, source); // the version read (a store learns it reading)
             await Close(source).ConfigureAwait(false);
         }
     }
 
-    /// <summary>Opens a file of the store (its size from the listing when known); errors name the file.</summary>
-    internal static async ValueTask<IRandomAccess> OpenSourceAsync(IFileStore store, JsonDatasetFile file, CancellationToken ct)
+    /// <summary>
+    /// Opens file <paramref name="index"/> of the store: at the version it was first read at (<paramref name="versions"/>,
+    /// noted by the caller once read), else at its size from the listing when known; errors name the file.
+    /// </summary>
+    internal static async ValueTask<IRandomAccess> OpenSourceAsync(IFileStore store, JsonDatasetFile file, FileVersions versions, int index, CancellationToken ct)
     {
         try
         {
-            return file.Size is long size
-                ? await store.OpenAsync(new StoredFile(file.Path, size), ct).ConfigureAwait(false)
+            IRandomAccess source = versions.Get(index) is { } version ? await store.OpenAsync(version with { Path = file.Path }, ct).ConfigureAwait(false)
+                : file.Size is long size ? await store.OpenAsync(new StoredFile(file.Path, size), ct).ConfigureAwait(false)
                 : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
+            return source;
         }
         catch (IOException e) when (DatasetFiles.Unnamed(e, file.Path))
         {

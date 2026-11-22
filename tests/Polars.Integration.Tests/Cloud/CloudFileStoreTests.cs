@@ -42,7 +42,9 @@ public abstract class CloudDatasetContract
         long[] expected = [.. Enumerable.Range(0, 4 * Rows).Select(i => (long)i)];
         int first = HttpTransport.CountRequests(() => Assert.Equal(expected, dataset.Ids(1)));
         int again = HttpTransport.CountRequests(() => Assert.Equal(expected, dataset.Ids(8)));
-        Assert.True(again < first, $"read again with {again} requests, first with {first}");
+        // A footer kept saves requests; NDJSON has none (its files are read whole again).
+        if (format == "json") Assert.True(again <= first, $"read again with {again} requests, first with {first}");
+        else Assert.True(again < first, $"read again with {again} requests, first with {first}");
         Console.WriteLine($"{GetType().Name} ({format}): 4 files (2 large), first read {first} requests, again {again}");
     }
 

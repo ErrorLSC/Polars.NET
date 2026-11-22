@@ -21,6 +21,16 @@ internal abstract class DatasetFileFormat
 
     /// <summary>A writer of one file into <paramref name="stream"/> (which the sink owns: the writer leaves it open).</summary>
     public abstract DatasetFileWriter Open(Stream stream);
+
+    /// <summary>
+    /// The batches the rows of the writes to come are ranges of, until <see cref="SourcesDone"/> (the files' writes
+    /// then take these very batches, from several threads at once): a format may prepare what it reads from each batch
+    /// once, for every file. Nothing by default.
+    /// </summary>
+    public virtual void SourcesOpen(IReadOnlyList<RecordBatch> sources) { }
+
+    /// <summary>The writes of the batches given to <see cref="SourcesOpen"/> are done: what was prepared for them can go.</summary>
+    public virtual void SourcesDone() { }
 }
 
 /// <summary>

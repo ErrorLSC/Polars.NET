@@ -3,6 +3,7 @@ using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Ipc;
+using Kaminari.Seseragi.Files.Json;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Lakehouse.Engine;
 using Polars.Integration.Tests.Fixtures;
@@ -10,7 +11,7 @@ using Polars.Integration.Tests.Fixtures;
 namespace Polars.Integration.Tests.Cloud;
 
 /// <summary>
-/// Dataset writes (Parquet, Arrow IPC files and streams) to object stores through <see cref="CloudFileStore"/>:
+/// Dataset writes (Parquet, Arrow IPC files and streams, NDJSON) to object stores through <see cref="CloudFileStore"/>:
 /// Hive-partitioned files listed and read back, a file large enough to go up in parts, files there already refused,
 /// added to or replaced, and a failed write deleting what it published.
 /// </summary>
@@ -40,24 +41,36 @@ public abstract class CloudDatasetWriteContract
     {
         "parquet" => new ParquetDatasetWriteOptions { Store = store },
         "ipc" => new IpcDatasetWriteOptions { Store = store },
+        "json" => new JsonDatasetWriteOptions { Store = store },
         _ => new IpcDatasetWriteOptions { Store = store, Writer = new IpcWriteOptions { Format = IpcFormat.Stream } },
     };
 
-    private static List<DatasetWrittenFile> Write(string path, IEnumerable<RecordBatch> batches, DatasetWriteOptions options) => options is ParquetDatasetWriteOptions parquet
-        ? [.. ParquetDatasetWriter.Write(path, TheSchema, batches, parquet).Files]
-        : [.. IpcDatasetWriter.Write(path, TheSchema, batches, (IpcDatasetWriteOptions)options).Files];
+    private static List<DatasetWrittenFile> Write(string path, IEnumerable<RecordBatch> batches, DatasetWriteOptions options) => options switch
+    {
+        ParquetDatasetWriteOptions parquet => [.. ParquetDatasetWriter.Write(path, TheSchema, batches, parquet).Files],
+        JsonDatasetWriteOptions json => [.. JsonDatasetWriter.Write(path, TheSchema, batches, json).Files],
+        _ => [.. IpcDatasetWriter.Write(path, TheSchema, batches, (IpcDatasetWriteOptions)options).Files],
+    };
 
     /// <summary>(id, k) of every row read back from <paramref name="path"/> (k from the partitions when partitioned), sorted.</summary>
     private static List<string> Read(string format, string path, IFileStore store, bool partitioned)
     {
         Schema? partitions = partitioned ? new Schema([TheSchema.GetFieldByIndex(1)], null) : null;
-        using IDisposable dataset = format == "parquet"
-            ? ParquetDataset.Open(path, new ParquetDatasetOptions { Store = store, PartitionSchema = partitions })
-            : IpcDataset.Open(path, new IpcDatasetOptions { Store = store, PartitionSchema = partitions });
+        using IDisposable dataset = format switch
+        {
+            "parquet" => ParquetDataset.Open(path, new ParquetDatasetOptions { Store = store, PartitionSchema = partitions }),
+            "json" => JsonDataset.Open(path, new JsonDatasetOptions { Store = store, PartitionSchema = partitions }),
+            _ => IpcDataset.Open(path, new IpcDatasetOptions { Store = store, PartitionSchema = partitions }),
+        };
         List<string> rows = [];
         IDisposable reader;
         IEnumerable<RecordBatch> batches;
-        if (dataset is ParquetDataset p)
+        if (dataset is JsonDataset j)
+        {
+            JsonDatasetReader r = j.OpenReader(new JsonReadOptions { MaxDegreeOfParallelism = 4 });
+            (reader, batches) = (r, r.ReadBatches());
+        }
+        else if (dataset is ParquetDataset p)
         {
             ParquetDatasetReader r = p.OpenReader(new ParquetReadOptions { MaxDegreeOfParallelism = 4 });
             (reader, batches) = (r, r.ReadBatches());

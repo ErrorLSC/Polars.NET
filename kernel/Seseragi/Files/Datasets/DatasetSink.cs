@@ -142,7 +142,15 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
                 if (chunk.Length == 0) continue;
                 RecordBatch data = Data(chunk);
                 if (_partitions.Count == 0) _partitions.Add(new Partition(describe(null)));
-                WriteRows(_partitions[0], data, 0, data.Length);
+                settings.Format.SourcesOpen([data]);
+                try
+                {
+                    WriteRows(_partitions[0], data, 0, data.Length);
+                }
+                finally
+                {
+                    settings.Format.SourcesDone();
+                }
             }
             return;
         }
@@ -155,6 +163,7 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
             {
                 if (chunks[c].Length > 0) Group(chunks[c], c, owned);
             }
+            settings.Format.SourcesOpen(_sources);
             ForEachPartition(_touched, partition =>
             {
                 foreach (Run run in partition.Runs) WriteRows(partition, _sources[run.Chunk], run.Start, run.Count);
@@ -162,6 +171,7 @@ internal sealed class DatasetSink<TPartition>(DatasetSinkSettings settings, Func
         }
         finally
         {
+            settings.Format.SourcesDone();
             _sources.Clear();
             foreach (RecordBatch gathered in owned) gathered.Dispose();
         }

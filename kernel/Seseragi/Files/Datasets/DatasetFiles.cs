@@ -208,18 +208,28 @@ internal static class DatasetFiles
         return !prefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal));
     }
 
-    /// <summary>The files of a directory given alone must share an extension: a glob says which to read otherwise.</summary>
+    /// <summary>
+    /// The files of a directory given alone must share an extension (a compressed file's being the one before its
+    /// compression's: <c>a.jsonl.gz</c> is a <c>.jsonl</c>): a glob says which to read otherwise.
+    /// </summary>
     private static void SameExtension(string directory, List<(string Path, long? Size)> files)
     {
         string? first = null;
         foreach (var (path, _) in files)
         {
-            string extension = Path.GetExtension(path);
+            string extension = Extension(path);
             if (first is null) first = extension;
             else if (extension != first)
                 throw new InvalidOperationException($"The directory '{directory}' holds files of different extensions ('{first}', '{extension}' in '{path}'): "
                     + $"give a glob that says which to read (such as '{directory.TrimEnd('/')}/**/*{first}').");
         }
+    }
+
+    // A file's extension, a compression's suffix (.gz, .zst) passed over.
+    private static string Extension(string path)
+    {
+        string extension = Path.GetExtension(path);
+        return extension is ".gz" or ".zst" ? Path.GetExtension(path[..^extension.Length]) : extension;
     }
 
     private sealed class ByPath : IComparer<(string Path, long? Size)>

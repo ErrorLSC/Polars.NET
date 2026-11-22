@@ -97,22 +97,108 @@ public sealed class JsonDatasetWriterTests : IDisposable
         Assert.Equal(expected.Order(), rows.Order());
     }
 
-    [Fact]
-    public void ManySmallRunsOfAPartition_AreGatheredAndWrittenWhole()
+    // A file's text, decompressed.
+    private static string Text(string path, JsonCompression compression)
     {
-        // 300k rows in batches of 4000: each partition takes about 1000 rows of each batch, gathered past 64Ki rows.
-        RecordBatch[] batches = [.. Enumerable.Range(0, 75).Select(i => Batch(i * 4000, 4000))];
+        using Stream file = File.OpenRead(path);
+        using Stream text = compression switch
+        {
+            JsonCompression.Gzip => new GZipStream(file, CompressionMode.Decompress),
+            JsonCompression.Zstd => new ZstdSharp.DecompressionStream(file),
+            _ => file,
+        };
+        using var reader = new StreamReader(text, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>
+    /// A partition takes a few rows of each batch (runs encoded at once into its file's piece, pieces written as they
+    /// fill): each file holds exactly the text JsonWriter writes for the partition's rows, in order, documents' commas
+    /// and brackets across runs and pieces included, compressed files once decompressed.
+    /// </summary>
+    [Theory]
+    [InlineData(JsonFormat.Lines, JsonCompression.None)]
+    [InlineData(JsonFormat.Document, JsonCompression.None)]
+    [InlineData(JsonFormat.Lines, JsonCompression.Gzip)]
+    [InlineData(JsonFormat.Document, JsonCompression.Zstd)]
+    public void ManySmallRunsOfAPartition_AreEncodedIntoItsFile_AsJsonWriterWritesThem(JsonFormat format, JsonCompression compression)
+    {
+        // 40k rows in batches of 2000: each partition takes about 500 rows of each batch; pieces of 16 KiB fill many times.
+        RecordBatch[] batches = [.. Enumerable.Range(0, 20).Select(i => Batch(i * 2000, 2000))];
         try
         {
-            DatasetWriteResult<DatasetWrittenFile> result = JsonDatasetWriter.Write(At("g"), batches[0].Schema, batches, new JsonDatasetWriteOptions { PartitionBy = ["k"] });
-            Assert.Equal(300_000, result.Files.Sum(f => f.Rows));
-            Assert.Equal(300_000, ReadBack(At("g"), new JsonDatasetOptions { PartitionSchema = new Schema([new Field("k", StringType.Default, true)], null) }).Count);
-            Assert.Equal(300_000, result.Files.Sum(f => File.ReadLines(f.Path).LongCount()));
+            var writer = new JsonWriteOptions { Format = format, Compression = compression, PieceBytes = 16 << 10 };
+            DatasetWriteResult<DatasetWrittenFile> result = JsonDatasetWriter.Write(At("g"), batches[0].Schema, batches,
+                new JsonDatasetWriteOptions { PartitionBy = ["k"], Writer = writer, MaxDegreeOfParallelism = 4 });
+            Assert.Equal(4, result.Files.Count);
+            Assert.Equal(40_000, result.Files.Sum(f => f.Rows));
+            // Each row's object as JsonWriter writes it (the files leave the partition column out), by partition.
+            var data = new Schema([batches[0].Schema.FieldsList[0], batches[0].Schema.FieldsList[2]], null);
+            Dictionary<string, List<string>> objects = [];
+            foreach (RecordBatch batch in batches)
+            {
+                var k = (StringArray)batch.Column(1);
+                for (int i = 0; i < batch.Length; i++)
+                {
+                    var row = new RecordBatch(data, [ArrowArrayFactory.Slice(batch.Column(0), i, 1), ArrowArrayFactory.Slice(batch.Column(2), i, 1)], 1);
+                    string key = k.IsNull(i) ? "__HIVE_DEFAULT_PARTITION__" : k.GetString(i);
+                    if (!objects.TryGetValue(key, out List<string>? list)) objects[key] = list = [];
+                    list.Add(JsonWriter.WriteString(data, [row]).TrimEnd('\n'));
+                }
+            }
+            foreach (DatasetWrittenFile file in result.Files)
+            {
+                List<string> rows = objects[Path.GetFileName(Path.GetDirectoryName(file.Path)!)["k=".Length..]];
+                string expected = format == JsonFormat.Document ? "[" + string.Join(",", rows) + "]" : string.Concat(rows.Select(r => r + "\n"));
+                Assert.Equal(expected, Text(file.Path, compression));
+                Assert.Equal(new FileInfo(file.Path).Length, file.Bytes);
+            }
         }
         finally
         {
             foreach (RecordBatch batch in batches) batch.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Runs written at once (short ones encoded into the piece being filled) and runs written as they are (long ones,
+    /// encoded on the writer's threads) keep their order: the file is the text JsonWriter writes for all the rows.
+    /// </summary>
+    [Theory]
+    [InlineData(JsonFormat.Lines)]
+    [InlineData(JsonFormat.Document)]
+    public void ShortAndLongRuns_KeepTheirOrder(JsonFormat format)
+    {
+        RecordBatch[] batches = [Batch(0, 10), Batch(10, 70_000), Batch(70_010, 5), Batch(70_015, 100_000), Batch(170_015, 3)];
+        try
+        {
+            var writer = new JsonWriteOptions { Format = format };
+            DatasetWriteResult<DatasetWrittenFile> result = JsonDatasetWriter.Write(At("o"), batches[0].Schema, batches, new JsonDatasetWriteOptions { Writer = writer });
+            Assert.Equal(JsonWriter.WriteString(batches[0].Schema, batches, writer), File.ReadAllText(Assert.Single(result.Files).Path));
+        }
+        finally
+        {
+            foreach (RecordBatch batch in batches) batch.Dispose();
+        }
+    }
+
+    /// <summary>A value JSON cannot hold in a short run fails the write, naming its row, and leaves no file.</summary>
+    [Fact]
+    public void AValueJsonCannotHold_InAShortRun_FailsTheWrite()
+    {
+        var schema = new Schema([new Field("k", StringType.Default, true), new Field("s", StringType.Default, true)], null);
+        var k = new StringArray.Builder();
+        var s = new StringArray.Builder();
+        for (int i = 0; i < 100; i++)
+        {
+            k.Append($"p{i % 4}");
+            if (i == 57) s.Append([0xC3, 0x28]); // not UTF-8
+            else s.Append($"v{i}");
+        }
+        using var batch = new RecordBatch(schema, [k.Build(), s.Build()], 100);
+        var error = Assert.ThrowsAny<Exception>(() => JsonDatasetWriter.Write(At("f"), schema, [batch], new JsonDatasetWriteOptions { PartitionBy = ["k"] }));
+        Assert.Contains("Row 14", error.ToString()); // row 57 is partition p1's 15th
+        Assert.Empty(Directory.Exists(At("f")) ? Directory.GetFiles(At("f"), "*", SearchOption.AllDirectories) : []);
     }
 
     [Fact]

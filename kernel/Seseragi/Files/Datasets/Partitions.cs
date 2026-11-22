@@ -37,7 +37,8 @@ internal sealed class Partitions
     /// <paramref name="start"/> (the file name aside; a part with more than one '=' or a '*' in its value is no key),
     /// values percent-decoded, <c>__HIVE_DEFAULT_PARTITION__</c> null, an empty value null (an empty string for a
     /// string column). The keys are the first path's: every path must have them all, and no other. A key's type is
-    /// <paramref name="given"/>'s, else the files' column of that name, else inferred over every value (CSV rules);
+    /// <paramref name="given"/>'s, else the files' column of that name (unless of nulls only), else inferred over every
+    /// value (CSV rules);
     /// temporal types are strings unless <paramref name="parseDates"/>. Null when the first path has no key.
     /// </summary>
     /// <exception cref="InvalidOperationException">The paths disagree on their keys, or a key is missing from <paramref name="given"/>.</exception>
@@ -75,7 +76,8 @@ internal sealed class Partitions
                     ?? throw new InvalidOperationException($"The partition key '{key}' (in '{paths[0]}') is not in the partition schema given.");
                 type = Temporal(field.DataType) && !parseDates ? StringType.Default : field.DataType;
             }
-            else if (files.GetFieldByName(key) is { } column)
+            // A column of nulls in the files (a JSON file of the null partition's rows) says nothing of the type.
+            else if (files.GetFieldByName(key) is { DataType: not NullType } column)
                 // Strings as plain strings: the batches give them in the reader's layout.
                 type = Temporal(column.DataType) && !parseDates || column.DataType is StringViewType ? StringType.Default : column.DataType;
             else

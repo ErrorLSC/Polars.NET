@@ -3,6 +3,7 @@ using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Ipc;
+using Kaminari.Seseragi.Files.Json;
 using Kaminari.Seseragi.Files.Parquet;
 using Seseragi.Files.Tests.Parquet;
 
@@ -14,7 +15,9 @@ namespace Seseragi.Files.Fuzz;
 /// and infinities, decimals, zoned timestamps), in batches of random sizes, written as Parquet, IPC files or IPC
 /// streams with random options (keys in the files or not, files cut by rows and by size, threads, a memory budget that
 /// holds next to nothing, codecs), then read back as a dataset with the keys' types given: every row must come back
-/// (in any order), every file hold its rows' limit, every path be apart. Any failure is a finding.
+/// (in any order), every file hold its rows' limit, every path be apart. As JSON (the columns JSON writes; lines or
+/// documents, compressed or not): the files' lines, decompressed, must be the lines one JsonWriter writes for the rows
+/// (in any order), a document file must be what JsonWriter writes for the rows it reads back as. Any failure is a finding.
 /// </summary>
 internal static class DatasetWriteCases
 {
@@ -112,21 +115,33 @@ internal static class DatasetWriteCases
         var batch = new RecordBatch(schema, arrays, rows);
         string[] keys = [.. Enumerable.Range(0, keyCount).Select(k => $"pk{k}")];
 
-        string format = random.Next(3) switch { 0 => "parquet", 1 => "ipc", _ => "ipcstream" };
+        string format = random.Next(4) switch { 0 => "parquet", 1 => "ipc", 2 => "ipcstream", _ => "json" };
+        // The columns of the files: the keys' left out unless included.
+        bool include = random.Next(2) == 0 || keys.Length == schema.FieldsList.Count;
+        var dataSchema = new Schema([.. schema.FieldsList.Where(f => include || !keys.Contains(f.Name))], null);
+        if (format == "json" && !JsonWrites(dataSchema)) format = "ipc";
+        var jsonWriter = new JsonWriteOptions
+        {
+            Format = random.Next(2) == 0 ? JsonFormat.Lines : JsonFormat.Document,
+            Compression = random.Next(3) switch { 0 => JsonCompression.Gzip, 1 => JsonCompression.Zstd, _ => JsonCompression.None },
+            PieceBytes = random.Next(2) == 0 ? 1 << 20 : 64 + random.Next(1 << 14),
+        };
         var store = new MemoryFileStore();
-        bool include = random.Next(2) == 0;
-        DatasetWriteOptions options = format == "parquet"
-            ? new ParquetDatasetWriteOptions { Writer = new ParquetWriteOptions { RowGroupRows = 1 + random.Next(random.Next(2) == 0 ? 50 : 5000) } }
-            : new IpcDatasetWriteOptions
+        DatasetWriteOptions options = format switch
+        {
+            "parquet" => new ParquetDatasetWriteOptions { Writer = new ParquetWriteOptions { RowGroupRows = 1 + random.Next(random.Next(2) == 0 ? 50 : 5000) } },
+            "json" => new JsonDatasetWriteOptions { Writer = jsonWriter },
+            _ => new IpcDatasetWriteOptions
             {
                 Writer = new IpcWriteOptions { Format = format == "ipc" ? IpcFormat.File : IpcFormat.Stream, Compression = random.Next(2) == 0 ? NoCompression.Instance : new Lz4FrameCompression() },
-            };
+            },
+        };
         long? maxRows = random.Next(3) == 0 ? 1 + random.Next(300) : null;
         options = options with
         {
             Store = store,
             PartitionBy = keys,
-            IncludePartitionColumns = include || keys.Length == schema.FieldsList.Count,
+            IncludePartitionColumns = include,
             MaxRowsPerFile = maxRows,
             ApproxBytesPerFile = random.Next(4) == 0 ? 1024 + random.Next(1 << 18) : null,
             MaxDegreeOfParallelism = 1 + random.Next(8),
@@ -141,15 +156,20 @@ internal static class DatasetWriteCases
             parts.Add(batch.Slice(at, take));
             at += take;
         }
-        IReadOnlyList<DatasetWrittenFile> files = options is ParquetDatasetWriteOptions parquet
-            ? ParquetDatasetWriter.Write("out", schema, parts, parquet).Files
-            : IpcDatasetWriter.Write("out", schema, parts, (IpcDatasetWriteOptions)options).Files;
+        IReadOnlyList<DatasetWrittenFile> files = options switch
+        {
+            ParquetDatasetWriteOptions parquet => ParquetDatasetWriter.Write("out", schema, parts, parquet).Files,
+            JsonDatasetWriteOptions json => JsonDatasetWriter.Write("out", schema, parts, json).Files,
+            _ => IpcDatasetWriter.Write("out", schema, parts, (IpcDatasetWriteOptions)options).Files,
+        };
 
         string where = $"{format}, keys {string.Join(",", keys.Select(k => schema.GetFieldByName(k).DataType.Name))}, include {options.IncludePartitionColumns}, max rows {maxRows}, {files.Count} files";
         if (files.Sum(f => f.Rows) != rows) return new Outcome(true, "A dataset write lost or added rows", $"{files.Sum(f => f.Rows)} of {rows}; {where}");
         if (files.Select(f => f.Path).Distinct().Count() != files.Count) return new Outcome(true, "A dataset write named two files alike", where);
         if (maxRows is long limit && files.Any(f => f.Rows > limit)) return new Outcome(true, "A dataset file holds more rows than its limit", where);
         if (rows == 0) return files.Count == 0 ? Outcome.Read : new Outcome(true, "No rows wrote a file", where);
+
+        if (format == "json") return CheckJson(store, files, batch, dataSchema, jsonWriter, where);
 
         List<string> expected = Rows(batch, [.. schema.FieldsList.Select(f => f.Name)]);
         List<string> got;
@@ -173,6 +193,84 @@ internal static class DatasetWriteCases
                 $"{where}; {expected.Count} vs {got.Count} rows; first difference at {at}: {(at < expected.Count ? expected[at] : "-")} vs {(at < got.Count ? got[at] : "-")}");
         }
         return Outcome.Read;
+    }
+
+    // Whether JSON writes every column of the schema (types it refuses leave the case to another format).
+    private static bool JsonWrites(Schema schema)
+    {
+        try
+        {
+            using var writer = JsonWriter.Create(Stream.Null, schema);
+            writer.Complete();
+            return true;
+        }
+        catch (Exception e) when (e is NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    // A JSON dataset's files against one JsonWriter's text of the rows: its objects (a line's, a document's elements)
+    // as a multiset.
+    private static Outcome CheckJson(MemoryFileStore store, IReadOnlyList<DatasetWrittenFile> files, RecordBatch batch, Schema data, JsonWriteOptions options, string where)
+    {
+        var lines = options with { Format = JsonFormat.Lines, Compression = JsonCompression.None, PieceBytes = 1 << 20, MaxDegreeOfParallelism = 1 };
+        var columns = new RecordBatch(data, [.. data.FieldsList.Select(f => batch.Column(batch.Schema.GetFieldIndex(f.Name)))], batch.Length);
+        List<string> got = [];
+        foreach (DatasetWrittenFile file in files)
+        {
+            IRandomAccess source = store.OpenAsync(file.Path).AsTask().GetAwaiter().GetResult()!;
+            byte[] bytes = new byte[source.Length];
+            source.ReadAt(0, bytes);
+            if (bytes.Length != file.Bytes) return new Outcome(true, "A JSON dataset file's size is not the one reported", $"{where}; {bytes.Length} vs {file.Bytes}");
+            string text = Decompressed(bytes, options.Compression);
+            if (options.Format == JsonFormat.Lines)
+            {
+                if (!text.EndsWith('\n')) return new Outcome(true, "A JSON dataset file does not end its last line", where);
+                got.AddRange(text.Split('\n')[..^1]);
+            }
+            else if (Elements(text) is { } elements) got.AddRange(elements);
+            else return new Outcome(true, "A JSON dataset file is not one array of objects", $"{where}; {file.Path}");
+        }
+        List<string> expected = [.. JsonWriter.WriteString(data, [columns], lines).Split('\n')[..^1]];
+        expected.Sort(StringComparer.Ordinal);
+        got.Sort(StringComparer.Ordinal);
+        if (expected.SequenceEqual(got)) return Outcome.Read;
+        int at = Enumerable.Range(0, Math.Min(expected.Count, got.Count)).FirstOrDefault(i => expected[i] != got[i], Math.Min(expected.Count, got.Count));
+        return new Outcome(true, "A JSON dataset's objects are not those JsonWriter writes for the rows",
+            $"{where}; {expected.Count} vs {got.Count} objects; first difference at {at}: {(at < expected.Count ? expected[at] : "-")} vs {(at < got.Count ? got[at] : "-")}");
+
+        // The texts of a document's elements (null when it is not one array, written without spaces).
+        static List<string>? Elements(string text)
+        {
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(text);
+            var reader = new System.Text.Json.Utf8JsonReader(utf8);
+            if (!reader.Read() || reader.TokenType != System.Text.Json.JsonTokenType.StartArray || reader.TokenStartIndex != 0) return null;
+            List<string> elements = [];
+            long expectedStart = 1;
+            while (reader.Read() && reader.TokenType != System.Text.Json.JsonTokenType.EndArray)
+            {
+                long start = reader.TokenStartIndex;
+                if (start != expectedStart) return null;
+                reader.Skip();
+                elements.Add(System.Text.Encoding.UTF8.GetString(utf8, (int)start, (int)(reader.BytesConsumed - start)));
+                expectedStart = reader.BytesConsumed + 1; // the comma after it
+            }
+            return reader.TokenType == System.Text.Json.JsonTokenType.EndArray && reader.BytesConsumed == utf8.Length && !reader.Read() ? elements : null;
+        }
+
+        static string Decompressed(byte[] bytes, JsonCompression compression)
+        {
+            using Stream input = new MemoryStream(bytes);
+            using Stream text = compression switch
+            {
+                JsonCompression.Gzip => new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress),
+                JsonCompression.Zstd => new ZstdSharp.DecompressionStream(input),
+                _ => input,
+            };
+            using var reader = new StreamReader(text, System.Text.Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
     }
 
     /// <summary>Every row (the columns of <paramref name="schema"/>, by name), canonical, sorted.</summary>

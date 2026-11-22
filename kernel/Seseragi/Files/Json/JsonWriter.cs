@@ -28,6 +28,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     // (each batch's write waits for the one before), behind the encoding: the queue holds each batch's write, for the
     // budget.
     private readonly Queue<(Task Written, long Bytes)> _ahead = [];
+    private NativeBufferWriter? _open; // rows encoded by AppendRows, not handed to the writes yet
     private long _aheadBytes, _rows, _written;
     private Task _chain = Task.CompletedTask;
     private Exception? _failure;             // what failed a piece or a write (the chain drops the pieces after it)
@@ -379,6 +380,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     private async ValueTask FlushCoreAsync(bool useAsync, CancellationToken ct)
     {
         CheckWritable();
+        await HandOffAsync(useAsync).ConfigureAwait(false);
         await DrainAsync(useAsync).ConfigureAwait(false);
         ThrowIfFailed();
         await _sink.CompleteAsync(useAsync, ct).ConfigureAwait(false);
@@ -444,6 +446,16 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
         catch
         {
             if (owned) batch.Dispose();
+            throw;
+        }
+        try
+        {
+            await HandOffAsync(useAsync).ConfigureAwait(false); // rows appended before go first
+        }
+        catch
+        {
+            cells.Expect(1);
+            cells.Release();
             throw;
         }
         // Pieces of about a piece's bytes, smaller when that leaves threads idle on this batch (four per thread at least).
@@ -554,15 +566,43 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     // ending with a newline), compressed as asked. A failure is the piece's, reported in order.
     private EncodedPiece Encode(BatchCells cells, int start, int end, long first)
     {
-        bool document = _options.Format == JsonFormat.Document;
+        NativeBufferWriter buffer = Rent(end - start);
+        try
+        {
+            EncodeRows(cells.Cells, buffer, start, end, first);
+            return Piece(buffer);
+        }
+        catch (Exception e)
+        {
+            Spare(buffer);
+            return new EncodedPiece(null, e);
+        }
+        finally { cells.Release(); }
+    }
+
+    // A buffer for about `rows` rows: a spare one, else a new one.
+    private NativeBufferWriter Rent(int rows)
+    {
         NativeBufferWriter? buffer = null;
         for (int k = 0; k < _spare.Length && buffer is null; k++) buffer = Interlocked.Exchange(ref _spare[k], null);
-        buffer ??= new NativeBufferWriter((int)Math.Min(1 << 24, (long)(Volatile.Read(ref _rowBytes) * (end - start) * 1.25) + 64));
-        int row = start;
+        return buffer ?? new NativeBufferWriter((int)Math.Min(1 << 24, (long)(Volatile.Read(ref _rowBytes) * rows * 1.25) + 64));
+    }
+
+    // Encoded rows as a piece to write: compressed as asked (one gzip member or Zstandard frame of its own).
+    private EncodedPiece Piece(NativeBufferWriter buffer) => _options.Compression == JsonCompression.None
+        ? new EncodedPiece(buffer, null, _giveBack)
+        : new EncodedPiece(EncodedPiece.Compress(buffer, _options.Compression, _options.CompressionLevel), null);
+
+    // Rows [start, end) of a batch's cells appended to `buffer`: objects (a document's separated by commas, its first
+    // preceded by '['; lines each ending with a newline), the first of them row `first` of all written. A value JSON
+    // cannot hold fails naming its row among all.
+    private void EncodeRows(JsonCell[] columns, NativeBufferWriter buffer, int start, int end, long first)
+    {
+        bool document = _options.Format == JsonFormat.Document;
+        int before = buffer.WrittenCount, row = start;
         try
         {
             var o = new JsonOut(buffer);
-            JsonCell[] columns = cells.Cells;
             for (; row < end; row++)
             {
                 if (document) o.Byte(first + row - start == 0 ? (byte)'[' : (byte)',');
@@ -576,17 +616,76 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
                 else o.Bytes("}\n"u8);
             }
             o.Commit();
-            Volatile.Write(ref _rowBytes, (double)buffer.WrittenCount / (end - start));
-            return _options.Compression == JsonCompression.None
-                ? new EncodedPiece(buffer, null, _giveBack)
-                : new EncodedPiece(EncodedPiece.Compress(buffer, _options.Compression, _options.CompressionLevel), null);
         }
-        catch (Exception e)
+        catch (JsonValueException v)
         {
-            Spare(buffer);
-            return new EncodedPiece(null, e is JsonValueException v ? new JsonValueException($"Row {first + row - start}: {v.Message}") : e);
+            throw new JsonValueException($"Row {first + row - start}: {v.Message}");
         }
-        finally { cells.Release(); }
+        Volatile.Write(ref _rowBytes, (double)(buffer.WrittenCount - before) / (end - start));
+    }
+
+    /// <summary>
+    /// Rows [<paramref name="start"/>, +<paramref name="count"/>) of the batch <paramref name="cells"/> read, encoded on
+    /// this thread into the piece being filled (the caller's batch is free once this returns): the piece is written once
+    /// it holds a piece's bytes, or before anything written after it (<see cref="Write(RecordBatch)"/>, <see cref="Flush"/>,
+    /// <see cref="Complete"/>). Rows a few at a time (a partition's rows of each batch of a dataset written side by side)
+    /// cost no write each, nor a copy before encoding. A value JSON cannot hold fails the writer.
+    /// </summary>
+    internal void AppendRows(BatchCells cells, int start, int count)
+    {
+        CheckWritable();
+        ThrowIfFailed();
+        if (count == 0) return;
+        NativeBufferWriter open = _open ??= Rent(count);
+        try
+        {
+            EncodeRows(cells.Cells, open, start, start + count, _rows);
+        }
+        catch
+        {
+            _faulted = true; // the piece holds part of a row
+            throw;
+        }
+        _rows += count;
+        if (open.WrittenCount >= _options.PieceBytes) Sync(HandOffAsync(false));
+    }
+
+    /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>
+    internal long OpenBytes => _open?.WrittenCount ?? 0;
+
+    /// <summary>Hands the rows encoded by <see cref="AppendRows"/> to the writes (to hold less memory), without waiting for them.</summary>
+    internal void HandOff()
+    {
+        CheckWritable();
+        Sync(HandOffAsync(false));
+    }
+
+    // The piece being filled, written after those before (the writes ahead within the budget first).
+    private async ValueTask HandOffAsync(bool useAsync)
+    {
+        if (_open is not { WrittenCount: > 0 } open) return;
+        _open = null;
+        EncodedPiece piece = Piece(open);
+        long bytes = piece.Bytes.Length;
+        try
+        {
+            while (_ahead.Count > 0 && (_ahead.Count >= 4 || _aheadBytes + bytes > _options.InFlightBytes))
+            {
+                var (written, done) = _ahead.Dequeue();
+                _aheadBytes -= done;
+                if (useAsync) await written.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                else written.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
+                ThrowIfFailed();
+            }
+        }
+        catch
+        {
+            piece.Dispose();
+            throw;
+        }
+        _chain = WriteInOrderAsync(_chain, Task.CompletedTask, [piece], useAsync);
+        _ahead.Enqueue((_chain, bytes));
+        _aheadBytes += bytes;
     }
 
     // A buffer written, kept for the next pieces (as many as may be on their way at once; the others go).
@@ -611,6 +710,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     private async ValueTask CompleteCoreAsync(bool useAsync, CancellationToken ct)
     {
         CheckWritable();
+        await HandOffAsync(useAsync).ConfigureAwait(false);
         await DrainAsync(useAsync).ConfigureAwait(false);
         ThrowIfFailed();
         if (_options.Format == JsonFormat.Document)
@@ -635,6 +735,8 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     private void FreeSpare()
     {
         for (int k = 0; k < _spare.Length; k++) Interlocked.Exchange(ref _spare[k], null)?.Dispose();
+        _open?.Dispose(); // rows appended, not written (an aborted or failed writer)
+        _open = null;
     }
 
     /// <summary>Completes the output unless writing failed or the writer was aborted, and closes it (unless asked not to).</summary>
@@ -706,4 +808,7 @@ internal sealed class BatchCells
         _pins.Dispose();
         _owned?.Dispose();
     }
+
+    /// <summary>Unpins the batch's buffers (cells of a caller's batch encoded through <see cref="JsonWriter.AppendRows"/>, not by pieces).</summary>
+    public void Dispose() => _pins.Dispose();
 }

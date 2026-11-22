@@ -46,8 +46,12 @@ message starts and the footer) and read it with random options: threads (batches
 side by side, a stream read ahead), memory mapping (one case in four through a temporary file: mapped bodies are not
 guarded), columns, row limits, row filters, UTF-8 checks, batches read at random, consumers that stop early, streams
 that cannot seek. The fourth writes random columns (the Parquet writer cases' flat and nested generators) in random
-slices with random options (format, compression, threads) and reads them back, every value compared. Saved files end
-in `.arrow`.
+slices with random options (format, compression, threads) and reads them back, every value compared; or writes a
+dataset (`DatasetWriteCases.cs`: random columns and partition keys, in batches of random sizes) as Parquet, IPC files,
+IPC streams or JSON with random options (keys in the files or not, files cut by rows and by size, threads, a memory
+budget that holds next to nothing, codecs, JSON layouts, piece sizes) and reads it back: every row must come back, and
+a JSON dataset's objects (its lines, or its documents' elements), decompressed, must be those one `JsonWriter` writes
+for the rows. Saved files end in `.arrow`.
 
 ## Running
 

@@ -74,6 +74,11 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>The files whose rows the dataset filtered after decoding them (for tests).</summary>
     internal int FilesFilteredAfter => Volatile.Read(ref _filteredAfter);
 
+    /// <summary>The file plans made (tests: files of the same filter share one).</summary>
+    internal int PlansMade => Volatile.Read(ref _plansMade);
+
+    private int _plansMade;
+
     /// <summary>The most requests to the store at once in the last read (0 when not bounded; for tests).</summary>
     internal int PeakRequests { get; private set; }
 
@@ -177,25 +182,66 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     /// </summary>
     private sealed record FilePlan(JsonDecodeSettings Settings, JsonRowFilter? Filter, DatasetShape.Converted Converted, bool FilterAfter);
 
-    /// <summary>The plan of file <paramref name="index"/>: every file holds the dataset's columns (a field a record lacks is null).</summary>
+    /// <summary>The file columns (every file holds the dataset's: a field a record lacks is null), made once.</summary>
+    private FileColumnsOfAll? _fileColumns;
+
+    private sealed record FileColumnsOfAll(Dictionary<string, Field> Has, DatasetShape.FileColumns Columns);
+
+    /// <summary>The plan made last, for the files after it with the same filter (planning a file is the same work for each).</summary>
+    private SharedPlan? _shared;
+    private readonly object _planning = new();
+
+    private sealed record SharedPlan(ScalarExpr? Filter, bool Complete, FilePlan Plan);
+
+    /// <summary>
+    /// The plan of file <paramref name="index"/>: the plan of the files before it when its filter (the dataset's, with
+    /// the file's partition values) is the same, else made for it.
+    /// </summary>
     private FilePlan Plan(int index)
     {
         string path = PathOf(index);
-        Dictionary<string, Field> has = new(StringComparer.Ordinal);
-        foreach (Field field in _dataset.FileSchema.FieldsList) has.TryAdd(field.Name, field);
-        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path);
+        if (Volatile.Read(ref _fileColumns) is not { } fileColumns) Volatile.Write(ref _fileColumns, fileColumns = Columns());
+        var (has, columns) = fileColumns;
         var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped, has);
-        bool after = FiltersExactly && _shape.FiltersAfter && !complete;
-        var plan = Prepare(columns, fileFilter, after, path);
-        if (FiltersExactly && _shape.FiltersAfter && !after && !plan.Exact)
+        if (Shared() is { } shared) return shared;
+        // Made under a lock: files planned side by side wait for the plan they share rather than make it again.
+        lock (_planning)
         {
-            // The file's filtering is not exact: decode what the dataset's filter needs, and filter after.
-            after = true;
-            plan = Prepare(columns, fileFilter, after, path);
+            return Shared() ?? Make();
         }
-        if (after) Interlocked.Increment(ref _filteredAfter);
-        Schema decoded = plan.Filter?.Selected ?? plan.Settings.Schema;
-        return new FilePlan(plan.Settings, plan.Filter, _shape.Conversions(decoded, after, path), after);
+
+        // The plan made last, when this file's filter is its filter.
+        FilePlan? Shared()
+        {
+            if (Volatile.Read(ref _shared) is not { } shared || shared.Complete != complete || !Equals(shared.Filter, fileFilter)) return null;
+            if (shared.Plan.FilterAfter) Interlocked.Increment(ref _filteredAfter);
+            return shared.Plan;
+        }
+
+        FilePlan Make()
+        {
+            bool after = FiltersExactly && _shape.FiltersAfter && !complete;
+            var plan = Prepare(columns, fileFilter, after, path);
+            if (FiltersExactly && _shape.FiltersAfter && !after && !plan.Exact)
+            {
+                // The file's filtering is not exact: decode what the dataset's filter needs, and filter after.
+                after = true;
+                plan = Prepare(columns, fileFilter, after, path);
+            }
+            if (after) Interlocked.Increment(ref _filteredAfter);
+            Schema decoded = plan.Filter?.Selected ?? plan.Settings.Schema;
+            var made = new FilePlan(plan.Settings, plan.Filter, _shape.Conversions(decoded, after, path), after);
+            Interlocked.Increment(ref _plansMade);
+            Volatile.Write(ref _shared, new SharedPlan(fileFilter, complete, made));
+            return made;
+        }
+
+        FileColumnsOfAll Columns()
+        {
+            Dictionary<string, Field> has = new(StringComparer.Ordinal);
+            foreach (Field field in _dataset.FileSchema.FieldsList) has.TryAdd(field.Name, field);
+            return new(has, _shape.ColumnsOf(has, path));
+        }
     }
 
     private (JsonDecodeSettings Settings, JsonRowFilter? Filter, bool Exact) Prepare(DatasetShape.FileColumns columns, ScalarExpr? filter, bool after, string path)
@@ -369,6 +415,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                 _found.Clear();
             }
             input.Dispose();
+            owner._dataset.Versions.Note(Index, source); // the version read (a store learns it reading)
             JsonDataset.Close(source).AsTask().GetAwaiter().GetResult();
         }
     }
@@ -414,7 +461,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                     FilePlan plan = owner.Plan(index);
                     using (RequestGate.Lease lease = await entering.ConfigureAwait(false))
                     {
-                        source = await JsonDataset.OpenSourceAsync(owner._dataset.Store, file, token).ConfigureAwait(false);
+                        source = await JsonDataset.OpenSourceAsync(owner._dataset.Store, file, owner._dataset.Versions, index, token).ConfigureAwait(false);
                         input = await JsonReader.InputAsync(source, owner._dataset.Options.Format, owner._options.MemoryMap == JsonMemoryMap.Auto,
                             owner._options.UnitBytes, owner._options.MaxDegreeOfParallelism, useAsync: true, token).ConfigureAwait(false);
                     }
