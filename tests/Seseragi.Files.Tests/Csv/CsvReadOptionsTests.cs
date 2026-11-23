@@ -257,8 +257,17 @@ public class CsvReadOptionsTests
     }
 
     [Fact]
-    public void LaterStepsRefused()
+    public void SkipsAndCommentPrefix_AreChecked()
     {
-        Assert.Throws<NotSupportedException>(() => Read("a\n1\n", new CsvReadOptions { CommentPrefix = "#" }));
+        Assert.Throws<ArgumentException>(() => Read("a\n1\n", new CsvReadOptions { CommentPrefix = "" }));
+        Assert.Throws<ArgumentException>(() => Read("a\n1\n", new CsvReadOptions { CommentPrefix = "#\n" }));
+        Assert.Throws<ArgumentException>(() => Read("a;1;", new CsvReadOptions { CommentPrefix = "#;", LineEnd = ';' }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Read("a\n1\n", new CsvReadOptions { SkipLines = -1 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Read("a\n1\n", new CsvReadOptions { SkipRows = -1 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Read("a\n1\n", new CsvReadOptions { SkipRowsAfterHeader = -1 }));
+        Assert.Throws<ArgumentException>(() => Read("a\n1\n", new CsvReadOptions { SkipLines = 1, SkipRows = 1 }));
+        // Any length, any characters (a prefix with non-ASCII ones is compared on the text).
+        Assert.Equal("a:i64 | 1", Read("### x\na\n1\n### y\n", new CsvReadOptions { CommentPrefix = "###" }));
+        Assert.Equal("a:i64 | 1", Read("§ x\na\n1\n§ y\n", new CsvReadOptions { CommentPrefix = "§" }));
     }
 }

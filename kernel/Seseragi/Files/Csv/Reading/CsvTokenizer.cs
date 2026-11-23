@@ -58,25 +58,37 @@ internal enum FieldEnd : sbyte
 /// The grammar of delimited records (the decided rules of the managed CSV reader): fields split by the separator; a
 /// field starting with the quote runs to the next quote not doubled and is followed by a separator, a line end or the
 /// end; a quote inside an unquoted field is an error; a record ends at a line end — LF, CR or CRLF, or the chosen byte —
-/// outside quotes; an empty line is a blank record (a null row). Tokenizes one record at a time (header, inference) or
-/// many into a column-major table (<see cref="Records"/>).
+/// outside quotes; an empty line is a blank record (a null row); a record start beginning with the comment prefix starts a
+/// comment line (to its line end, quotes and all), no record. Tokenizes one record at a time (header, inference) or
+/// many into a column-major table (<see cref="Records"/>), records with more fields than columns dropping the extra ones
+/// when truncating (still tokenized: their errors count).
 /// </summary>
 internal sealed class CsvTokenizer
 {
     private static readonly SearchValues<byte> CommaQuoteStops = SearchValues.Create(",\"\n\r"u8);
     private static readonly SearchValues<byte> CommaStops = SearchValues.Create(",\n\r"u8);
 
-    private readonly SearchValues<byte> _stops;
+    private readonly SearchValues<byte> _stops, _recordStops;
     private readonly byte _separator, _quote;
-    private readonly bool _quoting;
+    private readonly bool _quoting, _truncate;
     private readonly int _lineEnd; // -1: LF, CR or CRLF
+    private readonly byte[]? _comment;
 
-    public CsvTokenizer(byte separator, byte? quote, byte? lineEnd)
+    public CsvTokenizer(byte separator, byte? quote, byte? lineEnd, byte[]? comment = null, bool truncate = false)
     {
         _separator = separator;
         _quoting = quote is not null;
         _quote = quote ?? 0;
         _lineEnd = lineEnd ?? -1;
+        _comment = comment is { Length: > 0 } ? comment : null;
+        _truncate = truncate;
+        _recordStops = (quote, lineEnd) switch
+        {
+            ({ } q, null) => SearchValues.Create([q, (byte)'\n', (byte)'\r']),
+            (null, null) => SearchValues.Create("\n\r"u8),
+            ({ } q, { } e) => SearchValues.Create([q, e]),
+            (null, { } e) => SearchValues.Create([e]),
+        };
         _stops = (separator, quote, lineEnd) switch
         {
             ((byte)',', (byte)'"', null) => CommaQuoteStops,
@@ -91,6 +103,49 @@ internal sealed class CsvTokenizer
     /// <summary>Whether a line end starts at <paramref name="pos"/>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool AtLineEnd(ReadOnlySpan<byte> b, int pos) => _lineEnd < 0 ? b[pos] is (byte)'\n' or (byte)'\r' : b[pos] == _lineEnd;
+
+    /// <summary>Whether comment lines are passed over.</summary>
+    public bool HasComments => _comment is not null;
+
+    /// <summary>Whether a comment line starts at <paramref name="pos"/> (a record start before the end).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool AtComment(ReadOnlySpan<byte> b, int pos) => _comment is not null && b[pos..].StartsWith(_comment);
+
+    /// <summary>Passes over the comment lines at <paramref name="pos"/> (a record start): to the next record start, or the end.</summary>
+    public int SkipComments(ReadOnlySpan<byte> b, int pos)
+    {
+        while (pos < b.Length && AtComment(b, pos)) pos = LineAfter(b, pos);
+        return pos;
+    }
+
+    /// <summary>The position after the line end of the line at <paramref name="pos"/>, quotes ignored, or the end.</summary>
+    public int LineAfter(ReadOnlySpan<byte> b, int pos)
+    {
+        int k = _lineEnd >= 0 ? b[pos..].IndexOf((byte)_lineEnd) : b[pos..].IndexOfAny((byte)'\n', (byte)'\r');
+        return k < 0 ? b.Length : SkipLineEnd(b, pos + k);
+    }
+
+    /// <summary>
+    /// Passes over the record at <paramref name="pos"/> as the cut finds records (every quote toggles; no field grammar,
+    /// so nothing in it fails): to the next record start, or the end (a quote left open runs to it).
+    /// </summary>
+    public int SkipRecord(ReadOnlySpan<byte> b, int pos)
+    {
+        bool inside = false;
+        while (true)
+        {
+            int k = inside ? b[pos..].IndexOf(_quote) : b[pos..].IndexOfAny(_recordStops);
+            if (k < 0) return b.Length;
+            pos += k;
+            if (_quoting && b[pos] == _quote)
+            {
+                inside = !inside;
+                pos++;
+                continue;
+            }
+            return SkipLineEnd(b, pos);
+        }
+    }
 
     /// <summary>Passes over the line end at <paramref name="pos"/> (CRLF as one).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -221,6 +276,11 @@ internal sealed class CsvTokenizer
         int r = 0;
         for (; r < capacity && pos < b.Length; r++)
         {
+            if (_comment is not null)
+            {
+                pos = SkipComments(b, pos);
+                if (pos == b.Length) break;
+            }
             int recordStart = pos;
             starts[r] = recordStart;
             if (AtLineEnd(b, pos))
@@ -243,6 +303,23 @@ internal sealed class CsvTokenizer
                 }
                 if (column >= columns)
                 {
+                    if (_truncate)
+                    {
+                        // The extra fields are tokenized (a malformed one fails the record) and dropped.
+                        while (end == FieldEnd.Separator && pos < b.Length)
+                        {
+                            column++;
+                            end = Field(b, ref pos, out _);
+                            if (end > FieldEnd.Input)
+                            {
+                                error = end;
+                                failedColumn = column;
+                                pos = recordStart;
+                                return r;
+                            }
+                        }
+                        break;
+                    }
                     error = FieldEnd.TooManyFields;
                     failedColumn = column;
                     pos = recordStart;
@@ -257,6 +334,7 @@ internal sealed class CsvTokenizer
                     // A separator last: an empty field ends the record.
                     if (column >= columns)
                     {
+                        if (_truncate) break;
                         error = FieldEnd.TooManyFields;
                         failedColumn = column;
                         pos = recordStart;
@@ -291,6 +369,9 @@ internal sealed class CsvTokenizer
             text = text[(k + 2)..]; // the doubled quote's second half
         }
     }
+
+    /// <summary>Whether records with more fields than columns drop the extra ones.</summary>
+    public bool Truncates => _truncate;
 
     /// <summary>The line ends in <paramref name="b"/> (inside quotes too): LF, CR not before LF, or the chosen byte.</summary>
     public long CountLines(ReadOnlySpan<byte> b)

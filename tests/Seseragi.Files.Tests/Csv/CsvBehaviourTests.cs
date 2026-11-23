@@ -12,7 +12,7 @@ namespace Seseragi.Files.Tests.Csv;
 /// <summary>
 /// The behaviour table (gate G1 of the managed CSV reader's step f1): every read case of the probe
 /// (TestData/csv/cases.json, made by csv-ref/probe/cases.py) read by <see cref="CsvReader"/> and compared with what
-/// Polars' native reader gave (TestData/csv/native.txt), except where a rule decided otherwise (<see cref="Decided"/>),
+/// Polars' native reader gave (TestData/csv/native.expected), except where a rule decided otherwise (<see cref="Decided"/>),
 /// where native's outcome is an error (<see cref="Errors"/>: our error's kind and facts), or where a later step reads
 /// the case (<see cref="Later"/>: refused for now).
 /// </summary>
@@ -20,14 +20,8 @@ public class CsvBehaviourTests
 {
     private static readonly string Dir = Path.Combine(AppContext.BaseDirectory, "TestData", "csv");
 
-    /// <summary>Cases a later step of the reader reads; refused with NotSupportedException until then.</summary>
-    private static readonly Dictionary<string, string> Later = new()
-    {
-        ["truncate_ragged"] = "f4", ["comment_lines"] = "f4", ["comment_two_chars"] = "f4", ["comment_in_quoted"] = "f4",
-        ["skip_rows"] = "f4", ["skip_rows_quoted_newline"] = "f4", ["skip_lines_quoted_newline"] = "f4", ["skip_rows_after_header"] = "f4",
-        ["comment_odd_quote"] = "f4", ["comment_odd_quote_many_rows"] = "f4", ["eprx_cp932"] = "f4",
-        ["eprx_cp932_lossy"] = "f4",
-    };
+    /// <summary>Cases a later step of the reader reads; refused with NotSupportedException until then (none since f4).</summary>
+    private static readonly Dictionary<string, string> Later = [];
 
     /// <summary>Cases where a decided rule differs from native (the outcome rendered as the probe renders it).</summary>
     private static readonly Dictionary<string, string> Decided = new()
@@ -56,6 +50,20 @@ public class CsvBehaviourTests
         // Header names lose their quotes and doubled quotes (native keeps a""b).
         ["f1_header_quoted_doubled"] = "a\"b:i64,c:i64 | 1,2",
         ["f1_header_newline_quoted"] = "a\nb:i64,c:i64 | 1,2",
+        // f4: row numbers count the data records after the skips (comment lines not), as natively; Int64 as above.
+        ["f4_comment_row_index"] = "i:i64,a:i64,b:str | 0,1,\"x\" | 1,2,\"y\"",
+        ["f4_skip_lines_row_index"] = "i:i64,a:i64,b:str | 0,1,\"x\" | 1,2,\"y\"",
+        ["f4_skip_rows_row_index"] = "i:i64,a:i64,b:str | 0,1,\"x\" | 1,2,\"y\"",
+        ["f4_skip_rows_no_header_row_index"] = "i:i64,column_1:i64,column_2:str | 0,1,\"x\" | 1,2,\"y\"",
+        ["f4_srah_row_index"] = "i:i64,a:i64,b:str | 0,2,\"y\" | 1,3,\"z\"",
+        ["f4_srah_no_header_row_index"] = "i:i64,column_1:i64,column_2:str | 10,2,\"y\" | 11,3,\"z\"",
+        // f4 D1 (rule 5): a CR alone ends comment lines and the lines SkipLines counts (native counts LF only).
+        ["f4_comment_cr_only"] = "a:i64,b:str | 1,\"x\" | 2,\"y\"",
+        ["f4_skip_lines_cr_only"] = "a:i64,b:str | 1,\"x\"",
+        // f4 D3: blank lines between the skipped rows and the header are passed over, as at the start (native takes the
+        // first blank line as the header, one column "", and fails at the next record).
+        ["f4_skip_rows_then_blank_header"] = "a:i64,b:str | 1,\"x\"",
+        ["f4_skip_rows_then_comment_header"] = "a:i64,b:str | 1,\"x\"",
     };
 
     /// <summary>Errors: the exception type and facts its message holds.</summary>
@@ -98,6 +106,31 @@ public class CsvBehaviourTests
         // R2: more fraction digits than the scale.
         ["schema_decimal"] = (typeof(CsvValueException), ["Row 3 (line 4)", "'1.234' has 3 decimal places, more than the column's scale of 2"]),
         ["f1_schema_decimal_rounding"] = (typeof(CsvValueException), ["'1.234' has 3 decimal places, more than the column's scale of 2", "decimal(11, 3)"]),
+        // f4: native errors, ours name the row (data records after the skips, comments not counted) and the physical line.
+        ["eprx_cp932"] = (typeof(CsvFormatException), ["The header (line 3)", "not UTF-8"]),
+        ["f4_comment_error_row"] = (typeof(CsvValueException), ["Row 2 (line 4)", "column 'b'", "'x' is not an Int64 integer"]),
+        ["f4_skip_lines_error_row"] = (typeof(CsvValueException), ["Row 2 (line 4)", "column 'b'", "'x' is not an Int64 integer"]),
+        ["f4_skip_rows_error_row"] = (typeof(CsvValueException), ["Row 2 (line 4)", "column 'b'", "'x' is not an Int64 integer"]),
+        ["f4_srah_error_row"] = (typeof(CsvValueException), ["Row 1 (line 3)", "column 'a'", "'q' is not an Int64 integer"]),
+        ["f4_comment_only"] = (typeof(CsvFormatException), ["no records", "RaiseIfEmpty"]),
+        ["f4_skip_lines_and_rows"] = (typeof(ArgumentException), ["either SkipLines", "or SkipRows"]),
+        ["f4_skip_lines_past_end"] = (typeof(CsvFormatException), ["SkipLines (5) passes over the whole input, which holds 1 line", "RaiseIfEmpty"]),
+        ["f4_skip_rows_past_end"] = (typeof(CsvFormatException), ["SkipRows (5) passes over the whole input, which holds 2 records", "RaiseIfEmpty"]),
+        ["f4_skip_rows_blank2"] = (typeof(CsvFormatException), ["SkipRows (2) passes over the whole input, which holds 2 records"]),
+        // A quote in a skipped record toggles as the cut sees it: left open, it runs to the end (natively too).
+        ["f4_skip_rows_bad_quote"] = (typeof(CsvFormatException), ["SkipRows (1) passes over the whole input, which holds 1 record", "quote left open"]),
+        ["f4_skip_rows_unterminated"] = (typeof(CsvFormatException), ["SkipRows (1) passes over the whole input, which holds 1 record"]),
+        ["f4_skip_rows_blank_middle"] = (typeof(CsvFormatException), ["Row 1 (line 4)", "more fields than the 1 columns"]),
+        ["f4_comment_before_skip_lines"] = (typeof(CsvFormatException), ["Row 1 (line 3)", "more fields than the 1 columns"]),
+        ["f4_trunc_bad_quote_extra"] = (typeof(CsvFormatException), ["Row 1 (line 2)", "field 3 holds a quote"]),
+        ["f4_trunc_unterminated_extra"] = (typeof(CsvFormatException), ["Row 1 (line 2)", "field 3 opens a quote that never closes"]),
+        ["f4_trunc_invalid_utf8_extra"] = (typeof(CsvFormatException), ["Row 1 (line 2)", "not UTF-8"]),
+        ["f4_trunc_no_header_late_no_trunc"] = (typeof(CsvFormatException), ["Row 151 (line 151)", "more fields than the 2 columns"]),
+        ["f4_ragged_no_header_infer0"] = (typeof(CsvFormatException), ["Row 2 (line 2)", "more fields than the 2 columns"]),
+        ["f4_ragged_no_header_infer1"] = (typeof(CsvFormatException), ["Row 2 (line 2)", "more fields than the 2 columns"]),
+        // Decided: a quote inside an unquoted header field is an error as in records (native takes `line"` as a name,
+        // then that quote swallows every record after it).
+        ["skip_lines_quoted_newline"] = (typeof(CsvFormatException), ["The header (line 2)", "field 1 holds a quote"]),
     };
 
     public static TheoryData<string> Cases()
@@ -112,7 +145,7 @@ public class CsvBehaviourTests
     private static Dictionary<string, string> Native()
     {
         Dictionary<string, string> outcomes = [];
-        foreach (string line in File.ReadAllLines(Path.Combine(Dir, "native.txt")))
+        foreach (string line in File.ReadAllLines(Path.Combine(Dir, "native.expected")))
         {
             if (!line.StartsWith("R ", StringComparison.Ordinal)) continue;
             int space = line.IndexOf(' ', 2);

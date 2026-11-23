@@ -5,7 +5,11 @@ using Kaminari.Seseragi.Files.IO;
 namespace Kaminari.Seseragi.Files.Csv.Reading;
 
 /// <summary>A CSV input opened: its units, how their bytes become text, and the byte order mark the first unit starts with.</summary>
-internal sealed record CsvOpened(TextUnits Units, CsvCharset Charset, int Mark, IDisposable? Owned = null);
+internal sealed record CsvOpened(TextUnits Units, CsvCharset Charset, int Mark, IDisposable? Owned = null)
+{
+    /// <summary>The lines passed over before the units (<see cref="CsvReadOptions.SkipLines"/>): line numbers start after them.</summary>
+    public long SkippedLines { get; init; }
+}
 
 /// <summary>
 /// Opens a CSV input in its encoding. The encoding is chosen from the first bytes (after decompression): a byte order mark
@@ -31,9 +35,24 @@ internal static class CsvInput
             decompressed = new PrefixedStream(text, decompressed, leaveOpen: false);
         }
         var (charset, decoder, mark) = Choose(options, text);
+        if (decoder is null && compressed && options.SkipLines > 0)
+        {
+            // The lines are read off the decompressed text, then the rest is cut in order.
+            Stream rest = await SkipLinesAsync(decompressed, mark, options, useAsync, ct).ConfigureAwait(false);
+            return new CsvOpened(new StreamInput(rest, leaveOpen: false, options.UnitBytes, cut), charset, 0) { SkippedLines = options.SkipLines };
+        }
         if (decoder is null)
         {
             await decompressed.DisposeAsync().ConfigureAwait(false);
+            if (options.SkipLines > 0)
+            {
+                // The units start after the lines: the cut's quote parity starts clean there (a skipped line may end inside quotes).
+                var skip = new LineSkip(options.SkipLines, LineEnd(options));
+                long start = await skip.SkipAsync(source, Math.Min(mark, source.Length), useAsync, ct).ConfigureAwait(false);
+                IRandomAccess after = start < 0 ? PastEnd(options, skip) : new RandomAccessSlice(source, start);
+                TextUnits sliced = await TextUnits.RecordsAsync(after, map, options.UnitBytes, cut, options.MaxDegreeOfParallelism, useAsync, ct, plain: true).ConfigureAwait(false);
+                return new CsvOpened(sliced, charset, 0) { SkippedLines = options.SkipLines };
+            }
             TextUnits units = await TextUnits.RecordsAsync(source, map, options.UnitBytes, cut, options.MaxDegreeOfParallelism, useAsync, ct).ConfigureAwait(false);
             return new CsvOpened(units, charset, mark);
         }
@@ -43,9 +62,15 @@ internal static class CsvInput
             await decompressed.DisposeAsync().ConfigureAwait(false);
             try
             {
-                var memory = new MemoryRandomAccess(decoded.Buffer.Memory[..decoded.Length]);
-                TextUnits units = await TextUnits.RecordsAsync(memory, false, options.UnitBytes, cut, options.MaxDegreeOfParallelism, useAsync, ct).ConfigureAwait(false);
-                return new CsvOpened(units, charset, 0, new Releaser(decoded.Buffer));
+                IRandomAccess memory = new MemoryRandomAccess(decoded.Buffer.Memory[..decoded.Length]);
+                if (options.SkipLines > 0)
+                {
+                    var skip = new LineSkip(options.SkipLines, LineEnd(options));
+                    long start = await skip.SkipAsync(memory, 0, useAsync, ct).ConfigureAwait(false);
+                    memory = start < 0 ? PastEnd(options, skip) : new RandomAccessSlice(memory, start);
+                }
+                TextUnits units = await TextUnits.RecordsAsync(memory, false, options.UnitBytes, cut, options.MaxDegreeOfParallelism, useAsync, ct, plain: true).ConfigureAwait(false);
+                return new CsvOpened(units, charset, 0, new Releaser(decoded.Buffer)) { SkippedLines = options.SkipLines };
             }
             catch
             {
@@ -53,7 +78,43 @@ internal static class CsvInput
                 throw;
             }
         }
-        return new CsvOpened(new StreamInput(Transcoded(decompressed, decoder, mark, options), leaveOpen: false, options.UnitBytes, cut), charset, 0);
+        Stream transcoded = await SkipLinesAsync(Transcoded(decompressed, decoder, mark, options), 0, options, useAsync, ct).ConfigureAwait(false);
+        return new CsvOpened(new StreamInput(transcoded, leaveOpen: false, options.UnitBytes, cut), charset, 0) { SkippedLines = options.SkipLines };
+    }
+
+    // The line end SkipLines counts (null: LF, CR or CRLF).
+    private static byte? LineEnd(CsvReadOptions options) => options.LineEnd is { } e ? (byte)e : null;
+
+    // The text after the lines SkipLines passes over (and a byte order mark before them); the whole stream when none.
+    private static async ValueTask<Stream> SkipLinesAsync(Stream text, int mark, CsvReadOptions options, bool useAsync, CancellationToken ct)
+    {
+        if (options.SkipLines == 0 && mark == 0) return text;
+        if (mark > 0)
+        {
+            byte[] bom = new byte[mark];
+            int got = 0;
+            while (got < mark)
+            {
+                int n = useAsync ? await text.ReadAsync(bom.AsMemory(got), ct).ConfigureAwait(false) : text.Read(bom.AsSpan(got));
+                if (n <= 0) break;
+                got += n;
+            }
+        }
+        var skip = new LineSkip(options.SkipLines, LineEnd(options));
+        Stream? rest = await skip.SkipAsync(text, useAsync, ct).ConfigureAwait(false);
+        if (rest is not null) return rest;
+        await text.DisposeAsync().ConfigureAwait(false);
+        PastEnd(options, skip);
+        return Stream.Null;
+    }
+
+    // SkipLines passing over the whole input: an error (RaiseIfEmpty), else no text at all.
+    private static IRandomAccess PastEnd(CsvReadOptions options, LineSkip skip)
+    {
+        if (options.RaiseIfEmpty)
+            throw new CsvFormatException($"SkipLines ({options.SkipLines}) passes over the whole input, which holds {skip.Found} line{(skip.Found == 1 ? "" : "s")}: " +
+                "skip fewer lines, or give RaiseIfEmpty = false to read it as an empty frame.");
+        return new MemoryRandomAccess(ReadOnlyMemory<byte>.Empty);
     }
 
     // A local source (memory, a mapped file) of text whose characters can be found from any boundary, decoded whole into
@@ -114,8 +175,11 @@ internal static class CsvInput
             data = new PrefixedStream(text, data, leaveOpen: false);
         }
         var (charset, decoder, mark) = Choose(options, text);
-        if (decoder is null) return new CsvOpened(new StreamInput(data, leaveOpen: false, options.UnitBytes, cut), charset, mark);
-        return new CsvOpened(new StreamInput(Transcoded(data, decoder, mark, options), leaveOpen: false, options.UnitBytes, cut), charset, 0);
+        if (decoder is null && options.SkipLines == 0) return new CsvOpened(new StreamInput(data, leaveOpen: false, options.UnitBytes, cut), charset, mark);
+        Stream rest = decoder is null
+            ? await SkipLinesAsync(data, mark, options, useAsync, ct).ConfigureAwait(false)
+            : await SkipLinesAsync(Transcoded(data, decoder, mark, options), 0, options, useAsync, ct).ConfigureAwait(false);
+        return new CsvOpened(new StreamInput(rest, leaveOpen: false, options.UnitBytes, cut), charset, 0) { SkippedLines = options.SkipLines };
     }
 
     // The text decoded into UTF-8: blocks side by side when its characters can be found from any boundary, else in order.
@@ -166,7 +230,10 @@ internal static class CsvInput
     private static bool OnItsBytes(TextDecoder decoder, CsvReadOptions options)
     {
         if (decoder.Layout != TextLayout.AsciiCompatible) return false;
+        // A comment prefix is compared on the bytes as UTF-8: in another encoding only an ASCII one (else on the text decoded).
+        if (options.CommentPrefix is { } prefix && decoder is not Utf8TextDecoder && !System.Text.Ascii.IsValid(prefix)) return false;
         if (decoder is not LegacyText { DoubleByte: true }) return true;
-        return options.Separator < 0x40 && (options.Quote ?? '"') < 0x40 && (options.LineEnd ?? '\n') < 0x40;
+        return options.Separator < 0x40 && (options.Quote ?? '"') < 0x40 && (options.LineEnd ?? '\n') < 0x40
+            && (options.CommentPrefix ?? "").All(c => c < 0x40);
     }
 }

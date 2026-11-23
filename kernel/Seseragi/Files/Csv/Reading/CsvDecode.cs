@@ -207,7 +207,7 @@ internal static class CsvDecode
         // else, and for UTF-8, the unit is checked whole: failures never depend on the columns read.
         bool fieldsChecked = !clean && settings.FieldsChecked;
         int invalid = (clean && charset.FieldDecoder is not null) || fieldsChecked ? -1 : charset.FirstInvalid(bytes[from..]);
-        if (invalid >= 0) invalid += from;
+        if (invalid >= 0) invalid = InRecords(bytes, from, invalid + from, tokenizer, charset);
         int decoded = settings.Schema.FieldsList.Count, capacity = settings.ChunkRows, batchSize = settings.BatchSize;
         NativeStructBuilder? builder = settings.Builder();
         CsvColumn[] columns = [];
@@ -327,7 +327,7 @@ internal static class CsvDecode
         bool clean = charset.Clean(bytes[from..]);
         // The unit is checked whole for invalid text: not every field is decoded.
         int invalid = clean && charset.FieldDecoder is not null ? -1 : charset.FirstInvalid(bytes[from..]);
-        if (invalid >= 0) invalid += from;
+        if (invalid >= 0) invalid = InRecords(bytes, from, invalid + from, tokenizer, charset);
         int[] output = settings.Output;
         int decoded = settings.Decoded.FieldsList.Count, delivered = output.Length, capacity = settings.ChunkRows, batchSize = settings.BatchSize;
         NativeStructBuilder? builder = settings.Builder(), testBuilder = settings.TestBuilder();
@@ -576,6 +576,36 @@ internal static class CsvDecode
                 guess = (guess.Group ?? temporal.Group, guess.Unsure || temporal.RefusedUnseeded || differs);
             }
         }
+    }
+
+    /// <summary>
+    /// The first byte that is not valid text at or after <paramref name="invalid"/> (one found from <paramref name="from"/>,
+    /// a record start) that lies in a record: comment lines are never read, so invalid text in them is passed over (-1
+    /// when none is left). Records are found as the cut finds them (only on this path: invalid text is rare).
+    /// </summary>
+    private static int InRecords(ReadOnlySpan<byte> bytes, int from, int invalid, CsvTokenizer tokenizer, CsvCharset charset)
+    {
+        if (!tokenizer.HasComments) return invalid;
+        int pos = from;
+        while (pos < bytes.Length)
+        {
+            if (tokenizer.AtComment(bytes, pos))
+            {
+                int after = tokenizer.LineAfter(bytes, pos);
+                if (invalid < after)
+                {
+                    int next = charset.FirstInvalid(bytes[after..]);
+                    if (next < 0) return -1;
+                    invalid = after + next;
+                }
+                pos = after;
+                continue;
+            }
+            int end = tokenizer.SkipRecord(bytes, pos);
+            if (invalid < end) return invalid;
+            pos = end;
+        }
+        return invalid;
     }
 
     // The record holding byte at: the last record start at or before it.

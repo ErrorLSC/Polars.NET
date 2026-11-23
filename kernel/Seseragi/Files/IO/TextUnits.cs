@@ -54,11 +54,18 @@ internal abstract class TextUnits : IDisposable
     /// The units of a record input (CSV) over <paramref name="source"/>, which the caller keeps open while it is read:
     /// gzip, zlib and zstd found by the first bytes and read in order; else blocks that find their own starts (no quotes,
     /// no comments); else, in place (memory, or a local file mapped when <paramref name="map"/> says so), starts planned
-    /// side by side (in order with comment lines); else the source read in order.
+    /// side by side (in order with comment lines); else the source read in order. <paramref name="plain"/>: the source is
+    /// known to be uncompressed text (not sniffed).
     /// </summary>
     public static async ValueTask<TextUnits> RecordsAsync(IRandomAccess source, bool map, int unitBytes, RecordCut cut, int threads,
-        bool useAsync, CancellationToken ct)
+        bool useAsync, CancellationToken ct, bool plain = false)
     {
+        // Text known not to be compressed (a slice after skipped lines could start like a compressed header).
+        if (plain)
+        {
+            if (cut.Independent) return new BlockInput(source, null, map, unitBytes, cut);
+            return (TextUnits?)Planned(source, map, unitBytes, cut, threads) ?? new StreamInput(new RandomAccessStream(source, 0), leaveOpen: false, unitBytes, cut);
+        }
         byte[] head = new byte[(int)Math.Min(4, source.Length)];
         int got = 0;
         while (got < head.Length)
@@ -73,7 +80,7 @@ internal abstract class TextUnits : IDisposable
         return (TextUnits?)Planned(source, map, unitBytes, cut, threads) ?? new StreamInput(data, leaveOpen: false, unitBytes, cut);
     }
 
-    // In place (memory, or a mapped local file): starts planned side by side (in order with comment lines); else null.
+    // In place (memory, or a mapped local file): starts planned side by side (in order only up to the last comment line); else null.
     private static unsafe PlannedInput? Planned(IRandomAccess source, bool map, int unitBytes, RecordCut cut, int threads)
     {
         if (source is not ILocalSource local) return null;
@@ -91,7 +98,7 @@ internal abstract class TextUnits : IDisposable
 
         long[] Plan(byte* data, long length) => cut.Rules.CommentPrefix is null
             ? QuoteSegments.Cut(data, length, 0, false, unitBytes, cut.Rules, new ParallelOptions { MaxDegreeOfParallelism = threads })
-            : QuoteSegments.InOrder(data, length, 0, unitBytes, cut.Rules);
+            : QuoteSegments.CommentCut(data, length, 0, unitBytes, unitBytes, cut.Rules, new ParallelOptions { MaxDegreeOfParallelism = threads });
     }
 }
 
@@ -524,8 +531,11 @@ internal sealed class StreamInput(Stream stream, bool leaveOpen, int unitBytes, 
     }
 }
 
-/// <summary>A stream whose first bytes were read already: they come first, then the rest of the stream.</summary>
-internal sealed class PrefixedStream(byte[] prefix, Stream rest, bool leaveOpen) : Stream
+/// <summary>
+/// A stream whose first bytes were read already: they come first, then the rest of the stream (<paramref name="owner"/>,
+/// the prefix's memory, released with it).
+/// </summary>
+internal sealed class PrefixedStream(ReadOnlyMemory<byte> prefix, Stream rest, bool leaveOpen, IDisposable? owner = null) : Stream
 {
     private int _at;
 
@@ -540,7 +550,7 @@ internal sealed class PrefixedStream(byte[] prefix, Stream rest, bool leaveOpen)
         if (_at < prefix.Length)
         {
             int n = Math.Min(buffer.Length, prefix.Length - _at);
-            prefix.AsSpan(_at, n).CopyTo(buffer);
+            prefix.Span.Slice(_at, n).CopyTo(buffer);
             _at += n;
             return n;
         }
@@ -562,7 +572,11 @@ internal sealed class PrefixedStream(byte[] prefix, Stream rest, bool leaveOpen)
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !leaveOpen) rest.Dispose();
+        if (disposing)
+        {
+            if (!leaveOpen) rest.Dispose();
+            owner?.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

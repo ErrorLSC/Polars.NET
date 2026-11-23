@@ -35,6 +35,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     private readonly TemporalPattern?[] _groups;
     private volatile TemporalPattern?[] _known;
     private bool _read, _disposed;
+    private long _linesBase; // lines passed over before the units (SkipLines): error lines count them
 
     private CsvReader(TextUnits input, IDisposable? owned, CsvReadOptions options, CsvDecodeSettings settings, int startUnit, int startOffset,
         TemporalPattern?[] groups, bool exact)
@@ -185,10 +186,19 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             if (t == (options.DecimalComma ? "," : ".")) throw new ArgumentException($"The thousands separator '{t}' is the decimal point too.", nameof(options));
         }
         if (!Enum.IsDefined(options.InvalidText)) throw new ArgumentOutOfRangeException(nameof(options), $"Unknown InvalidText {options.InvalidText}.");
-        // Later steps of the managed reader.
-        if (options.CommentPrefix is not null || options.SkipLines != 0 || options.SkipRows != 0 || options.SkipRowsAfterHeader != 0 || options.TruncateRaggedLines)
-            throw new NotSupportedException("Comment lines, skipped lines and rows, and truncated ragged lines come with a later step of the managed CSV reader.");
-        return new RecordRules(quote, lineEnd, null);
+        if (options.SkipLines < 0 || options.SkipRows < 0 || options.SkipRowsAfterHeader < 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "SkipLines, SkipRows and SkipRowsAfterHeader cannot be negative.");
+        if (options.SkipLines > 0 && options.SkipRows > 0)
+            throw new ArgumentException("Give either SkipLines (raw lines) or SkipRows (records), not both.", nameof(options));
+        byte[]? comment = null;
+        if (options.CommentPrefix is { } prefix)
+        {
+            if (prefix.Length == 0) throw new ArgumentException("The comment prefix cannot be empty (null: no comment lines).", nameof(options));
+            if (prefix.Any(c => c is '\n' or '\r' || c == options.LineEnd))
+                throw new ArgumentException("The comment prefix cannot hold a line end.", nameof(options));
+            comment = Encoding.UTF8.GetBytes(prefix);
+        }
+        return new RecordRules(quote, lineEnd, comment);
 
         static byte Ascii(char c, string what) => c < 0x80 ? (byte)c : throw new ArgumentException($"{what} must be an ASCII character.", nameof(options));
     }
@@ -199,11 +209,14 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         try
         {
             RecordRules rules = Validate(options);
-            var tokenizer = new CsvTokenizer((byte)options.Separator, rules.Quote, rules.LineEnd);
+            var tokenizer = new CsvTokenizer((byte)options.Separator, rules.Quote, rules.LineEnd, rules.CommentPrefix, options.TruncateRaggedLines);
             var values = new CsvValueRules(tokenizer, options.MissingIsNull, options.IgnoreErrors, Bytes(options.NullValues), Bytes(options.TrueValues),
                 Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null, opened.Charset);
-            Prelude prelude = await Prelude.ReadAsync(input, options, values, opened.Mark, useAsync, ct).ConfigureAwait(false);
-            return new CsvReader(input, Both(opened.Owned, owned), options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups, prelude.Exact);
+            Prelude prelude = await Prelude.ReadAsync(input, options, values, opened.Mark, opened.SkippedLines, useAsync, ct).ConfigureAwait(false);
+            return new CsvReader(input, Both(opened.Owned, owned), options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups, prelude.Exact)
+            {
+                _linesBase = opened.SkippedLines,
+            };
         }
         catch
         {
@@ -230,15 +243,26 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         public required TemporalPattern?[] Groups { get; init; }
         public required bool Exact { get; init; }
 
-        public static async ValueTask<Prelude> ReadAsync(TextUnits input, CsvReadOptions options, CsvValueRules values, int mark, bool useAsync, CancellationToken ct)
+        public static async ValueTask<Prelude> ReadAsync(TextUnits input, CsvReadOptions options, CsvValueRules values, int mark, long linesBase,
+            bool useAsync, CancellationToken ct)
         {
             CsvTokenizer tokenizer = values.Tokenizer;
             List<CsvField> fields = [];
             string[]? names = null;
             int startUnit = 0, startOffset = 0;
-            long lines = 0, rows = 0;
-            bool started = !options.HasHeader, sawRecord = false;
+            long lines = linesBase, rows = 0;
+            // In file order: blank and comment lines before SkipRows, SkipRows records, the header, SkipRowsAfterHeader
+            // records (records found as the cut finds them, nothing in them read), then the data and its first rows.
+            // Leading blank (and comment) lines are passed over before SkipRows with a header; without one a blank line is a
+            // row, counted by SkipRows (native).
+            bool lead = options.SkipRows > 0 && options.HasHeader, started = !options.HasHeader, inData = false, sawRecord = false;
+            long skipRows = options.SkipRows, skipAfter = options.SkipRowsAfterHeader;
             long limit = options.Schema is not null ? SeedRows : options.InferSchemaLength is int length ? length : long.MaxValue;
+            // Without a header the columns are as many as the widest of the first records (InferSchemaLength, at least one);
+            // with a schema given those are checked against it, among the rows read at open.
+            long widen = options.HasHeader ? 0 : Math.Max(1, options.InferSchemaLength ?? long.MaxValue);
+            if (options.Schema is not null) widen = Math.Min(widen, SeedRows);
+            int widest = 0;
             Plan? plan = null;
             try
             {
@@ -250,47 +274,74 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                     int pos = 0;
                     if (unit.FileStart) pos = Math.Min(mark, bytes.Length);
                     bool clean = values.Charset.Clean(bytes);
-                    if (!options.HasHeader && u == 0) startOffset = pos;
-                    if (!started)
+                    if (lead)
                     {
-                        // Blank lines before the header are passed over.
-                        while (pos < bytes.Length && tokenizer.AtLineEnd(bytes, pos)) pos = tokenizer.SkipLineEnd(bytes, pos);
-                        if (pos == bytes.Length)
+                        while (pos < bytes.Length && (tokenizer.AtLineEnd(bytes, pos) || tokenizer.AtComment(bytes, pos)))
+                            pos = tokenizer.AtComment(bytes, pos) ? tokenizer.LineAfter(bytes, pos) : tokenizer.SkipLineEnd(bytes, pos);
+                        lead = pos == bytes.Length;
+                    }
+                    while (skipRows > 0 && (pos = tokenizer.SkipComments(bytes, pos)) < bytes.Length)
+                    {
+                        pos = tokenizer.SkipRecord(bytes, pos);
+                        skipRows--;
+                    }
+                    if (!started && skipRows == 0 && !lead)
+                    {
+                        // Blank and comment lines before the header are passed over.
+                        while (pos < bytes.Length && (tokenizer.AtLineEnd(bytes, pos) || tokenizer.AtComment(bytes, pos)))
+                            pos = tokenizer.AtComment(bytes, pos) ? tokenizer.LineAfter(bytes, pos) : tokenizer.SkipLineEnd(bytes, pos);
+                        if (pos < bytes.Length)
                         {
-                            lines += tokenizer.CountLines(bytes);
-                            continue;
+                            int start = pos;
+                            FieldEnd end = tokenizer.Record(bytes, ref pos, fields, out _, out int failed);
+                            long at = lines + tokenizer.CountLines(bytes[..start]) + 1;
+                            if (end > FieldEnd.Input) throw new CsvFormatException($"The header (line {at}): {CsvDecode.Malformed(end, failed, fields.Count + 1)}", 0, at);
+                            if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"The header (line {at}): {values.Charset.Invalid}", 0, at);
+                            names = Names(bytes, fields, tokenizer, values.Charset);
+                            started = sawRecord = true;
+                            plan = new Plan(options, values, names);
                         }
-                        int start = pos;
-                        FieldEnd end = tokenizer.Record(bytes, ref pos, fields, out _, out int failed);
-                        long at = lines + tokenizer.CountLines(bytes[..start]) + 1;
-                        if (end > FieldEnd.Input) throw new CsvFormatException($"The header (line {at}): {CsvDecode.Malformed(end, failed, fields.Count + 1)}", 0, at);
-                        if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"The header (line {at}): {values.Charset.Invalid}", 0, at);
-                        names = Names(bytes, fields, tokenizer, values.Charset);
-                        started = sawRecord = true;
+                    }
+                    while (started && skipAfter > 0 && (pos = tokenizer.SkipComments(bytes, pos)) < bytes.Length)
+                    {
+                        pos = tokenizer.SkipRecord(bytes, pos);
+                        skipAfter--;
+                    }
+                    if (started && skipAfter == 0 && skipRows == 0 && !lead && !inData)
+                    {
+                        // The data starts here (rows, row numbers and MaxRows count from it).
+                        inData = true;
                         startUnit = u;
                         startOffset = pos;
-                        plan = new Plan(options, values, names);
                     }
-                    while ((rows < limit || plan is null) && pos < bytes.Length)
+                    while (inData && (rows < limit || plan is null || rows < widen) && (pos = tokenizer.SkipComments(bytes, pos)) < bytes.Length)
                     {
                         int start = pos;
                         FieldEnd end = tokenizer.Record(bytes, ref pos, fields, out bool blank, out int failed);
                         long row = rows + 1, at = lines + tokenizer.CountLines(bytes[..start]) + 1;
                         if (plan is null && !blank)
                         {
-                            names = [.. Enumerable.Range(1, fields.Count + (end > FieldEnd.Input ? 1 : 0)).Select(i => $"column_{i}")];
+                            // Without a header: numbered columns, as many as the schema given or the first record's fields
+                            // (more as wider records come among the first ones).
+                            int count = options.Schema?.FieldsList.Count ?? fields.Count + (end > FieldEnd.Input ? 1 : 0);
+                            names = [.. Enumerable.Range(1, count).Select(i => $"column_{i}")];
                             plan = new Plan(options, values, names);
                         }
                         int columns = plan?.FileColumns ?? int.MaxValue;
                         if (end > FieldEnd.Input) throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(end, failed, columns)}", row, at);
+                        if (!blank && row <= widen) widest = Math.Max(widest, fields.Count);
                         if (fields.Count > columns)
-                            throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(FieldEnd.TooManyFields, columns, columns)}", row, at);
+                        {
+                            if (row <= widen && options.Schema is null) plan!.Widen(fields.Count);
+                            else if (!tokenizer.Truncates && !(row <= widen && options.Schema is not null))
+                                throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(FieldEnd.TooManyFields, columns, columns)}", row, at);
+                        }
                         if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"Row {row} (line {at}): {values.Charset.Invalid}", row, at);
                         sawRecord = true;
                         rows++;
                         plan?.Observe(bytes, fields, rows, clean);
                     }
-                    if (rows >= limit && plan is not null) break;
+                    if (inData && rows >= limit && rows >= widen && plan is not null) break;
                     lines += tokenizer.CountLines(bytes);
                 }
             }
@@ -299,8 +350,19 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                 plan?.Dispose();
                 throw;
             }
+            // Skipped rows running past the end: no data at all (no unit decodes any).
+            if (!inData) startUnit = int.MaxValue;
+            if (!options.HasHeader && options.Schema is { } given && widest > 0 && (widest < given.FieldsList.Count || (widest > given.FieldsList.Count && !tokenizer.Truncates)))
+            {
+                plan?.Dispose();
+                throw new CsvFormatException($"The given schema has {given.FieldsList.Count} columns, the records {widest} (without a header the schema gives the columns by position).");
+            }
             if (!sawRecord || plan is null)
             {
+                plan?.Dispose();
+                if (options.RaiseIfEmpty && options.SkipRows > 0)
+                    throw new CsvFormatException($"SkipRows ({options.SkipRows}) passes over the whole input, which holds {options.SkipRows - skipRows} record" +
+                        $"{(options.SkipRows - skipRows == 1 ? "" : "s")} (a quote left open in a skipped record runs to the end): skip fewer rows, or give RaiseIfEmpty = false to read it as an empty frame.");
                 if (options.RaiseIfEmpty)
                     throw new CsvFormatException("The input holds no records (not even a header): give RaiseIfEmpty = false to read it as an empty frame.");
                 plan = new Plan(options, values, options.Schema is { } s ? [.. s.FieldsList.Select(f => f.Name)] : names ?? []);
@@ -355,12 +417,12 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         private NativeByteBuffer? _scratch;
         private readonly CsvReadOptions _options;
         private readonly CsvValueRules _values;
-        private readonly string[] _names;
+        private string[] _names;
         private readonly CsvInference? _inference;
-        private readonly Field?[] _given; // per file column: its given field (schema), or null
+        private Field?[] _given; // per file column: its given field (schema), or null
         private readonly int[]? _order;   // per file column: its place in the given schema's order
-        private readonly TemporalColumn[] _dates, _datetimes;
-        private readonly bool[] _seeded;
+        private TemporalColumn[] _dates, _datetimes;
+        private bool[] _seeded;
 
         public Plan(CsvReadOptions options, CsvValueRules values, string[] names)
         {
@@ -409,6 +471,27 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         }
 
         public int FileColumns => _names.Length;
+
+        /// <summary>
+        /// Without a header or schema: <paramref name="columns"/> columns from now on (a wider record among the first
+        /// ones); the new ones are missing in the records before (nulls).
+        /// </summary>
+        public void Widen(int columns)
+        {
+            int n = _names.Length;
+            if (columns <= n) return;
+            _names = [.. _names, .. Enumerable.Range(n + 1, columns - n).Select(i => $"column_{i}")];
+            System.Array.Resize(ref _given, columns);
+            System.Array.Resize(ref _dates, columns);
+            System.Array.Resize(ref _datetimes, columns);
+            System.Array.Resize(ref _seeded, columns);
+            for (int c = n; c < columns; c++)
+            {
+                if (_options.SchemaOverrides is { } overrides && overrides.TryGetValue(_names[c], out IArrowType? type)) _given[c] = new Field(_names[c], type, true);
+                _seeded[c] = _given[c]?.DataType is not (Date32Type or TimestampType);
+            }
+            _inference?.Widen(columns);
+        }
 
         public void Dispose()
         {
@@ -633,7 +716,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             if (unit.Error is { } error)
             {
                 long lines = reader._input.ReadOnce ? _lines : await reader.LinesBeforeAsync(index, useAsync, ct).ConfigureAwait(false);
-                throw error.At(_records, lines);
+                throw error.At(_records, reader._linesBase + lines);
             }
             return unit;
         }

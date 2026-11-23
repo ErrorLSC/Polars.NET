@@ -172,6 +172,54 @@ public class QuoteSegmentsTests
         }
     }
 
+    /// <summary>
+    /// The comment-aware parallel cut (C1f4): comment lines anywhere, only at the top, or none, prefixes at line starts
+    /// inside quoted fields; every segment size: starts are record starts of the reference, never decreasing, from 0 to
+    /// the end; one-byte segments find every record start (but one right after the parallel part's start).
+    /// </summary>
+    [Fact]
+    public unsafe void CommentCut_EverySegmentSize_StartsAreRecordStarts()
+    {
+        var r = new Random(4);
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = 4 };
+        for (int i = 0; i < Cases; i++)
+        {
+            RecordRules rules = RandomRules(r, comments: true);
+            byte[] d = r.Next(3) switch
+            {
+                0 => RandomCsv(r, rules),
+                1 => [.. TopComments(r, rules), .. RandomCsv(r, rules with { CommentPrefix = null })],
+                _ => RandomCsv(r, rules with { CommentPrefix = null }),
+            };
+            if (r.Next(4) == 0 && rules.Quote is { } q)
+            {
+                // A prefix at a line start inside a quoted field: no comment line.
+                string p = Encoding.ASCII.GetString(rules.CommentPrefix!);
+                string end = rules.LineEnd is { } e ? ((char)e).ToString() : "\n";
+                d = [.. d, .. Encoding.ASCII.GetBytes($"{end}x,{(char)q}a{end}{p} in quotes{(char)q}{end}y{end}")];
+            }
+            SortedSet<int> reference = Reference(d, rules);
+            fixed (byte* p = d)
+                foreach (int segment in (int[])[1, 2, 3, 5, 8, 13, 64, r.Next(1, 200)])
+                {
+                    long[] starts = QuoteSegments.CommentCut(p, d.Length, 0, segment, r.Next(1, 40), rules, parallel);
+                    Assert.Equal(0, starts[0]);
+                    Assert.Equal(d.Length, starts[^1]);
+                    for (int k = 1; k < starts.Length; k++)
+                    {
+                        Assert.True(starts[k] >= starts[k - 1], $"decreasing at {k}: {Show(d)}");
+                        Assert.True(starts[k] == d.Length || reference.Contains((int)starts[k]), $"segment {segment}: {starts[k]} is no record start in {Show(d)} ({rules})");
+                    }
+                }
+        }
+
+        static byte[] TopComments(Random r, RecordRules rules)
+        {
+            string p = Encoding.ASCII.GetString(rules.CommentPrefix!), end = rules.LineEnd is { } e ? ((char)e).ToString() : r.Next(2) == 0 ? "\n" : "\r\n";
+            return Encoding.ASCII.GetBytes(string.Concat(Enumerable.Range(0, r.Next(1, 5)).Select(k => $"{p}top {(k % 2 == 0 ? "\"" : "'")} odd{end}")));
+        }
+    }
+
     [Fact]
     public unsafe void Cut_RefusesCommentPrefix()
     {

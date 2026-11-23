@@ -26,16 +26,26 @@ public sealed record CsvReadOptions
     /// <summary>Whether the first record names the columns (blank lines before it are passed over).</summary>
     public bool HasHeader { get; init; } = true;
 
-    /// <summary>A comment line's first one or two characters (outside quotes, at a record start); null: none.</summary>
+    /// <summary>
+    /// The characters starting a comment line (any length; checked at a record start before quotes and separators: the
+    /// line is passed over, quotes and all, and is no row); null: none.
+    /// </summary>
     public string? CommentPrefix { get; init; }
 
-    /// <summary>Lines passed over at the start, counted as raw line ends (a quoted field's line ends count).</summary>
+    /// <summary>
+    /// Lines passed over at the start, counted as raw line ends (a quoted field's line ends count; nothing in them is
+    /// read). Cannot be combined with <see cref="SkipRows"/>.
+    /// </summary>
     public long SkipLines { get; init; }
 
-    /// <summary>Records passed over at the start (after <see cref="SkipLines"/>), before the header.</summary>
+    /// <summary>
+    /// Records passed over at the start, before the header (blank lines first passed over; records found as the input is
+    /// cut: every quote toggles; nothing in them is read; comment lines do not count). Cannot be combined with
+    /// <see cref="SkipLines"/>.
+    /// </summary>
     public long SkipRows { get; init; }
 
-    /// <summary>Records passed over after the header.</summary>
+    /// <summary>Records passed over after the header (as <see cref="SkipRows"/> finds them; blank lines count): rows count from after them.</summary>
     public long SkipRowsAfterHeader { get; init; }
 
     /// <summary>Field texts read as nulls in every column (compared after quotes are removed).</summary>

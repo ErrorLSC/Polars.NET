@@ -1186,6 +1186,783 @@
      "t": "datetime_us_utc"
     }
    }
+  },
+  {
+   "name": "f4_comment_not_at_start",
+   "hex": "612c620a312c23780a322c790a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_indented",
+   "hex": "612c620a20202320780a312c790a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_quoted_field",
+   "hex": "612c620a222378222c310a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_eof_no_newline",
+   "hex": "612c620a312c780a2320656e64",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_crlf",
+   "hex": "2320630d0a612c620d0a312c780d0a23206d0d0a322c790d0a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_cr_only",
+   "hex": "2320630d612c620d312c780d236d0d322c790d",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_partial_two",
+   "hex": "612c620a2f782c310a2f2f630a322c790a",
+   "opts": {
+    "comment_prefix": "//"
+   }
+  },
+  {
+   "name": "f4_comment_no_header",
+   "hex": "2320630a312c780a23206d0a322c790a",
+   "opts": {
+    "comment_prefix": "#",
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_comment_row_index",
+   "hex": "612c620a312c780a23206d0a322c790a",
+   "opts": {
+    "comment_prefix": "#",
+    "row_index_name": "i"
+   }
+  },
+  {
+   "name": "f4_comment_error_row",
+   "hex": "612c620a312c310a23206d0a322c780a",
+   "opts": {
+    "comment_prefix": "#",
+    "schema": {
+     "a": "i64",
+     "b": "i64"
+    }
+   }
+  },
+  {
+   "name": "f4_comment_n_rows",
+   "hex": "612c620a312c780a23206d0a322c790a332c7a0a",
+   "opts": {
+    "comment_prefix": "#",
+    "n_rows": 2
+   }
+  },
+  {
+   "name": "f4_comment_blank",
+   "hex": "612c620a312c780a0a23206d0a322c790a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_only",
+   "hex": "23206f6e6c790a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_only_no_raise",
+   "hex": "23206f6e6c790a",
+   "opts": {
+    "comment_prefix": "#",
+    "raise_if_empty": false
+   }
+  },
+  {
+   "name": "f4_comment_inference",
+   "hex": "610a2320780a310a320a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_skip_rows",
+   "hex": "6a756e6b0a2320630a612c620a312c780a",
+   "opts": {
+    "comment_prefix": "#",
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_comment_skip_rows2",
+   "hex": "6a756e6b0a2320630a612c620a312c780a",
+   "opts": {
+    "comment_prefix": "#",
+    "skip_rows": 2
+   }
+  },
+  {
+   "name": "f4_comment_srah",
+   "hex": "612c620a2320630a312c780a322c790a",
+   "opts": {
+    "comment_prefix": "#",
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_comment_wide",
+   "hex": "2320612c622c632c640a612c620a312c780a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_eol_custom",
+   "hex": "2320633b612c623b312c783b236d3b322c793b",
+   "opts": {
+    "comment_prefix": "#",
+    "eol_char": ";"
+   }
+  },
+  {
+   "name": "f4_comment_tab_sep",
+   "hex": "236309610a6109620a3109780a",
+   "opts": {
+    "comment_prefix": "#",
+    "separator": "\t"
+   }
+  },
+  {
+   "name": "f4_skip_lines_basic",
+   "hex": "6a756e6b0a6d6f72650a612c620a312c780a",
+   "opts": {
+    "skip_lines": 2
+   }
+  },
+  {
+   "name": "f4_skip_lines_and_rows",
+   "hex": "6a0a6b0a612c620a312c780a",
+   "opts": {
+    "skip_lines": 1,
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_lines_past_end",
+   "hex": "612c620a",
+   "opts": {
+    "skip_lines": 5
+   }
+  },
+  {
+   "name": "f4_skip_lines_past_end_no_raise",
+   "hex": "612c620a",
+   "opts": {
+    "skip_lines": 5,
+    "raise_if_empty": false
+   }
+  },
+  {
+   "name": "f4_skip_lines_crlf",
+   "hex": "6a0d0a6b0d0a612c620d0a312c780d0a",
+   "opts": {
+    "skip_lines": 2
+   }
+  },
+  {
+   "name": "f4_skip_lines_cr_only",
+   "hex": "6a0d6b0d612c620d312c780d",
+   "opts": {
+    "skip_lines": 2
+   }
+  },
+  {
+   "name": "f4_skip_lines_blank",
+   "hex": "0a0a612c620a312c780a",
+   "opts": {
+    "skip_lines": 1
+   }
+  },
+  {
+   "name": "f4_skip_lines_no_header",
+   "hex": "6a0a312c780a",
+   "opts": {
+    "skip_lines": 1,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_skip_lines_comment",
+   "hex": "6a0a2320630a612c620a312c780a",
+   "opts": {
+    "skip_lines": 1,
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_skip_lines_error_row",
+   "hex": "6a0a612c620a312c310a322c780a",
+   "opts": {
+    "skip_lines": 1,
+    "schema": {
+     "a": "i64",
+     "b": "i64"
+    }
+   }
+  },
+  {
+   "name": "f4_skip_lines_eol_custom",
+   "hex": "6a3b612c623b312c783b",
+   "opts": {
+    "skip_lines": 1,
+    "eol_char": ";"
+   }
+  },
+  {
+   "name": "f4_skip_lines_invalid_utf8",
+   "hex": "ff0a612c620a312c780a",
+   "opts": {
+    "skip_lines": 1
+   }
+  },
+  {
+   "name": "f4_skip_lines_srah",
+   "hex": "6a0a612c620a312c780a322c790a",
+   "opts": {
+    "skip_lines": 1,
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_skip_lines_row_index",
+   "hex": "6a0a612c620a312c780a322c790a",
+   "opts": {
+    "skip_lines": 1,
+    "row_index_name": "i"
+   }
+  },
+  {
+   "name": "f4_skip_rows_blank",
+   "hex": "0a0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_blank2",
+   "hex": "0a0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 2
+   }
+  },
+  {
+   "name": "f4_skip_rows_past_end",
+   "hex": "612c620a312c780a",
+   "opts": {
+    "skip_rows": 5
+   }
+  },
+  {
+   "name": "f4_skip_rows_past_end_no_raise",
+   "hex": "612c620a312c780a",
+   "opts": {
+    "skip_rows": 5,
+    "raise_if_empty": false
+   }
+  },
+  {
+   "name": "f4_skip_rows_no_header",
+   "hex": "6a0a312c780a322c790a",
+   "opts": {
+    "skip_rows": 1,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_skip_rows_ragged",
+   "hex": "612c622c632c640a782c790a312c320a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_invalid_utf8",
+   "hex": "ff0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_bad_quote",
+   "hex": "6a226b0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_unterminated",
+   "hex": "6a2c226b0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_error_row",
+   "hex": "6a0a612c620a312c310a322c780a",
+   "opts": {
+    "skip_rows": 1,
+    "schema": {
+     "a": "i64",
+     "b": "i64"
+    }
+   }
+  },
+  {
+   "name": "f4_skip_rows_row_index",
+   "hex": "6a0a612c620a312c780a322c790a",
+   "opts": {
+    "skip_rows": 1,
+    "row_index_name": "i"
+   }
+  },
+  {
+   "name": "f4_skip_rows_bom",
+   "hex": "efbbbf6a756e6b0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_crlf",
+   "hex": "6a0d0a6b0d0a612c620d0a312c780d0a",
+   "opts": {
+    "skip_rows": 2
+   }
+  },
+  {
+   "name": "f4_srah_blank",
+   "hex": "612c620a0a312c780a322c790a",
+   "opts": {
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_srah_past_end",
+   "hex": "612c620a312c780a",
+   "opts": {
+    "skip_rows_after_header": 5
+   }
+  },
+  {
+   "name": "f4_srah_no_header",
+   "hex": "312c780a322c790a332c7a0a",
+   "opts": {
+    "skip_rows_after_header": 1,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_srah_row_index",
+   "hex": "612c620a312c780a322c790a332c7a0a",
+   "opts": {
+    "skip_rows_after_header": 1,
+    "row_index_name": "i"
+   }
+  },
+  {
+   "name": "f4_srah_n_rows",
+   "hex": "612c620a312c780a322c790a332c7a0a",
+   "opts": {
+    "skip_rows_after_header": 1,
+    "n_rows": 1
+   }
+  },
+  {
+   "name": "f4_srah_error_row",
+   "hex": "612c620a312c310a712c320a332c330a342c780a",
+   "opts": {
+    "skip_rows_after_header": 1,
+    "schema": {
+     "a": "i64",
+     "b": "i64"
+    }
+   }
+  },
+  {
+   "name": "f4_srah_inference",
+   "hex": "610a780a310a320a",
+   "opts": {
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_srah_bad_quote",
+   "hex": "612c620a312c7822790a322c7a0a",
+   "opts": {
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_srah_ragged",
+   "hex": "612c620a312c322c330a342c350a",
+   "opts": {
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_srah_skip_rows",
+   "hex": "6a0a612c620a312c780a322c790a",
+   "opts": {
+    "skip_rows": 1,
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_srah_invalid_utf8",
+   "hex": "612c620a312cff0a322c790a",
+   "opts": {
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_trunc_quoted_extra",
+   "hex": "612c620a312c782c22652c66220a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_bad_quote_extra",
+   "hex": "612c620a312c782c6522660a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_unterminated_extra",
+   "hex": "612c620a312c782c2265660a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_no_header",
+   "hex": "312c780a322c792c7a0a",
+   "opts": {
+    "truncate_ragged_lines": true,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_trunc_no_header_first_short",
+   "hex": "310a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_trunc_schema",
+   "hex": "612c620a312c782c390a",
+   "opts": {
+    "truncate_ragged_lines": true,
+    "schema": {
+     "a": "i64",
+     "b": "str"
+    }
+   }
+  },
+  {
+   "name": "f4_trunc_invalid_utf8_extra",
+   "hex": "612c620a312c782cff0a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_inference",
+   "hex": "612c620a312c782c7a7a0a322c792c312e350a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_many_extra",
+   "hex": "610a312c322c332c342c350a360a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_quoted_newline_extra",
+   "hex": "612c620a312c782c22650a66220a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_trunc_header_ragged_skip",
+   "hex": "612c620a312c782c390a322c790a",
+   "opts": {
+    "truncate_ragged_lines": true,
+    "skip_rows_after_header": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_blank_middle",
+   "hex": "6a0a0a6b0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 2
+   }
+  },
+  {
+   "name": "f4_skip_rows_blank_middle3",
+   "hex": "6a0a0a6b0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 3
+   }
+  },
+  {
+   "name": "f4_srah_bad_value",
+   "hex": "612c620a712c310a322c320a",
+   "opts": {
+    "skip_rows_after_header": 1,
+    "schema": {
+     "a": "i64",
+     "b": "i64"
+    }
+   }
+  },
+  {
+   "name": "f4_srah_bad_value_inferred",
+   "hex": "612c620a312c310a312c310a312c310a712c310a322c320a",
+   "opts": {
+    "skip_rows_after_header": 4
+   }
+  },
+  {
+   "name": "f4_ragged_no_header",
+   "hex": "312c780a322c792c7a0a",
+   "opts": {
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_trunc_no_header_late",
+   "hex": "302c780a312c780a322c780a332c780a342c780a352c780a362c780a372c780a382c780a392c780a31302c780a31312c780a31322c780a31332c780a31342c780a31352c780a31362c780a31372c780a31382c780a31392c780a32302c780a32312c780a32322c780a32332c780a32342c780a32352c780a32362c780a32372c780a32382c780a32392c780a33302c780a33312c780a33322c780a33332c780a33342c780a33352c780a33362c780a33372c780a33382c780a33392c780a34302c780a34312c780a34322c780a34332c780a34342c780a34352c780a34362c780a34372c780a34382c780a34392c780a35302c780a35312c780a35322c780a35332c780a35342c780a35352c780a35362c780a35372c780a35382c780a35392c780a36302c780a36312c780a36322c780a36332c780a36342c780a36352c780a36362c780a36372c780a36382c780a36392c780a37302c780a37312c780a37322c780a37332c780a37342c780a37352c780a37362c780a37372c780a37382c780a37392c780a38302c780a38312c780a38322c780a38332c780a38342c780a38352c780a38362c780a38372c780a38382c780a38392c780a39302c780a39312c780a39322c780a39332c780a39342c780a39352c780a39362c780a39372c780a39382c780a39392c780a3130302c780a3130312c780a3130322c780a3130332c780a3130342c780a3130352c780a3130362c780a3130372c780a3130382c780a3130392c780a3131302c780a3131312c780a3131322c780a3131332c780a3131342c780a3131352c780a3131362c780a3131372c780a3131382c780a3131392c780a3132302c780a3132312c780a3132322c780a3132332c780a3132342c780a3132352c780a3132362c780a3132372c780a3132382c780a3132392c780a3133302c780a3133312c780a3133322c780a3133332c780a3133342c780a3133352c780a3133362c780a3133372c780a3133382c780a3133392c780a3134302c780a3134312c780a3134322c780a3134332c780a3134342c780a3134352c780a3134362c780a3134372c780a3134382c780a3134392c780a392c792c7a0a",
+   "opts": {
+    "truncate_ragged_lines": true,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_trunc_no_header_late_no_trunc",
+   "hex": "302c780a312c780a322c780a332c780a342c780a352c780a362c780a372c780a382c780a392c780a31302c780a31312c780a31322c780a31332c780a31342c780a31352c780a31362c780a31372c780a31382c780a31392c780a32302c780a32312c780a32322c780a32332c780a32342c780a32352c780a32362c780a32372c780a32382c780a32392c780a33302c780a33312c780a33322c780a33332c780a33342c780a33352c780a33362c780a33372c780a33382c780a33392c780a34302c780a34312c780a34322c780a34332c780a34342c780a34352c780a34362c780a34372c780a34382c780a34392c780a35302c780a35312c780a35322c780a35332c780a35342c780a35352c780a35362c780a35372c780a35382c780a35392c780a36302c780a36312c780a36322c780a36332c780a36342c780a36352c780a36362c780a36372c780a36382c780a36392c780a37302c780a37312c780a37322c780a37332c780a37342c780a37352c780a37362c780a37372c780a37382c780a37392c780a38302c780a38312c780a38322c780a38332c780a38342c780a38352c780a38362c780a38372c780a38382c780a38392c780a39302c780a39312c780a39322c780a39332c780a39342c780a39352c780a39362c780a39372c780a39382c780a39392c780a3130302c780a3130312c780a3130322c780a3130332c780a3130342c780a3130352c780a3130362c780a3130372c780a3130382c780a3130392c780a3131302c780a3131312c780a3131322c780a3131332c780a3131342c780a3131352c780a3131362c780a3131372c780a3131382c780a3131392c780a3132302c780a3132312c780a3132322c780a3132332c780a3132342c780a3132352c780a3132362c780a3132372c780a3132382c780a3132392c780a3133302c780a3133312c780a3133322c780a3133332c780a3133342c780a3133352c780a3133362c780a3133372c780a3133382c780a3133392c780a3134302c780a3134312c780a3134322c780a3134332c780a3134342c780a3134352c780a3134362c780a3134372c780a3134382c780a3134392c780a392c792c7a0a",
+   "opts": {
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_trunc_header_short_first",
+   "hex": "612c620a310a322c792c7a0a",
+   "opts": {
+    "truncate_ragged_lines": true
+   }
+  },
+  {
+   "name": "f4_comment_blank_after",
+   "hex": "612c620a2320630a0a312c780a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_comment_multibyte",
+   "hex": "c2a720630a612c620a312c780a",
+   "opts": {
+    "comment_prefix": "§"
+   }
+  },
+  {
+   "name": "f4_comment_three",
+   "hex": "23232320630a612c620a312c780a",
+   "opts": {
+    "comment_prefix": "###"
+   }
+  },
+  {
+   "name": "f4_comment_hash_hash",
+   "hex": "232320630a612c620a23312c780a",
+   "opts": {
+    "comment_prefix": "##"
+   }
+  },
+  {
+   "name": "f4_comment_slash_eof",
+   "hex": "612c620a312c780a2f",
+   "opts": {
+    "comment_prefix": "//"
+   }
+  },
+  {
+   "name": "f4_comment_quote_prefix",
+   "hex": "612c620a22630a312c780a",
+   "opts": {
+    "comment_prefix": "\""
+   }
+  },
+  {
+   "name": "f4_comment_sep_prefix",
+   "hex": "612c620a2c630a312c780a",
+   "opts": {
+    "comment_prefix": ","
+   }
+  },
+  {
+   "name": "f4_comment_before_skip_lines",
+   "hex": "2320630a6a0a612c620a312c780a",
+   "opts": {
+    "comment_prefix": "#",
+    "skip_lines": 1
+   }
+  },
+  {
+   "name": "f4_comment_n_rows_inference",
+   "hex": "610a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a2320630a310a320a",
+   "opts": {
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_skip_rows_no_header_row_index",
+   "hex": "6a0a312c780a322c790a",
+   "opts": {
+    "skip_rows": 1,
+    "has_header": false,
+    "row_index_name": "i"
+   }
+  },
+  {
+   "name": "f4_srah_no_header_row_index",
+   "hex": "312c780a322c790a332c7a0a",
+   "opts": {
+    "skip_rows_after_header": 1,
+    "has_header": false,
+    "row_index_name": "i",
+    "row_index_offset": 10
+   }
+  },
+  {
+   "name": "f4_skip_lines_bom",
+   "hex": "efbbbf6a0a612c620a312c780a",
+   "opts": {
+    "skip_lines": 1
+   }
+  },
+  {
+   "name": "f4_skip_lines_quote_odd",
+   "hex": "6a220a612c620a312c780a",
+   "opts": {
+    "skip_lines": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_ragged_wide_quote",
+   "hex": "782c22610a62222c632c640a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_ragged_no_header_infer0",
+   "hex": "312c780a322c792c7a0a",
+   "opts": {
+    "has_header": false,
+    "infer_schema_length": 0
+   }
+  },
+  {
+   "name": "f4_ragged_no_header_infer1",
+   "hex": "312c780a322c792c7a0a",
+   "opts": {
+    "has_header": false,
+    "infer_schema_length": 1
+   }
+  },
+  {
+   "name": "f4_ragged_no_header_wide_first",
+   "hex": "312c782c710a322c790a",
+   "opts": {
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_ragged_no_header_skip_rows",
+   "hex": "6a0a312c780a322c792c7a0a",
+   "opts": {
+    "has_header": false,
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_ragged_no_header_blank",
+   "hex": "0a312c780a322c792c7a0a",
+   "opts": {
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_skip_rows_blank_no_header",
+   "hex": "0a0a6a0a312c780a322c790a",
+   "opts": {
+    "skip_rows": 1,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_skip_rows_then_blank_header",
+   "hex": "6a0a0a0a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1
+   }
+  },
+  {
+   "name": "f4_skip_rows_then_comment_header",
+   "hex": "6a0a2320630a0a2320640a612c620a312c780a",
+   "opts": {
+    "skip_rows": 1,
+    "comment_prefix": "#"
+   }
+  },
+  {
+   "name": "f4_skip_rows_then_blank_no_header",
+   "hex": "6a0a0a312c780a",
+   "opts": {
+    "skip_rows": 1,
+    "has_header": false
+   }
+  },
+  {
+   "name": "f4_srah_then_blank",
+   "hex": "612c620a312c780a0a322c790a",
+   "opts": {
+    "skip_rows_after_header": 1
+   }
   }
  ],
  "writes": [

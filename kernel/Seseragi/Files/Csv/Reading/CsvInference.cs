@@ -42,7 +42,13 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
         return _decoded.Span;
     }
 
-    private readonly Column[] _columns = [.. Enumerable.Range(0, columns).Select(_ => new Column())];
+    private readonly List<Column> _columns = [.. Enumerable.Range(0, columns).Select(_ => new Column())];
+
+    /// <summary>More columns from now on (a wider record without a header): the records before lack them.</summary>
+    public void Widen(int count)
+    {
+        while (_columns.Count < count) _columns.Add(new Column());
+    }
 
     private sealed class Column
     {
@@ -59,7 +65,7 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
     {
         Records++;
         Span<byte> stack = stackalloc byte[256];
-        for (int c = 0; c < fields.Count && c < _columns.Length; c++)
+        for (int c = 0; c < fields.Count && c < _columns.Count; c++)
         {
             CsvField field = fields[c];
             if (field.Bits <= 0) continue;
@@ -120,9 +126,9 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
     /// </summary>
     public (Field[] Fields, TemporalPattern?[] Groups) Finish(IReadOnlyList<string> names, bool viewTypes)
     {
-        var fields = new Field[_columns.Length];
-        var groups = new TemporalPattern?[_columns.Length];
-        for (int c = 0; c < _columns.Length; c++)
+        var fields = new Field[_columns.Count];
+        var groups = new TemporalPattern?[_columns.Count];
+        for (int c = 0; c < _columns.Count; c++)
         {
             Column column = _columns[c];
             TextKind kind = TextValues.Finish(column.Kinds) ?? TextKind.String;

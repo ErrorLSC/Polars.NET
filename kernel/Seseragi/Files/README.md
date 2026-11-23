@@ -608,9 +608,17 @@ header and decompressed on the way.
 
 * Records: `Separator`, `Quote` (or none), `LineEnd` (LF, CRLF or a CR alone by default, or one chosen byte); a quoted
   field doubles its quotes and may hold separators and line ends; a blank line is a row of nulls; a record with fewer
-  fields has nulls (`MissingIsNull`), one with more fields is an error. Blank lines before the header are passed over;
-  header names lose their quotes (doubled quotes undoubled), duplicates become `name_duplicated_0`, `_1` …; without a
-  header the columns are `column_1` ….
+  fields has nulls (`MissingIsNull`), one with more fields is an error unless `TruncateRaggedLines` drops the extra
+  fields (still tokenized: a malformed one fails). Blank lines before the header are passed over; header names lose their
+  quotes (doubled quotes undoubled), duplicates become `name_duplicated_0`, `_1` …; without a header the columns are
+  `column_1` …, as many as the widest of the first `InferSchemaLength` records (at least one).
+* Comments and skips, in file order: `SkipLines` raw lines (line ends counted as they are, quotes ignored, nothing in
+  them read; the input's units start after them), blank and comment lines, `SkipRows` records (found as the cut finds
+  them: every quote toggles, nothing in them read; blank lines count, comment lines do not), the header,
+  `SkipRowsAfterHeader` records (the same). `CommentPrefix` (any length) makes a record start beginning with it a
+  comment line, passed over before quotes or separators are looked at (invalid text in it is never seen); the units are
+  cut in order only up to the last line the prefix starts, side by side after it. Rows (errors, `RowIndexColumn`, `MaxRows`, the inference sample) count the data records after
+  the skips, comment lines left out; error lines count every line of the input.
 * Columns: inferred from the first `InferSchemaLength` records in file order, as Polars' CSV reader infers them
   (booleans, Int64 or Int128, Float64, dates, times, datetimes — nanoseconds when a value needs them, UTC with an
   offset —, else strings; Utf8View with `ViewTypes`), or given: `Schema` names the file's columns with a header (output
@@ -821,7 +829,8 @@ written synchronously on completion.
 | `IO/RowFilter.cs` | A file reader's row filter (lowered by the query compiler): the columns decoded (the selected ones and those it reads) and its program; evaluated on each decoded batch and compacted with `ArrowFilter` (JSON), or by a reader that decodes the columns it reads first (CSV). |
 | `Json/Writing/JsonCells.cs`, `JsonOut.cs`, `JsonSinks.cs` | A cell per Arrow type over pinned buffers (values, validity, offsets, views, children); the output span writer and JSON text of floats (Ryū digits laid out) and strings (escapes, UTF-8 checked); the outputs (stream, file, buffer writer, pipe, text, string) and pieces compressed as gzip members or Zstandard frames. |
 | `Csv/CsvReader.cs`, `CsvReadOptions.cs`, `CsvExceptions.cs` | Public CSV API: opening (compression by header, the record cut), the prelude (blank lines, the header, the columns and their formats from the first records in file order), the ordered window over units, temporal formats checked and units decoded again, failures placed at their row and line, `MaxRows`, row numbers; options and exceptions. |
-| `Csv/Reading/CsvTokenizer.cs`, `CsvDecode.cs` | The record grammar (fields by vectorized search, quoted fields, line ends, blank records, errors) one record at a time or into a column-major table of field positions per chunk; a unit decoded chunk by chunk, column by column, the first failure in record order (input errors, bytes that are not UTF-8, refused values); under a row filter in two phases (the columns it reads for every record, the delivered ones for the kept records from a compacted field table, temporal groups probed on every record). |
+| `Csv/Reading/CsvTokenizer.cs`, `CsvDecode.cs` | The record grammar (fields by vectorized search, quoted fields, line ends, blank records, comment lines, truncated extra fields, records skipped as the cut finds them, errors) one record at a time or into a column-major table of field positions per chunk; a unit decoded chunk by chunk, column by column, the first failure in record order (input errors, bytes that are not UTF-8, refused values); under a row filter in two phases (the columns it reads for every record, the delivered ones for the kept records from a compacted field table, temporal groups probed on every record). |
+| `IO/LineSkip.cs`, `IO/RandomAccessSlice.cs` | Raw lines passed over at the start of a text input (memory, ranged sources, streams; a CRLF split between chunks), and a source read from an offset (local sources stay local: memory sliced, mapping shifted). |
 | `Csv/Reading/CsvInput.cs`, `CsvCharset.cs` | Opening in an encoding: the mark found after decompression, the bytes path (units cut on the raw bytes) or the transcode path (a decoding stream, blocks side by side, or local text decoded whole into memory); how a unit's bytes become text (clean units as they are, fields decoded, a lossy twin for fields found invalid) and the strict check. |
 | `Csv/Reading/CsvColumns.cs`, `CsvInference.cs` | Decoders per Arrow type into native builders (numbers with decimal comma and thousands rewriting, decimals, temporal pattern groups, strings, categoricals, enums); the inference of the columns' types and temporal groups from records in file order. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
@@ -984,10 +993,12 @@ value against a logical type is allowed. General unions are not written against 
 * Row view: `tests/Sazanami.Tests/ArrowRowsTests.cs`, and over Avro batches `AvroRowViewTests.cs`.
 * Row predicates and filtering: `tests/Sazanami.Tests/FilterProgramTests.cs` (random programs on every column type and layout against a row-by-row model of the IR's semantics) and `ArrowFilterTests.cs` (against a model gather; shared memory and its lifetime).
 * CSV (`tests/Seseragi.Files.Tests/Csv`): the behaviour table (`TestData/csv/cases.json` read by Polars' native reader
-  into `native.txt`) case by case, with the decided deviations and errors named, also in units of a few bytes from
+  into `native.expected`) case by case, with the decided deviations and errors named, also in units of a few bytes from
   every kind of source; random files read in any unit size against the whole input (`CSV_UNITS_CASES`); options; row
   filters on random files and predicates against the unfiltered read filtered afterwards (`CsvFilterTests`,
-  `CSV_FILTER_CASES`), and the errors a filter does and does not raise.
+  `CSV_FILTER_CASES`), and the errors a filter does and does not raise; random files decorated with comment lines and
+  skipped lines and rows (junk that would fail if read) against the plain file, in any unit size (`CsvSkipTests`,
+  `CSV_SKIP_CASES`), and skips on every input path; `LineSkipTests` (raw lines in any chunks).
 * Arrow IPC (`tests/Seseragi.Files.Tests/Ipc`): every corpus file against pyarrow and Python Polars value by value
   and batch by batch (`IpcValueTests`, `TestData/ipc/values.json`), its structure against an independent FlatBuffer
   reading (`IpcStructureTests`, `messages.json`; the corpus and how it is written: `TestData/ipc/README.md`), every

@@ -185,8 +185,12 @@ public class CsvUnitInvarianceTests
 
     private enum Kind { Int, Float, Bool, DateYmd, DateDmy, Datetime, Time, Text, Empty }
 
-    /// <summary>A random file and the options to read it with.</summary>
-    internal static (byte[] Bytes, CsvReadOptions Options) Generate(Random random)
+    /// <summary>
+    /// A random file and the options to read it with. <paramref name="insert"/> (record index, -1 before the header;
+    /// the text so far; the line ends in use) may add text before each record: it must not draw on
+    /// <paramref name="random"/>, so the file without it is the same.
+    /// </summary>
+    internal static (byte[] Bytes, CsvReadOptions Options) Generate(Random random, Action<int, StringBuilder, string[]>? insert = null)
     {
         bool quoting = random.Next(5) != 0;
         bool customEnd = random.Next(5) == 0;
@@ -201,6 +205,7 @@ public class CsvUnitInvarianceTests
         var sb = new StringBuilder();
         bool header = random.Next(6) != 0;
         string End() => ends[random.Next(ends.Length)];
+        insert?.Invoke(-1, sb, ends);
         if (header) sb.Append(string.Join(separator, Enumerable.Range(0, columns).Select(c => $"c{c}"))).Append(End());
         // Given schemas: temporal columns stay null for a while, then mix formats (the first value decides).
         // Half of them past the rows the reader takes formats from at open (100), so units decide and are checked.
@@ -209,6 +214,7 @@ public class CsvUnitInvarianceTests
         int errorRow = random.Next(10) == 0 ? random.Next(Math.Max(1, rows)) : -1;
         for (int r = 0; r < rows; r++)
         {
+            insert?.Invoke(r, sb, ends);
             if (random.Next(40) == 0)
             {
                 sb.Append(End()); // a blank line: a null row
