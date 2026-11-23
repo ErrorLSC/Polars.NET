@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
@@ -271,6 +273,40 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
         return true;
     }
 
+    /// <summary>Whether fields are read as they are: clean text, no null values to compare, no number to rewrite.</summary>
+    protected bool Plain => Clean && !_nulls && !_rewrites;
+
+    /// <summary>
+    /// Decodes numbers of plain fields in one go: parsed into scratch with a validity byte each, then appended at once.
+    /// False, with nothing appended, when a field needs the value-by-value path (doubled quotes, a value refused, text
+    /// that is not plain): that path then decodes the rows again from the first.
+    /// </summary>
+    protected bool DecodePlain<T, TNumber>(NativeFixedWidthBuilder<T> builder, ReadOnlySpan<byte> unit, ReadOnlySpan<CsvField> fields, int count)
+        where T : unmanaged where TNumber : IPlainNumber<T>
+    {
+        if (!Plain) return false;
+        int width = Unsafe.SizeOf<T>();
+        Span<byte> scratch = Scratch(count * (width + 1));
+        Span<T> values = MemoryMarshal.Cast<byte, T>(scratch[..(count * width)]);
+        Span<byte> valid = scratch.Slice(count * width, count);
+        for (int r = 0; r < count; r++)
+        {
+            CsvField field = fields[r];
+            int bits = field.Bits, length = bits & CsvField.LengthMask;
+            if (bits <= 0 || length == 0)
+            {
+                values[r] = default;
+                valid[r] = 0;
+                continue;
+            }
+            if ((bits & CsvField.Escaped) != 0 || !TNumber.TryParse(TrimStart(unit.Slice(field.Start, length)), unit, out T value)) return false;
+            values[r] = value;
+            valid[r] = 1;
+        }
+        values.CopyTo(builder.AppendUninitializedSlots(Kaminari.Sazanami.Kernels.SlotMask.FromBytes(valid)));
+        return true;
+    }
+
     /// <summary>The decoder of a column of <paramref name="field"/>'s type.</summary>
     public static CsvColumn For(Field field, NativeColumnBuilder builder, CsvValueRules rules, TemporalPattern? group)
     {
@@ -351,9 +387,15 @@ internal sealed class IntegerColumn<T>(NativeColumnBuilder b, string name, CsvVa
     private readonly NativeFixedWidthBuilder<T> _b = (NativeFixedWidthBuilder<T>)b;
     private static readonly bool Signed = T.IsNegative(T.MinValue);
 
+    private readonly struct Plain64 : IPlainNumber<T>
+    {
+        public static bool TryParse(ReadOnlySpan<byte> text, ReadOnlySpan<byte> unit, out T value) => Parse(text, unit, out value);
+    }
+
     public override int Decode(ReadOnlySpan<byte> unit, ReadOnlySpan<CsvField> fields, int count, out CsvValueError? error)
     {
         error = null;
+        if (DecodePlain<T, Plain64>(_b, unit, fields, count)) return -1;
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
@@ -363,7 +405,7 @@ internal sealed class IntegerColumn<T>(NativeColumnBuilder b, string name, CsvVa
                 continue;
             }
             ReadOnlySpan<byte> trimmed = TrimStart(text);
-            if (Number(trimmed, stack, out ReadOnlySpan<byte> number) && Parse(number, out T value)) _b.Append(value);
+            if (Number(trimmed, stack, out ReadOnlySpan<byte> number) && Parse(number, unit, out T value)) _b.Append(value);
             else if (!Refuse(text, $"{{value}} is not {kind}{Why(number)}", out error)) return r;
         }
         return -1;
@@ -379,30 +421,51 @@ internal sealed class IntegerColumn<T>(NativeColumnBuilder b, string name, CsvVa
 
     private static readonly long Min = long.CreateSaturating(T.MinValue), Max = long.CreateSaturating(T.MaxValue);
 
+    /// <summary>
+    /// The integer <paramref name="text"/> holds. Up to 16 digits lying in <paramref name="unit"/> with 8 bytes readable
+    /// from the first are read 8 at a time (<see cref="AsciiDigits"/>); else one by one (up to 18 digits cannot overflow a long,
+    /// no check per digit), and beyond that with overflow checks.
+    /// </summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    private static bool Parse(ReadOnlySpan<byte> text, out T value)
+    private static bool Parse(ReadOnlySpan<byte> text, ReadOnlySpan<byte> unit, out T value)
     {
-        // Up to 18 digits cannot overflow a long: no check per digit.
         int i = text.Length > 0 && text[0] is (byte)'-' or (byte)'+' ? 1 : 0;
         int digits = text.Length - i;
-        if (digits is > 0 and <= 18)
+        long acc;
+        ref byte first = ref Unsafe.Add(ref MemoryMarshal.GetReference(text), i);
+        ref byte start = ref MemoryMarshal.GetReference(unit);
+        if (digits is > 0 and <= 16 && !Unsafe.IsAddressLessThan(ref first, ref start)
+            && !Unsafe.IsAddressGreaterThan(ref Unsafe.Add(ref first, 8), ref Unsafe.Add(ref start, unit.Length)))
         {
-            long acc = 0;
+            uint high = 0, low;
+            if (digits <= 8)
+            {
+                if (!AsciiDigits.TryUpToEight(ref first, digits, out low)) return Fail(out value);
+            }
+            else if (!AsciiDigits.TryUpToEight(ref first, digits - 8, out high)
+                || !AsciiDigits.TryUpToEight(ref Unsafe.Add(ref first, digits - 8), 8, out low)) return Fail(out value);
+            acc = (long)(high * 100_000_000UL + low);
+        }
+        else if (digits is > 0 and <= 18)
+        {
+            acc = 0;
             for (int k = i; k < text.Length; k++)
             {
                 uint d = text[k] - (uint)'0';
-                if (d > 9)
-                {
-                    value = default;
-                    return false;
-                }
+                if (d > 9) return Fail(out value);
                 acc = acc * 10 + d;
             }
-            if (i == 1 && text[0] == '-') acc = -acc;
-            value = T.CreateTruncating(acc);
-            return acc >= Min && acc <= Max && (Signed || i == 0 || text[0] != '-');
         }
-        return Wide(text, out value);
+        else return Wide(text, out value);
+        if (i == 1 && text[0] == '-') acc = -acc;
+        value = T.CreateTruncating(acc);
+        return acc >= Min && acc <= Max && (Signed || i == 0 || text[0] != '-');
+
+        static bool Fail(out T value)
+        {
+            value = default;
+            return false;
+        }
     }
 
     private static bool Wide(ReadOnlySpan<byte> text, out T value)
@@ -479,9 +542,15 @@ internal sealed class DoubleColumn(NativeColumnBuilder b, string name, CsvValueR
 {
     private readonly NativeFixedWidthBuilder<double> _b = (NativeFixedWidthBuilder<double>)b;
 
+    private readonly struct Doubles : IPlainNumber<double>
+    {
+        public static bool TryParse(ReadOnlySpan<byte> text, ReadOnlySpan<byte> unit, out double value) => FastDouble.TryParse(text, out value);
+    }
+
     public override int Decode(ReadOnlySpan<byte> unit, ReadOnlySpan<CsvField> fields, int count, out CsvValueError? error)
     {
         error = null;
+        if (DecodePlain<double, Doubles>(_b, unit, fields, count)) return -1;
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
@@ -502,9 +571,15 @@ internal sealed class FloatColumn(NativeColumnBuilder b, string name, CsvValueRu
 {
     private readonly NativeFixedWidthBuilder<float> _b = (NativeFixedWidthBuilder<float>)b;
 
+    private readonly struct Floats : IPlainNumber<float>
+    {
+        public static bool TryParse(ReadOnlySpan<byte> text, ReadOnlySpan<byte> unit, out float value) => FastDouble.TryParse(text, out value);
+    }
+
     public override int Decode(ReadOnlySpan<byte> unit, ReadOnlySpan<CsvField> fields, int count, out CsvValueError? error)
     {
         error = null;
+        if (DecodePlain<float, Floats>(_b, unit, fields, count)) return -1;
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
@@ -892,4 +967,10 @@ internal sealed class EnumColumn : CsvColumn
         _categories.Dispose();
         base.Dispose();
     }
+}
+
+/// <summary>A number parsed from a plain field's text, given the unit the text lies in (readable around it).</summary>
+internal interface IPlainNumber<T> where T : unmanaged
+{
+    static abstract bool TryParse(ReadOnlySpan<byte> text, ReadOnlySpan<byte> unit, out T value);
 }

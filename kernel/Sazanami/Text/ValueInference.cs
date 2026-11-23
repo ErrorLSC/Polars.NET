@@ -5,7 +5,7 @@ using System.Text;
 namespace Kaminari.Sazanami.Text;
 
 /// <summary>
-/// The kind of value a CSV field holds, inferred as Polars' CSV reader (0.55, <c>infer_field_schema</c>) infers it from
+/// The kind of value a CSV field holds, inferred as the reference CSV reader (0.55, <c>infer_field_schema</c>) infers it from
 /// the field's UTF-8 text: a text in double quotes is temporal or a string; else <c>(?i:true|false)</c> is a boolean,
 /// <c>[-+]?(\d*\.\d+([eE][-+]?\d+)?|inf|NaN|\d+[eE][-+]?\d+|\d+\.)</c> a float (',' for '.' under a decimal comma),
 /// <c>-?\d+</c> an Int64 when it parses as one, else an Int128 (whatever its size), then, when dates are parsed, a

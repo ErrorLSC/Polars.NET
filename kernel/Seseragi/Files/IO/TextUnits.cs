@@ -517,6 +517,13 @@ internal sealed class StreamInput(Stream stream, bool leaveOpen, int unitBytes, 
     /// The stream decompressed when it starts with a gzip, zlib or zstd header (dataframe engines read these too), else the
     /// stream as it is; <paramref name="head"/> holds its first bytes, already read from it.
     /// </summary>
+    /// <summary>Whether text starting with <paramref name="head"/> is compressed (gzip, zstd or zlib, as <see cref="Decompressed"/> finds it).</summary>
+    public static bool IsCompressed(ReadOnlySpan<byte> head)
+    {
+        Decompressed(Stream.Null, head, out bool compressed).Dispose();
+        return compressed;
+    }
+
     public static Stream Decompressed(Stream stream, ReadOnlySpan<byte> head, out bool compressed)
     {
         compressed = true;

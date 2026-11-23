@@ -1,4 +1,5 @@
 using System.Text;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.IO;
 
@@ -192,6 +193,44 @@ internal static class CsvInput
     }
 
     // Up to four first bytes.
+    /// <summary>The largest unit <see cref="UnitBytesAsync"/> picks.</summary>
+    internal const int MaxUnitBytes = 8 << 20;
+
+    /// <summary>
+    /// The unit size for text read in place: about 64 KiB of text per column, within <see cref="TextUnits.DefaultUnitBytes"/>
+    /// and <see cref="MaxUnitBytes"/> — a unit's batches have an array per column, whose fixed costs (building, export,
+    /// import, release) want that much text to stay small — and at most a quarter of a thread's share of the input, never
+    /// below the default (every thread gets several units). The columns are counted on the first line's raw bytes: an
+    /// estimate, which only sizes the units. Compressed input and a unit size other than the default (tests) keep theirs.
+    /// </summary>
+    internal static async ValueTask<int> UnitBytesAsync(IRandomAccess source, CsvReadOptions options, bool useAsync, CancellationToken ct)
+    {
+        const int Default = TextUnits.DefaultUnitBytes, PerColumn = 64 << 10;
+        if (options.UnitBytes != Default || source.Length <= Default) return options.UnitBytes;
+        int peek = (int)Math.Min(source.Length, 64 << 10);
+        var buffer = new NativeByteBuffer(peek, pooled: true);
+        try
+        {
+            int got = 0;
+            while (got < peek)
+            {
+                int n = useAsync ? await source.ReadAtAsync(got, buffer.Memory[got..peek], ct).ConfigureAwait(false) : source.ReadAt(got, buffer.Span[got..peek]);
+                if (n <= 0) break;
+                got += n;
+            }
+            ReadOnlySpan<byte> head = buffer.Span[..got];
+            if (StreamInput.IsCompressed(head)) return options.UnitBytes;
+            int end = options.LineEnd is { } e ? head.IndexOf((byte)e) : head.IndexOfAny((byte)'\n', (byte)'\r');
+            long columns = head[..(end < 0 ? got : end)].Count((byte)options.Separator) + 1;
+            long share = source.Length / (Math.Max(1L, options.MaxDegreeOfParallelism) * 4);
+            return (int)Math.Max(Default, Math.Min(Math.Clamp(columns * PerColumn, Default, MaxUnitBytes), share));
+        }
+        finally
+        {
+            buffer.Release();
+        }
+    }
+
     private static async ValueTask<byte[]> HeadAsync(Stream stream, bool useAsync, CancellationToken ct)
     {
         byte[] head = new byte[4];

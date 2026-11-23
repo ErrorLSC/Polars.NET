@@ -148,6 +148,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         CsvOpened opened;
         try
         {
+            // Units sized by the table's width (the window's budget follows them).
+            options = options with { UnitBytes = await CsvInput.UnitBytesAsync(source, options, useAsync, ct).ConfigureAwait(false) };
             opened = await CsvInput.OpenAsync(source, options, Cut(Validate(options)), mappable && options.MemoryMap == CsvMemoryMap.Auto, useAsync, ct)
                 .ConfigureAwait(false);
         }

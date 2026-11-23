@@ -50,6 +50,7 @@ internal sealed unsafe class NativeBatchExport
 
     private void Release()
     {
+        FreeScratch();
         if (_held is null) return;
         foreach (IDisposable array in _held) array.Dispose();
         _held = null;
@@ -87,27 +88,67 @@ internal sealed unsafe class NativeBatchExport
         return Own(p, bytes);
     }
 
-    /// <summary>Creates an array struct with the given buffers and children.</summary>
+    /// <summary>
+    /// Creates an array struct with the given buffers and children. The struct and its pointer lists only describe the
+    /// batch until it is imported: they live in scratch memory let go of then, not with the batch's buffers.
+    /// </summary>
     public NativeCArray* NewArray(long length, long nullCount, ReadOnlySpan<nint> buffers, ReadOnlySpan<nint> children,
         NativeCArray* dictionary = null)
     {
-        var array = (NativeCArray*)Allocate(sizeof(NativeCArray));
+        var array = (NativeCArray*)Scratch(sizeof(NativeCArray) + (buffers.Length + children.Length) * sizeof(nint));
+        *array = default;
         array->Length = length;
         array->NullCount = nullCount;
         array->BufferCount = buffers.Length;
         array->ChildCount = children.Length;
+        var lists = (nint*)(array + 1);
         if (!buffers.IsEmpty)
         {
-            array->Buffers = (byte**)Allocate(buffers.Length * sizeof(nint));
-            buffers.CopyTo(new Span<nint>(array->Buffers, buffers.Length));
+            array->Buffers = (byte**)lists;
+            buffers.CopyTo(new Span<nint>(lists, buffers.Length));
         }
         if (!children.IsEmpty)
         {
-            array->Children = (NativeCArray**)Allocate(children.Length * sizeof(nint));
-            children.CopyTo(new Span<nint>(array->Children, children.Length));
+            array->Children = (NativeCArray**)(lists + buffers.Length);
+            children.CopyTo(new Span<nint>(lists + buffers.Length, children.Length));
         }
         array->Dictionary = dictionary;
         return array;
+    }
+
+    // The scratch memory of the array structs: chunks taken in turn (each starting with the address of the one before),
+    // all let go of once the batch is imported or abandoned.
+    private byte* _scratch;
+    private int _scratchUsed, _scratchSize;
+
+    private const int ScratchChunkBytes = 16 << 10;
+
+    /// <summary><paramref name="bytes"/> (a multiple of 8) of scratch memory, until the batch is imported.</summary>
+    private byte* Scratch(int bytes)
+    {
+        if (_scratch == null || _scratchSize - _scratchUsed < bytes)
+        {
+            int size = Math.Max(ScratchChunkBytes, bytes + sizeof(nint));
+            byte* chunk = NativeMemoryPool.Alloc(size);
+            *(nint*)chunk = (nint)_scratch;
+            _scratch = chunk;
+            _scratchUsed = sizeof(nint);
+            _scratchSize = size;
+        }
+        byte* p = _scratch + _scratchUsed;
+        _scratchUsed += bytes;
+        return p;
+    }
+
+    private void FreeScratch()
+    {
+        while (_scratch != null)
+        {
+            byte* before = (byte*)*(nint*)_scratch;
+            NativeMemoryPool.Free(_scratch);
+            _scratch = before;
+        }
+        _scratchUsed = _scratchSize = 0;
     }
 
     /// <summary>
@@ -314,6 +355,9 @@ internal sealed unsafe class NativeBufferMemory : MemoryManager<byte>
 
     /// <summary>The memory of the batch this buffer belongs to.</summary>
     internal NativeMemoryOwner Owner => _owner;
+
+    /// <summary>Where the buffer's memory starts.</summary>
+    internal byte* Pointer => _pointer;
 
     public override Span<byte> GetSpan() => new(_pointer, _length);
 

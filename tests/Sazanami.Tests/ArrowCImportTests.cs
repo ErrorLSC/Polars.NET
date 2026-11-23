@@ -438,6 +438,39 @@ public unsafe class ArrowCImportTests
     }
 
     [Fact]
+    public void ABatchOverTwoMemories_KeepsBoth_UntilReleased()
+    {
+        // Columns built apart: each over a batch memory of its own.
+        static IArrowArray Built(params int[] values)
+        {
+            using var builder = new Kaminari.Sazanami.Arrow.Builders.NativeFixedWidthBuilder<int>(Int32Type.Default);
+            foreach (int v in values) builder.Append(v);
+            return builder.ExportArray();
+        }
+        static NativeMemoryOwner OwnerOf(IArrowArray array) =>
+            MemoryMarshal.TryGetMemoryManager(array.Data.Buffers[1].Memory, out NativeBufferMemory? memory) ? memory.Owner : throw new InvalidOperationException();
+        IArrowArray a = Built(1, 2, 3), b = Built(4, 5, 6);
+        NativeMemoryOwner first = OwnerOf(a), second = OwnerOf(b);
+        Assert.NotSame(first, second);
+        var schema = new Schema([new Field("a", Int32Type.Default, true), new Field("b", Int32Type.Default, true)], null);
+        var exported = (NativeCArray*)NativeMemory.AllocZeroed((nuint)sizeof(NativeCArray));
+        try
+        {
+            using (var batch = new RecordBatch(schema, [a, b], 3)) ArrowCExport.ExportRecordBatch(batch, (CArrowArray*)exported);
+            Assert.False(first.IsFreed);
+            Assert.False(second.IsFreed);
+            Assert.Equal(6, ((int*)exported->Children[1]->Buffers[1])[2]);
+            exported->Release(exported);
+            Assert.True(first.IsFreed);
+            Assert.True(second.IsFreed);
+        }
+        finally
+        {
+            NativeMemory.Free(exported);
+        }
+    }
+
+    [Fact]
     public void Views_GoOutWithTheirBufferSizes_AndNullArraysRelease()
     {
         using IArrowArray views = Views(70);

@@ -15,7 +15,7 @@ namespace Kaminari.Sazanami.Text;
 /// A float is rounded once, from the decimal, never through a double.
 /// </summary>
 /// <remarks>
-/// The grammar is fast-float's (what Polars reads into float columns): <c>[+-]?(digits(.digits?)?|.digits)([eE][+-]?digits)?</c>
+/// The grammar is fast-float's (what the reference CSV reader reads into float columns): <c>[+-]?(digits(.digits?)?|.digits)([eE][+-]?digits)?</c>
 /// or <c>[+-]?(inf|infinity|nan)</c> ignoring case, the whole text, no whitespace. Out of range values become ±infinity
 /// or ±0; "nan" is the positive quiet NaN, "-nan" the same with the sign bit set. JSON's number grammar is a subset.
 /// </remarks>
@@ -205,7 +205,7 @@ internal static class FastDouble
             ulong others = ((v + 0x4646_4646_4646_4646) | (v - 0x3030_3030_3030_3030)) & 0x8080_8080_8080_8080;
             if (others == 0)
             {
-                mantissa = mantissa * 100_000_000 + EightDigits(v);
+                mantissa = mantissa * 100_000_000 + AsciiDigits.Eight(v);
                 i += 8;
                 continue;
             }
@@ -213,23 +213,13 @@ internal static class FastDouble
             if (run != 0)
             {
                 // The run moved to the end of the word, '0's before it.
-                mantissa = mantissa * SmallPowers[run] + EightDigits(v << (64 - 8 * run) | 0x3030_3030_3030_3030UL >> (8 * run));
+                mantissa = mantissa * SmallPowers[run] + AsciiDigits.Eight(v << (64 - 8 * run) | 0x3030_3030_3030_3030UL >> (8 * run));
                 i += run;
             }
             return;
         }
         uint digit;
         for (; i < length && (digit = (uint)(Unsafe.Add(ref at, i) - '0')) <= 9; i++) mantissa = mantissa * 10 + digit;
-    }
-
-    /// <summary>The value of eight ASCII digits, the first in the lowest byte.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static uint EightDigits(ulong v)
-    {
-        v -= 0x3030_3030_3030_3030;
-        v = v * 10 + (v >> 8);
-        return (uint)(((v & 0x0000_00FF_0000_00FF) * (100 + (1_000_000UL << 32))
-            + ((v >> 16) & 0x0000_00FF_0000_00FF) * (1 + (10_000UL << 32))) >> 32);
     }
 
     private static ReadOnlySpan<ulong> SmallPowers => [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000];

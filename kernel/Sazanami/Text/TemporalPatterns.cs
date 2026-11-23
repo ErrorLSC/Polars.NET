@@ -65,7 +65,7 @@ internal struct TemporalColumn
 }
 
 /// <summary>
-/// Temporal text read as Polars' CSV reader (0.55) reads it: its pattern lists (polars-time patterns.rs) run through an
+/// Temporal text read as the reference CSV reader (0.55) reads it: its pattern lists (its time crate's patterns.rs) run through an
 /// interpreter of the chrono 0.4 rules they rely on — numbers skip leading (Unicode) whitespace and take 1 to 2 digits
 /// (years 1 to 4, or any count after a sign), a space in a pattern matches any whitespace or none, <c>%.f</c> takes '.'
 /// and 1 to 9 digits (more are skipped), offsets are Z or ±hh[[:]mm], second 60 is a leap second (+1 s), dates are
@@ -549,7 +549,7 @@ internal static class TemporalPatterns
         return era * 146_097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719_468;
     }
 
-    // The regex gate (polars-time infer.rs DATETIME_DMY_RE / _YMD_RE / _YMDZ_RE, quotes left out: chrono refuses them
+    // The regex gate (the time crate's infer.rs DATETIME_DMY_RE / _YMD_RE / _YMDZ_RE, quotes left out: chrono refuses them
     // anyway), run as a backtracking program in the regex engine's priority order, since the month the first match
     // captures must be 1 to 12.
     private static readonly Inst[] DmyGate = Assemble(static a =>

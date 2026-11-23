@@ -1,5 +1,8 @@
 using System.Buffers;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Kaminari.Seseragi.Files.Csv.Reading;
 
@@ -273,7 +276,9 @@ internal sealed class CsvTokenizer
     {
         error = FieldEnd.Record;
         failedColumn = -1;
-        int r = 0;
+        // Well-formed records by masks; the rest (the input's last bytes, a record that fails, comments, truncation) one
+        // field at a time, from the record the masks stopped at.
+        int r = _comment is null && !_truncate && Vector128.IsHardwareAccelerated ? Masked(b, ref pos, columns, slots, table, starts, capacity) : 0;
         for (; r < capacity && pos < b.Length; r++)
         {
             if (_comment is not null)
@@ -350,6 +355,135 @@ internal sealed class CsvTokenizer
                 if (slots[column] >= 0) table[slots[column] * capacity + r] = new CsvField { Start = pos, Bits = CsvField.Missing };
         }
         return r;
+    }
+
+    /// <summary>
+    /// <see cref="Records"/> for well-formed records while at least 64 bytes are left: the bytes that end fields (the
+    /// separator, the quote, the line end bytes) found 64 at a time as a bit mask, a field per set bit; quoted fields read
+    /// by <see cref="Quoted"/>. Stops at the start of a record it does not read whole and well-formed (a failure, more
+    /// fields than columns, the input's end within reach), which the field-at-a-time loop then reads: the same records,
+    /// errors and positions. No comment prefix, no truncation.
+    /// </summary>
+    private int Masked(ReadOnlySpan<byte> b, ref int pos, int columns, ReadOnlySpan<int> slots, Span<CsvField> table, Span<int> starts, int capacity)
+    {
+        int limit = b.Length - 64; // the last window start
+        int p = pos;
+        if (p > limit) return 0;
+        ref byte b0 = ref MemoryMarshal.GetReference(b);
+        byte separator = _separator, quote = _quoting ? _quote : _separator;
+        bool customEnd = _lineEnd >= 0;
+        byte lf = customEnd ? (byte)_lineEnd : (byte)'\n', cr = customEnd ? (byte)_lineEnd : (byte)'\r';
+        var needles = new Needles(separator, quote, lf, cr);
+        int window = p;
+        ulong mask = needles.Mask(ref Unsafe.Add(ref b0, window));
+        int r = 0;
+        while (r < capacity)
+        {
+            int recordStart = p, column = 0;
+            while (true)
+            {
+                // The next byte ending a field at or after p.
+                int end;
+                while (true)
+                {
+                    // The window may start past p (the bytes between hold no needle).
+                    int offset = p - window;
+                    ulong rest = offset <= 0 ? mask : offset < 64 ? mask & (ulong.MaxValue << offset) : 0;
+                    if (rest != 0)
+                    {
+                        end = window + BitOperations.TrailingZeroCount(rest);
+                        break;
+                    }
+                    int next = Math.Max(p, window + 64);
+                    if (next > limit) goto Stop;
+                    window = next;
+                    mask = needles.Mask(ref Unsafe.Add(ref b0, window));
+                }
+                byte d = Unsafe.Add(ref b0, end);
+                if (d == separator)
+                {
+                    if (column >= columns || end - p > CsvField.MaxLength) goto Stop;
+                    int slot = slots[column];
+                    if (slot >= 0) Put(table, slot * capacity + r, p, end - p);
+                    column++;
+                    p = end + 1;
+                    continue;
+                }
+                if (_quoting && d == quote)
+                {
+                    // A quoted field (a quote anywhere else in a field fails the record).
+                    if (end != p || column >= columns) goto Stop;
+                    FieldEnd ended = Quoted(b, ref p, out CsvField field);
+                    if (ended == FieldEnd.Separator && p < b.Length)
+                    {
+                        int slot = slots[column];
+                        if (slot >= 0) table[slot * capacity + r] = field;
+                        column++;
+                        continue;
+                    }
+                    if (ended != FieldEnd.Record) goto Stop;
+                    int last = slots[column];
+                    if (last >= 0) table[last * capacity + r] = field;
+                    column++;
+                }
+                else if (end == recordStart)
+                {
+                    // A blank line: a null row.
+                    for (int c = 0; c < columns; c++)
+                        if (slots[c] >= 0) Put(table, slots[c] * capacity + r, p, CsvField.Blank);
+                    p = SkipLineEnd(b, end);
+                    starts[r++] = recordStart;
+                    break;
+                }
+                else
+                {
+                    // A line end: the record's last field.
+                    if (column >= columns || end - p > CsvField.MaxLength) goto Stop;
+                    int slot = slots[column];
+                    if (slot >= 0) Put(table, slot * capacity + r, p, end - p);
+                    column++;
+                    p = SkipLineEnd(b, end);
+                }
+                for (; column < columns; column++)
+                    if (slots[column] >= 0) Put(table, slots[column] * capacity + r, p, CsvField.Missing);
+                starts[r++] = recordStart;
+                break;
+            }
+            continue;
+        Stop:
+            p = recordStart;
+            break;
+        }
+        pos = p;
+        return r;
+    }
+
+    /// <summary>
+    /// Writes a field into the table member by member: a field built on the stack and copied whole is two narrow stores
+    /// read back as one wide load, which the processor cannot forward (a stall per field).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void Put(Span<CsvField> table, int index, int start, int bits)
+    {
+        ref CsvField slot = ref table[index];
+        slot.Start = start;
+        slot.Bits = bits;
+    }
+
+    /// <summary>The four bytes that end fields (a byte repeated when there are fewer), compared 64 bytes at a time.</summary>
+    private readonly struct Needles(byte a, byte b, byte c, byte d)
+    {
+        private readonly Vector128<byte> _a = Vector128.Create(a), _b = Vector128.Create(b), _c = Vector128.Create(c), _d = Vector128.Create(d);
+
+        /// <summary>Bit i set where byte i of the 64 at <paramref name="at"/> is one of the needles.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ulong Mask(ref byte at) =>
+            Bits(Vector128.LoadUnsafe(ref at)) | (Bits(Vector128.LoadUnsafe(ref at, 16)) << 16)
+            | (Bits(Vector128.LoadUnsafe(ref at, 32)) << 32) | (Bits(Vector128.LoadUnsafe(ref at, 48)) << 48);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private ulong Bits(Vector128<byte> v) =>
+            (Vector128.Equals(v, _a) | Vector128.Equals(v, _b) | Vector128.Equals(v, _c) | Vector128.Equals(v, _d)).ExtractMostSignificantBits();
     }
 
     /// <summary>The unescaped text of a quoted field with doubled quotes, written to <paramref name="destination"/> (as long as the field at least).</summary>
