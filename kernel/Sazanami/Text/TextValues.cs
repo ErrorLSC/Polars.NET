@@ -15,6 +15,8 @@ internal enum TextKind
     Datetime,
     /// <summary>A date and time with an offset or 'Z' (read as UTC).</summary>
     DatetimeUtc,
+    /// <summary>A time of day (CSV only: Hive partition values never infer it).</summary>
+    Time,
     String,
 }
 
