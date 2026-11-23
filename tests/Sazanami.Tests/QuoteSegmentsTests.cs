@@ -111,6 +111,49 @@ public class QuoteSegmentsTests
     }
 
     [Fact]
+    public unsafe void LazyCut_EverySegmentSize_EqualsTheCut()
+    {
+        var r = new Random(7);
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = 4 };
+        for (int i = 0; i < Cases; i++)
+        {
+            RecordRules rules = RandomRules(r, false);
+            byte[] d = RandomCsv(r, rules);
+            fixed (byte* p = d)
+                foreach (int segment in (int[])[1, 2, 3, 5, 8, 13, 64, r.Next(1, 200)])
+                {
+                    long[] expected = QuoteSegments.Cut(p, d.Length, 0, false, segment, rules, parallel);
+                    var cut = new LazyCut(p, d.Length, 0, segment, rules);
+                    Assert.Equal(expected.Length - 1, cut.Count);
+                    // Asked for in a random order, from several threads at once (each start found once, whoever asks).
+                    int[] order = [.. Enumerable.Range(0, expected.Length).OrderBy(_ => r.Next())];
+                    var actual = new long[expected.Length];
+                    Parallel.ForEach(order, parallel, u => actual[u] = cut.Start(u));
+                    Assert.True(expected.AsSpan().SequenceEqual(actual), $"segment {segment}: {string.Join(",", actual)} vs {string.Join(",", expected)} in {Show(d)} ({rules})");
+                }
+        }
+    }
+
+    [Fact]
+    public unsafe void LazyCut_FromAnOffset_AndOneUnit()
+    {
+        byte[] d = "x,\"a\nb\"\ny,z\n\"q\nq\",1\n"u8.ToArray();
+        var rules = RecordRules.Default;
+        fixed (byte* p = d)
+        {
+            var parallel = new ParallelOptions { MaxDegreeOfParallelism = 2 };
+            foreach (int segment in (int[])[1, 4, 100])
+            {
+                long[] expected = QuoteSegments.Cut(p, d.Length, 2, false, segment, rules, parallel);
+                var cut = new LazyCut(p, d.Length, 2, segment, rules);
+                Assert.Equal(expected, Enumerable.Range(0, cut.Count + 1).Select(cut.Start));
+            }
+            byte* at = p;
+            Assert.Throws<ArgumentException>(() => new LazyCut(at, d.Length, 0, 4, rules with { CommentPrefix = "#"u8.ToArray() }));
+        }
+    }
+
+    [Fact]
     public void FirstRecordStart_BothStates()
     {
         byte[] d = "a\"b\nc\nd"u8.ToArray();

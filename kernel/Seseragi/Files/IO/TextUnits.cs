@@ -80,14 +80,24 @@ internal abstract class TextUnits : IDisposable
         return (TextUnits?)Planned(source, map, unitBytes, cut, threads) ?? new StreamInput(data, leaveOpen: false, unitBytes, cut);
     }
 
-    // In place (memory, or a mapped local file): starts planned side by side (in order only up to the last comment line); else null.
+    // In place (memory, or a mapped local file): starts found as units are asked for (in order up to the last comment
+    // line, planned side by side at once); else null.
     private static unsafe PlannedInput? Planned(IRandomAccess source, bool map, int unitBytes, RecordCut cut, int threads)
     {
         if (source is not ILocalSource local) return null;
         if (local.TryGetMemory(out ReadOnlyMemory<byte> memory))
         {
-            using System.Buffers.MemoryHandle pin = memory.Pin();
-            return new PlannedInput(memory, null, Plan((byte*)pin.Pointer, memory.Length), cut, null, null);
+            // Pinned while the input lives: the lazy cut reads it as units are asked for.
+            System.Buffers.MemoryHandle pin = memory.Pin();
+            try
+            {
+                return new PlannedInput(memory, null, Plan((byte*)pin.Pointer, memory.Length), cut, new Unpin(pin), null);
+            }
+            catch
+            {
+                pin.Dispose();
+                throw;
+            }
         }
         if (map && local.Map(out long start) is { } mapped && mapped.TryAcquire())
         {
@@ -96,10 +106,41 @@ internal abstract class TextUnits : IDisposable
         }
         return null;
 
-        long[] Plan(byte* data, long length) => cut.Rules.CommentPrefix is null
-            ? QuoteSegments.Cut(data, length, 0, false, unitBytes, cut.Rules, new ParallelOptions { MaxDegreeOfParallelism = threads })
-            : QuoteSegments.CommentCut(data, length, 0, unitBytes, unitBytes, cut.Rules, new ParallelOptions { MaxDegreeOfParallelism = threads });
+        UnitStarts Plan(byte* data, long length) => cut.Rules.CommentPrefix is null
+            ? new LazyStarts(new LazyCut(data, length, 0, unitBytes, cut.Rules))
+            : new PlannedStarts(QuoteSegments.CommentCut(data, length, 0, unitBytes, unitBytes, cut.Rules, new ParallelOptions { MaxDegreeOfParallelism = threads }));
     }
+
+    private sealed class Unpin(System.Buffers.MemoryHandle pin) : IDisposable
+    {
+        public void Dispose() => pin.Dispose();
+    }
+}
+
+/// <summary>Where the units of an input read in place start: unit i is [Start(i), Start(i + 1)).</summary>
+internal abstract class UnitStarts
+{
+    /// <summary>The number of units.</summary>
+    public abstract int Count { get; }
+
+    /// <summary>Unit <paramref name="unit"/>'s start (<see cref="Count"/>: the input's end).</summary>
+    public abstract long Start(int unit);
+}
+
+/// <summary>Starts planned beforehand.</summary>
+internal sealed class PlannedStarts(long[] starts) : UnitStarts
+{
+    public override int Count => starts.Length - 1;
+
+    public override long Start(int unit) => starts[unit];
+}
+
+/// <summary>Starts found as they are asked for (<see cref="LazyCut"/>).</summary>
+internal sealed class LazyStarts(LazyCut cut) : UnitStarts
+{
+    public override int Count => cut.Count;
+
+    public override long Start(int unit) => cut.Start(unit);
 }
 
 /// <summary>Where a format's units may end, and its input errors.</summary>
@@ -345,23 +386,23 @@ internal sealed class BlockInput : TextUnits
 }
 
 /// <summary>
-/// Bytes in place (memory, or a mapped file) cut at starts planned beforehand (CSV with quotes: QuoteSegments.Cut, or its
-/// in-order cut with comment lines): unit i is [starts[i], starts[i + 1]); empty units are allowed.
+/// Bytes in place (memory, or a mapped file) cut at record starts (CSV with quotes: found as units are asked for by
+/// LazyCut, or planned by the in-order cut with comment lines): unit i is [Start(i), Start(i + 1)); empty units are allowed.
 /// </summary>
-internal sealed unsafe class PlannedInput(ReadOnlyMemory<byte>? memory, byte* mapped, long[] starts, UnitCut cut, IDisposable? owned, MappedFile? map)
+internal sealed unsafe class PlannedInput(ReadOnlyMemory<byte>? memory, byte* mapped, UnitStarts starts, UnitCut cut, IDisposable? owned, MappedFile? map)
     : TextUnits
 {
-    public override int Count => starts.Length - 1;
+    public override int Count => starts.Count;
 
     public override bool ReadOnce => false;
 
     public override ValueTask<TextUnitBytes?> GetAsync(int index, bool useAsync, CancellationToken cancellationToken)
     {
         if (index >= Count) return ValueTask.FromResult<TextUnitBytes?>(null);
-        long start = starts[index], stop = starts[index + 1];
+        long start = starts.Start(index), stop = starts.Start(index + 1);
         if (stop - start > int.MaxValue) throw cut.TooLong(start);
         ReadOnlyMemory<byte> slice = memory is { } m ? m[(int)start..(int)stop] : PointerMemory.Of(mapped + start, (int)(stop - start));
-        return ValueTask.FromResult<TextUnitBytes?>(new TextUnitBytes(slice, start == 0, null, stop == starts[^1]));
+        return ValueTask.FromResult<TextUnitBytes?>(new TextUnitBytes(slice, start == 0, null, stop == starts.Start(Count)));
     }
 
     public override void Dispose()

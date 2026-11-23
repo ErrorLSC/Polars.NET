@@ -338,3 +338,119 @@ internal static class QuoteSegments
         return true;
     }
 }
+
+/// <summary>
+/// <see cref="QuoteSegments.Cut(byte*, long, long, bool, int, RecordRules, ParallelOptions)"/> found on demand: the
+/// same unit starts (units of the same segments, a segment without a record start taking the next one's), each found
+/// when it is asked for, so that the pass over the input runs while units are decoded instead of before. The unit
+/// count is known at once (one unit per segment). A segment's quote parity is counted once, by the first caller that
+/// needs it (a caller counts its own segments first, then any earlier one nobody has taken, then waits for those
+/// being counted); the state at a segment follows by prefix XOR. Thread-safe. No comment prefix.
+/// </summary>
+/// <remarks>The caller keeps <paramref name="data"/> readable while starts are asked for.</remarks>
+internal sealed unsafe class LazyCut
+{
+    private const int Unknown = 0, Even = 1, Odd = 2, Counting = 3;
+    private const long NotFound = -1, NotLooked = -2;
+
+    private readonly byte* _data;
+    private readonly long _length, _first;
+    private readonly int _segment;
+    private readonly RecordRules _rules;
+    private readonly int[] _parity;    // per segment: Unknown, Even, Odd or Counting
+    private readonly bool[] _inside;   // per segment: inside quotes at its start (known below _known)
+    private readonly long[] _found;    // per segment: its first record start, NotFound, or NotLooked
+    private int _known = 1;            // segments whose state at their start is known
+    private readonly object _lock = new();
+
+    /// <param name="data">The input.</param>
+    /// <param name="length">Its length.</param>
+    /// <param name="first">The first unit's start (a record start outside quotes).</param>
+    /// <param name="segment">The segment size (about a unit).</param>
+    /// <param name="rules">The record rules (no comment prefix).</param>
+    public LazyCut(byte* data, long length, long first, int segment, RecordRules rules)
+    {
+        if (rules.CommentPrefix is not null) throw new ArgumentException("A comment prefix needs the in-order cut.", nameof(rules));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(segment);
+        _data = data;
+        _length = length;
+        _first = first;
+        _segment = segment;
+        _rules = rules;
+        Count = (int)Math.Max(1, (length - first + segment - 1) / segment);
+        _parity = new int[Count];
+        _inside = new bool[Count];
+        _found = new long[Count];
+        Array.Fill(_found, NotLooked);
+    }
+
+    /// <summary>The number of units (some may be empty).</summary>
+    public int Count { get; }
+
+    /// <summary>Unit <paramref name="unit"/>'s start (0 … <see cref="Count"/>: the first, … , the length).</summary>
+    public long Start(int unit)
+    {
+        if (unit <= 0) return _first;
+        for (int s = unit; s < Count; s++)
+        {
+            long found = Found(s);
+            if (found >= 0) return found;
+        }
+        return _length;
+    }
+
+    // Segment s's first record start (absolute), or NotFound.
+    private long Found(int s)
+    {
+        long found = Volatile.Read(ref _found[s]);
+        if (found != NotLooked) return found;
+        ReadOnlySpan<byte> span = Segment(s, out int size);
+        int relative = QuoteSegments.FirstRecordStart(span, 0, size, Inside(s), _rules);
+        found = relative < 0 ? NotFound : _first + (long)s * _segment + relative;
+        Volatile.Write(ref _found[s], found);
+        return found;
+    }
+
+    // Whether segment s starts inside quotes.
+    private bool Inside(int s)
+    {
+        if (_rules.Quote is null) return false;
+        if (s < Volatile.Read(ref _known)) return _inside[s];
+        // The parities of the segments before s: this caller's own first (the segment just before), then any nobody
+        // has taken (downwards), then the ones others are counting.
+        for (int k = s - 1; k >= 0 && k >= Volatile.Read(ref _known) - 1; k--) CountQuotes(k);
+        for (int k = s - 1; k >= 0; k--)
+        {
+            var wait = new SpinWait();
+            while (Volatile.Read(ref _parity[k]) is Unknown or Counting)
+            {
+                if (Volatile.Read(ref _parity[k]) == Unknown) CountQuotes(k);
+                else wait.SpinOnce(sleep1Threshold: -1); // a segment counts in microseconds: never sleep a millisecond
+            }
+            if (k < Volatile.Read(ref _known)) break;
+        }
+        lock (_lock)
+        {
+            int known = _known;
+            for (; known <= s; known++) _inside[known] = _inside[known - 1] ^ (_parity[known - 1] == Odd);
+            Volatile.Write(ref _known, Math.Max(_known, known));
+            return _inside[s];
+        }
+    }
+
+    // Counts segment k's quotes unless someone took it.
+    private void CountQuotes(int k)
+    {
+        if (Interlocked.CompareExchange(ref _parity[k], Counting, Unknown) != Unknown) return;
+        ReadOnlySpan<byte> span = Segment(k, out int size);
+        Volatile.Write(ref _parity[k], (span[..size].Count(_rules.Quote!.Value) & 1) == 1 ? Odd : Even);
+    }
+
+    // A segment and one byte past it (a CRLF across the boundary).
+    private ReadOnlySpan<byte> Segment(int s, out int size)
+    {
+        long from = _first + (long)s * _segment, to = Math.Min(_length, from + _segment);
+        size = (int)(to - from);
+        return new ReadOnlySpan<byte>(_data + from, size + (to < _length ? 1 : 0));
+    }
+}
