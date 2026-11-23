@@ -34,3 +34,25 @@ This is the project's highest rule. It applies to new code, to code you touch, a
 
 - Build schemas and frames from records: `PolarsSchema.From<Row>()`, `DataFrame.From<Row>([new(...), new(...)])`, never chains of `.Add(...)`. Declare the records at the end of the sample, after the top-level statements, so it compiles as a `Program.cs`.
 - Anonymous types (`DataFrame.FromColumns(new { ... })`) cannot take collection expressions in their members; they may stay where they already are, but new samples use records.
+
+## 2. Running tests: limit time, memory and CPU
+
+A runaway run (a hang, a mutation that loops forever, a diff that eats all memory) must never take the machine or the session down.
+
+- Every test run gets all three limits: time, memory and CPU.
+- Performance runs (benchmarks, timing harnesses, big-corpus diffs) get at least time and memory; a CPU limit would distort the numbers, so leave it off when the measurement needs the whole machine and say so.
+- Mutation checks always get all three, per mutation: a mutant that hangs is reported as killed, not waited for.
+
+How (Linux, user systemd; the `cpu` and `memory` controllers are delegated to user scopes):
+
+```bash
+# time: `timeout` on the whole command, plus xunit's hang timeout so a stuck test host is killed and reported
+# memory: MemoryMax; CPU: CPUQuota in percent of one core (800% = 8 threads), about half the machine's threads
+systemd-run --user --scope -q -p MemoryMax=8G -p CPUQuota=800% \
+  timeout 30m dotnet test <project> -c Release --filter <filter> --blame-hang-timeout 5m
+
+# performance run: time and memory, the whole CPU
+systemd-run --user --scope -q -p MemoryMax=8G timeout 30m dotnet <tool.dll> <args>
+```
+
+Pick the limits for the job (a big diff may need more memory, a full suite more time), but never run without them.

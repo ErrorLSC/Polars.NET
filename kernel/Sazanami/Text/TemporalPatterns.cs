@@ -578,6 +578,9 @@ internal static class TemporalPatterns
             TemporalPattern.DateYmd or TemporalPattern.DatetimeYmd => YmdGate,
             _ => YmdZGate,
         };
+        // No text past 35 bytes (yyyy-MM-ddTHH:mm:ss.fffffffff+hh:mm) passes both the gate and a pattern, and the
+        // program recurses once per repeated digit: a long field must not reach it.
+        if (text.Length > 64) return false;
         int monthStart = -1, monthEnd = -1;
         if (!Run(program, 0, text, 0, ref monthStart, ref monthEnd)) return false;
         int month = 0;

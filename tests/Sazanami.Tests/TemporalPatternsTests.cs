@@ -198,6 +198,20 @@ public class TemporalPatternsTests
     public void RefusesDatetimes(string text, string group) =>
         Assert.Equal(TemporalOutcome.Invalid, TemporalPatterns.ParseDatetime(U(text), Enum.Parse<TemporalPattern>(group), TimeUnit.Microsecond, out _));
 
+    /// <summary>A huge field is refused, never deep in the regex gate (it recurses per repeated digit).</summary>
+    [Fact]
+    public void LongFields_AreRefused()
+    {
+        byte[] digits = [.. Enumerable.Repeat((byte)'1', 200_000)];
+        foreach (TemporalPattern group in (TemporalPattern[])[TemporalPattern.DatetimeDmy, TemporalPattern.DatetimeYmd, TemporalPattern.DatetimeYmdZ])
+            Assert.Equal(TemporalOutcome.Invalid, TemporalPatterns.ParseDatetime(digits, group, TimeUnit.Microsecond, out _));
+        Assert.Equal(TemporalOutcome.Invalid, TemporalPatterns.ParseDate(digits, TemporalPattern.DateYmd, out _));
+        Assert.Equal(TextKind.Int128, ValueInference.Infer(digits, true, false, out _));
+        Assert.Equal(TextKind.String, ValueInference.Infer([.. digits, (byte)'-', (byte)'1'], true, false, out _));
+        Assert.Equal(TemporalOutcome.Parsed, TemporalPatterns.ParseDatetime(U("2021-01-15T10:00:00.123456789+01:00"), TemporalPattern.DatetimeYmdZ, TimeUnit.Nanosecond, out _));
+        Assert.Equal(TemporalOutcome.Parsed, TemporalPatterns.ParseDatetime(U("2021-01-15 10:00:00.123456789+01:00"), TemporalPattern.DatetimeYmdZ, TimeUnit.Nanosecond, out _));
+    }
+
     [Fact]
     public void FinerThanTheUnit_OrOutOfRange()
     {
