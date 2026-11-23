@@ -379,6 +379,13 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
                 JsonUnit unit = window.Take(i).GetAwaiter().GetResult();
                 try
                 {
+                    // A failure past the rows asked is not the reader's (the unit decoded up to MaxRows of its own, not
+                    // of the whole input): the unit is decoded again up to them.
+                    if (unit.Error is not null && _filter is null && rows + unit.Rows >= max)
+                    {
+                        unit.Dispose();
+                        unit = DecodeAsync(i, max - rows, useAsync: false, default).GetAwaiter().GetResult();
+                    }
                     if (unit.Error is { } error) throw error.At(lines, records);
                     if (unit.End) yield break;
                     if (_filter is null && rows + unit.Rows > max)
@@ -424,6 +431,13 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
                 JsonUnit unit = await window.Take(i).ConfigureAwait(false);
                 try
                 {
+                    // A failure past the rows asked is not the reader's (the unit decoded up to MaxRows of its own, not
+                    // of the whole input): the unit is decoded again up to them.
+                    if (unit.Error is not null && _filter is null && rows + unit.Rows >= max)
+                    {
+                        unit.Dispose();
+                        unit = await DecodeAsync(i, max - rows, useAsync: true, ct).ConfigureAwait(false);
+                    }
                     if (unit.Error is { } error) throw error.At(lines, records);
                     if (unit.End) yield break;
                     if (_filter is null && rows + unit.Rows > max)

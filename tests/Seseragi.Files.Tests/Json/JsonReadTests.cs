@@ -682,4 +682,21 @@ public class JsonReadTests
     }
 
     private sealed record RowIndexed(long A);
+
+    /// <summary>A value error past MaxRows in a unit that also holds rows asked for is not raised (whatever the unit size).</summary>
+    [Theory]
+    [InlineData(8)]
+    [InlineData(12)]
+    [InlineData(16)]
+    [InlineData(20)]
+    [InlineData(28)]
+    [InlineData(1 << 20)]
+    public void ErrorsPastMaxRows_AreNotRaised_InAnyUnits(int unit)
+    {
+        byte[] bytes = "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n{\"a\":\"x\"}\n"u8.ToArray();
+        var schema = new Schema([new Field("a", Int64Type.Default, true)], null);
+        var (_, rows) = Read(bytes, new JsonReadOptions { Schema = schema, MaxRows = 3, UnitBytes = unit });
+        Assert.Equal(["1", "2", "3"], rows);
+        Assert.Throws<JsonValueException>(() => Read(bytes, new JsonReadOptions { Schema = schema, MaxRows = 4, UnitBytes = unit }));
+    }
 }

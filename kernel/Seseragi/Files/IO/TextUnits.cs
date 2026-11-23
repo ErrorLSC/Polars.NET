@@ -515,7 +515,10 @@ internal sealed class StreamInput(Stream stream, bool leaveOpen, int unitBytes, 
         compressed = true;
         if (head.Length >= 2 && head[0] == 0x1F && head[1] == 0x8B) return new GZipStream(stream, CompressionMode.Decompress);
         if (head.Length >= 4 && head[0] == 0x28 && head[1] == 0xB5 && head[2] == 0x2F && head[3] == 0xFD) return new ZstdSharp.DecompressionStream(stream);
-        if (head.Length >= 2 && (head[0] & 0x0F) == 8 && (head[0] << 8 | head[1]) % 31 == 0) return new ZLibStream(stream, CompressionMode.Decompress);
+        // zlib only by the headers compressors write (32 KiB window; fastest, default, best and level 1–5 flags), as the
+        // engine's readers sniff it: the general header rule (low nibble 8, divisible by 31) holds for text such as "H,"
+        // or "x " (a CSV starting with them would be read as compressed).
+        if (head is [0x78, 0x01 or 0x5E or 0x9C or 0xDA, ..]) return new ZLibStream(stream, CompressionMode.Decompress);
         compressed = false;
         return stream;
     }

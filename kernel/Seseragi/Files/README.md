@@ -334,7 +334,10 @@ Pages in the non-PLAIN value encodings are decoded whole when entered, into PLAI
 them as PLAIN; string readers take delta byte arrays as data, starts and lengths instead.
 
 `IO/` holds what the formats share for reading at offsets: `IRandomAccess`, the stream-backed source (in-memory
-streams sliced without a lock), the native copy of streams that cannot seek, and the file stores datasets list and
+streams sliced without a lock), the native copy of streams that cannot seek, the text inputs cut into units of whole
+records (`TextUnits`: blocks that find their own record starts, inputs in place cut at starts planned beforehand,
+streams cut at their last record start; a format's `UnitCut` says where its records end: JSON lines, CSV records with
+quotes), and the file stores datasets list and
 open (`IFileStore`, `StoredFile`, `LocalFileStore`, `HttpFileStore` over Sazanami's `HttpSender`,
 `HuggingFaceFileStore`); and for writing, the stores files are written to (`IWritableFileStore`: local files here,
 cloud file systems through the lakehouse's `FileSystemStore`; an internal memory store for tests) and `FileWriteStream`, a file that appears whole
