@@ -153,8 +153,18 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
 
     private readonly bool _nulls = rules.NullValues.Length > 0;
 
+    /// <summary>
+    /// The rows the column's type was inferred from (a value past them that the type cannot hold names them and the
+    /// fixes); 0 when the type was given (or inferred from the whole input).
+    /// </summary>
+    public int InferredFrom { get; set; }
+
     /// <summary>A refused value: a null with IgnoreErrors (true), else the error (false).</summary>
-    protected bool Refuse(ReadOnlySpan<byte> text, string why, out CsvValueError? error)
+    /// <param name="text">The field's text.</param>
+    /// <param name="why">The reason, "{value}" standing for the text.</param>
+    /// <param name="error">The error.</param>
+    /// <param name="hint">Whether an inferred column's reason is followed by the fixes (false when it names them itself).</param>
+    protected bool Refuse(ReadOnlySpan<byte> text, string why, out CsvValueError? error, bool hint = true)
     {
         if (Rules.IgnoreErrors)
         {
@@ -163,7 +173,10 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
             return true;
         }
         string shown = Shown(text);
-        error = new CsvValueError(Name, shown, $"column '{Name}': {why.Replace("{value}", $"'{shown}'")}");
+        string fixes = hint && InferredFrom > 0
+            ? $" (the column's type was inferred from the first {InferredFrom} rows: give the column its type in SchemaOverrides, or a larger InferSchemaLength)"
+            : "";
+        error = new CsvValueError(Name, shown, $"column '{Name}': {why.Replace("{value}", $"'{shown}'")}{fixes}");
         return false;
     }
 
@@ -535,10 +548,10 @@ internal abstract class TemporalColumnBase(NativeColumnBuilder b, string name, C
     public bool RefusedUnseeded { get; protected set; }
 
     /// <summary>A refused value; noted when it came before the group was known.</summary>
-    protected bool Refused(ReadOnlySpan<byte> text, string why, out CsvValueError? error)
+    protected bool Refused(ReadOnlySpan<byte> text, string why, out CsvValueError? error, bool hint = true)
     {
         if (Patterns.Group is null) RefusedUnseeded = true;
-        return Refuse(text, why, out error);
+        return Refuse(text, why, out error, hint);
     }
 }
 
@@ -595,13 +608,19 @@ internal sealed class DatetimeColumn(NativeColumnBuilder b, string name, CsvValu
                     _b.Append(value);
                     break;
                 case TemporalOutcome.TooFine:
-                    // R3: a precision problem, named as one, with the fix.
-                    if (!Refused(text, $"{{value}} is more precise than the column's unit ({UnitName(type.Unit)}): " +
-                        $"change the given schema to a finer unit, e.g. {Finer(type)}", out error)) return r;
+                    // R3: a precision problem, named as one, with the fix (for the schema given, or the type inferred).
+                    if (!Refused(text, InferredFrom > 0
+                        ? $"{{value}} is more precise than the column's unit ({UnitName(type.Unit)}), inferred from the first {InferredFrom} rows: " +
+                          $"give the column a finer unit in SchemaOverrides, e.g. {Finer(type)}, or a larger InferSchemaLength"
+                        : $"{{value}} is more precise than the column's unit ({UnitName(type.Unit)}): change the given schema to a finer unit, e.g. {Finer(type)}",
+                        out error, hint: false)) return r;
                     break;
                 case TemporalOutcome.OutOfRange:
-                    if (!Refused(text, $"{{value}} is outside the range datetime[{UnitName(type.Unit)}] holds (1677-09-21 to 2262-04-11 in nanoseconds): " +
-                        "change the given schema to a coarser unit, e.g. datetime[μs]", out error)) return r;
+                    if (!Refused(text, InferredFrom > 0
+                        ? $"{{value}} is outside the range datetime[{UnitName(type.Unit)}] holds (1677-09-21 to 2262-04-11 in nanoseconds), the unit inferred " +
+                          $"from the first {InferredFrom} rows: give the column a coarser unit in SchemaOverrides, e.g. datetime[μs]"
+                        : $"{{value}} is outside the range datetime[{UnitName(type.Unit)}] holds (1677-09-21 to 2262-04-11 in nanoseconds): " +
+                          "change the given schema to a coarser unit, e.g. datetime[μs]", out error, hint: false)) return r;
                     break;
                 default:
                     if (!Refused(text, Patterns.Group is { } g ? $"{{value}} is not a datetime in the column's format ({DateColumn.Describe(g)})" : "{value} is not a datetime", out error))

@@ -497,9 +497,12 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             System.Array.Fill(slots, -1);
             for (int k = 0; k < byOutput.Length; k++) slots[byOutput[k]] = k;
             var schema = new Schema([.. byOutput.Select(c => full[c])], null);
+            // Types inferred from the first rows (not the whole input): values past them may not fit, the errors say so.
+            int sample = _inference is not null && _options.InferSchemaLength is int rows ? rows : 0;
             var settings = new CsvDecodeSettings(schema, n, slots, _values, _options.BatchSize)
             {
                 Indexed = Indexed(schema, _options.RowIndexColumn),
+                InferredFrom = [.. byOutput.Select(c => _given[c] is null ? sample : 0)],
             };
             // Every column's type has a decoder (NotSupportedException otherwise).
             using (var builder = settings.Builder())

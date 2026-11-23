@@ -79,6 +79,9 @@ internal sealed class CsvDecodeSettings(Schema schema, int fileColumns, int[] sl
 
     public int BatchSize { get; } = batchSize;
 
+    /// <summary>Per decoded column, the rows its type was inferred from; 0 when given (null: every type given).</summary>
+    public int[]? InferredFrom { get; init; }
+
     /// <summary>The records tokenized at once: about 32 K fields (the table stays in the caches), 64 to 4096 records.</summary>
     public int ChunkRows => Math.Min(BatchSize, Math.Clamp(32_768 / Math.Max(1, Schema.FieldsList.Count), 64, 4096));
 
@@ -94,7 +97,11 @@ internal sealed class CsvDecodeSettings(Schema schema, int fileColumns, int[] sl
         var columns = new CsvColumn[Schema.FieldsList.Count];
         try
         {
-            for (int c = 0; c < columns.Length; c++) columns[c] = CsvColumn.For(Schema.FieldsList[c], builder.Children[c], Rules, groups[c]);
+            for (int c = 0; c < columns.Length; c++)
+            {
+                columns[c] = CsvColumn.For(Schema.FieldsList[c], builder.Children[c], Rules, groups[c]);
+                columns[c].InferredFrom = InferredFrom?[c] ?? 0;
+            }
         }
         catch
         {

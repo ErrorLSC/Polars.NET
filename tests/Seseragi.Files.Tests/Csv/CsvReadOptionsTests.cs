@@ -207,6 +207,29 @@ public class CsvReadOptionsTests
         Assert.Equal("a:i64,b:str | 1,\"x\"", CsvBehaviourTests.Read(compressed.ToArray(), new CsvReadOptions()));
     }
 
+    /// <summary>
+    /// A value past the inferred rows that the inferred type cannot hold names the rows the type came from and the fixes
+    /// (no schema was given); one needing a finer datetime unit says so (native truncates it).
+    /// </summary>
+    [Fact]
+    public void InferredTypesRefuseLaterValuesWithTheFixes()
+    {
+        var text = new StringBuilder("t,n\n");
+        for (int i = 0; i < 150; i++) text.Append($"2023-03-28 15:10:{i % 60:D2}.123456,{i}\n");
+        string late = text + "2023-03-28 15:10:24.045736300,7\n";
+        var e = Assert.Throws<CsvValueException>(() => Read(late));
+        Assert.Equal("Row 151 (line 152): column 't': '2023-03-28 15:10:24.045736300' is more precise than the column's unit (μs), inferred from the "
+            + "first 100 rows: give the column a finer unit in SchemaOverrides, e.g. datetime[ns], or a larger InferSchemaLength", e.Message);
+        // The fixes work.
+        Assert.EndsWith("2023-03-28T15:10:24.0457363,7", Read(late, new CsvReadOptions { SchemaOverrides = new Dictionary<string, IArrowType> { ["t"] = new TimestampType(TimeUnit.Nanosecond, (string?)null) } }));
+        Assert.StartsWith("t:datetime[ns]", Read(late, new CsvReadOptions { InferSchemaLength = null }));
+        // Other types name the inferred rows too; a given type does not.
+        e = Assert.Throws<CsvValueException>(() => Read(text + "2023-03-28 15:10:24,x\n"));
+        Assert.EndsWith("'x' is not an Int64 integer (the column's type was inferred from the first 100 rows: give the column its type in SchemaOverrides, or a larger InferSchemaLength)", e.Message);
+        e = Assert.Throws<CsvValueException>(() => Read(text + "2023-03-28 15:10:24,x\n", new CsvReadOptions { SchemaOverrides = new Dictionary<string, IArrowType> { ["n"] = Int64Type.Default } }));
+        Assert.EndsWith("'x' is not an Int64 integer", e.Message);
+    }
+
     [Fact]
     public void HeaderEdges()
     {

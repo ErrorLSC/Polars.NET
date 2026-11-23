@@ -3,7 +3,8 @@
 Managed file-format readers and writers. It holds **Avro** (object container files, specification 1.12, streaming
 Apache Arrow record batches), **Excel** (xlsx, xlsb, xls and OpenDocument workbooks read, xlsx written, streaming Arrow record batches) and
 **Parquet** (files and their full footer metadata read and written), **Arrow IPC** (the file format, Feather v2, and
-the stream format, read and written) and **JSON** (newline-delimited and documents, read and written). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
+the stream format, read and written), **JSON** (newline-delimited and documents, read and written) and **CSV**
+(delimited text, read). Pieces shared by formats, such as the compression codecs, live at the package root, each format in its own
 folder.
 
 Polars.NET's `ReadAvro`, `ScanAvro`, `WriteAvro*`, `SinkAvro`, and `ReadExcel`, `ScanExcel`, `WriteExcel` and
@@ -586,6 +587,38 @@ by the reader on each unit (`FilterRows`), its other conjuncts on the rows when 
 units are decoded, filtered and turned into rows on several threads, the rows delivered in order. JSON from
 System.Text.Json reads as it is (camelCase names, GUIDs, enums as numbers or names, time spans as .NET writes them).
 
+## CSV
+
+**Reading** (`CsvReader`, `CsvReadOptions`): delimited text from a path, a stream, any `IRandomAccess` source, bytes
+in memory or a string, synchronously or asynchronously, as Arrow record batches in native memory. The input is cut
+into units of whole records with quotes taken into account (`IO/TextUnits`: quote parity per segment in parallel,
+then short scans from the real state; blocks that find their own starts when nothing is quoted; streams cut at their
+last record start), decoded on several threads and handed over in order; gzip, zlib and zstd input is found by its
+header and decompressed on the way. The input is UTF-8 (a byte order mark skipped), checked unit by unit.
+
+* Records: `Separator`, `Quote` (or none), `LineEnd` (LF, CRLF or a CR alone by default, or one chosen byte); a quoted
+  field doubles its quotes and may hold separators and line ends; a blank line is a row of nulls; a record with fewer
+  fields has nulls (`MissingIsNull`), one with more fields is an error. Blank lines before the header are passed over;
+  header names lose their quotes (doubled quotes undoubled), duplicates become `name_duplicated_0`, `_1` …; without a
+  header the columns are `column_1` ….
+* Columns: inferred from the first `InferSchemaLength` records in file order, as Polars' CSV reader infers them
+  (booleans, Int64 or Int128, Float64, dates, times, datetimes — nanoseconds when a value needs them, UTC with an
+  offset —, else strings; Utf8View with `ViewTypes`), or given: `Schema` names the file's columns with a header (output
+  in the schema's order) and gives them by position without one; `SchemaOverrides` types some inferred columns by name.
+  Every temporal column reads in the pattern group of its first value that reads, in file order, whatever unit
+  decodes it first (units that guessed another are decoded again).
+* Values: `NullValues`, `TrueValues` / `FalseValues`, `DecimalComma`, `ThousandsSeparator` (groups checked, so "1.5"
+  with '.' is no number), typed numbers skipping leading spaces. Decimals refuse more fraction digits than their scale,
+  datetimes values finer than their unit, Enums values outside their categories; Categoricals are built per batch.
+  `IgnoreErrors` makes refused values nulls; input errors (quoting, encoding, extra fields) stay errors. A value past
+  the inferred rows that its inferred type cannot hold (an integer column meeting "x", a datetime[μs] column meeting
+  nanoseconds) is refused with the rows the type came from and the fixes (`SchemaOverrides`, `InferSchemaLength`).
+* `Columns` decodes only the named columns, `MaxRows` stops after the first rows (failures past them are not raised),
+  `RowIndexColumn` / `RowIndexOffset` number the records, `BatchSize` cuts batches (they never span units).
+* Errors: `CsvFormatException` for the input, `CsvValueException` for a value (its column, row, line and text, with
+  the fix when there is one, e.g. a finer unit or a larger scale in the given schema); the first failure in file
+  order is raised, the same whatever the unit size.
+
 ## Avro features
 
 **Reading** (`AvroReader`, `AvroReadOptions`): from a path, a stream or memory (`ReadOnlyMemory<byte>`, read in place:
@@ -769,6 +802,9 @@ written synchronously on completion.
 | `Json/Datasets/JsonFileFormat.cs`, `JsonDatasetWriter.cs`, `JsonDatasetWriterOfT.cs` | Dataset writing: the format for `DatasetSink` (extension, `JsonWriter` per file, short runs encoded at once into the file's piece being filled — `JsonWriter.AppendRows`, a batch's cells made once for every file through `DatasetFileFormat.SourcesOpen` —, sizes measured after a flush, the declared fields' metadata kept), the writers and their options. |
 | `Json/JsonReaderOfT.cs`, `JsonRowSchema.cs`, `Reading/JsonRowFilter.cs` | Typed rows: `JsonReader<T>` (the members' columns, keys ignoring case, the predicate's pushed conjuncts, `TypedRows` for the rows); the JSON layout of `ArrowRowBuilder<T>`'s columns (GUID columns marked, string-keyed dictionaries as objects or maps, enums as text); the row filter evaluated on each decoded unit (selected columns plus those it reads, compacted with `ArrowFilter`). |
 | `Json/Writing/JsonCells.cs`, `JsonOut.cs`, `JsonSinks.cs` | A cell per Arrow type over pinned buffers (values, validity, offsets, views, children); the output span writer and JSON text of floats (Ryū digits laid out) and strings (escapes, UTF-8 checked); the outputs (stream, file, buffer writer, pipe, text, string) and pieces compressed as gzip members or Zstandard frames. |
+| `Csv/CsvReader.cs`, `CsvReadOptions.cs`, `CsvExceptions.cs` | Public CSV API: opening (compression by header, the record cut), the prelude (blank lines, the header, the columns and their formats from the first records in file order), the ordered window over units, temporal formats checked and units decoded again, failures placed at their row and line, `MaxRows`, row numbers; options and exceptions. |
+| `Csv/Reading/CsvTokenizer.cs`, `CsvDecode.cs` | The record grammar (fields by vectorized search, quoted fields, line ends, blank records, errors) one record at a time or into a column-major table of field positions per chunk; a unit decoded chunk by chunk, column by column, the first failure in record order (input errors, bytes that are not UTF-8, refused values). |
+| `Csv/Reading/CsvColumns.cs`, `CsvInference.cs` | Decoders per Arrow type into native builders (numbers with decimal comma and thousands rewriting, decimals, temporal pattern groups, strings, categoricals, enums); the inference of the columns' types and temporal groups from records in file order. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |
 | `Json/Reading/JsonInference.cs` | `JsonShape`: what the records held, folded record by record, resolved to Arrow types as Polars resolves them. |
@@ -928,6 +964,9 @@ value against a logical type is allowed. General unions are not written against 
   (`interop_check.py`).
 * Row view: `tests/Sazanami.Tests/ArrowRowsTests.cs`, and over Avro batches `AvroRowViewTests.cs`.
 * Row predicates and filtering: `tests/Sazanami.Tests/FilterProgramTests.cs` (random programs on every column type and layout against a row-by-row model of the IR's semantics) and `ArrowFilterTests.cs` (against a model gather; shared memory and its lifetime).
+* CSV (`tests/Seseragi.Files.Tests/Csv`): the behaviour table (`TestData/csv/cases.json` read by Polars' native reader
+  into `native.txt`) case by case, with the decided deviations and errors named, also in units of a few bytes from
+  every kind of source; random files read in any unit size against the whole input (`CSV_UNITS_CASES`); options.
 * Arrow IPC (`tests/Seseragi.Files.Tests/Ipc`): every corpus file against pyarrow and Python Polars value by value
   and batch by batch (`IpcValueTests`, `TestData/ipc/values.json`), its structure against an independent FlatBuffer
   reading (`IpcStructureTests`, `messages.json`; the corpus and how it is written: `TestData/ipc/README.md`), every
