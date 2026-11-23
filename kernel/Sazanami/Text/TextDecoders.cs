@@ -164,6 +164,25 @@ internal sealed class Utf16TextDecoder(bool bigEndian, bool replace) : TextDecod
     {
         consumed = 0;
         written = 0;
+        if (BigEndian == !BitConverter.IsLittleEndian)
+        {
+            // The machine's own order: the code units read in place.
+            int even = source.Length & ~1;
+            ReadOnlySpan<char> units = MemoryMarshal.Cast<byte, char>(source[..even]);
+            bool whole = even == source.Length;
+            // A last odd byte cannot complete a pair: the code units end the text when it is final.
+            OperationStatus inPlace = Utf8.FromUtf16(units, destination, out int read, out written, replaceInvalidSequences: Replace, isFinalBlock: final);
+            consumed = read * 2;
+            if (inPlace != OperationStatus.Done || whole) return inPlace;
+            // One byte left: half a code unit.
+            if (!final) return OperationStatus.NeedMoreData;
+            if (!Replace) return OperationStatus.InvalidData;
+            if (destination.Length - written < 3) return OperationStatus.DestinationTooSmall;
+            ReplacementUtf8.CopyTo(destination[written..]);
+            written += 3;
+            consumed++;
+            return OperationStatus.Done;
+        }
         Span<char> chunk = stackalloc char[1024];
         while (true)
         {

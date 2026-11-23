@@ -12,13 +12,16 @@ namespace Kaminari.Seseragi.Files.Csv.Reading;
 /// </summary>
 internal sealed class CsvCharset
 {
-    private CsvCharset(TextDecoder? fieldDecoder, bool strict, bool utf8Bytes, string invalid)
+    private CsvCharset(TextDecoder? fieldDecoder, bool strict, bool utf8Bytes, string invalid, TextDecoder? lossy = null)
     {
         FieldDecoder = fieldDecoder;
+        _lossy = lossy ?? fieldDecoder;
         Strict = strict;
         Utf8Bytes = utf8Bytes;
         Invalid = invalid;
     }
+
+    private readonly TextDecoder? _lossy; // the field decoder's lossy twin: a field found invalid is still read
 
     /// <summary>The decoder of fields holding non-ASCII bytes, or null when the bytes are UTF-8 to be used as they are.</summary>
     public TextDecoder? FieldDecoder { get; }
@@ -40,7 +43,8 @@ internal sealed class CsvCharset
 
     /// <summary>The raw bytes of <paramref name="encoding"/> decoded per field by <paramref name="decoder"/>.</summary>
     public static CsvCharset Fields(Encoding encoding, TextDecoder decoder) =>
-        new(decoder, strict: !decoder.Replace, utf8Bytes: encoding.CodePage == 65001, encoding.CodePage == 65001 ? NotUtf8 : NotValid(encoding));
+        new(decoder, strict: !decoder.Replace, utf8Bytes: encoding.CodePage == 65001, encoding.CodePage == 65001 ? NotUtf8 : NotValid(encoding),
+            decoder.Replace ? decoder : TextEncodings.Decoder(encoding, replace: true));
 
     private static string NotValid(Encoding encoding) =>
         $"the text is not valid {encoding.WebName} (check the encoding, or read with InvalidText = Replace)";
@@ -55,12 +59,18 @@ internal sealed class CsvCharset
     public static int Room(int bytes) => bytes * 3 + 4;
 
     /// <summary>A field's text decoded into <paramref name="destination"/> (at least <see cref="Room"/> bytes).</summary>
-    public int Decode(ReadOnlySpan<byte> text, Span<byte> destination)
+    public int Decode(ReadOnlySpan<byte> text, Span<byte> destination) => Decode(text, destination, out _);
+
+    /// <summary>
+    /// A field's text decoded into <paramref name="destination"/> (at least <see cref="Room"/> bytes); text a strict
+    /// read refuses is <paramref name="invalid"/>, decoded lossily all the same (the reader fails its record).
+    /// </summary>
+    public int Decode(ReadOnlySpan<byte> text, Span<byte> destination, out bool invalid)
     {
         OperationStatus status = FieldDecoder!.Decode(text, destination, final: true, out int consumed, out int written);
-        // Strict units were checked whole before their fields are decoded: a field is valid text.
-        if (status != OperationStatus.Done || consumed != text.Length)
-            throw new InvalidOperationException($"A field checked valid did not decode ({status}).");
+        invalid = status == OperationStatus.InvalidData;
+        if (invalid) status = _lossy!.Decode(text, destination, final: true, out consumed, out written);
+        if (status != OperationStatus.Done || consumed != text.Length) throw new InvalidOperationException($"A field did not decode ({status}).");
         return written;
     }
 }

@@ -11,6 +11,18 @@ namespace Kaminari.Sazanami.Arrow.Builders;
 internal interface IBytesBuilder
 {
     void Append(ReadOnlySpan<byte> value);
+
+    /// <summary>
+    /// Room for a value of at most <paramref name="maxBytes"/> bytes, written in place by the caller (a decoder) and
+    /// appended by <see cref="EndValue"/> with its length; nothing else is appended in between.
+    /// </summary>
+    Span<byte> BeginValue(int maxBytes);
+
+    /// <summary>Appends the value written into <see cref="BeginValue"/>'s room, of <paramref name="length"/> bytes.</summary>
+    void EndValue(int length);
+
+    /// <summary>Gives <see cref="BeginValue"/>'s room back without appending (the caller appends something else).</summary>
+    void CancelValue();
 }
 
 /// <summary>Utf8 / Binary with 32-bit offsets.</summary>
@@ -46,6 +58,23 @@ internal sealed unsafe class NativeBinaryBuilder : NativeColumnBuilder, IBytesBu
         byte* at = _data.Reserve(most);
         int written = System.Text.Encoding.UTF8.GetBytes(text, new Span<byte>(at, most));
         _data.SetLength(start + written);
+        AppendOffset();
+        MarkValid();
+    }
+
+    private long _begun;
+
+    public Span<byte> BeginValue(int maxBytes)
+    {
+        _begun = _data.Length;
+        return new Span<byte>(_data.Reserve(maxBytes), maxBytes);
+    }
+
+    public void CancelValue() => _data.SetLength(_begun);
+
+    public void EndValue(int length)
+    {
+        _data.SetLength(_begun + length);
         AppendOffset();
         MarkValid();
     }
@@ -155,6 +184,23 @@ internal sealed unsafe class NativeLargeBinaryBuilder : NativeColumnBuilder, IBy
         byte* at = _data.Reserve(most);
         int written = System.Text.Encoding.UTF8.GetBytes(text, new Span<byte>(at, most));
         _data.SetLength(start + written);
+        _offsets.Append(_data.Length);
+        MarkValid();
+    }
+
+    private long _begun;
+
+    public Span<byte> BeginValue(int maxBytes)
+    {
+        _begun = _data.Length;
+        return new Span<byte>(_data.Reserve(maxBytes), maxBytes);
+    }
+
+    public void CancelValue() => _data.SetLength(_begun);
+
+    public void EndValue(int length)
+    {
+        _data.SetLength(_begun + length);
         _offsets.Append(_data.Length);
         MarkValid();
     }
@@ -276,6 +322,34 @@ internal sealed unsafe class NativeBinaryViewBuilder(IArrowType type) : NativeCo
         {
             *view = View(value, _dataIndex, (int)start);
             _data.SetLength(start + written);
+        }
+        MarkValid();
+    }
+
+    private long _begun;
+
+    public Span<byte> BeginValue(int maxBytes)
+    {
+        if (_dataIndex < 0 || _data.Length + maxBytes > int.MaxValue) NewDataBuffer();
+        _begun = _data.Length;
+        return new Span<byte>(_data.Reserve(maxBytes), maxBytes);
+    }
+
+    public void CancelValue() => _data.SetLength(_begun);
+
+    public void EndValue(int length)
+    {
+        var value = new ReadOnlySpan<byte>(_data.Pointer + _begun, length);
+        Int128* view = (Int128*)_views.Reserve(sizeof(Int128));
+        if (length <= MaxInline)
+        {
+            *view = View(value, 0, 0);
+            _data.SetLength(_begun);
+        }
+        else
+        {
+            *view = View(value, _dataIndex, (int)_begun);
+            _data.SetLength(_begun + length);
         }
         MarkValid();
     }

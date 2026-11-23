@@ -38,14 +38,20 @@ internal sealed class LegacyText : TextDecoder
 
     private readonly Tables _tables;
 
-    private LegacyText(Tables tables, bool replace) : base(replace) => _tables = tables;
+    private readonly bool _doubleByte;
+
+    private LegacyText(Tables tables, bool replace) : base(replace)
+    {
+        _tables = tables;
+        _doubleByte = System.Array.IndexOf(tables.Single, Lead) >= 0;
+    }
 
     public override TextLayout Layout => TextLayout.AsciiCompatible;
 
     public int CodePage => _tables.CodePage;
 
     /// <summary>Whether the page has two-byte characters (a lead byte's trail may be any byte from 0x40 up).</summary>
-    public bool DoubleByte => System.Array.IndexOf(_tables.Single, Lead) >= 0;
+    public bool DoubleByte => _doubleByte;
 
     public override int FirstInvalid(ReadOnlySpan<byte> source)
     {
@@ -78,7 +84,58 @@ internal sealed class LegacyText : TextDecoder
     public static LegacyText? For(int codePage, bool replace) =>
         AllowList.Contains(codePage) ? new LegacyText(Built.GetOrAdd(codePage, static cp => Tables.Build(cp)), replace) : null;
 
-    public override OperationStatus Decode(ReadOnlySpan<byte> source, Span<byte> destination, bool final, out int consumed, out int written)
+    public override OperationStatus Decode(ReadOnlySpan<byte> source, Span<byte> destination, bool final, out int consumed, out int written) =>
+        _doubleByte ? DecodePairs(source, destination, final, out consumed, out written) : DecodeSingles(source, destination, out consumed, out written);
+
+    // A single-byte page: every byte its own character, read through the table one by one (accented text has short
+    // ASCII runs: a vector search per run costs more than the run), long ASCII runs copied by vectors.
+    private OperationStatus DecodeSingles(ReadOnlySpan<byte> source, Span<byte> destination, out int consumed, out int written)
+    {
+        ref uint single = ref MemoryMarshal.GetArrayDataReference(_tables.Single);
+        ref byte s = ref MemoryMarshal.GetReference(source);
+        ref byte d = ref MemoryMarshal.GetReference(destination);
+        int at = 0, w = 0, length = source.Length, room = destination.Length - 4, streak = 0;
+        while (at < length)
+        {
+            uint b = Unsafe.Add(ref s, at);
+            if (b < 0x80)
+            {
+                if (++streak >= 16)
+                {
+                    // A long ASCII run: the rest of it found and copied at once.
+                    int run = source[at..].IndexOfAnyExceptInRange((byte)0, (byte)0x7F);
+                    if (run < 0) run = length - at;
+                    int fits = Math.Min(run, destination.Length - w);
+                    source.Slice(at, fits).CopyTo(destination[w..]);
+                    at += fits;
+                    w += fits;
+                    if (fits < run) return Stop(OperationStatus.DestinationTooSmall, at, w, out consumed, out written);
+                    streak = 0;
+                    continue;
+                }
+                if (w == destination.Length) return Stop(OperationStatus.DestinationTooSmall, at, w, out consumed, out written);
+                Unsafe.Add(ref d, w++) = (byte)b;
+                at++;
+                continue;
+            }
+            streak = 0;
+            uint v = Unsafe.Add(ref single, b);
+            if (v == 0)
+            {
+                if (!Replace) return Stop(OperationStatus.InvalidData, at, w, out consumed, out written);
+                v = 0xBD_BF_EF_03; // U+FFFD
+            }
+            int size = (int)(v & 0xFF);
+            if (w <= room) Unsafe.WriteUnaligned(ref Unsafe.Add(ref d, w), v >> 8);
+            else if (destination.Length - w >= size) for (int i = 0; i < size; i++) Unsafe.Add(ref d, w + i) = (byte)(v >> 8 * (i + 1));
+            else return Stop(OperationStatus.DestinationTooSmall, at, w, out consumed, out written);
+            w += size;
+            at++;
+        }
+        return Stop(OperationStatus.Done, at, w, out consumed, out written);
+    }
+
+    private OperationStatus DecodePairs(ReadOnlySpan<byte> source, Span<byte> destination, bool final, out int consumed, out int written)
     {
         ref uint single = ref MemoryMarshal.GetArrayDataReference(_tables.Single); // 256 entries: any byte indexes it
         ref uint pair = ref MemoryMarshal.GetArrayDataReference(_tables.Pair); // 128 × 256: any lead ≥ 0x80 and trail
@@ -105,11 +162,18 @@ internal sealed class LegacyText : TextDecoder
                 uint b = Unsafe.Add(ref s, at);
                 if (b < 0x80)
                 {
-                    // A short ASCII run between non-ASCII characters byte by byte; a long one back to the vector copy.
-                    if (length - at >= 16 && Ascii.IsValid(source.Slice(at, 16))) break;
-                    if (w == destination.Length) return Stop(OperationStatus.DestinationTooSmall, at, w, out consumed, out written);
-                    Unsafe.Add(ref d, w++) = (byte)b;
-                    at++;
+                    // An ASCII run between non-ASCII characters: found once; a long one back to the vector copy.
+                    int ascii = source[at..].IndexOfAnyExceptInRange((byte)0, (byte)0x7F);
+                    if (ascii < 0 || ascii >= 16) break;
+                    if (destination.Length - w < ascii)
+                    {
+                        int fits = destination.Length - w;
+                        source.Slice(at, fits).CopyTo(destination[w..]);
+                        return Stop(OperationStatus.DestinationTooSmall, at + fits, w + fits, out consumed, out written);
+                    }
+                    source.Slice(at, ascii).CopyTo(destination[w..]);
+                    at += ascii;
+                    w += ascii;
                     continue;
                 }
                 uint v = Unsafe.Add(ref single, b);
@@ -139,13 +203,13 @@ internal sealed class LegacyText : TextDecoder
             }
         }
         return Stop(OperationStatus.Done, at, w, out consumed, out written);
+    }
 
-        static OperationStatus Stop(OperationStatus status, int at, int w, out int consumed, out int written)
-        {
-            consumed = at;
-            written = w;
-            return status;
-        }
+    private static OperationStatus Stop(OperationStatus status, int at, int w, out int consumed, out int written)
+    {
+        consumed = at;
+        written = w;
+        return status;
     }
 
     /// <summary>One code page's tables: entries pack the UTF-8 length in the low byte and the bytes above it; 0 is invalid.</summary>

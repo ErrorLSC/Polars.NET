@@ -594,7 +594,17 @@ in memory or a string, synchronously or asynchronously, as Arrow record batches 
 into units of whole records with quotes taken into account (`IO/TextUnits`: quote parity per segment in parallel,
 then short scans from the real state; blocks that find their own starts when nothing is quoted; streams cut at their
 last record start), decoded on several threads and handed over in order; gzip, zlib and zstd input is found by its
-header and decompressed on the way. The input is UTF-8 (a byte order mark skipped), checked unit by unit.
+header and decompressed on the way.
+
+* Encodings: UTF-8 by default, or any `Encoding` given (legacy code pages, UTF-16, EBCDIC …); a byte order mark (UTF-8,
+  UTF-16) decides when none is given, and conflicts with another encoding given. Text whose bytes below 0x80 are ASCII
+  everywhere (UTF-8, the table code pages) is cut and tokenized on its own bytes when no separator, quote or line end
+  can be part of a character; a unit all ASCII is read as it is, a field holding other bytes is decoded (straight into
+  its column for strings) before any use, so values, nulls and inference see the text a UTF-8 file would hold. Other
+  text is decoded into UTF-8 first: in blocks side by side when characters can be found from any boundary (UTF-16,
+  single-byte pages; a local input decoded whole into memory, then read as UTF-8 in memory is), else in order.
+  `InvalidText` makes text the encoding does not define an error (its row and line, found as fields are decoded or by
+  checking each unit whole when not every column is read) or U+FFFD.
 
 * Records: `Separator`, `Quote` (or none), `LineEnd` (LF, CRLF or a CR alone by default, or one chosen byte); a quoted
   field doubles its quotes and may hold separators and line ends; a blank line is a row of nulls; a record with fewer
@@ -804,6 +814,7 @@ written synchronously on completion.
 | `Json/Writing/JsonCells.cs`, `JsonOut.cs`, `JsonSinks.cs` | A cell per Arrow type over pinned buffers (values, validity, offsets, views, children); the output span writer and JSON text of floats (Ryū digits laid out) and strings (escapes, UTF-8 checked); the outputs (stream, file, buffer writer, pipe, text, string) and pieces compressed as gzip members or Zstandard frames. |
 | `Csv/CsvReader.cs`, `CsvReadOptions.cs`, `CsvExceptions.cs` | Public CSV API: opening (compression by header, the record cut), the prelude (blank lines, the header, the columns and their formats from the first records in file order), the ordered window over units, temporal formats checked and units decoded again, failures placed at their row and line, `MaxRows`, row numbers; options and exceptions. |
 | `Csv/Reading/CsvTokenizer.cs`, `CsvDecode.cs` | The record grammar (fields by vectorized search, quoted fields, line ends, blank records, errors) one record at a time or into a column-major table of field positions per chunk; a unit decoded chunk by chunk, column by column, the first failure in record order (input errors, bytes that are not UTF-8, refused values). |
+| `Csv/Reading/CsvInput.cs`, `CsvCharset.cs` | Opening in an encoding: the mark found after decompression, the bytes path (units cut on the raw bytes) or the transcode path (a decoding stream, blocks side by side, or local text decoded whole into memory); how a unit's bytes become text (clean units as they are, fields decoded, a lossy twin for fields found invalid) and the strict check. |
 | `Csv/Reading/CsvColumns.cs`, `CsvInference.cs` | Decoders per Arrow type into native builders (numbers with decimal comma and thousands rewriting, decimals, temporal pattern groups, strings, categoricals, enums); the inference of the columns' types and temporal groups from records in file order. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |

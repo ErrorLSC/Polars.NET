@@ -144,11 +144,11 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
     /// (for columns other than strings), or a null value.
     /// </summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    protected bool Text(ReadOnlySpan<byte> unit, CsvField field, out ReadOnlySpan<byte> text)
+    protected bool Text(ReadOnlySpan<byte> unit, CsvField field, int row, out ReadOnlySpan<byte> text)
     {
         text = default;
         if (field.Bits <= 0) return false;
-        text = Content(unit, field);
+        text = Content(unit, field, row);
         if (text.IsEmpty) return false;
         return !_nulls || !Rules.IsNullValue(text);
     }
@@ -156,29 +156,50 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
     /// <summary>Whether the unit's fields are used as they are (else a field holding a byte from 0x80 up is decoded first).</summary>
     public bool Clean { get; set; } = true;
 
+    /// <summary>
+    /// The first row (of the rows decoded since the last <see cref="TakeInvalidRow"/>) whose text a strict read refuses
+    /// (found when fields are decoded: the reader fails that record), or <see cref="int.MaxValue"/>.
+    /// </summary>
+    protected int InvalidRow { get; set; } = int.MaxValue;
+
+    /// <summary>The first row of invalid text found, then forgotten.</summary>
+    public int TakeInvalidRow()
+    {
+        int row = InvalidRow;
+        InvalidRow = int.MaxValue;
+        return row;
+    }
+
     /// <summary>A present field's text: quotes undoubled (into scratch), decoded when the unit is not clean.</summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    protected ReadOnlySpan<byte> Content(ReadOnlySpan<byte> unit, CsvField field)
+    protected ReadOnlySpan<byte> Content(ReadOnlySpan<byte> unit, CsvField field, int row)
+    {
+        ReadOnlySpan<byte> text = Undoubled(unit, field);
+        return Clean || Ascii.IsValid(text) ? text : Decoded(text, row);
+    }
+
+    /// <summary>A present field's bytes, quotes undoubled (into scratch).</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    protected ReadOnlySpan<byte> Undoubled(ReadOnlySpan<byte> unit, CsvField field)
     {
         ReadOnlySpan<byte> text = unit.Slice(field.Start, field.Length);
-        if ((field.Bits & CsvField.Escaped) != 0)
-        {
-            Span<byte> scratch = Scratch(text.Length);
-            text = scratch[..Rules.Tokenizer.Unescape(text, scratch)];
-        }
-        return Clean || Ascii.IsValid(text) ? text : Decoded(text);
+        if ((field.Bits & CsvField.Escaped) == 0) return text;
+        Span<byte> scratch = Scratch(text.Length);
+        return scratch[..Rules.Tokenizer.Unescape(text, scratch)];
     }
 
     private NativeByteBuffer? _decoded;
 
     // A field's text decoded, in a scratch buffer of its own (the text itself may be in the first).
-    private ReadOnlySpan<byte> Decoded(ReadOnlySpan<byte> text)
+    private ReadOnlySpan<byte> Decoded(ReadOnlySpan<byte> text, int row)
     {
         int room = CsvCharset.Room(text.Length);
         _decoded ??= new NativeByteBuffer(Math.Max(room, 4096), pooled: true);
         _decoded.EnsureCapacity(room);
         Span<byte> destination = _decoded.Span;
-        return destination[..Rules.Charset.Decode(text, destination)];
+        int written = Rules.Charset.Decode(text, destination, out bool invalid);
+        if (invalid) InvalidRow = Math.Min(InvalidRow, row);
+        return destination[..written];
     }
 
     private readonly bool _nulls = rules.NullValues.Length > 0;
@@ -309,7 +330,7 @@ internal sealed class BooleanColumn(NativeColumnBuilder b, string name, CsvValue
         error = null;
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -336,7 +357,7 @@ internal sealed class IntegerColumn<T>(NativeColumnBuilder b, string name, CsvVa
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -429,7 +450,7 @@ internal sealed class WideIntegerColumn(NativeColumnBuilder b, string name, CsvV
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -464,7 +485,7 @@ internal sealed class DoubleColumn(NativeColumnBuilder b, string name, CsvValueR
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -487,7 +508,7 @@ internal sealed class FloatColumn(NativeColumnBuilder b, string name, CsvValueRu
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -510,7 +531,7 @@ internal sealed class DecimalColumn(NativeColumnBuilder b, string name, CsvValue
         Span<byte> stack = stackalloc byte[StackBytes];
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -595,7 +616,7 @@ internal sealed class DateColumn(NativeColumnBuilder b, string name, CsvValueRul
         error = null;
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -627,7 +648,7 @@ internal sealed class DatetimeColumn(NativeColumnBuilder b, string name, CsvValu
         error = null;
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -688,7 +709,7 @@ internal sealed class TimeColumn(NativeColumnBuilder b, string name, CsvValueRul
         long divisor = timeUnit == TimeUnit.Microsecond ? 1000 : 1;
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;
@@ -731,7 +752,21 @@ internal sealed class StringColumn(NativeColumnBuilder b, string name, CsvValueR
                 else Builder.AppendNull();
                 continue;
             }
-            ReadOnlySpan<byte> text = Content(unit, field);
+            ReadOnlySpan<byte> text = Undoubled(unit, field);
+            if (!Clean && !Ascii.IsValid(text))
+            {
+                // Decoded straight into the column's buffer.
+                Span<byte> room = _b.BeginValue(CsvCharset.Room(text.Length));
+                int written = Rules.Charset.Decode(text, room, out bool invalid);
+                if (invalid) InvalidRow = Math.Min(InvalidRow, r);
+                if (nulls && Rules.IsNullValue(room[..written]))
+                {
+                    _b.CancelValue();
+                    Builder.AppendNull();
+                }
+                else _b.EndValue(written);
+                continue;
+            }
             if (nulls && Rules.IsNullValue(text)) Builder.AppendNull();
             else _b.Append(text);
         }
@@ -763,7 +798,7 @@ internal sealed class DictionaryColumn(NativeDictionaryBuilder b, string name, C
             }
             else
             {
-                text = Content(unit, field);
+                text = Content(unit, field, r);
                 if (nulls && Rules.IsNullValue(text))
                 {
                     b.AppendNull();
@@ -807,7 +842,7 @@ internal sealed class EnumColumn : CsvColumn
         error = null;
         for (int r = 0; r < count; r++)
         {
-            if (!Text(unit, fields[r], out ReadOnlySpan<byte> text))
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text))
             {
                 _b.AppendNull();
                 continue;

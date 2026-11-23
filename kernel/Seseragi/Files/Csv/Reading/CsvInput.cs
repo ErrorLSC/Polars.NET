@@ -5,7 +5,7 @@ using Kaminari.Seseragi.Files.IO;
 namespace Kaminari.Seseragi.Files.Csv.Reading;
 
 /// <summary>A CSV input opened: its units, how their bytes become text, and the byte order mark the first unit starts with.</summary>
-internal sealed record CsvOpened(TextUnits Units, CsvCharset Charset, int Mark);
+internal sealed record CsvOpened(TextUnits Units, CsvCharset Charset, int Mark, IDisposable? Owned = null);
 
 /// <summary>
 /// Opens a CSV input in its encoding. The encoding is chosen from the first bytes (after decompression): a byte order mark
@@ -37,7 +37,69 @@ internal static class CsvInput
             TextUnits units = await TextUnits.RecordsAsync(source, map, options.UnitBytes, cut, options.MaxDegreeOfParallelism, useAsync, ct).ConfigureAwait(false);
             return new CsvOpened(units, charset, mark);
         }
-        return new CsvOpened(new StreamInput(new TextDecodingStream(decompressed, decoder, mark, leaveOpen: false), leaveOpen: false, options.UnitBytes, cut), charset, 0);
+        if (!compressed && options.MaxDegreeOfParallelism > 1 && InMemory(source, map, decoder, mark, options) is { } decoded)
+        {
+            // Local text decoded whole, side by side, then cut and read as UTF-8 in memory is.
+            await decompressed.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                var memory = new MemoryRandomAccess(decoded.Buffer.Memory[..decoded.Length]);
+                TextUnits units = await TextUnits.RecordsAsync(memory, false, options.UnitBytes, cut, options.MaxDegreeOfParallelism, useAsync, ct).ConfigureAwait(false);
+                return new CsvOpened(units, charset, 0, new Releaser(decoded.Buffer));
+            }
+            catch
+            {
+                decoded.Buffer.Release();
+                throw;
+            }
+        }
+        return new CsvOpened(new StreamInput(Transcoded(decompressed, decoder, mark, options), leaveOpen: false, options.UnitBytes, cut), charset, 0);
+    }
+
+    // A local source (memory, a mapped file) of text whose characters can be found from any boundary, decoded whole into
+    // UTF-8 on every core; null otherwise (or when the text could exceed 2 GB decoded).
+    private static unsafe (Sazanami.Buffers.NativeByteBuffer Buffer, int Length)? InMemory(IRandomAccess source, bool map, TextDecoder decoder, int mark,
+        CsvReadOptions options)
+    {
+        if (source is not ILocalSource local || !ParallelTextDecodingStream.Splits(decoder)) return null;
+        Func<TextDecoder> factory = Factory(decoder);
+        int block = Math.Min(options.UnitBytes, 1 << 20), threads = options.MaxDegreeOfParallelism;
+        if (local.TryGetMemory(out ReadOnlyMemory<byte> memory))
+        {
+            using System.Buffers.MemoryHandle pin = memory.Pin();
+            byte* at = (byte*)pin.Pointer + Math.Min(mark, memory.Length);
+            var all = ParallelTextDecodingStream.DecodeAll(at, memory.Length - Math.Min(mark, memory.Length), factory, threads, out int written, block);
+            return all is null ? null : (all, written);
+        }
+        if (map && local.Map(out long start) is { } mapped && mapped.TryAcquire())
+        {
+            try
+            {
+                long length = source.Length;
+                byte* at = mapped.At(start, length) + Math.Min(mark, length);
+                var all = ParallelTextDecodingStream.DecodeAll(at, length - Math.Min(mark, length), factory, threads, out int written, block);
+                return all is null ? null : (all, written);
+            }
+            finally
+            {
+                mapped.Release();
+            }
+        }
+        return null;
+    }
+
+    // New decoders of a decoder's encoding (one per block).
+    private static Func<TextDecoder> Factory(TextDecoder decoder)
+    {
+        Encoding encoding = decoder switch
+        {
+            Utf16TextDecoder u => u.BigEndian ? Encoding.BigEndianUnicode : Encoding.Unicode,
+            SequentialTextDecoder s => s.Encoding,
+            LegacyText l => TextEncodings.Resolve(l.CodePage),
+            _ => throw new InvalidOperationException($"{decoder.GetType().Name} has no blocks."),
+        };
+        bool replace = decoder.Replace;
+        return () => TextEncodings.Decoder(encoding, replace);
     }
 
     /// <summary>A stream read in order (owned from here: disposed with the input, unless options say to leave it open).</summary>
@@ -53,7 +115,16 @@ internal static class CsvInput
         }
         var (charset, decoder, mark) = Choose(options, text);
         if (decoder is null) return new CsvOpened(new StreamInput(data, leaveOpen: false, options.UnitBytes, cut), charset, mark);
-        return new CsvOpened(new StreamInput(new TextDecodingStream(data, decoder, mark, leaveOpen: false), leaveOpen: false, options.UnitBytes, cut), charset, 0);
+        return new CsvOpened(new StreamInput(Transcoded(data, decoder, mark, options), leaveOpen: false, options.UnitBytes, cut), charset, 0);
+    }
+
+    // The text decoded into UTF-8: blocks side by side when its characters can be found from any boundary, else in order.
+    private static Stream Transcoded(Stream data, TextDecoder decoder, int mark, CsvReadOptions options)
+    {
+        if (options.MaxDegreeOfParallelism > 1 && ParallelTextDecodingStream.Splits(decoder))
+            return new ParallelTextDecodingStream(data, Factory(decoder), mark, options.MaxDegreeOfParallelism, leaveOpen: false,
+                Math.Min(options.UnitBytes, 1 << 20));
+        return new TextDecodingStream(data, decoder, mark, leaveOpen: false);
     }
 
     // Up to four first bytes.

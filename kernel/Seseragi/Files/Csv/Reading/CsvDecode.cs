@@ -79,6 +79,12 @@ internal sealed class CsvDecodeSettings(Schema schema, int fileColumns, int[] sl
 
     public int BatchSize { get; } = batchSize;
 
+    /// <summary>
+    /// Whether invalid text is found as fields are decoded (strict text read on its bytes, every column decoded) instead
+    /// of by checking each unit whole first.
+    /// </summary>
+    public bool FieldsChecked { get; } = rules.Charset.Strict && rules.Charset.FieldDecoder is not null && slots.All(s => s >= 0);
+
     /// <summary>Per decoded column, the rows its type was inferred from; 0 when given (null: every type given).</summary>
     public int[]? InferredFrom { get; init; }
 
@@ -128,9 +134,12 @@ internal static class CsvDecode
         var unit = new CsvUnit();
         CsvTokenizer tokenizer = settings.Rules.Tokenizer;
         CsvCharset charset = settings.Rules.Charset;
-        int invalid = charset.FirstInvalid(bytes[from..]);
-        if (invalid >= 0) invalid += from;
         bool clean = charset.Clean(bytes[from..]);
+        // Text in another encoding is checked as its fields are decoded when every column is (all of it is in fields);
+        // else, and for UTF-8, the unit is checked whole: failures never depend on the columns read.
+        bool fieldsChecked = !clean && settings.FieldsChecked;
+        int invalid = (clean && charset.FieldDecoder is not null) || fieldsChecked ? -1 : charset.FirstInvalid(bytes[from..]);
+        if (invalid >= 0) invalid += from;
         int decoded = settings.Schema.FieldsList.Count, capacity = settings.ChunkRows, batchSize = settings.BatchSize;
         NativeStructBuilder? builder = settings.Builder();
         CsvColumn[] columns = [];
@@ -170,12 +179,28 @@ internal static class CsvDecode
                     long expected = Math.Min(Math.Min(batchSize, maxRows - unit.Rows), (long)((bytes.Length - chunkStart) * (double)n / Math.Max(1, pos - chunkStart) * 1.0625) + 1);
                     for (int c = 0; c < columns.Length; c++) columns[c].Reserve(expected, fields.Slice(c * cap, n));
                 }
-                for (int c = 0; c < columns.Length && limit > 0; c++)
+                for (int c = 0; c < columns.Length; c++)
                 {
-                    int refused = columns[c].Decode(bytes, fields.Slice(c * cap, limit), limit, out CsvValueError? value);
-                    if (refused < 0) continue;
-                    error = new CsvUnitError(unit.Rows + refused, tokenizer.CountLines(bytes[..recordStarts[refused]]), value!.Message, value);
-                    limit = refused;
+                    // A value refused at the limit still lets a later column's invalid text in that record come first.
+                    bool valueAtLimit = error?.Value is not null;
+                    int rows = Math.Min(n, limit + (valueAtLimit ? 1 : 0));
+                    if (rows == 0) break;
+                    int refused = columns[c].Decode(bytes, fields.Slice(c * cap, rows), rows, out CsvValueError? value);
+                    int bad = fieldsChecked ? columns[c].TakeInvalidRow() : int.MaxValue;
+                    // The column's first failure: invalid text before (or in) the record of a refused value comes first.
+                    if (bad < rows && (refused < 0 || bad <= refused))
+                    {
+                        if (bad < limit || (bad == limit && valueAtLimit))
+                        {
+                            error = new CsvUnitError(unit.Rows + bad, tokenizer.CountLines(bytes[..recordStarts[bad]]), charset.Invalid, null);
+                            limit = bad;
+                        }
+                    }
+                    else if (refused >= 0 && refused < limit)
+                    {
+                        error = new CsvUnitError(unit.Rows + refused, tokenizer.CountLines(bytes[..recordStarts[refused]]), value!.Message, value);
+                        limit = refused;
+                    }
                 }
                 if (error is not null)
                 {

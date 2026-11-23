@@ -199,14 +199,17 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             var values = new CsvValueRules(tokenizer, options.MissingIsNull, options.IgnoreErrors, Bytes(options.NullValues), Bytes(options.TrueValues),
                 Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null, opened.Charset);
             Prelude prelude = await Prelude.ReadAsync(input, options, values, opened.Mark, useAsync, ct).ConfigureAwait(false);
-            return new CsvReader(input, owned, options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups);
+            return new CsvReader(input, Both(opened.Owned, owned), options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups);
         }
         catch
         {
             input.Dispose();
+            opened.Owned?.Dispose();
             owned?.Dispose();
             throw;
         }
+
+        static IDisposable? Both(IDisposable? first, IDisposable? second) => first is null ? second : second is null ? first : new Pair(first, second);
 
         static byte[][] Bytes(IReadOnlyList<string>? values) => values is null ? [] : [.. values.Select(Encoding.UTF8.GetBytes)];
     }
@@ -755,6 +758,16 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             }
             unit.Batches[k] = new RecordBatch(indexed, [numbers, .. batch.Arrays], batch.Length);
             first += batch.Length;
+        }
+    }
+
+    // Two things disposed together: what the input owns (decoded text), then the source.
+    private sealed class Pair(IDisposable first, IDisposable second) : IDisposable
+    {
+        public void Dispose()
+        {
+            first.Dispose();
+            second.Dispose();
         }
     }
 
