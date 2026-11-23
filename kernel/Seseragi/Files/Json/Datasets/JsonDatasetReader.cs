@@ -292,7 +292,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     private bool Needed(int index) => _read[index] || _indexed;
 
     /// <summary>A unit's records decoded (up to <paramref name="rows"/>) and filtered by the file's filter.</summary>
-    private JsonUnit Decode(FilePlan plan, JsonUnitBytes bytes, long rows) => JsonReader.Decode(bytes, plan.Settings, plan.Filter, _document, rows);
+    private JsonUnit Decode(FilePlan plan, TextUnitBytes bytes, long rows) => JsonReader.Decode(bytes, plan.Settings, plan.Filter, _document, rows);
 
     /// <summary>A unit's error placed in its file.</summary>
     private Exception InFile(int file, Exception e) => JsonDataset.Named(PathOf(file), e) ?? e;
@@ -302,7 +302,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     /// <see cref="Raw"/>), or nothing for a file with no unit. A unit that failed keeps its bytes and its file for the
     /// consumer to decode it again up to the rows still wanted.
     /// </summary>
-    private sealed class Output(FileSlot? slot, int file, FilePlan? plan, JsonUnit? unit, JsonUnitBytes? bytes, int index, bool raw) : IDisposable
+    private sealed class Output(FileSlot? slot, int file, FilePlan? plan, JsonUnit? unit, TextUnitBytes? bytes, int index, bool raw) : IDisposable
     {
         private JsonUnit? _unit = unit;
 
@@ -313,7 +313,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         public JsonUnit? Unit => _unit;
 
         /// <summary>The unit's bytes, kept when it failed (null otherwise).</summary>
-        public JsonUnitBytes? Bytes => bytes;
+        public TextUnitBytes? Bytes => bytes;
 
         /// <summary>Whether the batches are still the file's (a unit decoded again by the consumer).</summary>
         public bool Raw { get; private set; } = raw;
@@ -345,15 +345,15 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     /// A file the window reads: its source and input, and its plan. Units known up front (lines cut into blocks) or found
     /// as the file is read (a stream, a compressed file, a document cut as it is scanned), their bytes kept until decoded.
     /// </summary>
-    private sealed class FileSlot(JsonDatasetReader owner, int index, IRandomAccess source, JsonInput input, FilePlan plan, RequestGate? gate) : UnitGroup(index)
+    private sealed class FileSlot(JsonDatasetReader owner, int index, IRandomAccess source, TextUnits input, FilePlan plan, RequestGate? gate) : UnitGroup(index)
     {
         private readonly object _lock = new();
-        private readonly Dictionary<int, JsonUnitBytes> _found = [];
+        private readonly Dictionary<int, TextUnitBytes> _found = [];
         private int _foundCount;
         private bool _over;
         private Exception? _failure;
 
-        public JsonInput Input => input;
+        public TextUnits Input => input;
 
         public FilePlan Plan => plan;
 
@@ -376,7 +376,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
 
         public override long UnitBytes(int unit)
         {
-            lock (_lock) return _found.TryGetValue(unit, out JsonUnitBytes? bytes) ? Math.Max(1, bytes.Memory.Length) : owner._options.UnitBytes;
+            lock (_lock) return _found.TryGetValue(unit, out TextUnitBytes? bytes) ? Math.Max(1, bytes.Memory.Length) : owner._options.UnitBytes;
         }
 
         /// <summary>
@@ -393,11 +393,11 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                 try
                 {
                     using RequestGate.Lease lease = await entering.ConfigureAwait(false);
-                    Task<JsonUnitBytes?>[] reads = [.. Enumerable.Range(from, Math.Max(1, units - from))
+                    Task<TextUnitBytes?>[] reads = [.. Enumerable.Range(from, Math.Max(1, units - from))
                         .Select(k => Task.Run(async () => await input.GetAsync(k, useAsync: true, cancellationToken).ConfigureAwait(false), CancellationToken.None))];
                     for (int r = 0; r < reads.Length; r++)
                     {
-                        JsonUnitBytes? bytes;
+                        TextUnitBytes? bytes;
                         try
                         {
                             bytes = await reads[r].ConfigureAwait(false);
@@ -430,21 +430,21 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                 }
             }, CancellationToken.None);
 
-            static void Drop(Task<JsonUnitBytes?> read) =>
+            static void Drop(Task<TextUnitBytes?> read) =>
                 read.ContinueWith(static t => { if (t.IsCompletedSuccessfully) t.Result?.Dispose(); }, TaskScheduler.Default);
         }
 
         /// <summary>The bytes of a unit found (handed over: taken once).</summary>
-        public JsonUnitBytes? Take(int unit)
+        public TextUnitBytes? Take(int unit)
         {
-            lock (_lock) return _found.Remove(unit, out JsonUnitBytes? bytes) ? bytes : null;
+            lock (_lock) return _found.Remove(unit, out TextUnitBytes? bytes) ? bytes : null;
         }
 
         protected override void Free()
         {
             lock (_lock)
             {
-                foreach (JsonUnitBytes bytes in _found.Values) bytes.Dispose();
+                foreach (TextUnitBytes bytes in _found.Values) bytes.Dispose();
                 _found.Clear();
             }
             input.Dispose();
@@ -487,7 +487,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
             return Task.Run(async () =>
             {
                 IRandomAccess? source = null;
-                JsonInput? input = null;
+                TextUnits? input = null;
                 try
                 {
                     JsonDatasetFile file = owner._dataset.Files[index];
@@ -520,7 +520,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         /// <summary>Reads (unless found already) and decodes a unit, its batches made the dataset's; errors name the file.</summary>
         private async Task<Output> ReadAsync(FileSlot slot, int unit, CancellationToken token)
         {
-            JsonUnitBytes? bytes = slot.Take(unit);
+            TextUnitBytes? bytes = slot.Take(unit);
             if (bytes is null)
             {
                 using RequestGate.Lease lease = gate is null ? default : await gate.EnterAsync(slot.Index, token).ConfigureAwait(false);

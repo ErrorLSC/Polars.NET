@@ -4,6 +4,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Json;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Json.Reading;
 
@@ -280,7 +281,7 @@ internal static class JsonDecode
     /// The elements of a document's unit as batches of the settings' schema, at most <paramref name="maxRows"/> rows; a
     /// failure is the unit's <see cref="JsonUnit.Error"/>, and <see cref="JsonUnit.Lines"/> counts the unit's newlines.
     /// </summary>
-    public static JsonUnit DecodeDocument(JsonUnitBytes input, JsonDecodeSettings settings, long maxRows)
+    public static JsonUnit DecodeDocument(TextUnitBytes input, JsonDecodeSettings settings, long maxRows)
     {
         ReadOnlySpan<byte> bytes = input.Memory.Span;
         var unit = new JsonUnit();
@@ -351,7 +352,7 @@ internal static class JsonDecode
     /// A document's unit's elements taken in by the inference, up to <paramref name="limit"/> records in all: its
     /// newlines, or its failure.
     /// </summary>
-    public static (int Lines, UnitError? Error) ObserveDocument(JsonShape shape, JsonUnitBytes input, long limit)
+    public static (int Lines, UnitError? Error) ObserveDocument(JsonShape shape, TextUnitBytes input, long limit)
     {
         ReadOnlySpan<byte> bytes = input.Memory.Span;
         var unit = new JsonUnit();

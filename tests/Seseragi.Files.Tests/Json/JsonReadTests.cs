@@ -104,6 +104,32 @@ public class JsonReadTests
 
     // ---------------------------------------------------------------- lines
 
+    /// <summary>
+    /// A source read at offsets in many small units, its last line with or without a newline: every line is read once,
+    /// the last one whole (a unit reads past its block to finish its last line, up to the end of the input).
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Lines_ReadAtOffsets_LastLineWhole(bool newlineLast)
+    {
+        string text = string.Join("\n", Enumerable.Range(0, 1000).Select(static i => $"{{\"a\":{i * 1001}}}")) + (newlineLast ? "\n" : "");
+        foreach (int unit in (int[])[1, 7, 37, 1000])
+        {
+            using JsonReader reader = JsonReader.Open(new BytesAccess(Encoding.UTF8.GetBytes(text)), new JsonReadOptions { UnitBytes = unit });
+            long rows = 0, sum = 0;
+            foreach (RecordBatch batch in reader.ReadBatches())
+                using (batch)
+                {
+                    rows += batch.Length;
+                    var a = (Int64Array)batch.Column(0);
+                    for (int i = 0; i < a.Length; i++) sum += a.GetValue(i)!.Value;
+                }
+            Assert.Equal(1000, rows);
+            Assert.Equal(Enumerable.Range(0, 1000).Sum(static i => i * 1001L), sum);
+        }
+    }
+
     [Fact]
     public void BlankLines_CrLf_AndNoFinalNewline_AreRead()
     {

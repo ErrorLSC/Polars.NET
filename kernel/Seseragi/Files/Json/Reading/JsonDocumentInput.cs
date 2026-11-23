@@ -24,7 +24,7 @@ namespace Kaminari.Seseragi.Files.Json.Reading;
 /// as read, and keeps a unit until <see cref="Release"/>.
 /// </para>
 /// </summary>
-internal sealed class DocumentInput : JsonInput
+internal sealed class DocumentInput : TextUnits
 {
     private const int ReadStep = 64 << 10;
     private const int InPlaceAhead = 64;
@@ -60,7 +60,7 @@ internal sealed class DocumentInput : JsonInput
     // Read in order.
     private readonly Stream? _stream;
     private readonly bool _leaveOpen;
-    private readonly Dictionary<int, JsonUnitBytes> _held = [];
+    private readonly Dictionary<int, TextUnitBytes> _held = [];
     private NativeByteBuffer? _buffer; // the next unit's bytes read so far
     private int _filled, _scanned;
     private bool _ended;
@@ -130,7 +130,7 @@ internal sealed class DocumentInput : JsonInput
         }
     }
 
-    public override async ValueTask<JsonUnitBytes?> GetAsync(int index, bool useAsync, CancellationToken cancellationToken) =>
+    public override async ValueTask<TextUnitBytes?> GetAsync(int index, bool useAsync, CancellationToken cancellationToken) =>
         _stream is null
             ? await ParallelAsync(index, useAsync, cancellationToken).ConfigureAwait(false)
             : await InOrderAsync(index, useAsync, cancellationToken).ConfigureAwait(false);
@@ -139,7 +139,7 @@ internal sealed class DocumentInput : JsonInput
     {
         lock (_lock)
         {
-            if (_held.Remove(index, out JsonUnitBytes? unit)) unit.Dispose();
+            if (_held.Remove(index, out TextUnitBytes? unit)) unit.Dispose();
         }
     }
 
@@ -153,7 +153,7 @@ internal sealed class DocumentInput : JsonInput
         raised.SetResult();
     }
 
-    private void Add(long start, long end, long elements, bool last, JsonUnitBytes? bytes)
+    private void Add(long start, long end, long elements, bool last, TextUnitBytes? bytes)
     {
         lock (_lock)
         {
@@ -178,7 +178,7 @@ internal sealed class DocumentInput : JsonInput
 
     // A unit: while it is not found, the caller summarizes the next segment (reading it first when not in place), a
     // bounded number ahead of the ones resolved, or waits for the others to.
-    private async ValueTask<JsonUnitBytes?> ParallelAsync(int index, bool useAsync, CancellationToken ct)
+    private async ValueTask<TextUnitBytes?> ParallelAsync(int index, bool useAsync, CancellationToken ct)
     {
         if (_segments < 0) await StartAsync(useAsync, ct).ConfigureAwait(false);
         while (true)
@@ -369,18 +369,18 @@ internal sealed class DocumentInput : JsonInput
     private unsafe ReadOnlySpan<byte> Slice(long start, int length) =>
         _memory is { } memory ? memory.Span.Slice((int)start, length) : new ReadOnlySpan<byte>(_mapped + start, length);
 
-    private unsafe JsonUnitBytes InPlaceBytes(int index)
+    private unsafe TextUnitBytes InPlaceBytes(int index)
     {
         UnitSpan unit;
         lock (_lock) unit = _units[index];
         int length = Length(unit);
         ReadOnlyMemory<byte> bytes = _memory is { } memory ? memory.Slice((int)unit.Start, length) : PointerMemory.Of(_mapped + unit.Start, length);
-        return new JsonUnitBytes(bytes, unit.Start == 0, null, unit.Last, unit.Elements);
+        return new TextUnitBytes(bytes, unit.Start == 0, null, unit.Last, unit.Elements);
     }
 
     // A unit read at offsets, the first time: lent its first segment (the next one's bytes up to the cut copied after
     // it), or copied from its segments when they do not fit; later, read again by its range.
-    private async ValueTask<JsonUnitBytes> BuildAsync(int index, bool useAsync, CancellationToken ct)
+    private async ValueTask<TextUnitBytes> BuildAsync(int index, bool useAsync, CancellationToken ct)
     {
         UnitSpan unit;
         bool first;
@@ -410,7 +410,7 @@ internal sealed class DocumentInput : JsonInput
                     }
                 }
                 int from = (int)(unit.Start - (long)a * _unitBytes);
-                return new JsonUnitBytes(lent.Memory.Slice(from, length), unit.Start == 0, new Lease(this, a), unit.Last, unit.Elements);
+                return new TextUnitBytes(lent.Memory.Slice(from, length), unit.Start == 0, new Lease(this, a), unit.Last, unit.Elements);
             }
         }
         var buffer = new NativeByteBuffer(Math.Max(1, length), pooled: true);
@@ -444,7 +444,7 @@ internal sealed class DocumentInput : JsonInput
                     Leave();
                 }
             }
-            return new JsonUnitBytes(buffer.Memory[..length], unit.Start == 0, new Releaser(buffer), unit.Last, unit.Elements);
+            return new TextUnitBytes(buffer.Memory[..length], unit.Start == 0, new Releaser(buffer), unit.Last, unit.Elements);
         }
         catch
         {
@@ -504,7 +504,7 @@ internal sealed class DocumentInput : JsonInput
     // ------------------------------------------------------------------ read in order
 
     // A unit of the stream: units are read and scanned in order as they are asked for, then kept until released.
-    private async ValueTask<JsonUnitBytes?> InOrderAsync(int index, bool useAsync, CancellationToken ct)
+    private async ValueTask<TextUnitBytes?> InOrderAsync(int index, bool useAsync, CancellationToken ct)
     {
         bool found;
         lock (_lock) found = index < _units.Count;
@@ -525,7 +525,7 @@ internal sealed class DocumentInput : JsonInput
         lock (_lock)
         {
             if (index >= _units.Count) return null;
-            return _held.TryGetValue(index, out JsonUnitBytes? kept) ? kept.Borrow() : throw new InvalidOperationException($"Unit {index} was released already.");
+            return _held.TryGetValue(index, out TextUnitBytes? kept) ? kept.Borrow() : throw new InvalidOperationException($"Unit {index} was released already.");
         }
     }
 
@@ -550,7 +550,7 @@ internal sealed class DocumentInput : JsonInput
                     unit.Span.Slice(cut + 1, rest).CopyTo(_buffer.Span);
                     _filled = rest;
                     _scanned -= cut + 1;
-                    Add(start, start + cut, elements, last: false, new JsonUnitBytes(unit.Memory[..cut], start == 0, new Releaser(unit), false, elements));
+                    Add(start, start + cut, elements, last: false, new TextUnitBytes(unit.Memory[..cut], start == 0, new Releaser(unit), false, elements));
                     return;
                 }
             }
@@ -558,11 +558,11 @@ internal sealed class DocumentInput : JsonInput
             {
                 NativeByteBuffer unit = _buffer;
                 _buffer = null;
-                Add(start, start + _filled, elements + 1, last: true, new JsonUnitBytes(unit.Memory[.._filled], start == 0, new Releaser(unit), true, elements + 1));
+                Add(start, start + _filled, elements + 1, last: true, new TextUnitBytes(unit.Memory[.._filled], start == 0, new Releaser(unit), true, elements + 1));
                 return;
             }
             if (_filled == _buffer.Capacity) _buffer.EnsureCapacity((long)_buffer.Capacity * 2);
-            int n = await StreamInput.ReadAsync(_stream!, _buffer, _filled, useAsync, ct).ConfigureAwait(false);
+            int n = await StreamInput.ReadAsync(_stream!, _buffer, _filled, useAsync, JsonLinesCut.Instance, ct).ConfigureAwait(false);
             if (n == 0) _ended = true;
             _filled += n;
         }
@@ -574,7 +574,7 @@ internal sealed class DocumentInput : JsonInput
         {
             if (_disposed) return;
             _disposed = true;
-            foreach (JsonUnitBytes unit in _held.Values) unit.Dispose();
+            foreach (TextUnitBytes unit in _held.Values) unit.Dispose();
             _held.Clear();
             // Segments being read or copied from are freed by the last one out.
             if (_busy == 0) FreeAll();

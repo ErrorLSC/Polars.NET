@@ -288,7 +288,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
         IRandomAccess source = await OpenSourceAsync(store, file, versions, index, ct).ConfigureAwait(false);
         try
         {
-            using JsonInput input = await JsonReader.InputAsync(source, options.Format, map: true, JsonInput.DefaultUnitBytes, threads: 1, useAsync, ct).ConfigureAwait(false);
+            using TextUnits input = await JsonReader.InputAsync(source, options.Format, map: true, TextUnits.DefaultUnitBytes, threads: 1, useAsync, ct).ConfigureAwait(false);
             await JsonReader.ObserveAsync(root, input, options.Format == JsonFormat.Document, options.InferSchemaLength, useAsync, ct).ConfigureAwait(false);
         }
         catch (Exception e) when (Named(file.Path, e) is { } named)

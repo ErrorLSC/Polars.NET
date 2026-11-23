@@ -26,14 +26,14 @@ namespace Kaminari.Seseragi.Files.Json;
 /// </summary>
 public sealed class JsonReader : IDisposable, IAsyncDisposable
 {
-    private readonly JsonInput _input;
+    private readonly TextUnits _input;
     private readonly IDisposable? _owned;
     private readonly JsonReadOptions _options;
     private readonly JsonDecodeSettings _settings;
     private readonly JsonRowFilter? _filter;
     private bool _read, _disposed;
 
-    private JsonReader(JsonInput input, IDisposable? owned, JsonReadOptions options, JsonDecodeSettings settings, JsonRowFilter? filter, bool exact)
+    private JsonReader(TextUnits input, IDisposable? owned, JsonReadOptions options, JsonDecodeSettings settings, JsonRowFilter? filter, bool exact)
     {
         _input = input;
         _owned = owned;
@@ -170,9 +170,9 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         }
         var prefixed = new PrefixedStream(head[..got], stream, options.LeaveOpen);
         Stream data = StreamInput.Decompressed(prefixed, head.AsSpan(0, got), out _);
-        JsonInput input = options.Format == JsonFormat.Document
+        TextUnits input = options.Format == JsonFormat.Document
             ? DocumentInput.Of(data, leaveOpen: false, options.UnitBytes)
-            : new StreamInput(data, leaveOpen: false, options.UnitBytes);
+            : new StreamInput(data, leaveOpen: false, options.UnitBytes, JsonLinesCut.Instance);
         return await CreateAsync(input, null, options, useAsync, ct).ConfigureAwait(false);
     }
 
@@ -180,7 +180,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         bool useAsync, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(source);
-        JsonInput input;
+        TextUnits input;
         try
         {
             input = await InputAsync(source, options.Format, mappable && options.MemoryMap == JsonMemoryMap.Auto, options.UnitBytes,
@@ -199,7 +199,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     /// the first bytes and read in order; else lines cut into blocks, a document scanned (in parallel, by
     /// <paramref name="threads"/>); a local file mapped when <paramref name="map"/> says so.
     /// </summary>
-    internal static async ValueTask<JsonInput> InputAsync(IRandomAccess source, JsonFormat format, bool map, int unitBytes, int threads,
+    internal static async ValueTask<TextUnits> InputAsync(IRandomAccess source, JsonFormat format, bool map, int unitBytes, int threads,
         bool useAsync, CancellationToken ct)
     {
         byte[] head = new byte[(int)Math.Min(4, source.Length)];
@@ -214,13 +214,13 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
         return (compressed, format) switch
         {
             (true, JsonFormat.Document) => DocumentInput.Of(decompressed, leaveOpen: false, unitBytes),
-            (true, _) => new StreamInput(decompressed, leaveOpen: false, unitBytes),
+            (true, _) => new StreamInput(decompressed, leaveOpen: false, unitBytes, JsonLinesCut.Instance),
             (false, JsonFormat.Document) => DocumentInput.Of(source, null, map, unitBytes, threads),
-            _ => new BlockInput(source, null, map, unitBytes),
+            _ => new BlockInput(source, null, map, unitBytes, JsonLinesCut.Instance),
         };
     }
 
-    private static async ValueTask<JsonReader> CreateAsync(JsonInput input, IDisposable? owned, JsonReadOptions options, bool useAsync, CancellationToken ct)
+    private static async ValueTask<JsonReader> CreateAsync(TextUnits input, IDisposable? owned, JsonReadOptions options, bool useAsync, CancellationToken ct)
     {
         try
         {
@@ -287,7 +287,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     // The columns of the first records (all of them without a length), every record taken in in input order (as
     // dataframe engines fold record types: the fields' order depends on it, so units are not walked apart and merged).
     // A document without elements (or of empty objects only) has no columns.
-    private static async ValueTask<Schema> InferAsync(JsonInput input, JsonReadOptions options, bool useAsync, CancellationToken ct)
+    private static async ValueTask<Schema> InferAsync(TextUnits input, JsonReadOptions options, bool useAsync, CancellationToken ct)
     {
         using var root = new JsonShape("");
         bool document = options.Format == JsonFormat.Document;
@@ -300,12 +300,12 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     /// Takes the first <paramref name="records"/> records of <paramref name="input"/> (all when null) into
     /// <paramref name="root"/>, in input order; errors name the line (and the array index) in the input.
     /// </summary>
-    internal static async ValueTask ObserveAsync(JsonShape root, JsonInput input, bool document, int? records, bool useAsync, CancellationToken ct)
+    internal static async ValueTask ObserveAsync(JsonShape root, TextUnits input, bool document, int? records, bool useAsync, CancellationToken ct)
     {
         long before = root.Records, lines = 0, limit = records is int count ? before + count : long.MaxValue;
         for (int i = 0; root.Records < limit && (input.Count < 0 || i < input.Count); i++)
         {
-            using JsonUnitBytes? bytes = await input.GetAsync(i, useAsync, ct).ConfigureAwait(false);
+            using TextUnitBytes? bytes = await input.GetAsync(i, useAsync, ct).ConfigureAwait(false);
             if (bytes is null) break;
             long taken = root.Records;
             var (unitLines, error) = document ? JsonDecode.ObserveDocument(root, bytes, limit) : Walk(root, bytes, limit);
@@ -315,7 +315,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     }
 
     // A unit's records taken in, up to the limit: the unit's lines read, or its failure.
-    private static (int Lines, UnitError? Error) Walk(JsonShape root, JsonUnitBytes bytes, long limit)
+    private static (int Lines, UnitError? Error) Walk(JsonShape root, TextUnitBytes bytes, long limit)
     {
         ReadOnlySpan<byte> data = JsonLines.WithoutMark(bytes.Memory.Span, bytes.FileStart);
         var reader = JsonTokenReader.Lines(data);
@@ -483,7 +483,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
 
     private async Task<JsonUnit> DecodeAsync(int index, long maxRows, bool useAsync, CancellationToken ct)
     {
-        using JsonUnitBytes? bytes = await _input.GetAsync(index, useAsync, ct).ConfigureAwait(false);
+        using TextUnitBytes? bytes = await _input.GetAsync(index, useAsync, ct).ConfigureAwait(false);
         return bytes is null ? JsonUnit.EndOfInput : Decode(bytes, _settings, _filter, _options.Format == JsonFormat.Document, maxRows);
     }
 
@@ -492,7 +492,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     /// when a row index is asked (<see cref="JsonDecodeSettings.Indexed"/>: the numbers are shifted by the records before
     /// the unit as it is delivered).
     /// </summary>
-    internal static JsonUnit Decode(JsonUnitBytes bytes, JsonDecodeSettings settings, JsonRowFilter? filter, bool document, long maxRows)
+    internal static JsonUnit Decode(TextUnitBytes bytes, JsonDecodeSettings settings, JsonRowFilter? filter, bool document, long maxRows)
     {
         JsonUnit unit = document ? JsonDecode.DecodeDocument(bytes, settings, maxRows) : JsonDecode.Decode(bytes.Memory.Span, bytes.FileStart, settings, maxRows);
         if (unit.Error is null && (filter is not null || settings.Indexed is not null)) Deliverable(unit, filter, settings.Indexed);

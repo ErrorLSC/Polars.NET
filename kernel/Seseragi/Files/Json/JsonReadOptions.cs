@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
+using Kaminari.Seseragi.Files.IO;
 
 namespace Kaminari.Seseragi.Files.Json;
 
@@ -92,7 +93,7 @@ public sealed record JsonReadOptions
     public bool LeaveOpen { get; init; }
 
     /// <summary>The bytes of a unit of work (tests cut the input finely with it).</summary>
-    internal int UnitBytes { get; init; } = Reading.JsonInput.DefaultUnitBytes;
+    internal int UnitBytes { get; init; } = TextUnits.DefaultUnitBytes;
 }
 
 /// <summary>The layout of JSON input.</summary>
