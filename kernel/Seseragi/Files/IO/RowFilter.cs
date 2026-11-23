@@ -3,19 +3,20 @@ using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Filters;
 
-namespace Kaminari.Seseragi.Files.Json.Reading;
+namespace Kaminari.Seseragi.Files.IO;
 
 /// <summary>
-/// A row filter evaluated on each decoded batch: the batch holds the selected columns and those the filter reads (in
-/// schema order); the rows it keeps of the selected columns are delivered.
+/// A row filter of a file reader: the columns decoded (the selected ones and those the filter reads, in schema order)
+/// and the program that keeps rows. Evaluated on each decoded batch (<see cref="Apply(RecordBatch)"/>: JSON), or by a
+/// reader that decodes the columns the filter reads first and the selected ones for the kept rows only (CSV).
 /// </summary>
-internal sealed class JsonRowFilter
+internal sealed class RowFilter
 {
     private readonly FilterProgram? _program;
     private readonly (int Column, string[] Fields)[] _arguments;
     private readonly int[] _output;
 
-    private JsonRowFilter(FilterProgram? program, (int, string[])[] arguments, int[] output, Schema decoded, Schema selected)
+    private RowFilter(FilterProgram? program, (int, string[])[] arguments, int[] output, Schema decoded, Schema selected)
     {
         _program = program;
         _arguments = arguments;
@@ -30,11 +31,20 @@ internal sealed class JsonRowFilter
     /// <summary>The columns delivered.</summary>
     public Schema Selected { get; }
 
+    /// <summary>The program (null when no conjunct of the filter is evaluated here: every row is kept).</summary>
+    public FilterProgram? Program => _program;
+
+    /// <summary>Per column the program reads (in its order), that column's index in <see cref="Decoded"/>.</summary>
+    public int[] Arguments => [.. _arguments.Select(a => a.Column)];
+
+    /// <summary>Per selected column, its index in <see cref="Decoded"/>.</summary>
+    public ReadOnlySpan<int> Output => _output;
+
     /// <summary>
     /// The filter of <paramref name="filter"/> over <paramref name="full"/>'s columns, delivering
     /// <paramref name="selected"/>'s; <paramref name="exact"/> tells whether every conjunct is evaluated here.
     /// </summary>
-    public static JsonRowFilter Create(Schema full, Schema selected, ScalarExpr filter, out bool exact)
+    public static RowFilter Create(Schema full, Schema selected, ScalarExpr filter, out bool exact)
     {
         LoweredFilter lowered = FilterLowering.lower(full, filter);
         exact = lowered.Exact;
@@ -43,13 +53,13 @@ internal sealed class JsonRowFilter
         foreach (FilterColumn column in program?.Columns ?? [])
         {
             if (full.GetFieldIndex(column.Path[0]) < 0)
-                throw new ArgumentException($"The filter reads column '{column.Path[0]}', which the JSON columns do not have.");
+                throw new ArgumentException($"The filter reads column '{column.Path[0]}', which the file does not have.");
             read.Add(column.Path[0]);
         }
         var decoded = new Schema([.. full.FieldsList.Where(f => read.Contains(f.Name))], full.Metadata);
         (int, string[])[] arguments = [.. (program?.Columns ?? []).Select(c => (decoded.GetFieldIndex(c.Path[0]), c.Path[1..]))];
         int[] output = [.. selected.FieldsList.Select(f => decoded.GetFieldIndex(f.Name))];
-        return new JsonRowFilter(program, arguments, output, decoded, selected);
+        return new RowFilter(program, arguments, output, decoded, selected);
     }
 
     /// <summary>
@@ -113,7 +123,7 @@ internal sealed class JsonRowFilter
     private RecordBatch Take(RecordBatch batch, ulong[] mask, int kept) => Take(batch, mask, kept, this);
 
     // The rows a mask selects, copied out of the batch (disposed).
-    private static RecordBatch Take(RecordBatch batch, ulong[] mask, int kept, JsonRowFilter? filter)
+    private static RecordBatch Take(RecordBatch batch, ulong[] mask, int kept, RowFilter? filter)
     {
         try
         {

@@ -37,8 +37,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     private bool _read, _disposed;
 
     private CsvReader(TextUnits input, IDisposable? owned, CsvReadOptions options, CsvDecodeSettings settings, int startUnit, int startOffset,
-        TemporalPattern?[] groups)
+        TemporalPattern?[] groups, bool exact)
     {
+        FiltersExactly = exact;
         _input = input;
         _owned = owned;
         _options = options;
@@ -52,8 +53,12 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     /// <summary>The columns read (after <see cref="CsvReadOptions.Columns"/>), the row index first when asked.</summary>
     public Schema Schema => _settings.Indexed ?? _settings.Schema;
 
-    /// <summary>Whether the rows delivered are exactly those <see cref="CsvReadOptions.Filter"/> keeps (true without one).</summary>
-    public bool FiltersExactly => true;
+    /// <summary>
+    /// Whether the rows delivered are exactly those <see cref="CsvReadOptions.Filter"/> keeps: true without a filter (or
+    /// without <see cref="CsvReadOptions.FilterRows"/>, when every row is delivered), false when a conjunct of it cannot
+    /// be evaluated by the reader (the rows then include some the filter drops).
+    /// </summary>
+    public bool FiltersExactly { get; }
 
     /// <summary>Opens a file.</summary>
     public static CsvReader Open(string path, CsvReadOptions? options = null) =>
@@ -181,7 +186,6 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         }
         if (!Enum.IsDefined(options.InvalidText)) throw new ArgumentOutOfRangeException(nameof(options), $"Unknown InvalidText {options.InvalidText}.");
         // Later steps of the managed reader.
-        if (options.FilterRows) throw new NotSupportedException("Row filters come with a later step of the managed CSV reader.");
         if (options.CommentPrefix is not null || options.SkipLines != 0 || options.SkipRows != 0 || options.SkipRowsAfterHeader != 0 || options.TruncateRaggedLines)
             throw new NotSupportedException("Comment lines, skipped lines and rows, and truncated ragged lines come with a later step of the managed CSV reader.");
         return new RecordRules(quote, lineEnd, null);
@@ -199,7 +203,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             var values = new CsvValueRules(tokenizer, options.MissingIsNull, options.IgnoreErrors, Bytes(options.NullValues), Bytes(options.TrueValues),
                 Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null, opened.Charset);
             Prelude prelude = await Prelude.ReadAsync(input, options, values, opened.Mark, useAsync, ct).ConfigureAwait(false);
-            return new CsvReader(input, Both(opened.Owned, owned), options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups);
+            return new CsvReader(input, Both(opened.Owned, owned), options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups, prelude.Exact);
         }
         catch
         {
@@ -224,6 +228,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         public required int StartUnit { get; init; }
         public required int StartOffset { get; init; }
         public required TemporalPattern?[] Groups { get; init; }
+        public required bool Exact { get; init; }
 
         public static async ValueTask<Prelude> ReadAsync(TextUnits input, CsvReadOptions options, CsvValueRules values, int mark, bool useAsync, CancellationToken ct)
         {
@@ -302,8 +307,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             }
             using (plan)
             {
-                (CsvDecodeSettings settings, TemporalPattern?[] groups) = plan.Finish();
-                return new Prelude { Settings = settings, StartUnit = startUnit, StartOffset = startOffset, Groups = groups };
+                (CsvDecodeSettings settings, TemporalPattern?[] groups, bool exact) = plan.Finish();
+                return new Prelude { Settings = settings, StartUnit = startUnit, StartOffset = startOffset, Groups = groups, Exact = exact };
             }
         }
 
@@ -463,7 +468,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             }
         }
 
-        public (CsvDecodeSettings, TemporalPattern?[]) Finish()
+        public (CsvDecodeSettings, TemporalPattern?[], bool Exact) Finish()
         {
             int n = _names.Length;
             Field[] full;
@@ -485,27 +490,42 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             bool[] wanted = new bool[n];
             if (_options.Columns is { } columns)
             {
-                var unknown = columns.Where(name => !_names.Contains(name)).ToList();
+                // By the columns' names (a schema given without a header names them).
+                string[] names = [.. full.Select(f => f.Name)];
+                var unknown = columns.Where(name => !names.Contains(name)).ToList();
                 if (unknown.Count > 0) throw new ArgumentException($"There are no columns named {string.Join(", ", unknown)}.", nameof(columns));
-                foreach (string name in columns) wanted[System.Array.IndexOf(_names, name)] = true;
+                foreach (string name in columns) wanted[System.Array.IndexOf(names, name)] = true;
             }
             else System.Array.Fill(wanted, true);
-            int[] byOutput = [.. Enumerable.Range(0, n).Where(c => wanted[c]).OrderBy(c => order[c])];
+            int[] all = [.. Enumerable.Range(0, n).OrderBy(c => order[c])];
+            var selected = new Schema([.. all.Where(c => wanted[c]).Select(c => full[c])], null);
+            // A row filter decodes the columns it reads too (in output order); without a program every row is kept.
+            RowFilter? filter = null;
+            bool exact = true;
+            if (_options.FilterRows && _options.Filter is { } expr)
+            {
+                filter = RowFilter.Create(new Schema([.. all.Select(c => full[c])], null), selected, expr, out exact);
+                if (filter.Program is null) filter = null;
+            }
+            Schema schema = filter?.Decoded ?? selected;
+            int[] byDecoded = [.. all.Where(c => schema.GetFieldIndex(full[c].Name) >= 0)];
             int[] slots = new int[n];
             System.Array.Fill(slots, -1);
-            for (int k = 0; k < byOutput.Length; k++) slots[byOutput[k]] = k;
-            var schema = new Schema([.. byOutput.Select(c => full[c])], null);
+            for (int k = 0; k < byDecoded.Length; k++) slots[byDecoded[k]] = k;
             // Types inferred from the first rows (not the whole input): values past them may not fit, the errors say so.
             int sample = _inference is not null && _options.InferSchemaLength is int rows ? rows : 0;
-            var settings = new CsvDecodeSettings(schema, n, slots, _values, _options.BatchSize)
+            var settings = new CsvDecodeSettings(schema, n, slots, _values, _options.BatchSize, filter)
             {
-                Indexed = Indexed(schema, _options.RowIndexColumn),
-                InferredFrom = [.. byOutput.Select(c => _given[c] is null ? sample : 0)],
+                Indexed = Indexed(selected, _options.RowIndexColumn),
+                InferredFrom = [.. byDecoded.Select(c => _given[c] is null ? sample : 0)],
             };
             // Every column's type has a decoder (NotSupportedException otherwise).
+            var none = new TemporalPattern?[schema.FieldsList.Count];
             using (var builder = settings.Builder())
-                foreach (CsvColumn column in settings.Columns(builder, new TemporalPattern?[schema.FieldsList.Count])) column.Dispose();
-            return (settings, [.. byOutput.Select(c => groups[c])]);
+                foreach (CsvColumn column in settings.Columns(builder, none)) column.Dispose();
+            using (var builder = settings.TestBuilder())
+                foreach (CsvColumn column in settings.TestColumns(builder, none)) column.Dispose();
+            return (settings, [.. byDecoded.Select(c => groups[c])], exact);
         }
 
         // The batches' schema with the row index column first (null without one).
@@ -602,7 +622,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                 unit.Dispose();
                 unit = await reader.DecodeAsync(index, Max - Rows, [.. _groups], useAsync, ct).ConfigureAwait(false);
             }
-            else if (unit.Error is { } past && past.Row >= Max - Rows)
+            else if (unit.Error is { } past && past.Delivered >= Max - Rows)
             {
                 // A failure past the rows asked is not the reader's (the unit decoded up to MaxRows of its own, not
                 // of the whole input): the unit is decoded again up to them. Batches past them are cut as delivered.
@@ -652,7 +672,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             batch = unit.Batches[_batch]!;
             unit.Batches[_batch++] = null;
             if (reader._settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), _records + reader._options.RowIndexOffset);
-            if (Rows + batch.Length > Max) batch = First(batch, (int)(Max - Rows));
+            if (Rows + batch.Length > Max) batch = RowFilter.First(batch, (int)(Max - Rows));
             Rows += batch.Length;
             return true;
         }
@@ -661,31 +681,6 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         {
             _records += unit.Rows;
             if (unit.Lines >= 0) _lines += unit.Lines;
-        }
-
-        // The first rows of a batch (disposed here).
-        private static RecordBatch First(RecordBatch batch, int rows)
-        {
-            try
-            {
-                ulong[] mask = new ulong[Masks.Words(batch.Length)];
-                Masks.SetRange(mask, 0, rows);
-                List<IArrowArray> output = new(batch.ColumnCount);
-                try
-                {
-                    for (int c = 0; c < batch.ColumnCount; c++) output.Add(ArrowFilter.Filter(batch.Column(c), mask));
-                }
-                catch
-                {
-                    foreach (IArrowArray array in output) array.Dispose();
-                    throw;
-                }
-                return new RecordBatch(batch.Schema, output, rows);
-            }
-            finally
-            {
-                batch.Dispose();
-            }
         }
     }
 
@@ -723,7 +718,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             return new CsvUnit { Lines = countLines ? _settings.Rules.Tokenizer.CountLines(bytes.Memory.Span) : -1 };
         int from = index == _startUnit ? _startOffset : 0;
         CsvUnit unit = CsvDecode.Decode(bytes.Memory.Span, from, _settings, groups, maxRows, countLines);
-        if (unit.Error is null && _settings.Indexed is not null) Numbered(unit, _settings.Indexed);
+        // A filtered unit numbers its kept rows itself.
+        if (unit.Error is null && _settings.Indexed is not null && _settings.Filter is null) Numbered(unit, _settings.Indexed);
         return unit;
     }
 

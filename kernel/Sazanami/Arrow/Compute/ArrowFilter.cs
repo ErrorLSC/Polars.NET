@@ -71,7 +71,8 @@ internal static unsafe class ArrowFilter
         int length = data.Length;
         nint validity = 0;
         long nulls = 0;
-        if (data.NullCount != 0 && !data.Buffers[0].IsEmpty)
+        // A null array (no buffers at all: nested ones reach here) has no validity to gather.
+        if (data.NullCount != 0 && data.Buffers.Length > 0 && !data.Buffers[0].IsEmpty)
         {
             var bits = (ulong*)export.Allocate(Masks.Words(count) * 8L);
             int set = GatherBits(data.Buffers[0].Span, data.Offset, selected, length, bits);

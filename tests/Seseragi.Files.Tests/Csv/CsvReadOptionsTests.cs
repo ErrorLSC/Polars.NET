@@ -259,7 +259,6 @@ public class CsvReadOptionsTests
     [Fact]
     public void LaterStepsRefused()
     {
-        Assert.Throws<NotSupportedException>(() => Read("a\n1\n", new CsvReadOptions { FilterRows = true }));
         Assert.Throws<NotSupportedException>(() => Read("a\n1\n", new CsvReadOptions { CommentPrefix = "#" }));
     }
 }

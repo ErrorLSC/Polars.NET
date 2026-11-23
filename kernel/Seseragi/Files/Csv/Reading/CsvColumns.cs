@@ -598,6 +598,34 @@ internal abstract class TemporalColumnBase(NativeColumnBuilder b, string name, C
     /// <summary>Whether a value was refused (or nulled) before the column's group was known.</summary>
     public bool RefusedUnseeded { get; protected set; }
 
+    /// <summary>
+    /// While the column has no group: the first of rows [0, <paramref name="count"/>) whose value reads in one, and that
+    /// group (nothing appended, nothing refused); <paramref name="count"/> and null when none does. Under a row filter
+    /// the rows not delivered still decide the group, in file order, as an unfiltered read does.
+    /// </summary>
+    public int FirstReading(ReadOnlySpan<byte> unit, ReadOnlySpan<CsvField> fields, int count, out TemporalPattern? group)
+    {
+        var probe = new TemporalColumn();
+        for (int r = 0; r < count; r++)
+        {
+            if (!Text(unit, fields[r], r, out ReadOnlySpan<byte> text)) continue;
+            Read(ref probe, text);
+            if (probe.Group is { } found)
+            {
+                group = found;
+                return r;
+            }
+        }
+        group = null;
+        return count;
+    }
+
+    /// <summary>Takes the group a value of an earlier row read in (<see cref="FirstReading"/>).</summary>
+    public void Adopt(TemporalPattern group) => Patterns.Group = group;
+
+    // Reads a value into a probe (which takes the value's group when it reads).
+    protected abstract void Read(ref TemporalColumn probe, ReadOnlySpan<byte> text);
+
     /// <summary>A refused value; noted when it came before the group was known.</summary>
     protected bool Refused(ReadOnlySpan<byte> text, string why, out CsvValueError? error, bool hint = true)
     {
@@ -627,6 +655,8 @@ internal sealed class DateColumn(NativeColumnBuilder b, string name, CsvValueRul
         }
         return -1;
     }
+
+    protected override void Read(ref TemporalColumn probe, ReadOnlySpan<byte> text) => probe.ReadDate(text, out _);
 
     public static string Describe(TemporalPattern group) => group switch
     {
@@ -681,6 +711,8 @@ internal sealed class DatetimeColumn(NativeColumnBuilder b, string name, CsvValu
         }
         return -1;
     }
+
+    protected override void Read(ref TemporalColumn probe, ReadOnlySpan<byte> text) => probe.ReadDatetime(text, type.Unit, out _);
 
     public static string UnitName(TimeUnit unit) => unit switch
     {

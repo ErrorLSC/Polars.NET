@@ -150,6 +150,13 @@ internal abstract unsafe class NativeColumnBuilder(IArrowType type) : IDisposabl
 
     protected virtual void ReserveValues(long slots, long dataBytes) { }
 
+    /// <summary>
+    /// Appends rows of <paramref name="source"/>, an array of this builder's type: those listed in
+    /// <paramref name="rows"/>, or the first <paramref name="count"/> when the list is empty. False (nothing appended)
+    /// when this builder does not take rows from arrays (a decoder then appends them itself).
+    /// </summary>
+    public virtual bool AppendRows(ArrayData source, ReadOnlySpan<int> rows, int count) => false;
+
     protected abstract void FreeBuffers();
 
     public void Dispose()

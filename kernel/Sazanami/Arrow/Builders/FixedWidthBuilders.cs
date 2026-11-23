@@ -134,6 +134,45 @@ internal sealed unsafe class NativeFixedWidthBuilder<T>(IArrowType type) : Nativ
         MarkNulls(count);
     }
 
+    public override bool AppendRows(ArrayData source, ReadOnlySpan<int> rows, int count)
+    {
+        if (source.Buffers.Length < 2) return false;
+        ReadOnlySpan<T> values = MemoryMarshal.Cast<byte, T>(source.Buffers[1].Span)[source.Offset..];
+        ReadOnlySpan<byte> validity = source.NullCount != 0 && !source.Buffers[0].IsEmpty ? source.Buffers[0].Span : default;
+        if (validity.IsEmpty)
+        {
+            Span<T> to = AppendSlots(count);
+            if (rows.IsEmpty) values[..count].CopyTo(to);
+            else
+                for (int i = 0; i < count; i++) to[i] = values[rows[i]];
+            return true;
+        }
+        if (rows.IsEmpty)
+        {
+            Span<T> to = AppendUninitializedSlots(Kernels.SlotMask.FromBits(validity, source.Offset, count));
+            values[..count].CopyTo(to);
+            return true;
+        }
+        // Gathered rows: their validity as one byte per slot, nulls written as zero.
+        Buffers.NativeArray<byte>? scratch = count <= 4096 ? null : new Buffers.NativeArray<byte>(count);
+        Span<byte> valid = scratch is null ? stackalloc byte[count] : scratch.AsSpan(0, count);
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                long bit = source.Offset + (long)rows[i];
+                valid[i] = (byte)((validity[(int)(bit >> 3)] >> (int)(bit & 7)) & 1);
+            }
+            Span<T> to = AppendUninitializedSlots(valid);
+            for (int i = 0; i < count; i++) to[i] = valid[i] != 0 ? values[rows[i]] : default;
+        }
+        finally
+        {
+            scratch?.Dispose();
+        }
+        return true;
+    }
+
     /// <summary>Appends values given as raw little-endian bytes (a whole number of <typeparamref name="T"/>).</summary>
     public void AppendRaw(ReadOnlySpan<byte> littleEndian)
     {

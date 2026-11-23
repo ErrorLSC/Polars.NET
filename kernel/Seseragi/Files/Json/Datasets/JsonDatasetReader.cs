@@ -195,7 +195,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
     /// </summary>
     /// <remarks>A file only counted (<see cref="CountOnly"/>: left out by a filter over partition columns while a row index
     /// is asked) has its records decoded without columns, their number taken, nothing delivered.</remarks>
-    private sealed record FilePlan(JsonDecodeSettings Settings, JsonRowFilter? Filter, DatasetShape.Converted Converted, bool FilterAfter, bool CountOnly = false);
+    private sealed record FilePlan(JsonDecodeSettings Settings, RowFilter? Filter, DatasetShape.Converted Converted, bool FilterAfter, bool CountOnly = false);
 
     /// <summary>The plan of the files only counted, made once.</summary>
     private FilePlan? _counting;
@@ -272,7 +272,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         }
     }
 
-    private (JsonDecodeSettings Settings, JsonRowFilter? Filter, bool Exact) Prepare(DatasetShape.FileColumns columns, ScalarExpr? filter, bool after, string path,
+    private (JsonDecodeSettings Settings, RowFilter? Filter, bool Exact) Prepare(DatasetShape.FileColumns columns, ScalarExpr? filter, bool after, string path,
         bool rowIndex = true)
     {
         // A document's fields the inference did not see are errors, as in one file.

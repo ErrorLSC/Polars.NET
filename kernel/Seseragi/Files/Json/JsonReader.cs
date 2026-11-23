@@ -30,10 +30,10 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     private readonly IDisposable? _owned;
     private readonly JsonReadOptions _options;
     private readonly JsonDecodeSettings _settings;
-    private readonly JsonRowFilter? _filter;
+    private readonly RowFilter? _filter;
     private bool _read, _disposed;
 
-    private JsonReader(TextUnits input, IDisposable? owned, JsonReadOptions options, JsonDecodeSettings settings, JsonRowFilter? filter, bool exact)
+    private JsonReader(TextUnits input, IDisposable? owned, JsonReadOptions options, JsonDecodeSettings settings, RowFilter? filter, bool exact)
     {
         _input = input;
         _owned = owned;
@@ -252,17 +252,17 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     /// too, the others passed over (strictly: only those, see <see cref="JsonDecodeSettings"/>). Fails when a column's
     /// type has no decoder.
     /// </summary>
-    internal static (JsonDecodeSettings Settings, JsonRowFilter? Filter, bool Exact) Prepare(Schema full, IReadOnlyList<string>? columns, ScalarExpr? filter,
+    internal static (JsonDecodeSettings Settings, RowFilter? Filter, bool Exact) Prepare(Schema full, IReadOnlyList<string>? columns, ScalarExpr? filter,
         JsonReadOptions options, bool strict)
     {
         Schema schema = full;
         List<string> passedOver = [];
         if (columns is not null) schema = Project(full, columns, passedOver);
-        JsonRowFilter? rows = null;
+        RowFilter? rows = null;
         bool exact = true;
         if (filter is not null)
         {
-            rows = JsonRowFilter.Create(full, schema, filter, out exact);
+            rows = RowFilter.Create(full, schema, filter, out exact);
             schema = rows.Decoded;
             passedOver = [.. full.FieldsList.Where(f => schema.GetFieldIndex(f.Name) < 0).Select(f => f.Name)];
         }
@@ -400,7 +400,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
                         unit.Batches[k] = null;
                         if (_settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), records);
                         // Filtered rows are counted as they are delivered: the last batch is cut to the limit.
-                        if (rows + batch.Length > max) batch = JsonRowFilter.First(batch, (int)(max - rows));
+                        if (rows + batch.Length > max) batch = RowFilter.First(batch, (int)(max - rows));
                         rows += batch.Length;
                         yield return batch;
                     }
@@ -452,7 +452,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
                         unit.Batches[k] = null;
                         if (_settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), records);
                         // Filtered rows are counted as they are delivered: the last batch is cut to the limit.
-                        if (rows + batch.Length > max) batch = JsonRowFilter.First(batch, (int)(max - rows));
+                        if (rows + batch.Length > max) batch = RowFilter.First(batch, (int)(max - rows));
                         rows += batch.Length;
                         yield return batch;
                     }
@@ -506,7 +506,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     /// when a row index is asked (<see cref="JsonDecodeSettings.Indexed"/>: the numbers are shifted by the records before
     /// the unit as it is delivered).
     /// </summary>
-    internal static JsonUnit Decode(TextUnitBytes bytes, JsonDecodeSettings settings, JsonRowFilter? filter, bool document, long maxRows)
+    internal static JsonUnit Decode(TextUnitBytes bytes, JsonDecodeSettings settings, RowFilter? filter, bool document, long maxRows)
     {
         JsonUnit unit = document ? JsonDecode.DecodeDocument(bytes, settings, maxRows) : JsonDecode.Decode(bytes.Memory.Span, bytes.FileStart, settings, maxRows);
         if (unit.Error is null && (filter is not null || settings.Indexed is not null)) Deliverable(unit, filter, settings.Indexed);
@@ -514,7 +514,7 @@ public sealed class JsonReader : IDisposable, IAsyncDisposable
     }
 
     // A unit's batches filtered and numbered (on the thread that decoded it); batches left without rows are dropped.
-    private static void Deliverable(JsonUnit unit, JsonRowFilter? rowFilter, Schema? indexed)
+    private static void Deliverable(JsonUnit unit, RowFilter? rowFilter, Schema? indexed)
     {
         try
         {

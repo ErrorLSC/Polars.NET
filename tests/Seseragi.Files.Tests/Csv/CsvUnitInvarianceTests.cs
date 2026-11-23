@@ -58,7 +58,32 @@ public class CsvUnitInvarianceTests
     {
         var random = new Random(seed * 7 + 1);
         (byte[] utf8, CsvReadOptions options) = Generate(random);
-        if (!System.Text.Unicode.Utf8.IsValid(utf8)) return; // an f1 planted error: UTF-8 cases cover it
+        if (Encode(random, utf8, options) is not var (bytes, page, text, planted, encodedOptions)) return; // an f1 planted error: UTF-8 cases cover it
+        options = encodedOptions;
+        string whole = Outcome(() => CsvBehaviourTests.Read(bytes, options with { MaxDegreeOfParallelism = 1 }, CsvBehaviourTests.CsvSource.Memory));
+        foreach (int unit in (int[])[1, 3, 7, 64, 4096])
+            foreach (CsvBehaviourTests.CsvSource source in Enum.GetValues<CsvBehaviourTests.CsvSource>())
+            {
+                if (source == CsvBehaviourTests.CsvSource.PathUnmapped && unit < 64) continue;
+                string got = Outcome(() => CsvBehaviourTests.Read(bytes, options with { UnitBytes = unit, MaxDegreeOfParallelism = 8 }, source));
+                if (got != whole) Assert.Fail($"seed {seed}, page {page}, unit {unit}, {source}:\nwhole: {Cut(whole)}\ngot:   {Cut(got)}");
+            }
+        if (!planted)
+        {
+            string asUtf8 = Outcome(() => CsvBehaviourTests.Read(Encoding.UTF8.GetBytes(text), options with { Encoding = null, InvalidText = CsvInvalidText.Error, ForceTranscode = false }, CsvBehaviourTests.CsvSource.Memory));
+            if (asUtf8 != whole) Assert.Fail($"seed {seed}, page {page}: in UTF-8\n{Cut(asUtf8)}\nin the page\n{Cut(whole)}");
+        }
+
+        static string Cut(string s) => s.Length > 2000 ? s[..2000] + "…" : s;
+    }
+
+    /// <summary>
+    /// A generated file in a random encoding (non-ASCII characters dropped when the page lacks them, else UTF-16), strict
+    /// or lossy, a tenth with an invalid unit planted (double-byte pages, UTF-16); null for a file holding invalid UTF-8.
+    /// </summary>
+    internal static (byte[] Bytes, int Page, string Text, bool Planted, CsvReadOptions Options)? Encode(Random random, byte[] utf8, CsvReadOptions options)
+    {
+        if (!System.Text.Unicode.Utf8.IsValid(utf8)) return null;
         string text = Encoding.UTF8.GetString(utf8);
         int page = Pages[random.Next(Pages.Length)];
         Encoding encoding = StrictEncoding(page);
@@ -87,21 +112,7 @@ public class CsvUnitInvarianceTests
             InvalidText = random.Next(3) == 0 ? CsvInvalidText.Replace : CsvInvalidText.Error,
             ForceTranscode = random.Next(4) == 0,
         };
-        string whole = Outcome(() => CsvBehaviourTests.Read(bytes, options with { MaxDegreeOfParallelism = 1 }, CsvBehaviourTests.CsvSource.Memory));
-        foreach (int unit in (int[])[1, 3, 7, 64, 4096])
-            foreach (CsvBehaviourTests.CsvSource source in Enum.GetValues<CsvBehaviourTests.CsvSource>())
-            {
-                if (source == CsvBehaviourTests.CsvSource.PathUnmapped && unit < 64) continue;
-                string got = Outcome(() => CsvBehaviourTests.Read(bytes, options with { UnitBytes = unit, MaxDegreeOfParallelism = 8 }, source));
-                if (got != whole) Assert.Fail($"seed {seed}, page {page}, unit {unit}, {source}:\nwhole: {Cut(whole)}\ngot:   {Cut(got)}");
-            }
-        if (!planted)
-        {
-            string asUtf8 = Outcome(() => CsvBehaviourTests.Read(Encoding.UTF8.GetBytes(text), options with { Encoding = null, InvalidText = CsvInvalidText.Error, ForceTranscode = false }, CsvBehaviourTests.CsvSource.Memory));
-            if (asUtf8 != whole) Assert.Fail($"seed {seed}, page {page}: in UTF-8\n{Cut(asUtf8)}\nin the page\n{Cut(whole)}");
-        }
-
-        static string Cut(string s) => s.Length > 2000 ? s[..2000] + "…" : s;
+        return (bytes, page, text, planted, options);
     }
 
     private static Encoding StrictEncoding(int page)
@@ -166,7 +177,7 @@ public class CsvUnitInvarianceTests
         Assert.True(Interlocked.Read(ref CsvReader.Redecoded) > before, "no unit was decoded again");
     }
 
-    private static string Outcome(Func<string> read)
+    internal static string Outcome(Func<string> read)
     {
         try { return read(); }
         catch (Exception e) when (e is CsvFormatException or CsvValueException) { return $"{e.GetType().Name}: {e.Message}"; }

@@ -217,6 +217,15 @@ public class ArrowFilterTests
         using IArrowArray lists = ArrowFilter.Filter(list.Build(), [1]); // nested arrays filter too (see below)
         Assert.Equal(1, lists.Length);
         Assert.Throws<ArgumentException>(() => ArrowFilter.Filter(new NullArray(100), [1]));
+        // A null child of a struct (a JSON field that only ever held nulls) and of a list.
+        var withNull = new StructType([new Field("a", Int32Type.Default, true), new Field("n", NullType.Default, true)]);
+        using IArrowArray structs = ArrowFilter.Filter(new StructArray(withNull, 100, [new Int32Array.Builder().AppendRange(Enumerable.Range(0, 100)).Build(), new NullArray(100)], ArrowBuffer.Empty, 0), [0b1011, 0]);
+        Assert.Equal(3, structs.Length);
+        Assert.Equal(3, ((StructArray)structs).Fields[1].Length);
+        Assert.Equal(3, ((Int32Array)((StructArray)structs).Fields[0]).GetValue(2));
+        var nullList = new ListArray(new ListType(new Field("item", NullType.Default, true)), 2, new ArrowBuffer.Builder<int>().Append(0).Append(2).Append(5).Build(), new NullArray(5), ArrowBuffer.Empty, 0);
+        using IArrowArray nullLists = ArrowFilter.Filter(nullList, [0b10]);
+        Assert.Equal(3, ((ListArray)nullLists).Values.Length);
     }
 
     [Fact]

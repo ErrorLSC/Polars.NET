@@ -56,3 +56,8 @@ systemd-run --user --scope -q -p MemoryMax=8G timeout 30m dotnet <tool.dll> <arg
 ```
 
 Pick the limits for the job (a big diff may need more memory, a full suite more time), but never run without them.
+
+Timing harnesses that run Polars (native) and managed code in one process: Polars' rayon workers keep spinning for a
+while after a native op finishes and slow the managed op that runs right after it. Pause between a native op and the
+next managed one (200–300 ms), and compare managed against managed (A/B, filtered vs unfiltered) in processes without
+native ops. Compared runs must do the same work: same data, same query or predicate, same settings.
