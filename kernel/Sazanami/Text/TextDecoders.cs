@@ -35,6 +35,39 @@ internal abstract class TextDecoder(bool replace)
 
     public abstract OperationStatus Decode(ReadOnlySpan<byte> source, Span<byte> destination, bool final, out int consumed, out int written);
 
+    /// <summary>
+    /// The offset of the first invalid unit of <paramref name="source"/> (whole: a unit cut by its end is invalid), or
+    /// -1 when it is all valid; checked as a strict decoder would decode it, whatever <see cref="Replace"/> says.
+    /// Stateless decoders only (the source is a unit of its own).
+    /// </summary>
+    public virtual int FirstInvalid(ReadOnlySpan<byte> source)
+    {
+        if (Ascii.IsValid(source) && Layout != TextLayout.Utf16) return -1;
+        TextDecoder strict = Replace ? Strict() : this;
+        Span<byte> sink = stackalloc byte[4096];
+        int at = 0;
+        while (at < source.Length)
+        {
+            // At most a third of the sink's bytes in: the output always fits.
+            ReadOnlySpan<byte> chunk = source[at..Math.Min(source.Length, at + sink.Length / 3)];
+            OperationStatus status = strict.Decode(chunk, sink, final: at + chunk.Length == source.Length, out int consumed, out _);
+            if (status == OperationStatus.InvalidData) return at + consumed;
+            if (status == OperationStatus.NeedMoreData && consumed == 0)
+            {
+                // A unit cut by the chunk: give it the bytes after it.
+                chunk = source[at..Math.Min(source.Length, at + 8)];
+                status = strict.Decode(chunk, sink, final: at + chunk.Length == source.Length, out consumed, out _);
+                if (status == OperationStatus.InvalidData) return at + consumed;
+                if (consumed == 0) return at;
+            }
+            at += consumed;
+        }
+        return -1;
+    }
+
+    /// <summary>This decoder's strict twin.</summary>
+    private protected virtual TextDecoder Strict() => throw new NotSupportedException($"{GetType().Name} has no strict twin.");
+
     private protected static ReadOnlySpan<byte> ReplacementUtf8 => "�"u8;
 }
 
@@ -42,6 +75,20 @@ internal abstract class TextDecoder(bool replace)
 internal sealed class Utf8TextDecoder(bool replace) : TextDecoder(replace)
 {
     public override TextLayout Layout => TextLayout.AsciiCompatible;
+
+    public override int FirstInvalid(ReadOnlySpan<byte> source)
+    {
+        if (Utf8.IsValid(source)) return -1;
+        int at = 0;
+        while (at < source.Length)
+        {
+            if (Rune.DecodeFromUtf8(source[at..], out _, out int length) != OperationStatus.Done) return at;
+            at += length;
+        }
+        return -1;
+    }
+
+    private protected override TextDecoder Strict() => new Utf8TextDecoder(false);
 
     public override OperationStatus Decode(ReadOnlySpan<byte> source, Span<byte> destination, bool final, out int consumed, out int written)
     {
@@ -111,6 +158,8 @@ internal sealed class Utf16TextDecoder(bool bigEndian, bool replace) : TextDecod
 
     public override TextLayout Layout => TextLayout.Utf16;
 
+    private protected override TextDecoder Strict() => new Utf16TextDecoder(BigEndian, false);
+
     public override OperationStatus Decode(ReadOnlySpan<byte> source, Span<byte> destination, bool final, out int consumed, out int written)
     {
         consumed = 0;
@@ -156,6 +205,7 @@ internal sealed class SequentialTextDecoder : TextDecoder
     private readonly char[] _chars = new char[4096];
     private int _start, _end; // decoded characters not written yet
     private bool _flushed;
+    private int _invalidIn = -1; // bytes before a known invalid unit, from the source's start (-1: none)
 
     public SequentialTextDecoder(Encoding encoding, bool replace) : base(replace)
     {
@@ -175,25 +225,37 @@ internal sealed class SequentialTextDecoder : TextDecoder
         written = 0;
         while (true)
         {
-            bool input = consumed < source.Length;
+            // Up to a known invalid unit only: the characters before it are written first, then it is reported.
+            int limit = _invalidIn >= 0 ? Math.Min(_invalidIn, source.Length) : source.Length;
+            bool input = consumed < limit;
             if (_end > _start)
             {
                 OperationStatus status = Utf8.FromUtf16(_chars.AsSpan(_start, _end - _start), destination[written..], out int read, out int wrote,
                     replaceInvalidSequences: true, isFinalBlock: !input && final && _flushed);
                 written += wrote;
                 _start += read;
-                if (status == OperationStatus.DestinationTooSmall) return status;
+                if (status == OperationStatus.DestinationTooSmall)
+                {
+                    if (_invalidIn >= 0) _invalidIn -= consumed;
+                    return status;
+                }
             }
             // A high surrogate whose low half is still to come stays, at the front.
             _chars.AsSpan(_start, _end - _start).CopyTo(_chars);
             (_start, _end) = (0, _end - _start);
+            if (_invalidIn >= 0 && consumed == _invalidIn)
+            {
+                _invalidIn = -1;
+                return OperationStatus.InvalidData;
+            }
             if (!input && (!final || _flushed))
             {
                 _flushed = false;
+                if (_invalidIn >= 0) _invalidIn -= consumed;
                 return OperationStatus.Done;
             }
-            int take = Math.Min(source.Length - consumed, 2048);
-            bool flush = final && consumed + take == source.Length;
+            int take = Math.Min(limit - consumed, 2048);
+            bool flush = final && _invalidIn < 0 && consumed + take == source.Length;
             int used, count;
             try
             {
@@ -201,10 +263,17 @@ internal sealed class SequentialTextDecoder : TextDecoder
             }
             catch (DecoderFallbackException e)
             {
-                consumed += Math.Max(0, e.Index);
+                // The characters before the invalid unit are decoded again (the failed call returned none of them).
+                int good = Math.Max(0, e.Index);
                 _decoder.Reset();
-                (_start, _end, _flushed) = (0, 0, false);
-                return OperationStatus.InvalidData;
+                _invalidIn = consumed + good;
+                if (good > 0)
+                {
+                    _decoder.Convert(source.Slice(consumed, good), _chars.AsSpan(_end), false, out used, out count, out _);
+                    _end += count;
+                    consumed += used;
+                }
+                continue;
             }
             _end += count;
             consumed += used;

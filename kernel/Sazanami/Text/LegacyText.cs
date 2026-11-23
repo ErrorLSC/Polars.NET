@@ -44,6 +44,36 @@ internal sealed class LegacyText : TextDecoder
 
     public int CodePage => _tables.CodePage;
 
+    /// <summary>Whether the page has two-byte characters (a lead byte's trail may be any byte from 0x40 up).</summary>
+    public bool DoubleByte => System.Array.IndexOf(_tables.Single, Lead) >= 0;
+
+    public override int FirstInvalid(ReadOnlySpan<byte> source)
+    {
+        uint[] single = _tables.Single, pair = _tables.Pair;
+        int at = 0;
+        while (at < source.Length)
+        {
+            int run = source[at..].IndexOfAnyExceptInRange((byte)0, (byte)0x7F);
+            if (run < 0) return -1;
+            at += run;
+            uint b = source[at];
+            uint v = single[b];
+            if (v == Lead)
+            {
+                if (at + 1 == source.Length) return at;
+                v = pair[(int)((b - 0x80) << 8 | source[at + 1])];
+                if (v == 0) return at;
+                at += 2;
+                continue;
+            }
+            if (v == 0) return at;
+            at++;
+        }
+        return -1;
+    }
+
+    private protected override TextDecoder Strict() => new LegacyText(_tables, false);
+
     /// <summary>A table decoder for <paramref name="codePage"/>, or null when it is not on the allow-list.</summary>
     public static LegacyText? For(int codePage, bool replace) =>
         AllowList.Contains(codePage) ? new LegacyText(Built.GetOrAdd(codePage, static cp => Tables.Build(cp)), replace) : null;
@@ -60,7 +90,13 @@ internal sealed class LegacyText : TextDecoder
             // An ASCII run: copied as it is.
             int run = source[at..].IndexOfAnyExceptInRange((byte)0, (byte)0x7F);
             if (run < 0) run = length - at;
-            if (destination.Length - w < run) return Stop(OperationStatus.DestinationTooSmall, at, w, out consumed, out written);
+            if (destination.Length - w < run)
+            {
+                // As much of the run as fits: a small destination still makes progress.
+                int fits = destination.Length - w;
+                source.Slice(at, fits).CopyTo(destination[w..]);
+                return Stop(OperationStatus.DestinationTooSmall, at + fits, w + fits, out consumed, out written);
+            }
             source.Slice(at, run).CopyTo(destination[w..]);
             at += run;
             w += run;

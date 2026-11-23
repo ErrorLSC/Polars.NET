@@ -97,7 +97,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             throw new CsvFormatException($"The text holds an unpaired surrogate at character {read}.");
         }
         var source = new MemoryRandomAccess(buffer.Memory[..written]);
-        return OpenSourceAsync(source, new Releaser(buffer), options ?? new CsvReadOptions(), mappable: false, useAsync: false, default).GetAwaiter().GetResult();
+        // The text is UTF-8 now, whatever encoding the options name.
+        CsvReadOptions utf8 = (options ?? new CsvReadOptions()) with { Encoding = null, InvalidText = CsvInvalidText.Error };
+        return OpenSourceAsync(source, new Releaser(buffer), utf8, mappable: false, useAsync: false, default).GetAwaiter().GetResult();
     }
 
     private static ValueTask<CsvReader> OpenPathAsync(string path, CsvReadOptions options, bool useAsync, CancellationToken ct)
@@ -123,52 +125,32 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             var source = new RandomAccessSource(stream, options.LeaveOpen, null);
             return await OpenSourceAsync(source, source, options, mappable: false, useAsync, ct).ConfigureAwait(false);
         }
-        RecordCut cut;
-        try { cut = Cut(Validate(options)); }
+        CsvOpened opened;
+        try { opened = await CsvInput.OpenAsync(stream, options, Cut(Validate(options)), useAsync, ct).ConfigureAwait(false); }
         catch
         {
             if (!options.LeaveOpen) await stream.DisposeAsync().ConfigureAwait(false);
             throw;
         }
-        // A stream read in order: its first bytes tell whether it is compressed.
-        byte[] head = new byte[4];
-        int got = 0;
-        try
-        {
-            while (got < head.Length)
-            {
-                int n = useAsync ? await stream.ReadAsync(head.AsMemory(got), ct).ConfigureAwait(false) : stream.Read(head.AsSpan(got));
-                if (n == 0) break;
-                got += n;
-            }
-        }
-        catch when (!options.LeaveOpen)
-        {
-            await stream.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-        var prefixed = new PrefixedStream(head[..got], stream, options.LeaveOpen);
-        Stream data = StreamInput.Decompressed(prefixed, head.AsSpan(0, got), out _);
-        return await CreateAsync(new StreamInput(data, leaveOpen: false, options.UnitBytes, cut), null, options, useAsync, ct).ConfigureAwait(false);
+        return await CreateAsync(opened, null, options, useAsync, ct).ConfigureAwait(false);
     }
 
     private static async ValueTask<CsvReader> OpenSourceAsync(IRandomAccess source, IDisposable? owned, CsvReadOptions options, bool mappable,
         bool useAsync, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(source);
-        TextUnits input;
+        CsvOpened opened;
         try
         {
-            RecordCut cut = Cut(Validate(options));
-            input = await TextUnits.RecordsAsync(source, mappable && options.MemoryMap == CsvMemoryMap.Auto, options.UnitBytes, cut,
-                options.MaxDegreeOfParallelism, useAsync, ct).ConfigureAwait(false);
+            opened = await CsvInput.OpenAsync(source, options, Cut(Validate(options)), mappable && options.MemoryMap == CsvMemoryMap.Auto, useAsync, ct)
+                .ConfigureAwait(false);
         }
         catch
         {
             owned?.Dispose();
             throw;
         }
-        return await CreateAsync(input, owned, options, useAsync, ct).ConfigureAwait(false);
+        return await CreateAsync(opened, owned, options, useAsync, ct).ConfigureAwait(false);
     }
 
     // The record rules of the options (checked).
@@ -197,9 +179,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             if (t.Length == 0 || t.Any(char.IsAsciiDigit)) throw new ArgumentException("The thousands separator is one or more characters, no digits.", nameof(options));
             if (t == (options.DecimalComma ? "," : ".")) throw new ArgumentException($"The thousands separator '{t}' is the decimal point too.", nameof(options));
         }
+        if (!Enum.IsDefined(options.InvalidText)) throw new ArgumentOutOfRangeException(nameof(options), $"Unknown InvalidText {options.InvalidText}.");
         // Later steps of the managed reader.
-        if (options.Encoding is { CodePage: not 65001 } || options.InvalidText != CsvInvalidText.Error)
-            throw new NotSupportedException("Encodings other than strict UTF-8 come with the next step of the managed CSV reader.");
         if (options.FilterRows) throw new NotSupportedException("Row filters come with a later step of the managed CSV reader.");
         if (options.CommentPrefix is not null || options.SkipLines != 0 || options.SkipRows != 0 || options.SkipRowsAfterHeader != 0 || options.TruncateRaggedLines)
             throw new NotSupportedException("Comment lines, skipped lines and rows, and truncated ragged lines come with a later step of the managed CSV reader.");
@@ -208,15 +189,16 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         static byte Ascii(char c, string what) => c < 0x80 ? (byte)c : throw new ArgumentException($"{what} must be an ASCII character.", nameof(options));
     }
 
-    private static async ValueTask<CsvReader> CreateAsync(TextUnits input, IDisposable? owned, CsvReadOptions options, bool useAsync, CancellationToken ct)
+    private static async ValueTask<CsvReader> CreateAsync(CsvOpened opened, IDisposable? owned, CsvReadOptions options, bool useAsync, CancellationToken ct)
     {
+        TextUnits input = opened.Units;
         try
         {
             RecordRules rules = Validate(options);
             var tokenizer = new CsvTokenizer((byte)options.Separator, rules.Quote, rules.LineEnd);
             var values = new CsvValueRules(tokenizer, options.MissingIsNull, options.IgnoreErrors, Bytes(options.NullValues), Bytes(options.TrueValues),
-                Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null);
-            Prelude prelude = await Prelude.ReadAsync(input, options, values, useAsync, ct).ConfigureAwait(false);
+                Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null, opened.Charset);
+            Prelude prelude = await Prelude.ReadAsync(input, options, values, opened.Mark, useAsync, ct).ConfigureAwait(false);
             return new CsvReader(input, owned, options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups);
         }
         catch
@@ -240,7 +222,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         public required int StartOffset { get; init; }
         public required TemporalPattern?[] Groups { get; init; }
 
-        public static async ValueTask<Prelude> ReadAsync(TextUnits input, CsvReadOptions options, CsvValueRules values, bool useAsync, CancellationToken ct)
+        public static async ValueTask<Prelude> ReadAsync(TextUnits input, CsvReadOptions options, CsvValueRules values, int mark, bool useAsync, CancellationToken ct)
         {
             CsvTokenizer tokenizer = values.Tokenizer;
             List<CsvField> fields = [];
@@ -258,7 +240,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                     if (unit is null) break;
                     ReadOnlySpan<byte> bytes = unit.Memory.Span;
                     int pos = 0;
-                    if (unit.FileStart) pos = Mark(bytes);
+                    if (unit.FileStart) pos = Math.Min(mark, bytes.Length);
+                    bool clean = values.Charset.Clean(bytes);
                     if (!options.HasHeader && u == 0) startOffset = pos;
                     if (!started)
                     {
@@ -273,8 +256,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                         FieldEnd end = tokenizer.Record(bytes, ref pos, fields, out _, out int failed);
                         long at = lines + tokenizer.CountLines(bytes[..start]) + 1;
                         if (end > FieldEnd.Input) throw new CsvFormatException($"The header (line {at}): {CsvDecode.Malformed(end, failed, fields.Count + 1)}", 0, at);
-                        if (CsvDecode.FirstInvalidUtf8(bytes[start..pos]) >= 0) throw new CsvFormatException($"The header (line {at}): {CsvDecode.NotUtf8}", 0, at);
-                        names = Names(bytes, fields, tokenizer);
+                        if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"The header (line {at}): {values.Charset.Invalid}", 0, at);
+                        names = Names(bytes, fields, tokenizer, values.Charset);
                         started = sawRecord = true;
                         startUnit = u;
                         startOffset = pos;
@@ -294,10 +277,10 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                         if (end > FieldEnd.Input) throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(end, failed, columns)}", row, at);
                         if (fields.Count > columns)
                             throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(FieldEnd.TooManyFields, columns, columns)}", row, at);
-                        if (CsvDecode.FirstInvalidUtf8(bytes[start..pos]) >= 0) throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.NotUtf8}", row, at);
+                        if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"Row {row} (line {at}): {values.Charset.Invalid}", row, at);
                         sawRecord = true;
                         rows++;
-                        plan?.Observe(bytes, fields, rows);
+                        plan?.Observe(bytes, fields, rows, clean);
                     }
                     if (rows >= limit && plan is not null) break;
                     lines += tokenizer.CountLines(bytes);
@@ -321,17 +304,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             }
         }
 
-        // The UTF-8 byte order mark's length at the input's start (another mark is an encoding not read yet).
-        private static int Mark(ReadOnlySpan<byte> bytes)
-        {
-            Encoding? marked = TextEncodings.DetectBom(bytes, out int length);
-            if (marked is null) return 0;
-            if (marked.CodePage != 65001) throw new NotSupportedException($"{marked.WebName} input comes with the next step of the managed CSV reader.");
-            return length;
-        }
-
-        // The header's names: quotes removed and undoubled; duplicates renamed name_duplicated_0, _1 … (as the engine names them).
-        private static string[] Names(ReadOnlySpan<byte> bytes, List<CsvField> fields, CsvTokenizer tokenizer)
+        // The header's names: quotes removed and undoubled, decoded; duplicates renamed name_duplicated_0, _1 … (as the
+        // engine names them).
+        private static string[] Names(ReadOnlySpan<byte> bytes, List<CsvField> fields, CsvTokenizer tokenizer, CsvCharset charset)
         {
             var names = new string[fields.Count];
             Dictionary<string, int> seen = [];
@@ -339,14 +314,18 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             for (int c = 0; c < names.Length; c++)
             {
                 CsvField field = fields[c];
-                ReadOnlySpan<byte> text = bytes.Slice(field.Start, field.Length);
-                string name;
+                scoped ReadOnlySpan<byte> text = bytes.Slice(field.Start, field.Length);
                 if (field.IsEscaped)
                 {
                     Span<byte> to = text.Length <= stack.Length ? stack : new byte[text.Length];
-                    name = Encoding.UTF8.GetString(to[..tokenizer.Unescape(text, to)]);
+                    text = to[..tokenizer.Unescape(text, to)];
                 }
-                else name = Encoding.UTF8.GetString(text);
+                if (charset.FieldDecoder is not null && !System.Text.Ascii.IsValid(text))
+                {
+                    byte[] decoded = new byte[CsvCharset.Room(text.Length)];
+                    text = decoded.AsSpan(0, charset.Decode(text, decoded));
+                }
+                string name = Encoding.UTF8.GetString(text);
                 if (seen.TryGetValue(name, out int count))
                 {
                     seen[name] = count + 1;
@@ -426,7 +405,18 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         public void Dispose()
         {
             _scratch?.Release();
+            _decoded?.Release();
             _inference?.Dispose();
+        }
+
+        private NativeByteBuffer? _decoded;
+
+        // A second scratch buffer: decoded text (the first may hold the unescaped text being decoded).
+        private Span<byte> Decoded(int bytes)
+        {
+            _decoded ??= new NativeByteBuffer(Math.Max(bytes, 4096), pooled: true);
+            _decoded.EnsureCapacity(bytes);
+            return _decoded.Span;
         }
 
         private Span<byte> Scratch(int bytes)
@@ -437,9 +427,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         }
 
         /// <summary>Takes in a record of the first ones (in file order): inference, and the formats of given temporal columns.</summary>
-        public void Observe(ReadOnlySpan<byte> bytes, List<CsvField> fields, long row)
+        public void Observe(ReadOnlySpan<byte> bytes, List<CsvField> fields, long row, bool clean)
         {
-            _inference?.Observe(bytes, fields);
+            _inference?.Observe(bytes, fields, clean);
             if (row > SeedRows) return;
             Span<byte> stack = stackalloc byte[256];
             for (int c = 0; c < fields.Count && c < _seeded.Length; c++)
@@ -450,6 +440,11 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                 {
                     Span<byte> to = text.Length <= stack.Length ? stack : Scratch(text.Length);
                     text = to[.._values.Tokenizer.Unescape(text, to)];
+                }
+                if (!clean && !System.Text.Ascii.IsValid(text))
+                {
+                    Span<byte> room = Decoded(CsvCharset.Room(text.Length));
+                    text = room[.._values.Charset.Decode(text, room)];
                 }
                 if (text.IsEmpty || (_values.NullValues.Length > 0 && _values.IsNullValue(text))) continue;
                 if (_given[c]!.DataType is Date32Type)

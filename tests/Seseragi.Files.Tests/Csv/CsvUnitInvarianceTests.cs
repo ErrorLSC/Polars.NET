@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.Csv;
 
 namespace Seseragi.Files.Tests.Csv;
@@ -42,6 +43,82 @@ public class CsvUnitInvarianceTests
             }
 
         static string Cut(string s) => s.Length > 3000 ? s[..3000] + "…" : s;
+    }
+
+    private static readonly int[] Pages = [65001, 1252, 28591, 932, 936, 949, 950, 54936, 37, 1200, 1201];
+
+    /// <summary>
+    /// Gate G3 of step f2: the generator's files in a random encoding (non-ASCII characters dropped when the page lacks
+    /// them, else UTF-16), strict or lossy, a tenth with an invalid unit planted (double-byte pages, UTF-16): any units and
+    /// sources give what one unit gives; without an invalid unit, what the same text in UTF-8 gives.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Seeds))]
+    public void EncodedSameInAnyUnits(int seed)
+    {
+        var random = new Random(seed * 7 + 1);
+        (byte[] utf8, CsvReadOptions options) = Generate(random);
+        if (!System.Text.Unicode.Utf8.IsValid(utf8)) return; // an f1 planted error: UTF-8 cases cover it
+        string text = Encoding.UTF8.GetString(utf8);
+        int page = Pages[random.Next(Pages.Length)];
+        Encoding encoding = StrictEncoding(page);
+        if (!Encodable(encoding, text))
+        {
+            string ascii = new([.. text.Select(c => c < 0x80 ? c : 'q')]);
+            if (random.Next(2) == 0 && Encodable(encoding, ascii)) text = ascii;
+            else (page, encoding) = (1200, StrictEncoding(1200));
+        }
+        byte[] bytes = encoding.GetBytes(text);
+        bool marked = page is 1200 or 1201 && random.Next(2) == 0;
+        if (marked) bytes = [.. encoding.GetPreamble(), .. bytes];
+        bool planted = false;
+        if (random.Next(10) == 0 && page is 932 or 936 or 949 or 950 or 54936 or 1200 or 1201)
+        {
+            // An invalid unit at a character boundary: a lead byte with no trail, a lone surrogate.
+            int at = encoding.GetByteCount(text[..random.Next(text.Length + 1)].TrimEnd('\uD800', '\uDBFF')) + (marked ? 2 : 0);
+            byte[] invalid = page switch { 1200 => [0x00, 0xD8], 1201 => [0xD8, 0x00], _ => [0x81, 0x20] };
+            if (page is 1200 or 1201 && at % 2 == 1) at--;
+            bytes = [.. bytes[..at], .. invalid, .. bytes[at..]];
+            planted = true;
+        }
+        options = options with
+        {
+            Encoding = marked && random.Next(2) == 0 ? null : TextEncodings.Resolve(page),
+            InvalidText = random.Next(3) == 0 ? CsvInvalidText.Replace : CsvInvalidText.Error,
+            ForceTranscode = random.Next(4) == 0,
+        };
+        string whole = Outcome(() => CsvBehaviourTests.Read(bytes, options with { MaxDegreeOfParallelism = 1 }, CsvBehaviourTests.CsvSource.Memory));
+        foreach (int unit in (int[])[1, 3, 7, 64, 4096])
+            foreach (CsvBehaviourTests.CsvSource source in Enum.GetValues<CsvBehaviourTests.CsvSource>())
+            {
+                if (source == CsvBehaviourTests.CsvSource.PathUnmapped && unit < 64) continue;
+                string got = Outcome(() => CsvBehaviourTests.Read(bytes, options with { UnitBytes = unit, MaxDegreeOfParallelism = 8 }, source));
+                if (got != whole) Assert.Fail($"seed {seed}, page {page}, unit {unit}, {source}:\nwhole: {Cut(whole)}\ngot:   {Cut(got)}");
+            }
+        if (!planted)
+        {
+            string asUtf8 = Outcome(() => CsvBehaviourTests.Read(Encoding.UTF8.GetBytes(text), options with { Encoding = null, InvalidText = CsvInvalidText.Error, ForceTranscode = false }, CsvBehaviourTests.CsvSource.Memory));
+            if (asUtf8 != whole) Assert.Fail($"seed {seed}, page {page}: in UTF-8\n{Cut(asUtf8)}\nin the page\n{Cut(whole)}");
+        }
+
+        static string Cut(string s) => s.Length > 2000 ? s[..2000] + "…" : s;
+    }
+
+    private static Encoding StrictEncoding(int page)
+    {
+        var encoding = (Encoding)TextEncodings.Resolve(page).Clone();
+        encoding.EncoderFallback = EncoderFallback.ExceptionFallback;
+        return encoding;
+    }
+
+    private static bool Encodable(Encoding encoding, string text)
+    {
+        try
+        {
+            encoding.GetByteCount(text);
+            return true;
+        }
+        catch (EncoderFallbackException) { return false; }
     }
 
     /// <summary>The generator reaches every path: values, input errors, value errors, given schemas.</summary>

@@ -26,7 +26,21 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
         return _scratch.Span;
     }
 
-    public void Dispose() => _scratch?.Release();
+    public void Dispose()
+    {
+        _scratch?.Release();
+        _decoded?.Release();
+    }
+
+    private NativeByteBuffer? _decoded;
+
+    // A second scratch buffer: decoded fields (the first holds unescaped and rewritten text).
+    private Span<byte> Decoded(int bytes)
+    {
+        _decoded ??= new NativeByteBuffer(Math.Max(bytes, 4096), pooled: true);
+        _decoded.EnsureCapacity(bytes);
+        return _decoded.Span;
+    }
 
     private readonly Column[] _columns = [.. Enumerable.Range(0, columns).Select(_ => new Column())];
 
@@ -41,7 +55,7 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
     public long Records { get; private set; }
 
     /// <summary>Takes in one record's fields (in file order; a blank line has none).</summary>
-    public void Observe(ReadOnlySpan<byte> unit, IReadOnlyList<CsvField> fields)
+    public void Observe(ReadOnlySpan<byte> unit, IReadOnlyList<CsvField> fields, bool clean)
     {
         Records++;
         Span<byte> stack = stackalloc byte[256];
@@ -51,6 +65,12 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
             if (field.Bits <= 0) continue;
             ReadOnlySpan<byte> raw = unit.Slice(field.Start, field.Length);
             if (raw.IsEmpty) continue;
+            // Text in another encoding (or lossy UTF-8) is decoded first: inference sees what a UTF-8 file would hold.
+            if (!clean && !System.Text.Ascii.IsValid(raw))
+            {
+                Span<byte> room = Decoded(CsvCharset.Room(raw.Length));
+                raw = room[..rules.Charset.Decode(raw, room)];
+            }
             scoped ReadOnlySpan<byte> text = raw;
             if (field.IsEscaped)
             {

@@ -26,7 +26,7 @@ public class CsvBehaviourTests
         ["truncate_ragged"] = "f4", ["comment_lines"] = "f4", ["comment_two_chars"] = "f4", ["comment_in_quoted"] = "f4",
         ["skip_rows"] = "f4", ["skip_rows_quoted_newline"] = "f4", ["skip_lines_quoted_newline"] = "f4", ["skip_rows_after_header"] = "f4",
         ["comment_odd_quote"] = "f4", ["comment_odd_quote_many_rows"] = "f4", ["eprx_cp932"] = "f4",
-        ["invalid_utf8_lossy"] = "f2", ["cp1252_pt_lossy"] = "f2", ["utf16le_bom"] = "f2", ["eprx_cp932_lossy"] = "f2",
+        ["eprx_cp932_lossy"] = "f4",
     };
 
     /// <summary>Cases where a decided rule differs from native (the outcome rendered as the probe renders it).</summary>
@@ -47,6 +47,8 @@ public class CsvBehaviourTests
         // 12:04:05+09:00; this renderer in UTC — the same instant).
         ["f1_schema_tz_tokyo_naive"] = "t:datetime[μs, Asia/Tokyo] | 2024-01-02T03:04:05+00:00",
         ["f1_schema_tz_tokyo_offset"] = "t:datetime[μs, Asia/Tokyo] | 2024-01-02T03:04:05+00:00",
+        // A UTF-16 byte order mark is followed (native reads UTF-8 only).
+        ["utf16le_bom"] = "a:i64,b:str | 1,\"表\"",
         // R4: a Time column reads each value as it is written.
         ["time_only_infer"] = "t:time | 12:34:56 | 12:00:00",
         // Rule 1: a schema with a header names the columns: output in the schema's order.

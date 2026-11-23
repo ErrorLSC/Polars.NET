@@ -131,6 +131,9 @@ public sealed record CsvReadOptions
     /// <summary>Leave the stream open when the reader is disposed.</summary>
     public bool LeaveOpen { get; init; }
 
+    /// <summary>Whether text the reader could cut and tokenize on its own bytes is decoded into UTF-8 first anyway (tests).</summary>
+    internal bool ForceTranscode { get; init; }
+
     /// <summary>The bytes of a unit of work (tests cut the input finely with it).</summary>
     internal int UnitBytes { get; init; } = TextUnits.DefaultUnitBytes;
 }

@@ -17,8 +17,11 @@ internal sealed record CsvValueError(string Column, string Value, string Message
 
 /// <summary>How fields become values, the same for every column: nulls, booleans and number forms.</summary>
 internal sealed class CsvValueRules(CsvTokenizer tokenizer, bool missingIsNull, bool ignoreErrors, byte[][] nullValues, byte[][] trueValues,
-    byte[][] falseValues, bool decimalComma, byte[]? thousands)
+    byte[][] falseValues, bool decimalComma, byte[]? thousands, CsvCharset charset)
 {
+    /// <summary>How the unit's bytes become text.</summary>
+    public CsvCharset Charset { get; } = charset;
+
     public CsvTokenizer Tokenizer { get; } = tokenizer;
     public bool MissingIsNull { get; } = missingIsNull;
     public bool IgnoreErrors { get; } = ignoreErrors;
@@ -122,7 +125,11 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
     /// <summary>Expects <paramref name="rows"/> more values, <paramref name="sample"/> the first fields of them (to size variable-length data).</summary>
     public virtual void Reserve(long rows, ReadOnlySpan<CsvField> sample) => Builder.Reserve(rows);
 
-    public virtual void Dispose() => _scratch?.Release();
+    public virtual void Dispose()
+    {
+        _scratch?.Release();
+        _decoded?.Release();
+    }
 
     /// <summary>A native scratch buffer of at least <paramref name="bytes"/>.</summary>
     protected Span<byte> Scratch(int bytes)
@@ -141,14 +148,37 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
     {
         text = default;
         if (field.Bits <= 0) return false;
-        text = unit.Slice(field.Start, field.Length);
+        text = Content(unit, field);
+        if (text.IsEmpty) return false;
+        return !_nulls || !Rules.IsNullValue(text);
+    }
+
+    /// <summary>Whether the unit's fields are used as they are (else a field holding a byte from 0x80 up is decoded first).</summary>
+    public bool Clean { get; set; } = true;
+
+    /// <summary>A present field's text: quotes undoubled (into scratch), decoded when the unit is not clean.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    protected ReadOnlySpan<byte> Content(ReadOnlySpan<byte> unit, CsvField field)
+    {
+        ReadOnlySpan<byte> text = unit.Slice(field.Start, field.Length);
         if ((field.Bits & CsvField.Escaped) != 0)
         {
             Span<byte> scratch = Scratch(text.Length);
             text = scratch[..Rules.Tokenizer.Unescape(text, scratch)];
         }
-        if (text.IsEmpty) return false;
-        return !_nulls || !Rules.IsNullValue(text);
+        return Clean || Ascii.IsValid(text) ? text : Decoded(text);
+    }
+
+    private NativeByteBuffer? _decoded;
+
+    // A field's text decoded, in a scratch buffer of its own (the text itself may be in the first).
+    private ReadOnlySpan<byte> Decoded(ReadOnlySpan<byte> text)
+    {
+        int room = CsvCharset.Room(text.Length);
+        _decoded ??= new NativeByteBuffer(Math.Max(room, 4096), pooled: true);
+        _decoded.EnsureCapacity(room);
+        Span<byte> destination = _decoded.Span;
+        return destination[..Rules.Charset.Decode(text, destination)];
     }
 
     private readonly bool _nulls = rules.NullValues.Length > 0;
@@ -701,12 +731,7 @@ internal sealed class StringColumn(NativeColumnBuilder b, string name, CsvValueR
                 else Builder.AppendNull();
                 continue;
             }
-            ReadOnlySpan<byte> text = unit.Slice(field.Start, field.Length);
-            if (field.IsEscaped)
-            {
-                Span<byte> scratch = Scratch(text.Length);
-                text = scratch[..Rules.Tokenizer.Unescape(text, scratch)];
-            }
+            ReadOnlySpan<byte> text = Content(unit, field);
             if (nulls && Rules.IsNullValue(text)) Builder.AppendNull();
             else _b.Append(text);
         }
@@ -738,12 +763,7 @@ internal sealed class DictionaryColumn(NativeDictionaryBuilder b, string name, C
             }
             else
             {
-                text = unit.Slice(field.Start, field.Length);
-                if (field.IsEscaped)
-                {
-                    Span<byte> scratch = Scratch(text.Length);
-                    text = scratch[..Rules.Tokenizer.Unescape(text, scratch)];
-                }
+                text = Content(unit, field);
                 if (nulls && Rules.IsNullValue(text))
                 {
                     b.AppendNull();

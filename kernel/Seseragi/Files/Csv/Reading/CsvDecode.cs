@@ -127,8 +127,10 @@ internal static class CsvDecode
     {
         var unit = new CsvUnit();
         CsvTokenizer tokenizer = settings.Rules.Tokenizer;
-        int invalid = FirstInvalidUtf8(bytes[from..]);
+        CsvCharset charset = settings.Rules.Charset;
+        int invalid = charset.FirstInvalid(bytes[from..]);
         if (invalid >= 0) invalid += from;
+        bool clean = charset.Clean(bytes[from..]);
         int decoded = settings.Schema.FieldsList.Count, capacity = settings.ChunkRows, batchSize = settings.BatchSize;
         NativeStructBuilder? builder = settings.Builder();
         CsvColumn[] columns = [];
@@ -137,6 +139,7 @@ internal static class CsvDecode
         try
         {
             columns = settings.Columns(builder, groups);
+            foreach (CsvColumn column in columns) column.Clean = clean;
             Span<CsvField> fields = table.AsSpan(0, capacity * decoded);
             Span<int> recordStarts = starts.AsSpan(0, capacity);
             int pos = from, inBatch = 0;
@@ -158,7 +161,7 @@ internal static class CsvDecode
                 {
                     // A byte that is not UTF-8 inside a record read: that record fails (before any of its values).
                     int row = RowAt(recordStarts[..n], invalid);
-                    error = new CsvUnitError(unit.Rows + row, tokenizer.CountLines(bytes[..recordStarts[row]]), NotUtf8, null);
+                    error = new CsvUnitError(unit.Rows + row, tokenizer.CountLines(bytes[..recordStarts[row]]), charset.Invalid, null);
                     limit = row;
                 }
                 if (!reserved && n > 0)
@@ -228,8 +231,6 @@ internal static class CsvDecode
         return guesses;
     }
 
-    /// <summary>The failure of text that is not UTF-8.</summary>
-    public const string NotUtf8 = "the text is not UTF-8 (give the input's encoding)";
 
     // The record holding byte at: the last record start at or before it.
     private static int RowAt(ReadOnlySpan<int> starts, int at)
