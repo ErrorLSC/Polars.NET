@@ -398,6 +398,55 @@ public class CsvWriterTests
     }
 
     /// <summary>
+    /// Writers sharing a budget of threads (a dataset's files side by side): written at once from two threads, their
+    /// callers and helpers never encode on more than the budget's threads, yet a writer alone uses several (helpers on
+    /// the threads free); the bytes are a one-thread writer's.
+    /// </summary>
+    [Fact]
+    public void WritersSharingABudget_NeverEncodeOnMoreThreads_AndUseThoseFree()
+    {
+        var random = new Random(5);
+        double?[][] parts = [.. Enumerable.Range(0, 12).Select(_ => (double?[])[.. Enumerable.Range(0, 20_000).Select(_ => (double?)(random.NextDouble() * 1000))])];
+        using RecordBatch head = Numbers(out Schema schema, parts[0]);
+        var options = new CsvWriteOptions { MaxDegreeOfParallelism = 4, PieceBytes = 4096, WindowPieces = 256 };
+        byte[] expected;
+        using (var one = new MemoryStream())
+        {
+            using (CsvWriter writer = CsvWriter.Create(one, schema, options with { MaxDegreeOfParallelism = 1, LeaveOpen = true }))
+            {
+                foreach (double?[] part in parts) using (RecordBatch batch = Numbers(out _, part)) writer.Write(batch);
+                writer.Complete();
+            }
+            expected = one.ToArray();
+        }
+
+        // Alone: helpers take the threads free.
+        var budget = new Kaminari.Seseragi.Files.IO.Writing.EncodeBudget(4);
+        using (var output = new MemoryStream())
+        using (CsvWriter writer = CsvWriter.Create(output, schema, options with { Budget = budget }))
+        {
+            foreach (double?[] part in parts) using (RecordBatch batch = Numbers(out _, part)) writer.Write(batch);
+            writer.Complete();
+            Assert.InRange(writer.PeakEncoding, 2, 4);
+            Assert.Equal(expected, output.ToArray());
+        }
+
+        // Two at once: never more than the budget's threads in all.
+        var shared = new Kaminari.Seseragi.Files.IO.Writing.EncodeBudget(4);
+        var outputs = new MemoryStream[2];
+        Parallel.For(0, 2, i =>
+        {
+            outputs[i] = new MemoryStream();
+            using CsvWriter writer = CsvWriter.Create(outputs[i], schema, options with { Budget = shared, LeaveOpen = true });
+            foreach (double?[] part in parts) using (RecordBatch batch = Numbers(out _, part)) writer.Write(batch);
+            writer.Complete();
+        });
+        Assert.InRange(shared.Peak, 2, 4);
+        Assert.InRange(shared.PeakEncoding, 2, 4); // counted where rows are encoded, whoever holds a thread
+        Assert.All(outputs, o => Assert.Equal(expected, o.ToArray()));
+    }
+
+    /// <summary>
     /// The window counted in bytes: an output that takes nothing holds a caller's batch of 24 pieces once its pieces in
     /// flight reach the window's bytes (made 2 × threads = 8 pieces here, not the 32 its pieces' count allows), and the
     /// batch goes on once the output takes bytes again.

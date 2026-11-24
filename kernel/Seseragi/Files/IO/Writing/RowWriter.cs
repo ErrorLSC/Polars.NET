@@ -32,9 +32,14 @@ internal interface IRowEncoder<TCell>
 /// When positive, the window's bytes at most instead: as many pieces as fit (by the pieces' target size, each batch),
 /// at least two per thread, at most <paramref name="Window"/>.
 /// </param>
+/// <param name="Budget">
+/// The threads this writer shares with others (a dataset's files written side by side; caller's batches only): the
+/// caller encodes holding one, its batch's pieces are encoded by helpers on those free, up to MaxDegreeOfParallelism.
+/// Null: the writer's own MaxDegreeOfParallelism threads.
+/// </param>
 internal readonly record struct RowWriterSettings(
     string Format, int MaxDegreeOfParallelism, BatchOwnership Ownership, PieceCompression Compression, int? CompressionLevel,
-    int PieceBytes, long InFlightBytes, double RowBytes, int Window, long WindowBytes = 0);
+    int PieceBytes, long InFlightBytes, double RowBytes, int Window, long WindowBytes = 0, EncodeBudget? Budget = null);
 
 /// <summary>
 /// The engine of the text writers (JSON, CSV): batches cut into pieces of rows encoded on several threads into native
@@ -81,7 +86,8 @@ internal sealed class RowWriter<TCell>
         _rowBytes = settings.RowBytes;
         _giveBack = Spare;
         _window = new PieceWindow(Math.Max(1, settings.Window));
-        _spare = new NativeBufferWriter?[Math.Min(4 * settings.MaxDegreeOfParallelism, Math.Max(1, settings.Window) + 1)];
+        // Buffers kept for the pieces to come: a writer sharing its threads keeps a single thread's (many files at once).
+        _spare = new NativeBufferWriter?[Math.Min(4 * (settings.Budget is null ? settings.MaxDegreeOfParallelism : 1), Math.Max(1, settings.Window) + 1)];
     }
 
     /// <summary>The schema the batches are written with.</summary>
@@ -172,7 +178,7 @@ internal sealed class RowWriter<TCell>
         // Pieces of about a piece's bytes, smaller when that leaves threads idle on this batch (four per thread at least).
         int threads = _settings.MaxDegreeOfParallelism, length = batch.Length;
         double rowBytes = Math.Max(1, Volatile.Read(ref _rowBytes));
-        long target = Math.Min(_settings.PieceBytes, Math.Max((long)(rowBytes * length) / (4 * threads), Math.Min(_settings.PieceBytes, 16L << 10)));
+        long target = Math.Min(_settings.PieceBytes, Math.Max((long)(rowBytes * length) / (4 * threads), Math.Min(_settings.PieceBytes, MinPieceBytes)));
         int pieceRows = (int)Math.Clamp(target / rowBytes, 1, length);
         int pieces = (length + pieceRows - 1) / pieceRows;
         if (_settings.WindowBytes > 0 && pieces > 1)
@@ -188,7 +194,7 @@ internal sealed class RowWriter<TCell>
             bool full;
             try
             {
-                full = Append(cells, 0, length);
+                full = await AppendHoldingAsync(cells, 0, length, useAsync).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -256,11 +262,32 @@ internal sealed class RowWriter<TCell>
         else
         {
             // The caller's batch (encoded alone: the batches before it are): the caller, waiting for its pieces anyway,
-            // encodes them with the workers.
-            var tasks = new Task[Math.Min(threads, pieces) - 1];
-            for (int w = 0; w < tasks.Length; w++) tasks[w] = Task.Run(() => EncodeRunAsync(run, true));
-            if (useAsync) await EncodeRunAsync(run, true).ConfigureAwait(false);
-            else EncodeRunAsync(run, false).GetAwaiter().GetResult();
+            // encodes them with the workers — sharing threads, the caller holding one, helpers on those free now.
+            EncodeBudget? budget = _settings.Budget;
+            if (budget is not null)
+            {
+                if (useAsync) await budget.EnterAsync().ConfigureAwait(false);
+                else budget.Enter();
+            }
+            Task[] tasks;
+            try
+            {
+                int helpers = Math.Min(threads, pieces) - 1;
+                if (budget is not null)
+                {
+                    int free = 0;
+                    while (free < helpers && budget.TryEnter()) free++;
+                    helpers = free;
+                }
+                tasks = new Task[helpers];
+                for (int w = 0; w < tasks.Length; w++) tasks[w] = Task.Run(budget is null ? () => EncodeRunAsync(run, true) : () => HelpAsync(run, budget));
+                if (useAsync) await EncodeRunAsync(run, true).ConfigureAwait(false);
+                else EncodeRunAsync(run, false).GetAwaiter().GetResult();
+            }
+            finally
+            {
+                budget?.Exit();
+            }
             Task encoded = Task.WhenAll(tasks);
             // The caller's batch is free once its pieces are encoded (they are written behind); a piece's failure fails
             // this call (the first in order).
@@ -280,6 +307,19 @@ internal sealed class RowWriter<TCell>
     private async Task EncodeRunAsync(PieceRun run, bool asynchronous)
     {
         for (int k; (k = Interlocked.Increment(ref run.Next) - 1) < run.Slots.Length;) await EncodePieceAsync(run, k, asynchronous).ConfigureAwait(false);
+    }
+
+    // A helper on a thread of the budget: a caller's batch's pieces taken in turn, then the thread given back.
+    private async Task HelpAsync(PieceRun run, EncodeBudget budget)
+    {
+        try
+        {
+            await EncodeRunAsync(run, true).ConfigureAwait(false);
+        }
+        finally
+        {
+            budget.Exit();
+        }
     }
 
     // A worker of the owned batches: the queued pieces taken in order until none is left.
@@ -414,6 +454,7 @@ internal sealed class RowWriter<TCell>
         Interlocked.Increment(ref _encoded);
         int encoding = Interlocked.Increment(ref _encoding);
         for (int peak; encoding > (peak = Volatile.Read(ref _peakEncoding)) && Interlocked.CompareExchange(ref _peakEncoding, encoding, peak) != peak;) { }
+        _settings.Budget?.Encoding(+1);
         NativeBufferWriter buffer = Rent(end - start);
         try
         {
@@ -429,6 +470,7 @@ internal sealed class RowWriter<TCell>
         {
             cells.Release();
             Interlocked.Decrement(ref _encoding);
+            _settings.Budget?.Encoding(-1);
         }
     }
 
@@ -460,6 +502,20 @@ internal sealed class RowWriter<TCell>
         : new EncodedPiece(EncodedPiece.Compress(buffer, _settings.Compression, _settings.CompressionLevel), null);
 
     /// <summary>
+    /// Whether <paramref name="rows"/> rows of a caller's batch written as a batch (<see cref="Write"/>) would be encoded
+    /// on several threads: they make two pieces at least (by the rows' bytes measured so far) and a thread is free to
+    /// help (one of the writer's own, or of the budget it shares). Fewer are better appended (<see cref="AppendRows"/>).
+    /// </summary>
+    public bool EncodesApart(int rows)
+    {
+        if (_settings.MaxDegreeOfParallelism < 2 || (_settings.Budget is { } budget && !budget.CanHelp)) return false;
+        return Math.Max(1, Volatile.Read(ref _rowBytes)) * rows >= 2 * Math.Min(_settings.PieceBytes, MinPieceBytes);
+    }
+
+    /// <summary>The smallest piece a batch is cut into (unless the writer's pieces are smaller).</summary>
+    private const long MinPieceBytes = 16L << 10;
+
+    /// <summary>
     /// Rows [<paramref name="start"/>, +<paramref name="count"/>) of the batch <paramref name="cells"/> read, encoded on
     /// this thread into the piece being filled (the caller's batch is free once this returns): the piece is written once
     /// it holds a piece's bytes, or before anything written after it (Write, Flush, Complete). Rows a few at a time (a
@@ -477,7 +533,7 @@ internal sealed class RowWriter<TCell>
         bool full;
         try
         {
-            full = Append(cells, start, count);
+            full = AppendHoldingAsync(cells, start, count, useAsync: false).GetAwaiter().GetResult();
         }
         catch (Exception e)
         {
@@ -485,6 +541,24 @@ internal sealed class RowWriter<TCell>
             throw;
         }
         if (full) Sync(HandOffAsync(false));
+    }
+
+    // Rows encoded on this thread (Append), holding a thread of the budget when the writer shares its threads.
+    private async ValueTask<bool> AppendHoldingAsync(BatchCells<TCell> cells, int start, int count, bool useAsync)
+    {
+        if (_settings.Budget is not { } budget) return Append(cells, start, count);
+        if (useAsync) await budget.EnterAsync().ConfigureAwait(false);
+        else budget.Enter();
+        budget.Encoding(+1);
+        try
+        {
+            return Append(cells, start, count);
+        }
+        finally
+        {
+            budget.Encoding(-1);
+            budget.Exit();
+        }
     }
 
     // Rows encoded here failed: rows before them still on their way (owned batches' pieces) may have failed too, and

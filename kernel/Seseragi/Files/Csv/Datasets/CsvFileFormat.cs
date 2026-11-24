@@ -12,7 +12,8 @@ namespace Kaminari.Seseragi.Files.Csv;
 /// thread into the file's piece being filled (<see cref="CsvWriter.AppendRows"/>: a partitioned write hands each
 /// partition a few rows of each batch, which then cost no write each, nor a copy before encoding). What the encoding
 /// reads of a batch (its cells) is made once per batch for every file (<see cref="SourcesOpen"/>). Files written side by
-/// side encode on one thread each.
+/// side share the dataset's threads (<see cref="EncodeBudget"/>): a batch that feeds one file is encoded on every thread
+/// the others leave free.
 /// </summary>
 internal sealed class CsvFileFormat(CsvWriteOptions options) : DatasetFileFormat
 {
@@ -41,7 +42,10 @@ internal sealed class CsvFileFormat(CsvWriteOptions options) : DatasetFileFormat
         {
             LeaveOpen = true,
             BatchOwnership = BatchOwnership.Caller,
-            MaxDegreeOfParallelism = sideBySide ? 1 : threads,
+            // Files side by side share the dataset's threads: a batch feeding one partition is encoded on every thread
+            // the others leave free, and all of them never encode on more.
+            MaxDegreeOfParallelism = threads,
+            Budget = sideBySide ? new EncodeBudget(threads) : null,
         };
     }
 
@@ -93,7 +97,7 @@ internal sealed class CsvFileFormat(CsvWriteOptions options) : DatasetFileFormat
 
         protected override void WriteCore(RecordBatch batch, int start, int count)
         {
-            if (count >= BatchRows)
+            if (count >= BatchRows || writer.EncodesApart(count))
             {
                 writer.Write(start == 0 && count == batch.Length ? batch : batch.Slice(start, count));
                 return;

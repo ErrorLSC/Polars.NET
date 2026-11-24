@@ -105,6 +105,50 @@ public sealed class CsvDatasetWriterTests : IDisposable
     }
 
     /// <summary>
+    /// Keys in order, small batches each feeding one partition (as a frame sorted by its key exports them): each run is
+    /// encoded on the threads the files leave free, and each file still holds exactly the bytes CsvWriter writes for its
+    /// rows.
+    /// </summary>
+    [Theory]
+    [InlineData(CsvCompression.None)]
+    [InlineData(CsvCompression.Gzip)]
+    public void SmallBatchesOfOnePartitionEach_AreEncodedApart_AsCsvWriterWritesThem(CsvCompression compression)
+    {
+        var schema = new Schema([new Field("k", Int64Type.Default, true), new Field("s", StringType.Default, true), new Field("v", DoubleType.Default, true)], null);
+        List<RecordBatch> batches = [];
+        for (int b = 0; b < 60; b++)
+        {
+            var s = new StringArray.Builder();
+            for (int i = 0; i < 2000; i++) s.Append($"text {b * 2000 + i}, \"quoted\"");
+            batches.Add(new RecordBatch(schema,
+                [new Int64Array.Builder().AppendRange(Enumerable.Repeat((long)(b / 10), 2000)).Build(), s.Build(),
+                 new DoubleArray.Builder().AppendRange(Enumerable.Range(b * 2000, 2000).Select(i => i * 0.25)).Build()], 2000));
+        }
+        try
+        {
+            var writer = new CsvWriteOptions { Compression = compression, PieceBytes = 16 << 10 };
+            DatasetWriteResult<DatasetWrittenFile> result = CsvDatasetWriter.Write(At("sorted"), schema, batches,
+                new CsvDatasetWriteOptions { PartitionBy = ["k"], Writer = writer, MaxDegreeOfParallelism = 8 });
+            Assert.Equal(6, result.Files.Count);
+            foreach (DatasetWrittenFile file in result.Files)
+            {
+                long key = long.Parse(Path.GetFileName(Path.GetDirectoryName(file.Path)!)["k=".Length..]);
+                using var expected = new MemoryStream();
+                using (CsvWriter one = CsvWriter.Create(expected, schema, writer with { Compression = CsvCompression.None, LeaveOpen = true, MaxDegreeOfParallelism = 1 }))
+                {
+                    foreach (RecordBatch batch in batches.Skip((int)key * 10).Take(10)) one.Write(batch);
+                    one.Complete();
+                }
+                Assert.Equal(expected.ToArray(), Bytes(file.Path, compression));
+            }
+        }
+        finally
+        {
+            batches.ForEach(b => b.Dispose());
+        }
+    }
+
+    /// <summary>
     /// A partition takes a few rows of each batch (runs encoded at once into its file's piece, pieces written as they
     /// fill): each file holds exactly the bytes CsvWriter writes for the partition's rows, in order — its header, byte
     /// order mark and encoding included — compressed files once decompressed.

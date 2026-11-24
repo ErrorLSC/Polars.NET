@@ -46,7 +46,7 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
             "CSV", options.MaxDegreeOfParallelism, options.BatchOwnership, Compression(options.Compression), options.CompressionLevel,
             options.PieceBytes, options.InFlightBytes, 8 + 12 * schema.FieldsList.Count,
             options.WindowPieces > 0 ? options.WindowPieces : 8 * options.MaxDegreeOfParallelism,
-            options.WindowPieces > 0 ? 0 : options.WindowBytes));
+            options.WindowPieces > 0 ? 0 : options.WindowBytes, options.Budget));
         PrependHead(schema, options, syntax);
     }
 
@@ -187,6 +187,9 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
 
     /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>
     internal long OpenBytes => _rows.OpenBytes;
+
+    /// <summary>Whether so many rows written as a batch would be encoded on several threads (else better appended).</summary>
+    internal bool EncodesApart(int rows) => _rows.EncodesApart(rows);
 
     /// <summary>Hands the rows encoded by <see cref="AppendRows"/> to the writes (to hold less memory), without waiting for them.</summary>
     internal void HandOff() => _rows.HandOff();

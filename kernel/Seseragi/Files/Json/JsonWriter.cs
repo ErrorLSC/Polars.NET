@@ -32,7 +32,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable, IRowEncoder<Json
         _rows = new RowWriter<JsonCell>(sink, schema, this, Cell, new RowWriterSettings(
             "JSON", options.MaxDegreeOfParallelism, options.BatchOwnership, Compression(options.Compression), options.CompressionLevel,
             options.PieceBytes, options.InFlightBytes, 16 + 24 * schema.FieldsList.Count,
-            options.WindowPieces > 0 ? options.WindowPieces : 8 * options.MaxDegreeOfParallelism));
+            options.WindowPieces > 0 ? options.WindowPieces : 8 * options.MaxDegreeOfParallelism, Budget: options.Budget));
     }
 
     private static JsonCell Cell(ArrayData data, Field field, Pins pins) => JsonCell.For(data, field, pins, field.Name);
@@ -399,6 +399,9 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable, IRowEncoder<Json
 
     /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>
     internal long OpenBytes => _rows.OpenBytes;
+
+    /// <summary>Whether so many rows written as a batch would be encoded on several threads (else better appended).</summary>
+    internal bool EncodesApart(int rows) => _rows.EncodesApart(rows);
 
     /// <summary>Hands the rows encoded by <see cref="AppendRows"/> to the writes (to hold less memory), without waiting for them.</summary>
     internal void HandOff() => _rows.HandOff();

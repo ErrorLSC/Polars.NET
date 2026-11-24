@@ -127,6 +127,12 @@ public sealed record CsvWriteOptions
     /// </summary>
     internal int WindowPieces { get; init; }
 
+    /// <summary>
+    /// The threads shared with the other files of a dataset written side by side (set by the dataset's format): the
+    /// caller's batches are encoded on those free, up to <see cref="MaxDegreeOfParallelism"/>.
+    /// </summary>
+    internal IO.Writing.EncodeBudget? Budget { get; init; }
+
     internal void Validate()
     {
         if (Separator > 0x7F || Separator is '\r' or '\n')
