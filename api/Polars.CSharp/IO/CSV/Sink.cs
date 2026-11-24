@@ -1,53 +1,22 @@
-#pragma warning disable CS1573
+#pragma warning disable CS1573 // overloads inherit the shared parameters' docs and document their own
 using System.IO.Pipelines;
 using Polars.NET.Core;
-using Polars.NET.Core.Wrappers;
+using Polars.NET.Core.Csv;
+using Polars.NET.Core.IO;
 
 namespace Polars.CSharp;
 
 public partial class LazyFrame : IDisposable
 {
     /// <summary>
-    /// Execute the LazyFrame and sink the result to a CSV file.
-    /// <para>
-    /// This operation allows processing datasets larger than memory by streaming results 
-    /// directly to the file system.
-    /// </para>
+    /// Run the query and write its rows as CSV to a file, local or on a cloud store, batch by batch as the streaming
+    /// engine produces them (larger than memory works): encoded on every core, published whole once written (a failed
+    /// sink leaves no file).
     /// </summary>
-    /// <param name="path">The output file path.</param>
-    /// <param name="includeHeader">Whether to include the header row. Defaults to true.</param>
-    /// <param name="includeBom">Whether to include the UTF-8 Byte Order Mark (BOM). Defaults to false.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'.</param>
-    /// <param name="quoteStyle">The quoting style to use. Defaults to <see cref="QuoteStyle.Necessary"/>.</param>
-    /// <param name="nullValue">The string representation for null values. Defaults to empty string.</param>
-    /// <param name="lineTerminator">The character sequence used to terminate lines. Defaults to "\n".</param>
-    /// <param name="floatScientific">
-    /// Whether to always use scientific notation for floats. 
-    /// If null (default), formatting is automatic.
-    /// </param>
-    /// <param name="floatPrecision">
-    /// The number of decimal places to write for floats. 
-    /// If null (default), uses full precision.
-    /// </param>
-    /// <param name="decimalComma">Whether to use a comma ',' as the decimal separator. Defaults to false.</param>
-    /// <param name="dateFormat">Format string for Date columns. If null, uses ISO 8601.</param>
-    /// <param name="timeFormat">Format string for Time columns. If null, uses ISO 8601.</param>
-    /// <param name="datetimeFormat">Format string for Datetime columns. If null, uses ISO 8601.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.csv'. Defaults to true.</param>
-    /// <param name="compression">Compression method (Gzip/Zstd). Defaults to None.</param>
-    /// <param name="compressionLevel">Compression level (depends on the codec). -1 for default.</param>
-    /// <param name="maintainOrder">
-    /// Whether to maintain the order of the data. 
-    /// Setting this to false can improve performance in streaming mode. Defaults to true.
-    /// </param>
-    /// <param name="syncOnClose">File synchronization behavior on close (e.g., flush to disk). Defaults to None.</param>
-    /// <param name="mkdir">Recursively create the output directory if it does not exist. Defaults to false.</param>
-    /// <param name="batchSize">
-    /// The batch size for writing rows. 
-    /// 0 means use the Polars default.
-    /// </param>
-    /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="path">The output file path (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
+    /// <param name="maintainOrder">Whether the rows keep the query's order. Setting this to false can improve performance. Defaults to true.</param>
+    /// <param name="batchSize">Accepted for compatibility; the writer sizes its units itself.</param>
+    /// <inheritdoc cref="DataFrame.WriteCsv(string, bool, bool, char, char, QuoteStyle, string?, string?, bool?, int?, bool, string?, string?, string?, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions?, CsvEncoding, string?)"/>
     public void SinkCsv(
         string path,
         bool includeHeader = true,
@@ -70,102 +39,19 @@ public partial class LazyFrame : IDisposable
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
         int batchSize = 0,
-        CloudOptions? cloudOptions = null)
-    {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        CloudOptions? cloudOptions = null,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.SinkCsv(CloneHandle(), path,
+            DataFrame.CsvWriteArgs(includeHeader, includeBom, separator, quoteChar, quoteStyle, nullValue, lineTerminator, floatScientific, floatPrecision,
+                decimalComma, dateFormat, timeFormat, datetimeFormat, compression, compressionLevel, encoding, thousandsSeparator),
+            checkExtension, maintainOrder, syncOnClose.ToNative(), mkdir, CloudOptions.ToCloudArgs(cloudOptions));
 
-        PolarsWrapper.SinkCsv(
-            CloneHandle(),
-            path,
-
-            // CSV Writer Options
-            includeHeader,
-            includeBom,
-            batchSize,
-            checkExtension,
-
-            // Compression
-            compression.ToNative(),
-            compressionLevel,
-
-            // Serialize Options 
-            separator,
-            quoteChar,
-            quoteStyle.ToNative(),
-            nullValue,
-            lineTerminator,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-
-            // Unified Sink Options
-            maintainOrder,
-            syncOnClose.ToNative(),
-            mkdir,
-
-            // Cloud Options
-            provider.ToNative(),
-            retries,
-            retryTimeoutMs,
-            retryInitBackoffMs,
-            retryMaxBackoffMs,
-            cacheTtl,
-            keys,
-            values
-        );
-    }
     /// <summary>
-    /// Execute the LazyFrame and sink the result to a CSV file.
-    /// <para>
-    /// This operation allows processing datasets larger than memory by streaming results 
-    /// directly to the file system.
-    /// </para>
+    /// Run the query and write its rows as a dataset of CSV files under <paramref name="path"/>, in Hive partitions of
+    /// <paramref name="partitionBy"/> (<c>key=value</c> directories), batch by batch as the streaming engine produces them.
     /// </summary>
-    /// <param name="path">The output file path.</param>
-    /// <param name="partitionBy">The selector(s) to partition the data by.</param>
-    /// <param name="includeKeys">Whether to include the partition keys in the output files.</param>
-    /// <param name="keysPreGrouped">
-    /// Assert that the keys are already pre-grouped. This can speed up the operation if true.
-    /// Use with caution: if the data is not grouped, the output may be incorrect.
-    /// </param>
-    /// <param name="maxRowsPerFile">Maximum number of rows per file. 0 means no limit.</param>
-    /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
-    /// <param name="includeHeader">Whether to include the header row. Defaults to true.</param>
-    /// <param name="includeBom">Whether to include the UTF-8 Byte Order Mark (BOM). Defaults to false.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'.</param>
-    /// <param name="quoteStyle">The quoting style to use. Defaults to <see cref="QuoteStyle.Necessary"/>.</param>
-    /// <param name="nullValue">The string representation for null values. Defaults to empty string.</param>
-    /// <param name="lineTerminator">The character sequence used to terminate lines. Defaults to "\n".</param>
-    /// <param name="floatScientific">
-    /// Whether to always use scientific notation for floats. 
-    /// If null (default), formatting is automatic.
-    /// </param>
-    /// <param name="floatPrecision">
-    /// The number of decimal places to write for floats. 
-    /// If null (default), uses full precision.
-    /// </param>
-    /// <param name="decimalComma">Whether to use a comma ',' as the decimal separator. Defaults to false.</param>
-    /// <param name="dateFormat">Format string for Date columns. If null, uses ISO 8601.</param>
-    /// <param name="timeFormat">Format string for Time columns. If null, uses ISO 8601.</param>
-    /// <param name="datetimeFormat">Format string for Datetime columns. If null, uses ISO 8601.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.csv'. Defaults to true.</param>
-    /// <param name="compression">Compression method (Gzip/Zstd). Defaults to None.</param>
-    /// <param name="compressionLevel">Compression level (depends on the codec). -1 for default.</param>
-    /// <param name="maintainOrder">
-    /// Whether to maintain the order of the data. 
-    /// Setting this to false can improve performance in streaming mode. Defaults to true.
-    /// </param>
-    /// <param name="syncOnClose">File synchronization behavior on close (e.g., flush to disk). Defaults to None.</param>
-    /// <param name="mkdir">Recursively create the output directory if it does not exist. Defaults to false.</param>
-    /// <param name="batchSize">
-    /// The batch size for writing rows. 
-    /// 0 means use the Polars default.
-    /// </param>
-    /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <inheritdoc cref="DataFrame.WriteCsvPartitioned(string, IntoSelector, bool, bool, int, long, bool, bool, char, char, QuoteStyle, string?, string?, bool?, int?, bool, string?, string?, string?, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions?, CsvEncoding, string?, ExistingData)"/>
     public void SinkCsvPartitioned(
         string path,
         IntoSelector partitionBy,
@@ -193,64 +79,41 @@ public partial class LazyFrame : IDisposable
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
         int batchSize = 0,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null,
+        ExistingData existingData = ExistingData.Error)
     {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-
-        PolarsWrapper.SinkCsvPartitioned(
-            CloneHandle(),
-            path,
-            // --- Partition Params ---
-            partitionBy.Consume().CloneHandle(),
-            includeKeys,
-            keysPreGrouped,
-            maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
-            approxBytesPerFile > 0 ? (ulong)approxBytesPerFile : 0,
-            // CSV Writer Options
-            includeHeader,
-            includeBom,
-            batchSize,
-            checkExtension,
-
-            // Compression
-            compression.ToNative(),
-            compressionLevel,
-
-            // Serialize Options 
-            separator,
-            quoteChar,
-            quoteStyle.ToNative(),
-            nullValue,
-            lineTerminator,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-
-            // Unified Sink Options
-            maintainOrder,
-            syncOnClose.ToNative(),
-            mkdir,
-
-            // Cloud Options
-            provider.ToNative(),
-            retries,
-            retryTimeoutMs,
-            retryInitBackoffMs,
-            retryMaxBackoffMs,
-            cacheTtl,
-            keys,
-            values
-        );
+        string[] keys;
+        using (Selector selector = partitionBy.Consume()) keys = ManagedFrames.SelectedColumns(Handle, selector.Handle);
+        ManagedCsv.SinkCsvPartitioned(CloneHandle(), path, keys, includeKeys, keysPreGrouped,
+            maxRowsPerFile > 0 ? (ulong)maxRowsPerFile : 0, approxBytesPerFile > 0 ? (ulong)approxBytesPerFile : 0,
+            DataFrame.CsvWriteArgs(includeHeader, includeBom, separator, quoteChar, quoteStyle, nullValue, lineTerminator, floatScientific, floatPrecision,
+                decimalComma, dateFormat, timeFormat, datetimeFormat, compression, compressionLevel, encoding, thousandsSeparator),
+            maintainOrder, syncOnClose.ToNative(), existingData.ToNative(), CloudOptions.ToCloudArgs(cloudOptions));
     }
-    /// <summary>
-    /// Sink the LazyFrame to a CSV format in memory.
-    /// <para>
-    /// This allows for streaming execution directly into a byte array without writing to disk.
-    /// </para>
-    /// </summary>
+
+    /// <summary>Run the query and return its rows as CSV bytes.</summary>
+    /// <param name="includeBom">Whether to start with the encoding's byte order mark. Defaults to false.</param>
+    /// <param name="includeHeader">Whether to write the header row. Defaults to true.</param>
+    /// <param name="batchSize">Accepted for compatibility; the writer sizes its units itself.</param>
+    /// <param name="checkExtension">Unused: there is no path.</param>
+    /// <param name="compressionCode">Compression of the whole output (Gzip/Zstd). Defaults to none.</param>
+    /// <param name="compressionLevel">The compression level; -1 for the codec's default.</param>
+    /// <param name="dateFormat">The format of Date columns (strftime). ISO 8601 when null.</param>
+    /// <param name="timeFormat">The format of Time columns (strftime). ISO 8601 when null.</param>
+    /// <param name="datetimeFormat">The format of Datetime columns (strftime). ISO 8601 when null.</param>
+    /// <param name="floatScientific">Floats always (1) or never (0) in scientific notation; -1 (default) as is shortest.</param>
+    /// <param name="floatPrecision">Floats with this many decimals; -1 (default) with the digits that read back the same value.</param>
+    /// <param name="decimalComma">',' as the decimal separator. Defaults to false.</param>
+    /// <param name="separator">The field separator. Defaults to ','.</param>
+    /// <param name="quoteChar">The quote. Defaults to '"'.</param>
+    /// <param name="nullValue">The text of nulls. Defaults to an empty field.</param>
+    /// <param name="lineTerminator">The line end. Defaults to "\n".</param>
+    /// <param name="quoteStyle">When fields are quoted. Defaults to <see cref="QuoteStyle.Necessary"/>.</param>
+    /// <param name="maintainOrder">Whether the rows keep the query's order. Defaults to true.</param>
+    /// <param name="encoding">The output's encoding (UTF-8 by default; see <see cref="CsvEncoding"/>). Strict: a character it cannot hold is an error naming the row, unless lossy.</param>
+    /// <param name="thousandsSeparator">A digit group separator written in integers and floats. Off by default.</param>
     public byte[] SinkCsvMemory(
         bool includeBom = false,
         bool includeHeader = true,
@@ -269,40 +132,15 @@ public partial class LazyFrame : IDisposable
         string? nullValue = null,
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
-        bool maintainOrder = true)
-    {
-        return PolarsWrapper.SinkCsvMemory(
-            CloneHandle(),
-            includeBom,
-            includeHeader,
-            batchSize,
-            checkExtension,
-            compressionCode.ToNative(),
-            compressionLevel,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-            separator,
-            quoteChar,
-            nullValue,
-            lineTerminator,
-            quoteStyle.ToNative(),
-            maintainOrder
-        );
-    }
+        bool maintainOrder = true,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.SinkCsvToMemory(CloneHandle(), DataFrame.CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat,
+            datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator),
+            maintainOrder);
 
-    /// <summary>
-    /// Sink the LazyFrame to a CSV format in native memory, without copying into the managed heap.
-    /// <para>
-    /// This allows for streaming execution directly into a native buffer without writing to disk.
-    /// </para>
-    /// </summary>
-    /// <returns>
-    /// A <see cref="NativeBuffer"/> owning the serialized CSV data. Dispose it to release the native memory.
-    /// </returns>
+    /// <summary>Run the query and return its rows as CSV in native memory, handed over without a copy.</summary>
+    /// <inheritdoc cref="SinkCsvMemory"/>
     public NativeBuffer SinkCsvNativeMemory(
         bool includeBom = false,
         bool includeHeader = true,
@@ -321,56 +159,16 @@ public partial class LazyFrame : IDisposable
         string? nullValue = null,
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
-        bool maintainOrder = true)
-    {
-        return PolarsWrapper.SinkCsvNativeMemory(
-            CloneHandle(),
-            includeBom,
-            includeHeader,
-            batchSize,
-            checkExtension,
-            compressionCode.ToNative(),
-            compressionLevel,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-            separator,
-            quoteChar,
-            nullValue,
-            lineTerminator,
-            quoteStyle.ToNative(),
-            maintainOrder
-        );
-    }
-    /// <summary>
-    /// Sink the LazyFrame to a CSV format written into a <see cref="Stream"/>.
-    /// <para>
-    /// Output is streamed in chunks as it is produced; the whole file is never materialized in memory.
-    /// The stream is flushed but not disposed.
-    /// </para>
-    /// </summary>
+        bool maintainOrder = true,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.SinkCsvNativeMemory(CloneHandle(), DataFrame.CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat,
+            datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator),
+            maintainOrder);
+
+    /// <summary>Run the query and write its rows as CSV into a <see cref="Stream"/>, batch by batch (flushed, not disposed).</summary>
     /// <param name="stream">Writable destination stream.</param>
-    /// <param name="includeBom">Whether to include the UTF-8 Byte Order Mark (BOM).</param>
-    /// <param name="includeHeader">Whether to include the header row.</param>
-    /// <param name="batchSize">The batch size for writing rows. 0 means use the Polars default.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.csv'.</param>
-    /// <param name="compressionCode">Compression method (Gzip/Zstd).</param>
-    /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-    /// <param name="dateFormat">Format string for Date columns. If null, uses ISO 8601.</param>
-    /// <param name="timeFormat">Format string for Time columns. If null, uses ISO 8601.</param>
-    /// <param name="datetimeFormat">Format string for Datetime columns. If null, uses ISO 8601.</param>
-    /// <param name="floatScientific">Whether to always use scientific notation for floats (-1 = automatic).</param>
-    /// <param name="floatPrecision">The number of decimal places to write for floats (-1 = full precision).</param>
-    /// <param name="decimalComma">Whether to use a comma ',' as the decimal separator.</param>
-    /// <param name="separator">The character used as a field separator.</param>
-    /// <param name="quoteChar">The character used for quoting fields.</param>
-    /// <param name="nullValue">The string representation for null values.</param>
-    /// <param name="lineTerminator">The character sequence used to terminate lines.</param>
-    /// <param name="quoteStyle">The quoting style to use.</param>
-    /// <param name="maintainOrder">Whether to maintain the order of the data.</param>
+    /// <inheritdoc cref="SinkCsvMemory"/>
     public void SinkCsv(
         Stream stream,
         bool includeBom = false,
@@ -390,26 +188,20 @@ public partial class LazyFrame : IDisposable
         string? nullValue = null,
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
-        bool maintainOrder = true)
-    {
-        ArgumentNullException.ThrowIfNull(stream);
-        var handle = CloneHandle();
-        NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkCsvCallback(
-            handle, target, includeBom, includeHeader, batchSize, checkExtension, compressionCode.ToNative(),
-            compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
-            separator, quoteChar, nullValue, lineTerminator, quoteStyle.ToNative(), maintainOrder));
-    }
+        bool maintainOrder = true,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.SinkCsv(CloneHandle(), stream, DataFrame.CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat,
+            datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator),
+            maintainOrder);
 
     /// <summary>
-    /// Asynchronously sink the LazyFrame to a CSV format written into a <see cref="Stream"/>.
-    /// <para>
-    /// The query runs on a background thread; chunks are written to the stream with async I/O,
-    /// so it is safe for destinations that disallow synchronous writes (e.g. ASP.NET Core response bodies).
-    /// The stream is flushed but not disposed.
-    /// </para>
+    /// Run the query and write its rows as CSV into a <see cref="Stream"/> with asynchronous writes only, the engine read
+    /// off the caller's thread (flushed, not disposed).
     /// </summary>
-    /// <inheritdoc cref="SinkCsv(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool)"/>
-    /// <param name="cancellationToken">Cancels writing; the native query is aborted at its next write.</param>
+    /// <param name="stream">Writable destination stream.</param>
+    /// <param name="cancellationToken">Stops the sink.</param>
+    /// <inheritdoc cref="SinkCsvMemory"/>
     public Task SinkCsvAsync(
         Stream stream,
         bool includeBom = false,
@@ -430,24 +222,20 @@ public partial class LazyFrame : IDisposable
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(stream);
-        var handle = CloneHandle();
-        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkCsvCallback(
-            handle, target, includeBom, includeHeader, batchSize, checkExtension, compressionCode.ToNative(),
-            compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
-            separator, quoteChar, nullValue, lineTerminator, quoteStyle.ToNative(), maintainOrder),
-            cancellationToken);
-    }
+        CancellationToken cancellationToken = default,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.SinkCsvAsync(CloneHandle(), stream, DataFrame.CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat,
+            datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator),
+            maintainOrder, cancellationToken);
 
     /// <summary>
-    /// Asynchronously sink the LazyFrame to a CSV format written into a <see cref="PipeWriter"/>
-    /// (e.g. ASP.NET Core <c>HttpResponse.BodyWriter</c>).
-    /// <para>The writer is flushed but not completed.</para>
+    /// Run the query and write its rows as CSV into a pipe with asynchronous flushes, the engine read off the caller's
+    /// thread (flushed, not completed).
     /// </summary>
-    /// <param name="writer">Destination pipe writer.</param>
-    /// <inheritdoc cref="SinkCsvAsync(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken)"/>
+    /// <param name="writer">The pipe.</param>
+    /// <param name="cancellationToken">Stops the sink.</param>
+    /// <inheritdoc cref="SinkCsvMemory"/>
     public Task SinkCsvAsync(
         PipeWriter writer,
         bool includeBom = false,
@@ -468,14 +256,10 @@ public partial class LazyFrame : IDisposable
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(writer);
-        var handle = CloneHandle();
-        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkCsvCallback(
-            handle, target, includeBom, includeHeader, batchSize, checkExtension, compressionCode.ToNative(),
-            compressionLevel, dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
-            separator, quoteChar, nullValue, lineTerminator, quoteStyle.ToNative(), maintainOrder),
-            cancellationToken);
-    }
+        CancellationToken cancellationToken = default,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.SinkCsvAsync(CloneHandle(), writer, DataFrame.CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat,
+            datetimeFormat, floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator),
+            maintainOrder, cancellationToken);
 }

@@ -1,19 +1,156 @@
 namespace Polars.FSharp
 
-open Polars.NET.Core.Wrappers
+open Polars.NET.Core.Csv
 
 [<AutoOpen>]
 module CsvRead =
     open System.IO
+    open System.Threading.Tasks
+
+    /// The parameters of a CSV read or scan, as given (None: the default).
+    type internal CsvReadParams =
+        { Schema: PolarsSchema option
+          DtypeOverride: PolarsSchema option
+          HasHeader: bool option
+          Separator: char option
+          QuoteChar: char option
+          EolChar: char option
+          IgnoreErrors: bool option
+          TryParseDates: bool option
+          Rechunk: bool option
+          RaiseIfEmpty: bool option
+          Glob: bool option
+          SkipRows: uint64 option
+          SkipRowsAfterHeader: uint64 option
+          SkipLines: uint64 option
+          NRows: uint64 option
+          InferSchemaLength: uint64 option
+          InferSchemaFiles: uint64 option
+          NThreads: uint64 option
+          RowIndexName: string option
+          RowIndexOffset: uint64 option
+          IncludeFilePaths: string option
+          Encoding: CsvEncoding option
+          NullValues: seq<string> option
+          MissingIsNull: bool option
+          CommentPrefix: string option
+          DecimalComma: bool option
+          TruncateRaggedLines: bool option
+          TrueValues: seq<string> option
+          FalseValues: seq<string> option
+          ThousandsSeparator: string option
+          AllowMissingColumns: bool option
+          IgnoreExtraColumns: bool option
+          HivePartitioning: bool option }
+
+        static member Empty =
+            { Schema = None; DtypeOverride = None; HasHeader = None; Separator = None; QuoteChar = None; EolChar = None
+              IgnoreErrors = None; TryParseDates = None; Rechunk = None; RaiseIfEmpty = None; Glob = None; SkipRows = None
+              SkipRowsAfterHeader = None; SkipLines = None; NRows = None; InferSchemaLength = None; InferSchemaFiles = None
+              NThreads = None; RowIndexName = None; RowIndexOffset = None; IncludeFilePaths = None; Encoding = None
+              NullValues = None; MissingIsNull = None; CommentPrefix = None; DecimalComma = None; TruncateRaggedLines = None
+              TrueValues = None; FalseValues = None; ThousandsSeparator = None; AllowMissingColumns = None
+              IgnoreExtraColumns = None; HivePartitioning = None }
+
+        /// The managed reader's arguments (the schemas borrowed: they stay the caller's).
+        member p.ToArgs() =
+            let handle (schema: PolarsSchema option) = match schema with Some s -> s.Handle | None -> null
+            let strings (values: seq<string> option) = values |> Option.map (fun v -> Seq.toArray v :> System.Collections.Generic.IReadOnlyList<string>) |> Option.toObj
+            let encoding = defaultArg p.Encoding CsvEncoding.UTF8
+            CsvScanArgs(
+                Schema = handle p.Schema,
+                DtypeOverride = handle p.DtypeOverride,
+                HasHeader = defaultArg p.HasHeader true,
+                Separator = defaultArg p.Separator ',',
+                QuoteChar = System.Nullable(defaultArg p.QuoteChar '"'),
+                EolChar = defaultArg p.EolChar '\n',
+                IgnoreErrors = defaultArg p.IgnoreErrors false,
+                TryParseDates = defaultArg p.TryParseDates true,
+                Rechunk = defaultArg p.Rechunk false,
+                RaiseIfEmpty = defaultArg p.RaiseIfEmpty true,
+                Glob = defaultArg p.Glob true,
+                SkipRows = defaultArg p.SkipRows 0UL,
+                SkipRowsAfterHeader = defaultArg p.SkipRowsAfterHeader 0UL,
+                SkipLines = defaultArg p.SkipLines 0UL,
+                NRows = Option.toNullable p.NRows,
+                // 100 rows by default; a value above 16,777,216 (e.g. UInt64.MaxValue) infers from the whole file.
+                InferSchemaLength = System.Nullable(defaultArg p.InferSchemaLength 100UL),
+                // 10 files by default (UInt64.MaxValue too).
+                InferSchemaFiles = Option.toNullable p.InferSchemaFiles,
+                NThreads = Option.toNullable p.NThreads,
+                RowIndexName = Option.toObj p.RowIndexName,
+                RowIndexOffset = defaultArg p.RowIndexOffset 0UL,
+                IncludeFilePaths = Option.toObj p.IncludeFilePaths,
+                Encoding = encoding.Given,
+                LossyEncoding = encoding.IsLossy,
+                NullValues = strings p.NullValues,
+                MissingIsNull = defaultArg p.MissingIsNull true,
+                CommentPrefix = Option.toObj p.CommentPrefix,
+                DecimalComma = defaultArg p.DecimalComma false,
+                TruncateRaggedLines = defaultArg p.TruncateRaggedLines false,
+                TrueValues = strings p.TrueValues,
+                FalseValues = strings p.FalseValues,
+                ThousandsSeparator = Option.toObj p.ThousandsSeparator,
+                AllowMissingColumns = defaultArg p.AllowMissingColumns false,
+                IgnoreExtraColumns = defaultArg p.IgnoreExtraColumns false,
+                HivePartitioning = defaultArg p.HivePartitioning false)
+
+    // The columns read, in their order (all when none or empty).
+    let private asked (columns: seq<string> option) =
+        match columns with
+        | Some c ->
+            let names = Seq.toArray c
+            if names.Length > 0 then names else null
+        | None -> null
 
     type LazyFrame with
         /// <summary>
-        /// Lazily scans a CSV file into a LazyFrame.
-        /// <para>
-        /// This allows for query optimization (predicate pushdown, projection pushdown)
-        /// and streaming processing of datasets larger than memory.
-        /// </para>
+        /// Lazily read CSV: a file, a directory of files, a glob, or any of them on a cloud store (one dataset: the files'
+        /// columns united by name). The files are listed and the columns inferred now (from the first files); the data is
+        /// read each time the query runs: only the columns it reads and the leading rows it keeps, streamed batch by batch.
         /// </summary>
+        /// <param name="path">The file, directory or glob (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
+        /// <param name="schema">Every column and its type: nothing is inferred. With a header the columns are matched by name (the frame in the schema's order); without one, by position.</param>
+        /// <param name="dtypeOverride">The types of some inferred columns, by name (names the files lack are passed over).</param>
+        /// <param name="hasHeader">Whether the first row names the columns. Defaults to true.</param>
+        /// <param name="separator">The field separator. Defaults to ','.</param>
+        /// <param name="quoteChar">The quote. Defaults to '"'; '\000' reads without quoting.</param>
+        /// <param name="eolChar">The line end: '\n' (the default) ends records at LF, CRLF or a CR alone; another character ends them at it.</param>
+        /// <param name="ignoreErrors">A value its column cannot hold is a null instead of an error (malformed CSV still is an error).</param>
+        /// <param name="tryParseDates">Infer dates, times and datetimes from text. Defaults to true.</param>
+        /// <param name="lowMemory">Accepted for compatibility; reading streams its input whatever it says.</param>
+        /// <param name="cache">Accepted for compatibility; it changes nothing.</param>
+        /// <param name="glob">Expand <c>*</c>, <c>?</c> and <c>[…]</c> in the path. Defaults to true.</param>
+        /// <param name="rechunk">Accepted for compatibility; a scan streams batches whatever it says.</param>
+        /// <param name="raiseIfEmpty">Empty input is an error (else an empty frame). Defaults to true.</param>
+        /// <param name="skipRows">Records skipped before the header (quote-aware). Defaults to 0.</param>
+        /// <param name="skipRowsAfterHeader">Records skipped after the header. Defaults to 0.</param>
+        /// <param name="skipLines">Raw lines skipped first, quotes not considered. Defaults to 0.</param>
+        /// <param name="nRows">Stop after this many rows.</param>
+        /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default); a value above 16,777,216 infers them from the whole file; 0 reads every column as String.</param>
+        /// <param name="inferSchemaFiles">The files the types are inferred from (10 by default, as dataframe engines take; UInt64.MaxValue also means 10).</param>
+        /// <param name="nThreads">The threads decoding (all cores by default).</param>
+        /// <param name="chunkSize">Accepted for compatibility; the reader sizes its units itself.</param>
+        /// <param name="rowIndexName">If provided, adds a first column (UInt32) numbering the rows across the files.</param>
+        /// <param name="rowIndexOffset">The row index's first number. Defaults to 0.</param>
+        /// <param name="includeFilePaths">If provided, adds a last column with each row's file path.</param>
+        /// <param name="encoding">The files' encoding (UTF-8 by default; Shift_JIS, GBK, Windows-1252, UTF-16 … see <see cref="CsvEncoding"/>).</param>
+        /// <param name="nullValues">Values read as null.</param>
+        /// <param name="missingIsNull">Empty unquoted fields are null (else empty strings). Defaults to true.</param>
+        /// <param name="commentPrefix">Lines starting with this text are passed over.</param>
+        /// <param name="decimalComma">',' is the decimal separator. Defaults to false.</param>
+        /// <param name="truncateRaggedLines">Fields past the last column are dropped (else an error). Defaults to false.</param>
+        /// <param name="cloudOptions">Options for cloud storage.</param>
+        /// <param name="trueValues">Values read as true (localized booleans such as "VERDADEIRO"); they also steer inference.</param>
+        /// <param name="falseValues">Values read as false.</param>
+        /// <param name="thousandsSeparator">The digit group separator of numbers ("." with decimalComma, " ", "'", ","; groups of three are checked). Off by default.</param>
+        /// <param name="allowMissingColumns">A file lacking some of the dataset's columns reads them as nulls (else an error).</param>
+        /// <param name="ignoreExtraColumns">Columns of later files the first files lack are passed over (else an error).</param>
+        /// <param name="hivePartitioning">Whether <c>key=value</c> directories of the paths are columns (off by default).</param>
+        /// <remarks>
+        /// The query's filters run on the batches read. Errors are <c>CsvFormatException</c> (malformed CSV) and
+        /// <c>CsvValueException</c> (a value its column cannot hold), naming the file, the row and the column.
+        /// </remarks>
         static member ScanCsv
             (
                 path: string,
@@ -47,110 +184,37 @@ module CsvRead =
                 ?commentPrefix: string,
                 ?decimalComma: bool,
                 ?truncateRaggedLines: bool,
-                ?cloudOptions: CloudOptions
+                ?cloudOptions: CloudOptions,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string,
+                ?allowMissingColumns: bool,
+                ?ignoreExtraColumns: bool,
+                ?hivePartitioning: bool
             ) : LazyFrame =
-
-            let schemaHandle =
-                match schema with
-                | Some s -> s.Handle
-                | None -> null
-
-            let dtypeOverrideHandle =
-                match dtypeOverride with
-                | Some s -> s.Handle
-                | None -> null
-
-            let pHasHdr = defaultArg hasHeader true
-            let pSep = defaultArg separator ','
-
-            let pQuote =
-                match quoteChar with
-                | Some c -> System.Nullable c
-                | None -> System.Nullable '"'
-
-            let pEol = defaultArg eolChar '\n'
-            let pIgnoreErr = defaultArg ignoreErrors false
-            let pTryDates = defaultArg tryParseDates true
-            let pLowMem = defaultArg lowMemory false
-            let pCache = defaultArg cache true
-            let pGlob = defaultArg glob true
-            let pRechunk = defaultArg rechunk false
-            let pRaiseEmpty = defaultArg raiseIfEmpty true
-            let pSkipR = defaultArg skipRows 0UL
-            let pSkipRAH = defaultArg skipRowsAfterHeader 0UL
-            let pSkipL = defaultArg skipLines 0UL
-            let pNRows = Option.toNullable nRows
-            // 100 rows by default; a value above 16,777,216 (e.g. UInt64.MaxValue) infers from the whole file.
-            let pInferLen = System.Nullable(defaultArg inferSchemaLength 100UL)
-            let pInferFiles = defaultArg inferSchemaFiles 18446744073709551615UL
-            let pNTh = Option.toNullable nThreads
-            let pChunkSz = Option.toNullable chunkSize
-            let pRowIdxName = Option.toObj rowIndexName
-            let pRowIdxOff = defaultArg rowIndexOffset 0UL
-            let pIncPaths = Option.toObj includeFilePaths
-            let pEnc = defaultArg encoding CsvEncoding.UTF8
-            let pNullVals = nullValues |> Option.map Seq.toArray |> Option.toObj
-            let pMissNull = defaultArg missingIsNull true
-            let pComment = Option.toObj commentPrefix
-            let pDecComma = defaultArg decimalComma false
-            let pTruncRagged = defaultArg truncateRaggedLines false
-
-            let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals =
-                CloudOptions.ParseCloudOptions cloudOptions
-
-            let h =
-                PolarsWrapper.ScanCsv(
-                    path,
-                    schemaHandle,
-                    dtypeOverrideHandle,
-                    pHasHdr,
-                    pSep,
-                    pQuote,
-                    pEol,
-                    pIgnoreErr,
-                    pTryDates,
-                    pLowMem,
-                    pCache,
-                    pGlob,
-                    pRechunk,
-                    pRaiseEmpty,
-                    pSkipR,
-                    pSkipRAH,
-                    pSkipL,
-                    pNRows,
-                    pInferLen,
-                    pInferFiles,
-                    pNTh,
-                    pChunkSz,
-                    pRowIdxName,
-                    pRowIdxOff,
-                    pIncPaths,
-                    pEnc.ToNative(),
-                    pNullVals,
-                    pMissNull,
-                    pComment,
-                    pDecComma,
-                    pTruncRagged,
-                    cProv,
-                    cRet,
-                    cToMs,
-                    cInitMs,
-                    cMaxMs,
-                    cCache,
-                    cKeys,
-                    cVals
-                )
-
-            new LazyFrame(h)
+            ignore (lowMemory, cache, chunkSize)
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; DtypeOverride = dtypeOverride; HasHeader = hasHeader; Separator = separator
+                    QuoteChar = quoteChar; EolChar = eolChar; IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates
+                    Rechunk = rechunk; RaiseIfEmpty = raiseIfEmpty; Glob = glob; SkipRows = skipRows
+                    SkipRowsAfterHeader = skipRowsAfterHeader; SkipLines = skipLines; NRows = nRows
+                    InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles; NThreads = nThreads
+                    RowIndexName = rowIndexName; RowIndexOffset = rowIndexOffset; IncludeFilePaths = includeFilePaths
+                    Encoding = encoding; NullValues = nullValues; MissingIsNull = missingIsNull; CommentPrefix = commentPrefix
+                    DecimalComma = decimalComma; TruncateRaggedLines = truncateRaggedLines; TrueValues = trueValues
+                    FalseValues = falseValues; ThousandsSeparator = thousandsSeparator; AllowMissingColumns = allowMissingColumns
+                    IgnoreExtraColumns = ignoreExtraColumns; HivePartitioning = hivePartitioning }
+            new LazyFrame(ManagedCsv.ScanCsv(path, args.ToArgs(), CloudOptions.ToCloudArgs cloudOptions))
 
         // ---------------------------------------------------------
         // Scan CSV (Memory / Bytes)
         // ---------------------------------------------------------
 
         /// <summary>
-        /// Lazily scans a CSV from an in-memory byte array.
+        /// Lazily read CSV from an in-memory byte array.
         /// </summary>
-        /// <remarks>The bytes are copied; the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place.</remarks>
+        /// <remarks>The bytes are copied (into native memory the scan keeps); the <c>ReadOnlyMemory&lt;byte&gt;</c> overload reads them in place. glob and includeFilePaths are unused for memory.</remarks>
         static member ScanCsv(
                 buffer: byte[],
                 ?schema: PolarsSchema,
@@ -182,45 +246,29 @@ module CsvRead =
                 ?missingIsNull: bool,
                 ?commentPrefix: string,
                 ?decimalComma: bool,
-                ?truncateRaggedLines: bool
+                ?truncateRaggedLines: bool,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string
             ) : LazyFrame =
-            LazyFrame.ScanCsv(
-                System.ReadOnlyMemory<byte>(Array.copy buffer),
-                ?schema = schema,
-                ?dtypeOverride = dtypeOverride,
-                ?hasHeader = hasHeader,
-                ?separator = separator,
-                ?quoteChar = quoteChar,
-                ?eolChar = eolChar,
-                ?ignoreErrors = ignoreErrors,
-                ?tryParseDates = tryParseDates,
-                ?lowMemory = lowMemory,
-                ?cache = cache,
-                ?glob = glob,
-                ?rechunk = rechunk,
-                ?raiseIfEmpty = raiseIfEmpty,
-                ?skipRows = skipRows,
-                ?skipRowsAfterHeader = skipRowsAfterHeader,
-                ?skipLines = skipLines,
-                ?nRows = nRows,
-                ?inferSchemaLength = inferSchemaLength,
-                ?inferSchemaFiles = inferSchemaFiles,
-                ?nThreads = nThreads,
-                ?chunkSize = chunkSize,
-                ?rowIndexName = rowIndexName,
-                ?rowIndexOffset = rowIndexOffset,
-                ?includeFilePaths = includeFilePaths,
-                ?encoding = encoding,
-                ?nullValues = nullValues,
-                ?missingIsNull = missingIsNull,
-                ?commentPrefix = commentPrefix,
-                ?decimalComma = decimalComma,
-                ?truncateRaggedLines = truncateRaggedLines)
+            ignore (lowMemory, cache, chunkSize, glob, includeFilePaths)
+            if isNull buffer then nullArg (nameof buffer)
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; DtypeOverride = dtypeOverride; HasHeader = hasHeader; Separator = separator
+                    QuoteChar = quoteChar; EolChar = eolChar; IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates
+                    Rechunk = rechunk; RaiseIfEmpty = raiseIfEmpty; SkipRows = skipRows; SkipRowsAfterHeader = skipRowsAfterHeader
+                    SkipLines = skipLines; NRows = nRows; InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles
+                    NThreads = nThreads; RowIndexName = rowIndexName; RowIndexOffset = rowIndexOffset; Encoding = encoding
+                    NullValues = nullValues; MissingIsNull = missingIsNull; CommentPrefix = commentPrefix; DecimalComma = decimalComma
+                    TruncateRaggedLines = truncateRaggedLines; TrueValues = trueValues; FalseValues = falseValues
+                    ThousandsSeparator = thousandsSeparator }
+            new LazyFrame(ManagedCsv.ScanCsv(System.ReadOnlySpan<byte>(buffer), args.ToArgs()))
 
         /// <summary>
-        /// Lazily scans a CSV from an in-memory byte array.
+        /// Lazily read CSV from in-memory bytes, read in place each time the query runs.
         /// </summary>
-        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once the engine unpins it (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released.</remarks>
+        /// <remarks>Reads the memory in place, without a copy: it stays pinned until the last frame reading it is released, and must not change meanwhile. Free unmanaged memory only once it is unpinned (<c>MemoryManager.Unpin</c>): a query can still be finishing on a background thread right after its frames are released. glob and includeFilePaths are unused for memory.</remarks>
         static member ScanCsv
             (
                 buffer: System.ReadOnlyMemory<byte>,
@@ -253,104 +301,36 @@ module CsvRead =
                 ?missingIsNull: bool,
                 ?commentPrefix: string,
                 ?decimalComma: bool,
-                ?truncateRaggedLines: bool
+                ?truncateRaggedLines: bool,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string
             ) : LazyFrame =
-
-            let schemaHandle =
-                match schema with
-                | Some s -> s.Handle
-                | None -> null
-
-            let dtypeOverrideHandle =
-                match dtypeOverride with
-                | Some s -> s.Handle
-                | None -> null
-
-            let pHasHdr = defaultArg hasHeader true
-            let pSep = defaultArg separator ','
-
-            let pQuote =
-                match quoteChar with
-                | Some c -> System.Nullable c
-                | None -> System.Nullable '"'
-
-            let pEol = defaultArg eolChar '\n'
-            let pIgnoreErr = defaultArg ignoreErrors false
-            let pTryDates = defaultArg tryParseDates true
-            let pLowMem = defaultArg lowMemory false
-            let pCache = defaultArg cache true
-            let pGlob = defaultArg glob true
-            let pRechunk = defaultArg rechunk false
-            let pRaiseEmpty = defaultArg raiseIfEmpty true
-            let pSkipR = defaultArg skipRows 0UL
-            let pSkipRAH = defaultArg skipRowsAfterHeader 0UL
-            let pSkipL = defaultArg skipLines 0UL
-            let pNRows = Option.toNullable nRows
-            // 100 rows by default; a value above 16,777,216 (e.g. UInt64.MaxValue) infers from the whole file.
-            let pInferLen = System.Nullable(defaultArg inferSchemaLength 100UL)
-            let pInferFiles = defaultArg inferSchemaFiles 18446744073709551615UL
-            let pNTh = Option.toNullable nThreads
-            let pChunkSz = Option.toNullable chunkSize
-            let pRowIdxName = Option.toObj rowIndexName
-            let pRowIdxOff = defaultArg rowIndexOffset 0UL
-            let pIncPaths = Option.toObj includeFilePaths
-            let pEnc = defaultArg encoding CsvEncoding.UTF8
-            let pNullVals = nullValues |> Option.map Seq.toArray |> Option.toObj
-            let pMissNull = defaultArg missingIsNull true
-            let pComment = Option.toObj commentPrefix
-            let pDecComma = defaultArg decimalComma false
-            let pTruncRagged = defaultArg truncateRaggedLines false
-
-            let h =
-                PolarsWrapper.ScanCsv(
-                    NativeBytes.Share buffer,
-                    schemaHandle,
-                    dtypeOverrideHandle,
-                    pHasHdr,
-                    pSep,
-                    pQuote,
-                    pEol,
-                    pIgnoreErr,
-                    pTryDates,
-                    pLowMem,
-                    pCache,
-                    pGlob,
-                    pRechunk,
-                    pRaiseEmpty,
-                    pSkipR,
-                    pSkipRAH,
-                    pSkipL,
-                    pNRows,
-                    pInferLen,
-                    pInferFiles,
-                    pNTh,
-                    pChunkSz,
-                    pRowIdxName,
-                    pRowIdxOff,
-                    pIncPaths,
-                    pEnc.ToNative(),
-                    pNullVals,
-                    pMissNull,
-                    pComment,
-                    pDecComma,
-                    pTruncRagged
-                )
-
-            new LazyFrame(h)
+            ignore (lowMemory, cache, chunkSize, glob, includeFilePaths)
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; DtypeOverride = dtypeOverride; HasHeader = hasHeader; Separator = separator
+                    QuoteChar = quoteChar; EolChar = eolChar; IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates
+                    Rechunk = rechunk; RaiseIfEmpty = raiseIfEmpty; SkipRows = skipRows; SkipRowsAfterHeader = skipRowsAfterHeader
+                    SkipLines = skipLines; NRows = nRows; InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles
+                    NThreads = nThreads; RowIndexName = rowIndexName; RowIndexOffset = rowIndexOffset; Encoding = encoding
+                    NullValues = nullValues; MissingIsNull = missingIsNull; CommentPrefix = commentPrefix; DecimalComma = decimalComma
+                    TruncateRaggedLines = truncateRaggedLines; TrueValues = trueValues; FalseValues = falseValues
+                    ThousandsSeparator = thousandsSeparator }
+            new LazyFrame(ManagedCsv.ScanCsv(buffer, args.ToArgs()))
 
         // ---------------------------------------------------------
         // Scan CSV (Stream)
         // ---------------------------------------------------------
 
         /// <summary>
-        /// Lazily scans a CSV from a Stream.
-        /// <para>
-        /// This reads the stream fully into memory to construct the Lazy execution plan.
-        /// </para>
+        /// Lazily read CSV from a Stream: read now (from its position; the stream is left open), once, into native memory
+        /// the scan keeps.
         /// </summary>
+        /// <remarks>glob and includeFilePaths are unused for a stream.</remarks>
         static member ScanCsv
             (
-                stream: System.IO.Stream,
+                stream: Stream,
                 ?schema: PolarsSchema,
                 ?hasHeader: bool,
                 ?separator: char,
@@ -379,45 +359,23 @@ module CsvRead =
                 ?missingIsNull: bool,
                 ?commentPrefix: string,
                 ?decimalComma: bool,
-                ?truncateRaggedLines: bool
+                ?truncateRaggedLines: bool,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string
             ) : LazyFrame =
-
-            use ms = new MemoryStream()
-            stream.CopyTo ms
-            let bytes = ms.ToArray()
-
-            LazyFrame.ScanCsv(
-                bytes,
-                ?schema = schema,
-                ?hasHeader = hasHeader,
-                ?separator = separator,
-                ?quoteChar = quoteChar,
-                ?eolChar = eolChar,
-                ?ignoreErrors = ignoreErrors,
-                ?tryParseDates = tryParseDates,
-                ?lowMemory = lowMemory,
-                ?cache = cache,
-                ?glob = glob,
-                ?rechunk = rechunk,
-                ?raiseIfEmpty = raiseIfEmpty,
-                ?skipRows = skipRows,
-                ?skipRowsAfterHeader = skipRowsAfterHeader,
-                ?skipLines = skipLines,
-                ?nRows = nRows,
-                ?inferSchemaLength = inferSchemaLength,
-                ?inferSchemaFiles = inferSchemaFiles,
-                ?nThreads = nThreads,
-                ?chunkSize = chunkSize,
-                ?rowIndexName = rowIndexName,
-                ?rowIndexOffset = rowIndexOffset,
-                ?includeFilePaths = includeFilePaths,
-                ?encoding = encoding,
-                ?nullValues = nullValues,
-                ?missingIsNull = missingIsNull,
-                ?commentPrefix = commentPrefix,
-                ?decimalComma = decimalComma,
-                ?truncateRaggedLines = truncateRaggedLines
-            )
+            ignore (lowMemory, cache, chunkSize, glob, includeFilePaths)
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; HasHeader = hasHeader; Separator = separator; QuoteChar = quoteChar; EolChar = eolChar
+                    IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates; Rechunk = rechunk; RaiseIfEmpty = raiseIfEmpty
+                    SkipRows = skipRows; SkipRowsAfterHeader = skipRowsAfterHeader; SkipLines = skipLines; NRows = nRows
+                    InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles; NThreads = nThreads
+                    RowIndexName = rowIndexName; RowIndexOffset = rowIndexOffset; Encoding = encoding; NullValues = nullValues
+                    MissingIsNull = missingIsNull; CommentPrefix = commentPrefix; DecimalComma = decimalComma
+                    TruncateRaggedLines = truncateRaggedLines; TrueValues = trueValues; FalseValues = falseValues
+                    ThousandsSeparator = thousandsSeparator }
+            new LazyFrame(ManagedCsv.ScanCsv(stream, args.ToArgs()))
 
         /// <summary> Helper: Scan CSV with default settings </summary>
         static member ScanCsv(path: string) =
@@ -425,12 +383,39 @@ module CsvRead =
 
     type DataFrame with
         /// <summary>
-        /// Read a DataFrame from a CSV file.
-        /// <para>
-        /// Note: This method internally uses LazyFrame.ScanCsv and collects the result.
-        /// For larger-than-memory datasets or better query optimization, consider using LazyFrame.ScanCsv directly.
-        /// </para>
+        /// Read CSV into a DataFrame: a file, a directory of files, a glob, or any of them on a cloud store (read as one
+        /// dataset: the files' columns united by name, the types inferred from the first files), decoded on every core.
         /// </summary>
+        /// <param name="path">The file, directory or glob (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
+        /// <param name="columns">The columns read, in this order (all when none or empty).</param>
+        /// <param name="hasHeader">Whether the first row names the columns. Defaults to true.</param>
+        /// <param name="separator">The field separator. Defaults to ','.</param>
+        /// <param name="quoteChar">The quote. Defaults to '"'; '\000' reads without quoting.</param>
+        /// <param name="eolChar">The line end: '\n' (the default) ends records at LF, CRLF or a CR alone; another character ends them at it.</param>
+        /// <param name="ignoreErrors">A value its column cannot hold is a null instead of an error (malformed CSV still is an error).</param>
+        /// <param name="tryParseDates">Infer dates, times and datetimes from text. Defaults to true.</param>
+        /// <param name="lowMemory">Accepted for compatibility; reading streams its input whatever it says.</param>
+        /// <param name="skipRows">Records skipped before the header (quote-aware). Defaults to 0.</param>
+        /// <param name="nRows">Stop after this many rows.</param>
+        /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default); a value above 16,777,216 infers them from the whole file; 0 reads every column as String.</param>
+        /// <param name="inferSchemaFiles">The files the types are inferred from (10 by default; UInt64.MaxValue also means 10).</param>
+        /// <param name="schema">Every column and its type: nothing is inferred. With a header the columns are matched by name (the frame in the schema's order); without one, by position.</param>
+        /// <param name="dtypeOverride">The types of some inferred columns, by name.</param>
+        /// <param name="encoding">The files' encoding (UTF-8 by default; see <see cref="CsvEncoding"/>).</param>
+        /// <param name="nullValues">Values read as null.</param>
+        /// <param name="missingIsNull">Empty unquoted fields are null (else empty strings). Defaults to true.</param>
+        /// <param name="commentPrefix">Lines starting with this text are passed over.</param>
+        /// <param name="decimalComma">',' is the decimal separator. Defaults to false.</param>
+        /// <param name="truncateRaggedLines">Fields past the last column are dropped (else an error). Defaults to false.</param>
+        /// <param name="rowIndexName">If provided, adds a first column (UInt32) numbering the rows.</param>
+        /// <param name="rowIndexOffset">The row index's first number. Defaults to 0.</param>
+        /// <param name="cloudOptions">Options for cloud storage.</param>
+        /// <param name="trueValues">Values read as true (localized booleans such as "VERDADEIRO"); they also steer inference.</param>
+        /// <param name="falseValues">Values read as false.</param>
+        /// <param name="thousandsSeparator">The digit group separator of numbers. Off by default.</param>
+        /// <param name="allowMissingColumns">A file lacking some of the dataset's columns reads them as nulls (else an error).</param>
+        /// <param name="ignoreExtraColumns">Columns of later files the first files lack are passed over (else an error).</param>
+        /// <param name="hivePartitioning">Whether <c>key=value</c> directories of the paths are columns (off by default).</param>
         static member ReadCsv
             (
                 path: string,
@@ -456,53 +441,33 @@ module CsvRead =
                 ?truncateRaggedLines: bool,
                 ?rowIndexName: string,
                 ?rowIndexOffset: uint64,
-                ?cloudOptions: CloudOptions
+                ?cloudOptions: CloudOptions,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string,
+                ?allowMissingColumns: bool,
+                ?ignoreExtraColumns: bool,
+                ?hivePartitioning: bool
             ) : DataFrame =
-
-            let mutable lf =
-                LazyFrame.ScanCsv(
-                    path,
-                    ?schema = schema,
-                    ?dtypeOverride = dtypeOverride,
-                    ?hasHeader = hasHeader,
-                    ?separator = separator,
-                    ?quoteChar = quoteChar,
-                    ?eolChar = eolChar,
-                    ?ignoreErrors = ignoreErrors,
-                    ?tryParseDates = tryParseDates,
-                    ?lowMemory = lowMemory,
-                    ?skipRows = skipRows,
-                    ?nRows = nRows,
-                    ?inferSchemaLength = inferSchemaLength,
-                    ?inferSchemaFiles = inferSchemaFiles,
-                    ?rowIndexName = rowIndexName,
-                    ?rowIndexOffset = rowIndexOffset,
-                    ?encoding = encoding,
-                    ?nullValues = nullValues,
-                    ?missingIsNull = missingIsNull,
-                    ?commentPrefix = commentPrefix,
-                    ?decimalComma = decimalComma,
-                    ?truncateRaggedLines = truncateRaggedLines,
-                    ?cloudOptions = cloudOptions
-                )
-
-            match columns with
-            | Some cols ->
-                let colArray = cols |> Seq.toArray
-
-                if colArray.Length > 0 then
-                    use sel = new Selector(PolarsWrapper.SelectorCols colArray)
-                    lf <- lf.Select [ sel :> IColumnExpr ]
-            | None -> ()
-
-            lf.Collect()
+            ignore lowMemory
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; DtypeOverride = dtypeOverride; HasHeader = hasHeader; Separator = separator
+                    QuoteChar = quoteChar; EolChar = eolChar; IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates
+                    SkipRows = skipRows; NRows = nRows; InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles
+                    RowIndexName = rowIndexName; RowIndexOffset = rowIndexOffset; Encoding = encoding; NullValues = nullValues
+                    MissingIsNull = missingIsNull; CommentPrefix = commentPrefix; DecimalComma = decimalComma
+                    TruncateRaggedLines = truncateRaggedLines; TrueValues = trueValues; FalseValues = falseValues
+                    ThousandsSeparator = thousandsSeparator; AllowMissingColumns = allowMissingColumns
+                    IgnoreExtraColumns = ignoreExtraColumns; HivePartitioning = hivePartitioning }
+            new DataFrame(ManagedCsv.ReadCsv(path, asked columns, args.ToArgs(), CloudOptions.ToCloudArgs cloudOptions))
 
         // ---------------------------------------------------------
         // Read CSV (Memory / Bytes)
         // ---------------------------------------------------------
 
         /// <summary>
-        /// Read a DataFrame from a CSV memory buffer.
+        /// Read CSV from an in-memory byte array (read in place during the call).
         /// </summary>
         static member ReadCsv
             (
@@ -528,56 +493,34 @@ module CsvRead =
                 ?decimalComma: bool,
                 ?truncateRaggedLines: bool,
                 ?rowIndexName: string,
-                ?rowIndexOffset: uint64
+                ?rowIndexOffset: uint64,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string
             ) : DataFrame =
-
-            let mutable lf =
-                LazyFrame.ScanCsv(
-                    buffer,
-                    ?schema = schema,
-                    ?dtypeOverride = dtypeOverride,
-                    ?hasHeader = hasHeader,
-                    ?separator = separator,
-                    ?quoteChar = quoteChar,
-                    ?eolChar = eolChar,
-                    ?ignoreErrors = ignoreErrors,
-                    ?tryParseDates = tryParseDates,
-                    ?lowMemory = lowMemory,
-                    ?skipRows = skipRows,
-                    ?nRows = nRows,
-                    ?inferSchemaLength = inferSchemaLength,
-                    ?inferSchemaFiles = inferSchemaFiles,
-                    ?rowIndexName = rowIndexName,
-                    ?rowIndexOffset = rowIndexOffset,
-                    ?encoding = encoding,
-                    ?nullValues = nullValues,
-                    ?missingIsNull = missingIsNull,
-                    ?commentPrefix = commentPrefix,
-                    ?decimalComma = decimalComma,
-                    ?truncateRaggedLines = truncateRaggedLines
-                )
-
-            match columns with
-            | Some cols ->
-                let colArray = cols |> Seq.toArray
-
-                if colArray.Length > 0 then
-                    use sel = new Selector(PolarsWrapper.SelectorCols colArray)
-                    lf <- lf.Select [ sel :> IColumnExpr ]
-            | None -> ()
-
-            lf.Collect()
+            ignore lowMemory
+            if isNull buffer then nullArg (nameof buffer)
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; DtypeOverride = dtypeOverride; HasHeader = hasHeader; Separator = separator
+                    QuoteChar = quoteChar; EolChar = eolChar; IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates
+                    SkipRows = skipRows; NRows = nRows; InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles
+                    RowIndexName = rowIndexName; RowIndexOffset = rowIndexOffset; Encoding = encoding; NullValues = nullValues
+                    MissingIsNull = missingIsNull; CommentPrefix = commentPrefix; DecimalComma = decimalComma
+                    TruncateRaggedLines = truncateRaggedLines; TrueValues = trueValues; FalseValues = falseValues
+                    ThousandsSeparator = thousandsSeparator }
+            new DataFrame(ManagedCsv.ReadCsv(System.ReadOnlyMemory<byte>(buffer), asked columns, args.ToArgs()))
 
         // ---------------------------------------------------------
         // Read CSV (Stream)
         // ---------------------------------------------------------
 
         /// <summary>
-        /// Read a DataFrame from a CSV memory stream.
+        /// Read CSV from a Stream, decoded as it arrives (from its position; the stream is left open).
         /// </summary>
         static member ReadCsv
             (
-                stream: System.IO.Stream,
+                stream: Stream,
                 ?columns: seq<string>,
                 ?hasHeader: bool,
                 ?separator: char,
@@ -598,40 +541,24 @@ module CsvRead =
                 ?decimalComma: bool,
                 ?truncateRaggedLines: bool,
                 ?rowIndexName: string,
-                ?rowIndexOffset: uint64
+                ?rowIndexOffset: uint64,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string
             ) : DataFrame =
-
-            use ms = new MemoryStream()
-            stream.CopyTo ms
-            let bytes = ms.ToArray()
-
-            DataFrame.ReadCsv(
-                bytes,
-                ?columns = columns,
-                ?hasHeader = hasHeader,
-                ?separator = separator,
-                ?quoteChar = quoteChar,
-                ?eolChar = eolChar,
-                ?ignoreErrors = ignoreErrors,
-                ?tryParseDates = tryParseDates,
-                ?lowMemory = lowMemory,
-                ?skipRows = skipRows,
-                ?nRows = nRows,
-                ?inferSchemaLength = inferSchemaLength,
-                ?inferSchemaFiles = inferSchemaFiles,
-                ?schema = schema,
-                ?encoding = encoding,
-                ?nullValues = nullValues,
-                ?missingIsNull = missingIsNull,
-                ?commentPrefix = commentPrefix,
-                ?decimalComma = decimalComma,
-                ?truncateRaggedLines = truncateRaggedLines,
-                ?rowIndexName = rowIndexName,
-                ?rowIndexOffset = rowIndexOffset
-            )
+            ignore lowMemory
+            let args =
+                { CsvReadParams.Empty with
+                    Schema = schema; HasHeader = hasHeader; Separator = separator; QuoteChar = quoteChar; EolChar = eolChar
+                    IgnoreErrors = ignoreErrors; TryParseDates = tryParseDates; SkipRows = skipRows; NRows = nRows
+                    InferSchemaLength = inferSchemaLength; InferSchemaFiles = inferSchemaFiles; RowIndexName = rowIndexName
+                    RowIndexOffset = rowIndexOffset; Encoding = encoding; NullValues = nullValues; MissingIsNull = missingIsNull
+                    CommentPrefix = commentPrefix; DecimalComma = decimalComma; TruncateRaggedLines = truncateRaggedLines
+                    TrueValues = trueValues; FalseValues = falseValues; ThousandsSeparator = thousandsSeparator }
+            new DataFrame(ManagedCsv.ReadCsv(stream, asked columns, args.ToArgs()))
 
         /// <summary>
-        /// Read a CSV file asynchronously into a DataFrame.
+        /// Read CSV asynchronously into a DataFrame (read off the caller's thread).
         /// </summary>
         static member ReadCsvAsync
             (
@@ -657,33 +584,42 @@ module CsvRead =
                 ?truncateRaggedLines: bool,
                 ?rowIndexName: string,
                 ?rowIndexOffset: uint64,
-                ?cloudOptions: CloudOptions
-            ) =
-            task {
-                return
-                    DataFrame.ReadCsv(
-                        path,
-                        ?columns = columns,
-                        ?schema = schema,
-                        ?hasHeader = hasHeader,
-                        ?separator = separator,
-                        ?quoteChar = quoteChar,
-                        ?eolChar = eolChar,
-                        ?ignoreErrors = ignoreErrors,
-                        ?tryParseDates = tryParseDates,
-                        ?lowMemory = lowMemory,
-                        ?skipRows = skipRows,
-                        ?nRows = nRows,
-                        ?inferSchemaLength = inferSchemaLength,
-                        ?inferSchemaFiles = inferSchemaFiles,
-                        ?encoding = encoding,
-                        ?nullValues = nullValues,
-                        ?missingIsNull = missingIsNull,
-                        ?commentPrefix = commentPrefix,
-                        ?decimalComma = decimalComma,
-                        ?truncateRaggedLines = truncateRaggedLines,
-                        ?rowIndexName = rowIndexName,
-                        ?rowIndexOffset = rowIndexOffset,
-                        ?cloudOptions = cloudOptions
-                    )
-            }
+                ?cloudOptions: CloudOptions,
+                ?trueValues: seq<string>,
+                ?falseValues: seq<string>,
+                ?thousandsSeparator: string,
+                ?allowMissingColumns: bool,
+                ?ignoreExtraColumns: bool,
+                ?hivePartitioning: bool
+            ) : Task<DataFrame> =
+            Task.Run(fun () ->
+                DataFrame.ReadCsv(
+                    path,
+                    ?columns = columns,
+                    ?schema = schema,
+                    ?hasHeader = hasHeader,
+                    ?separator = separator,
+                    ?quoteChar = quoteChar,
+                    ?eolChar = eolChar,
+                    ?ignoreErrors = ignoreErrors,
+                    ?tryParseDates = tryParseDates,
+                    ?lowMemory = lowMemory,
+                    ?skipRows = skipRows,
+                    ?nRows = nRows,
+                    ?inferSchemaLength = inferSchemaLength,
+                    ?inferSchemaFiles = inferSchemaFiles,
+                    ?encoding = encoding,
+                    ?nullValues = nullValues,
+                    ?missingIsNull = missingIsNull,
+                    ?commentPrefix = commentPrefix,
+                    ?decimalComma = decimalComma,
+                    ?truncateRaggedLines = truncateRaggedLines,
+                    ?rowIndexName = rowIndexName,
+                    ?rowIndexOffset = rowIndexOffset,
+                    ?cloudOptions = cloudOptions,
+                    ?trueValues = trueValues,
+                    ?falseValues = falseValues,
+                    ?thousandsSeparator = thousandsSeparator,
+                    ?allowMissingColumns = allowMissingColumns,
+                    ?ignoreExtraColumns = ignoreExtraColumns,
+                    ?hivePartitioning = hivePartitioning))

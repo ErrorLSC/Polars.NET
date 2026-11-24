@@ -1,51 +1,41 @@
-#pragma warning disable CS1573
+#pragma warning disable CS1573 // overloads inherit the shared parameters' docs and document their own
 using System.IO.Pipelines;
 using Polars.NET.Core;
+using Polars.NET.Core.Csv;
 
 namespace Polars.CSharp;
 
 public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFrame
 {
     /// <summary>
-    /// Write DataFrame to a comma-separated values (CSV) file.
-    /// <para>
-    /// This uses the Lazy execution engine internally to support streaming and cloud storage.
-    /// </para>
+    /// Write the DataFrame as CSV to a file, local or on a cloud store: encoded on every core, published whole once
+    /// written (a failed write leaves no file).
     /// </summary>
-    /// <param name="path">The output file path.</param>
-    /// <param name="includeHeader">Whether to include the header row. Defaults to true.</param>
-    /// <param name="includeBom">Whether to include the UTF-8 Byte Order Mark (BOM). Defaults to false.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'.</param>
-    /// <param name="quoteStyle">The quoting style to use. Defaults to <see cref="QuoteStyle.Necessary"/>.</param>
-    /// <param name="nullValue">The string representation for null values. Defaults to empty string.</param>
-    /// <param name="lineTerminator">The character sequence used to terminate lines. Defaults to "\n".</param>
-    /// <param name="floatScientific">
-    /// Whether to always use scientific notation for floats.
-    /// If null (default), formatting is automatic.
-    /// </param>
-    /// <param name="floatPrecision">
-    /// The number of decimal places to write for floats.
-    /// If null (default), uses full precision.
-    /// </param>
-    /// <param name="decimalComma">Whether to use a comma ',' as the decimal separator. Defaults to false.</param>
-    /// <param name="dateFormat">Format string for Date columns. If null, uses ISO 8601.</param>
-    /// <param name="timeFormat">Format string for Time columns. If null, uses ISO 8601.</param>
-    /// <param name="datetimeFormat">Format string for Datetime columns. If null, uses ISO 8601.</param>
-    /// <param name="checkExtension">Whether to check if the file extension matches '.csv'. Defaults to true.</param>
-    /// <param name="compression">Compression method (Gzip/Zstd). Defaults to None.</param>
-    /// <param name="compressionLevel">Compression level (depends on the codec). -1 for default.</param>
-    /// <param name="maintainOrder">
-    /// Whether to maintain the order of the data.
-    /// Setting this to false can improve performance in streaming mode. Defaults to true.
-    /// </param>
-    /// <param name="syncOnClose">File synchronization behavior on close (e.g., flush to disk). Defaults to None.</param>
-    /// <param name="mkdir">Recursively create the output directory if it does not exist. Defaults to false.</param>
-    /// <param name="batchSize">
-    /// The batch size for writing rows.
-    /// 0 means use the Polars default.
-    /// </param>
+    /// <param name="path">The output file path (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
+    /// <param name="includeHeader">Whether to write the header row. Defaults to true.</param>
+    /// <param name="includeBom">Whether to start with the encoding's byte order mark. Defaults to false.</param>
+    /// <param name="separator">The field separator. Defaults to ','.</param>
+    /// <param name="quoteChar">The quote. Defaults to '"'.</param>
+    /// <param name="quoteStyle">When fields are quoted. Defaults to <see cref="QuoteStyle.Necessary"/>.</param>
+    /// <param name="nullValue">The text of nulls. Defaults to an empty field.</param>
+    /// <param name="lineTerminator">The line end. Defaults to "\n".</param>
+    /// <param name="floatScientific">Floats always (true) or never (false) in scientific notation; null (default) as is shortest.</param>
+    /// <param name="floatPrecision">Floats with this many decimals; null (default) with the digits that read back the same value.</param>
+    /// <param name="decimalComma">',' as the decimal separator. Defaults to false.</param>
+    /// <param name="dateFormat">The format of Date columns (strftime). ISO 8601 when null.</param>
+    /// <param name="timeFormat">The format of Time columns (strftime). ISO 8601 when null.</param>
+    /// <param name="datetimeFormat">The format of Datetime columns (strftime). ISO 8601 when null.</param>
+    /// <param name="checkExtension">Whether the path's extension must fit the compression (.gz, .zst). Defaults to true.</param>
+    /// <param name="compression">Compression of the whole file (Gzip/Zstd). Defaults to none.</param>
+    /// <param name="compressionLevel">The compression level; -1 for the codec's default.</param>
+    /// <param name="maintainOrder">Accepted for compatibility: rows are written in order.</param>
+    /// <param name="syncOnClose">Whether the file is flushed to the disk before it is published. Defaults to None.</param>
+    /// <param name="mkdir">Create the file's directory when it is missing. Defaults to false.</param>
+    /// <param name="batchSize">Accepted for compatibility; the writer sizes its units itself.</param>
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="encoding">The output's encoding (UTF-8 by default; Shift_JIS, GBK, Windows-1252, UTF-16 … see <see cref="CsvEncoding"/>). Strict: a character it cannot hold is an error naming the row, unless lossy.</param>
+    /// <param name="thousandsSeparator">A digit group separator written in integers and floats ("." with <paramref name="decimalComma"/>, " ", "'"). Off by default.</param>
+    /// <remarks>Durations are written as ISO 8601 (PT1.5S). Errors are <see cref="Kaminari.Seseragi.Files.Csv.CsvWriteException"/>, naming the row and the column.</remarks>
     public void WriteCsv(
         string path,
         bool includeHeader = true,
@@ -68,52 +58,32 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
         int batchSize = 0,
-        CloudOptions? cloudOptions = null)
-    {
+        CloudOptions? cloudOptions = null,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.WriteCsv(Handle, path,
+            CsvWriteArgs(includeHeader, includeBom, separator, quoteChar, quoteStyle, nullValue, lineTerminator, floatScientific, floatPrecision, decimalComma,
+                dateFormat, timeFormat, datetimeFormat, compression, compressionLevel, encoding, thousandsSeparator),
+            checkExtension, syncOnClose.ToNative(), mkdir, CloudOptions.ToCloudArgs(cloudOptions));
 
-        var lf = Lazy();
-
-        lf.SinkCsv(
-            path,
-            includeHeader,
-            includeBom,
-            separator,
-            quoteChar,
-            quoteStyle,
-            nullValue,
-            lineTerminator,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            checkExtension,
-            compression,
-            compressionLevel,
-            maintainOrder,
-            syncOnClose,
-            mkdir,
-            batchSize,
-            cloudOptions
-        );
-    }
     /// <summary>
-    /// Write DataFrame to a partitioned comma-separated values (CSV) file.
-    /// <para>
-    /// This uses the Lazy execution engine internally to support streaming and cloud storage.
-    /// </para>
+    /// Write the DataFrame as a dataset of CSV files under <paramref name="path"/>, in Hive partitions of
+    /// <paramref name="partitionBy"/> (<c>key=value</c> directories).
     /// </summary>
-    /// <param name="path">The output base directory path.</param>
-    /// <param name="partitionBy">The selector(s) to partition the data by.</param>
-    /// <param name="includeKeys">Whether to include the partition keys in the output files.</param>
-    /// <param name="keysPreGrouped">
-    /// Assert that the keys are already pre-grouped. This can speed up the operation if true.
-    /// Use with caution: if the data is not grouped, the output may be incorrect.
-    /// </param>
-    /// <param name="maxRowsPerFile">Maximum number of rows per file. 0 means no limit.</param>
-    /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
-    /// <inheritdoc cref="WriteCsv(string, bool, bool, char, char, QuoteStyle, string?, string?, bool?, int?, bool, string?, string?, string?, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions?)"/>
+    /// <param name="path">The dataset's root directory.</param>
+    /// <param name="partitionBy">The columns the rows are partitioned by.</param>
+    /// <param name="includeKeys">Whether the files also hold the key columns. Defaults to true.</param>
+    /// <param name="keysPreGrouped">The rows come grouped by their keys: each partition's files are finished as its keys end. Rows not grouped write more files, never wrong ones.</param>
+    /// <param name="maxRowsPerFile">The most rows a file holds; 0 means no limit.</param>
+    /// <param name="approxBytesPerFile">About how many bytes a file holds; 0 means no limit.</param>
+    /// <param name="checkExtension">Unused: the files are named by the writer.</param>
+    /// <param name="mkdir">Unused: the dataset's directories are created.</param>
+    /// <param name="existingData">What happens to files under <paramref name="path"/> already (an error by default).</param>
+    /// <remarks>
+    /// Files are named <c>part-{index:D5}-{write id}.csv</c> (<c>.gz</c>, <c>.zst</c> when compressed), each with its header,
+    /// each published whole.
+    /// </remarks>
+    /// <inheritdoc cref="WriteCsv(string, bool, bool, char, char, QuoteStyle, string?, string?, bool?, int?, bool, string?, string?, string?, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions?, CsvEncoding, string?)"/>
     public void WriteCsvPartitioned(
         string path,
         IntoSelector partitionBy,
@@ -141,42 +111,18 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
         int batchSize = 0,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null,
+        ExistingData existingData = ExistingData.Error)
     {
-
-        var lf = Lazy();
-
-        lf.SinkCsvPartitioned(
-            path,
-            // --- Partition Params ---
-            partitionBy,
-            includeKeys,
-            keysPreGrouped,
-            maxRowsPerFile,
-            approxBytesPerFile,
-            includeHeader,
-            includeBom,
-            separator,
-            quoteChar,
-            quoteStyle,
-            nullValue,
-            lineTerminator,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            checkExtension,
-            compression,
-            compressionLevel,
-            maintainOrder,
-            syncOnClose,
-            mkdir,
-            batchSize,
-            cloudOptions
-        );
+        using LazyFrame lf = Lazy();
+        lf.SinkCsvPartitioned(path, partitionBy, includeKeys, keysPreGrouped, maxRowsPerFile, approxBytesPerFile, includeHeader, includeBom, separator, quoteChar,
+            quoteStyle, nullValue, lineTerminator, floatScientific, floatPrecision, decimalComma, dateFormat, timeFormat, datetimeFormat, checkExtension, compression,
+            compressionLevel, maintainOrder, syncOnClose, mkdir, batchSize, cloudOptions, encoding, thousandsSeparator, existingData);
     }
+
+    /// <summary>The DataFrame as CSV bytes.</summary>
     /// <inheritdoc cref="LazyFrame.SinkCsvMemory"/>
     public byte[] WriteCsvMemory(
         bool includeBom = false,
@@ -196,31 +142,13 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string? nullValue = null,
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
-        bool maintainOrder = true)
-    {
-        var lf = Lazy();
-        return lf.SinkCsvMemory(
-            includeBom,
-            includeHeader,
-            batchSize,
-            checkExtension,
-            compressionCode,
-            compressionLevel,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-            separator,
-            quoteChar,
-            nullValue,
-            lineTerminator,
-            quoteStyle,
-            maintainOrder
-        );
-    }
+        bool maintainOrder = true,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.WriteCsvToMemory(Handle, CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat,
+            floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator));
 
+    /// <summary>The DataFrame as CSV in native memory, handed over without a copy.</summary>
     /// <inheritdoc cref="LazyFrame.SinkCsvNativeMemory"/>
     public NativeBuffer WriteCsvNativeMemory(
         bool includeBom = false,
@@ -240,38 +168,15 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string? nullValue = null,
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
-        bool maintainOrder = true)
-    {
-        var lf = Lazy();
-        return lf.SinkCsvNativeMemory(
-            includeBom,
-            includeHeader,
-            batchSize,
-            checkExtension,
-            compressionCode,
-            compressionLevel,
-            dateFormat,
-            timeFormat,
-            datetimeFormat,
-            floatScientific,
-            floatPrecision,
-            decimalComma,
-            separator,
-            quoteChar,
-            nullValue,
-            lineTerminator,
-            quoteStyle,
-            maintainOrder
-        );
-    }
-    /// <summary>
-    /// Write DataFrame to a comma-separated values (CSV) format written into a <see cref="Stream"/>.
-    /// <para>
-    /// Output is streamed in chunks as it is produced. The stream is flushed but not disposed.
-    /// </para>
-    /// </summary>
+        bool maintainOrder = true,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.WriteCsvNativeMemory(Handle, CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat,
+            floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator));
+
+    /// <summary>Write the DataFrame as CSV into a <see cref="Stream"/> (flushed, not disposed).</summary>
     /// <param name="stream">Writable destination stream.</param>
-    /// <inheritdoc cref="LazyFrame.SinkCsv(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool)"/>
+    /// <inheritdoc cref="LazyFrame.SinkCsv(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CsvEncoding, string?)"/>
     public void WriteCsv(
         Stream stream,
         bool includeBom = false,
@@ -291,14 +196,14 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string? nullValue = null,
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
-        bool maintainOrder = true)
-    {
-        var lf = Lazy();
-        lf.SinkCsv(stream, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel,
-            dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
-            separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder);
-    }
-    /// <inheritdoc cref="LazyFrame.SinkCsvAsync(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken)"/>
+        bool maintainOrder = true,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.WriteCsv(Handle, stream, CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat,
+            floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator));
+
+    /// <summary>Write the DataFrame as CSV into a <see cref="Stream"/> with asynchronous writes only (flushed, not disposed).</summary>
+    /// <inheritdoc cref="LazyFrame.SinkCsvAsync(Stream, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken, CsvEncoding, string?)"/>
     public Task WriteCsvAsync(
         Stream stream,
         bool includeBom = false,
@@ -319,14 +224,14 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true,
-        CancellationToken cancellationToken = default)
-    {
-        var lf = Lazy();
-        return lf.SinkCsvAsync(stream, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel,
-            dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
-            separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder, cancellationToken);
-    }
-    /// <inheritdoc cref="LazyFrame.SinkCsvAsync(PipeWriter, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken)"/>
+        CancellationToken cancellationToken = default,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.WriteCsvAsync(Handle, stream, CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat,
+            floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator), cancellationToken);
+
+    /// <summary>Write the DataFrame as CSV into a pipe with asynchronous flushes (flushed, not completed).</summary>
+    /// <inheritdoc cref="LazyFrame.SinkCsvAsync(PipeWriter, bool, bool, int, bool, ExternalCompression, int, string?, string?, string?, int, int, bool, byte, byte, string?, string?, QuoteStyle, bool, CancellationToken, CsvEncoding, string?)"/>
     public Task WriteCsvAsync(
         PipeWriter writer,
         bool includeBom = false,
@@ -347,11 +252,42 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         string? lineTerminator = "\n",
         QuoteStyle quoteStyle = QuoteStyle.Necessary,
         bool maintainOrder = true,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CsvEncoding encoding = default,
+        string? thousandsSeparator = null)
+        => ManagedCsv.WriteCsvAsync(Handle, writer, CsvWriteArgs(includeBom, includeHeader, compressionCode, compressionLevel, dateFormat, timeFormat, datetimeFormat,
+            floatScientific, floatPrecision, decimalComma, separator, quoteChar, nullValue, lineTerminator, quoteStyle, encoding, thousandsSeparator), cancellationToken);
+
+    // How CSV is written, from the path overloads' parameters.
+    internal static CsvWriteArgs CsvWriteArgs(bool includeHeader, bool includeBom, char separator, char quoteChar, QuoteStyle quoteStyle, string? nullValue,
+        string? lineTerminator, bool? floatScientific, int? floatPrecision, bool decimalComma, string? dateFormat, string? timeFormat, string? datetimeFormat,
+        ExternalCompression compression, int compressionLevel, CsvEncoding encoding, string? thousandsSeparator) => new()
     {
-        var lf = Lazy();
-        return lf.SinkCsvAsync(writer, includeBom, includeHeader, batchSize, checkExtension, compressionCode, compressionLevel,
-            dateFormat, timeFormat, datetimeFormat, floatScientific, floatPrecision, decimalComma,
-            separator, quoteChar, nullValue, lineTerminator, quoteStyle, maintainOrder, cancellationToken);
-    }
+        IncludeHeader = includeHeader,
+        IncludeBom = includeBom,
+        Separator = separator,
+        QuoteChar = quoteChar,
+        QuoteStyle = quoteStyle.ToNative(),
+        NullValue = nullValue,
+        LineTerminator = lineTerminator,
+        FloatScientific = floatScientific,
+        FloatPrecision = floatPrecision,
+        DecimalComma = decimalComma,
+        DateFormat = dateFormat,
+        TimeFormat = timeFormat,
+        DatetimeFormat = datetimeFormat,
+        ThousandsSeparator = thousandsSeparator,
+        Encoding = encoding.Given,
+        LossyEncoding = encoding.IsLossy,
+        Compression = compression.ToNative(),
+        CompressionLevel = compressionLevel,
+    };
+
+    // How CSV is written, from the memory and stream overloads' parameters (floats: -1 unset, 0 false, 1 true; precision -1 unset).
+    internal static CsvWriteArgs CsvWriteArgs(bool includeBom, bool includeHeader, ExternalCompression compression, int compressionLevel, string? dateFormat,
+        string? timeFormat, string? datetimeFormat, int floatScientific, int floatPrecision, bool decimalComma, byte separator, byte quoteChar, string? nullValue,
+        string? lineTerminator, QuoteStyle quoteStyle, CsvEncoding encoding, string? thousandsSeparator) =>
+        CsvWriteArgs(includeHeader, includeBom, (char)separator, (char)quoteChar, quoteStyle, nullValue, lineTerminator,
+            floatScientific switch { 0 => false, 1 => true, _ => null }, floatPrecision >= 0 ? floatPrecision : null, decimalComma, dateFormat, timeFormat,
+            datetimeFormat, compression, compressionLevel, encoding, thousandsSeparator);
 }

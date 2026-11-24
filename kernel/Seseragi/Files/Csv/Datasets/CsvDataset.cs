@@ -284,8 +284,13 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             }
             root.AbsorbRecords(inference);
         }
-        if (names.Count == 0) throw new CsvFormatException("The dataset's files hold no columns to infer (give a schema).");
         CsvReadOptions format = options.Format;
+        if (names.Count == 0)
+        {
+            // Empty files read as an empty frame when asked (as one file reads), else refused.
+            if (!format.RaiseIfEmpty) return new Schema([], null);
+            throw new CsvFormatException("The dataset's files hold no columns to infer (give a schema, or RaiseIfEmpty = false to read them as an empty frame).");
+        }
         IArrowType text = format.ViewTypes ? StringViewType.Default : StringType.Default;
         Dictionary<string, Field> inferred = new(StringComparer.Ordinal);
         if (root is not null)

@@ -6,7 +6,7 @@ namespace Kaminari.Seseragi.Files.Json;
 /// <summary>
 /// How a dataset of JSON files is written: the dataset's options, and those of each file. The partition columns are
 /// written into the files too by default (<see cref="DatasetWriteOptions.IncludePartitionColumns"/>): dataframe engines
-/// that read JSON without Hive partitions (Polars) then keep them; every engine reads them either way.
+/// that read JSON without Hive partitions (some engines do) then keep them; every engine reads them either way.
 /// </summary>
 public sealed record JsonDatasetWriteOptions : DatasetWriteOptions
 {

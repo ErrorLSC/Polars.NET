@@ -1,4 +1,6 @@
-using Polars.NET.Core.Wrappers;
+#pragma warning disable CS1573 // overloads inherit the shared parameters' docs and document their own
+using Polars.NET.Core;
+using Polars.NET.Core.Csv;
 
 namespace Polars.CSharp;
 
@@ -10,45 +12,55 @@ namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable
 {
     /// <summary>
-    /// Lazily scans a CSV file into a LazyFrame.
-    /// <para>
-    /// This allows for query optimization (predicate pushdown, projection pushdown) 
-    /// and streaming processing of datasets larger than memory.
-    /// </para>
+    /// Lazily read CSV: a file, a directory of files, a glob, or any of them on a cloud store (one dataset: the files'
+    /// columns united by name). The files are listed and the columns inferred now (from the first files); the data is
+    /// read each time the query runs: only the columns it reads and the leading rows it keeps, streamed batch by batch.
     /// </summary>
-    /// <param name="path">Path to the CSV file.</param>
-    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
-    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
-    /// <param name="hasHeader">Whether the CSV file has a header row. Defaults to true.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable quoting.</param>
-    /// <param name="eolChar">The character used as End-Of-Line. Defaults to '\n'.</param>
-    /// <param name="ignoreErrors">Whether to ignore parsing errors (skip bad rows). Defaults to false.</param>
-    /// <param name="tryParseDates">Whether to automatically try parsing dates/datetimes. Defaults to true.</param>
-    /// <param name="lowMemory">Reduce memory usage at the cost of performance. Defaults to false.</param>
-    /// <param name="cache">Cache the result after reading. Defaults to true.</param>
-    /// <param name="glob">Expand path given via globbing rules. Defaults to true.</param>
-    /// <param name="rechunk">Rechunk the memory to contiguous chunks after reading. Defaults to false.</param>
-    /// <param name="raiseIfEmpty">Raise an error if CSV is empty (otherwise return an empty frame). Defaults to true.</param>
-    /// <param name="skipRows">Number of rows to skip at the start of the file. Defaults to 0.</param>
-    /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
-    /// <param name="skipLines">Skip the first n lines during parsing without respecting CSV escaping. Defaults to 0.</param>
-    /// <param name="nRows">Stop reading after n rows. If null, reads the entire file.</param>
-    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
-    /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
-    /// <param name="nThreads">Sets the number of threads used for CSV parsing. Default is null for auto setting.</param>
-    /// <param name="chunkSize">Set the chunk size for each thread. Default is null for auto setting.</param>
-    /// <param name="rowIndexName">If provided, adds a column with the row index using this name.</param>
-    /// <param name="rowIndexOffset">Offset to start the row index from. Defaults to 0.</param>
-    /// <param name="includeFilePaths">If provided, adds a column with the file path using this name.</param>
-    /// <param name="encoding">File encoding (UTF8 or LossyUTF8). Defaults to UTF8.</param>
-    /// <param name="nullValues">List of strings to consider as null values. E.g., ["NA", "null"].</param>
-    /// <param name="missingIsNull">Treat missing fields (empty strings between delimiters) as null. Defaults to true.</param>
-    /// <param name="commentPrefix">Lines starting with this prefix will be ignored. E.g., "#".</param>
-    /// <param name="decimalComma">Use comma ',' as the decimal separator (European style). Defaults to false.</param>
-    /// <param name="truncateRaggedLines">Truncate lines that are longer than the schema. Defaults to false.</param>
-    /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
+    /// <param name="path">The file, directory or glob (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
+    /// <param name="schema">Every column and its type: nothing is inferred. With a header the columns are matched by name (the frame in the schema's order); without one, by position.</param>
+    /// <param name="dtypeOverride">The types of some inferred columns, by name (names the files lack are passed over).</param>
+    /// <param name="hasHeader">Whether the first row names the columns. Defaults to true.</param>
+    /// <param name="separator">The field separator. Defaults to ','.</param>
+    /// <param name="quoteChar">The quote. Defaults to '"'; null or '\0' reads without quoting.</param>
+    /// <param name="eolChar">The line end: '\n' (the default) ends records at LF, CRLF or a CR alone; another character ends them at it.</param>
+    /// <param name="ignoreErrors">A value its column cannot hold is a null instead of an error (malformed CSV still is an error).</param>
+    /// <param name="tryParseDates">Infer dates, times and datetimes from text. Defaults to true.</param>
+    /// <param name="lowMemory">Accepted for compatibility; reading streams its input whatever it says.</param>
+    /// <param name="cache">Accepted for compatibility; it changes nothing.</param>
+    /// <param name="glob">Expand <c>*</c>, <c>?</c> and <c>[…]</c> in the path. Defaults to true.</param>
+    /// <param name="rechunk">Accepted for compatibility; a scan streams batches whatever it says.</param>
+    /// <param name="raiseIfEmpty">Empty input is an error (else an empty frame). Defaults to true.</param>
+    /// <param name="skipRows">Records skipped before the header (quote-aware). Defaults to 0.</param>
+    /// <param name="skipRowsAfterHeader">Records skipped after the header. Defaults to 0.</param>
+    /// <param name="skipLines">Raw lines skipped first, quotes not considered. Defaults to 0.</param>
+    /// <param name="nRows">Stop after this many rows (all when null).</param>
+    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file; values above 16,777,216 do the same. 0 reads every column as String.</param>
+    /// <param name="inferSchemaFiles">The files the types are inferred from (10 by default, as dataframe engines take; <see cref="ulong.MaxValue"/> also means 10).</param>
+    /// <param name="nThreads">The threads decoding (all cores when null).</param>
+    /// <param name="chunkSize">Accepted for compatibility; the reader sizes its units itself.</param>
+    /// <param name="rowIndexName">If provided, adds a first column (UInt32) numbering the rows across the files.</param>
+    /// <param name="rowIndexOffset">The row index's first number. Defaults to 0.</param>
+    /// <param name="includeFilePaths">If provided, adds a last column with each row's file path.</param>
+    /// <param name="encoding">The files' encoding (UTF-8 by default; Shift_JIS, GBK, Windows-1252, UTF-16 … see <see cref="CsvEncoding"/>).</param>
+    /// <param name="nullValues">Values read as null.</param>
+    /// <param name="missingIsNull">Empty unquoted fields are null (else empty strings). Defaults to true.</param>
+    /// <param name="commentPrefix">Lines starting with this text are passed over.</param>
+    /// <param name="decimalComma">',' is the decimal separator. Defaults to false.</param>
+    /// <param name="truncateRaggedLines">Fields past the last column are dropped (else an error). Defaults to false.</param>
+    /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="trueValues">Values read as true (localized booleans such as "VERDADEIRO"); they also steer inference.</param>
+    /// <param name="falseValues">Values read as false.</param>
+    /// <param name="thousandsSeparator">The digit group separator of numbers ("." with <paramref name="decimalComma"/>, " ", "'", ","; groups of three are checked). Off by default.</param>
+    /// <param name="allowMissingColumns">A file lacking some of the dataset's columns reads them as nulls (else an error).</param>
+    /// <param name="ignoreExtraColumns">Columns of later files the first files lack are passed over (else an error).</param>
+    /// <param name="hivePartitioning">Whether <c>key=value</c> directories of the paths are columns (off by default).</param>
     /// <returns>A new LazyFrame.</returns>
+    /// <remarks>
+    /// The query's filters run on the batches read (a predicate is pushed into the reader only by queries that hold it
+    /// as their own expression tree, such as LINQ). Errors are <see cref="Kaminari.Seseragi.Files.Csv.CsvFormatException"/>
+    /// (malformed CSV) and <see cref="Kaminari.Seseragi.Files.Csv.CsvValueException"/> (a value its column cannot hold),
+    /// naming the file, the row and the column.
+    /// </remarks>
     public static LazyFrame ScanCsv(
         string path,
         IntoSchema? schema = null,
@@ -75,100 +87,38 @@ public partial class LazyFrame : IDisposable
         string? rowIndexName = null,
         ulong rowIndexOffset = 0,
         string? includeFilePaths = null,
-        CsvEncoding encoding = CsvEncoding.UTF8,
+        CsvEncoding encoding = default,
         string[]? nullValues = null,
         bool missingIsNull = true,
         string? commentPrefix = null,
         bool decimalComma = false,
         bool truncateRaggedLines = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        string[]? trueValues = null,
+        string[]? falseValues = null,
+        string? thousandsSeparator = null,
+        bool allowMissingColumns = false,
+        bool ignoreExtraColumns = false,
+        bool hivePartitioning = false)
     {
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) =
-            CloudOptions.ParseCloudOptions(cloudOptions);
-
-        var handle = PolarsWrapper.ScanCsv(
-            path,
-            schema?.Consume().Handle,
-            dtypeOverride?.Consume().Handle,
-            hasHeader,
-            separator,
-            quoteChar,
-            eolChar,
-            ignoreErrors,
-            tryParseDates,
-            lowMemory,
-            cache,
-            glob,
-            rechunk,
-            raiseIfEmpty,
-            skipRows,
-            skipRowsAfterHeader,
-            skipLines,
-            nRows,
-            inferSchemaLength,
-            inferSchemaFiles,
-            nThreads,
-            chunkSize,
-            rowIndexName,
-            rowIndexOffset,
-            includeFilePaths,
-            encoding.ToNative(),
-            nullValues,
-            missingIsNull,
-            commentPrefix,
-            decimalComma,
-            truncateRaggedLines,
-            provider.ToNative(),
-            retries,
-            retryTimeoutMs,
-            retryInitBackoffMs,
-            retryMaxBackoffMs,
-            cacheTtl,
-            keys,
-            values
-        );
-
-        return new LazyFrame(handle);
+        CsvScanArgs args = CsvScanOptions(hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader,
+            skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, rowIndexName, rowIndexOffset, encoding, nullValues, missingIsNull, commentPrefix,
+            decimalComma, truncateRaggedLines, trueValues, falseValues, thousandsSeparator) with
+        {
+            Glob = glob,
+            IncludeFilePaths = includeFilePaths,
+            AllowMissingColumns = allowMissingColumns,
+            IgnoreExtraColumns = ignoreExtraColumns,
+            HivePartitioning = hivePartitioning,
+        };
+        return ScanCsvWith(schema, dtypeOverride, args, a => ManagedCsv.ScanCsv(path, a, CloudOptions.ToCloudArgs(cloudOptions)));
     }
 
-    /// <summary>
-    /// Lazily scans a CSV from an in-memory byte array.
-    /// <para>
-    /// Useful for processing data from Web APIs, S3, or embedded resources without writing to disk.
-    /// </para>
-    /// </summary>
-    /// <param name="buffer">The bytes; the engine copies them.</param>
-    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
-    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
-    /// <param name="hasHeader">Whether the CSV data has a header row. Defaults to true.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable.</param>
-    /// <param name="eolChar">The character used as End-Of-Line. Defaults to '\n'.</param>
-    /// <param name="ignoreErrors">Whether to ignore parsing errors. Defaults to false.</param>
-    /// <param name="tryParseDates">Whether to automatically try parsing dates. Defaults to true.</param>
-    /// <param name="lowMemory">Reduce memory usage at the cost of performance. Defaults to false.</param>
-    /// <param name="cache">Cache the result after reading. Defaults to true.</param>
-    /// <param name="glob">Expand path given via globbing rules. Defaults to true.</param>
-    /// <param name="rechunk">Rechunk the memory to contiguous chunks after reading. Defaults to false.</param>
-    /// <param name="raiseIfEmpty">Raise an error if CSV is empty. Defaults to true.</param>
-    /// <param name="skipRows">Number of rows to skip at the start. Defaults to 0.</param>
-    /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
-    /// <param name="skipLines">Skip the first n lines during parsing without respecting CSV escaping. Defaults to 0.</param>
-    /// <param name="nRows">Stop reading after n rows. If null, reads all data.</param>
-    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
-    /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
-    /// <param name="nThreads">Sets the number of threads used for CSV parsing. Default is null for auto setting.</param>
-    /// <param name="chunkSize">Set the chunk size for each thread. Default is null for auto setting.</param>
-    /// <param name="rowIndexName">If provided, adds a column with the row index using this name.</param>
-    /// <param name="rowIndexOffset">Offset to start the row index from. Defaults to 0.</param>
-    /// <param name="includeFilePaths">If provided, adds a column with the file path using this name.</param>
-    /// <param name="encoding">Data encoding (UTF8 or LossyUTF8). Defaults to UTF8.</param>
-    /// <param name="nullValues">List of strings to consider as null values.</param>
-    /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
-    /// <param name="commentPrefix">Lines starting with this prefix will be ignored.</param>
-    /// <param name="decimalComma">Use comma ',' as the decimal separator. Defaults to false.</param>
-    /// <param name="truncateRaggedLines">Truncate lines that are longer than the schema. Defaults to false.</param>
-    /// <returns>A new LazyFrame.</returns>
+    /// <summary>Lazily read CSV from an in-memory byte array.</summary>
+    /// <param name="buffer">The bytes, copied (into native memory the scan keeps).</param>
+    /// <param name="glob">Unused for memory.</param>
+    /// <param name="includeFilePaths">Unused for memory.</param>
+    /// <inheritdoc cref="ScanCsv(string, IntoSchema?, IntoSchema?, bool, char, char?, char, bool, bool, bool, bool, bool, bool, bool, ulong, ulong, ulong, ulong?, ulong?, ulong?, ulong?, ulong?, string?, ulong, string?, CsvEncoding, string[], bool, string?, bool, bool, CloudOptions?, string[], string[], string?, bool, bool, bool)"/>
     public static LazyFrame ScanCsv(
         byte[] buffer,
         IntoSchema? schema = null,
@@ -195,52 +145,28 @@ public partial class LazyFrame : IDisposable
         string? rowIndexName = null,
         ulong rowIndexOffset = 0,
         string? includeFilePaths = null,
-        CsvEncoding encoding = CsvEncoding.UTF8,
+        CsvEncoding encoding = default,
         string[]? nullValues = null,
         bool missingIsNull = true,
         string? commentPrefix = null,
         bool decimalComma = false,
-        bool truncateRaggedLines = false)
-        => ScanCsvCore(NativeBytes.Copy(buffer), schema, dtypeOverride, hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader, skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, chunkSize, rowIndexName, rowIndexOffset, includeFilePaths, encoding, nullValues, missingIsNull, commentPrefix, decimalComma, truncateRaggedLines);
+        bool truncateRaggedLines = false,
+        string[]? trueValues = null,
+        string[]? falseValues = null,
+        string? thousandsSeparator = null)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        return ScanCsv(buffer.AsSpan(), schema, dtypeOverride, hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, lowMemory, cache, glob,
+            rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader, skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, chunkSize, rowIndexName,
+            rowIndexOffset, includeFilePaths, encoding, nullValues, missingIsNull, commentPrefix, decimalComma, truncateRaggedLines, trueValues, falseValues,
+            thousandsSeparator);
+    }
 
-    /// <summary>
-    /// Lazily scans a CSV from an in-memory byte array.
-    /// <para>
-    /// Useful for processing data from Web APIs, S3, or embedded resources without writing to disk.
-    /// </para>
-    /// </summary>
-    /// <param name="buffer">The bytes; the engine copies them.</param>
-    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
-    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
-    /// <param name="hasHeader">Whether the CSV data has a header row. Defaults to true.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable.</param>
-    /// <param name="eolChar">The character used as End-Of-Line. Defaults to '\n'.</param>
-    /// <param name="ignoreErrors">Whether to ignore parsing errors. Defaults to false.</param>
-    /// <param name="tryParseDates">Whether to automatically try parsing dates. Defaults to true.</param>
-    /// <param name="lowMemory">Reduce memory usage at the cost of performance. Defaults to false.</param>
-    /// <param name="cache">Cache the result after reading. Defaults to true.</param>
-    /// <param name="glob">Expand path given via globbing rules. Defaults to true.</param>
-    /// <param name="rechunk">Rechunk the memory to contiguous chunks after reading. Defaults to false.</param>
-    /// <param name="raiseIfEmpty">Raise an error if CSV is empty. Defaults to true.</param>
-    /// <param name="skipRows">Number of rows to skip at the start. Defaults to 0.</param>
-    /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
-    /// <param name="skipLines">Skip the first n lines during parsing without respecting CSV escaping. Defaults to 0.</param>
-    /// <param name="nRows">Stop reading after n rows. If null, reads all data.</param>
-    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
-    /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
-    /// <param name="nThreads">Sets the number of threads used for CSV parsing. Default is null for auto setting.</param>
-    /// <param name="chunkSize">Set the chunk size for each thread. Default is null for auto setting.</param>
-    /// <param name="rowIndexName">If provided, adds a column with the row index using this name.</param>
-    /// <param name="rowIndexOffset">Offset to start the row index from. Defaults to 0.</param>
-    /// <param name="includeFilePaths">If provided, adds a column with the file path using this name.</param>
-    /// <param name="encoding">Data encoding (UTF8 or LossyUTF8). Defaults to UTF8.</param>
-    /// <param name="nullValues">List of strings to consider as null values.</param>
-    /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
-    /// <param name="commentPrefix">Lines starting with this prefix will be ignored.</param>
-    /// <param name="decimalComma">Use comma ',' as the decimal separator. Defaults to false.</param>
-    /// <param name="truncateRaggedLines">Truncate lines that are longer than the schema. Defaults to false.</param>
-    /// <returns>A new LazyFrame.</returns>
+    /// <summary>Lazily read CSV from in-memory bytes.</summary>
+    /// <param name="buffer">The bytes, copied (into native memory the scan keeps).</param>
+    /// <param name="glob">Unused for memory.</param>
+    /// <param name="includeFilePaths">Unused for memory.</param>
+    /// <inheritdoc cref="ScanCsv(string, IntoSchema?, IntoSchema?, bool, char, char?, char, bool, bool, bool, bool, bool, bool, bool, ulong, ulong, ulong, ulong?, ulong?, ulong?, ulong?, ulong?, string?, ulong, string?, CsvEncoding, string[], bool, string?, bool, bool, CloudOptions?, string[], string[], string?, bool, bool, bool)"/>
     public static LazyFrame ScanCsv(
         ReadOnlySpan<byte> buffer,
         IntoSchema? schema = null,
@@ -267,52 +193,36 @@ public partial class LazyFrame : IDisposable
         string? rowIndexName = null,
         ulong rowIndexOffset = 0,
         string? includeFilePaths = null,
-        CsvEncoding encoding = CsvEncoding.UTF8,
+        CsvEncoding encoding = default,
         string[]? nullValues = null,
         bool missingIsNull = true,
         string? commentPrefix = null,
         bool decimalComma = false,
-        bool truncateRaggedLines = false)
-        => ScanCsvCore(NativeBytes.Copy(buffer), schema, dtypeOverride, hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader, skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, chunkSize, rowIndexName, rowIndexOffset, includeFilePaths, encoding, nullValues, missingIsNull, commentPrefix, decimalComma, truncateRaggedLines);
+        bool truncateRaggedLines = false,
+        string[]? trueValues = null,
+        string[]? falseValues = null,
+        string? thousandsSeparator = null)
+    {
+        CsvScanArgs args = CsvScanOptions(hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader,
+            skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, rowIndexName, rowIndexOffset, encoding, nullValues, missingIsNull, commentPrefix,
+            decimalComma, truncateRaggedLines, trueValues, falseValues, thousandsSeparator);
+        // A span cannot be captured: the schemas are taken here.
+        try
+        {
+            return new LazyFrame(ManagedCsv.ScanCsv(buffer, args with { Schema = schema?.Consume().Handle, DtypeOverride = dtypeOverride?.Consume().Handle }));
+        }
+        finally
+        {
+            schema?.DisposeTempSchema();
+            dtypeOverride?.DisposeTempSchema();
+        }
+    }
 
-    /// <summary>
-    /// Lazily scans a CSV from an in-memory byte array.
-    /// <para>
-    /// Useful for processing data from Web APIs, S3, or embedded resources without writing to disk.
-    /// </para>
-    /// </summary>
+    /// <summary>Lazily read CSV from in-memory bytes, read in place each time the query runs.</summary>
     /// <param name="buffer">The bytes, read in place without a copy: the memory stays pinned until the last frame reading it is released, and must not change meanwhile. Wrap unmanaged memory in a <see cref="System.Buffers.MemoryManager{T}"/> and free it only once the engine unpins it (<see cref="System.Buffers.MemoryManager{T}.Unpin"/>): a query can still be finishing on a background thread right after its frames are released.</param>
-    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
-    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
-    /// <param name="hasHeader">Whether the CSV data has a header row. Defaults to true.</param>
-    /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
-    /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable.</param>
-    /// <param name="eolChar">The character used as End-Of-Line. Defaults to '\n'.</param>
-    /// <param name="ignoreErrors">Whether to ignore parsing errors. Defaults to false.</param>
-    /// <param name="tryParseDates">Whether to automatically try parsing dates. Defaults to true.</param>
-    /// <param name="lowMemory">Reduce memory usage at the cost of performance. Defaults to false.</param>
-    /// <param name="cache">Cache the result after reading. Defaults to true.</param>
-    /// <param name="glob">Expand path given via globbing rules. Defaults to true.</param>
-    /// <param name="rechunk">Rechunk the memory to contiguous chunks after reading. Defaults to false.</param>
-    /// <param name="raiseIfEmpty">Raise an error if CSV is empty. Defaults to true.</param>
-    /// <param name="skipRows">Number of rows to skip at the start. Defaults to 0.</param>
-    /// <param name="skipRowsAfterHeader">Skip this number of rows after the header location. Defaults to 0.</param>
-    /// <param name="skipLines">Skip the first n lines during parsing without respecting CSV escaping. Defaults to 0.</param>
-    /// <param name="nRows">Stop reading after n rows. If null, reads all data.</param>
-    /// <param name="inferSchemaLength">Rows to infer the column types from (100 by default). Null infers them from the whole file, read into memory first (slow); values above 16,777,216 do the same. 0 reads every column as String.</param>
-    /// <param name="inferSchemaFiles">How many files to use when inferring schema.</param>
-    /// <param name="nThreads">Sets the number of threads used for CSV parsing. Default is null for auto setting.</param>
-    /// <param name="chunkSize">Set the chunk size for each thread. Default is null for auto setting.</param>
-    /// <param name="rowIndexName">If provided, adds a column with the row index using this name.</param>
-    /// <param name="rowIndexOffset">Offset to start the row index from. Defaults to 0.</param>
-    /// <param name="includeFilePaths">If provided, adds a column with the file path using this name.</param>
-    /// <param name="encoding">Data encoding (UTF8 or LossyUTF8). Defaults to UTF8.</param>
-    /// <param name="nullValues">List of strings to consider as null values.</param>
-    /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
-    /// <param name="commentPrefix">Lines starting with this prefix will be ignored.</param>
-    /// <param name="decimalComma">Use comma ',' as the decimal separator. Defaults to false.</param>
-    /// <param name="truncateRaggedLines">Truncate lines that are longer than the schema. Defaults to false.</param>
-    /// <returns>A new LazyFrame.</returns>
+    /// <param name="glob">Unused for memory.</param>
+    /// <param name="includeFilePaths">Unused for memory.</param>
+    /// <inheritdoc cref="ScanCsv(string, IntoSchema?, IntoSchema?, bool, char, char?, char, bool, bool, bool, bool, bool, bool, bool, ulong, ulong, ulong, ulong?, ulong?, ulong?, ulong?, ulong?, string?, ulong, string?, CsvEncoding, string[], bool, string?, bool, bool, CloudOptions?, string[], string[], string?, bool, bool, bool)"/>
     public static LazyFrame ScanCsv(
         ReadOnlyMemory<byte> buffer,
         IntoSchema? schema = null,
@@ -339,81 +249,47 @@ public partial class LazyFrame : IDisposable
         string? rowIndexName = null,
         ulong rowIndexOffset = 0,
         string? includeFilePaths = null,
-        CsvEncoding encoding = CsvEncoding.UTF8,
+        CsvEncoding encoding = default,
         string[]? nullValues = null,
         bool missingIsNull = true,
         string? commentPrefix = null,
         bool decimalComma = false,
-        bool truncateRaggedLines = false)
-        => ScanCsvCore(NativeBytes.Share(buffer), schema, dtypeOverride, hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, lowMemory, cache, glob, rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader, skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, chunkSize, rowIndexName, rowIndexOffset, includeFilePaths, encoding, nullValues, missingIsNull, commentPrefix, decimalComma, truncateRaggedLines);
-
-    private static LazyFrame ScanCsvCore(
-        NativeBytes buffer,
-        IntoSchema? schema,
-        IntoSchema? dtypeOverride,
-        bool hasHeader,
-        char separator,
-        char? quoteChar,
-        char eolChar,
-        bool ignoreErrors,
-        bool tryParseDates,
-        bool lowMemory,
-        bool cache,
-        bool glob,
-        bool rechunk,
-        bool raiseIfEmpty,
-        ulong skipRows,
-        ulong skipRowsAfterHeader,
-        ulong skipLines,
-        ulong? nRows,
-        ulong? inferSchemaLength,
-        ulong? inferSchemaFiles,
-        ulong? nThreads,
-        ulong? chunkSize,
-        string? rowIndexName,
-        ulong rowIndexOffset,
-        string? includeFilePaths,
-        CsvEncoding encoding,
-        string[]? nullValues,
-        bool missingIsNull,
-        string? commentPrefix,
-        bool decimalComma,
-        bool truncateRaggedLines)
+        bool truncateRaggedLines = false,
+        string[]? trueValues = null,
+        string[]? falseValues = null,
+        string? thousandsSeparator = null)
     {
-        var handle = PolarsWrapper.ScanCsv(
-            buffer,
-            schema?.Consume().Handle,
-            dtypeOverride?.Consume().Handle,
-            hasHeader,
-            separator,
-            quoteChar,
-            eolChar,
-            ignoreErrors,
-            tryParseDates,
-            lowMemory,
-            cache,
-            glob,
-            rechunk,
-            raiseIfEmpty,
-            skipRows,
-            skipRowsAfterHeader,
-            skipLines,
-            nRows,
-            inferSchemaLength,
-            inferSchemaFiles,
-            nThreads,
-            chunkSize,
-            rowIndexName,
-            rowIndexOffset,
-            includeFilePaths,
-            encoding.ToNative(),
-            nullValues,
-            missingIsNull,
-            commentPrefix,
-            decimalComma,
-            truncateRaggedLines
-        );
+        CsvScanArgs args = CsvScanOptions(hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, rechunk, raiseIfEmpty, skipRows, skipRowsAfterHeader,
+            skipLines, nRows, inferSchemaLength, inferSchemaFiles, nThreads, rowIndexName, rowIndexOffset, encoding, nullValues, missingIsNull, commentPrefix,
+            decimalComma, truncateRaggedLines, trueValues, falseValues, thousandsSeparator);
+        return ScanCsvWith(schema, dtypeOverride, args, a => ManagedCsv.ScanCsv(buffer, a));
+    }
 
-        return new LazyFrame(handle);
+    // The options every CSV scan takes (the schemas are put in by ScanCsvWith).
+    private static CsvScanArgs CsvScanOptions(bool hasHeader, char separator, char? quoteChar, char eolChar, bool ignoreErrors, bool tryParseDates, bool rechunk,
+        bool raiseIfEmpty, ulong skipRows, ulong skipRowsAfterHeader, ulong skipLines, ulong? nRows, ulong? inferSchemaLength, ulong? inferSchemaFiles,
+        ulong? nThreads, string? rowIndexName, ulong rowIndexOffset, CsvEncoding encoding, string[]? nullValues, bool missingIsNull, string? commentPrefix,
+        bool decimalComma, bool truncateRaggedLines, string[]? trueValues, string[]? falseValues, string? thousandsSeparator) =>
+        DataFrame.CsvReadArgs(hasHeader, separator, quoteChar, eolChar, ignoreErrors, tryParseDates, rechunk, skipRows, skipRowsAfterHeader, nRows,
+            inferSchemaLength, inferSchemaFiles, encoding, nullValues, missingIsNull, commentPrefix, decimalComma, truncateRaggedLines, rowIndexName,
+            rowIndexOffset, trueValues, falseValues, thousandsSeparator) with
+        {
+            RaiseIfEmpty = raiseIfEmpty,
+            SkipLines = skipLines,
+            NThreads = nThreads,
+        };
+
+    // The schemas given (borrowed while the scan is made; temporary ones disposed after it).
+    private static LazyFrame ScanCsvWith(IntoSchema? schema, IntoSchema? overrides, CsvScanArgs args, Func<CsvScanArgs, LazyFrameHandle> scan)
+    {
+        try
+        {
+            return new LazyFrame(scan(args with { Schema = schema?.Consume().Handle, DtypeOverride = overrides?.Consume().Handle }));
+        }
+        finally
+        {
+            schema?.DisposeTempSchema();
+            overrides?.DisposeTempSchema();
+        }
     }
 }

@@ -219,8 +219,12 @@ public class BufferOverloadTests
     {
         using var memory = new TrackingMemory([]);
         Assert.Throws<ArgumentException>(() => LazyFrame.ScanParquet(memory.Memory));
-        Assert.Throws<ArgumentException>(() => LazyFrame.ScanCsv([]));
         Assert.Equal(0, memory.Pins);
+        // CSV: empty input is refused as the reader refuses it (raiseIfEmpty), or read as an empty frame.
+        Assert.Throws<Kaminari.Seseragi.Files.Csv.CsvFormatException>(() => LazyFrame.ScanCsv([]));
+        using (var lf = LazyFrame.ScanCsv([], raiseIfEmpty: false))
+        using (var df = lf.Collect())
+            Assert.Equal(0, df.Height);
     }
 
     [Fact]

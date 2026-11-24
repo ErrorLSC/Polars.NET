@@ -243,6 +243,14 @@ public static unsafe class ArrowStreamInterop
     private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict,
         IDisposable? owner = null)
     {
+        if (schema.FieldsList.Count == 0)
+        {
+            // No columns (an empty input read as an empty frame): no rows either. Apache.Arrow cannot export a schema
+            // without fields, and nothing is left to read.
+            owner?.Dispose();
+            using DataFrameHandle empty = PolarsWrapper.DataFrameNew([]);
+            return PolarsWrapper.DataFrameToLazy(empty);
+        }
         var cSchema = CArrowSchema.Create();
         try
         {

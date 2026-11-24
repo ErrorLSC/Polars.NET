@@ -26,7 +26,7 @@ public abstract record DatasetWriteOptions
     /// <summary>
     /// Whether the partition columns are written into the files too: off by default for Parquet and Arrow IPC (their
     /// values are in the paths, as Hive, Spark and pyarrow write them; pyarrow cannot read a column both in the files and
-    /// in the paths), on for CSV and JSON (Polars reads no Hive partitions from them; every engine reads them either way).
+    /// in the paths), on for CSV and JSON (some engines read no Hive partitions from them; every engine reads them either way).
     /// </summary>
     public bool IncludePartitionColumns { get; init; }
 

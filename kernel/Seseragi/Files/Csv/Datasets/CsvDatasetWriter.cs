@@ -5,7 +5,7 @@ namespace Kaminari.Seseragi.Files.Csv;
 /// <summary>
 /// How a dataset of CSV files is written: the dataset's options, and those of each file. The partition columns are
 /// written into the files too by default (<see cref="DatasetWriteOptions.IncludePartitionColumns"/>): dataframe engines
-/// that read CSV without Hive partitions (Polars) then keep them; every engine reads them either way.
+/// that read CSV without Hive partitions (some engines do) then keep them; every engine reads them either way.
 /// </summary>
 public sealed record CsvDatasetWriteOptions : DatasetWriteOptions
 {

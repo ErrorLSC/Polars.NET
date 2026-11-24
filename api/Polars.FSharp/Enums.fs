@@ -425,15 +425,67 @@ type ParallelStrategy =
         | RowGroups -> PlParallelStrategy.RowGroups
         | NoParallel -> PlParallelStrategy.None
 
-[<RequireQualifiedAccess>]
-type CsvEncoding =
-    | UTF8
-    | LossyUTF8
+/// <summary>
+/// The text encoding of CSV read or written: UTF-8 by default (the default value is <c>CsvEncoding.UTF8</c>), any
+/// encoding .NET knows, legacy code pages included (Shift_JIS, GBK, Big5, Windows-1252 …: no provider to register).
+/// Given by its static members, <c>CsvEncoding.CodePage 932</c>, <c>CsvEncoding.Named "shift_jis"</c> or
+/// <c>CsvEncoding.Of encoding</c>.
+/// </summary>
+/// <remarks>
+/// Strict by default: text the encoding does not define is an error naming the row. <c>Lossy()</c> reads it as U+FFFD
+/// and writes a character the encoding cannot hold as <c>?</c>. A byte order mark at the start of input read is
+/// honoured (it names UTF-8 or UTF-16 whatever is given, unless another non-UTF-8 encoding is given: then an error).
+/// </remarks>
+[<Struct; CustomEquality; NoComparison>]
+type CsvEncoding private (given: System.Text.Encoding, lossy: bool) =
+    static member private Make(encoding: System.Text.Encoding, lossy) =
+        CsvEncoding((if isNull encoding || encoding.CodePage = 65001 then null else encoding), lossy)
 
-    member internal this.ToNative() =
-        match this with
-        | UTF8 -> PlCsvEncoding.UTF8
-        | LossyUTF8 -> PlCsvEncoding.LossyUTF8
+    /// <summary>UTF-8, strict (the default).</summary>
+    static member UTF8 = CsvEncoding(null, false)
+    /// <summary>UTF-8, invalid bytes read as U+FFFD.</summary>
+    static member LossyUTF8 = CsvEncoding(null, true)
+    /// <summary>UTF-16, little endian (code page 1200).</summary>
+    static member Utf16LE = CsvEncoding(System.Text.Encoding.Unicode, false)
+    /// <summary>UTF-16, big endian (code page 1201).</summary>
+    static member Utf16BE = CsvEncoding(System.Text.Encoding.BigEndianUnicode, false)
+    /// <summary>Shift_JIS as Windows writes it (code page 932: NEC and IBM extensions).</summary>
+    static member ShiftJis = CsvEncoding.CodePage 932
+    /// <summary>GBK, simplified Chinese (code page 936).</summary>
+    static member Gbk = CsvEncoding.CodePage 936
+    /// <summary>Big5, traditional Chinese (code page 950).</summary>
+    static member Big5 = CsvEncoding.CodePage 950
+    /// <summary>EUC-KR / Unified Hangul Code, Korean (code page 949).</summary>
+    static member EucKr = CsvEncoding.CodePage 949
+    /// <summary>Windows-1252, Western European (code page 1252).</summary>
+    static member Windows1252 = CsvEncoding.CodePage 1252
+    /// <summary>ISO-8859-1 (Latin-1).</summary>
+    static member Latin1 = CsvEncoding(System.Text.Encoding.Latin1, false)
+
+    /// <summary>The encoding of a code page (932, 936, 1252, 65001 …); an ArgumentException when .NET knows none.</summary>
+    static member CodePage(codePage: int) = CsvEncoding.Make(Polars.NET.Core.Csv.ManagedCsv.EncodingOf codePage, false)
+    /// <summary>The encoding of a name ("shift_jis", "gbk", "windows-1252" …); an ArgumentException when .NET knows none.</summary>
+    static member Named(name: string) = CsvEncoding.Make(Polars.NET.Core.Csv.ManagedCsv.EncodingOf name, false)
+    /// <summary>A .NET encoding (its own fallbacks are not used: strict, or lossy).</summary>
+    static member Of(encoding: System.Text.Encoding) =
+        if isNull encoding then nullArg (nameof encoding)
+        CsvEncoding.Make(encoding, false)
+
+    /// <summary>This encoding, lossy: invalid input read as U+FFFD, characters it cannot hold written as <c>?</c>.</summary>
+    member _.Lossy() = CsvEncoding(given, true)
+    /// <summary>Whether invalid text is replaced (else an error naming the row).</summary>
+    member _.IsLossy = lossy
+    /// <summary>The .NET encoding.</summary>
+    member _.Encoding = if isNull given then System.Text.Encoding.UTF8 else given
+    /// <summary>The encoding given to the readers and writers (null: UTF-8).</summary>
+    member internal _.Given = given
+
+    override this.Equals(other) =
+        match other with
+        | :? CsvEncoding as o -> o.IsLossy = lossy && o.Encoding.CodePage = this.Encoding.CodePage
+        | _ -> false
+    override this.GetHashCode() = System.HashCode.Combine(this.Encoding.CodePage, lossy)
+    override this.ToString() = if lossy then this.Encoding.WebName + " (lossy)" else this.Encoding.WebName
 
 [<RequireQualifiedAccess>]
 type JsonFormat =

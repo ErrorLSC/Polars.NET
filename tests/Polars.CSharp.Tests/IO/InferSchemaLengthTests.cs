@@ -18,8 +18,14 @@ public class InferSchemaLengthTests
     public void Csv_Default_Infers_From_100_Rows()
     {
         using var csv = Csv();
-        Assert.Throws<global::Polars.NET.Core.Exceptions.PolarsException>(() => LazyFrame.ScanCsv(csv.Path).Collect());
-        Assert.Throws<global::Polars.NET.Core.Exceptions.PolarsException>(() => DataFrame.ReadCsv(csv.Path));
+        // The managed reader names the row, the value and the fixes (a scan's error reaches the caller through the engine).
+        Exception scanned = Assert.Throws<global::Polars.NET.Core.Exceptions.PolarsException>(() => LazyFrame.ScanCsv(csv.Path).Collect());
+        Exception read = Assert.Throws<Kaminari.Seseragi.Files.Csv.CsvValueException>(() => DataFrame.ReadCsv(csv.Path));
+        foreach (var e in new[] { scanned, read })
+        {
+            Assert.Contains("'8.1'", e.Message);
+            Assert.Contains("first 100 rows", e.Message);
+        }
     }
 
     [Fact]

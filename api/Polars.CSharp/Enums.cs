@@ -340,12 +340,6 @@ public enum ParallelStrategy : byte
     None = 3
 }
 
-public enum CsvEncoding : byte
-{
-    UTF8 = 0,
-    LossyUTF8 = 1,
-}
-
 public enum JsonFormat : byte
 {
     Json = 0,
@@ -873,12 +867,6 @@ internal static class EnumExtensions
         ParallelStrategy.RowGroups => CoreEnums.PlParallelStrategy.RowGroups,
         ParallelStrategy.None => CoreEnums.PlParallelStrategy.None,
         _ => throw new ArgumentOutOfRangeException(nameof(strategy), strategy, null)
-    };
-    internal static CoreEnums.PlCsvEncoding ToNative(this CsvEncoding encoding) => encoding switch
-    {
-        CsvEncoding.UTF8 => CoreEnums.PlCsvEncoding.UTF8,
-        CsvEncoding.LossyUTF8 => CoreEnums.PlCsvEncoding.LossyUTF8,
-        _ => throw new ArgumentOutOfRangeException(nameof(encoding), encoding, null)
     };
     internal static CoreEnums.PlJsonFormat ToNative(this JsonFormat jsonFormat) => jsonFormat switch
     {

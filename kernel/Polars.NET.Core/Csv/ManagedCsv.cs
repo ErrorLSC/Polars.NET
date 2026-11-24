@@ -127,6 +127,42 @@ public static class ManagedCsv
     /// <summary>The inference lengths from which the whole input is taken (as the engine's reader did).</summary>
     private const ulong WholeInputFrom = 16_777_216;
 
+    // ================================================================= encodings
+
+    /// <summary>The encoding of a code page (932, 1252, 65001 …), legacy code pages included (no provider registered).</summary>
+    /// <exception cref="ArgumentException">.NET knows no encoding of that code page.</exception>
+    internal static System.Text.Encoding EncodingOf(int codePage)
+    {
+        // 0 is the machine's ANSI code page on Windows: a file's encoding never depends on where it is read.
+        if (codePage <= 0)
+            throw new ArgumentOutOfRangeException(nameof(codePage), codePage, "A code page names one encoding (932 for Shift_JIS, 1252 for Windows-1252 …): 0 and below name none.");
+        try
+        {
+            return Kaminari.Sazanami.Text.TextEncodings.Resolve(codePage);
+        }
+        catch (Exception e) when (e is NotSupportedException or ArgumentException)
+        {
+            throw new ArgumentException(
+                $"Code page {codePage} is no text encoding .NET knows: give another code page (932 for Shift_JIS, 1252 for Windows-1252 …) or a name.", nameof(codePage), e);
+        }
+    }
+
+    /// <summary>The encoding of a name ("shift_jis", "gbk", "windows-1252" …; case does not matter).</summary>
+    /// <exception cref="ArgumentException">.NET knows no encoding of that name.</exception>
+    internal static System.Text.Encoding EncodingOf(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        try
+        {
+            return Kaminari.Sazanami.Text.TextEncodings.Resolve(name);
+        }
+        catch (Exception e) when (e is NotSupportedException or ArgumentException)
+        {
+            throw new ArgumentException(
+                $"'{name}' names no text encoding .NET knows: give a name such as \"shift_jis\", \"gbk\" or \"windows-1252\", or a code page.", nameof(name), e);
+        }
+    }
+
     // ================================================================= options
 
     /// <summary>How the files are written and read (the given types put in by the dataset or the reader).</summary>
@@ -458,7 +494,12 @@ public static class ManagedCsv
     /// <summary>
     /// A lazy scan of CSV in memory read in place: pinned until the engine releases the scan, unchanged meanwhile.
     /// </summary>
-    public static LazyFrameHandle ScanCsv(ReadOnlyMemory<byte> bytes, CsvScanArgs args) => ScanCsv(bytes, new Pinned(bytes.Pin()), args);
+    public static unsafe LazyFrameHandle ScanCsv(ReadOnlyMemory<byte> bytes, CsvScanArgs args)
+    {
+        // Pinned once for the scan's life: the readers see the pointer (pinning it again pins nothing of the caller's).
+        MemoryHandle pin = bytes.Pin();
+        return ScanCsv(PointerMemory.Of((byte*)pin.Pointer, bytes.Length), new Pinned(pin), args);
+    }
 
     /// <summary>A lazy scan of a stream (from its position; left open): read now, once, into native memory the scan keeps.</summary>
     public static LazyFrameHandle ScanCsv(Stream stream, CsvScanArgs args)
@@ -521,12 +562,34 @@ public static class ManagedCsv
     private static FrameWriter Frame(CsvWriter writer) => new(writer.Write, writer.WriteAsync, writer.Complete, writer.CompleteAsync, writer);
 
     /// <summary>Writes a frame to a file (replaced; a failed write leaves none).</summary>
-    public static void WriteCsv(DataFrameHandle df, string path, CsvWriteArgs args)
+    public static void WriteCsv(DataFrameHandle df, string path, CsvWriteArgs args) =>
+        WriteCsv(df, path, args, checkExtension: false, PlSyncOnClose.None, mkdir: false, cloud: null);
+
+    /// <summary>Writes a frame to a file, local or on a store: published whole once written (a failed write leaves none).</summary>
+    public static void WriteCsv(DataFrameHandle df, string path, CsvWriteArgs args, bool checkExtension, PlSyncOnClose syncOnClose, bool mkdir, CloudArgs? cloud)
     {
         ArgumentNullException.ThrowIfNull(path);
-        using FileWriteStream file = LocalWrite(path, mkdir: false, sync: false);
-        WriteCsv(df, file, args);
-        file.Commit();
+        if (checkExtension) CheckExtension(path, args.Compression);
+        IDisposable? owner = null;
+        try
+        {
+            FileWriteStream file;
+            if (ManagedStores.IsUrl(path))
+            {
+                (IWritableFileStore store, owner) = OpenStore(path, cloud);
+                file = store.OpenWrite(path, createOnly: false);
+            }
+            else file = LocalWrite(path, mkdir, syncOnClose != PlSyncOnClose.None);
+            using (file)
+            {
+                WriteCsv(df, file, args);
+                file.Commit();
+            }
+        }
+        finally
+        {
+            owner?.Dispose();
+        }
     }
 
     /// <summary>Writes a frame to a stream (flushed, left open).</summary>
