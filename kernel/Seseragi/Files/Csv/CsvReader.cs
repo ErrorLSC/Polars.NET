@@ -378,7 +378,8 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                             // Without a header: numbered columns, as many as the schema given or the first record's fields
                             // (more as wider records come among the first ones).
                             int count = options.Schema?.FieldsList.Count ?? fields.Count + (end > FieldEnd.Input ? 1 : 0);
-                            names = [.. Enumerable.Range(1, count).Select(i => $"column_{i}")];
+                            names = [.. Enumerable.Range(1, count).Select(i => options.Dataset is { ByPosition: true } d && i <= d.Columns.FieldsList.Count
+                                ? d.Columns.FieldsList[i - 1].Name : $"column_{i}")];
                             plan = new Plan(Resolved(options, names), values, names);
                         }
                         int columns = plan?.FileColumns ?? int.MaxValue;

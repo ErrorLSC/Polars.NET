@@ -14,5 +14,7 @@ namespace Kaminari.Seseragi.Files.Csv.Reading;
 /// <param name="IgnoreExtra">Whether a file's columns the dataset lacks are left out (else an error).</param>
 /// <param name="InferredFrom">The records of each file the dataset inferred the types from (0 when given): errors suggest overrides then.</param>
 /// <param name="Resolve">The columns to read and the filter, from the file's column names.</param>
+/// <param name="ByPosition">Without a header, the columns are the dataset's by position (a schema given names them; a
+/// file's columns past them keep their numbers).</param>
 internal sealed record CsvDatasetColumns(Schema Columns, bool IgnoreExtra, int InferredFrom,
-    Func<string[], (IReadOnlyList<string> Columns, ScalarExpr? Filter)> Resolve);
+    Func<string[], (IReadOnlyList<string> Columns, ScalarExpr? Filter)> Resolve, bool ByPosition = false);

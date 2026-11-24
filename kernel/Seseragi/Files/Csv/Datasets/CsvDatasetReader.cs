@@ -225,7 +225,7 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
         MemoryMap = _options.MemoryMap,
         UnitBytes = _options.UnitBytes,
         Dataset = new CsvDatasetColumns(_dataset.FileSchema, _dataset.Options.IgnoreExtraColumns, _dataset.InferredFrom,
-            names => Resolve(index, names, state, forceAfter)),
+            names => Resolve(index, names, state, forceAfter), ByPosition: !_dataset.Options.Format.HasHeader && _dataset.Options.Schema is not null),
     };
 
     /// <summary>

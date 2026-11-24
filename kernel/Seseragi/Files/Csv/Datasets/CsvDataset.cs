@@ -295,12 +295,9 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             foreach (Field field in root.Finish(rootNames, format.ViewTypes).Fields) inferred[field.Name] = field;
         }
         Field[] fields = [.. names.Select(n => inferred.TryGetValue(n, out Field? f) ? f : new Field(n, text, true))];
+        // Overrides of names the files do not have are passed over, as one file's reader passes them over.
         if (format.SchemaOverrides is { } overrides)
-        {
-            var unknown = overrides.Keys.Where(k => !known.Contains(k)).ToList();
-            if (unknown.Count > 0) throw new ArgumentException($"The inferred columns have none named {string.Join(", ", unknown)}.", nameof(options));
             fields = [.. fields.Select(f => overrides.TryGetValue(f.Name, out IArrowType? t) ? new Field(f.Name, t, true) : f)];
-        }
         return new Schema(fields, null);
 
         void Add(string name)

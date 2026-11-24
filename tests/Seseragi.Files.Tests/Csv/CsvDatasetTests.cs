@@ -218,6 +218,24 @@ public sealed class CsvDatasetTests : IDisposable
         Assert.Equal(("column_1:i64,column_2:str | 1 | \"a\" | 2 | null"), (Show("h2/*.csv", options with { AllowMissingColumns = true })));
     }
 
+    [Fact]
+    public void WithoutAHeader_AGivenSchema_NamesTheColumnsByPosition()
+    {
+        Write("hp/a.csv", "1,a\n");
+        Write("hp/b.csv", "2,b\n");
+        var schema = new Schema([new Field("id", Int32Type.Default, true), new Field("name", StringType.Default, true)], null);
+        Assert.Equal("id:i32,name:str | 1 | \"a\" | 2 | \"b\"",
+            Show("hp/*.csv", new CsvDatasetOptions { Schema = schema, Format = new CsvReadOptions { HasHeader = false } }));
+    }
+
+    [Fact]
+    public void OverridesOfColumnsTheFilesLack_ArePassedOver_AsOneFilesReaderDoes()
+    {
+        AB();
+        var options = new CsvDatasetOptions { Format = new CsvReadOptions { SchemaOverrides = new Dictionary<string, IArrowType> { ["nope"] = DoubleType.Default } } };
+        Assert.StartsWith("x:i64,y:str", Show("d/*.csv", options));
+    }
+
     // ---------------------------------------------------------------- inference
 
     [Theory]
