@@ -67,6 +67,22 @@ public sealed class JsonDatasetTests : IDisposable
 
     // ---------------------------------------------------------------- files
 
+    /// <summary>
+    /// Every file's first records are taken in side by side (UnionByName): when several fail, the failure is the first
+    /// file's (as if they were taken in in order), however fast the others fail.
+    /// </summary>
+    [Fact]
+    public void WhenSeveralFilesFailToBeInferred_TheFirstFilesFailureIsTheOne()
+    {
+        Write("hf/a.jsonl", Lines(0, 99) + "{\"id\":\n");
+        Write("hf/b.jsonl", "{\"id\":\n");
+        for (int i = 0; i < 20; i++)
+        {
+            var e = Assert.Throws<JsonFormatException>(() => JsonDataset.Open(At("hf/*.jsonl"), new JsonDatasetOptions { SchemaMode = DatasetSchemaMode.UnionByName }));
+            Assert.StartsWith(At("hf/a.jsonl") + ": ", e.Message);
+        }
+    }
+
     [Fact]
     public async Task ADirectory_IsReadWhole_InPathOrder_WhateverTheThreadsAndChunks()
     {

@@ -166,6 +166,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         start => new CsvFormatException($"The record starting at byte {start} is longer than 2 GB (is a quote left open?)."),
         inner => new CsvFormatException($"The compressed input is damaged: {inner.Message}", inner));
 
+    /// <summary>Checks the options (ArgumentException for what they cannot be).</summary>
+    internal static void Check(CsvReadOptions options) => Validate(options);
+
     private static RecordRules Validate(CsvReadOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -210,10 +213,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         TextUnits input = opened.Units;
         try
         {
-            RecordRules rules = Validate(options);
-            var tokenizer = new CsvTokenizer((byte)options.Separator, rules.Quote, rules.LineEnd, rules.CommentPrefix, options.TruncateRaggedLines);
-            var values = new CsvValueRules(tokenizer, options.MissingIsNull, options.IgnoreErrors, Bytes(options.NullValues), Bytes(options.TrueValues),
-                Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null, opened.Charset);
+            CsvValueRules values = Values(options, opened.Charset);
             Prelude prelude = await Prelude.ReadAsync(input, options, values, opened.Mark, opened.SkippedLines, useAsync, ct).ConfigureAwait(false);
             return new CsvReader(input, Both(opened.Owned, owned), options, prelude.Settings, prelude.StartUnit, prelude.StartOffset, prelude.Groups, prelude.Exact)
             {
@@ -229,9 +229,55 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         }
 
         static IDisposable? Both(IDisposable? first, IDisposable? second) => first is null ? second : second is null ? first : new Pair(first, second);
+    }
+
+    // The rules values are read by (the options checked).
+    private static CsvValueRules Values(CsvReadOptions options, CsvCharset charset)
+    {
+        RecordRules rules = Validate(options);
+        var tokenizer = new CsvTokenizer((byte)options.Separator, rules.Quote, rules.LineEnd, rules.CommentPrefix, options.TruncateRaggedLines);
+        return new CsvValueRules(tokenizer, options.MissingIsNull, options.IgnoreErrors, Bytes(options.NullValues), Bytes(options.TrueValues),
+            Bytes(options.FalseValues), options.DecimalComma, options.ThousandsSeparator is { } t ? Encoding.UTF8.GetBytes(t) : null, charset);
 
         static byte[][] Bytes(IReadOnlyList<string>? values) => values is null ? [] : [.. values.Select(Encoding.UTF8.GetBytes)];
     }
+
+    // ---- a dataset's files ---------------------------------------------------------------------------------------
+
+    /// <summary>A dataset's file opened (its prelude read with <see cref="CsvReadOptions.Dataset"/>); the caller keeps the source open.</summary>
+    internal static ValueTask<CsvReader> OpenFileAsync(IRandomAccess source, CsvReadOptions options, bool mappable, bool useAsync, CancellationToken ct) =>
+        OpenSourceAsync(source, null, options, mappable, useAsync, ct);
+
+    /// <summary>
+    /// A file's column names and the inference of its first records (<see cref="CsvReadOptions.InferSchemaLength"/>),
+    /// nothing decoded: a dataset infers its columns from several files' heads.
+    /// </summary>
+    internal static async ValueTask<CsvHead> HeadAsync(IRandomAccess source, CsvReadOptions options, bool mappable, bool useAsync, CancellationToken ct)
+    {
+        options = options with { Schema = null, Dataset = null, UnitBytes = await CsvInput.UnitBytesAsync(source, options, useAsync, ct).ConfigureAwait(false) };
+        CsvOpened opened = await CsvInput.OpenAsync(source, options, Cut(Validate(options)), mappable && options.MemoryMap == CsvMemoryMap.Auto, useAsync, ct)
+            .ConfigureAwait(false);
+        try
+        {
+            Prelude prelude = await Prelude.ReadAsync(opened.Units, options, Values(options, opened.Charset), opened.Mark, opened.SkippedLines, useAsync, ct, head: true)
+                .ConfigureAwait(false);
+            return prelude.Head!;
+        }
+        finally
+        {
+            opened.Units.Dispose();
+            opened.Owned?.Dispose();
+        }
+    }
+
+    /// <summary>The file's units (a dataset's window reads them).</summary>
+    internal TextUnits Input => _input;
+
+    /// <summary>Decodes unit <paramref name="index"/> from its bytes (null: past the end), in the formats the file knows so far.</summary>
+    internal CsvUnit Decode(TextUnitBytes? bytes, int index, long maxRows) => Decode(bytes, index, maxRows, _known);
+
+    /// <summary>A delivery of the file's units in order (see <see cref="Delivery"/>): at most <paramref name="max"/> rows, numbered from <paramref name="firstRow"/>.</summary>
+    internal Delivery Deliver(long max, long firstRow) => new(this, max, firstRow);
 
     /// <summary>
     /// What the first records give: where the data starts (after blank lines and the header), the columns (named, typed,
@@ -239,14 +285,18 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     /// </summary>
     private sealed class Prelude
     {
-        public required CsvDecodeSettings Settings { get; init; }
-        public required int StartUnit { get; init; }
-        public required int StartOffset { get; init; }
-        public required TemporalPattern?[] Groups { get; init; }
-        public required bool Exact { get; init; }
+        public CsvDecodeSettings Settings { get; init; } = null!;
+        public int StartUnit { get; init; }
+        public int StartOffset { get; init; }
+        public TemporalPattern?[] Groups { get; init; } = [];
+        public bool Exact { get; init; }
 
+        /// <summary>With <c>head</c>: the file's column names and what its first records hold (nothing decoded).</summary>
+        public CsvHead? Head { get; init; }
+
+        /// <summary>The prelude of the input (with <paramref name="head"/> only the names and the inference of the first records: a dataset infers its columns).</summary>
         public static async ValueTask<Prelude> ReadAsync(TextUnits input, CsvReadOptions options, CsvValueRules values, int mark, long linesBase,
-            bool useAsync, CancellationToken ct)
+            bool useAsync, CancellationToken ct, bool head = false)
         {
             CsvTokenizer tokenizer = values.Tokenizer;
             List<CsvField> fields = [];
@@ -259,11 +309,13 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             // row, counted by SkipRows (native).
             bool lead = options.SkipRows > 0 && options.HasHeader, started = !options.HasHeader, inData = false, sawRecord = false;
             long skipRows = options.SkipRows, skipAfter = options.SkipRowsAfterHeader;
-            long limit = options.Schema is not null ? SeedRows : options.InferSchemaLength is int length ? length : long.MaxValue;
+            // A dataset's file takes the dataset's types (typed, as by a schema): its first rows seed temporal formats only.
+            bool typed = options.Schema is not null || options.Dataset is not null;
+            long limit = typed ? SeedRows : options.InferSchemaLength is int length ? length : long.MaxValue;
             // Without a header the columns are as many as the widest of the first records (InferSchemaLength, at least one);
             // with a schema given those are checked against it, among the rows read at open.
             long widen = options.HasHeader ? 0 : Math.Max(1, options.InferSchemaLength ?? long.MaxValue);
-            if (options.Schema is not null) widen = Math.Min(widen, SeedRows);
+            if (typed) widen = Math.Min(widen, SeedRows);
             int widest = 0;
             Plan? plan = null;
             try
@@ -301,7 +353,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                             if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"The header (line {at}): {values.Charset.Invalid}", 0, at);
                             names = Names(bytes, fields, tokenizer, values.Charset);
                             started = sawRecord = true;
-                            plan = new Plan(options, values, names);
+                            plan = new Plan(Resolved(options, names), values, names);
                         }
                     }
                     while (started && skipAfter > 0 && (pos = tokenizer.SkipComments(bytes, pos)) < bytes.Length)
@@ -327,14 +379,14 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                             // (more as wider records come among the first ones).
                             int count = options.Schema?.FieldsList.Count ?? fields.Count + (end > FieldEnd.Input ? 1 : 0);
                             names = [.. Enumerable.Range(1, count).Select(i => $"column_{i}")];
-                            plan = new Plan(options, values, names);
+                            plan = new Plan(Resolved(options, names), values, names);
                         }
                         int columns = plan?.FileColumns ?? int.MaxValue;
                         if (end > FieldEnd.Input) throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(end, failed, columns)}", row, at);
                         if (!blank && row <= widen) widest = Math.Max(widest, fields.Count);
                         if (fields.Count > columns)
                         {
-                            if (row <= widen && options.Schema is null) plan!.Widen(fields.Count);
+                            if (row <= widen && !typed) plan!.Widen(fields.Count);
                             else if (!tokenizer.Truncates && !(row <= widen && options.Schema is not null))
                                 throw new CsvFormatException($"Row {row} (line {at}): {CsvDecode.Malformed(FieldEnd.TooManyFields, columns, columns)}", row, at);
                         }
@@ -367,13 +419,23 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                         $"{(options.SkipRows - skipRows == 1 ? "" : "s")} (a quote left open in a skipped record runs to the end): skip fewer rows, or give RaiseIfEmpty = false to read it as an empty frame.");
                 if (options.RaiseIfEmpty)
                     throw new CsvFormatException("The input holds no records (not even a header): give RaiseIfEmpty = false to read it as an empty frame.");
-                plan = new Plan(options, values, options.Schema is { } s ? [.. s.FieldsList.Select(f => f.Name)] : names ?? []);
+                names = options.Schema is { } s ? [.. s.FieldsList.Select(f => f.Name)] : names ?? [];
+                plan = new Plan(Resolved(options, names), values, names);
             }
             using (plan)
             {
+                if (head) return new Prelude { Head = plan.TakeHead() };
                 (CsvDecodeSettings settings, TemporalPattern?[] groups, bool exact) = plan.Finish();
                 return new Prelude { Settings = settings, StartUnit = startUnit, StartOffset = startOffset, Groups = groups, Exact = exact };
             }
+        }
+
+        // A dataset's file: the columns it reads and its filter, decided by its names.
+        private static CsvReadOptions Resolved(CsvReadOptions options, string[] names)
+        {
+            if (options.Dataset is not { } dataset) return options;
+            (IReadOnlyList<string> columns, Samidare.IR.ScalarExpr? filter) = dataset.Resolve(names);
+            return options with { Columns = columns, Filter = filter };
         }
 
         // The header's names: quotes removed and undoubled, decoded; duplicates renamed name_duplicated_0, _1 … (as the
@@ -420,7 +482,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         private readonly CsvReadOptions _options;
         private readonly CsvValueRules _values;
         private string[] _names;
-        private readonly CsvInference? _inference;
+        private CsvInference? _inference;
         private Field?[] _given; // per file column: its given field (schema), or null
         private readonly int[]? _order;   // per file column: its place in the given schema's order
         private TemporalColumn[] _dates, _datetimes;
@@ -436,7 +498,18 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             _dates = new TemporalColumn[n];
             _datetimes = new TemporalColumn[n];
             _seeded = new bool[n];
-            if (options.Schema is { } schema)
+            if (options.Dataset is { } dataset)
+            {
+                // Each column takes the dataset's type by name; one the dataset lacks is left out, or an error.
+                for (int c = 0; c < n; c++)
+                {
+                    _given[c] = dataset.Columns.GetFieldByName(names[c]) ?? (dataset.IgnoreExtra
+                        ? new Field(names[c], StringViewType.Default, true)
+                        : throw new CsvFormatException($"The file's column '{names[c]}' is not one of the dataset's ({string.Join(", ", dataset.Columns.FieldsList.Select(f => f.Name))}): " +
+                            "give IgnoreExtraColumns = true to leave such columns out, or a schema that has it."));
+                }
+            }
+            else if (options.Schema is { } schema)
             {
                 IReadOnlyList<Field> fields = schema.FieldsList;
                 if (!options.HasHeader)
@@ -473,6 +546,14 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         }
 
         public int FileColumns => _names.Length;
+
+        /// <summary>The names and the inference of the first records, handed over (the plan no longer owns the inference).</summary>
+        public CsvHead TakeHead()
+        {
+            CsvHead head = new(_names, _inference);
+            _inference = null;
+            return head;
+        }
 
         /// <summary>
         /// Without a header or schema: <paramref name="columns"/> columns from now on (a wider record among the first
@@ -558,7 +639,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             int n = _names.Length;
             Field[] full;
             TemporalPattern?[] groups;
-            if (_options.Schema is not null || _inference is null)
+            if (_options.Schema is not null || _options.Dataset is not null || _inference is null)
             {
                 full = [.. Enumerable.Range(0, n).Select(c => _given[c] ?? new Field(_names[c], _options.ViewTypes ? StringViewType.Default : StringType.Default, true))];
                 groups = new TemporalPattern?[n];
@@ -598,11 +679,11 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             System.Array.Fill(slots, -1);
             for (int k = 0; k < byDecoded.Length; k++) slots[byDecoded[k]] = k;
             // Types inferred from the first rows (not the whole input): values past them may not fit, the errors say so.
-            int sample = _inference is not null && _options.InferSchemaLength is int rows ? rows : 0;
+            int sample = _options.Dataset?.InferredFrom ?? (_inference is not null && _options.InferSchemaLength is int rows ? rows : 0);
             var settings = new CsvDecodeSettings(schema, n, slots, _values, _options.BatchSize, filter)
             {
                 Indexed = Indexed(selected, _options.RowIndexColumn),
-                InferredFrom = [.. byDecoded.Select(c => _given[c] is null ? sample : 0)],
+                InferredFrom = [.. byDecoded.Select(c => _given[c] is null || _options.Dataset is not null ? sample : 0)],
             };
             // Every column's type has a decoder (NotSupportedException otherwise).
             var none = new TemporalPattern?[schema.FieldsList.Count];
@@ -632,7 +713,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
 
         IEnumerable<RecordBatch> Batches()
         {
-            var state = new Delivery(this);
+            var state = new Delivery(this, _options.MaxRows ?? long.MaxValue, _options.RowIndexOffset);
             using OrderedWindow<CsvUnit> window = Window(default);
             for (int i = 0; state.Rows < state.Max && Has(window, i); i++)
             {
@@ -661,7 +742,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
 
         async IAsyncEnumerable<RecordBatch> Batches([EnumeratorCancellation] CancellationToken ct)
         {
-            var state = new Delivery(this);
+            var state = new Delivery(this, _options.MaxRows ?? long.MaxValue, _options.RowIndexOffset);
             using OrderedWindow<CsvUnit> window = Window(ct);
             for (int i = 0; state.Rows < state.Max && Has(window, i); i++)
             {
@@ -687,32 +768,43 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     /// column in another format, or refused values before it knew one, is decoded again in the file's), failures placed
     /// at their row and line in the whole input, the rows cut to <see cref="CsvReadOptions.MaxRows"/> and numbered.
     /// </summary>
-    private sealed class Delivery(CsvReader reader)
+    internal sealed class Delivery(CsvReader reader, long max, long firstRow)
     {
         private readonly TemporalPattern?[] _groups = [.. reader._groups];
         private long _records, _lines;
         private int _batch;
 
-        public long Max { get; } = reader._options.MaxRows ?? long.MaxValue;
+        public long Max { get; } = max;
 
         public long Rows { get; private set; }
 
-        public async ValueTask<CsvUnit> Check(int index, CsvUnit unit, bool useAsync, CancellationToken ct)
+        /// <summary>The records of the units done (the file's rows before the next unit).</summary>
+        public long Records => _records;
+
+        /// <summary>Whether the last unit checked was decoded again (its batches are new).</summary>
+        public bool Redone { get; private set; }
+
+        /// <summary>
+        /// Checks unit <paramref name="index"/> (decoded again when needed: from <paramref name="bytes"/> when kept, else
+        /// read again), learns its formats, throws its failure placed in the file.
+        /// </summary>
+        public async ValueTask<CsvUnit> Check(int index, CsvUnit unit, bool useAsync, CancellationToken ct, TextUnitBytes? bytes = null)
         {
             _batch = 0;
+            Redone = false;
             if (unit.End) return unit;
             if (Redo(unit))
             {
                 Interlocked.Increment(ref Redecoded);
                 unit.Dispose();
-                unit = await reader.DecodeAsync(index, Max - Rows, [.. _groups], useAsync, ct).ConfigureAwait(false);
+                unit = await Again(index, bytes, useAsync, ct).ConfigureAwait(false);
             }
             else if (unit.Error is { } past && past.Delivered >= Max - Rows)
             {
                 // A failure past the rows asked is not the reader's (the unit decoded up to MaxRows of its own, not
                 // of the whole input): the unit is decoded again up to them. Batches past them are cut as delivered.
                 unit.Dispose();
-                unit = await reader.DecodeAsync(index, Max - Rows, [.. _groups], useAsync, ct).ConfigureAwait(false);
+                unit = await Again(index, bytes, useAsync, ct).ConfigureAwait(false);
             }
             Learn(unit);
             if (unit.Error is { } error)
@@ -721,6 +813,14 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                 throw error.At(_records, reader._linesBase + lines);
             }
             return unit;
+        }
+
+        // The unit decoded again in the file's formats, up to the rows still wanted.
+        private async ValueTask<CsvUnit> Again(int index, TextUnitBytes? bytes, bool useAsync, CancellationToken ct)
+        {
+            Redone = true;
+            return bytes is null ? await reader.DecodeAsync(index, Max - Rows, [.. _groups], useAsync, ct).ConfigureAwait(false)
+                : reader.Decode(bytes, index, Max - Rows, [.. _groups]);
         }
 
         // Whether the unit read a temporal column otherwise than the file does.
@@ -756,7 +856,7 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             if (_batch >= unit.Batches.Count || Rows >= Max) return false;
             batch = unit.Batches[_batch]!;
             unit.Batches[_batch++] = null;
-            if (reader._settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), _records + reader._options.RowIndexOffset);
+            if (reader._settings.Indexed is not null) RowNumbers.Shift(batch.Column(0), _records + firstRow);
             if (Rows + batch.Length > Max) batch = RowFilter.First(batch, (int)(Max - Rows));
             Rows += batch.Length;
             return true;
@@ -797,6 +897,11 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     private async Task<CsvUnit> DecodeAsync(int index, long maxRows, TemporalPattern?[] groups, bool useAsync, CancellationToken ct)
     {
         using TextUnitBytes? bytes = await _input.GetAsync(index, useAsync, ct).ConfigureAwait(false);
+        return Decode(bytes, index, maxRows, groups);
+    }
+
+    private CsvUnit Decode(TextUnitBytes? bytes, int index, long maxRows, TemporalPattern?[] groups)
+    {
         if (bytes is null) return CsvUnit.EndOfInput;
         bool countLines = _input.ReadOnce;
         if (index < _startUnit)

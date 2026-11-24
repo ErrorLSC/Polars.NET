@@ -232,7 +232,7 @@ internal sealed class CsvCases(IReadOnlyList<string> corpus) : IFuzzCases
     }
 
     // Options the generator and the seeds do not vary.
-    private static CsvReadOptions Other(Random random, CsvReadOptions options, int which) => which switch
+    internal static CsvReadOptions Other(Random random, CsvReadOptions options, int which) => which switch
     {
         0 => options with { CommentPrefix = random.Next(2) == 0 ? "#" : "//" },
         1 => options with { SkipRows = random.Next(0, 5) },

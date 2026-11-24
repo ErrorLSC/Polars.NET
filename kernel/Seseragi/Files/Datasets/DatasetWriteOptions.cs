@@ -23,7 +23,11 @@ public abstract record DatasetWriteOptions
     /// </summary>
     public IReadOnlyList<string>? PartitionBy { get; init; }
 
-    /// <summary>Whether the partition columns are written into the files too (off by default: their values are in the paths, as Hive, Spark and pyarrow write them).</summary>
+    /// <summary>
+    /// Whether the partition columns are written into the files too: off by default for Parquet and Arrow IPC (their
+    /// values are in the paths, as Hive, Spark and pyarrow write them; pyarrow cannot read a column both in the files and
+    /// in the paths), on for CSV and JSON (Polars reads no Hive partitions from them; every engine reads them either way).
+    /// </summary>
     public bool IncludePartitionColumns { get; init; }
 
     /// <summary>What happens to files under the dataset's path already (<see cref="ExistingData.Error"/> by default).</summary>

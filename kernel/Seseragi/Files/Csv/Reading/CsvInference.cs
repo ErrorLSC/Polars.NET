@@ -9,8 +9,8 @@ namespace Kaminari.Seseragi.Files.Csv.Reading;
 /// <summary>
 /// The columns' types inferred from records in file order, as the engine's CSV reader infers them: each field's kind
 /// (<see cref="ValueInference"/>, on the text inside the quotes, not unescaped; nulls, empty and missing fields left
-/// out), the kinds of a column merged (Int64 with Float64 is Float64, with Int128 Int128, other mixes String; none
-/// String); a datetime needing nanoseconds makes its column datetime[ns]. The true and false values given are booleans,
+/// out), the kinds of a column merged (Int64 with Float64 is Float64, with Int128 Int128, dates with naive datetimes
+/// of the same day-month-year order datetimes, other mixes String; none String); a datetime needing nanoseconds makes its column datetime[ns]. The true and false values given are booleans,
 /// numbers grouped by the thousands separator given are numbers. Every temporal column's pattern group is the group of
 /// its first value that reads (file order), so the decoders of every unit read it alike.
 /// </summary>
@@ -59,6 +59,27 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
 
     /// <summary>The records taken in so far.</summary>
     public long Records { get; private set; }
+
+    /// <summary>The columns observed.</summary>
+    public int Columns => _columns.Count;
+
+    /// <summary>
+    /// Takes in column <paramref name="from"/> of a later file's inference as column <paramref name="column"/> of this one
+    /// (a dataset's files united by name, in file order): the kinds seen are united, the formats stay the first file's
+    /// that saw one — as if the files were one.
+    /// </summary>
+    public void Absorb(int column, CsvInference other, int from)
+    {
+        Column into = _columns[column], seen = other._columns[from];
+        into.Kinds.UnionWith(seen.Kinds);
+        into.Nanoseconds |= seen.Nanoseconds;
+        into.Date.Group ??= seen.Date.Group;
+        into.Datetime.Group ??= seen.Datetime.Group;
+        into.Zoned.Group ??= seen.Zoned.Group;
+    }
+
+    /// <summary>Counts the records of a later file taken in (<see cref="Absorb"/>).</summary>
+    public void AbsorbRecords(CsvInference other) => Records += other.Records;
 
     /// <summary>Takes in one record's fields (in file order; a blank line has none).</summary>
     public void Observe(ReadOnlySpan<byte> unit, IReadOnlyList<CsvField> fields, bool clean)
@@ -131,7 +152,7 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
         for (int c = 0; c < _columns.Count; c++)
         {
             Column column = _columns[c];
-            TextKind kind = TextValues.Finish(column.Kinds) ?? TextKind.String;
+            TextKind kind = Merged(column);
             TimeUnit unit = column.Nanoseconds ? TimeUnit.Nanosecond : TimeUnit.Microsecond;
             (IArrowType type, TemporalPattern? group) = kind switch
             {
@@ -152,4 +173,12 @@ internal sealed class CsvInference(int columns, CsvValueRules rules, bool parseD
         }
         return (fields, groups);
     }
+
+    // The column's kind: the kinds merged (TextValues.Finish), but dates with naive datetimes in the same order of day,
+    // month and year are datetimes (a date read as its midnight: no value changes).
+    private static TextKind Merged(Column column) =>
+        column.Kinds.Count == 2 && column.Kinds.Contains(TextKind.Date) && column.Kinds.Contains(TextKind.Datetime)
+            && (column.Date.Group, column.Datetime.Group) is (TemporalPattern.DateYmd, TemporalPattern.DatetimeYmd) or (TemporalPattern.DateDmy, TemporalPattern.DatetimeDmy)
+            ? TextKind.Datetime
+            : TextValues.Finish(column.Kinds) ?? TextKind.String;
 }

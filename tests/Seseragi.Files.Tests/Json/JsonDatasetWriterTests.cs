@@ -129,7 +129,7 @@ public sealed class JsonDatasetWriterTests : IDisposable
         {
             var writer = new JsonWriteOptions { Format = format, Compression = compression, PieceBytes = 16 << 10 };
             DatasetWriteResult<DatasetWrittenFile> result = JsonDatasetWriter.Write(At("g"), batches[0].Schema, batches,
-                new JsonDatasetWriteOptions { PartitionBy = ["k"], Writer = writer, MaxDegreeOfParallelism = 4 });
+                new JsonDatasetWriteOptions { PartitionBy = ["k"], IncludePartitionColumns = false, Writer = writer, MaxDegreeOfParallelism = 4 });
             Assert.Equal(4, result.Files.Count);
             Assert.Equal(40_000, result.Files.Sum(f => f.Rows));
             // Each row's object as JsonWriter writes it (the files leave the partition column out), by partition.

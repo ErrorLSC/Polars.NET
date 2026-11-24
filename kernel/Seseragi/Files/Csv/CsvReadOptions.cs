@@ -146,6 +146,12 @@ public sealed record CsvReadOptions
 
     /// <summary>The bytes of a unit of work (tests cut the input finely with it).</summary>
     internal int UnitBytes { get; init; } = TextUnits.DefaultUnitBytes;
+
+    /// <summary>
+    /// A dataset's file (set by the dataset reader, instead of <see cref="Schema"/>): its columns, named by its header (or
+    /// numbered), take the dataset's types by name; the columns read and the filter are decided once the names are known.
+    /// </summary>
+    internal Reading.CsvDatasetColumns? Dataset { get; init; }
 }
 
 /// <summary>

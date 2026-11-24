@@ -3,9 +3,16 @@ using Apache.Arrow;
 
 namespace Kaminari.Seseragi.Files.Json;
 
-/// <summary>How a dataset of JSON files is written: the dataset's options, and those of each file.</summary>
+/// <summary>
+/// How a dataset of JSON files is written: the dataset's options, and those of each file. The partition columns are
+/// written into the files too by default (<see cref="DatasetWriteOptions.IncludePartitionColumns"/>): dataframe engines
+/// that read JSON without Hive partitions (Polars) then keep them; every engine reads them either way.
+/// </summary>
 public sealed record JsonDatasetWriteOptions : DatasetWriteOptions
 {
+    /// <summary>The options of a dataset write of JSON files, the partition columns written into the files.</summary>
+    public JsonDatasetWriteOptions() => IncludePartitionColumns = true;
+
     /// <summary>
     /// The options of each file (lines or documents, compression). The dataset decides
     /// <see cref="JsonWriteOptions.MaxDegreeOfParallelism"/> (<see cref="DatasetWriteOptions.MaxDegreeOfParallelism"/>)
@@ -19,8 +26,8 @@ public sealed record JsonDatasetWriteOptions : DatasetWriteOptions
 /// Writes record batches as a dataset of JSON files under a path (a directory, or a prefix of a store): newline-delimited
 /// (<c>.jsonl</c>) or documents (<c>.json</c>), gzip or Zstandard compressed (<c>.gz</c>, <c>.zst</c>) as
 /// <see cref="JsonDatasetWriteOptions.Writer"/> says; Hive partitions by the columns
-/// <see cref="DatasetWriteOptions.PartitionBy"/> names (<c>key=value</c> directories, the columns left out of the files
-/// unless <see cref="DatasetWriteOptions.IncludePartitionColumns"/>); files cut by rows and size, named apart from any
+/// <see cref="DatasetWriteOptions.PartitionBy"/> names (<c>key=value</c> directories, the columns kept in the files
+/// unless <see cref="DatasetWriteOptions.IncludePartitionColumns"/> is turned off); files cut by rows and size, named apart from any
 /// other write's, published whole. Files there already are refused, kept or replaced
 /// (<see cref="DatasetWriteOptions.ExistingData"/>). A failed write deletes what it published
 /// (<see cref="DatasetWriteException"/> lists what it could not). One thread at a time.

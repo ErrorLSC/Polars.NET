@@ -257,19 +257,29 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
         }
     }
 
-    // Every file's first records, taken in side by side, united in file order.
+    // Every file's first records, taken in side by side, united in file order; a failure is the first file's that fails,
+    // as if they were taken in in order.
     private static async ValueTask<JsonShape> UnitedAsync(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, FileVersions versions, CancellationToken ct)
     {
         var heads = new JsonShape?[files.Length];
         try
         {
+            var failures = new Exception?[files.Length];
             await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = HeadsAtOnce, CancellationToken = ct },
                 async (i, token) =>
                 {
                     var head = new JsonShape("");
                     heads[i] = head;
-                    await HeadAsync(head, store, options, files, versions, i, useAsync: true, token).ConfigureAwait(false);
+                    try
+                    {
+                        await HeadAsync(head, store, options, files, versions, i, useAsync: true, token).ConfigureAwait(false);
+                    }
+                    catch (Exception e) when (e is not OperationCanceledException || !token.IsCancellationRequested)
+                    {
+                        failures[i] = e;
+                    }
                 }).ConfigureAwait(false);
+            if (failures.FirstOrDefault(f => f is not null) is { } first) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
             var root = new JsonShape("");
             foreach (JsonShape? head in heads) root.Merge(head!);
             return root;

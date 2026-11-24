@@ -166,6 +166,31 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
     /// <summary>The bytes handed to the output so far.</summary>
     public long BytesWritten => _rows.BytesWritten;
 
+    /// <summary>
+    /// The cells of a batch's columns as this writer writes them (its buffers pinned until disposed): writers of the same
+    /// schema and options read them alike (a dataset's files share them).
+    /// </summary>
+    internal BatchCells<CsvCell> CellsOf(RecordBatch batch)
+    {
+        CsvSyntax syntax = _syntax;
+        return new(batch, _rows.Schema, false, (data, field, pins) => CsvCell.For(data, field, pins, syntax));
+    }
+
+    /// <summary>
+    /// Rows [<paramref name="start"/>, +<paramref name="count"/>) of the batch <paramref name="cells"/> read, encoded on
+    /// this thread into the piece being filled (the caller's batch is free once this returns): the piece is written once
+    /// it holds a piece's bytes, or before anything written after it. Rows a few at a time (a partition's rows of each
+    /// batch of a dataset written side by side) cost no write each, nor a copy before encoding. A value the writer
+    /// refuses fails it.
+    /// </summary>
+    internal void AppendRows(BatchCells<CsvCell> cells, int start, int count) => _rows.AppendRows(cells, start, count);
+
+    /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>
+    internal long OpenBytes => _rows.OpenBytes;
+
+    /// <summary>Hands the rows encoded by <see cref="AppendRows"/> to the writes (to hold less memory), without waiting for them.</summary>
+    internal void HandOff() => _rows.HandOff();
+
     /// <summary>Creates a writer over a stream (nothing is written before the first rows, or <see cref="Complete"/>).</summary>
     /// <exception cref="NotSupportedException">The schema has a column CSV cannot hold (binary, nested, a time zone not known).</exception>
     public static CsvWriter Create(Stream stream, Schema schema, CsvWriteOptions? options = null)
