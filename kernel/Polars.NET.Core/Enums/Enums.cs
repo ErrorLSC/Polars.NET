@@ -329,12 +329,6 @@ public enum PlParallelStrategy: byte
     None=3
 }
 
-public enum PlCsvEncoding: byte
-{
-    UTF8=0,
-    LossyUTF8=1
-}
-
 public enum PlJsonFormat: byte
 {
     Json =0,

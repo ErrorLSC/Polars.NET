@@ -1,4 +1,3 @@
-pub mod csv;
 pub mod parquet;
 pub mod ipc;
 pub mod arrow;

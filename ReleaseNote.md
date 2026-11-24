@@ -1,6 +1,6 @@
 # Polars.NET 1.3.0 Release Note (draft)
 
-1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel, Parquet and JSON, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro, Excel and JSON functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
+1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel, Parquet, JSON and CSV, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro, Excel, JSON and CSV functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
 
 ## Avro: managed reader and writer
 
@@ -89,6 +89,35 @@ A JSON reader and writer of its own, newline-delimited and documents. Polars.NET
 * **Datasets** (`JsonDataset`, `JsonDatasetWriter`): many JSON files read as one table (paths, directories, globs, file lists, stores, Hive partitions pruned by the filter, the file path column; columns given, inferred from the first file as Polars' `scan_ndjson` infers them, or united from every file; files decoded side by side, compressed ones too), and written as one (Hive partitions, `.jsonl` / `.json`, gzip / Zstandard, files cut by rows or size). Typed rows both ways (`JsonDataset.ReadList<T>`, `JsonDatasetWriter<T>`).
 * **Memory in, buffer writers out** (Seseragi.Files): Excel workbooks and Avro files open from `ReadOnlyMemory<byte>` (read in place, like Parquet, IPC and JSON); the Parquet, IPC, Avro and Excel writers write to an `IBufferWriter<byte>` too (an array or native buffer writer, or a `PipeWriter` flushed as it goes, so writing waits for its reader).
 * Where Polars changes or drops values, the reader refuses them instead: fractions of a second finer than a column's unit (Polars cuts them), lone surrogate escapes (Polars reads `\0`), values of mixed kinds in an array without strings (Polars sometimes makes them strings). Unlike Polars, a leading byte order mark is accepted, and integers into Int8 / UInt8, times, durations, decimals and binaries are read (Polars fails or panics on them). A column of empty objects only is refused (Apache Arrow for .NET has no struct type without fields). In documents, booleans mixed with integers and fractions into integer columns are refused (Polars' `read_json` reads `true` as 1 and cuts 2.5 to 2), objects and arrays into string columns are read as their text (Polars refuses them), and `[{}]` or `{}` is one row (Polars reads none).
+
+## CSV: managed reader and writer (Kaminari.Seseragi.Files)
+
+A CSV reader and writer of their own. Polars.NET's CSV functions (`ReadCsv`, `ReadCsvAsync`, `ScanCsv`, `WriteCsv`, `WriteCsvAsync`, `SinkCsv`, `SinkCsvAsync`, the memory and partitioned forms; C# and F#) now run on them; the native library no longer contains CSV input and output. What the engine read reads the same (checked on 45 corpus files, legacy encodings included) and what it wrote is written byte for byte, except where listed below.
+
+### New in Polars.NET
+
+* **Encodings**: `CsvEncoding` is now a struct naming any encoding .NET knows, legacy code pages included, with nothing to register: `CsvEncoding.UTF8` (the default), `ShiftJis` (code page 932), `Gbk`, `Big5`, `EucKr`, `Windows1252`, `Latin1`, `Utf16LE` / `Utf16BE`, a code page (`932`), a name (`"shift_jis"`) or a `System.Text.Encoding`, strict or `.Lossy()`. Reads honour a byte order mark; writes take an `encoding` too. In F#, `CsvEncoding.CodePage 932`, `CsvEncoding.Named "shift_jis"`, `CsvEncoding.Of encoding`. Code that passes `CsvEncoding.UTF8` / `LossyUTF8` compiles unchanged; code that matches on the old F# union cases does not.
+* `ReadCsv(path)` and `ScanCsv(path)` read a directory of files, a glob, or any of them on a cloud store as one table: columns matched by name across the files, the types inferred from the first files, the row index numbering rows across them.
+* New trailing optional parameters (recompile code built against an earlier version): `trueValues`, `falseValues` (localized booleans such as `VERDADEIRO` / `FALSO`) and `thousandsSeparator` on reads; `allowMissingColumns`, `ignoreExtraColumns` and `hivePartitioning` (off by default) on path reads; `encoding` and `thousandsSeparator` on writes; `existingData` on the partitioned writes.
+* Faster (16 threads; median, same query and file): lazy queries over a scan 1.5–7× (a filter keeping 1 % of Chicago's crimes 2.5×, of the 2.9 GB US Accidents file 7.6×; group-by 2–3×), full reads 1.5–7×, writes about 1.4×. `ReadCsv(Stream)` reads the stream as it arrives instead of copying it whole first; `ReadCsv(byte[])` reads the bytes in place.
+
+### Changed in Polars.NET
+
+* A `schema` with a header is matched to the columns **by name** (the frame in the schema's order); without a header, by position. The engine renamed the file's columns by position, silently swapping columns whose order differed.
+* `inferSchemaFiles` defaults to 10 files, as dataframe engines take (`ulong.MaxValue`, the old default, also means 10): types are inferred from the first ten files of a dataset.
+* Errors are `CsvFormatException` (malformed CSV) and `CsvValueException` (a value its column cannot hold), naming the file, the row and the column, with the fix where there is one, instead of `PolarsException`; a scan reports them through the query that runs it. A value more precise than its time column's unit (nine fraction digits into the microseconds inferred from the first rows) is refused and names the finer unit to give (`datetime[ns]`); the engine truncated it silently.
+* A column holding both dates and datetimes is read as datetimes. Records may end with a CR alone. `ignoreErrors` reads a value its column cannot hold as null.
+* Empty input follows `raiseIfEmpty`: an error by default, an empty frame when it is off. `ScanCsv(byte[])` refused an empty array with `ArgumentException`.
+* Writes: a null float written with `decimalComma` is an empty field (not `""`), `Float32` values are written from their own shortest digits, durations as ISO 8601 (`PT1.5S`) instead of being refused.
+* Partitioned writes produce Hive directories of files named `part-{index:D5}-{write id}.csv` (`.gz`, `.zst` when compressed), each with its header and published whole, the key columns kept in the files (`includeKeys`), and refuse files already under the path unless `existingData` says otherwise.
+* `lowMemory`, `cache`, `chunkSize` and `batchSize` are accepted and change nothing; `nThreads` sets the reader's threads.
+* Scans run as .NET sources of the engine (see Streaming over .NET sources): a query's filter runs on the batches read, not in the reader; an in-memory collect reads the columns the query uses whole first (filter a projection, not the whole file, when memory matters); a sink spools the rows to a temporary file first, so scan → sink of a file that parses fast is up to 1.4× slower than the engine's native CSV, and the spool goes to `POLARS_TEMP_DIR` (RAM on a tmpfs `/tmp`: point it at a disk for large files).
+
+### New in Seseragi.Files
+
+* **Reading** (`CsvReader`, `CsvReadOptions`): from a path (memory-mapped), memory (in place), a stream or any source of ranged reads, synchronously or asynchronously, as Arrow record batches in native memory, decoded on all cores and handed over in order; gzip, zlib and zstd decompressed on the way; any encoding, transcoded to UTF-8 on all cores. Types inferred as Polars infers them (or given, or some overridden), separators, quotes, comment prefixes, skipped lines and rows, null values, decimal comma, thousands separators, true and false values, ragged lines, a row index, a projection that decodes only the columns asked for, a row limit that stops early. A row filter (`CsvReadOptions.Filter`, an IR predicate) decodes the columns it tests first and the others only for the rows kept.
+* **Writing** (`CsvWriter`, `CsvWriteOptions`): Arrow record batches written as Polars writes them, to a path, a stream or an `IBufferWriter<byte>`, encoded on all cores, in any encoding, gzip or Zstandard compressed.
+* **Datasets** (`CsvDataset`, `CsvDatasetWriter`): many CSV files read as one table (paths, directories, globs, stores, Hive partitions pruned by the filter, the file path column) and written as one (Hive partitions, files cut by rows or size).
 
 ## Delta Lake: managed Parquet writer
 
@@ -287,7 +316,7 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 ### Fixed
 
 * `ScanParquet(byte[])` passed `rechunk` as `cache` and `cache` as `rechunk`.
-* `ScanParquet(byte[])` and `ScanNdjson(byte[])` refuse an empty buffer with `ArgumentException`, as the CSV and IPC scans did.
+* `ScanParquet(byte[])` and `ScanNdjson(byte[])` refuse an empty buffer with `ArgumentException`, as the IPC scans did (CSV: see its section, empty input follows `raiseIfEmpty`).
 
 ---
 
