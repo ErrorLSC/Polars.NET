@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Apache.Arrow;
@@ -60,6 +62,23 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
     /// be evaluated by the reader (the rows then include some the filter drops).
     /// </summary>
     public bool FiltersExactly { get; }
+
+    /// <summary>Reads the records of the file at <paramref name="path"/> as rows of <typeparamref name="T"/> (see <see cref="CsvReader{T}"/>).</summary>
+    /// <inheritdoc cref="CsvReader{T}.Open(string, Expression{Func{T, bool}}?, CsvReadOptions?)" path="/exception"/>
+    public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, Expression<Func<T, bool>>? where = null,
+        CsvReadOptions? options = null)
+    {
+        using CsvReader<T> reader = CsvReader<T>.Open(path, where, options);
+        return reader.ReadList();
+    }
+
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, CsvReadOptions?)"/>
+    public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        Expression<Func<T, bool>>? where = null, CsvReadOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        await using CsvReader<T> reader = await CsvReader<T>.OpenAsync(path, where, options, cancellationToken).ConfigureAwait(false);
+        return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Opens a file.</summary>
     public static CsvReader Open(string path, CsvReadOptions? options = null) =>
@@ -351,9 +370,10 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                             long at = lines + tokenizer.CountLines(bytes[..start]) + 1;
                             if (end > FieldEnd.Input) throw new CsvFormatException($"The header (line {at}): {CsvDecode.Malformed(end, failed, fields.Count + 1)}", 0, at);
                             if (values.Charset.FirstInvalid(bytes[start..pos]) >= 0) throw new CsvFormatException($"The header (line {at}): {values.Charset.Invalid}", 0, at);
-                            names = Names(bytes, fields, tokenizer, values.Charset);
+                            string[] header = Names(bytes, fields, tokenizer, values.Charset);
+                            names = MemberNames(options, header);
                             started = sawRecord = true;
-                            plan = new Plan(Resolved(options, names), values, names);
+                            plan = new Plan(Resolved(options, names), values, names, header);
                         }
                     }
                     while (started && skipAfter > 0 && (pos = tokenizer.SkipComments(bytes, pos)) < bytes.Length)
@@ -431,6 +451,28 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
             }
         }
 
+        // Rows of a type: a header name that names a member only ignoring case takes the member's name (exact names
+        // first; one column per member: two naming the same member are an error).
+        private static string[] MemberNames(CsvReadOptions options, string[] names)
+        {
+            if (!options.MembersByName || (options.Dataset?.Columns ?? options.Schema) is not { } members) return names;
+            string[] renamed = [.. names];
+            HashSet<string> named = new(names, StringComparer.Ordinal);
+            Dictionary<string, int> taken = new(StringComparer.Ordinal);
+            for (int c = 0; c < names.Length; c++)
+            {
+                if (members.GetFieldIndex(names[c]) >= 0) continue;
+                string[] candidates = [.. members.FieldsList.Select(f => f.Name)
+                    .Where(m => !named.Contains(m) && string.Equals(m, names[c], StringComparison.OrdinalIgnoreCase))];
+                if (candidates.Length != 1) continue; // none, or members differing in case alone: not bound
+                if (taken.TryGetValue(candidates[0], out int other))
+                    throw new CsvFormatException($"The file's columns '{names[other]}' and '{names[c]}' both name the member '{candidates[0]}' (ignoring case): rename one of them.");
+                taken[candidates[0]] = c;
+                renamed[c] = candidates[0];
+            }
+            return renamed;
+        }
+
         // A dataset's file: the columns it reads and its filter, decided by its names.
         private static CsvReadOptions Resolved(CsvReadOptions options, string[] names)
         {
@@ -489,7 +531,11 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
         private TemporalColumn[] _dates, _datetimes;
         private bool[] _seeded;
 
-        public Plan(CsvReadOptions options, CsvValueRules values, string[] names)
+        /// <param name="options">How the file is read.</param>
+        /// <param name="values">How fields become values.</param>
+        /// <param name="names">The columns' names (a header's, members' names matched ignoring case taken).</param>
+        /// <param name="header">The header's names as the file writes them (for messages; <paramref name="names"/> by default).</param>
+        public Plan(CsvReadOptions options, CsvValueRules values, string[] names, string[]? header = null)
         {
             _options = options;
             _values = values;
@@ -526,6 +572,13 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                     for (int c = 0; c < n; c++)
                     {
                         int at = schema.GetFieldIndex(names[c]);
+                        if (at < 0 && options.MembersByName)
+                        {
+                            // A column no member names: passed over (read as text by nobody: not delivered).
+                            _given[c] = new Field(names[c], StringViewType.Default, true);
+                            _order[c] = fields.Count + c;
+                            continue;
+                        }
                         if (at < 0)
                             throw new CsvFormatException($"The file's column '{names[c]}' is not in the given schema ({string.Join(", ", fields.Select(f => f.Name))}): " +
                                 "the schema names the file's columns (add it), or read without a header for a schema by position.");
@@ -533,7 +586,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                         _order[c] = at;
                     }
                     if (fields.FirstOrDefault(f => !names.Contains(f.Name)) is { } missing)
-                        throw new CsvFormatException($"The given schema's column '{missing.Name}' is not in the file (its columns: {string.Join(", ", names)}).");
+                        throw new CsvFormatException(options.MembersByName
+                            ? $"The file has no column for the member '{missing.Name}' (its columns: {string.Join(", ", header ?? names)}): a column with every value empty reads as nulls, a missing one is an error."
+                            : $"The given schema's column '{missing.Name}' is not in the file (its columns: {string.Join(", ", names)}).");
                 }
             }
             else

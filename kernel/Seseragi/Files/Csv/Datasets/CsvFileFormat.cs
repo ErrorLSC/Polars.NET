@@ -13,9 +13,10 @@ namespace Kaminari.Seseragi.Files.Csv;
 /// partition a few rows of each batch, which then cost no write each, nor a copy before encoding). What the encoding
 /// reads of a batch (its cells) is made once per batch for every file (<see cref="SourcesOpen"/>). Files written side by
 /// side share the dataset's threads (<see cref="EncodeBudget"/>): a batch that feeds one file is encoded on every thread
-/// the others leave free.
+/// the others leave free. Columns of <paramref name="declared"/> (the dataset's schema: typed rows' marks of GUIDs and
+/// decimals) give their metadata to the columns of the same name in the batches.
 /// </summary>
-internal sealed class CsvFileFormat(CsvWriteOptions options) : DatasetFileFormat
+internal sealed class CsvFileFormat(CsvWriteOptions options, Schema? declared = null) : DatasetFileFormat
 {
     /// <summary>The rows from which a run is written as it is (encoded on the writer's threads).</summary>
     internal const int BatchRows = 64 * 1024;
@@ -37,7 +38,9 @@ internal sealed class CsvFileFormat(CsvWriteOptions options) : DatasetFileFormat
 
     public override void Prepare(Schema schema, bool sideBySide, int threads, bool measured)
     {
-        _schema = schema;
+        _schema = declared is null ? schema
+            : new Schema([.. schema.FieldsList.Select(f => declared.GetFieldByName(f.Name) is { Metadata: { Count: > 0 } marks } && f.Metadata is null or { Count: 0 }
+                ? new Field(f.Name, f.DataType, f.IsNullable, marks) : f)], schema.Metadata);
         _options = options with
         {
             LeaveOpen = true,

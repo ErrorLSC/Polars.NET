@@ -37,6 +37,14 @@ internal sealed class RowNode(IArrowType type, bool nullable, Dictionary<string,
 
     public Func<NativeColumnBuilder, ArrowValueWriter> CreateWriter { get; } = createWriter;
 
+    /// <summary>
+    /// The enum this node lays out as its member names (a dictionary column), from its writer: EnumWriter&lt;E&gt;, or
+    /// the optional wrapper's around it (NullableWriter&lt;E&gt;, OptionWriter&lt;E&gt;, ValueOptionWriter&lt;E&gt;); null
+    /// for any other node.
+    /// </summary>
+    public Type? EnumType =>
+        Type is DictionaryType && WriterType is { IsGenericType: true } writer && writer.GetGenericArguments() is [{ IsEnum: true } enumType] ? enumType : null;
+
     public Field Field(string name) => new(name, Type, Nullable, Metadata);
 }
 

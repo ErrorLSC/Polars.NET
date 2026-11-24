@@ -644,6 +644,19 @@ header and decompressed on the way.
   the fix when there is one, e.g. a finer unit or a larger scale in the given schema); the first failure in file
   order is raised, the same whatever the unit size.
 
+**Typed rows** (`CsvReader<T>`, `CsvReader.ReadList<T>` / `ReadListAsync<T>`; `CsvWriter<T>`; datasets:
+`CsvDataset.OpenReader<T>(where)`, `CsvDataset.ReadList<T>`, `CsvDatasetWriter<T>`, `CsvDatasetWriter.WriteRows<T>`):
+records read as rows of `T` and rows of `T` written, laid out as `DataFrame.From<T>` / `Rows<T>()` lay them out, one
+column per member (the header names them). Reading matches the header by name, exactly or ignoring case (two columns
+naming one member are an error), passes the file's other columns over without decoding them, and refuses a member the
+header does not name (a column whose values are all empty reads as nulls); without a header the members are the
+columns in order. GUIDs as their text (any of the usual forms read), enums as their member names (read from names in any
+case or numbers), time spans as ISO 8601 (also read as `[-][d.]hh:mm:ss[.f]`), decimals written with the fewest digits
+that hold them. A member that is a record, a collection, a dictionary or bytes is refused when the reader or writer is
+made (a CSV field holds one value). A `where` predicate is translated by the query compiler and evaluated by the reader
+(its columns decoded first, the others for the kept rows; partition members prune files), its other conjuncts on the
+rows when the client evaluation policy allows; rows are made on several threads and delivered in order.
+
 ## Avro features
 
 **Reading** (`AvroReader`, `AvroReadOptions`): from a path, a stream or memory (`ReadOnlyMemory<byte>`, read in place:
@@ -832,6 +845,8 @@ written synchronously on completion.
 | `Csv/Reading/CsvTokenizer.cs`, `CsvDecode.cs` | The record grammar (fields by vectorized search, quoted fields, line ends, blank records, comment lines, truncated extra fields, records skipped as the cut finds them, errors) one record at a time or into a column-major table of field positions per chunk; a unit decoded chunk by chunk, column by column, the first failure in record order (input errors, bytes that are not UTF-8, refused values); under a row filter in two phases (the columns it reads for every record, the delivered ones for the kept records from a compacted field table, temporal groups probed on every record). |
 | `IO/LineSkip.cs`, `IO/RandomAccessSlice.cs` | Raw lines passed over at the start of a text input (memory, ranged sources, streams; a CRLF split between chunks), and a source read from an offset (local sources stay local: memory sliced, mapping shifted). |
 | `Csv/Reading/CsvInput.cs`, `CsvCharset.cs` | Opening in an encoding: the mark found after decompression, the bytes path (units cut on the raw bytes) or the transcode path (a decoding stream, blocks side by side, or local text decoded whole into memory); how a unit's bytes become text (clean units as they are, fields decoded, a lossy twin for fields found invalid) and the strict check. |
+| `Csv/CsvReaderOfT.cs`, `CsvWriterOfT.cs`, `CsvRowSchema.cs`, `Datasets/CsvDatasetReaderOfT.cs`, `Datasets/CsvDatasetWriterOfT.cs` | Typed rows: the members' columns matched by name (`CsvReadOptions.MembersByName`: the header's names normalized to the members', other columns passed over), the predicate's pushed conjuncts, `TypedRows` / `RowBatcher` / `DatasetRows`; the CSV layout of `ArrowRowBuilder<T>`'s columns (GUIDs and shortest decimals marked, enums as names, members CSV cannot hold refused). |
+| `Csv/Reading/CsvRowColumns.cs` | The decoders typed rows add: GUIDs from text, enum member names (Sazanami `EnumNameLookup`, shared with JSON), durations, half floats. |
 | `Csv/Reading/CsvColumns.cs`, `CsvInference.cs` | Decoders per Arrow type into native builders (numbers with decimal comma and thousands rewriting, decimals, temporal pattern groups, strings, categoricals, enums); the inference of the columns' types and temporal groups from records in file order. |
 | `Json/Reading/JsonDocumentInput.cs` | A document cut into units of whole array elements: parallel segment summaries resolved in order, in place (memory, mappings) or over segments read at offsets (lent to units, freed when no unit holds them; units read again by range); streams read and scanned in order. |
 | `Json/Reading/JsonColumns.cs` | A decoder per Arrow type over Sazanami's native builders; structs match fields by name (the next field tried first, a hash of names for wide structs). |

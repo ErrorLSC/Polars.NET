@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Seseragi.Files.Csv.Reading;
@@ -123,6 +125,61 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
     /// </summary>
     /// <exception cref="ArgumentException">The options give a schema, name columns the dataset lacks, or are out of range.</exception>
     public CsvDatasetReader OpenReader(CsvReadOptions? options = null) => new(this, options ?? new CsvReadOptions());
+
+    /// <summary>
+    /// Opens a reader of the dataset's rows as <typeparamref name="T"/>, of the columns its members map (columns from
+    /// files, matched by name in any case, and partition columns), filtered by <paramref name="where"/> (pushed into the
+    /// read: conjuncts over partition members decide which files are read; see <see cref="CsvDatasetReader{T}"/>).
+    /// </summary>
+    /// <exception cref="ArgumentException">The dataset has no column for a member, or the options are out of range.</exception>
+    /// <exception cref="NotSupportedException">A member CSV cannot hold, or a conjunct of <paramref name="where"/> cannot be pushed down and the client evaluation policy is Strict.</exception>
+    public CsvDatasetReader<T> OpenReader<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(Expression<Func<T, bool>>? where = null,
+        CsvReadOptions? options = null) => new(this, where, options);
+
+    /// <summary>Reads the rows of the dataset at a path, a directory or a glob as <typeparamref name="T"/> (see <see cref="CsvDatasetReader{T}"/>).</summary>
+    /// <inheritdoc cref="OpenReader{T}(Expression{Func{T, bool}}?, CsvReadOptions?)"/>
+    public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string pathOrGlob, Expression<Func<T, bool>>? where = null,
+        CsvDatasetOptions? datasetOptions = null, CsvReadOptions? readOptions = null)
+    {
+        using CsvDataset dataset = Open(pathOrGlob, Typing(datasetOptions));
+        using var reader = new CsvDatasetReader<T>(dataset, where, readOptions, datasetOptions?.AllowMissingColumns ?? false);
+        return reader.ReadList();
+    }
+
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, CsvDatasetOptions?, CsvReadOptions?)"/>
+    public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string pathOrGlob,
+        Expression<Func<T, bool>>? where = null, CsvDatasetOptions? datasetOptions = null, CsvReadOptions? readOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using CsvDataset dataset = await OpenAsync(pathOrGlob, Typing(datasetOptions), cancellationToken).ConfigureAwait(false);
+        await using var reader = new CsvDatasetReader<T>(dataset, where, readOptions, datasetOptions?.AllowMissingColumns ?? false);
+        return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // A dataset opened for rows alone: its columns become the members' (Typed), matched to each file's header in any
+    // case, so the files' own columns only need to be listed (their names and order may differ from file to file); the
+    // caller's AllowMissingColumns applies to the members (the typed reader's).
+    private static CsvDatasetOptions Typing(CsvDatasetOptions? options) =>
+        (options ?? new CsvDatasetOptions()) with { IgnoreExtraColumns = true, AllowMissingColumns = true };
+
+    /// <summary>
+    /// The dataset over the same files whose columns from files are <paramref name="rows"/>' (the columns typed rows read,
+    /// nothing inferred, matched to the files' headers by name in any case, other columns of the files passed over), but
+    /// those a partition column names (ignoring case: the paths give them).
+    /// </summary>
+    internal CsvDataset Typed(Schema rows, bool? allowMissingColumns = null)
+    {
+        HashSet<string> partitions = new(Partitions?.Fields.Select(f => f.Name) ?? [], StringComparer.OrdinalIgnoreCase);
+        var schema = new Schema([.. rows.FieldsList.Where(f => !partitions.Contains(f.Name))
+            .Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))], null);
+        CsvDatasetOptions options = Options with
+        {
+            IgnoreExtraColumns = true,
+            AllowMissingColumns = allowMissingColumns ?? Options.AllowMissingColumns,
+            Format = Options.Format with { MembersByName = true },
+        };
+        return new CsvDataset(Store, options, [.. Files], Versions, schema, inferredFrom: 0, Partitions);
+    }
 
     /// <summary>Nothing is held open between reads.</summary>
     public void Dispose() { }

@@ -152,6 +152,13 @@ public sealed record CsvReadOptions
     /// numbered), take the dataset's types by name; the columns read and the filter are decided once the names are known.
     /// </summary>
     internal Reading.CsvDatasetColumns? Dataset { get; init; }
+
+    /// <summary>
+    /// Rows of a type (<see cref="CsvReader{T}"/>): the given schema's (or the dataset's) columns are members, which the
+    /// header names exactly or ignoring case; the file's other columns are passed over (not read); a member the header
+    /// does not name is an error naming it.
+    /// </summary>
+    internal bool MembersByName { get; init; }
 }
 
 /// <summary>

@@ -326,6 +326,11 @@ internal abstract class CsvColumn(NativeColumnBuilder builder, string name, CsvV
             Decimal128Type d => new DecimalColumn(builder, name, rules, d),
             DoubleType => new DoubleColumn(builder, name, rules),
             FloatType => new FloatColumn(builder, name, rules),
+            HalfFloatType => new HalfColumn(builder, name, rules),
+            DurationType d => new DurationColumn(builder, name, rules, d.Unit),
+            BinaryType or LargeBinaryType or BinaryViewType when field.Metadata?.ContainsKey(CsvRowColumns.GuidKey) == true => new GuidColumn(builder, name, rules),
+            StringType or LargeStringType or StringViewType when field.Metadata?.GetValueOrDefault(CsvRowColumns.EnumKey) is { } members =>
+                new EnumNameColumn(builder, name, rules, members),
             Date32Type => new DateColumn(builder, name, rules, group),
             TimestampType t => new DatetimeColumn(builder, name, rules, t, group),
             Time64Type t => new TimeColumn(builder, name, rules, t.Unit),

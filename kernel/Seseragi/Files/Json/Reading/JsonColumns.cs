@@ -9,6 +9,7 @@ using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Sazanami.Encodings;
 using Kaminari.Sazanami.Json;
+using Kaminari.Sazanami.Marshalling;
 using Kaminari.Sazanami.Text;
 
 namespace Kaminari.Seseragi.Files.Json.Reading;
@@ -408,64 +409,16 @@ internal sealed class GuidColumn(NativeColumnBuilder b, string path, bool ignore
 internal sealed class EnumNameColumn : JsonColumn
 {
     private readonly IBytesBuilder _b;
-    // The members' names, as given (exact matches) and folded to lower case; the member of each folded name.
-    private readonly ByteArrayDictionary _names = new(), _folded = new();
-    private readonly List<int> _foldedMember = [];
-    // The member named for each value (its first member: the canonical name).
-    private readonly Dictionary<Int128, int> _byValue = [];
+    private readonly EnumNameLookup _members;
 
     public EnumNameColumn(NativeColumnBuilder b, string path, bool ignore, string members) : base(b, path, ignore)
     {
         _b = (IBytesBuilder)b;
-        Span<byte> scratch = stackalloc byte[StackBytes];
-        foreach ((string name, Int128 value) in Parse(members))
-        {
-            int member = _names.GetOrAdd(Encoding.UTF8.GetBytes(name));
-            if (_folded.GetOrAdd(Fold(Encoding.UTF8.GetBytes(name), scratch, out byte[]? rented)) == _foldedMember.Count) _foldedMember.Add(member);
-            if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
-            _byValue.TryAdd(value, member);
-        }
+        _members = new EnumNameLookup(members);
     }
 
-    /// <summary>
-    /// The members of <paramref name="enumType"/> as the column's metadata lists them: canonical names first (each
-    /// value's), then aliases, each as its name's length, ';', the name, its value, ';'.
-    /// </summary>
-    public static string Members(Type enumType)
-    {
-        StringBuilder text = new();
-        string[] categories = Kaminari.Sazanami.Marshalling.EnumCategories.GetCategories(enumType);
-        (string Name, object Value)[] members = Kaminari.Sazanami.Marshalling.EnumCategories.GetMembers(enumType);
-        foreach ((string name, object value) in members.Where(m => categories.Contains(m.Name)).Concat(members.Where(m => !categories.Contains(m.Name))))
-            text.Append(name.Length).Append(';').Append(name).Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)).Append(';');
-        return text.ToString();
-    }
-
-    private static IEnumerable<(string Name, Int128 Value)> Parse(string members)
-    {
-        for (int at = 0; at < members.Length;)
-        {
-            int semicolon = members.IndexOf(';', at);
-            int length = int.Parse(members.AsSpan(at, semicolon - at), System.Globalization.CultureInfo.InvariantCulture);
-            string name = members.Substring(semicolon + 1, length);
-            int end = members.IndexOf(';', semicolon + 1 + length);
-            yield return (name, Int128.Parse(members.AsSpan(semicolon + 1 + length, end - semicolon - 1 - length), System.Globalization.CultureInfo.InvariantCulture));
-            at = end + 1;
-        }
-    }
-
-    // Text in lower case (ASCII in place, any other through .NET's invariant lower case).
-    private static ReadOnlySpan<byte> Fold(ReadOnlySpan<byte> text, Span<byte> scratch, out byte[]? rented)
-    {
-        rented = null;
-        if (Ascii.IsValid(text))
-        {
-            Span<byte> lower = text.Length <= scratch.Length ? scratch : rented = ArrayPool<byte>.Shared.Rent(text.Length);
-            Ascii.ToLower(text, lower, out int written);
-            return lower[..written];
-        }
-        return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(text).ToLowerInvariant());
-    }
+    /// <inheritdoc cref="EnumNameLookup.Members"/>
+    public static string Members(Type enumType) => EnumNameLookup.Members(enumType);
 
     public override void Read(ref JsonTokenReader reader)
     {
@@ -475,14 +428,14 @@ internal sealed class EnumNameColumn : JsonColumn
                 Builder.AppendNull();
                 return;
             case JsonTokenType.Number:
-                if (reader.TryGetInt64(out long signed) && Append(signed)) return;
-                if (reader.TryGetUInt64(out ulong unsigned) && Append(unsigned)) return;
+                if (reader.TryGetInt64(out long signed) && Append(_members.Find(signed))) return;
+                if (reader.TryGetUInt64(out ulong unsigned) && Append(_members.Find(unsigned))) return;
                 break;
             case JsonTokenType.String:
             {
                 Span<byte> scratch = stackalloc byte[StackBytes];
                 ReadOnlySpan<byte> text = Unescaped(in reader, scratch, out byte[]? rented);
-                bool done = AppendText(text.Trim(" \t\r\n"u8));
+                bool done = Append(_members.Find(text.Trim(" \t\r\n"u8)));
                 if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
                 if (done) return;
                 break;
@@ -491,37 +444,14 @@ internal sealed class EnumNameColumn : JsonColumn
         Mismatch(ref reader, "a member of the enum", "an enum is read from a member's name, in any case, or its number");
     }
 
-    private bool AppendText(ReadOnlySpan<byte> text)
+    private bool Append(int member)
     {
-        int member = _names.IndexOf(text);
-        if (member < 0)
-        {
-            Span<byte> scratch = stackalloc byte[StackBytes];
-            int folded = _folded.IndexOf(Fold(text, scratch, out byte[]? rented));
-            if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
-            if (folded >= 0) member = _foldedMember[folded];
-        }
-        if (member >= 0)
-        {
-            _b.Append(_names[member]);
-            return true;
-        }
-        if (Utf8Parser.TryParse(text, out long signed, out int used) && used == text.Length) return Append(signed);
-        return Utf8Parser.TryParse(text, out ulong unsigned, out used) && used == text.Length && Append(unsigned);
-    }
-
-    private bool Append(Int128 value)
-    {
-        if (!_byValue.TryGetValue(value, out int member)) return false;
-        _b.Append(_names[member]);
+        if (member < 0) return false;
+        _b.Append(_members.Name(member));
         return true;
     }
 
-    public override void Dispose()
-    {
-        _names.Dispose();
-        _folded.Dispose();
-    }
+    public override void Dispose() => _members.Dispose();
 }
 
 /// <summary>A column that takes no nulls: a null or a missing field is an error.</summary>

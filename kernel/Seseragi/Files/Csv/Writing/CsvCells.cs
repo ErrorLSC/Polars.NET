@@ -240,6 +240,7 @@ internal abstract unsafe class CsvCell
             or HalfFloatType or FloatType or DoubleType or Decimal32Type or Decimal64Type or Decimal128Type or StringType or LargeStringType
             or StringViewType or Date32Type or Date64Type or TimestampType or Time32Type or Time64Type or DurationType => null,
         DictionaryType d => Refusal(new Field(field.Name, d.ValueType, true)),
+        BinaryViewType when field.Metadata?.ContainsKey(Reading.CsvRowColumns.GuidKey) == true => null,
         BinaryType or LargeBinaryType or BinaryViewType or FixedSizeBinaryType =>
             $"Column '{field.Name}' is binary, which CSV cannot hold as it is: encode it as text first (base64 or hex), or leave it out.",
         NestedType => $"Column '{field.Name}' is {field.DataType.Name}: CSV holds no nested values (flatten it into columns, or write it as JSON text).",
@@ -289,7 +290,9 @@ internal abstract unsafe class CsvCell
         DoubleType => new FloatCell<double>(data, pins, field.Name, syntax),
         Decimal32Type d => new DecimalCell(data, pins, field.Name, syntax, d.Scale, null, width: 4),
         Decimal64Type d => new DecimalCell(data, pins, field.Name, syntax, d.Scale, null, width: 8),
-        Decimal128Type d => new DecimalCell(data, pins, field.Name, syntax, d.Scale, WideIntegers.KindOf(field), width: 16),
+        Decimal128Type d => new DecimalCell(data, pins, field.Name, syntax, d.Scale, WideIntegers.KindOf(field), width: 16,
+            shortest: field.Metadata?.ContainsKey(Reading.CsvRowColumns.ShortestKey) == true),
+        BinaryViewType when field.Metadata?.ContainsKey(Reading.CsvRowColumns.GuidKey) == true => new GuidCell(data, pins, field.Name, syntax),
         StringType => new BytesCell(data, pins, field.Name, syntax, large: false),
         LargeStringType => new BytesCell(data, pins, field.Name, syntax, large: true),
         StringViewType => new ViewCell(data, pins, field.Name, syntax),
@@ -489,7 +492,8 @@ internal sealed unsafe class FloatCell<T>(ArrayData data, Pins pins, string name
 }
 
 /// <summary>Decimals (32, 64 or 128 bits) with every digit of their scale; 128-bit integers (decimal(38, 0) so marked) as integers.</summary>
-internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, int scale, string? integer, int width)
+internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, int scale, string? integer, int width,
+    bool shortest = false)
     : NumberCell(data, pins, name, syntax, integer is null && scale > 0 ? CsvValueKind.Fractional : CsvValueKind.Integral)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
@@ -497,6 +501,16 @@ internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string name,
     protected override int MaxPlainBytes => 44 + Math.Abs(scale);
 
     protected override int FormatPlain(long row, Span<byte> destination)
+    {
+        int written = FormatScaled(row, destination);
+        if (!shortest || integer is not null || scale <= 0) return written;
+        // The fewest digits that hold the value: the fraction's trailing zeros, then a bare point, left out.
+        while (destination[written - 1] == (byte)'0') written--;
+        return destination[written - 1] == (byte)'.' ? written - 1 : written;
+    }
+
+    // The value with all of the scale's fraction digits.
+    private int FormatScaled(long row, Span<byte> destination)
     {
         long index = row + Offset;
         Int128 value = width switch
@@ -809,6 +823,34 @@ internal sealed unsafe class DurationCell(ArrayData data, Pins pins, string name
         }
         destination[at++] = (byte)'S';
         return at;
+    }
+}
+
+/// <summary>GUIDs (16-byte binary views marked <see cref="Reading.CsvRowColumns.GuidKey"/>) as their hyphenated text.</summary>
+internal sealed unsafe class GuidCell : FormattedCell
+{
+    private readonly byte* _views;
+    private readonly byte*[] _buffers;
+
+    public GuidCell(ArrayData data, Pins pins, string name, CsvSyntax syntax) : base(data, pins, name, syntax, CsvValueKind.Other)
+    {
+        _views = pins.Pin(data.Buffers[1]);
+        _buffers = data.Buffers.Length > 2 ? new byte*[data.Buffers.Length - 2] : [];
+        for (int i = 2; i < data.Buffers.Length; i++) _buffers[i - 2] = pins.Pin(data.Buffers[i]);
+    }
+
+    protected override int MaxBytes => 36;
+
+    protected override int Format(long row, Span<byte> destination)
+    {
+        byte* view = _views + (row + Offset) * 16;
+        int length = *(int*)view;
+        ReadOnlySpan<byte> bytes = length <= 12
+            ? new ReadOnlySpan<byte>(view + 4, length)
+            : new ReadOnlySpan<byte>(_buffers[*(int*)(view + 8)] + *(int*)(view + 12), length);
+        if (bytes.Length != 16) throw new CsvWriteException($"Column '{Name}': a GUID of {bytes.Length} bytes (GUIDs have 16).", Name, row);
+        new Guid(bytes).TryFormat(destination, out int written, "D");
+        return written;
     }
 }
 

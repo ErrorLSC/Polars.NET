@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
 
 namespace Kaminari.Seseragi.Files.Csv;
@@ -50,14 +51,18 @@ public sealed class CsvDatasetWriter : IDisposable
     /// <inheritdoc cref="Create"/>
     public static async Task<CsvDatasetWriter> CreateAsync(string path, Schema schema, CsvDatasetWriteOptions? options = null,
         CancellationToken cancellationToken = default)
+        => new(await StartAsync(path, schema, options ?? new CsvDatasetWriteOptions(), cancellationToken).ConfigureAwait(false));
+
+    /// <summary>Starts the dataset write of CSV files (the typed writer's too).</summary>
+    internal static async Task<DatasetWriting<DatasetWrittenFile>> StartAsync(string path, Schema schema, CsvDatasetWriteOptions options,
+        CancellationToken cancellationToken)
     {
-        options ??= new CsvDatasetWriteOptions();
         ArgumentNullException.ThrowIfNull(options.Writer, nameof(options.Writer));
         options.Writer.Validate();
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
-        return new(await DatasetWriting<DatasetWrittenFile>.CreateAsync(path, schema, options, new CsvFileFormat(options.Writer),
-            static f => new DatasetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values), cancellationToken).ConfigureAwait(false));
+        return await DatasetWriting<DatasetWrittenFile>.CreateAsync(path, schema, options, new CsvFileFormat(options.Writer, schema),
+            static f => new DatasetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The schema of the batches written.</summary>
@@ -103,6 +108,36 @@ public sealed class CsvDatasetWriter : IDisposable
         using CsvDatasetWriter writer = await CreateAsync(path, schema, options, cancellationToken).ConfigureAwait(false);
         await foreach (RecordBatch batch in batches.WithCancellation(cancellationToken).ConfigureAwait(false))
             await writer.WriteAsync(batch, cancellationToken).ConfigureAwait(false);
+        return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes rows of <typeparamref name="T"/> as a dataset under <paramref name="path"/>, in one call (<see cref="CsvDatasetWriter{T}"/>).</summary>
+    public static DatasetWriteResult<DatasetWrittenFile> WriteRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
+        IEnumerable<T> rows, CsvDatasetWriteOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        using CsvDatasetWriter<T> writer = CsvDatasetWriter<T>.Create(path, options);
+        writer.WriteRows(rows);
+        return writer.Complete();
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, CsvDatasetWriteOptions?)"/>
+    public static async Task<DatasetWriteResult<DatasetWrittenFile>> WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
+        string path, IEnumerable<T> rows, CsvDatasetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using CsvDatasetWriter<T> writer = await CsvDatasetWriter<T>.CreateAsync(path, options, cancellationToken).ConfigureAwait(false);
+        await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
+        return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc cref="WriteRows{T}(string, IEnumerable{T}, CsvDatasetWriteOptions?)"/>
+    public static async Task<DatasetWriteResult<DatasetWrittenFile>> WriteRowsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
+        string path, IAsyncEnumerable<T> rows, CsvDatasetWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        await using CsvDatasetWriter<T> writer = await CsvDatasetWriter<T>.CreateAsync(path, options, cancellationToken).ConfigureAwait(false);
+        await writer.WriteRowsAsync(rows, cancellationToken).ConfigureAwait(false);
         return await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
