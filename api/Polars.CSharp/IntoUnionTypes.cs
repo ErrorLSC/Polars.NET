@@ -415,6 +415,43 @@ public readonly struct IntoSchema
         return new(PolarsSchema.From(type), ownsSchema: true);
     }
 
+    // ==========================================
+    // 6. Nullable targets: a null source is no schema
+    // ==========================================
+    // An optional IntoSchema? parameter given a null variable (e.g. a PolarsSchema? that is null) means no schema; the
+    // conversions above would refuse the null. C# picks these for IntoSchema? targets (their exact type).
+
+    /// <summary>A schema, or none when <paramref name="schema"/> is null.</summary>
+    public static implicit operator IntoSchema?(PolarsSchema? schema) => schema is null ? default(IntoSchema?) : (IntoSchema)schema;
+
+    /// <summary>A frame's schema, or none when <paramref name="df"/> is null.</summary>
+    public static implicit operator IntoSchema?(DataFrame? df) => df is null ? default(IntoSchema?) : (IntoSchema)df;
+
+    /// <summary>A query's schema, or none when <paramref name="lf"/> is null.</summary>
+    public static implicit operator IntoSchema?(LazyFrame? lf) => lf is null ? default(IntoSchema?) : (IntoSchema)lf;
+
+    /// <summary>Names and types, or none when <paramref name="dict"/> is null.</summary>
+    public static implicit operator IntoSchema?(Dictionary<string, DataType>? dict) => dict is null ? default(IntoSchema?) : (IntoSchema)dict;
+
+    /// <summary>Names and types, or none when <paramref name="pairs"/> is null.</summary>
+    public static implicit operator IntoSchema?((string Name, DataType Type)[]? pairs) => pairs is null ? default(IntoSchema?) : (IntoSchema)pairs;
+
+    /// <summary>Names and types, or none when <paramref name="pairs"/> is null.</summary>
+    public static implicit operator IntoSchema?(List<(string Name, DataType Type)>? pairs) => pairs is null ? default(IntoSchema?) : (IntoSchema)pairs;
+
+    /// <summary>Names (types inferred), or none when <paramref name="columnNames"/> is null.</summary>
+    public static implicit operator IntoSchema?(string[]? columnNames) => columnNames is null ? default(IntoSchema?) : (IntoSchema)columnNames;
+
+    /// <summary>Names (types inferred), or none when <paramref name="columnNames"/> is null.</summary>
+    public static implicit operator IntoSchema?(List<string>? columnNames) => columnNames is null ? default(IntoSchema?) : (IntoSchema)columnNames;
+
+    /// <summary>An Arrow schema, or none when <paramref name="arrowSchema"/> is null.</summary>
+    public static implicit operator IntoSchema?(Apache.Arrow.Schema? arrowSchema) => arrowSchema is null ? default(IntoSchema?) : (IntoSchema)arrowSchema;
+
+    /// <summary>A type's members as columns, or none when <paramref name="type"/> is null.</summary>
+    public static implicit operator IntoSchema?([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type? type) =>
+        type is null ? default(IntoSchema?) : (IntoSchema)type;
+
     public PolarsSchema Consume() => _schema;
 
     public void DisposeTempSchema()

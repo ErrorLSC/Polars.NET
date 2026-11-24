@@ -320,6 +320,14 @@ Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `
 
 ---
 
+## Schemas given as variables
+
+### Fixed
+
+* An optional schema parameter (`IntoSchema?`: `schema`, `dtypeOverride`, `schemaOverrides`, …) given a variable that is null (a `PolarsSchema`, `DataFrame`, `LazyFrame`, dictionary, array, list, Arrow schema or `Type` holding null) means no schema, as passing `null` itself does. It threw `ArgumentNullException`.
+
+---
+
 ## Packaging
 
 * `native_shim.dll` (`Polars.NET.Native.win-x64`) links the C runtime statically and no longer needs the Visual C++ Redistributable (`VCRUNTIME140.dll`), which a clean Windows install lacks. It used to fail on first use with "Dll was not found" (#37). The release build now checks the DLL's imports.
