@@ -68,6 +68,20 @@ public sealed record CsvWriteOptions
     public string? ThousandsSeparator { get; init; }
 
     /// <summary>
+    /// The text's encoding; null (the default) is UTF-8. Any .NET encoding without shift states: legacy code pages
+    /// (Shift-JIS 932, GBK 936, Big5 950, Windows-1252 …), UTF-16, GB18030, UTF-32. A character it cannot write is an
+    /// error naming its row and column, or '?' (<see cref="InvalidText"/>). Text outputs (<see cref="TextWriter"/>,
+    /// strings) take none.
+    /// </summary>
+    public System.Text.Encoding? Encoding { get; init; }
+
+    /// <summary>
+    /// What a character <see cref="Encoding"/> cannot write becomes: an error (the default) or '?' (the encoding's
+    /// replacement; never a look-alike, which could be a separator or a quote).
+    /// </summary>
+    public CsvInvalidText InvalidText { get; init; } = CsvInvalidText.Error;
+
+    /// <summary>
     /// The compression of the bytes written (none by default). The rows are compressed in pieces side by side, each a
     /// gzip member or Zstandard frame of its own: one valid file that every reader decompresses whole. Text outputs
     /// (<see cref="TextWriter"/>, strings) take no compression.
@@ -127,6 +141,7 @@ public sealed record CsvWriteOptions
         ArgumentNullException.ThrowIfNull(LineTerminator);
         if (!Enum.IsDefined(QuoteStyle)) throw new ArgumentOutOfRangeException(nameof(QuoteStyle), QuoteStyle, "Unknown quote style.");
         if (!Enum.IsDefined(Compression)) throw new ArgumentOutOfRangeException(nameof(Compression), Compression, "Unknown CSV compression.");
+        if (!Enum.IsDefined(InvalidText)) throw new ArgumentOutOfRangeException(nameof(InvalidText), InvalidText, "Unknown InvalidText.");
         if (!Enum.IsDefined(BatchOwnership)) throw new ArgumentOutOfRangeException(nameof(BatchOwnership), BatchOwnership, "Unknown batch ownership.");
         if (MaxDegreeOfParallelism <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxDegreeOfParallelism), MaxDegreeOfParallelism, "The degree of parallelism must be positive.");

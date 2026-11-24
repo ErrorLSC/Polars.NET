@@ -148,13 +148,16 @@ public sealed record CsvReadOptions
     internal int UnitBytes { get; init; } = TextUnits.DefaultUnitBytes;
 }
 
-/// <summary>What a byte sequence the input's encoding does not define becomes.</summary>
+/// <summary>
+/// What text an encoding does not define becomes: read, a byte sequence the input's encoding does not define; written,
+/// a character the output's encoding cannot write.
+/// </summary>
 public enum CsvInvalidText
 {
-    /// <summary>An error naming its row and line.</summary>
+    /// <summary>An error naming its row (and line, or column).</summary>
     Error,
 
-    /// <summary>U+FFFD (the replacement character).</summary>
+    /// <summary>The replacement character: U+FFFD read, '?' written.</summary>
     Replace,
 }
 

@@ -1,6 +1,7 @@
 using System.Buffers;
 using Apache.Arrow;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.Csv.Writing;
 using Kaminari.Seseragi.Files.IO.Writing;
 
@@ -20,6 +21,8 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
 {
     private readonly CsvSyntax _syntax;
     private readonly RowWriter<CsvCell> _rows;
+    private readonly TextEncoder? _encoder;     // null: UTF-8, written as it is
+    private readonly string _encodingName = "";
 
     private CsvWriter(ByteSink sink, Schema schema, CsvWriteOptions options)
     {
@@ -30,11 +33,40 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
         var syntax = new CsvSyntax(options);
         CheckFormats(schema, syntax);
         _syntax = syntax;
+        if (options.Encoding is { } encoding)
+        {
+            if (sink.IsText && encoding.CodePage != 65001)
+                throw new ArgumentException("Text is written as characters, in no encoding (write bytes to encode them).", nameof(options));
+            _encoder = TextEncoder.For(encoding, options.InvalidText == CsvInvalidText.Replace);
+            _encodingName = $"{encoding.WebName} ({encoding.CodePage})";
+            CheckEncoding(options, encoding);
+        }
         _rows = new RowWriter<CsvCell>(sink, schema, this, (data, field, pins) => CsvCell.For(data, field, pins, syntax), new RowWriterSettings(
             "CSV", options.MaxDegreeOfParallelism, options.BatchOwnership, Compression(options.Compression), options.CompressionLevel,
             options.PieceBytes, options.InFlightBytes, 8 + 12 * schema.FieldsList.Count,
             options.WindowPieces > 0 ? options.WindowPieces : 2 * options.MaxDegreeOfParallelism));
         _rows.Prepend(Head(schema, options, syntax));
+    }
+
+    // The byte order mark (the encoding's: raw), then the header (encoded; a name the encoding cannot write is refused).
+    private byte[] Head(Schema schema, CsvWriteOptions options, CsvSyntax syntax)
+    {
+        byte[] utf8 = Utf8Head(schema, options, syntax);
+        if (_encoder is null) return options.IncludeBom ? [0xEF, 0xBB, 0xBF, .. utf8] : utf8;
+        using var output = new NativeBufferWriter(utf8.Length * 2 + 8);
+        ReadOnlySpan<byte> mark = options.IncludeBom ? TextEncoder.ByteOrderMark(options.Encoding!.CodePage) : [];
+        mark.CopyTo(output.GetSpan(mark.Length));
+        output.Advance(mark.Length);
+        if (!_encoder.TryEncode(utf8, output, out _))
+            foreach (Field field in schema.FieldsList)
+            {
+                byte[] name = System.Text.Encoding.UTF8.GetBytes(field.Name);
+                using var scratch = new NativeBufferWriter(name.Length * 2 + 8);
+                if (!_encoder.TryEncode(name, scratch, out int at))
+                    throw new ArgumentException($"The header: column '{field.Name}' has {Character(name, at)}, which {_encodingName} cannot write: "
+                        + "rename the column, set InvalidText to Replace (it becomes '?'), or write UTF-8.", nameof(schema));
+            }
+        return output.WrittenSpan.ToArray();
     }
 
     // A column CSV cannot hold is refused before anything is written.
@@ -44,6 +76,29 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
             if (CsvCell.Refusal(field) is { } refusal) throw new NotSupportedException(refusal);
     }
 
+    // What the encoding needs of the options: a byte order mark only for Unicode, no '?' as a separator or quote when
+    // '?' replaces, and a null value and line terminator it can write.
+    private void CheckEncoding(CsvWriteOptions options, System.Text.Encoding encoding)
+    {
+        if (options.IncludeBom && TextEncoder.ByteOrderMark(encoding.CodePage).IsEmpty)
+            throw new ArgumentException($"{_encodingName} has no byte order mark (UTF-8, UTF-16 and UTF-32 have one): leave IncludeBom off.", nameof(options));
+        if (_encoder is { Replace: true } && (options.Separator == '?' || options.Quote == '?'))
+            throw new ArgumentException("'?' replaces the characters the encoding cannot write: it cannot be the separator or the quote too.", nameof(options));
+        foreach ((string text, string what) in ((string, string)[])[(options.NullValue, "null value"), (options.LineTerminator, "line terminator")])
+        {
+            using var output = new NativeBufferWriter(64);
+            if (_encoder is not null && !_encoder.TryEncode(System.Text.Encoding.UTF8.GetBytes(text), output, out int at))
+                throw new ArgumentException($"The {what} has {Character(System.Text.Encoding.UTF8.GetBytes(text), at)}, which {_encodingName} cannot write.", nameof(options));
+        }
+    }
+
+    // The character at a UTF-8 offset, as messages show it: 'é' (U+00E9).
+    private static string Character(ReadOnlySpan<byte> utf8, int at)
+    {
+        System.Text.Rune.DecodeFromUtf8(utf8[at..], out System.Text.Rune rune, out _);
+        return $"'{rune}' (U+{rune.Value:X4})";
+    }
+
     // A date, time or timestamp format that does not fit a column is refused before anything is written.
     private static void CheckFormats(Schema schema, CsvSyntax syntax)
     {
@@ -51,12 +106,11 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
             if (CsvCell.FormatRefusal(field, syntax) is { } refusal) throw new ArgumentException(refusal, nameof(schema));
     }
 
-    // The byte order mark and the header, as asked.
-    private static byte[] Head(Schema schema, CsvWriteOptions options, CsvSyntax syntax)
+    // The header, as asked, in UTF-8.
+    private static byte[] Utf8Head(Schema schema, CsvWriteOptions options, CsvSyntax syntax)
     {
         using var buffer = new NativeBufferWriter(64 + 16 * schema.FieldsList.Count);
         var o = new TextOut(buffer);
-        if (options.IncludeBom) o.Bytes([0xEF, 0xBB, 0xBF]);
         if (options.IncludeHeader)
         {
             for (int k = 0; k < schema.FieldsList.Count; k++)
@@ -282,6 +336,42 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
     // Rows [start, end) of a batch's cells appended to `buffer`: fields separated, each line ended; a value that cannot be
     // written fails naming its row among all.
     void IRowEncoder<CsvCell>.EncodeRows(CsvCell[] columns, NativeBufferWriter buffer, int start, int end, long first)
+    {
+        if (_encoder is null)
+        {
+            EncodeUtf8(columns, buffer, start, end, first);
+            return;
+        }
+        // The rows in UTF-8, then encoded; a character the encoding cannot write is found again row by row, field by field.
+        using var utf8 = new NativeBufferWriter((int)Math.Min(1 << 20, (end - start) * 16L + 256));
+        EncodeUtf8(columns, utf8, start, end, first);
+        if (!_encoder.TryEncode(utf8.WrittenSpan, buffer, out _)) throw Unwritable(columns, start, end, first);
+    }
+
+    // The first field (in order) holding a character the encoding cannot write, as an error naming its row and column.
+    private CsvWriteException Unwritable(CsvCell[] columns, int start, int end, long first)
+    {
+        using var field = new NativeBufferWriter(256);
+        using var discard = new NativeBufferWriter(256);
+        for (int row = start; row < end; row++)
+            for (int k = 0; k < columns.Length; k++)
+            {
+                field.ResetWrittenCount();
+                discard.ResetWrittenCount();
+                var o = new TextOut(field);
+                if (columns[k].IsNull(row)) o.Bytes(_syntax.Null);
+                else columns[k].Write(ref o, row);
+                o.Commit();
+                if (_encoder!.TryEncode(field.WrittenSpan, discard, out int at)) continue;
+                long r = first + row - start;
+                string name = columns[k].Name;
+                return new CsvWriteException($"Row {r}: Column '{name}': {Character(field.WrittenSpan, at)} cannot be written in {_encodingName}: "
+                    + "set InvalidText to Replace (it becomes '?'), or write UTF-8.", name, r);
+            }
+        return new CsvWriteException($"Rows {first}–{first + end - start - 1}: a character cannot be written in {_encodingName}.", "", first);
+    }
+
+    private void EncodeUtf8(CsvCell[] columns, NativeBufferWriter buffer, int start, int end, long first)
     {
         int row = start;
         byte separator = _syntax.Separator;

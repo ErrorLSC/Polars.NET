@@ -47,6 +47,8 @@ public class CsvWriterTests
                     InFlightBytes = random.Next(2) == 0 ? random.Next(1, 4000) : 256L << 20,
                     BatchOwnership = random.Next(2) == 0 ? BatchOwnership.Caller : BatchOwnership.Writer,
                     LeaveOpen = true,
+                    Encoding = random.Next(3) == 0 ? Kaminari.Sazanami.Text.TextEncodings.Resolve(((int[])[932, 1200, 54936, 1252])[random.Next(4)]) : null,
+                    InvalidText = CsvInvalidText.Replace,
                 };
                 using var output = new MemoryStream();
                 using (CsvWriter writer = CsvWriter.Create(output, schema, options))
@@ -55,7 +57,8 @@ public class CsvWriterTests
                         writer.Write(options.BatchOwnership == BatchOwnership.Writer ? Owned(part) : part);
                         if (random.Next(5) == 0) writer.Flush();
                     }
-                AssertSameText(expected, output.ToArray());
+                byte[] encoded = options.Encoding is { } e ? Kaminari.Sazanami.Text.TextEncoder.Clone(e, replace: true).GetBytes(Encoding.UTF8.GetString(expected)) : expected;
+                Assert.Equal(Convert.ToHexString(encoded), Convert.ToHexString(output.ToArray()));
             }
             finally { batches.ForEach(b => b.Dispose()); }
         }
