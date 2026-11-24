@@ -163,10 +163,13 @@ internal static class Parent
     /// <summary>The cases of the corpus's format.</summary>
     public static IFuzzCases CasesFor(string dir) =>
         IsIpc(dir) ? new IpcCases(CorpusFilesOf(dir))
+        : IsCsvWrite(dir) ? new CsvWriteCases([.. Directory.EnumerateFiles(dir, "*.arrow", SearchOption.AllDirectories).Order(StringComparer.Ordinal)])
         : IsCsv(dir) ? new CsvCases([.. Directory.EnumerateFiles(dir, "*.*sv", SearchOption.AllDirectories).Order(StringComparer.Ordinal)])
         : IsJson(dir) ? new JsonCases([.. Directory.EnumerateFiles(dir, "*.*json", SearchOption.AllDirectories)
             .Where(f => !f.EndsWith(".expected.json", StringComparison.Ordinal)).Order(StringComparer.Ordinal)])
         : new Cases(CorpusFilesOf(dir));
+
+    public static bool IsCsvWrite(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "csv-write";
 
     public static bool IsCsv(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "csv";
 

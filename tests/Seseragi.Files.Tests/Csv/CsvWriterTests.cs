@@ -424,6 +424,61 @@ public class CsvWriterTests
         Assert.Equal(expected, Encoding.UTF8.GetString(output.ToArray()));
     }
 
+    /// <summary>
+    /// The first failure in order is the one reported: an owned batch's pieces still on their way (its bad row at 1500,
+    /// past a held first piece) and a one-piece batch after it that fails at once on the caller's thread (row 2000).
+    /// </summary>
+    [Fact]
+    public async Task AFailureOfAnOwnedBatchOnItsWay_ComesBeforeOneOfARowEncodedAfterIt()
+    {
+        var schema = new Schema([F("s", StringType.Default)], null);
+        RecordBatch Rows(int count, int bad)
+        {
+            var builder = new StringArray.Builder();
+            for (int r = 0; r < count; r++) builder.Append(r == bad ? "ア" : $"row {r}");
+            return new RecordBatch(schema, [builder.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], count);
+        }
+        using var output = new HeldStream();
+        var writer = CsvWriter.Create(output, schema, new CsvWriteOptions
+        {
+            Encoding = System.Text.CodePagesEncodingProvider.Instance.GetEncoding(1252), IncludeHeader = false,
+            BatchOwnership = BatchOwnership.Writer, MaxDegreeOfParallelism = 4, PieceBytes = 100,
+        });
+        writer.Write(Rows(2000, 1500)); // owned: its pieces are encoded and written behind
+        Task late = Task.Run(() => writer.Write(Rows(1, 0)));
+        await Task.Delay(300);
+        output.Release();
+        var e = await Assert.ThrowsAsync<CsvWriteException>(() => late);
+        Assert.Equal(1500, e.Row);
+        writer.Dispose();
+    }
+
+    /// <summary>
+    /// With an encoding, a value refused at a row (a time past the day) does not hide a character the encoding cannot
+    /// write at an earlier row of the same piece: the earlier one is reported, whatever the pieces.
+    /// </summary>
+    [Fact]
+    public void WithAnEncoding_AnUnwritableCharacter_ComesBeforeALaterRefusedValue()
+    {
+        var schema = new Schema([F("s", StringType.Default), F("t", new Time64Type(TimeUnit.Nanosecond))], null);
+        var s = new StringArray.Builder();
+        var t = new Time64Array.Builder(new Time64Type(TimeUnit.Nanosecond));
+        for (int r = 0; r < 50; r++)
+        {
+            s.Append(r == 1 ? "ア" : $"row {r}");
+            t.Append(r == 40 ? 86_400_000_000_000L : r);
+        }
+        using var batch = new RecordBatch(schema, [s.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance), t.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], 50);
+        foreach (int pieceBytes in (int[])[1 << 20, 15, 1])
+        {
+            var e = Assert.Throws<CsvWriteException>(() => CsvWriter.Write(new MemoryStream(), schema, [batch], new CsvWriteOptions
+            {
+                Encoding = System.Text.CodePagesEncodingProvider.Instance.GetEncoding(1252), PieceBytes = pieceBytes, MaxDegreeOfParallelism = 1,
+            }));
+            Assert.Equal((1L, "s"), (e.Row, e.Column));
+        }
+    }
+
     // A stream whose writes wait until released.
     private sealed class HeldStream : MemoryStream
     {

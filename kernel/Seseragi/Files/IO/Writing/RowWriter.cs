@@ -190,6 +190,11 @@ internal sealed class RowWriter<TCell>
             {
                 full = Append(cells, 0, length);
             }
+            catch (Exception e)
+            {
+                await ThrowFirstAsync(e, useAsync).ConfigureAwait(false);
+                throw;
+            }
             finally
             {
                 cells.Expect(1);
@@ -469,7 +474,27 @@ internal sealed class RowWriter<TCell>
             ThrowIfFailed();
             return;
         }
-        if (Append(cells, start, count)) Sync(HandOffAsync(false));
+        bool full;
+        try
+        {
+            full = Append(cells, start, count);
+        }
+        catch (Exception e)
+        {
+            Sync(ThrowFirstAsync(e, false));
+            throw;
+        }
+        if (full) Sync(HandOffAsync(false));
+    }
+
+    // Rows encoded here failed: rows before them still on their way (owned batches' pieces) may have failed too, and
+    // the first failure in order is the one reported — waited for, then thrown (else this one).
+    private async ValueTask ThrowFirstAsync(Exception failure, bool useAsync)
+    {
+        if (useAsync) await _chain.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        else _chain.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
+        if (Volatile.Read(ref _failure) is { } earlier && earlier != failure) ExceptionDispatchInfo.Throw(earlier);
+        ExceptionDispatchInfo.Throw(failure);
     }
 
     // Rows encoded on this thread into the piece being filled; true once it holds a piece's bytes (to hand off).

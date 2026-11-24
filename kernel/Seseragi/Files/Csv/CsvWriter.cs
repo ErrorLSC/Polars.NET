@@ -371,14 +371,25 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
         // The rows in UTF-8 (in scratch sized by the rows before: no growing), then encoded; a character the encoding
         // cannot write (or bytes that are not UTF-8) is found again row by row, field by field.
         using var utf8 = new NativeBufferWriter((int)Math.Min(1 << 26, (long)(Volatile.Read(ref _utf8RowBytes) * (end - start) * 1.25) + 256));
-        EncodeUtf8(columns, utf8, start, end, first);
+        try
+        {
+            EncodeUtf8(columns, utf8, start, end, first);
+        }
+        catch (CsvWriteException e) when (e.Row > first)
+        {
+            // A value refused at a row: a row before it may hold what the encoding cannot write (found when encoding
+            // the whole piece, which this row stopped) — the first failure in order is the one reported.
+            throw Unwritable(columns, start, start + (int)(e.Row - first), first) ?? e;
+        }
         Volatile.Write(ref _utf8RowBytes, (double)utf8.WrittenCount / (end - start));
-        if (!_encoder.TryEncode(utf8.WrittenSpan, buffer, out _)) throw Unwritable(columns, start, end, first);
+        if (!_encoder.TryEncode(utf8.WrittenSpan, buffer, out _))
+            throw Unwritable(columns, start, end, first)
+                ?? new CsvWriteException($"Rows {first}–{first + end - start - 1}: a character cannot be written in {_encodingName}.", "", first);
     }
 
-    // The first field (in order) holding a character the encoding cannot write or bytes that are not UTF-8, as an error
-    // naming its row and column.
-    private CsvWriteException Unwritable(CsvCell[] columns, int start, int end, long first)
+    // The first field (in order) of rows [start, end) holding a character the encoding cannot write or bytes that are not
+    // UTF-8, as an error naming its row and column; null when there is none.
+    private CsvWriteException? Unwritable(CsvCell[] columns, int start, int end, long first)
     {
         using var field = new NativeBufferWriter(256);
         using var discard = new NativeBufferWriter(256);
@@ -399,7 +410,7 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
                 return new CsvWriteException($"Row {r}: Column '{name}': {Character(field.WrittenSpan, at)} cannot be written in {_encodingName}: "
                     + "set InvalidText to Replace (it becomes '?'), or write UTF-8.", name, r);
             }
-        return new CsvWriteException($"Rows {first}–{first + end - start - 1}: a character cannot be written in {_encodingName}.", "", first);
+        return null;
     }
 
     private void EncodeUtf8(CsvCell[] columns, NativeBufferWriter buffer, int start, int end, long first)
