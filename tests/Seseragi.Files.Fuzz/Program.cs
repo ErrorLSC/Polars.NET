@@ -8,6 +8,7 @@ using Seseragi.Files.Fuzz;
 // dumps off; run the whole thing inside a memory- and CPU-capped scope (see README.md).
 //
 //   run [seed] [minutes] [out dir] [corpus dir]   parent: batches of cases in workers, findings saved under out dir
+//                                                 (from case FUZZ_FIRST, default 0)
 //   worker <seed> <first> <count> <corpus dir>    child: guarded memory on, one line per case on stdout
 //   case <seed> <n> [corpus dir]                  one case in this process (guarded), its outcome and details
 //   save <seed> <n> <file> [corpus dir]           the mutated file of a file case
@@ -106,7 +107,8 @@ internal static class Parent
         Directory.CreateDirectory(outDir);
         DateTime deadline = DateTime.UtcNow.AddMinutes(minutes);
         var signatures = new Dictionary<string, (int Count, long FirstCase)>();
-        long n = 0, read = 0, refused = 0;
+        // FUZZ_FIRST: the case to start from (to go on where an earlier run of the seed stopped).
+        long n = long.TryParse(Environment.GetEnvironmentVariable("FUZZ_FIRST"), out long start) ? start : 0, read = 0, refused = 0;
         int saved = 0;
         using var log = new StreamWriter(Path.Combine(outDir, "log.txt"), append: true) { AutoFlush = true };
         void Say(string line)
@@ -161,9 +163,12 @@ internal static class Parent
     /// <summary>The cases of the corpus's format.</summary>
     public static IFuzzCases CasesFor(string dir) =>
         IsIpc(dir) ? new IpcCases(CorpusFilesOf(dir))
+        : IsCsv(dir) ? new CsvCases([.. Directory.EnumerateFiles(dir, "*.*sv", SearchOption.AllDirectories).Order(StringComparer.Ordinal)])
         : IsJson(dir) ? new JsonCases([.. Directory.EnumerateFiles(dir, "*.*json", SearchOption.AllDirectories)
             .Where(f => !f.EndsWith(".expected.json", StringComparison.Ordinal)).Order(StringComparer.Ordinal)])
         : new Cases(CorpusFilesOf(dir));
+
+    public static bool IsCsv(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "csv";
 
     public static bool IsJson(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "json";
 

@@ -66,3 +66,6 @@ tests/Seseragi.Lakehouse.Tests/TestData/dat/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# dotnet test results (blame dumps, trx)
+**/TestResults/

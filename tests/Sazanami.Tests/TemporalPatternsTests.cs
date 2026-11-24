@@ -190,6 +190,10 @@ public class TemporalPatternsTests
     [InlineData("2021-01-15 10:00:00z", nameof(TemporalPattern.DatetimeYmdZ))]
     [InlineData("2021-01-15T10:00:00UTC", nameof(TemporalPattern.DatetimeYmdZ))]
     [InlineData("2021-01-15T10:00:00+25:00", nameof(TemporalPattern.DatetimeYmdZ))] // no such offset
+    [InlineData("2021-01-15T10:00:00+", nameof(TemporalPattern.DatetimeYmdZ))] // an offset cut short at the end (fuzz)
+    [InlineData("2021-01-15T10:00:00+0", nameof(TemporalPattern.DatetimeYmdZ))]
+    [InlineData("2021-01-15 10:00-1", nameof(TemporalPattern.DatetimeYmdZ))]
+    [InlineData("2021-01-15T10:00:00.5-", nameof(TemporalPattern.DatetimeYmdZ))]
     [InlineData("2021-01-15T10:00:00Z", nameof(TemporalPattern.DatetimeYmd))] // a naive group takes no offset
     [InlineData("15-01-2021 10:00", nameof(TemporalPattern.DatetimeYmd))]
     [InlineData("2021-01/15 10:00", nameof(TemporalPattern.DatetimeYmd))] // the gate admits mixed separators, no pattern does

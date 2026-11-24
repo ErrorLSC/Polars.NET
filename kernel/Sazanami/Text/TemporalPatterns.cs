@@ -239,6 +239,7 @@ internal static class TemporalPatterns
         if (s[p] == 'Z') return p + 1 == s.Length;
         if (s[p] is not ((byte)'+' or (byte)'-')) return false;
         int sign = s[p] == '-' ? -1 : 1, hours = Two(s, p + 1), minutes = 0;
+        if (hours < 0) return false; // also an offset cut short at the end: no two digits, p must not pass the end
         p += 3;
         if (p < s.Length && s[p] == ':') p++; // then minutes must follow (the regex gate wants them)
         if (p < s.Length || s[p - 1] == ':')
