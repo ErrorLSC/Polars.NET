@@ -7,7 +7,10 @@ namespace Kaminari.Seseragi.Files;
 /// </summary>
 public enum BatchOwnership
 {
-    /// <summary>The caller: a batch is encoded before Write returns and may be disposed then. The least memory.</summary>
+    /// <summary>
+    /// The caller: a batch is encoded before Write returns and may be disposed then (not before: an asynchronous Write
+    /// is awaited first — the writer reads native buffers in place, without a hold of its own). The least memory.
+    /// </summary>
     Caller,
 
     /// <summary>

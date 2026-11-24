@@ -34,7 +34,11 @@ internal ref struct TextOut(NativeBufferWriter writer)
 
     public void Bytes(scoped ReadOnlySpan<byte> bytes)
     {
-        bytes.CopyTo(Room(bytes.Length));
+        Span<byte> room = Room(bytes.Length);
+        // A few bytes by hand (separators, quotes, short null texts): no copy call.
+        if (bytes.Length <= 4)
+            for (int i = 0; i < bytes.Length; i++) room[i] = bytes[i];
+        else bytes.CopyTo(room);
         _at += bytes.Length;
     }
 

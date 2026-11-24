@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Data.Building;
@@ -18,6 +20,8 @@ internal sealed class CsvSyntax
         Quote = (byte)options.Quote;
         Style = options.QuoteStyle;
         Special = SearchValues.Create([Separator, Quote, (byte)'\r', (byte)'\n']);
+        SeparatorVector = Vector128.Create(Separator);
+        QuoteVector = Vector128.Create(Quote);
         byte[] text = System.Text.Encoding.UTF8.GetBytes(options.NullValue);
         Null = Style == CsvQuoteStyle.Always ? Quoted(text) : text;
         LineTerminator = System.Text.Encoding.UTF8.GetBytes(options.LineTerminator);
@@ -81,6 +85,12 @@ internal sealed class CsvSyntax
     public byte Separator { get; }
 
     public byte Quote { get; }
+
+    /// <summary><see cref="Separator"/> in every lane (string views compare 16 bytes at once).</summary>
+    public Vector128<byte> SeparatorVector { get; }
+
+    /// <summary><see cref="Quote"/> in every lane.</summary>
+    public Vector128<byte> QuoteVector { get; }
 
     public CsvQuoteStyle Style { get; }
 
@@ -313,6 +323,7 @@ internal abstract class FormattedCell(ArrayData data, Pins pins, string name, Cs
 {
     private readonly CsvQuoting _quoting = syntax.ForFormatted(kind);
     private readonly byte _quote = syntax.Quote;
+    private int _maxBytes = -1; // MaxBytes, read once (a property of the column)
 
     /// <summary>The most bytes a value's text takes.</summary>
     protected abstract int MaxBytes { get; }
@@ -320,14 +331,15 @@ internal abstract class FormattedCell(ArrayData data, Pins pins, string name, Cs
     /// <summary>A row's value as text into <paramref name="destination"/> (at least <see cref="MaxBytes"/> long): its length.</summary>
     protected abstract int Format(long row, Span<byte> destination);
 
-    public sealed override void Write(ref TextOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
+        int most = _maxBytes >= 0 ? _maxBytes : _maxBytes = MaxBytes;
         if (_quoting == CsvQuoting.None)
         {
-            o.Advance(Format(row, o.Room(MaxBytes)));
+            o.Advance(Format(row, o.Room(most)));
             return;
         }
-        Span<byte> room = o.Room(MaxBytes + 2);
+        Span<byte> room = o.Room(most + 2);
         room[0] = _quote;
         int length = Format(row, room[1..]);
         room[length + 1] = _quote;
@@ -398,8 +410,21 @@ internal sealed unsafe class IntegerCell<T>(ArrayData data, Pins pins, string na
     where T : unmanaged, IBinaryInteger<T>, IUtf8SpanFormattable
 {
     private readonly T* _values = (T*)pins.Pin(data.Buffers[1]);
+    // Plain text alone (no quotes, a '.' point, no groups): written here in one call, not through FormattedCell.Write.
+    private readonly bool _plain = syntax.DecimalMark == '.' && syntax.Group.Length == 0 && syntax.ForFormatted(CsvValueKind.Integral) == CsvQuoting.None;
 
     protected override int MaxPlainBytes => 21;
+
+    public override void Write(ref TextOut o, long row)
+    {
+        if (!_plain)
+        {
+            base.Write(ref o, row);
+            return;
+        }
+        _values[row + Offset].TryFormat(o.Room(21), out int written, default, CultureInfo.InvariantCulture);
+        o.Advance(written);
+    }
 
     protected override int FormatPlain(long row, Span<byte> destination)
     {
@@ -418,6 +443,20 @@ internal sealed unsafe class FloatCell<T>(ArrayData data, Pins pins, string name
     private readonly T* _values = (T*)pins.Pin(data.Buffers[1]);
     private readonly FloatLayout _layout = syntax.Floats;
     private readonly int _decimals = syntax.FloatPrecision;
+    // Plain text alone (no quotes, a '.' point, no groups): written here in one call, not through FormattedCell.Write.
+    private readonly bool _plain = syntax.DecimalMark == '.' && syntax.Group.Length == 0 && syntax.ForFormatted(CsvValueKind.Fractional) == CsvQuoting.None;
+    private int _maxPlain = -1;
+
+    public override void Write(ref TextOut o, long row)
+    {
+        if (!_plain)
+        {
+            base.Write(ref o, row);
+            return;
+        }
+        int most = _maxPlain >= 0 ? _maxPlain : _maxPlain = MaxPlainBytes;
+        o.Advance(FormatPlain(row, o.Room(most)));
+    }
 
     protected override int MaxPlainBytes => _layout switch
     {
@@ -538,23 +577,46 @@ internal sealed unsafe class BytesCell(ArrayData data, Pins pins, string name, C
     }
 }
 
-/// <summary>String views: inline up to 12 bytes, else in one of the data buffers.</summary>
+/// <summary>
+/// String views: inline up to 12 bytes, else in one of the data buffers. An inline one with quoting as needed is checked
+/// for bytes that need quotes with one vector compare of its view and written by two stores (no calls per value).
+/// </summary>
 internal sealed unsafe class ViewCell : TextCell
 {
     private readonly byte* _views;
     private readonly byte*[] _buffers;
+    private readonly bool _inline;              // quoting as needed, vectors at hand: the inline path
+    private readonly CsvSyntax _syntax;
 
     public ViewCell(ArrayData data, Pins pins, string name, CsvSyntax syntax) : base(data, pins, name, syntax)
     {
         _views = pins.Pin(data.Buffers[1]);
-        _buffers = new byte*[Math.Max(0, data.Buffers.Length - 2)];
+        _buffers = data.Buffers.Length > 2 ? new byte*[data.Buffers.Length - 2] : [];
         for (int i = 2; i < data.Buffers.Length; i++) _buffers[i - 2] = pins.Pin(data.Buffers[i]);
+        _inline = syntax.Style == CsvQuoteStyle.Necessary && Vector128.IsHardwareAccelerated;
+        _syntax = syntax;
     }
 
     public override void Write(ref TextOut o, long row)
     {
         byte* view = _views + (row + Offset) * 16;
         int length = *(int*)view;
+        if (_inline && (uint)(length - 1) < 12)
+        {
+            // The view's 16 bytes at once (its own memory): the inline bytes are lanes 4 to 4 + length.
+            Vector128<byte> v = Vector128.Load(view);
+            Vector128<byte> special = Vector128.Equals(v, _syntax.SeparatorVector) | Vector128.Equals(v, _syntax.QuoteVector)
+                | Vector128.Equals(v, Vector128.Create((byte)'\r')) | Vector128.Equals(v, Vector128.Create((byte)'\n'));
+            if ((special.ExtractMostSignificantBits() >> 4 & ((1u << length) - 1)) == 0)
+            {
+                // Twelve bytes stored whatever the length (the room holds them), the length kept.
+                Span<byte> room = o.Room(12);
+                Unsafe.WriteUnaligned(ref room[0], Unsafe.ReadUnaligned<ulong>(view + 4));
+                Unsafe.WriteUnaligned(ref room[8], Unsafe.ReadUnaligned<uint>(view + 12));
+                o.Advance(length);
+                return;
+            }
+        }
         ReadOnlySpan<byte> bytes = length <= 12
             ? new ReadOnlySpan<byte>(view + 4, length)
             : new ReadOnlySpan<byte>(_buffers[*(int*)(view + 8)] + *(int*)(view + 12), length);
@@ -628,7 +690,15 @@ internal sealed unsafe class TimestampCell(ArrayData data, Pins pins, string nam
 
     protected override int Format(long row, Span<byte> destination)
     {
-        long seconds = Math.DivRem(_values[row + Offset], _perSecond, out long rest);
+        long value = _values[row + Offset], rest;
+        // Constant divisors (multiplications), not a division by a variable per value.
+        long seconds = _digits switch
+        {
+            6 => Math.DivRem(value, 1_000_000L, out rest),
+            3 => Math.DivRem(value, 1_000L, out rest),
+            9 => Math.DivRem(value, 1_000_000_000L, out rest),
+            _ => Math.DivRem(value, 1L, out rest),
+        };
         if (rest < 0)
         {
             seconds--;
@@ -756,14 +826,23 @@ internal static class CsvTemporal
         return 8;
     }
 
-    /// <summary><paramref name="value"/> as exactly <paramref name="count"/> digits (leading zeros).</summary>
+    private static ReadOnlySpan<byte> Pairs => "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"u8;
+
+    /// <summary><paramref name="value"/> (not negative) as exactly <paramref name="count"/> digits (leading zeros), two at a time.</summary>
     public static int Digits(long value, int count, Span<byte> destination)
     {
-        for (int i = count - 1; i >= 0; i--)
+        int i = count;
+        ulong v = (ulong)value;
+        while (i >= 2)
         {
-            destination[i] = (byte)('0' + value % 10);
-            value /= 10;
+            ulong q = v / 100;
+            int pair = (int)(v - q * 100) * 2;
+            v = q;
+            i -= 2;
+            destination[i] = Pairs[pair];
+            destination[i + 1] = Pairs[pair + 1];
         }
+        if (i == 1) destination[0] = (byte)('0' + (int)(v % 10));
         return count;
     }
 

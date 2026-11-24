@@ -338,7 +338,7 @@ internal sealed unsafe class NativeBatchMemory : NativeMemoryOwner
 /// (as Apache.Arrow's C exporter takes when it hands the buffer to another library) also keeps the memory until it
 /// is released, so a batch may be disposed as soon as it is exported.
 /// </summary>
-internal sealed unsafe class NativeBufferMemory : MemoryManager<byte>
+internal sealed unsafe class NativeBufferMemory : MemoryManager<byte>, INativeMemory
 {
     private readonly NativeMemoryOwner _owner;
     private readonly byte* _pointer;
@@ -357,7 +357,7 @@ internal sealed unsafe class NativeBufferMemory : MemoryManager<byte>
     internal NativeMemoryOwner Owner => _owner;
 
     /// <summary>Where the buffer's memory starts.</summary>
-    internal byte* Pointer => _pointer;
+    public byte* Pointer => _pointer;
 
     public override Span<byte> GetSpan() => new(_pointer, _length);
 

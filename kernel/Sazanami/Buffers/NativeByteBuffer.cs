@@ -14,7 +14,7 @@ namespace Kaminari.Sazanami.Buffers;
 /// Whether the memory comes from <see cref="NativeMemoryPool"/> (scratch reused across readers; cannot be
 /// <see cref="Detach"/>ed) rather than <see cref="NativeMemory.Alloc(nuint)"/>.
 /// </param>
-internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0, bool pooled = false) : MemoryManager<byte>
+internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0, bool pooled = false) : MemoryManager<byte>, INativeMemory
 {
     private byte* _ptr = initialCapacity <= 0 ? null : pooled ? NativeMemoryPool.Alloc(initialCapacity) : (byte*)NativeMemory.Alloc((nuint)initialCapacity);
     private int _capacity = initialCapacity;
@@ -45,6 +45,9 @@ internal sealed unsafe class NativeByteBuffer(int initialCapacity = 0, bool pool
     }
 
     public override Span<byte> GetSpan() => Span;
+
+    /// <summary>Where the memory starts (it moves when the buffer grows: taken only once it is written).</summary>
+    public byte* Pointer => _ptr;
 
     public override MemoryHandle Pin(int elementIndex = 0) => new(_ptr + elementIndex);
 

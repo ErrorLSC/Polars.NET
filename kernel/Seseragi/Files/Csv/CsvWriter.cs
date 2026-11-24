@@ -407,6 +407,8 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
         int row = start;
         byte separator = _syntax.Separator;
         ReadOnlySpan<byte> nullText = _syntax.Null, lineEnd = _syntax.LineTerminator;
+        // A one-byte line end (the default "\n") written as a byte, not a copy per row.
+        int lineByte = lineEnd.Length == 1 ? lineEnd[0] : -1;
         try
         {
             var o = new TextOut(buffer);
@@ -416,10 +418,11 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
                 {
                     if (k > 0) o.Byte(separator);
                     CsvCell cell = columns[k];
-                    if (cell.IsNull(row)) o.Bytes(nullText);
-                    else cell.Write(ref o, row);
+                    if (!cell.IsNull(row)) cell.Write(ref o, row);
+                    else if (!nullText.IsEmpty) o.Bytes(nullText);
                 }
-                o.Bytes(lineEnd);
+                if (lineByte >= 0) o.Byte((byte)lineByte);
+                else o.Bytes(lineEnd);
             }
             o.Commit();
         }

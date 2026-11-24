@@ -3,7 +3,7 @@ using Kaminari.Sazanami.Text;
 
 namespace Sazanami.Tests;
 
-/// <summary>Ryū's shortest digits of doubles: the digits .NET's shortest round-trip formatting writes, and they read back.</summary>
+/// <summary>The shortest digits of doubles (Schubfach): the digits .NET's shortest round-trip formatting writes, and they read back.</summary>
 public class ShortestDoubleTests
 {
     // .NET's shortest digits of a positive double, as (digits, exponent of the last digit).
@@ -27,12 +27,7 @@ public class ShortestDoubleTests
 
     private static void Check(double value)
     {
-        ShortestDouble.Digits(value, out ulong digits, out int exponent);
-        while (digits % 10 == 0)
-        {
-            digits /= 10;
-            exponent++;
-        }
+        ShortestDouble.Digits(value, out ulong digits, out int exponent); // no trailing zeros: compared as they come
         Assert.True(Net(value) == (digits, exponent), $"{value:R}: ryu {digits}e{exponent}, .NET {Net(value)}");
         Assert.Equal(value, double.Parse($"{digits}e{exponent}", CultureInfo.InvariantCulture));
     }
@@ -79,6 +74,18 @@ public class ShortestDoubleTests
     }
 
     [Fact]
+    public void ExponentEdges_HaveDotNetsShortestDigits()
+    {
+        // Every binary exponent's first and last values (powers of two: a narrower interval below), subnormals included.
+        for (long e = 0; e < 2047; e++)
+            for (long d = -20; d <= 20; d++)
+            {
+                long bits = (e << 52) + d;
+                if (bits > 0 && bits < 0x7FF0_0000_0000_0000) Check(BitConverter.Int64BitsToDouble(bits));
+            }
+    }
+
+    [Fact]
     public void EdgesAndCommonValues_HaveDotNetsShortestDigits()
     {
         double[] values = [double.Epsilon, double.MaxValue, 2.2250738585072014E-308, 2.225073858507201E-308, 1, 0.1, 0.3, 0.1 + 0.2,
@@ -90,6 +97,7 @@ public class ShortestDoubleTests
             Check(i / 1000.0);
             Check(i * 1e-7);
             Check(Math.Pow(10, i % 600 - 300));
+            Check(BitConverter.Int64BitsToDouble(i)); // subnormals from the smallest
         }
     }
 }

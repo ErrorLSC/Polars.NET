@@ -37,11 +37,13 @@ internal sealed class PooledArrowAllocator() : MemoryAllocator(NativeMemoryPool.
     /// finalizer (a finalizer on a MemoryManager is CA2015's trap; the same split as NativeBufferMemory and its owner):
     /// an undisposed buffer still gives its block back once collected, as Apache.Arrow's allocator does.
     /// </summary>
-    private sealed unsafe class PooledMemory(Block block, int length) : MemoryManager<byte>
+    private sealed unsafe class PooledMemory(Block block, int length) : MemoryManager<byte>, INativeMemory
     {
         private readonly Block _block = block;
 
         public override Span<byte> GetSpan() => new(_block.Pointer, length);
+
+        public byte* Pointer => _block.Pointer;
 
         public override MemoryHandle Pin(int elementIndex = 0)
         {

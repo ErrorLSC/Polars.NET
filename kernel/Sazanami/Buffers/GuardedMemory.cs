@@ -66,7 +66,7 @@ internal static unsafe class GuardedMemory
     /// A block of exactly its length ending at a guard page, as <see cref="Memory{T}"/>; unmapped when disposed (no
     /// finalizer: spans of it may outlive the last reference to it).
     /// </summary>
-    public sealed class Block : MemoryManager<byte>
+    public sealed class Block : MemoryManager<byte>, INativeMemory
     {
         private byte* _start;
         private readonly int _length;
@@ -88,6 +88,8 @@ internal static unsafe class GuardedMemory
         public override Span<byte> GetSpan() => _start == null ? throw new ObjectDisposedException(nameof(Block)) : new(_start, _length);
 
         public override MemoryHandle Pin(int elementIndex = 0) => new(_start + elementIndex);
+
+        public byte* Pointer => _start == null ? throw new ObjectDisposedException(nameof(Block)) : _start;
 
         public override void Unpin() { }
 

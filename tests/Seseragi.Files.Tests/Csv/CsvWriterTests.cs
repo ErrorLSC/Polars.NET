@@ -440,6 +440,93 @@ public class CsvWriterTests
         }
     }
 
+    /// <summary>
+    /// String views (inline up to 12 bytes: the vector path) write the bytes plain strings write, whatever the style,
+    /// separator, quote, slice offset: random short and long strings with separators, quotes, line ends, empties, nulls.
+    /// </summary>
+    [Fact]
+    public void StringViews_WriteWhatStringsWrite()
+    {
+        var random = new Random(41);
+        string[] pieces = ["a", "b", "é", "日本", ",", ";", "\t", "|", "\"", "'", "\r", "\n", " ", "x1", "0"];
+        for (int round = 0; round < 300; round++)
+        {
+            int rows = random.Next(1, 200);
+            var plain = new StringArray.Builder();
+            var views = new StringViewArray.Builder();
+            for (int r = 0; r < rows; r++)
+            {
+                if (random.Next(10) == 0)
+                {
+                    plain.AppendNull();
+                    views.AppendNull();
+                    continue;
+                }
+                int length = random.Next(4) == 0 ? random.Next(10, 30) : random.Next(0, 14);
+                var text = new StringBuilder();
+                while (Encoding.UTF8.GetByteCount(text.ToString()) < length) text.Append(pieces[random.Next(random.Next(3) == 0 ? pieces.Length : 2)]);
+                plain.Append(text.ToString());
+                views.Append(text.ToString());
+            }
+            int offset = random.Next(0, rows);
+            int count = random.Next(0, rows - offset + 1);
+            var options = new CsvWriteOptions
+            {
+                Separator = ",;\t|"[random.Next(4)], Quote = random.Next(2) == 0 ? '"' : '\'',
+                QuoteStyle = (CsvQuoteStyle)random.Next(4), NullValue = random.Next(2) == 0 ? "" : "NA", PieceBytes = random.Next(1, 400),
+            };
+            using var a = new RecordBatch(new Schema([F("s", StringType.Default)], null), [plain.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], rows);
+            using var b = new RecordBatch(new Schema([F("s", StringViewType.Default)], null), [views.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], rows);
+            string expected = CsvWriter.WriteString(a.Schema, [a.Slice(offset, count)], options);
+            Assert.Equal(expected, CsvWriter.WriteString(b.Schema, [b.Slice(offset, count)], options));
+        }
+    }
+
+    /// <summary>
+    /// Buffers in native memory are read at their address, not pinned: a value buffer that starts inside its memory
+    /// (a slice of native memory, as zero-copy readers make) writes what the same values in managed memory write.
+    /// </summary>
+    [Fact]
+    public unsafe void NativeBuffers_StartingInsideTheirMemory_WriteTheirOwnValues()
+    {
+        int[] values = [.. Enumerable.Range(0, 1000).Select(i => i * 7 - 3000)];
+        var schema = new Schema([F("i", Int32Type.Default)], null);
+        int* memory = (int*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)(4 * (values.Length + 2)));
+        try
+        {
+            memory[0] = 111_111;
+            memory[1] = 222_222;
+            values.CopyTo(new Span<int>(memory + 2, values.Length));
+            ReadOnlyMemory<byte> slice = Kaminari.Sazanami.Buffers.PointerMemory.Of((byte*)memory, 4 * (values.Length + 2))[8..];
+            var native = new Int32Array(new ArrayData(Int32Type.Default, values.Length, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(slice)]));
+            var managed = new Int32Array(new ArrayData(Int32Type.Default, values.Length, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(values.SelectMany(BitConverter.GetBytes).ToArray())]));
+            string expected = CsvWriter.WriteString(schema, [new RecordBatch(schema, [managed], values.Length)]);
+            Assert.Equal(expected, CsvWriter.WriteString(schema, [new RecordBatch(schema, [native], values.Length)]));
+            Assert.DoesNotContain("111111", expected);
+        }
+        finally { System.Runtime.InteropServices.NativeMemory.Free(memory); }
+    }
+
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r")]
+    [InlineData(";")]
+    [InlineData("\r\n")]
+    [InlineData("")]
+    [InlineData("<eol>")]
+    public void LineTerminators_EndEveryRow_NullTextsFillEveryNull(string terminator)
+    {
+        var schema = new Schema([F("s", StringType.Default), F("i", Int64Type.Default)], null);
+        var s = new StringArray.Builder().Append("a").AppendNull().Append("c");
+        var i = new Int64Array.Builder().AppendNull().Append(2).Append(3);
+        using var batch = new RecordBatch(schema, [s.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance), i.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], 3);
+        foreach (string nullText in (string[])["", "N", "NULL", "<null>"])
+        {
+            string text = CsvWriter.WriteString(schema, [batch], new CsvWriteOptions { LineTerminator = terminator, NullValue = nullText, PieceBytes = 1 });
+            Assert.Equal($"s,i{terminator}a,{nullText}{terminator}{nullText},2{terminator}c,3{terminator}", text);
+        }
+    }
+
     [Fact]
     public void StringsThatAreNotUtf8_AreWrittenAsTheyAre_InUtf8()
     {

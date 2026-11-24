@@ -31,6 +31,7 @@ internal static class FloatText
     {
         if (typeof(T) == typeof(Half)) return Shortest((float)Unsafe.As<T, Half>(ref value), destination);
         if (T.IsZero(value)) return Copy(T.IsNegative(value) ? "-0.0"u8 : "0.0"u8, destination);
+        if (typeof(T) == typeof(double)) return ShortestOf(Unsafe.As<T, double>(ref value), destination);
         Span<byte> digits = stackalloc byte[32];
         int count = Digits(value, digits, out int exponent);
         (int low, int high) = typeof(T) == typeof(double) ? (-5, 15) : (-6, 12);
@@ -44,6 +45,56 @@ internal static class FloatText
             destination[at++] = (byte)'0';
         }
         return at;
+    }
+
+    // Shortest for a double (finite, not zero): its digits formatted once, one place right of where they start, then
+    // laid out around them in place (a few bytes moved by hand: no copy calls, no buffer between).
+    private static int ShortestOf(double value, Span<byte> destination)
+    {
+        int at = 0;
+        if (double.IsNegative(value)) destination[at++] = (byte)'-';
+        ShortestDouble.Digits(double.Abs(value), out ulong digits, out int e10); // no trailing zeros
+        digits.TryFormat(destination[(at + 1)..], out int count, default, CultureInfo.InvariantCulture);
+        int exponent = e10 + count - 1;
+        if (exponent is < -5 or > 15)
+        {
+            // d.ddde±x: the first digit back one place, the point after it.
+            destination[at] = destination[at + 1];
+            if (count > 1)
+            {
+                destination[at + 1] = (byte)'.';
+                at += count + 1;
+            }
+            else at++;
+            destination[at++] = (byte)'e';
+            destination[at++] = exponent < 0 ? (byte)'-' : (byte)'+';
+            Math.Abs(exponent).TryFormat(destination[at..], out int written, default, CultureInfo.InvariantCulture);
+            return at + written;
+        }
+        if (exponent >= count - 1)
+        {
+            // A whole number: the digits back one place, its zeros, ".0".
+            for (int i = 0; i < count; i++) destination[at + i] = destination[at + 1 + i];
+            at += count;
+            for (int i = count - 1; i < exponent; i++) destination[at++] = (byte)'0';
+            destination[at++] = (byte)'.';
+            destination[at++] = (byte)'0';
+            return at;
+        }
+        if (exponent >= 0)
+        {
+            // ddd.fff: the whole digits back one place, the point after them.
+            for (int i = 0; i <= exponent; i++) destination[at + i] = destination[at + 1 + i];
+            destination[at + exponent + 1] = (byte)'.';
+            return at + count + 1;
+        }
+        // 0.000ddd: the digits moved right past "0." and the zeros (from the last).
+        int lead = 1 - exponent;
+        for (int i = count - 1; i >= 0; i--) destination[at + lead + i] = destination[at + 1 + i];
+        destination[at] = (byte)'0';
+        destination[at + 1] = (byte)'.';
+        for (int i = 2; i < lead; i++) destination[at + i] = (byte)'0';
+        return at + lead + count;
     }
 
     /// <summary>A finite number's shortest digits in scientific notation: <c>d.ddde-x</c>, no sign on a positive exponent (<c>0e0</c>).</summary>
