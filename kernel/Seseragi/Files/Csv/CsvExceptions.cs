@@ -45,3 +45,19 @@ public sealed class CsvValueException : Exception
     /// <summary>The field's text (shortened when long).</summary>
     public string Value { get; }
 }
+
+/// <summary>A value the writer cannot write (a string that is not UTF-8 …): the writer cannot be completed then.</summary>
+public sealed class CsvWriteException : Exception
+{
+    internal CsvWriteException(string message, string column, long row) : base(message)
+    {
+        Column = column;
+        Row = row;
+    }
+
+    /// <summary>The column's name.</summary>
+    public string Column { get; }
+
+    /// <summary>The row among all written (0 = the first).</summary>
+    public long Row { get; }
+}

@@ -294,6 +294,30 @@ public class JsonWriterTests
         Assert.Throws<ArgumentOutOfRangeException>(() => JsonWriter.Create(new MemoryStream(), schema, new JsonWriteOptions { CompressionLevel = 3 }));
     }
 
+    /// <summary>
+    /// Floats are laid out by their own width (decimal notation for exponents −6 to 12; doubles −5 to 15) and half floats
+    /// written as the float of their value, as Polars 2.1 writes them (an f32 of 9.007199e15 once came out positional).
+    /// </summary>
+    [Fact]
+    public void Floats_AndHalfFloats_AreLaidOutAsFloats()
+    {
+        float[] values = [9.007199e15f, 1e13f, 1e-6f, 2.2250738e-6f, 1e12f, 1e-7f];
+        var schema = new Schema([F("f", FloatType.Default), F("h", HalfFloatType.Default)], null);
+        using var batch = new RecordBatch(schema, [
+            new FloatArray(new ArrayData(FloatType.Default, values.Length, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Bytes(values))])),
+            new HalfFloatArray(new ArrayData(HalfFloatType.Default, values.Length, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Bytes(values.Select(v => (Half)v).ToArray()))])),
+        ], values.Length);
+        Assert.Equal("""
+            {"f":9.007199e+15,"h":null}
+            {"f":1e+13,"h":null}
+            {"f":0.000001,"h":0.000001013279}
+            {"f":0.0000022250738,"h":0.0000022053719}
+            {"f":1000000000000.0,"h":null}
+            {"f":1e-7,"h":1.1920929e-7}
+
+            """.ReplaceLineEndings("\n"), JsonWriter.WriteString(schema, [batch]));
+    }
+
     // ---------------------------------------------------------------- failures
 
     [Fact]

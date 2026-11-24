@@ -6,28 +6,9 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Sazanami.Text;
+using Kaminari.Seseragi.Files.IO.Writing;
 
 namespace Kaminari.Seseragi.Files.Json.Writing;
-
-/// <summary>The buffers of a batch pinned while its cells are written (native memory stays put; managed memory is pinned).</summary>
-internal sealed unsafe class Pins : IDisposable
-{
-    private readonly List<MemoryHandle> _handles = [];
-
-    public byte* Pin(ArrowBuffer buffer)
-    {
-        if (buffer.IsEmpty) return null;
-        MemoryHandle handle = buffer.Memory.Pin();
-        _handles.Add(handle);
-        return (byte*)handle.Pointer;
-    }
-
-    public void Dispose()
-    {
-        foreach (MemoryHandle handle in _handles) handle.Dispose();
-        _handles.Clear();
-    }
-}
 
 /// <summary>
 /// Writes the values of one Arrow array as JSON, row by row (a row is the array's own index, before its offset). A
@@ -61,9 +42,9 @@ internal abstract unsafe class JsonCell
     }
 
     /// <summary>Writes a row's value (not null).</summary>
-    public abstract void Write(ref JsonOut o, long row);
+    public abstract void Write(ref TextOut o, long row);
 
-    public void WriteOrNull(ref JsonOut o, long row)
+    public void WriteOrNull(ref TextOut o, long row)
     {
         if (IsNull(row)) o.Bytes("null"u8);
         else Write(ref o, row);
@@ -163,14 +144,14 @@ internal abstract unsafe class JsonCell
 
 internal sealed class NullCell(ArrayData data, Pins pins, string path) : JsonCell(data, pins, path)
 {
-    public override void Write(ref JsonOut o, long row) => o.Bytes("null"u8);
+    public override void Write(ref TextOut o, long row) => o.Bytes("null"u8);
 }
 
 internal sealed unsafe class BooleanCell(ArrayData data, Pins pins, string path) : JsonCell(data, pins, path)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long bit = row + Offset;
         o.Bytes((_values[bit >> 3] & (1 << (int)(bit & 7))) != 0 ? "true"u8 : "false"u8);
@@ -182,7 +163,7 @@ internal sealed unsafe class IntegerCell<T>(ArrayData data, Pins pins, string pa
 {
     private readonly T* _values = (T*)pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row) => o.Format(_values[row + Offset]);
+    public override void Write(ref TextOut o, long row) => o.Format(_values[row + Offset]);
 }
 
 /// <summary>Floats: NaN and infinities are null (as the reference engine writes them).</summary>
@@ -191,7 +172,7 @@ internal sealed unsafe class FloatCell<T>(ArrayData data, Pins pins, string path
 {
     private readonly T* _values = (T*)pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         T value = _values[row + Offset];
         if (T.IsFinite(value)) JsonText.Float(ref o, value);
@@ -207,7 +188,7 @@ internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string path,
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long index = row + Offset;
         Int128 value = width switch
@@ -259,7 +240,7 @@ internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string path,
 /// <summary>Strings (checked to be UTF-8) and binaries (as base64 strings).</summary>
 internal abstract class TextCell(ArrayData data, Pins pins, string path, bool binary, bool guid = false) : JsonCell(data, pins, path)
 {
-    protected void WriteValue(ref JsonOut o, scoped ReadOnlySpan<byte> bytes)
+    protected void WriteValue(ref TextOut o, scoped ReadOnlySpan<byte> bytes)
     {
         if (guid)
         {
@@ -289,7 +270,7 @@ internal sealed unsafe class BytesCell(ArrayData data, Pins pins, string path, b
     private readonly byte* _offsets = pins.Pin(data.Buffers[1]);
     private readonly byte* _data = pins.Pin(data.Buffers[2]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long i = row + Offset, start, end;
         if (large)
@@ -319,7 +300,7 @@ internal sealed unsafe class ViewCell : TextCell
         for (int i = 2; i < data.Buffers.Length; i++) _buffers[i - 2] = pins.Pin(data.Buffers[i]);
     }
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         byte* view = _views + (row + Offset) * 16;
         int length = *(int*)view;
@@ -334,14 +315,14 @@ internal sealed unsafe class FixedBinaryCell(ArrayData data, Pins pins, string p
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row) => WriteValue(ref o, new ReadOnlySpan<byte>(_values + (row + Offset) * width, width));
+    public override void Write(ref TextOut o, long row) => WriteValue(ref o, new ReadOnlySpan<byte>(_values + (row + Offset) * width, width));
 }
 
 internal sealed unsafe class DateCell(ArrayData data, Pins pins, string path, bool millis) : JsonCell(data, pins, path)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long days = millis ? Math.DivRem(((long*)_values)[row + Offset], 86_400_000L, out long rest) - (rest < 0 ? 1 : 0) : ((int*)_values)[row + Offset];
         Span<byte> room = o.Room(IsoTemporal.MaxDateBytes + 2);
@@ -360,7 +341,7 @@ internal sealed unsafe class TimestampCell(ArrayData data, Pins pins, string pat
 {
     private readonly long* _values = (long*)pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long value = _values[row + Offset];
         long perSecond = 1_000_000_000 / unitNanos;
@@ -394,7 +375,7 @@ internal sealed unsafe class TimeCell(ArrayData data, Pins pins, string path, lo
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long value = wide ? ((long*)_values)[row + Offset] : ((int*)_values)[row + Offset];
         long nanos = value * unitNanos;
@@ -412,7 +393,7 @@ internal sealed unsafe class DurationCell(ArrayData data, Pins pins, string path
 {
     private readonly long* _values = (long*)pins.Pin(data.Buffers[1]);
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long value = _values[row + Offset];
         if (value == 0)
@@ -459,7 +440,7 @@ internal sealed unsafe class ListCell(ArrayData data, Pins pins, string path, Js
     private readonly byte* _offsets = pins.Pin(data.Buffers[1]);
     private readonly byte* _sizes = layout is ListLayout.Views32 or ListLayout.Views64 ? pins.Pin(data.Buffers[2]) : null;
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long i = row + Offset, start, end;
         switch (layout)
@@ -481,7 +462,7 @@ internal sealed unsafe class ListCell(ArrayData data, Pins pins, string path, Js
 
 internal sealed class FixedListCell(ArrayData data, Pins pins, string path, JsonCell items, int size) : JsonCell(data, pins, path)
 {
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long start = (row + Offset) * size;
         o.Byte((byte)'[');
@@ -497,10 +478,10 @@ internal sealed class FixedListCell(ArrayData data, Pins pins, string path, Json
 /// <summary>Structs: objects of every field, null ones included.</summary>
 internal sealed class StructCell(ArrayData data, Pins pins, string path, (byte[] Name, JsonCell Cell)[] fields) : JsonCell(data, pins, path)
 {
-    public override void Write(ref JsonOut o, long row) => WriteObject(ref o, row + Offset);
+    public override void Write(ref TextOut o, long row) => WriteObject(ref o, row + Offset);
 
     /// <summary>The object of the children's row <paramref name="row"/> (the records themselves have no offset).</summary>
-    public void WriteObject(ref JsonOut o, long row)
+    public void WriteObject(ref TextOut o, long row)
     {
         o.Byte((byte)'{');
         for (int k = 0; k < fields.Length; k++)
@@ -519,7 +500,7 @@ internal sealed unsafe class MapCell(ArrayData data, Pins pins, string path, Jso
     private readonly byte* _offsets = pins.Pin(data.Buffers[1]);
     private readonly int _entriesOffset = data.Children[0].Offset;
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long start = large ? ((long*)_offsets)[row + Offset] : ((int*)_offsets)[row + Offset];
         long end = large ? ((long*)_offsets)[row + Offset + 1] : ((int*)_offsets)[row + Offset + 1];
@@ -542,7 +523,7 @@ internal sealed unsafe class DictionaryCell(ArrayData data, Pins pins, string pa
     private readonly byte* _indices = pins.Pin(data.Buffers[1]);
     private readonly ArrowTypeId _index = indexType.TypeId;
 
-    public override void Write(ref JsonOut o, long row)
+    public override void Write(ref TextOut o, long row)
     {
         long i = row + Offset;
         long index = _index switch

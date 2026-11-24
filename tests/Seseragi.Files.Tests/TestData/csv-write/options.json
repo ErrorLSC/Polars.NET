@@ -1,0 +1,98 @@
+{
+ "default": {},
+ "noheader": {
+  "include_header": false
+ },
+ "bom": {
+  "include_bom": true
+ },
+ "semicolon": {
+  "separator": ";"
+ },
+ "tab": {
+  "separator": "\t"
+ },
+ "pipe": {
+  "separator": "|"
+ },
+ "quote_single": {
+  "quote_char": "'"
+ },
+ "always": {
+  "quote_style": "always"
+ },
+ "non_numeric": {
+  "quote_style": "non_numeric"
+ },
+ "never": {
+  "quote_style": "never"
+ },
+ "null_NA": {
+  "null_value": "NA"
+ },
+ "null_quoted": {
+  "null_value": "a,b"
+ },
+ "crlf": {
+  "line_terminator": "\r\n"
+ },
+ "term_multi": {
+  "line_terminator": "|\n"
+ },
+ "term_empty": {
+  "line_terminator": ""
+ },
+ "sci_true": {
+  "float_scientific": true
+ },
+ "sci_false": {
+  "float_scientific": false
+ },
+ "prec0": {
+  "float_precision": 0
+ },
+ "prec3": {
+  "float_precision": 3
+ },
+ "prec17": {
+  "float_precision": 17
+ },
+ "sci_true_prec2": {
+  "float_scientific": true,
+  "float_precision": 2
+ },
+ "sci_false_prec2": {
+  "float_scientific": false,
+  "float_precision": 2
+ },
+ "dc": {
+  "decimal_comma": true
+ },
+ "dc_semicolon": {
+  "decimal_comma": true,
+  "separator": ";"
+ },
+ "dc_semicolon_prec2": {
+  "decimal_comma": true,
+  "separator": ";",
+  "float_precision": 2
+ },
+ "dc_always": {
+  "decimal_comma": true,
+  "quote_style": "always"
+ },
+ "dc_never": {
+  "decimal_comma": true,
+  "quote_style": "never"
+ },
+ "fmt_dmy": {
+  "date_format": "%d/%m/%Y",
+  "time_format": "%H:%M",
+  "datetime_format": "%d.%m.%Y %H:%M:%S%.3f"
+ },
+ "fmt_words": {
+  "date_format": "%A %e %B %Y (%j) %a %b",
+  "datetime_format": "%c",
+  "time_format": "%I:%M:%S %p"
+ }
+}

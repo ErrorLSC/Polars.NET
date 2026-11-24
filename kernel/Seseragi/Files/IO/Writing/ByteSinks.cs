@@ -3,14 +3,14 @@ using System.IO.Compression;
 using System.IO.Pipelines;
 using System.Text.Unicode;
 using Kaminari.Sazanami.Buffers;
-using Kaminari.Seseragi.Files.IO;
 
-namespace Kaminari.Seseragi.Files.Json.Writing;
+namespace Kaminari.Seseragi.Files.IO.Writing;
 
 /// <summary>
-/// Where a JSON writer's bytes go, in order: a stream, a buffer writer (a pipe), a text writer, or a string. Bytes come in whole rows, so a text output never sees a character cut in two.
+/// Where a text writer's bytes (UTF-8, or an encoding's) go, in order: a file, a stream, a buffer writer (a pipe), a
+/// text writer, or a string. Bytes come in whole rows, so a text output never sees a character cut in two.
 /// </summary>
-internal abstract class JsonSink
+internal abstract class ByteSink
 {
     /// <summary>Whether the output is text (no compression).</summary>
     public virtual bool IsText => false;
@@ -25,7 +25,7 @@ internal abstract class JsonSink
 }
 
 /// <summary>A file of the writer's own: each batch's pieces written at once (one gathering write), in order.</summary>
-internal sealed class FileSink(string path) : JsonSink
+internal sealed class FileSink(string path) : ByteSink
 {
     private readonly Microsoft.Win32.SafeHandles.SafeFileHandle _file = File.OpenHandle(path, FileMode.Create, FileAccess.Write, FileShare.None);
     private long _length;
@@ -50,7 +50,7 @@ internal sealed class FileSink(string path) : JsonSink
     }
 }
 
-internal sealed class StreamSink(Stream stream, bool leaveOpen) : JsonSink
+internal sealed class StreamSink(Stream stream, bool leaveOpen) : ByteSink
 {
     public override async ValueTask WriteAsync(ReadOnlyMemory<byte> utf8, bool useAsync, CancellationToken ct)
     {
@@ -72,7 +72,7 @@ internal sealed class StreamSink(Stream stream, bool leaveOpen) : JsonSink
     }
 }
 
-internal sealed class BufferSink(IBufferWriter<byte> output) : JsonSink
+internal sealed class BufferSink(IBufferWriter<byte> output) : ByteSink
 {
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> utf8, bool useAsync, CancellationToken ct)
     {
@@ -93,7 +93,7 @@ internal sealed class BufferSink(IBufferWriter<byte> output) : JsonSink
 /// A pipe: flushed after every piece, so the writer waits while the reader is behind (the pipe stays the caller's: it
 /// is not completed). A reader that stops is an <see cref="IOException"/>.
 /// </summary>
-internal sealed class PipeSink(PipeWriter pipe) : JsonSink
+internal sealed class PipeSink(PipeWriter pipe) : ByteSink
 {
     public override async ValueTask WriteAsync(ReadOnlyMemory<byte> utf8, bool useAsync, CancellationToken ct)
     {
@@ -113,7 +113,7 @@ internal sealed class PipeSink(PipeWriter pipe) : JsonSink
 }
 
 /// <summary>Text: UTF-8 rows decoded to UTF-16 a piece at a time.</summary>
-internal sealed class TextSink(TextWriter writer, bool leaveOpen) : JsonSink
+internal sealed class TextSink(TextWriter writer, bool leaveOpen) : ByteSink
 {
     public override bool IsText => true;
 
@@ -144,7 +144,7 @@ internal sealed class TextSink(TextWriter writer, bool leaveOpen) : JsonSink
 }
 
 /// <summary>A string: the UTF-8 kept in native memory, decoded once complete.</summary>
-internal sealed class StringSink : JsonSink
+internal sealed class StringSink : ByteSink
 {
     private readonly NativeBufferWriter _bytes = new(1 << 16);
 
@@ -185,15 +185,15 @@ internal sealed class EncodedPiece(NativeBufferWriter? bytes, Exception? error, 
     /// <summary>
     /// <paramref name="raw"/> as one gzip member or Zstandard frame of its own (the raw bytes disposed), or as it is.
     /// </summary>
-    public static NativeBufferWriter Compress(NativeBufferWriter raw, JsonCompression compression, int? level)
+    public static NativeBufferWriter Compress(NativeBufferWriter raw, PieceCompression compression, int? level)
     {
-        if (compression == JsonCompression.None) return raw;
+        if (compression == PieceCompression.None) return raw;
         try
         {
             var packed = new NativeBufferWriter(Math.Max(64, raw.WrittenCount / 4));
             try
             {
-                if (compression == JsonCompression.Zstd)
+                if (compression == PieceCompression.Zstd)
                 {
                     using var compressor = new ZstdSharp.Compressor(level ?? 3);
                     int bound = ZstdSharp.Compressor.GetCompressBound(raw.WrittenCount);
@@ -229,4 +229,12 @@ internal sealed class EncodedPiece(NativeBufferWriter? bytes, Exception? error, 
         <= 6 => CompressionLevel.Optimal,
         _ => CompressionLevel.SmallestSize,
     };
+}
+
+/// <summary>The compression of the pieces a writer writes: each a gzip member or Zstandard frame of its own.</summary>
+internal enum PieceCompression
+{
+    None,
+    Gzip,
+    Zstd,
 }

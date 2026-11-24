@@ -40,6 +40,12 @@ public sealed record JsonWriteOptions
     /// <summary>The encoded bytes a piece of rows aims at (tests set less, to cut batches finely).</summary>
     internal int PieceBytes { get; init; } = 1 << 20;
 
+    /// <summary>
+    /// The pieces of rows encoded and not yet written, at most (0: eight times <see cref="MaxDegreeOfParallelism"/>, which
+    /// keeps the threads busy while the output takes the pieces before; tests set less): the memory a write holds.
+    /// </summary>
+    internal int WindowPieces { get; init; }
+
     internal void Validate()
     {
         if (!Enum.IsDefined(Format)) throw new ArgumentOutOfRangeException(nameof(Format), Format, "Unknown JSON format.");

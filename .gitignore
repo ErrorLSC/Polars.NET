@@ -26,6 +26,8 @@ Thumbs.db
 # The Parquet test corpus (reader/writer fixtures, apache/parquet-testing files, fuzzer findings, pushdown files).
 !tests/Seseragi.Files.Tests/TestData/parquet/**/*.parquet
 !tests/Seseragi.Files.Tests/TestData/parquet/**/*.csv
+# What Polars writes to CSV (the CSV writer's oracle).
+!tests/Seseragi.Files.Tests/TestData/csv-write/*.csv
 !tests/Seseragi.Files.Tests/TestData/parquet-fuzz/*.parquet
 !tests/Seseragi.Files.Tests/TestData/parquet-pushdown/*.parquet
 Polars.Benchmarks/Data/

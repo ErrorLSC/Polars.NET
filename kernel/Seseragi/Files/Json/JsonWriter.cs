@@ -1,10 +1,8 @@
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
 using Apache.Arrow;
-using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Seseragi.Files.IO.Writing;
 using Kaminari.Seseragi.Files.Json.Writing;
 
 namespace Kaminari.Seseragi.Files.Json;
@@ -17,48 +15,46 @@ namespace Kaminari.Seseragi.Files.Json;
 /// infinities null), decimals as strings, dates, times and timestamps in ISO 8601 (with the zone's offset), durations
 /// as <c>PT…S</c>, binaries as base64 strings, lists as arrays, structs and maps as objects.
 /// </summary>
-public sealed class JsonWriter : IDisposable, IAsyncDisposable
+public sealed class JsonWriter : IDisposable, IAsyncDisposable, IRowEncoder<JsonCell>
 {
-    private readonly JsonSink _sink;
     private readonly JsonWriteOptions _options;
     private readonly byte[][] _prefixes;    // per column: '{' or ',' then its name and a colon
-    private readonly NativeBufferWriter?[] _spare;           // buffers of pieces written, used again (no lock: slots taken by exchange)
-    private readonly Action<NativeBufferWriter> _giveBack;
-    // A batch's pieces are encoded side by side by workers taking them in turn, and written in order by a chain of tasks
-    // (each batch's write waits for the one before), behind the encoding: the queue holds each batch's write, for the
-    // budget.
-    private readonly Queue<(Task Written, long Bytes)> _ahead = [];
-    private NativeBufferWriter? _open; // rows encoded by AppendRows, not handed to the writes yet
-    private long _aheadBytes, _rows, _written;
-    private Task _chain = Task.CompletedTask;
-    private Exception? _failure;             // what failed a piece or a write (the chain drops the pieces after it)
-    private volatile bool _stopping;         // aborted or disposed: pieces still on their way are dropped
-    private double _rowBytes;
-    private bool _completed, _aborted, _faulted, _disposed;
+    private readonly RowWriter<JsonCell> _rows;
 
-    private JsonWriter(JsonSink sink, Schema schema, JsonWriteOptions options)
+    private JsonWriter(ByteSink sink, Schema schema, JsonWriteOptions options)
     {
         options.Validate();
         if (sink.IsText && options.Compression != JsonCompression.None)
             throw new ArgumentException("Text is written uncompressed (write bytes to compress them).", nameof(options));
         foreach (Field field in schema.FieldsList) JsonCell.Check(field, field.Name);
-        _sink = sink;
         _options = options;
-        Schema = schema;
         _prefixes = [.. schema.FieldsList.Select((f, k) => (byte[])[k == 0 ? (byte)'{' : (byte)',', .. JsonText.Name(f.Name)])];
-        _rowBytes = 16 + 24 * schema.FieldsList.Count;
-        _giveBack = Spare;
-        _spare = new NativeBufferWriter?[4 * options.MaxDegreeOfParallelism];
+        _rows = new RowWriter<JsonCell>(sink, schema, this, Cell, new RowWriterSettings(
+            "JSON", options.MaxDegreeOfParallelism, options.BatchOwnership, Compression(options.Compression), options.CompressionLevel,
+            options.PieceBytes, options.InFlightBytes, 16 + 24 * schema.FieldsList.Count,
+            options.WindowPieces > 0 ? options.WindowPieces : 8 * options.MaxDegreeOfParallelism));
     }
 
+    private static JsonCell Cell(ArrayData data, Field field, Pins pins) => JsonCell.For(data, field, pins, field.Name);
+
+    private static PieceCompression Compression(JsonCompression compression) => compression switch
+    {
+        JsonCompression.Gzip => PieceCompression.Gzip,
+        JsonCompression.Zstd => PieceCompression.Zstd,
+        _ => PieceCompression.None,
+    };
+
+    /// <summary>The cells of a batch's columns as a writer of <paramref name="schema"/> writes them (its buffers pinned until disposed).</summary>
+    internal static BatchCells<JsonCell> CellsOf(RecordBatch batch, Schema schema) => new(batch, schema, false, Cell);
+
     /// <summary>The schema the batches are written with.</summary>
-    public Schema Schema { get; }
+    public Schema Schema => _rows.Schema;
 
     /// <summary>Whether batches can still be written.</summary>
-    internal bool IsWritable => !_completed && !_aborted && !_faulted && !_disposed;
+    internal bool IsWritable => _rows.IsWritable;
 
     /// <summary>The bytes handed to the output so far.</summary>
-    public long BytesWritten => Interlocked.Read(ref _written);
+    public long BytesWritten => _rows.BytesWritten;
 
     /// <summary>Creates a writer over a stream (nothing is written before the first rows, or <see cref="Complete"/>).</summary>
     /// <exception cref="NotSupportedException">The schema has a type JSON cannot hold (or a time zone not known).</exception>
@@ -363,266 +359,57 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
     /// <summary>Writes a batch's rows (taken over with <see cref="BatchOwnership.Writer"/>).</summary>
     /// <exception cref="ArgumentException">The batch's columns are not the schema's.</exception>
     /// <exception cref="JsonValueException">A value JSON cannot hold (a string that is not UTF-8); the writer cannot be completed then.</exception>
-    public void Write(RecordBatch batch) => Sync(WriteCoreAsync(batch, false, default));
+    public void Write(RecordBatch batch) => _rows.Write(batch);
 
     /// <inheritdoc cref="Write(RecordBatch)"/>
-    public ValueTask WriteAsync(RecordBatch batch, CancellationToken cancellationToken = default) => WriteCoreAsync(batch, true, cancellationToken);
+    public ValueTask WriteAsync(RecordBatch batch, CancellationToken cancellationToken = default) => _rows.WriteAsync(batch, cancellationToken);
 
     /// <summary>
     /// Writes the rows still on their way (rows are encoded and written behind <see cref="Write(RecordBatch)"/>): the
     /// output holds every row written so far, and is the caller's until the next write.
     /// </summary>
-    public void Flush() => Sync(FlushCoreAsync(false, default));
+    public void Flush() => _rows.Flush();
 
     /// <inheritdoc cref="Flush"/>
-    public ValueTask FlushAsync(CancellationToken cancellationToken = default) => FlushCoreAsync(true, cancellationToken);
-
-    private async ValueTask FlushCoreAsync(bool useAsync, CancellationToken ct)
-    {
-        CheckWritable();
-        await HandOffAsync(useAsync).ConfigureAwait(false);
-        await DrainAsync(useAsync).ConfigureAwait(false);
-        ThrowIfFailed();
-        await _sink.CompleteAsync(useAsync, ct).ConfigureAwait(false);
-    }
+    public ValueTask FlushAsync(CancellationToken cancellationToken = default) => _rows.FlushAsync(cancellationToken);
 
     /// <summary>Writes the rows still on their way and the document's end; nothing can be written afterwards.</summary>
-    public void Complete() => Sync(CompleteCoreAsync(false, default));
+    public void Complete() => _rows.Complete();
 
     /// <inheritdoc cref="Complete"/>
-    public ValueTask CompleteAsync(CancellationToken cancellationToken = default) => CompleteCoreAsync(true, cancellationToken);
+    public ValueTask CompleteAsync(CancellationToken cancellationToken = default) => _rows.CompleteAsync(cancellationToken);
 
     /// <summary>
     /// Gives the output up: rows still on their way are not written and the output is not completed (a document's
     /// array stays open); <see cref="Dispose"/> then closes it. Writing or completing afterwards throws.
     /// </summary>
-    public void Abort()
-    {
-        if (_completed || _disposed) return;
-        _aborted = true;
-        _stopping = true;
-    }
+    public void Abort() => _rows.Abort();
 
-    private static void Sync(ValueTask task)
-    {
-        if (task.IsCompletedSuccessfully) return;
-        task.AsTask().GetAwaiter().GetResult();
-    }
+    /// <summary>
+    /// Rows [<paramref name="start"/>, +<paramref name="count"/>) of the batch <paramref name="cells"/> read, encoded on
+    /// this thread into the piece being filled (the caller's batch is free once this returns): the piece is written once
+    /// it holds a piece's bytes, or before anything written after it (<see cref="Write(RecordBatch)"/>, <see cref="Flush"/>,
+    /// <see cref="Complete"/>). Rows a few at a time (a partition's rows of each batch of a dataset written side by side)
+    /// cost no write each, nor a copy before encoding. A value JSON cannot hold fails the writer.
+    /// </summary>
+    internal void AppendRows(BatchCells<JsonCell> cells, int start, int count) => _rows.AppendRows(cells, start, count);
 
-    private void CheckWritable()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_completed) throw new InvalidOperationException("The JSON writer has been completed.");
-        if (_aborted) throw new InvalidOperationException("The JSON writer was aborted.");
-        if (_faulted) throw new InvalidOperationException("The JSON writer failed earlier; its output cannot be completed.");
-    }
+    /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>
+    internal long OpenBytes => _rows.OpenBytes;
 
-    private void CheckBatch(RecordBatch batch)
-    {
-        IReadOnlyList<Field> fields = Schema.FieldsList;
-        if (batch.ColumnCount != fields.Count)
-            throw new ArgumentException($"The batch has {batch.ColumnCount} columns, the schema {fields.Count}.", nameof(batch));
-        for (int i = 0; i < fields.Count; i++)
-            if (!ArrowTypes.SameType(batch.Column(i).Data.DataType, fields[i].DataType))
-                throw new ArgumentException($"Column '{fields[i].Name}' is {batch.Column(i).Data.DataType.Name} in the batch, {fields[i].DataType.Name} in the schema.", nameof(batch));
-    }
-
-    private async ValueTask WriteCoreAsync(RecordBatch batch, bool useAsync, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(batch);
-        bool owned = _options.BatchOwnership == BatchOwnership.Writer;
-        BatchCells cells;
-        try
-        {
-            CheckWritable();
-            CheckBatch(batch);
-            if (batch.Length == 0)
-            {
-                if (owned) batch.Dispose();
-                return;
-            }
-            cells = new BatchCells(batch, Schema, owned);
-        }
-        catch
-        {
-            if (owned) batch.Dispose();
-            throw;
-        }
-        // Pieces of about a piece's bytes, smaller when that leaves threads idle on this batch (four per thread at least).
-        int threads = _options.MaxDegreeOfParallelism, length = batch.Length;
-        double rowBytes = Math.Max(1, Volatile.Read(ref _rowBytes));
-        long target = Math.Min(_options.PieceBytes, Math.Max((long)(rowBytes * length) / (4 * threads), Math.Min(_options.PieceBytes, 16L << 10)));
-        int pieceRows = (int)Math.Clamp(target / rowBytes, 1, length);
-        int pieces = (length + pieceRows - 1) / pieceRows;
-        long bytes = (long)(rowBytes * length);
-        if (pieces == 1)
-        {
-            // A batch of one piece: encoded here, after the rows appended before, into the piece being filled (one
-            // worker would encode it alone, the caller waiting): small batches cost no task and no write each.
-            bool full;
-            try
-            {
-                full = Append(cells, 0, length);
-            }
-            finally
-            {
-                cells.Expect(1);
-                cells.Release();
-            }
-            if (full) await HandOffAsync(useAsync).ConfigureAwait(false);
-            return;
-        }
-        try
-        {
-            await HandOffAsync(useAsync).ConfigureAwait(false); // rows appended before go first
-        }
-        catch
-        {
-            cells.Expect(1);
-            cells.Release();
-            throw;
-        }
-        cells.Expect(pieces);
-        try
-        {
-            // Room for the batch: the writes ahead within the budget (one batch goes beyond alone).
-            while (_ahead.Count > 0 && (_ahead.Count >= 4 || _aheadBytes + bytes > _options.InFlightBytes))
-            {
-                var (written, done) = _ahead.Dequeue();
-                _aheadBytes -= done;
-                if (useAsync) await written.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-                else written.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
-                ThrowIfFailed();
-            }
-        }
-        catch
-        {
-            for (int k = 0; k < pieces; k++) cells.Release();
-            throw;
-        }
-        long first = _rows;
-        _rows += length;
-        var slots = new EncodedPiece?[pieces];
-        int next = 0, workers = Math.Min(threads, pieces);
-        // The caller's batch: the caller, waiting for its pieces anyway, encodes them with the workers.
-        var tasks = new Task[owned ? workers : workers - 1];
-        for (int w = 0; w < tasks.Length; w++) tasks[w] = Task.Run(EncodePieces);
-        if (!owned) EncodePieces();
-        Task encoded = Task.WhenAll(tasks);
-        _chain = WriteInOrderAsync(_chain, encoded, slots, useAsync);
-        _ahead.Enqueue((_chain, bytes));
-        _aheadBytes += bytes;
-        // The caller's batch is free once its pieces are encoded (they are written behind); a piece's failure fails this
-        // call (the first in order).
-        if (!owned)
-        {
-            if (useAsync) await encoded.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            else encoded.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
-            foreach (EncodedPiece? piece in slots)
-                if (piece?.Error is { } error)
-                {
-                    Interlocked.CompareExchange(ref _failure, error, null);
-                    break;
-                }
-        }
-        ThrowIfFailed();
-
-        void EncodePieces()
-        {
-            for (int k; (k = Interlocked.Increment(ref next) - 1) < pieces;)
-            {
-                int from = k * pieceRows;
-                slots[k] = Encode(cells, from, Math.Min(length, from + pieceRows), first + from);
-            }
-        }
-    }
-
-    // A failure met behind (a piece's, a write's) fails the writer at the next call.
-    private void ThrowIfFailed()
-    {
-        if (Volatile.Read(ref _failure) is not { } failure) return;
-        _faulted = true;
-        ExceptionDispatchInfo.Throw(failure);
-    }
-
-    // Writes a batch's pieces once they are encoded and the batches before are written (dropped after a failure, or
-    // once the writer stops).
-    private async Task WriteInOrderAsync(Task previous, Task encoded, EncodedPiece?[] pieces, bool useAsync)
-    {
-        await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        await encoded.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        try
-        {
-            // The pieces up to a failure, written as the caller writes (an output may take asynchronous writes only).
-            List<ReadOnlyMemory<byte>> ready = new(pieces.Length);
-            long bytes = 0;
-            foreach (EncodedPiece? piece in pieces)
-            {
-                if (piece is null || _stopping || Volatile.Read(ref _failure) is not null) break;
-                if (piece.Error is { } error)
-                {
-                    Volatile.Write(ref _failure, error);
-                    break;
-                }
-                ready.Add(piece.Bytes);
-                bytes += piece.Bytes.Length;
-            }
-            if (_sink is FileSink file) file.WriteAll(ready, bytes);
-            else
-                foreach (ReadOnlyMemory<byte> piece in ready) await _sink.WriteAsync(piece, useAsync, CancellationToken.None).ConfigureAwait(false);
-            Interlocked.Add(ref _written, bytes);
-        }
-        catch (Exception e)
-        {
-            Volatile.Write(ref _failure, e);
-        }
-        finally
-        {
-            foreach (EncodedPiece? piece in pieces) piece?.Dispose();
-        }
-    }
-
-    // Rows [start, end) of a batch: objects (a document's separated by commas, its first preceded by '['; lines each
-    // ending with a newline), compressed as asked. A failure is the piece's, reported in order.
-    private EncodedPiece Encode(BatchCells cells, int start, int end, long first)
-    {
-        NativeBufferWriter buffer = Rent(end - start);
-        try
-        {
-            EncodeRows(cells.Cells, buffer, start, end, first);
-            return Piece(buffer);
-        }
-        catch (Exception e)
-        {
-            Spare(buffer);
-            return new EncodedPiece(null, e);
-        }
-        finally { cells.Release(); }
-    }
-
-    // A buffer for about `rows` rows: a spare one, else a new one.
-    private NativeBufferWriter Rent(int rows)
-    {
-        NativeBufferWriter? buffer = null;
-        for (int k = 0; k < _spare.Length && buffer is null; k++) buffer = Interlocked.Exchange(ref _spare[k], null);
-        return buffer ?? new NativeBufferWriter((int)Math.Min(1 << 24, (long)(Volatile.Read(ref _rowBytes) * rows * 1.25) + 64));
-    }
-
-    // Encoded rows as a piece to write: compressed as asked (one gzip member or Zstandard frame of its own).
-    private EncodedPiece Piece(NativeBufferWriter buffer) => _options.Compression == JsonCompression.None
-        ? new EncodedPiece(buffer, null, _giveBack)
-        : new EncodedPiece(EncodedPiece.Compress(buffer, _options.Compression, _options.CompressionLevel), null);
+    /// <summary>Hands the rows encoded by <see cref="AppendRows"/> to the writes (to hold less memory), without waiting for them.</summary>
+    internal void HandOff() => _rows.HandOff();
 
     // Rows [start, end) of a batch's cells appended to `buffer`: objects (a document's separated by commas, its first
     // preceded by '['; lines each ending with a newline), the first of them row `first` of all written. A value JSON
     // cannot hold fails naming its row among all.
-    private void EncodeRows(JsonCell[] columns, NativeBufferWriter buffer, int start, int end, long first)
+    void IRowEncoder<JsonCell>.EncodeRows(JsonCell[] columns, NativeBufferWriter buffer, int start, int end, long first)
     {
         bool document = _options.Format == JsonFormat.Document;
-        int before = buffer.WrittenCount, row = start;
+        int row = start;
         try
         {
-            var o = new JsonOut(buffer);
+            var o = new TextOut(buffer);
             for (; row < end; row++)
             {
                 if (document) o.Byte(first + row - start == 0 ? (byte)'[' : (byte)',');
@@ -641,216 +428,14 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable
         {
             throw new JsonValueException($"Row {first + row - start}: {v.Message}");
         }
-        Volatile.Write(ref _rowBytes, (double)(buffer.WrittenCount - before) / (end - start));
     }
 
-    /// <summary>
-    /// Rows [<paramref name="start"/>, +<paramref name="count"/>) of the batch <paramref name="cells"/> read, encoded on
-    /// this thread into the piece being filled (the caller's batch is free once this returns): the piece is written once
-    /// it holds a piece's bytes, or before anything written after it (<see cref="Write(RecordBatch)"/>, <see cref="Flush"/>,
-    /// <see cref="Complete"/>). Rows a few at a time (a partition's rows of each batch of a dataset written side by side)
-    /// cost no write each, nor a copy before encoding. A value JSON cannot hold fails the writer.
-    /// </summary>
-    internal void AppendRows(BatchCells cells, int start, int count)
-    {
-        CheckWritable();
-        if (count == 0)
-        {
-            ThrowIfFailed();
-            return;
-        }
-        if (Append(cells, start, count)) Sync(HandOffAsync(false));
-    }
-
-    // Rows encoded on this thread into the piece being filled; true once it holds a piece's bytes (to hand off).
-    private bool Append(BatchCells cells, int start, int count)
-    {
-        ThrowIfFailed();
-        NativeBufferWriter open = _open ??= Rent(count);
-        try
-        {
-            EncodeRows(cells.Cells, open, start, start + count, _rows);
-        }
-        catch
-        {
-            _faulted = true; // the piece holds part of a row
-            throw;
-        }
-        _rows += count;
-        return open.WrittenCount >= _options.PieceBytes;
-    }
-
-    /// <summary>The bytes encoded by <see cref="AppendRows"/>, not handed to the writes yet.</summary>
-    internal long OpenBytes => _open?.WrittenCount ?? 0;
-
-    /// <summary>Hands the rows encoded by <see cref="AppendRows"/> to the writes (to hold less memory), without waiting for them.</summary>
-    internal void HandOff()
-    {
-        CheckWritable();
-        Sync(HandOffAsync(false));
-    }
-
-    // The piece being filled, written after those before (the writes ahead within the budget first).
-    private async ValueTask HandOffAsync(bool useAsync)
-    {
-        if (_open is not { WrittenCount: > 0 } open) return;
-        _open = null;
-        EncodedPiece piece = Piece(open);
-        long bytes = piece.Bytes.Length;
-        try
-        {
-            while (_ahead.Count > 0 && (_ahead.Count >= 4 || _aheadBytes + bytes > _options.InFlightBytes))
-            {
-                var (written, done) = _ahead.Dequeue();
-                _aheadBytes -= done;
-                if (useAsync) await written.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-                else written.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
-                ThrowIfFailed();
-            }
-        }
-        catch
-        {
-            piece.Dispose();
-            throw;
-        }
-        _chain = WriteInOrderAsync(_chain, Task.CompletedTask, [piece], useAsync);
-        _ahead.Enqueue((_chain, bytes));
-        _aheadBytes += bytes;
-    }
-
-    // A buffer written, kept for the next pieces (as many as may be on their way at once; the others go).
-    private void Spare(NativeBufferWriter buffer)
-    {
-        buffer.ResetWrittenCount();
-        if (!_disposed)
-            for (int k = 0; k < _spare.Length; k++)
-                if (Interlocked.CompareExchange(ref _spare[k], buffer, null) is null) return;
-        buffer.Dispose();
-    }
-
-    // Every piece's write, waited for.
-    private async ValueTask DrainAsync(bool useAsync)
-    {
-        _ahead.Clear();
-        _aheadBytes = 0;
-        if (useAsync) await _chain.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        else _chain.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
-    }
-
-    private async ValueTask CompleteCoreAsync(bool useAsync, CancellationToken ct)
-    {
-        CheckWritable();
-        await HandOffAsync(useAsync).ConfigureAwait(false);
-        await DrainAsync(useAsync).ConfigureAwait(false);
-        ThrowIfFailed();
-        if (_options.Format == JsonFormat.Document)
-        {
-            var end = new NativeBufferWriter(8);
-            ReadOnlySpan<byte> close = _rows == 0 ? "[]"u8 : "]"u8;
-            close.CopyTo(end.GetSpan(close.Length));
-            end.Advance(close.Length);
-            using var tail = new EncodedPiece(EncodedPiece.Compress(end, _options.Compression, _options.CompressionLevel), null);
-            try { await _sink.WriteAsync(tail.Bytes, useAsync, ct).ConfigureAwait(false); }
-            catch
-            {
-                _faulted = true;
-                throw;
-            }
-            _written += tail.Bytes.Length;
-        }
-        else if (_options.Compression != JsonCompression.None && Interlocked.Read(ref _written) == 0)
-        {
-            // No rows: one empty member (or frame), for the output to be a compressed file still.
-            using var empty = new EncodedPiece(EncodedPiece.Compress(new NativeBufferWriter(1), _options.Compression, _options.CompressionLevel), null);
-            try { await _sink.WriteAsync(empty.Bytes, useAsync, ct).ConfigureAwait(false); }
-            catch
-            {
-                _faulted = true;
-                throw;
-            }
-            _written += empty.Bytes.Length;
-        }
-        _completed = true;
-        await _sink.CompleteAsync(useAsync, ct).ConfigureAwait(false);
-    }
-
-    private void FreeSpare()
-    {
-        for (int k = 0; k < _spare.Length; k++) Interlocked.Exchange(ref _spare[k], null)?.Dispose();
-        _open?.Dispose(); // rows appended, not written (an aborted or failed writer)
-        _open = null;
-    }
+    // A document's end: its array closed (an empty one when no rows).
+    ReadOnlySpan<byte> IRowEncoder<JsonCell>.Tail(long rows) => _options.Format != JsonFormat.Document ? default : rows == 0 ? "[]"u8 : "]"u8;
 
     /// <summary>Completes the output unless writing failed or the writer was aborted, and closes it (unless asked not to).</summary>
-    public void Dispose()
-    {
-        if (_disposed) return;
-        try
-        {
-            if (!_completed && !_faulted && !_aborted) Complete();
-        }
-        finally
-        {
-            _disposed = true;
-            _stopping = true;
-            Sync(DrainAsync(false));
-            FreeSpare();
-            Sync(_sink.CloseAsync(false));
-        }
-    }
+    public void Dispose() => _rows.Dispose();
 
     /// <inheritdoc cref="Dispose"/>
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed) return;
-        try
-        {
-            if (!_completed && !_faulted && !_aborted) await CompleteAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            _disposed = true;
-            _stopping = true;
-            await DrainAsync(true).ConfigureAwait(false);
-            FreeSpare();
-            await _sink.CloseAsync(true).ConfigureAwait(false);
-        }
-    }
-}
-
-/// <summary>The cells of a batch's columns, its buffers pinned until its last piece is encoded (an owned batch then disposed).</summary>
-internal sealed class BatchCells
-{
-    private readonly Pins _pins = new();
-    private readonly RecordBatch? _owned;
-    private int _pending;
-
-    public BatchCells(RecordBatch batch, Schema schema, bool owned)
-    {
-        try
-        {
-            Cells = [.. schema.FieldsList.Select((f, i) => JsonCell.For(batch.Column(i).Data, f, _pins, f.Name))];
-        }
-        catch
-        {
-            _pins.Dispose();
-            throw;
-        }
-        _owned = owned ? batch : null;
-    }
-
-    public JsonCell[] Cells { get; }
-
-    /// <summary>The pieces that will each <see cref="Release"/> the batch.</summary>
-    public void Expect(int pieces) => _pending = pieces;
-
-    public void Release()
-    {
-        if (Interlocked.Decrement(ref _pending) != 0) return;
-        _pins.Dispose();
-        _owned?.Dispose();
-    }
-
-    /// <summary>Unpins the batch's buffers (cells of a caller's batch encoded through <see cref="JsonWriter.AppendRows"/>, not by pieces).</summary>
-    public void Dispose() => _pins.Dispose();
+    public ValueTask DisposeAsync() => _rows.DisposeAsync();
 }

@@ -1,4 +1,6 @@
 using Apache.Arrow;
+using Kaminari.Seseragi.Files.IO.Writing;
+using Kaminari.Seseragi.Files.Json.Writing;
 
 namespace Kaminari.Seseragi.Files.Json;
 
@@ -23,7 +25,7 @@ internal sealed class JsonFileFormat(JsonWriteOptions options, Schema declared) 
     // The batches the runs come from, and their cells (made by the first file that reads one).
     private readonly object _lock = new();
     private RecordBatch[] _sources = [];
-    private BatchCells?[] _cells = [];
+    private BatchCells<JsonCell>?[] _cells = [];
 
     public override string Extension => (options.Format == JsonFormat.Document ? ".json" : ".jsonl") + options.Compression switch
     {
@@ -50,7 +52,7 @@ internal sealed class JsonFileFormat(JsonWriteOptions options, Schema declared) 
         lock (_lock)
         {
             _sources = [.. sources];
-            _cells = new BatchCells?[sources.Count];
+            _cells = new BatchCells<JsonCell>?[sources.Count];
         }
     }
 
@@ -58,7 +60,7 @@ internal sealed class JsonFileFormat(JsonWriteOptions options, Schema declared) 
     {
         lock (_lock)
         {
-            foreach (BatchCells? cells in _cells) cells?.Dispose();
+            foreach (BatchCells<JsonCell>? cells in _cells) cells?.Dispose();
             _sources = [];
             _cells = [];
         }
@@ -66,14 +68,14 @@ internal sealed class JsonFileFormat(JsonWriteOptions options, Schema declared) 
 
     // The cells of a batch given to SourcesOpen (made once, under the lock), or null for another batch. The arrays change
     // only between the writes of the batches (SourcesOpen, SourcesDone): read without the lock.
-    private BatchCells? CellsOf(RecordBatch batch)
+    private BatchCells<JsonCell>? CellsOf(RecordBatch batch)
     {
         int index = System.Array.IndexOf(_sources, batch);
         if (index < 0) return null;
         if (Volatile.Read(ref _cells[index]) is { } made) return made;
         lock (_lock)
         {
-            if (_cells[index] is not { } cells) Volatile.Write(ref _cells[index], cells = new BatchCells(batch, _schema!, owned: false));
+            if (_cells[index] is not { } cells) Volatile.Write(ref _cells[index], cells = JsonWriter.CellsOf(batch, _schema!));
             return cells;
         }
     }
@@ -100,7 +102,7 @@ internal sealed class JsonFileFormat(JsonWriteOptions options, Schema declared) 
                 writer.AppendRows(shared, start, count);
                 return;
             }
-            BatchCells cells = new(batch, writer.Schema, owned: false);
+            BatchCells<JsonCell> cells = JsonWriter.CellsOf(batch, writer.Schema);
             try
             {
                 writer.AppendRows(cells, start, count);

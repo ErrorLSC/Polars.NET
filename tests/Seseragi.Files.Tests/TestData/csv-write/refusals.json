@@ -1,0 +1,12 @@
+{
+ "quote_empty": "quote_char=\"\" should be a single byte character, but is 0 bytes long",
+ "separator_2_bytes": "separator=\"\u00e9\" should be a single byte character, but is 2 bytes long",
+ "separator_empty": "separator=\"\" should be a single byte character, but is 0 bytes long",
+ "quote_2_bytes": "quote_char=\"\u00e9\" should be a single byte character or empty, but is 2 bytes long",
+ "z_on_naive": "cannot format NaiveDateTime with format '%z'",
+ "binary": "datatype binary cannot be written to CSV",
+ "duration": "datatype duration[ms] cannot be written to CSV",
+ "list": "CSV format does not support nested data",
+ "array": "datatype array[i8, 2] cannot be written to CSV",
+ "struct": "CSV format does not support nested data"
+}
