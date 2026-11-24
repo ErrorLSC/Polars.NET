@@ -68,17 +68,17 @@ public class JsonWriterWindowTests
         [.. data.Buffers.Select(b => new ArrowBuffer(b.Span.ToArray()))], [.. (data.Children ?? []).Select(Copy)], data.Dictionary is { } d ? Copy(d) : null);
 
     /// <summary>
-    /// Strings not UTF-8 at two rows close enough for their pieces to be encoded at once: the first in order fails the
-    /// write, whatever the window, the threads, and which piece fails first.
+    /// Values JSON cannot hold (null map keys) at two rows close enough for their pieces to be encoded at once: the first
+    /// in order fails the write, whatever the window, the threads, and which piece fails first.
     /// </summary>
     [Fact]
     public void AFailure_IsTheFirstInOrder_AndNothingHangs()
     {
-        var schema = new Schema([F("s", StringType.Default)], null);
+        var schema = new Schema([F("s", KeyedMaps)], null);
         const int rows = 400;
         foreach (int bad in (int[])[0, 7, 150, 399])
         {
-            using var batch = Strings(schema, rows, bad, Math.Min(rows - 1, bad + 2));
+            using var batch = Maps(schema, rows, bad, Math.Min(rows - 1, bad + 2));
             for (int i = 0; i < 60; i++)
                 foreach (BatchOwnership ownership in (BatchOwnership[])[BatchOwnership.Caller, BatchOwnership.Writer])
                 {
@@ -91,10 +91,10 @@ public class JsonWriterWindowTests
                     // Owned: the failure surfaces at a later call (the batch's pieces are encoded behind).
                     var e = Assert.Throws<JsonValueException>(() =>
                     {
-                        writer.Write(ownership == BatchOwnership.Writer ? Strings(schema, rows, bad, Math.Min(rows - 1, bad + 2)) : batch);
+                        writer.Write(ownership == BatchOwnership.Writer ? Maps(schema, rows, bad, Math.Min(rows - 1, bad + 2)) : batch);
                         writer.Complete();
                     });
-                    Assert.Equal($"Row {bad}: Column 's': a string that is not UTF-8.", e.Message);
+                    Assert.Equal($"Row {bad}: Column 's': a map key is null.", e.Message);
                     writer.Dispose();
                     // What was written is whole rows, all before the failure.
                     string text = Encoding.UTF8.GetString(output.ToArray());
@@ -189,6 +189,35 @@ public class JsonWriterWindowTests
             }
         }
         finally { batches.ForEach(b => b.Dispose()); }
+    }
+
+    /// <summary>Maps of strings to integers (keys may be null in the arrays built here: a value JSON cannot hold).</summary>
+    internal static readonly MapType KeyedMaps = new(StringType.Default, Int32Type.Default);
+
+    /// <summary>`rows` maps {"row n": n} in the first column of <paramref name="schema"/>, the keys at `bad` and `bad2` null (-1: none).</summary>
+    internal static RecordBatch Maps(Schema schema, int rows, int bad, int bad2)
+    {
+        List<int> offsets = [0];
+        List<byte> data = [];
+        byte[] validity = new byte[(rows + 7) / 8];
+        int nulls = 0;
+        for (int r = 0; r < rows; r++)
+        {
+            if (r == bad || r == bad2) nulls++;
+            else
+            {
+                data.AddRange(Encoding.UTF8.GetBytes($"row {r}"));
+                validity[r >> 3] |= (byte)(1 << (r & 7));
+            }
+            offsets.Add(data.Count);
+        }
+        var keys = new ArrayData(StringType.Default, rows, nulls, 0, [new ArrowBuffer(validity), new ArrowBuffer(Ints(offsets)), new ArrowBuffer(data.ToArray())]);
+        var values = new ArrayData(Int32Type.Default, rows, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Ints([.. Enumerable.Range(0, rows)]))]);
+        var entries = new ArrayData(KeyedMaps.KeyValueType, rows, 0, 0, [ArrowBuffer.Empty], [keys, values]);
+        var maps = new ArrayData(KeyedMaps, rows, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Ints([.. Enumerable.Range(0, rows + 1)]))], [entries]);
+        return new RecordBatch(schema, [ArrowArrayFactory.BuildArray(maps)], rows);
+
+        static byte[] Ints(List<int> values) => [.. values.SelectMany(BitConverter.GetBytes)];
     }
 
     // `rows` strings "row n", those at `bad` and `bad2` not UTF-8 (-1: none).

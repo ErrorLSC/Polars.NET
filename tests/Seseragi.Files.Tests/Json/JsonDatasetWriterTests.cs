@@ -186,16 +186,11 @@ public sealed class JsonDatasetWriterTests : IDisposable
     [Fact]
     public void AValueJsonCannotHold_InAShortRun_FailsTheWrite()
     {
-        var schema = new Schema([new Field("k", StringType.Default, true), new Field("s", StringType.Default, true)], null);
+        var schema = new Schema([new Field("s", JsonWriterWindowTests.KeyedMaps, true), new Field("k", StringType.Default, true)], null);
         var k = new StringArray.Builder();
-        var s = new StringArray.Builder();
-        for (int i = 0; i < 100; i++)
-        {
-            k.Append($"p{i % 4}");
-            if (i == 57) s.Append([0xC3, 0x28]); // not UTF-8
-            else s.Append($"v{i}");
-        }
-        using var batch = new RecordBatch(schema, [k.Build(), s.Build()], 100);
+        for (int i = 0; i < 100; i++) k.Append($"p{i % 4}");
+        using RecordBatch maps = JsonWriterWindowTests.Maps(new Schema([schema.FieldsList[0]], null), 100, 57, -1); // a null map key
+        using var batch = new RecordBatch(schema, [maps.Column(0), k.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], 100);
         var error = Assert.ThrowsAny<Exception>(() => JsonDatasetWriter.Write(At("f"), schema, [batch], new JsonDatasetWriteOptions { PartitionBy = ["k"] }));
         Assert.Contains("Row 14", error.ToString()); // row 57 is partition p1's 15th
         Assert.Empty(Directory.Exists(At("f")) ? Directory.GetFiles(At("f"), "*", SearchOption.AllDirectories) : []);

@@ -17,8 +17,9 @@ public sealed record JsonWriteOptions
     public int? CompressionLevel { get; init; }
 
     /// <summary>
-    /// How many pieces of rows are encoded (and compressed) at once: the physical cores by default (a second hardware
-    /// thread per core slows this encoding down). The bytes written do not depend on it.
+    /// How many pieces of rows are encoded (and compressed) at once, in all (batches the writer owns, on their way side by
+    /// side, included): the physical cores by default (a second hardware thread per core slows this encoding down). The
+    /// bytes written do not depend on it.
     /// </summary>
     public int MaxDegreeOfParallelism { get; init; } = Kaminari.Sazanami.Platform.CpuTopology.PhysicalCores;
 

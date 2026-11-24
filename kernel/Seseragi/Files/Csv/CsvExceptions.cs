@@ -46,7 +46,10 @@ public sealed class CsvValueException : Exception
     public string Value { get; }
 }
 
-/// <summary>A value the writer cannot write (a string that is not UTF-8 …): the writer cannot be completed then.</summary>
+/// <summary>
+/// A value the writer cannot write (a character the encoding cannot write; with an encoding, a string that is not UTF-8):
+/// the writer cannot be completed then.
+/// </summary>
 public sealed class CsvWriteException : Exception
 {
     internal CsvWriteException(string message, string column, long row) : base(message)

@@ -76,6 +76,37 @@ public class TextEncodersTests
     }
 
     [Theory]
+    [InlineData(932, false)]
+    [InlineData(932, true)]
+    [InlineData(1252, true)]
+    [InlineData(1200, false)]
+    [InlineData(1201, false)]
+    [InlineData(54936, false)]
+    [InlineData(54936, true)]
+    [InlineData(12000, true)]
+    [InlineData(37, true)]
+    public void BytesThatAreNotUtf8_StopTheEncoding_WhereTheyStart_ReplacingOrNot(int codePage, bool replace)
+    {
+        TextEncoder encoder = TextEncoder.For(TextEncodings.Resolve(codePage), replace)!;
+        // A lead byte without its continuation, a lone continuation byte, overlong forms, a surrogate, a cut-short end.
+        foreach (byte[] bad in (byte[][])[[0xC3, 0x28], [0x80], [0xC0, 0xAF], [0xE0, 0x80, 0xAF], [0xED, 0xA0, 0x80], [0xE6, 0x97]])
+        {
+            using var output = new NativeBufferWriter(64);
+            Assert.False(encoder.TryEncode([.. "abc, d"u8, .. bad, .. "z"u8], output, out int at));
+            Assert.Equal(6, at);
+        }
+        // A character cut short at the end of the span, though the bytes after it in memory would complete it.
+        foreach (byte[] whole in (byte[][])[[0xC3, 0xA9], [0xE6, 0x97, 0xA5], [0xF0, 0x9F, 0x98, 0x80]])
+            for (int cut = 1; cut < whole.Length; cut++)
+            {
+                byte[] memory = [.. "abc, d"u8, .. whole];
+                using var output = new NativeBufferWriter(64);
+                Assert.False(encoder.TryEncode(memory.AsSpan(0, 6 + cut), output, out int at));
+                Assert.Equal(6, at);
+            }
+    }
+
+    [Theory]
     [InlineData(50220)]
     [InlineData(50222)]
     [InlineData(65000)]

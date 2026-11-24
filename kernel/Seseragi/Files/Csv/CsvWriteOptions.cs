@@ -92,10 +92,11 @@ public sealed record CsvWriteOptions
     public int? CompressionLevel { get; init; }
 
     /// <summary>
-    /// How many pieces of rows are encoded (and compressed) at once: the physical cores by default. The bytes written do
-    /// not depend on it.
+    /// How many pieces of rows are encoded (and compressed) at once, in all (batches the writer owns, on their way side by
+    /// side, included): the logical processors by default (<see cref="Environment.ProcessorCount"/>: a second hardware
+    /// thread per core helps this encoding on the whole). The bytes written do not depend on it.
     /// </summary>
-    public int MaxDegreeOfParallelism { get; init; } = Kaminari.Sazanami.Platform.CpuTopology.PhysicalCores;
+    public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
 
     /// <summary>
     /// Who owns the batches (<see cref="BatchOwnership.Caller"/> by default: a batch is encoded before Write returns).
@@ -112,10 +113,16 @@ public sealed record CsvWriteOptions
     internal long InFlightBytes { get; init; } = 256L << 20;
 
     /// <summary>The encoded bytes a piece of rows aims at (tests set less, to cut batches finely).</summary>
-    internal int PieceBytes { get; init; } = 1 << 20;
+    internal int PieceBytes { get; init; } = 256 << 10;
 
     /// <summary>
-    /// The pieces of rows encoded and not yet written, at most (0: twice <see cref="MaxDegreeOfParallelism"/>; tests set
+    /// The bytes of the pieces encoded and not yet written, at most (by the pieces' target size: as many as fit, two per
+    /// thread at least, <see cref="WindowPieces"/>' default at most; set WindowPieces to count pieces instead).
+    /// </summary>
+    internal long WindowBytes { get; init; } = 8L << 20;
+
+    /// <summary>
+    /// The pieces of rows encoded and not yet written, at most (0: eight times <see cref="MaxDegreeOfParallelism"/>; tests set
     /// less): the memory a write holds.
     /// </summary>
     internal int WindowPieces { get; init; }

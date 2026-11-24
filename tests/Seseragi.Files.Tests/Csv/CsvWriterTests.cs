@@ -44,6 +44,7 @@ public class CsvWriterTests
                     MaxDegreeOfParallelism = random.Next(1, 9),
                     PieceBytes = random.Next(2) == 0 ? random.Next(1, 300) : random.Next(64, 1 << 20),
                     WindowPieces = random.Next(3) == 0 ? 0 : random.Next(1, 6),
+                    WindowBytes = random.Next(2) == 0 ? 8L << 20 : random.Next(1, 5000), // with WindowPieces 0: windows resized per batch
                     InFlightBytes = random.Next(2) == 0 ? random.Next(1, 4000) : 256L << 20,
                     BatchOwnership = random.Next(2) == 0 ? BatchOwnership.Caller : BatchOwnership.Writer,
                     LeaveOpen = true,
@@ -368,20 +369,120 @@ public class CsvWriterTests
         Assert.Throws<ArgumentException>(() => CsvWriter.Create(new StringWriter(), schema, new CsvWriteOptions { Compression = CsvCompression.Zstd }));
     }
 
+    /// <summary>
+    /// MaxDegreeOfParallelism caps the pieces encoded at once in all, owned batches on their way side by side included;
+    /// the bytes stay the same.
+    /// </summary>
     [Fact]
-    public void StringsThatAreNotUtf8_FailAtTheirRow_AndTheWriterCannotComplete()
+    public void MaxDegreeOfParallelism_CapsThePiecesEncodedAtOnce_AcrossBatches()
+    {
+        var random = new Random(3);
+        double?[][] parts = [.. Enumerable.Range(0, 24).Select(_ => (double?[])[.. Enumerable.Range(0, 20_000).Select(_ => (double?)(random.NextDouble() * 1000))])];
+        using RecordBatch head = Numbers(out Schema schema, parts[0]);
+        byte[]? expected = null;
+        foreach (int threads in (int[])[1, 2, 3, 5])
+            foreach (BatchOwnership ownership in (BatchOwnership[])[BatchOwnership.Writer, BatchOwnership.Caller])
+            {
+                using var output = new MemoryStream();
+                var writer = CsvWriter.Create(output, schema, new CsvWriteOptions
+                {
+                    MaxDegreeOfParallelism = threads, BatchOwnership = ownership, PieceBytes = 4096, WindowPieces = 256,
+                });
+                foreach (double?[] part in parts) writer.Write(Numbers(out _, part)); // the writer disposes what it owns
+                writer.Complete();
+                Assert.InRange(writer.PeakEncoding, 1, threads);
+                writer.Dispose();
+                expected ??= output.ToArray();
+                Assert.Equal(expected, output.ToArray());
+            }
+    }
+
+    /// <summary>
+    /// The window counted in bytes: an output that takes nothing holds a caller's batch of 24 pieces once its pieces in
+    /// flight reach the window's bytes (made 2 × threads = 8 pieces here, not the 32 its pieces' count allows), and the
+    /// batch goes on once the output takes bytes again.
+    /// </summary>
+    [Fact]
+    public async Task TheWindowInBytes_HoldsTheWriter_WhenTheOutputTakesNothing()
     {
         var schema = new Schema([F("s", StringType.Default)], null);
-        byte[] data = [.. "okfine"u8, 0xFF];
+        var builder = new StringArray.Builder();
+        for (int r = 0; r < 120; r++) builder.Append($"row {r}");
+        using var batch = new RecordBatch(schema, [builder.Build(Kaminari.Sazanami.Arrow.Builders.PooledArrowAllocator.Instance)], 120);
+        // No header: nothing written before the batch (a header handed to a held output would hold the caller itself).
+        var options = new CsvWriteOptions { IncludeHeader = false, PieceBytes = 100, MaxDegreeOfParallelism = 4, WindowBytes = 100 };
+        string expected = CsvWriter.WriteString(schema, [batch], options);
+        using var output = new HeldStream();
+        var writer = CsvWriter.Create(output, schema, options);
+        Task write = Task.Run(() => writer.Write(batch));
+        await Task.Delay(300);
+        Assert.False(write.IsCompleted);
+        Assert.Equal(8, writer.PiecesEncoded); // the window's pieces, and no more
+        output.Release();
+        await write;
+        writer.Dispose();
+        Assert.Equal(expected, Encoding.UTF8.GetString(output.ToArray()));
+    }
+
+    // A stream whose writes wait until released.
+    private sealed class HeldStream : MemoryStream
+    {
+        private readonly ManualResetEventSlim _released = new();
+
+        public void Release() => _released.Set();
+
+        public override void Write(ReadOnlySpan<byte> buffer) => Write(buffer.ToArray(), 0, buffer.Length);
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            _released.Wait();
+            base.Write(buffer, offset, count);
+        }
+    }
+
+    [Fact]
+    public void StringsThatAreNotUtf8_AreWrittenAsTheyAre_InUtf8()
+    {
+        // Arrow strings are UTF-8 by the format's rule: not checked (as the reference engine does not).
+        var schema = new Schema([F("s", StringType.Default)], null);
+        using RecordBatch batch = NotUtf8(schema);
+        using var output = new MemoryStream();
+        CsvWriter.Write(output, schema, [batch]);
+        Assert.Equal([.. "s\nok\nfine\n"u8, 0xC3, 0x28, (byte)'\n'], output.ToArray());
+    }
+
+    // Three strings, the third not UTF-8 (a lead byte, then '(').
+    private static RecordBatch NotUtf8(Schema schema)
+    {
+        byte[] data = [.. "okfine"u8, 0xC3, 0x28];
         var strings = new StringArray(new ArrayData(StringType.Default, 3, 0, 0,
-            [ArrowBuffer.Empty, new ArrowBuffer(((int[])[0, 2, 6, 7]).SelectMany(BitConverter.GetBytes).ToArray()), new ArrowBuffer(data)]));
-        using var batch = new RecordBatch(schema, [strings], 3);
+            [ArrowBuffer.Empty, new ArrowBuffer(((int[])[0, 2, 6, 8]).SelectMany(BitConverter.GetBytes).ToArray()), new ArrowBuffer(data)]));
+        return new RecordBatch(schema, [strings], 3);
+    }
+
+    [Theory]
+    [InlineData(1252, false)]
+    [InlineData(1252, true)]
+    [InlineData(932, true)]
+    [InlineData(1200, false)]
+    [InlineData(1201, false)]
+    [InlineData(54936, false)]
+    [InlineData(54936, true)]
+    [InlineData(12000, false)]
+    public void StringsThatAreNotUtf8_FailAtTheirRow_WhenEncoded_AndTheWriterCannotComplete(int codePage, bool replace)
+    {
+        var schema = new Schema([F("s", StringType.Default)], null);
+        using RecordBatch batch = NotUtf8(schema);
+        var encoding = System.Text.CodePagesEncodingProvider.Instance.GetEncoding(codePage) ?? System.Text.Encoding.GetEncoding(codePage);
         for (int i = 0; i < 100; i++)
         {
             using var output = new MemoryStream();
-            var writer = CsvWriter.Create(output, schema, new CsvWriteOptions { PieceBytes = 1, MaxDegreeOfParallelism = 1 + i % 4 });
+            var writer = CsvWriter.Create(output, schema, new CsvWriteOptions
+            {
+                PieceBytes = 1, MaxDegreeOfParallelism = 1 + i % 4, Encoding = encoding, InvalidText = replace ? CsvInvalidText.Replace : CsvInvalidText.Error,
+            });
             var e = Assert.Throws<CsvWriteException>(() => writer.Write(batch));
-            Assert.Equal("Row 2: Column 's': a string that is not UTF-8.", e.Message);
+            Assert.Equal("Row 2: Column 's': a string that is not UTF-8 (Arrow strings must be).", e.Message);
             Assert.Equal(("s", 2L), (e.Column, e.Row));
             Assert.Throws<InvalidOperationException>(() => writer.Complete());
             writer.Dispose();

@@ -20,7 +20,7 @@ internal interface IRowEncoder<TCell>
 
 /// <summary>How a <see cref="RowWriter{TCell}"/> works (its format's options, checked).</summary>
 /// <param name="Format">The format's name, for messages ("JSON", "CSV").</param>
-/// <param name="MaxDegreeOfParallelism">How many pieces are encoded at once.</param>
+/// <param name="MaxDegreeOfParallelism">How many pieces are encoded at once, in all (a small batch the caller encodes inline aside).</param>
 /// <param name="Ownership">Who owns the batches written.</param>
 /// <param name="Compression">The pieces' compression.</param>
 /// <param name="CompressionLevel">The compression level (the codec's default when null).</param>
@@ -28,9 +28,13 @@ internal interface IRowEncoder<TCell>
 /// <param name="InFlightBytes">The bytes of encoded pieces on their way at most (one batch goes beyond alone).</param>
 /// <param name="RowBytes">The first guess of a row's encoded bytes (pieces are sized by it until rows are measured).</param>
 /// <param name="Window">The pieces encoded (or being encoded) and not yet written, at most (the first not written always starts).</param>
+/// <param name="WindowBytes">
+/// When positive, the window's bytes at most instead: as many pieces as fit (by the pieces' target size, each batch),
+/// at least two per thread, at most <paramref name="Window"/>.
+/// </param>
 internal readonly record struct RowWriterSettings(
     string Format, int MaxDegreeOfParallelism, BatchOwnership Ownership, PieceCompression Compression, int? CompressionLevel,
-    int PieceBytes, long InFlightBytes, double RowBytes, int Window);
+    int PieceBytes, long InFlightBytes, double RowBytes, int Window, long WindowBytes = 0);
 
 /// <summary>
 /// The engine of the text writers (JSON, CSV): batches cut into pieces of rows encoded on several threads into native
@@ -53,6 +57,12 @@ internal sealed class RowWriter<TCell>
     // batch's write, for the budget of batches on their way.
     private readonly Queue<(Task Written, long Bytes)> _ahead = [];
     private readonly PieceWindow _window;
+    // The owned batches' pieces still to take, in order, and the workers taking them (at most MaxDegreeOfParallelism).
+    private readonly Queue<PieceRun> _runs = [];
+    private readonly object _runsLock = new();
+    private int _workers;
+    private int _encoding, _peakEncoding;    // pieces being encoded now, the most at once
+    private long _encoded;                   // pieces encoded (or being encoded) so far
     private NativeBufferWriter? _open; // rows encoded by AppendRows, not handed to the writes yet
     private long _aheadBytes, _rows, _written, _numbered;
     private Task _chain = Task.CompletedTask;
@@ -165,6 +175,11 @@ internal sealed class RowWriter<TCell>
         long target = Math.Min(_settings.PieceBytes, Math.Max((long)(rowBytes * length) / (4 * threads), Math.Min(_settings.PieceBytes, 16L << 10)));
         int pieceRows = (int)Math.Clamp(target / rowBytes, 1, length);
         int pieces = (length + pieceRows - 1) / pieceRows;
+        if (_settings.WindowBytes > 0 && pieces > 1)
+        {
+            int most = Math.Max(1, _settings.Window);
+            _window.Resize((int)Math.Clamp(_settings.WindowBytes / Math.Max(1, target), Math.Min(2 * threads, most), most));
+        }
         long bytes = (long)(rowBytes * length);
         if (pieces == 1)
         {
@@ -219,20 +234,31 @@ internal sealed class RowWriter<TCell>
         _chain = WriteInOrderAsync(_chain, slots, useAsync);
         _ahead.Enqueue((_chain, bytes));
         _aheadBytes += bytes;
-        int next = 0, workers = Math.Min(threads, pieces);
-        // The caller's batch: the caller, waiting for its pieces anyway, encodes them with the workers.
-        var tasks = new Task[owned ? workers : workers - 1];
-        for (int w = 0; w < tasks.Length; w++) tasks[w] = Task.Run(() => EncodePiecesAsync(true));
-        if (!owned)
+        var run = new PieceRun(cells, slots, pieceRows, length, first, number);
+        if (owned)
         {
-            if (useAsync) await EncodePiecesAsync(true).ConfigureAwait(false);
-            else EncodePiecesAsync(false).GetAwaiter().GetResult();
+            // Owned batches: their pieces queued behind those of the batches before, taken in order by at most
+            // MaxDegreeOfParallelism workers in all (started as needed; each stops once the queue is empty).
+            int start;
+            lock (_runsLock)
+            {
+                _runs.Enqueue(run);
+                start = Math.Min(threads - _workers, pieces);
+                _workers += start;
+            }
+            for (int w = 0; w < start; w++) _ = Task.Run(WorkAsync);
         }
-        Task encoded = Task.WhenAll(tasks);
-        // The caller's batch is free once its pieces are encoded (they are written behind); a piece's failure fails this
-        // call (the first in order).
-        if (!owned)
+        else
         {
+            // The caller's batch (encoded alone: the batches before it are): the caller, waiting for its pieces anyway,
+            // encodes them with the workers.
+            var tasks = new Task[Math.Min(threads, pieces) - 1];
+            for (int w = 0; w < tasks.Length; w++) tasks[w] = Task.Run(() => EncodeRunAsync(run, true));
+            if (useAsync) await EncodeRunAsync(run, true).ConfigureAwait(false);
+            else EncodeRunAsync(run, false).GetAwaiter().GetResult();
+            Task encoded = Task.WhenAll(tasks);
+            // The caller's batch is free once its pieces are encoded (they are written behind); a piece's failure fails
+            // this call (the first in order).
             if (useAsync) await encoded.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             else encoded.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
             foreach (TaskCompletionSource<EncodedPiece?> slot in slots)
@@ -243,29 +269,66 @@ internal sealed class RowWriter<TCell>
                 }
         }
         ThrowIfFailed();
+    }
 
-        // Pieces taken in turn, each once the window lets it start; after a failure in order (or once the writer stops)
-        // the rest are dropped, not encoded. Every piece taken is settled (its slot set, the batch released once).
-        async Task EncodePiecesAsync(bool asynchronous)
+    // A caller's batch's pieces taken in turn by the caller and its workers.
+    private async Task EncodeRunAsync(PieceRun run, bool asynchronous)
+    {
+        for (int k; (k = Interlocked.Increment(ref run.Next) - 1) < run.Slots.Length;) await EncodePieceAsync(run, k, asynchronous).ConfigureAwait(false);
+    }
+
+    // A worker of the owned batches: the queued pieces taken in order until none is left.
+    private async Task WorkAsync()
+    {
+        while (true)
         {
-            for (int k; (k = Interlocked.Increment(ref next) - 1) < pieces;)
+            PieceRun? run;
+            int k;
+            lock (_runsLock)
             {
-                Task admitted = _window.WaitAsync(number + k);
-                if (!admitted.IsCompleted)
+                while (_runs.TryPeek(out run) && run.Next >= run.Slots.Length) _runs.Dequeue();
+                if (run is null)
                 {
-                    if (asynchronous) await admitted.ConfigureAwait(false);
-                    else admitted.GetAwaiter().GetResult();
+                    _workers--;
+                    return;
                 }
-                if (_stopping || Volatile.Read(ref _failure) is not null)
-                {
-                    cells.Release();
-                    slots[k].SetResult(null);
-                    continue;
-                }
-                int from = k * pieceRows;
-                slots[k].SetResult(Encode(cells, from, Math.Min(length, from + pieceRows), first + from));
+                k = run.Next++;
             }
+            await EncodePieceAsync(run, k, true).ConfigureAwait(false);
         }
+    }
+
+    // A piece encoded once the window lets it start; after a failure in order (or once the writer stops) dropped, not
+    // encoded. Every piece taken is settled (its slot set, the batch released once).
+    private async ValueTask EncodePieceAsync(PieceRun run, int k, bool asynchronous)
+    {
+        Task admitted = _window.WaitAsync(run.Number + k);
+        if (!admitted.IsCompleted)
+        {
+            if (asynchronous) await admitted.ConfigureAwait(false);
+            else admitted.GetAwaiter().GetResult();
+        }
+        if (_stopping || Volatile.Read(ref _failure) is not null)
+        {
+            run.Cells.Release();
+            run.Slots[k].SetResult(null);
+            return;
+        }
+        int from = k * run.PieceRows;
+        run.Slots[k].SetResult(Encode(run.Cells, from, Math.Min(run.Length, from + run.PieceRows), run.First + from));
+    }
+
+    /// <summary>
+    /// A batch's pieces: rows [k × PieceRows, +PieceRows) each, the first row <see cref="First"/> of all written, piece k
+    /// numbered <see cref="Number"/> + k; <see cref="Next"/> the next not taken.
+    /// </summary>
+    private sealed class PieceRun(BatchCells<TCell> cells, TaskCompletionSource<EncodedPiece?>[] slots, int pieceRows, int length, long first, long number)
+    {
+        public readonly BatchCells<TCell> Cells = cells;
+        public readonly TaskCompletionSource<EncodedPiece?>[] Slots = slots;
+        public readonly int PieceRows = pieceRows, Length = length;
+        public readonly long First = first, Number = number;
+        public int Next;
     }
 
     // A failure met behind (a piece's, a write's) fails the writer at the next call.
@@ -343,6 +406,9 @@ internal sealed class RowWriter<TCell>
     // Rows [start, end) of a batch, compressed as asked. A failure is the piece's, reported in order.
     private EncodedPiece Encode(BatchCells<TCell> cells, int start, int end, long first)
     {
+        Interlocked.Increment(ref _encoded);
+        int encoding = Interlocked.Increment(ref _encoding);
+        for (int peak; encoding > (peak = Volatile.Read(ref _peakEncoding)) && Interlocked.CompareExchange(ref _peakEncoding, encoding, peak) != peak;) { }
         NativeBufferWriter buffer = Rent(end - start);
         try
         {
@@ -354,8 +420,18 @@ internal sealed class RowWriter<TCell>
             Spare(buffer);
             return new EncodedPiece(null, e);
         }
-        finally { cells.Release(); }
+        finally
+        {
+            cells.Release();
+            Interlocked.Decrement(ref _encoding);
+        }
     }
+
+    /// <summary>The most pieces encoded at once so far (never more than MaxDegreeOfParallelism).</summary>
+    internal int PeakEncoding => Volatile.Read(ref _peakEncoding);
+
+    /// <summary>The pieces encoded (or being encoded) so far (tests: the window's reach).</summary>
+    internal long PiecesEncoded => Interlocked.Read(ref _encoded);
 
     // The format's rows, their bytes measured (pieces are sized by them).
     private void EncodeRows(TCell[] cells, NativeBufferWriter buffer, int start, int end, long first)
@@ -578,13 +654,14 @@ internal sealed class PieceWindow(int size)
     private readonly object _lock = new();
     private readonly List<(long Number, TaskCompletionSource Admitted)> _waiting = [];
     private long _settled;
+    private int _size = size;
 
     /// <summary>Completes once piece <paramref name="number"/> may start.</summary>
     public Task WaitAsync(long number)
     {
         lock (_lock)
         {
-            if (number < _settled + size) return Task.CompletedTask;
+            if (number < _settled + _size) return Task.CompletedTask;
             var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _waiting.Add((number, admitted));
             return admitted.Task;
@@ -592,14 +669,24 @@ internal sealed class PieceWindow(int size)
     }
 
     /// <summary>The next piece in order is written or dropped.</summary>
-    public void Settle()
+    public void Settle() => Admit(settled: 1, size: 0);
+
+    /// <summary>
+    /// The window made <paramref name="size"/> pieces (pieces started before stay started; at least one: the first
+    /// unsettled piece always may start).
+    /// </summary>
+    public void Resize(int size) => Admit(settled: 0, Math.Max(1, size));
+
+    // Settles pieces and resizes (size 0: kept), then lets start the pieces waiting that now may.
+    private void Admit(int settled, int size)
     {
         List<TaskCompletionSource>? admitted = null;
         lock (_lock)
         {
-            _settled++;
+            _settled += settled;
+            if (size > 0) _size = size;
             for (int k = _waiting.Count - 1; k >= 0; k--)
-                if (_waiting[k].Number < _settled + size)
+                if (_waiting[k].Number < _settled + _size)
                 {
                     (admitted ??= []).Add(_waiting[k].Admitted);
                     _waiting.RemoveAt(k);

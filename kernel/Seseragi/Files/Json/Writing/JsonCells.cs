@@ -12,7 +12,7 @@ namespace Kaminari.Seseragi.Files.Json.Writing;
 
 /// <summary>
 /// Writes the values of one Arrow array as JSON, row by row (a row is the array's own index, before its offset). A
-/// value JSON cannot hold as it is (a string that is not UTF-8, a map key that is null) is a
+/// value JSON cannot hold as it is (a map key that is null) is a
 /// <see cref="JsonValueException"/>.
 /// </summary>
 internal abstract unsafe class JsonCell
@@ -261,7 +261,7 @@ internal abstract class TextCell(ArrayData data, Pins pins, string path, bool bi
             o.Advance(written + 2);
             return;
         }
-        if (!JsonText.String(ref o, bytes)) throw new JsonValueException($"Column '{Path}': a string that is not UTF-8.");
+        JsonText.String(ref o, bytes);
     }
 }
 

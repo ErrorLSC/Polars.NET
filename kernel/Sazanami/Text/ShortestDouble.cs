@@ -42,6 +42,28 @@ internal static class ShortestDouble
         ulong bits = BitConverter.DoubleToUInt64Bits(value);
         ulong ieeeMantissa = bits & ((1UL << MantissaBits) - 1);
         uint ieeeExponent = (uint)(bits >> MantissaBits) & 0x7FF;
+        // A whole number in [1, 2^53) (Ryū's small-integer path): its own digits, trailing zeros taken off; the main
+        // path would take them off one division at a time.
+        int fractionBits = Bias + MantissaBits - (int)ieeeExponent;
+        if ((uint)fractionBits <= MantissaBits)
+        {
+            ulong whole = (1UL << MantissaBits) | ieeeMantissa;
+            if ((whole & ((1UL << fractionBits) - 1)) == 0)
+            {
+                whole >>= fractionBits;
+                int zeros = 0;
+                while (true)
+                {
+                    ulong q = whole / 10;
+                    if (whole - q * 10 != 0) break;
+                    whole = q;
+                    zeros++;
+                }
+                digits = whole;
+                exponent = zeros;
+                return;
+            }
+        }
         int e2;
         ulong m2;
         if (ieeeExponent == 0)

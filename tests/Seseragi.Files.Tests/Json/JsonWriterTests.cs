@@ -329,19 +329,30 @@ public class JsonWriterTests
     }
 
     [Fact]
-    public void StringsThatAreNotUtf8_FailAtTheirRow_AndTheWriterCannotComplete()
+    public void StringsThatAreNotUtf8_AreWrittenAsTheyAre()
     {
+        // Arrow strings are UTF-8 by the format's rule: not checked (as the reference engine does not).
         var schema = new Schema([F("s", StringType.Default)], null);
         byte[] data = [.. "okfine"u8, 0xFF];
         var strings = new StringArray(new ArrayData(StringType.Default, 3, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Bytes<int>([0, 2, 6, 7])), new ArrowBuffer(data)]));
         using var batch = new RecordBatch(schema, [strings], 3);
+        using var output = new MemoryStream();
+        JsonWriter.Write(output, schema, [batch]);
+        Assert.Equal([.. "{\"s\":\"ok\"}\n{\"s\":\"fine\"}\n{\"s\":\""u8, 0xFF, .. "\"}\n"u8], output.ToArray());
+    }
+
+    [Fact]
+    public void AValueJsonCannotHold_FailsAtItsRow_AndTheWriterCannotComplete()
+    {
+        var schema = new Schema([F("s", JsonWriterWindowTests.KeyedMaps)], null);
+        using var batch = JsonWriterWindowTests.Maps(schema, 3, 2, -1);
         // The failure is the call's, every time (not a race with the writes behind).
         for (int i = 0; i < 300; i++)
         {
             using var output = new MemoryStream();
             var writer = JsonWriter.Create(output, schema, new JsonWriteOptions { PieceBytes = 1, MaxDegreeOfParallelism = 1 + i % 4 });
             var e = Assert.Throws<JsonValueException>(() => writer.Write(batch));
-            Assert.Equal("Row 2: Column 's': a string that is not UTF-8.", e.Message);
+            Assert.Equal("Row 2: Column 's': a map key is null.", e.Message);
             Assert.Throws<InvalidOperationException>(() => writer.Complete());
             writer.Dispose();
         }
@@ -352,10 +363,8 @@ public class JsonWriterTests
     [InlineData(JsonFormat.Document)]
     public void ASmallBatch_EncodedByTheCaller_FailsAtItsRowAmongAll(JsonFormat format)
     {
-        var schema = new Schema([F("s", StringType.Default)], null);
-        byte[] data = [.. "okfine"u8, 0xFF];
-        var strings = new StringArray(new ArrayData(StringType.Default, 3, 0, 0, [ArrowBuffer.Empty, new ArrowBuffer(Bytes<int>([0, 2, 6, 7])), new ArrowBuffer(data)]));
-        using var batch = new RecordBatch(schema, [strings], 3);
+        var schema = new Schema([F("s", JsonWriterWindowTests.KeyedMaps)], null);
+        using var batch = JsonWriterWindowTests.Maps(schema, 3, 2, -1);
         foreach (int threads in (int[])[1, 4])
         {
             // Batches of one piece each, encoded on this thread into one piece: the third row of the second batch fails.
@@ -363,7 +372,7 @@ public class JsonWriterTests
             var writer = JsonWriter.Create(output, schema, new JsonWriteOptions { Format = format, MaxDegreeOfParallelism = threads });
             writer.Write(batch.Slice(0, 2));
             var e = Assert.Throws<JsonValueException>(() => writer.Write(batch));
-            Assert.Equal("Row 4: Column 's': a string that is not UTF-8.", e.Message);
+            Assert.Equal("Row 4: Column 's': a map key is null.", e.Message);
             Assert.Throws<InvalidOperationException>(() => writer.Write(batch.Slice(0, 1)));
             Assert.Throws<InvalidOperationException>(() => writer.Complete());
             writer.Dispose();

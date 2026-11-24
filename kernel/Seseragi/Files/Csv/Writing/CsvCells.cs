@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Globalization;
 using System.Numerics;
-using System.Text.Unicode;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Data.Building;
@@ -191,8 +190,7 @@ internal enum FloatLayout
 
 /// <summary>
 /// Writes the values of one Arrow array as CSV fields, row by row (a row is the array's own index, before its offset). A
-/// value that cannot be written (a string that is not UTF-8) is a <see cref="CsvWriteException"/> (its row added by
-/// the writer).
+/// value that cannot be written is a <see cref="CsvWriteException"/> (its row added by the writer).
 /// </summary>
 internal abstract unsafe class CsvCell
 {
@@ -509,15 +507,13 @@ internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string name,
     }
 }
 
-/// <summary>Strings (checked to be UTF-8), quoted as the style says.</summary>
+/// <summary>
+/// Strings, quoted as the style says. Their bytes are written as they are: Arrow strings are UTF-8 (the format's rule,
+/// not checked here, as the reference engine does not); an encoding's transcoder refuses bytes that are not.
+/// </summary>
 internal abstract class TextCell(ArrayData data, Pins pins, string name, CsvSyntax syntax) : CsvCell(data, pins, name)
 {
-    protected void WriteValue(ref TextOut o, scoped ReadOnlySpan<byte> bytes)
-    {
-        if (!System.Text.Ascii.IsValid(bytes) && !Utf8.IsValid(bytes))
-            throw new CsvWriteException($"Column '{Name}': a string that is not UTF-8.", Name, -1);
-        syntax.WriteText(ref o, bytes);
-    }
+    protected void WriteValue(ref TextOut o, scoped ReadOnlySpan<byte> bytes) => syntax.WriteText(ref o, bytes);
 }
 
 internal sealed unsafe class BytesCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, bool large) : TextCell(data, pins, name, syntax)

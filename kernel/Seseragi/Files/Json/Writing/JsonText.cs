@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Globalization;
 using System.Numerics;
-using System.Text.Unicode;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Text;
 using Kaminari.Seseragi.Files.IO.Writing;
@@ -23,12 +22,11 @@ internal static class JsonText
 
     /// <summary>
     /// A string in quotes: quotes, backslashes and control characters escaped (<c>\b \t \n \f \r</c> by name, the
-    /// others as <c>\u00xx</c>), everything else as it is. False (nothing written) when it is not UTF-8.
+    /// others as <c>\u00xx</c>), everything else as it is. Its bytes are UTF-8 (Arrow's rule for strings; not checked, as
+    /// the reference engine does not).
     /// </summary>
-    public static bool String(ref TextOut o, scoped ReadOnlySpan<byte> utf8)
+    public static void String(ref TextOut o, scoped ReadOnlySpan<byte> utf8)
     {
-        // ASCII is UTF-8 (the common case, checked fastest); anything else is checked whole.
-        if (!System.Text.Ascii.IsValid(utf8) && !Utf8.IsValid(utf8)) return false;
         o.Byte((byte)'"');
         while (true)
         {
@@ -43,7 +41,6 @@ internal static class JsonText
             utf8 = utf8[(i + 1)..];
         }
         o.Byte((byte)'"');
-        return true;
     }
 
     // One escaped byte: its two-character name, or \u00xx.
@@ -76,7 +73,7 @@ internal static class JsonText
     {
         using var buffer = new NativeBufferWriter(64);
         var o = new TextOut(buffer);
-        if (!String(ref o, System.Text.Encoding.UTF8.GetBytes(name))) throw new ArgumentException($"The name '{name}' is not UTF-8.");
+        String(ref o, System.Text.Encoding.UTF8.GetBytes(name));
         o.Byte((byte)':');
         o.Commit();
         return buffer.WrittenSpan.ToArray();

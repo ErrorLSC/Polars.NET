@@ -78,7 +78,8 @@ internal static class FloatText
     {
         int at = 0;
         if (double.IsNegative(value)) destination[at++] = (byte)'-';
-        Span<byte> digits = stackalloc byte[MaxFixedBytes(decimals)];
+        // The digits written in place (no buffer between; the room is MaxFixedBytes long), then moved apart for the point.
+        Span<byte> digits = destination[at..Math.Min(destination.Length, at + MaxFixedBytes(decimals))];
         int count = Rounded(double.Abs(value), decimals, digits);
         if (count <= decimals)
         {
@@ -87,16 +88,12 @@ internal static class FloatText
             digits[..(decimals + 1 - count)].Fill((byte)'0');
             count = decimals + 1;
         }
+        if (decimals == 0) return at + count;
+        // ddd.ff: the fraction one place right, the point before it.
         int whole = count - decimals;
-        digits[..whole].CopyTo(destination[at..]);
-        at += whole;
-        if (decimals > 0)
-        {
-            destination[at++] = (byte)'.';
-            digits[whole..count].CopyTo(destination[at..]);
-            at += decimals;
-        }
-        return at;
+        digits.Slice(whole, decimals).CopyTo(digits[(whole + 1)..]);
+        digits[whole] = (byte)'.';
+        return at + count + 1;
     }
 
     /// <summary>

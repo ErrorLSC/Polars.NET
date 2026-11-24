@@ -53,6 +53,9 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable, IRowEncoder<Json
     /// <summary>Whether batches can still be written.</summary>
     internal bool IsWritable => _rows.IsWritable;
 
+    /// <summary>The most pieces encoded at once so far (tests: never more than MaxDegreeOfParallelism).</summary>
+    internal int PeakEncoding => _rows.PeakEncoding;
+
     /// <summary>The bytes handed to the output so far.</summary>
     public long BytesWritten => _rows.BytesWritten;
 
@@ -358,7 +361,7 @@ public sealed class JsonWriter : IDisposable, IAsyncDisposable, IRowEncoder<Json
 
     /// <summary>Writes a batch's rows (taken over with <see cref="BatchOwnership.Writer"/>).</summary>
     /// <exception cref="ArgumentException">The batch's columns are not the schema's.</exception>
-    /// <exception cref="JsonValueException">A value JSON cannot hold (a string that is not UTF-8); the writer cannot be completed then.</exception>
+    /// <exception cref="JsonValueException">A value JSON cannot hold (a map key that is null); the writer cannot be completed then.</exception>
     public void Write(RecordBatch batch) => _rows.Write(batch);
 
     /// <inheritdoc cref="Write(RecordBatch)"/>

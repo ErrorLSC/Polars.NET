@@ -49,6 +49,36 @@ public class ShortestDoubleTests
     }
 
     [Fact]
+    public void WholeNumbers_HaveDotNetsShortestDigits()
+    {
+        // The small-integer path: [1, 2^53), its edges, and the whole numbers just past it and below 1.
+        var random = new Random(7);
+        for (int i = 0; i < 300_000; i++)
+        {
+            Check(random.NextInt64(1, 1L << 53));
+            Check(random.NextInt64(1, 1L << 20) * Math.Pow(10, random.Next(0, 16)) % (1L << 53) + 1);
+        }
+        for (long k = 0; k < 2_000; k++)
+        {
+            Check((1L << 53) - 1 - k);
+            Check((1L << 53) + 2 * k);
+            Check((1L << 52) + k);
+            Check((1L << 52) - k - 1);
+            Check(1 + k);
+            Check((1L << 53) - (1L << 53) % 1_000_000_000 - k * 1_000_000_000);
+        }
+        for (int e = 0; e < 70; e++)
+        {
+            Check(Math.Pow(2, e));
+            Check(Math.Pow(2, e) + 0.5);
+            Check(Math.Pow(10, Math.Min(e, 22)));
+        }
+        Check(0.5);
+        Check(1.5);
+        Check(4503599627370495.5);
+    }
+
+    [Fact]
     public void EdgesAndCommonValues_HaveDotNetsShortestDigits()
     {
         double[] values = [double.Epsilon, double.MaxValue, 2.2250738585072014E-308, 2.225073858507201E-308, 1, 0.1, 0.3, 0.1 + 0.2,
