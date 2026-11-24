@@ -108,10 +108,15 @@ public class CsvWriterTests
             {
                 CsvQuoteStyle style = random.Next(3) switch { 0 => CsvQuoteStyle.Always, 1 => CsvQuoteStyle.NonNumeric, _ => CsvQuoteStyle.Necessary };
                 string nullValue = style == CsvQuoteStyle.Always || random.Next(3) == 0 ? "<null>" : "";
+                bool comma = random.Next(3) == 0;
+                string? group = random.Next(4) != 0 ? null : comma ? ((string[])[".", " ", "'"])[random.Next(3)] : ((string[])[" ", "'", ","])[random.Next(3)];
                 var options = new CsvWriteOptions
                 {
+                    FloatScientific = random.Next(3) switch { 0 => true, 1 => false, _ => null },
+                    DecimalComma = comma,
+                    ThousandsSeparator = group,
                     Separator = random.Next(4) switch { 0 => ';', 1 => '\t', 2 => '|', _ => ',' },
-                    Quote = random.Next(4) == 0 ? '\'' : '"',
+                    Quote = random.Next(4) == 0 && group != "'" ? '\'' : '"',
                     QuoteStyle = style,
                     NullValue = nullValue,
                     LineTerminator = random.Next(2) == 0 ? "\n" : "\r\n",
@@ -126,6 +131,8 @@ public class CsvWriterTests
                     Separator = options.Separator,
                     Quote = options.Quote,
                     NullValues = nullValue.Length > 0 ? [nullValue] : null,
+                    DecimalComma = comma,
+                    ThousandsSeparator = group,
                 };
                 using CsvReader again = CsvReader.Open(new MemoryStream(output.ToArray()), back);
                 List<RecordBatch> second = [.. again.ReadBatches()];
@@ -135,7 +142,8 @@ public class CsvWriterTests
                 }
                 catch (Exception e)
                 {
-                    throw new Xunit.Sdk.XunitException($"Case {i} ({options.QuoteStyle}, separator '{options.Separator}', quote '{options.Quote}', null '{nullValue}'):\n"
+                    throw new Xunit.Sdk.XunitException($"Case {i} ({options.QuoteStyle}, separator '{options.Separator}', quote '{options.Quote}', null '{nullValue}', "
+                        + $"scientific {options.FloatScientific}, comma {comma}, group '{group}'):\n"
                         + Encoding.UTF8.GetString(output.ToArray())[..Math.Min(2000, (int)output.Length)] + "\n" + e.Message);
                 }
                 finally { second.ForEach(b => b.Dispose()); }
@@ -218,6 +226,117 @@ public class CsvWriterTests
         using var batch = new RecordBatch(schema, [new DurationArray(new ArrayData(schema.FieldsList[0].DataType, values.Length, 0, 0,
             [ArrowBuffer.Empty, new ArrowBuffer(values.SelectMany(BitConverter.GetBytes).ToArray())]))], values.Length);
         Assert.Equal("d\nP0D\nPT1.5S\n-PT90S\nPT0.001S\nPT86400S\n", CsvWriter.WriteString(schema, [batch]));
+    }
+
+    // ---------------------------------------------------------------- numbers: deviations from the reference engine, groups
+
+    private static RecordBatch Numbers(out Schema schema, double?[] doubles, float?[]? floats = null, long?[]? longs = null, (int Scale, long?[] Unscaled)? decimals = null)
+    {
+        List<Field> fields = [F("d", DoubleType.Default)];
+        var first = new DoubleArray.Builder();
+        foreach (double? v in doubles) { if (v is { } x) first.Append(x); else first.AppendNull(); }
+        List<IArrowArray> arrays = [first.Build()];
+        if (floats is not null)
+        {
+            fields.Add(F("f", FloatType.Default));
+            var b = new FloatArray.Builder();
+            foreach (float? v in floats) { if (v is { } x) b.Append(x); else b.AppendNull(); }
+            arrays.Add(b.Build());
+        }
+        if (longs is not null)
+        {
+            fields.Add(F("i", Int64Type.Default));
+            var b = new Int64Array.Builder();
+            foreach (long? v in longs) { if (v is { } x) b.Append(x); else b.AppendNull(); }
+            arrays.Add(b.Build());
+        }
+        if (decimals is { } dec)
+        {
+            var type = new Decimal128Type(18, dec.Scale);
+            fields.Add(F("m", type));
+            var b = new Decimal128Array.Builder(type);
+            foreach (long? v in dec.Unscaled) { if (v is { } x) b.Append((decimal)x / (decimal)Math.Pow(10, dec.Scale)); else b.AppendNull(); }
+            arrays.Add(b.Build());
+        }
+        schema = new Schema(fields, null);
+        return new RecordBatch(schema, arrays, doubles.Length);
+    }
+
+    /// <summary>Rule 8 (a): with the decimal comma and the separator ',', a null float or decimal is the null value (the reference engine writes "").</summary>
+    [Fact]
+    public void DecimalComma_NullsAreTheNullValue()
+    {
+        using RecordBatch batch = Numbers(out Schema schema, [1.5, null], decimals: (2, [-150, null]));
+        Assert.Equal("d,m\n\"1,5\",\"-1,50\"\n,\n", CsvWriter.WriteString(schema, [batch], new CsvWriteOptions { DecimalComma = true }));
+        Assert.Equal("d,m\n\"1,5\",\"-1,50\"\nNA,NA\n", CsvWriter.WriteString(schema, [batch], new CsvWriteOptions { DecimalComma = true, NullValue = "NA" }));
+    }
+
+    /// <summary>Rule 8 (b): floats in decimal notation from their own shortest digits (the reference engine goes through the double).</summary>
+    [Fact]
+    public void Floats_InDecimalNotation_HaveTheirOwnDigits()
+    {
+        using RecordBatch batch = Numbers(out Schema schema, [0.1, 1e20, 464749.125], floats: [0.1f, 1e20f, 464749.125f]);
+        Assert.Equal("d,f\n0.1,0.1\n100000000000000000000,100000000000000000000\n464749.125,464749.13\n",
+            CsvWriter.WriteString(schema, [batch], new CsvWriteOptions { FloatScientific = false }));
+    }
+
+    /// <summary>Rule 8 (d): the decimal comma with scientific notation writes each value alone (the reference engine repeats earlier ones).</summary>
+    [Fact]
+    public void DecimalComma_WithScientificNotation_WritesEachValueAlone()
+    {
+        using RecordBatch batch = Numbers(out Schema schema, [0.1 + 0.2, 1.0 / 3, 1.5e20, -0.0, null]);
+        Assert.Equal("d\n3,0000000000000004e-1\n3,333333333333333e-1\n1,5e20\n-0e0\n\n",
+            CsvWriter.WriteString(schema, [batch], new CsvWriteOptions { DecimalComma = true, FloatScientific = true, Separator = ';' }));
+    }
+
+    [Theory]
+    [InlineData(".", true, ';', "d;i;m\n-1.234.567,25;-1.234.567;1.234.567,89\n999,5;999;0,01\n1,5e+16;1.000;-1.000,00\nNaN;-100;\n")]
+    [InlineData(" ", true, ';', "d;i;m\n-1 234 567,25;-1 234 567;1 234 567,89\n999,5;999;0,01\n1,5e+16;1 000;-1 000,00\nNaN;-100;\n")]
+    [InlineData("\u00A0", false, ',', "d,i,m\n-1\u00A0234\u00A0567.25,-1\u00A0234\u00A0567,1\u00A0234\u00A0567.89\n999.5,999,0.01\n1.5e+16,1\u00A0000,-1\u00A0000.00\nNaN,-100,\n")]
+    [InlineData("'", false, ',', "d,i,m\n-1'234'567.25,-1'234'567,1'234'567.89\n999.5,999,0.01\n1.5e+16,1'000,-1'000.00\nNaN,-100,\n")]
+    [InlineData(",", false, ',', "d,i,m\n\"-1,234,567.25\",\"-1,234,567\",\"1,234,567.89\"\n\"999.5\",\"999\",\"0.01\"\n\"1.5e+16\",\"1,000\",\"-1,000.00\"\n\"NaN\",\"-100\",\n")]
+    public void ThousandsSeparators_GroupTheIntegerDigits_AndQuoteWhenTheyAreTheSeparator(string group, bool comma, char separator, string expected)
+    {
+        using RecordBatch batch = Numbers(out Schema schema, [-1234567.25, 999.5, 1.5e16, double.NaN], longs: [-1234567, 999, 1000, -100],
+            decimals: (2, [123456789, 1, -100000, null]));
+        var options = new CsvWriteOptions { ThousandsSeparator = group, DecimalComma = comma, Separator = separator };
+        string text = CsvWriter.WriteString(schema, [batch], options);
+        Assert.Equal(expected, text);
+        // It reads back with the same options.
+        using CsvReader reader = CsvReader.Open(new MemoryStream(Encoding.UTF8.GetBytes(text)), new CsvReadOptions
+        {
+            Schema = schema, Separator = separator, DecimalComma = comma, ThousandsSeparator = group,
+        });
+        List<RecordBatch> back = [.. reader.ReadBatches()];
+        try { Assert.Equal(ArrowRender.Rows([batch]), ArrowRender.Rows(back)); }
+        finally { back.ForEach(b => b.Dispose()); }
+    }
+
+    /// <summary>Integers of every length grouped as .NET groups them (N0 with the same group text).</summary>
+    [Fact]
+    public void Groups_FallEveryThreeDigits_WhateverTheLength()
+    {
+        long[] values = [0, 1, -12, 123, -1234, 12345, 123456, -1234567, 12345678, 123456789, -1234567890, long.MaxValue, long.MinValue];
+        var schema = new Schema([F("i", Int64Type.Default)], null);
+        var builder = new Int64Array.Builder();
+        foreach (long v in values) builder.Append(v);
+        using var batch = new RecordBatch(schema, [builder.Build()], values.Length);
+        foreach (string group in (string[])["'", "\u202F", "::"])
+        {
+            var format = new System.Globalization.NumberFormatInfo { NumberGroupSeparator = group, NegativeSign = "-" };
+            string expected = "i\n" + string.Concat(values.Select(v => v.ToString("N0", format) + "\n"));
+            Assert.Equal(expected, CsvWriter.WriteString(schema, [batch], new CsvWriteOptions { ThousandsSeparator = group }));
+        }
+    }
+
+    [Fact]
+    public void NumberOptionsOutOfRange_AreRefused()
+    {
+        var schema = new Schema([F("a", Int64Type.Default)], null);
+        foreach (CsvWriteOptions options in (CsvWriteOptions[])[new() { FloatPrecision = -1 }, new() { ThousandsSeparator = "" },
+            new() { ThousandsSeparator = "1" }, new() { ThousandsSeparator = "." }, new() { ThousandsSeparator = ",", DecimalComma = true },
+            new() { ThousandsSeparator = "\n" }, new() { ThousandsSeparator = "'", Quote = '\'' }])
+            Assert.ThrowsAny<ArgumentException>(() => CsvWriter.Create(new MemoryStream(), schema, options));
     }
 
     // ---------------------------------------------------------------- refusals

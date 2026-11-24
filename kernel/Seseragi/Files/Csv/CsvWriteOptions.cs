@@ -25,6 +25,49 @@ public sealed record CsvWriteOptions
     public string LineTerminator { get; init; } = "\n";
 
     /// <summary>
+    /// How floats are written: null (the default) their shortest digits in decimal notation unless very large or small
+    /// (<c>1e+16</c>, <c>1e-7</c>); true always in scientific notation (<c>1.5e3</c>); false always in decimal notation
+    /// (every digit written out).
+    /// </summary>
+    public bool? FloatScientific { get; init; }
+
+    /// <summary>
+    /// The decimals floats are rounded to (their exact value, half to even: 2.5 with none is 2); with
+    /// <see cref="FloatScientific"/> true, the decimals after the first digit. Null (the default): their shortest digits.
+    /// </summary>
+    public int? FloatPrecision { get; init; }
+
+    /// <summary>
+    /// Whether floats and decimals use ',' as the decimal point. With the separator ',' too, every float and decimal is
+    /// quoted (as the reference engine writes them; its nulls there stay the null value).
+    /// </summary>
+    public bool DecimalComma { get; init; }
+
+    /// <summary>
+    /// How dates are written: a .NET format (<c>dd/MM/yyyy</c>, or a standard one such as <c>d</c>), written as
+    /// <see cref="DateOnly.ToString(string, IFormatProvider)"/> writes it with the invariant culture; or, holding '%', a
+    /// chrono (strftime) format (<c>%d/%m/%Y</c>). Null (the default): <c>yyyy-MM-dd</c>.
+    /// </summary>
+    public string? DateFormat { get; init; }
+
+    /// <summary>How times of day are written (.NET or chrono, as <see cref="DateFormat"/>); null: <c>HH:mm:ss.fffffffff</c>.</summary>
+    public string? TimeFormat { get; init; }
+
+    /// <summary>
+    /// How timestamps are written (.NET or chrono, as <see cref="DateFormat"/>), with or without a zone (a zoned one in its
+    /// local time; an offset or zone specifier — .NET <c>zzz</c>, <c>K</c>, chrono <c>%z</c>, <c>%Z</c> — only fits
+    /// zoned columns). Null: <c>yyyy-MM-ddTHH:mm:ss.ffffff</c> (the digits of the unit), and a zoned column's offset.
+    /// </summary>
+    public string? DatetimeFormat { get; init; }
+
+    /// <summary>
+    /// Text between each three digits of a number's integer part ("1.234,56" with '.' and <see cref="DecimalComma"/>,
+    /// "1 234,56" with a space or a no-break space, "1'234.5", "1,234.5"); null (the default): none. Numbers are quoted
+    /// when it holds the separator or the quote.
+    /// </summary>
+    public string? ThousandsSeparator { get; init; }
+
+    /// <summary>
     /// The compression of the bytes written (none by default). The rows are compressed in pieces side by side, each a
     /// gzip member or Zstandard frame of its own: one valid file that every reader decompresses whole. Text outputs
     /// (<see cref="TextWriter"/>, strings) take no compression.
@@ -69,6 +112,17 @@ public sealed record CsvWriteOptions
             throw new ArgumentOutOfRangeException(nameof(Separator), Separator, "The separator must be one ASCII character other than CR and LF.");
         if (Quote > 0x7F || Quote is '\r' or '\n' || Quote == Separator)
             throw new ArgumentOutOfRangeException(nameof(Quote), Quote, "The quote must be one ASCII character other than CR, LF and the separator.");
+        if (FloatPrecision is < 0 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(FloatPrecision), FloatPrecision, "The float precision is a number of decimals, from 0 to 1000.");
+        if (ThousandsSeparator is { } t)
+        {
+            if (t.Length == 0 || t.Any(c => char.IsAsciiDigit(c) || c is '\r' or '\n'))
+                throw new ArgumentException("The thousands separator is one or more characters: no digits, no line ends.", nameof(ThousandsSeparator));
+            if (t == (DecimalComma ? "," : "."))
+                throw new ArgumentException($"The thousands separator '{t}' is the decimal point too.", nameof(ThousandsSeparator));
+            if (t.Contains(Quote))
+                throw new ArgumentException($"The thousands separator '{t}' holds the quote: choose another quote (or separator).", nameof(ThousandsSeparator));
+        }
         ArgumentNullException.ThrowIfNull(NullValue);
         ArgumentNullException.ThrowIfNull(LineTerminator);
         if (!Enum.IsDefined(QuoteStyle)) throw new ArgumentOutOfRangeException(nameof(QuoteStyle), QuoteStyle, "Unknown quote style.");

@@ -22,7 +22,62 @@ internal sealed class CsvSyntax
         byte[] text = System.Text.Encoding.UTF8.GetBytes(options.NullValue);
         Null = Style == CsvQuoteStyle.Always ? Quoted(text) : text;
         LineTerminator = System.Text.Encoding.UTF8.GetBytes(options.LineTerminator);
+        DecimalMark = options.DecimalComma ? (byte)',' : (byte)'.';
+        Group = options.ThousandsSeparator is { } group ? System.Text.Encoding.UTF8.GetBytes(group) : [];
+        Floats = (options.FloatScientific, options.FloatPrecision) switch
+        {
+            (true, null) => FloatLayout.Scientific,
+            (false, null) => FloatLayout.Positional,
+            (true, _) => FloatLayout.FixedScientific,
+            (_, { }) => FloatLayout.Fixed,
+            _ => FloatLayout.Shortest,
+        };
+        FloatPrecision = options.FloatPrecision ?? 0;
+        _dateFormat = options.DateFormat;
+        _timeFormat = options.TimeFormat;
+        _datetimeFormat = options.DatetimeFormat;
+        // The reference engine quotes every float and decimal when the decimal comma is the separator too; a group that
+        // holds a byte that needs quotes makes every number quoted.
+        bool groupNeedsQuotes = Group.AsSpan().IndexOfAny(Special) >= 0;
+        _quoteFractional = options.DecimalComma && Separator == ',' || groupNeedsQuotes;
+        _quoteIntegral = groupNeedsQuotes;
     }
+
+    private readonly bool _quoteFractional, _quoteIntegral;
+    private readonly string? _dateFormat, _timeFormat, _datetimeFormat;
+    private readonly Dictionary<TemporalTarget, TemporalFormat?> _formats = [];
+    private readonly object _lock = new();
+
+    /// <summary>
+    /// The format of values of <paramref name="target"/> (null: the default text), compiled once.
+    /// </summary>
+    /// <exception cref="FormatException">The format does not fit the target.</exception>
+    public TemporalFormat? FormatFor(TemporalTarget target)
+    {
+        lock (_lock)
+        {
+            if (_formats.TryGetValue(target, out TemporalFormat? made)) return made;
+            string? text = target switch
+            {
+                TemporalTarget.Date => _dateFormat,
+                TemporalTarget.Time => _timeFormat,
+                _ => _datetimeFormat,
+            };
+            return _formats[target] = text is null ? null : TemporalFormat.Compile(text, target);
+        }
+    }
+
+    /// <summary>The decimal point of floats and decimals.</summary>
+    public byte DecimalMark { get; }
+
+    /// <summary>What goes between each three digits of a number's integer part (empty: nothing).</summary>
+    public byte[] Group { get; }
+
+    /// <summary>How floats are laid out.</summary>
+    public FloatLayout Floats { get; }
+
+    /// <summary>The decimals of <see cref="FloatLayout.Fixed"/> and <see cref="FloatLayout.FixedScientific"/>.</summary>
+    public int FloatPrecision { get; }
 
     public byte Separator { get; }
 
@@ -38,11 +93,14 @@ internal sealed class CsvSyntax
 
     public byte[] LineTerminator { get; }
 
-    /// <summary>How a column of numbers (<paramref name="numeric"/>) or of other values written by format is quoted.</summary>
-    public CsvQuoting ForFormatted(bool numeric) => Style switch
+    /// <summary>How a column of values written by format is quoted.</summary>
+    public CsvQuoting ForFormatted(CsvValueKind kind) => (Style, kind) switch
     {
-        CsvQuoteStyle.Always => CsvQuoting.Always,
-        CsvQuoteStyle.NonNumeric when !numeric => CsvQuoting.Always,
+        (CsvQuoteStyle.Always, _) => CsvQuoting.Always,
+        (CsvQuoteStyle.Never, _) => CsvQuoting.None,
+        (CsvQuoteStyle.NonNumeric, CsvValueKind.Other) => CsvQuoting.Always,
+        (_, CsvValueKind.Fractional) when _quoteFractional => CsvQuoting.Always,
+        (_, CsvValueKind.Integral) when _quoteIntegral => CsvQuoting.Always,
         _ => CsvQuoting.None,
     };
 
@@ -108,6 +166,29 @@ internal enum CsvQuoting
     Always,
 }
 
+/// <summary>What a column written by format holds, for its quoting.</summary>
+internal enum CsvValueKind
+{
+    /// <summary>Integers.</summary>
+    Integral,
+
+    /// <summary>Floats and decimals.</summary>
+    Fractional,
+
+    /// <summary>Booleans, dates, times, durations.</summary>
+    Other,
+}
+
+/// <summary>How a writer lays floats out (<see cref="CsvWriteOptions.FloatScientific"/>, <see cref="CsvWriteOptions.FloatPrecision"/>).</summary>
+internal enum FloatLayout
+{
+    Shortest,
+    Scientific,
+    Positional,
+    Fixed,
+    FixedScientific,
+}
+
 /// <summary>
 /// Writes the values of one Arrow array as CSV fields, row by row (a row is the array's own index, before its offset). A
 /// value that cannot be written (a string that is not UTF-8) is a <see cref="CsvWriteException"/> (its row added by
@@ -157,6 +238,31 @@ internal abstract unsafe class CsvCell
         _ => $"Column '{field.Name}': {field.DataType.Name} cannot be written to CSV.",
     };
 
+    /// <summary>Why a column's values cannot be written with the writer's formats, or null when they can.</summary>
+    public static string? FormatRefusal(Field field, CsvSyntax syntax)
+    {
+        IArrowType type = field.DataType is DictionaryType d ? d.ValueType : field.DataType;
+        TemporalTarget? target = type switch
+        {
+            Date32Type or Date64Type => TemporalTarget.Date,
+            Time32Type or Time64Type => TemporalTarget.Time,
+            TimestampType { Timezone: { Length: > 0 } } => TemporalTarget.Zoned,
+            TimestampType => TemporalTarget.Naive,
+            _ => null,
+        };
+        if (target is not { } t) return null;
+        try
+        {
+            if (syntax.FormatFor(t) is { WritesZone: true } && type is TimestampType { Timezone: { } zone } && TimeZoneOffsets.For(zone) is { HasAbbreviations: false })
+                return $"Column '{field.Name}': the time zone '{zone}' has no abbreviations here (no time zone database files) for %Z: write its offset (%z) instead.";
+            return null;
+        }
+        catch (FormatException e)
+        {
+            return $"Column '{field.Name}': {e.Message}";
+        }
+    }
+
     /// <summary>The cell of <paramref name="data"/> (of <paramref name="field"/>'s type, checked by <see cref="Refusal"/>).</summary>
     public static CsvCell For(ArrayData data, Field field, Pins pins, CsvSyntax syntax) => field.DataType switch
     {
@@ -205,9 +311,9 @@ internal sealed class NullCell(ArrayData data, Pins pins, string name) : CsvCell
 }
 
 /// <summary>Values written by format (numbers, booleans, dates, times): at most <see cref="MaxBytes"/> each, quoted as the column says.</summary>
-internal abstract class FormattedCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, bool numeric) : CsvCell(data, pins, name)
+internal abstract class FormattedCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, CsvValueKind kind) : CsvCell(data, pins, name)
 {
-    private readonly CsvQuoting _quoting = syntax.ForFormatted(numeric);
+    private readonly CsvQuoting _quoting = syntax.ForFormatted(kind);
     private readonly byte _quote = syntax.Quote;
 
     /// <summary>The most bytes a value's text takes.</summary>
@@ -231,7 +337,51 @@ internal abstract class FormattedCell(ArrayData data, Pins pins, string name, Cs
     }
 }
 
-internal sealed unsafe class BooleanCell(ArrayData data, Pins pins, string name, CsvSyntax syntax) : FormattedCell(data, pins, name, syntax, numeric: false)
+/// <summary>
+/// Numbers: their text (ASCII digits, '-', a '.' point) then its integer digits grouped by three and its point made the
+/// writer's (<see cref="CsvWriteOptions.ThousandsSeparator"/>, <see cref="CsvWriteOptions.DecimalComma"/>).
+/// </summary>
+internal abstract class NumberCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, CsvValueKind kind) : FormattedCell(data, pins, name, syntax, kind)
+{
+    private readonly byte _mark = syntax.DecimalMark;
+    private readonly byte[] _group = syntax.Group;
+
+    /// <summary>The most bytes of a value's plain text (before grouping).</summary>
+    protected abstract int MaxPlainBytes { get; }
+
+    /// <summary>A row's value as plain text (a '.' point, no groups).</summary>
+    protected abstract int FormatPlain(long row, Span<byte> destination);
+
+    protected sealed override int MaxBytes => MaxPlainBytes + (_group.Length == 0 ? 0 : (MaxPlainBytes / 3 + 1) * _group.Length);
+
+    protected sealed override int Format(long row, Span<byte> destination)
+    {
+        int length = FormatPlain(row, destination);
+        if (_mark == '.' && _group.Length == 0) return length;
+        int start = length > 0 && destination[0] == '-' ? 1 : 0, end = start;
+        while (end < length && char.IsAsciiDigit((char)destination[end])) end++;
+        if (end == start) return length; // NaN, inf
+        if (end < length && destination[end] == '.') destination[end] = _mark;
+        int run = end - start;
+        if (_group.Length == 0 || run <= 3) return length;
+        int grow = (run - 1) / 3 * _group.Length;
+        destination[end..length].CopyTo(destination[(end + grow)..]);
+        // The integer digits moved right, a group put before each three from the right.
+        int from = end - 1, to = end + grow - 1, k = 0;
+        while (from >= start)
+        {
+            destination[to--] = destination[from--];
+            if (++k % 3 == 0 && from >= start)
+            {
+                to -= _group.Length;
+                _group.CopyTo(destination[(to + 1)..]);
+            }
+        }
+        return length + grow;
+    }
+}
+
+internal sealed unsafe class BooleanCell(ArrayData data, Pins pins, string name, CsvSyntax syntax) : FormattedCell(data, pins, name, syntax, CsvValueKind.Other)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
@@ -246,14 +396,14 @@ internal sealed unsafe class BooleanCell(ArrayData data, Pins pins, string name,
     }
 }
 
-internal sealed unsafe class IntegerCell<T>(ArrayData data, Pins pins, string name, CsvSyntax syntax) : FormattedCell(data, pins, name, syntax, numeric: true)
+internal sealed unsafe class IntegerCell<T>(ArrayData data, Pins pins, string name, CsvSyntax syntax) : NumberCell(data, pins, name, syntax, CsvValueKind.Integral)
     where T : unmanaged, IBinaryInteger<T>, IUtf8SpanFormattable
 {
     private readonly T* _values = (T*)pins.Pin(data.Buffers[1]);
 
-    protected override int MaxBytes => 21;
+    protected override int MaxPlainBytes => 21;
 
-    protected override int Format(long row, Span<byte> destination)
+    protected override int FormatPlain(long row, Span<byte> destination)
     {
         _values[row + Offset].TryFormat(destination, out int written, default, CultureInfo.InvariantCulture);
         return written;
@@ -264,19 +414,34 @@ internal sealed unsafe class IntegerCell<T>(ArrayData data, Pins pins, string na
 /// Floats: their shortest round-trip digits as the reference engine writes them (<see cref="FloatText.Shortest{T}"/>),
 /// <c>NaN</c>, <c>inf</c>, <c>-inf</c>. Half floats are written as the float of their value.
 /// </summary>
-internal sealed unsafe class FloatCell<T>(ArrayData data, Pins pins, string name, CsvSyntax syntax) : FormattedCell(data, pins, name, syntax, numeric: true)
+internal sealed unsafe class FloatCell<T>(ArrayData data, Pins pins, string name, CsvSyntax syntax) : NumberCell(data, pins, name, syntax, CsvValueKind.Fractional)
     where T : unmanaged, IFloatingPointIeee754<T>, IUtf8SpanFormattable
 {
     private readonly T* _values = (T*)pins.Pin(data.Buffers[1]);
+    private readonly FloatLayout _layout = syntax.Floats;
+    private readonly int _decimals = syntax.FloatPrecision;
 
-    protected override int MaxBytes => FloatText.MaxShortestBytes;
+    protected override int MaxPlainBytes => _layout switch
+    {
+        FloatLayout.Positional => FloatText.MaxPositionalBytes,
+        FloatLayout.Fixed => FloatText.MaxFixedBytes(_decimals),
+        FloatLayout.FixedScientific => _decimals + 32,
+        _ => FloatText.MaxShortestBytes,
+    };
 
-    protected override int Format(long row, Span<byte> destination)
+    protected override int FormatPlain(long row, Span<byte> destination)
     {
         T value = _values[row + Offset];
         if (T.IsNaN(value)) return Copy("NaN"u8, destination);
         if (T.IsInfinity(value)) return Copy(T.IsNegative(value) ? "-inf"u8 : "inf"u8, destination);
-        return FloatText.Shortest(value, destination);
+        return _layout switch
+        {
+            FloatLayout.Scientific => FloatText.Scientific(value, destination),
+            FloatLayout.Positional => FloatText.Positional(value, destination),
+            FloatLayout.Fixed => FloatText.Fixed(double.CreateChecked(value), _decimals, destination),
+            FloatLayout.FixedScientific => FloatText.FixedScientific(double.CreateChecked(value), _decimals, destination),
+            _ => FloatText.Shortest(value, destination),
+        };
     }
 
     private static int Copy(ReadOnlySpan<byte> text, Span<byte> destination)
@@ -288,13 +453,13 @@ internal sealed unsafe class FloatCell<T>(ArrayData data, Pins pins, string name
 
 /// <summary>Decimals (32, 64 or 128 bits) with every digit of their scale; 128-bit integers (decimal(38, 0) so marked) as integers.</summary>
 internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, int scale, string? integer, int width)
-    : FormattedCell(data, pins, name, syntax, numeric: true)
+    : NumberCell(data, pins, name, syntax, integer is null && scale > 0 ? CsvValueKind.Fractional : CsvValueKind.Integral)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
 
-    protected override int MaxBytes => 44 + Math.Abs(scale);
+    protected override int MaxPlainBytes => 44 + Math.Abs(scale);
 
-    protected override int Format(long row, Span<byte> destination)
+    protected override int FormatPlain(long row, Span<byte> destination)
     {
         long index = row + Offset;
         Int128 value = width switch
@@ -314,31 +479,33 @@ internal sealed unsafe class DecimalCell(ArrayData data, Pins pins, string name,
             value.TryFormat(destination, out written, default, CultureInfo.InvariantCulture);
             return written;
         }
-        Span<byte> digits = stackalloc byte[48];
+        // The digits written in place, then moved apart for the point (no buffer between).
         bool negative = value < 0;
-        ((UInt128)(negative ? -value : value)).TryFormat(digits, out int length, default, CultureInfo.InvariantCulture);
-        int at = 0;
-        if (negative) destination[at++] = (byte)'-';
+        int at = negative ? 1 : 0;
+        if (negative) destination[0] = (byte)'-';
+        ((UInt128)(negative ? -value : value)).TryFormat(destination[at..], out int length, default, CultureInfo.InvariantCulture);
         if (scale <= 0)
         {
-            digits[..length].CopyTo(destination[at..]);
             at += length;
             if (value != 0)
                 for (int i = 0; i < -scale; i++) destination[at++] = (byte)'0';
             return at;
         }
         int whole = length - scale;
-        if (whole <= 0) destination[at++] = (byte)'0';
-        else
+        if (whole > 0)
         {
-            digits[..whole].CopyTo(destination[at..]);
-            at += whole;
+            // ddd.ff: the fraction one place right, the point before it.
+            destination.Slice(at + whole, scale).CopyTo(destination[(at + whole + 1)..]);
+            destination[at + whole] = (byte)'.';
+            return at + length + 1;
         }
-        destination[at++] = (byte)'.';
-        for (int i = whole; i < 0; i++) destination[at++] = (byte)'0';
-        ReadOnlySpan<byte> fraction = digits[Math.Max(0, whole)..length];
-        fraction.CopyTo(destination[at..]);
-        return at + fraction.Length;
+        // 0.00ff: the digits moved right past "0." and the zeros.
+        int lead = 2 - whole;
+        destination.Slice(at, length).CopyTo(destination[(at + lead)..]);
+        destination[at] = (byte)'0';
+        destination[at + 1] = (byte)'.';
+        destination.Slice(at + 2, -whole).Fill((byte)'0');
+        return at + lead + length;
     }
 }
 
@@ -422,17 +589,18 @@ internal sealed unsafe class DictionaryCell(ArrayData data, Pins pins, string na
     }
 }
 
-/// <summary>Dates: <c>yyyy-MM-dd</c>.</summary>
-internal sealed unsafe class DateCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, bool millis) : FormattedCell(data, pins, name, syntax, numeric: false)
+/// <summary>Dates: <c>yyyy-MM-dd</c>, or the writer's format.</summary>
+internal sealed unsafe class DateCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, bool millis) : FormattedCell(data, pins, name, syntax, CsvValueKind.Other)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
+    private readonly TemporalFormat? _format = syntax.FormatFor(TemporalTarget.Date);
 
-    protected override int MaxBytes => IsoTemporal.MaxDateBytes;
+    protected override int MaxBytes => _format?.MaxBytes ?? IsoTemporal.MaxDateBytes;
 
     protected override int Format(long row, Span<byte> destination)
     {
         long days = millis ? Math.DivRem(((long*)_values)[row + Offset], 86_400_000L, out long rest) - (rest < 0 ? 1 : 0) : ((int*)_values)[row + Offset];
-        return IsoTemporal.FormatDate(days, destination);
+        return _format is null ? IsoTemporal.FormatDate(days, destination) : _format.Format(new TemporalValue { Days = days }, destination);
     }
 }
 
@@ -441,7 +609,7 @@ internal sealed unsafe class DateCell(ArrayData data, Pins pins, string name, Cs
 /// zone, its local time and offset (<c>+0900</c>).
 /// </summary>
 internal sealed unsafe class TimestampCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, TimeUnit unit, TimeZoneOffsets? zone)
-    : FormattedCell(data, pins, name, syntax, numeric: false)
+    : FormattedCell(data, pins, name, syntax, CsvValueKind.Other)
 {
     private readonly long* _values = (long*)pins.Pin(data.Buffers[1]);
     private readonly long _perSecond = unit switch
@@ -458,8 +626,9 @@ internal sealed unsafe class TimestampCell(ArrayData data, Pins pins, string nam
         TimeUnit.Microsecond => 6,
         _ => 9,
     };
+    private readonly TemporalFormat? _format = syntax.FormatFor(zone is null ? TemporalTarget.Naive : TemporalTarget.Zoned);
 
-    protected override int MaxBytes => IsoTemporal.MaxDateBytes + 26;
+    protected override int MaxBytes => _format?.MaxBytes ?? IsoTemporal.MaxDateBytes + 26;
 
     protected override int Format(long row, Span<byte> destination)
     {
@@ -469,6 +638,7 @@ internal sealed unsafe class TimestampCell(ArrayData data, Pins pins, string nam
             seconds--;
             rest += _perSecond;
         }
+        if (_format is not null) return Formatted(seconds, (int)(rest * (1_000_000_000 / _perSecond)), destination);
         int offset = zone?.OffsetAt(seconds) ?? 0;
         seconds += offset;
         long days = Math.DivRem(seconds, 86_400L, out long secondOfDay);
@@ -488,15 +658,34 @@ internal sealed unsafe class TimestampCell(ArrayData data, Pins pins, string nam
         if (zone is not null) at += CsvTemporal.Offset(offset, destination[at..]);
         return at;
     }
+
+    // In the writer's format: the zone's local time (its UTC time for .NET's u and r), its offset and abbreviation.
+    private int Formatted(long seconds, int nanos, Span<byte> destination)
+    {
+        int offset = zone is null || _format!.Utc ? 0 : zone.OffsetAt(seconds);
+        long local = seconds + offset;
+        long days = Math.DivRem(local, 86_400L, out long secondOfDay);
+        if (secondOfDay < 0)
+        {
+            days--;
+            secondOfDay += 86_400;
+        }
+        return _format!.Format(new TemporalValue
+        {
+            Days = days, SecondOfDay = (int)secondOfDay, Nanosecond = nanos, Offset = offset, UnixSeconds = seconds,
+            Zone = _format.WritesZone ? zone?.AbbreviationAt(seconds) : null,
+        }, destination);
+    }
 }
 
 /// <summary>Times of day: <c>HH:mm:ss.fffffffff</c> (always nine fraction digits).</summary>
 internal sealed unsafe class TimeCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, long unitNanos, bool wide)
-    : FormattedCell(data, pins, name, syntax, numeric: false)
+    : FormattedCell(data, pins, name, syntax, CsvValueKind.Other)
 {
     private readonly byte* _values = pins.Pin(data.Buffers[1]);
+    private readonly TemporalFormat? _format = syntax.FormatFor(TemporalTarget.Time);
 
-    protected override int MaxBytes => 18;
+    protected override int MaxBytes => _format?.MaxBytes ?? 18;
 
     protected override int Format(long row, Span<byte> destination)
     {
@@ -504,6 +693,8 @@ internal sealed unsafe class TimeCell(ArrayData data, Pins pins, string name, Cs
         long nanos = value * unitNanos;
         if (nanos is < 0 or >= 86_400_000_000_000L)
             throw new CsvWriteException($"Column '{Name}': {value} is not a time of day.", Name, -1);
+        if (_format is not null)
+            return _format.Format(new TemporalValue { SecondOfDay = (int)(nanos / 1_000_000_000), Nanosecond = (int)(nanos % 1_000_000_000) }, destination);
         int at = CsvTemporal.Clock((int)(nanos / 1_000_000_000), destination);
         destination[at++] = (byte)'.';
         return at + CsvTemporal.Digits(nanos % 1_000_000_000, 9, destination[at..]);
@@ -515,7 +706,7 @@ internal sealed unsafe class TimeCell(ArrayData data, Pins pins, string name, Cs
 /// to JSON (its CSV writer refuses durations).
 /// </summary>
 internal sealed unsafe class DurationCell(ArrayData data, Pins pins, string name, CsvSyntax syntax, long unitNanos)
-    : FormattedCell(data, pins, name, syntax, numeric: false)
+    : FormattedCell(data, pins, name, syntax, CsvValueKind.Other)
 {
     private readonly long* _values = (long*)pins.Pin(data.Buffers[1]);
 

@@ -157,13 +157,13 @@ internal static class TemporalPatterns
         };
         if (Fast(text, group == TemporalPattern.DateDmy, zoned: false, out Fields fast) && !fast.HasTime)
         {
-            days = (int)DaysFromCivil(fast.Year, fast.Month, fast.Day);
+            days = (int)IsoTemporal.DaysFromCivil(fast.Year, fast.Month, fast.Day);
             return TemporalOutcome.Parsed;
         }
         foreach (string pattern in patterns)
             if (Read(text, pattern, Target.Date, out Fields f))
             {
-                days = (int)DaysFromCivil(f.Year, f.Month, f.Day);
+                days = (int)IsoTemporal.DaysFromCivil(f.Year, f.Month, f.Day);
                 return TemporalOutcome.Parsed;
             }
         return TemporalOutcome.Invalid;
@@ -284,7 +284,7 @@ internal static class TemporalPatterns
 
     private static TemporalOutcome Instant(in Fields f, TimeUnit unit, out long value)
     {
-        long seconds = DaysFromCivil(f.Year, f.Month, f.Day) * 86_400 + (f.Hour * 60L + f.Minute) * 60 + Math.Min(f.Second, 59) - f.Offset;
+        long seconds = IsoTemporal.DaysFromCivil(f.Year, f.Month, f.Day) * 86_400 + (f.Hour * 60L + f.Minute) * 60 + Math.Min(f.Second, 59) - f.Offset;
         long nanos = f.Nanosecond + (f.Second == 60 ? NanosPerSecond : 0);
         // Constant divisors per unit; within years −262143…262142 only nanoseconds can overflow.
         (value, bool lost) = unit switch
@@ -396,10 +396,10 @@ internal static class TemporalPatterns
         // The instant must be a date chrono holds too.
         static bool ValidUtc(in Fields f)
         {
-            long days = DaysFromCivil(f.Year, f.Month, f.Day);
+            long days = IsoTemporal.DaysFromCivil(f.Year, f.Month, f.Day);
             long seconds = ((f.Hour * 60L + f.Minute) * 60 + Math.Min(f.Second, 59)) - f.Offset;
             days += Math.DivRem(seconds, 86_400L, out long rest) - (rest < 0 ? 1 : 0);
-            return days >= DaysFromCivil(MinYear, 1, 1) && days <= DaysFromCivil(MaxYear, 12, 31);
+            return days >= IsoTemporal.DaysFromCivil(MinYear, 1, 1) && days <= IsoTemporal.DaysFromCivil(MaxYear, 12, 31);
         }
     }
 
@@ -541,15 +541,6 @@ internal static class TemporalPatterns
     };
 
     /// <summary>Days since 1970-01-01 of a proleptic Gregorian date (any year).</summary>
-    private static long DaysFromCivil(long year, int month, int day)
-    {
-        year -= month <= 2 ? 1 : 0;
-        long era = (year >= 0 ? year : year - 399) / 400;
-        long yearOfEra = year - era * 400;
-        long dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
-        return era * 146_097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719_468;
-    }
-
     // The regex gate (the time crate's infer.rs DATETIME_DMY_RE / _YMD_RE / _YMDZ_RE, quotes left out: chrono refuses them
     // anyway), run as a backtracking program in the regex engine's priority order, since the month the first match
     // captures must be 1 to 12.

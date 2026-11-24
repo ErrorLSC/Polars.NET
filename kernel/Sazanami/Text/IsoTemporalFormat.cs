@@ -26,6 +26,16 @@ internal static partial class IsoTemporal
         return (yoe + era * 400 + (month <= 2 ? 1 : 0), month, day);
     }
 
+    /// <summary>The days since 1970-01-01 of a proleptic Gregorian date.</summary>
+    public static long DaysFromCivil(long year, int month, int day)
+    {
+        year -= month <= 2 ? 1 : 0;
+        long era = (year >= 0 ? year : year - 399) / 400;
+        long yearOfEra = year - era * 400;
+        long dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+        return era * 146_097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719_468;
+    }
+
     /// <summary>Writes <paramref name="days"/> since 1970-01-01 as <c>yyyy-MM-dd</c>; returns the bytes written.</summary>
     public static int FormatDate(long days, Span<byte> destination)
     {

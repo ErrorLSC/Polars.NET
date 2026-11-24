@@ -28,6 +28,7 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
             throw new ArgumentException("Text is written uncompressed (write bytes to compress them).", nameof(options));
         Check(schema);
         var syntax = new CsvSyntax(options);
+        CheckFormats(schema, syntax);
         _syntax = syntax;
         _rows = new RowWriter<CsvCell>(sink, schema, this, (data, field, pins) => CsvCell.For(data, field, pins, syntax), new RowWriterSettings(
             "CSV", options.MaxDegreeOfParallelism, options.BatchOwnership, Compression(options.Compression), options.CompressionLevel,
@@ -41,6 +42,13 @@ public sealed class CsvWriter : IDisposable, IAsyncDisposable, IRowEncoder<CsvCe
     {
         foreach (Field field in schema.FieldsList)
             if (CsvCell.Refusal(field) is { } refusal) throw new NotSupportedException(refusal);
+    }
+
+    // A date, time or timestamp format that does not fit a column is refused before anything is written.
+    private static void CheckFormats(Schema schema, CsvSyntax syntax)
+    {
+        foreach (Field field in schema.FieldsList)
+            if (CsvCell.FormatRefusal(field, syntax) is { } refusal) throw new ArgumentException(refusal, nameof(schema));
     }
 
     // The byte order mark and the header, as asked.
