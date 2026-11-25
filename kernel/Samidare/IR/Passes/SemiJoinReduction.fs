@@ -50,6 +50,10 @@ module internal SemiJoinReduction =
     /// it removes. Its reduction must also pass a join with at least this many rows, where it can repay the probing.
     let private minLargeJoinRows = 100_000.0
 
+    /// The largest share of the facts a shared plan reads that a selective table may keep for a consumer to compute
+    /// its own reduced copy of the plan.
+    let private maxCopyShare = 0.25
+
     /// How many times more rows a table must have than the key set that filters it, for a join on several columns and
     /// for filtering a join's right input by the keys of its left.
     let private minKeySetReduction = 100.0
@@ -247,6 +251,22 @@ module internal SemiJoinReduction =
                     worthIt.Value <- true
                     Some reduced
                 | _ -> Some(filtered ())
+
+            // A selective table's keys reach a shared plan (a common table expression joined to a filtered dimension,
+            // TPC-DS Q59's weekly sales read for one year of weeks): this consumer computes its own copy, reduced,
+            // when the reduction pays inside it and keeps at most `maxCopyShare` of the facts the plan reads, so that
+            // the copies of two consumers cost no more than half the shared plan. A range of years that covers most
+            // of the facts (four of five) would compute the plan again for little.
+            | LogicalPlan.Shared(_, input) when
+                (let keptRows, allRows = measured selective
+                 shareOfFacts key input selectiveKey selective (keptRows / allRows) <= maxCopyShare)
+                ->
+                let copyWorthIt = ref false
+                match reduce fromLeft needsLargeJoin selective selectiveKey copyWorthIt key input with
+                | Some reduced when copyWorthIt.Value ->
+                    worthIt.Value <- true
+                    Some reduced
+                | _ -> None
 
             | LogicalPlan.Distinct(input, None, keep, maintainOrder) ->
                 recurse key input |> Option.map (fun reduced -> LogicalPlan.Distinct(reduced, None, keep, maintainOrder))

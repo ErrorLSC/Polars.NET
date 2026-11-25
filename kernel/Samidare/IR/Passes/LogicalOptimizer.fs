@@ -11,6 +11,7 @@ module internal LogicalOptimizer =
         |> FilterNullSimplification.apply
         |> PredicatePushdown.apply
         |> ConstantFilterFolding.apply
+        |> JoinKeyPredicateTransfer.apply
         |> ProjectionPruning.apply
         |> OuterJoinSimplification.apply
         |> AntiJoinRecognition.apply

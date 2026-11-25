@@ -62,10 +62,15 @@ public class SqlEndToEndTests
     [InlineData("SELECT k FROM t UNION SELECT k FROM u ORDER BY k")]
     [InlineData("SELECT k FROM t INTERSECT SELECT k FROM u ORDER BY k")]
     [InlineData("SELECT k FROM u EXCEPT SELECT k FROM t ORDER BY k")]
+    [InlineData("SELECT k FROM t INTERSECT SELECT k FROM u EXCEPT SELECT o FROM t ORDER BY k")]
+    [InlineData("SELECT g, k FROM t INTERSECT SELECT k, k FROM u ORDER BY g, k")]
     // Aggregates: DISTINCT counts skip NULL, empty sums are NULL, MIN and MAX put NaN above every number.
     [InlineData("SELECT g, count(DISTINCT k) AS n, count(k) AS c, count(*) AS r, sum(d) AS s, min(x) AS lo, max(x) AS hi, avg(d) AS a FROM t GROUP BY g ORDER BY g")]
     [InlineData("SELECT g, k, sum(d) AS s, grouping(k) AS gk FROM t GROUP BY ROLLUP (g, k) ORDER BY g, k, gk")]
     [InlineData("SELECT g, sum(d * 2 + o) AS s, sum(k + o) AS t, sum(d * 2 + o) + sum(k * 1) AS u FROM t GROUP BY g ORDER BY g")]
+    [InlineData("SELECT avg(d * 2 + o) AS a, sum(d * o) AS s, count(d * o) AS c, count(*) AS n FROM t")]
+    [InlineData("SELECT avg(d * 2) AS a FROM t WHERE d IS NULL")]
+    [InlineData("SELECT g, sum(d * o) AS s, avg(d + o) AS a FROM t GROUP BY ROLLUP (g) ORDER BY g")]
     [InlineData("SELECT o, (SELECT sum(d) FROM t t2 WHERE t2.g = t.g AND t2.k > 5) AS none FROM t ORDER BY g, o")]
     // Expressions: division by zero is NULL, casts round, NULL in || and concat, LIKE with escapes, IN with NULL.
     [InlineData("SELECT CAST(d AS INTEGER) AS i, CAST(-2.5 AS INTEGER) AS m FROM t ORDER BY g, o")]

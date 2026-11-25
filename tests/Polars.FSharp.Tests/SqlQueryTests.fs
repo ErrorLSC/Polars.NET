@@ -164,10 +164,21 @@ module SqlQueryTests =
         let union = translate "SELECT ss_qty FROM sales UNION ALL SELECT s_id FROM store"
         Assert.Equal<(string * LogicalType) list>([ "ss_qty", LogicalTypes.Int64 ], union.Columns)
         Assert.True(nodes union.Plan |> List.exists (function LogicalPlan.Union(_, _, true) -> true | _ -> false))
-        // INTERSECT: the left's distinct rows with an equal right row, NULL equal to NULL.
-        match nodes (translate "SELECT s_id FROM store INTERSECT SELECT ss_store FROM sales").Plan |> List.tryPick (function LogicalPlan.Distinct(LogicalPlan.Join(_, _, _, _, kind, _, _, nullsEqual), _, _, _) -> Some(kind, nullsEqual) | _ -> None) with
-        | Some(JoinKind.Semi, true) -> ()
-        | other -> failwithf "unexpected %A" other
+        // INTERSECT: the left's distinct rows with an equal right row, NULL equal to NULL; each side distinct before
+        // the join, and a side that is a set operation's result left as it is.
+        let semiOfDistincts plan =
+            nodes plan
+            |> List.choose (function
+                | LogicalPlan.Join(left, right, _, _, kind, _, _, nullsEqual) ->
+                    let isDistinct p = match p with LogicalPlan.Distinct _ -> true | _ -> false
+                    Some(kind, nullsEqual, isDistinct left, isDistinct right)
+                | _ -> None)
+        Assert.Equal<(JoinKind * bool * bool * bool) list>(
+            [ JoinKind.Semi, true, true, true ],
+            semiOfDistincts (translate "SELECT s_id FROM store INTERSECT SELECT ss_store FROM sales").Plan)
+        Assert.Equal<(JoinKind * bool * bool * bool) list>(
+            [ JoinKind.Anti, true, false, true; JoinKind.Semi, true, true, true ],
+            semiOfDistincts (translate "SELECT s_id FROM store INTERSECT SELECT ss_store FROM sales EXCEPT SELECT i_id FROM item").Plan)
         Assert.StartsWith("The two sides of UNION give 2 and 1 columns", (fails "SELECT s_id, s_name FROM store UNION SELECT i_id FROM item").Message)
 
     [<Fact>]

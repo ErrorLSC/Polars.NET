@@ -80,7 +80,8 @@ module internal PolarsPhysicalLowerer =
 
     /// A SumOrNull is lowered as a count and a sum of its argument (PolarsScalarLowerer), and the engine computes an
     /// argument twice when it is an expression. One that does arithmetic or calls a function is computed once instead,
-    /// as a column of the grouping's input (TPC-DS Q4's decimal arithmetic per row: about half the grouping's time).
+    /// as a column of the aggregation's input (a grouping, grouping sets, or a projection of aggregates): TPC-DS Q4's
+    /// decimal arithmetic per row was about half the grouping's time.
     let private hoistSumOrNullArguments (input: LogicalPlan) (aggs: (string * ScalarExpr) list) =
         let rec isCheap (expr: ScalarExpr) =
             match expr with
@@ -89,18 +90,35 @@ module internal PolarsPhysicalLowerer =
             | ScalarExpr.Cast(inner, _, _) -> isCheap inner
             | _ -> false
         let hoisted = ResizeArray<string * ScalarExpr>()
-        let rec rewrite (expr: ScalarExpr) =
+        let rec collect (expr: ScalarExpr) =
             match expr with
             | ScalarExpr.Aggregation(AggKind.SumOrNull, Some argument, false) when not (isCheap argument) ->
-                let name =
+                if not (hoisted |> Seq.exists (fun (_, e) -> e = argument)) then
+                    hoisted.Add($"__sum_or_null_argument_{hoisted.Count}", argument)
+            | ScalarExpr.Aggregation _ -> ()
+            | other -> ScalarExprOps.children other |> List.iter collect
+        aggs |> List.iter (snd >> collect)
+        // Every aggregate of a hoisted argument reads the column (AVG is a SumOrNull over a Count of the same value). A
+        // count also reads it when its argument is the hoisted one before casts that keep every value: their nulls
+        // are the same rows (SQL's AVG sums the value in a wider decimal than it counts).
+        let schema = lazy (SchemaInference.inferPlanSchema input)
+        let rec withoutWidening (expr: ScalarExpr) =
+            match expr with
+            | ScalarExpr.Cast(inner, target, _) when FilterShapes.castKeepsValuesOf (SchemaInference.inferScalarType schema.Value inner) target ->
+                withoutWidening inner
+            | other -> other
+        let rec rewrite (expr: ScalarExpr) =
+            match expr with
+            | ScalarExpr.Aggregation(kind, Some argument, distinct) ->
+                let same =
                     match hoisted |> Seq.tryFind (fun (_, e) -> e = argument) with
-                    | Some(name, _) -> name
-                    | None ->
-                        let name = $"__sum_or_null_argument_{hoisted.Count}"
-                        hoisted.Add(name, argument)
-                        name
-                ScalarExpr.Aggregation(AggKind.SumOrNull, Some(ScalarExpr.Column name), false)
-            | ScalarExpr.Aggregation _ -> expr
+                    | Some found -> Some found
+                    | None when kind = AggKind.Count && not distinct ->
+                        hoisted |> Seq.tryFind (fun (_, e) -> withoutWidening e = withoutWidening argument)
+                    | None -> None
+                match same with
+                | Some(name, _) -> ScalarExpr.Aggregation(kind, Some(ScalarExpr.Column name), distinct)
+                | None -> expr
             | ScalarExpr.Alias(inner, alias) -> ScalarExpr.Alias(rewrite inner, alias)
             | ScalarExpr.Cast(inner, target, strict) -> ScalarExpr.Cast(rewrite inner, target, strict)
             | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, rewrite inner)
@@ -147,6 +165,9 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyFilter(lf, exprH)
 
         | LogicalPlan.Project(input, projs) ->
+            let input, projs =
+                if projs |> List.exists (snd >> ScalarExprOps.containsAggregation) then hoistSumOrNullArguments input projs
+                else input, projs
             let lf = lowerNode sources shared input
             let exprs =
                 projs
@@ -252,6 +273,8 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyGroupByAgg(lf, keyHs, aggHs, havingH, maintainOrder)
 
         | LogicalPlan.GroupingSets(input, spec) ->
+            let input, aggs = hoistSumOrNullArguments input spec.Aggs
+            let spec = { spec with Aggs = aggs }
             // Every level groups the same input: it is computed once. (An explicit cache also turns off Polars'
             // own common-subplan elimination for the whole plan, so subplans the plan reuses must be explicit
             // too; see LogicalPlan.Shared.)

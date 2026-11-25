@@ -133,10 +133,12 @@ module SemiJoinReductionTests =
         Assert.Equal(plan, SemiJoinReduction.apply sources plan)
 
     [<Fact>]
-    let ``A shared subplan is not reduced for one consumer`` () =
+    let ``A shared subplan is reduced in a copy of its own for one consumer`` () =
+        // The other consumers keep the shared subplan as it is.
         let plan = inner (LogicalPlan.Shared(0, inner facts returns "f_k" "r_k")) selective "f_k" "d_k"
 
-        Assert.Equal(plan, SemiJoinReduction.apply sources plan)
+        let expected = inner (inner (semi facts "f_k") (semi returns "r_k") "f_k" "r_k") selective "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply sources plan)
 
     type private MeasuredTable(name: string, schema: LogicalSchema, rows: int64, column: string, statistics: ColumnStatistics, ranges: (string * (LiteralValue * LiteralValue)) list) =
         interface ILogicalTableSource with
@@ -406,3 +408,24 @@ module SemiJoinReductionTests =
         let plan = composite (inner sales oneYear "s_d" "y_k") grouped [ "s_i"; "y_k" ] [ "t_i"; "t_d" ]
 
         Assert.Equal(plan, applyComposite plan)
+
+    /// A range of the dimension's column, which counts as selective whatever its fixed selectivities say.
+    let private dimRange =
+        let bound op (value: int) = ScalarExpr.Binary(op, col "d_a", ScalarExpr.Literal(LiteralValue.Int32 value))
+        LogicalPlan.Filter(LogicalPlan.Filter(dims, bound BinaryOp.GtEq 1), bound BinaryOp.LtEq 3)
+
+    let private totalsByKey input = LogicalPlan.GroupBy(input, [ col "f_k" ], [ "t", ScalarExpr.Aggregation(AggKind.Sum, Some(col "f_v"), false) ], None, true)
+
+    [<Fact>]
+    let ``A shared plan reached by a selective table's keys is copied for the consumer and reduced`` () =
+        let plan = inner (LogicalPlan.Shared(4, totalsByKey facts)) dimRange "f_k" "d_k"
+
+        let reduced = LogicalPlan.Join(facts, dimRange, [ col "f_k" ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let expected = inner (totalsByKey reduced) dimRange "f_k" "d_k"
+        Assert.Equal(expected, SemiJoinReduction.apply [| factsWithKeyRange 1000.0; sources.[1]; dimsWithKeyRange |] plan)
+
+    [<Fact>]
+    let ``A shared plan is not copied for a table that keeps most of its facts`` () =
+        // The facts use a hundredth of the dimension's keys: the range may keep all of them.
+        let plan = inner (LogicalPlan.Shared(4, totalsByKey facts)) dimRange "f_k" "d_k"
+        Assert.Equal(plan, SemiJoinReduction.apply [| factsWithKeyRange 10.0; sources.[1]; dimsWithKeyRange |] plan)

@@ -85,6 +85,7 @@
     <Compile Include="IR/Passes/PredicatePushdown.fs" />
     <Compile Include="IR/Passes/ConstantFilterFolding.fs" />
     <Compile Include="IR/Passes/SharedConsumerFilters.fs" />
+    <Compile Include="IR/Passes/JoinKeyPredicateTransfer.fs" />
     <Compile Include="IR/Passes/ProjectionPruning.fs" />
     <Compile Include="IR/Passes/GroupOrderRelaxation.fs" />
     <Compile Include="IR/Passes/JoinReordering.fs" />

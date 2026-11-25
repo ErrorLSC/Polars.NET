@@ -366,11 +366,19 @@ module internal SqlQueries =
                 match op, all with
                 | SqlSetOp.Union, _ -> LogicalPlan.Union(lp, rp, all)
                 | (SqlSetOp.Intersect | SqlSetOp.Except), false ->
-                    // Distinct rows of the left with (without) an equal row on the right; NULL equals NULL here.
+                    // Distinct rows of the left with (without) an equal row on the right; NULL equals NULL here. The
+                    // join only filters the left's rows, so they are made distinct before it, and the right only
+                    // answers whether a row exists: each side is a Distinct over its own plan, which eager aggregation
+                    // computes on the fact table's keys (TPC-DS Q14's cross_items intersects three channels' items).
+                    // A side that is itself a set operation's result is distinct already.
+                    let distinct (b: SqlBound) (plan: LogicalPlan) =
+                        match b.Plan with
+                        | LogicalPlan.Join(_, _, _, _, (JoinKind.Semi | JoinKind.Anti), _, _, true)
+                        | LogicalPlan.Union(_, _, false) -> plan
+                        | _ -> LogicalPlan.Distinct(plan, None, DistinctKeep.Any, false)
                     let keys = outputs |> List.map (fun o -> col o.Internal, col o.Internal)
                     let kind = if op = SqlSetOp.Intersect then JoinKind.Semi else JoinKind.Anti
-                    let joined = LogicalPlan.Join(lp, rp, keys |> List.map fst, keys |> List.map snd, kind, None, JoinKeyCoalescing.Default, true)
-                    LogicalPlan.Distinct(joined, None, DistinctKeep.Any, false)
+                    LogicalPlan.Join(distinct l lp, distinct r rp, keys |> List.map fst, keys |> List.map snd, kind, None, JoinKeyCoalescing.Default, true)
                 | _ -> fail t span $"{op.ToString().ToUpperInvariant()} ALL is not supported" None
             { Plan = plan; Columns = outputs }
 
