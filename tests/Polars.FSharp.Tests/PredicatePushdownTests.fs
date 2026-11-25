@@ -73,6 +73,26 @@ module PredicatePushdownTests =
         Assert.Equal(onAggregate, PredicatePushdown.apply onAggregate)
 
     [<Fact>]
+    let ``A disjunction testing keys in every branch takes what it implies about them past a grouping`` () =
+        let grouped = LogicalPlan.GroupBy(left, [ ScalarExpr.Alias(col "k", "key") ], [ "s", sum ], None, true)
+        let eq name (value: int) = ScalarExpr.Binary(BinaryOp.Eq, col name, ScalarExpr.Literal(LiteralValue.Int32 value))
+        let orOf a b = ScalarExpr.Binary(BinaryOp.Or, a, b)
+        let andOf a b = ScalarExpr.Binary(BinaryOp.And, a, b)
+        // (key = 1 AND s > 0) OR key = 2 OR key = 1: the keys are 1 or 2, each test once.
+        let predicate = orOf (orOf (andOf (eq "key" 1) (gt "s" 0)) (eq "key" 2)) (eq "key" 1)
+        let expected =
+            LogicalPlan.Filter(
+                LogicalPlan.GroupBy(LogicalPlan.Filter(left, orOf (eq "k" 1) (eq "k" 2)), [ ScalarExpr.Alias(col "k", "key") ], [ "s", sum ], None, true),
+                predicate)
+        let once = PredicatePushdown.apply (LogicalPlan.Filter(grouped, predicate))
+        Assert.Equal(expected, once)
+        // Optimizing again adds no second copy of the implied filter.
+        Assert.Equal(expected, PredicatePushdown.apply once)
+        // A branch with nothing on the keys implies nothing.
+        let unbounded = LogicalPlan.Filter(grouped, orOf (eq "key" 1) (gt "s" 0))
+        Assert.Equal(unbounded, PredicatePushdown.apply unbounded)
+
+    [<Fact>]
     let ``Sort and distinct let a predicate through, a distinct only on its subset`` () =
         let order = [ { SortOrder.Expr = col "k"; Descending = false; NullsLast = false } ]
         Assert.Equal(

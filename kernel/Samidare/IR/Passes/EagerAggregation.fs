@@ -269,6 +269,13 @@ module internal EagerAggregation =
             | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, final left, final right)
             | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> ScalarExpr.Conditional(final test, final ifTrue, final ifFalse)
             | ScalarExpr.Coalesce items -> ScalarExpr.Coalesce(items |> List.map final)
+            // A widening cast of the guarded value (SQL sums decimals in a wider type): cast inside the guard, the same
+            // values, since the cast keeps every value and cannot fail.
+            | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some(ScalarExpr.Cast(ScalarExpr.Conditional(test, value, ScalarExpr.Literal(LiteralValue.Null _)), target, strict)), false) when
+                FilterShapes.castKeepsValuesOf (SchemaInference.inferScalarType schema value) target
+                ->
+                let guardedCast = ScalarExpr.Conditional(test, ScalarExpr.Cast(value, target, strict), ScalarExpr.Literal(LiteralValue.Null target))
+                final (ScalarExpr.Aggregation(kind, Some guardedCast, false))
             | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some(ScalarExpr.Conditional(test, value, (ScalarExpr.Literal(LiteralValue.Null _) as none))), false) when
                 readable value
                 && isExactNumber schema value

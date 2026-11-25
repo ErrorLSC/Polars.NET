@@ -13,12 +13,15 @@ module internal PolarsSql =
     let plan (catalog: ISqlCatalog) (text: string) : LogicalPlan * SourceBinding array =
         let backend = PolarsQueryBackend.Instance
         let sql = SqlQueries.translate catalog backend.SupportsAssertions text
-        // The frontend shares a common table expression's plan among the references that keep it whole; filters move
-        // down first (a shared plan is a barrier to pushdown), the rest of the optimization after.
+        // The frontend shares a common table expression's plan among its references; their filters move down to it
+        // first (a shared plan is a barrier to pushdown), constant ones drop the branches of unions they empty, and the
+        // shared plan is filtered by what its references read. The rest of the optimization comes after.
         let optimized =
             EnumResolution.resolvePlan sql.Plan
             |> FilterNullSimplification.apply
             |> PredicatePushdown.apply
+            |> ConstantFilterFolding.apply
+            |> SharedConsumerFilters.apply
             |> LogicalOptimizer.optimizeComplete SamidareConfig.AllowUnstableOrdering SamidareConfig.CollectColumnStatistics sql.Sources
         optimized, sql.Sources
 

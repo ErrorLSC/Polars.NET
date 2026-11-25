@@ -78,6 +78,39 @@ module internal PolarsPhysicalLowerer =
         | LogicalPlan.Rename(input, _, _) -> slicesOrderedGroups input
         | _ -> false
 
+    /// A SumOrNull is lowered as a count and a sum of its argument (PolarsScalarLowerer), and the engine computes an
+    /// argument twice when it is an expression. One that does arithmetic or calls a function is computed once instead,
+    /// as a column of the grouping's input (TPC-DS Q4's decimal arithmetic per row: about half the grouping's time).
+    let private hoistSumOrNullArguments (input: LogicalPlan) (aggs: (string * ScalarExpr) list) =
+        let rec isCheap (expr: ScalarExpr) =
+            match expr with
+            | ScalarExpr.Column _
+            | ScalarExpr.Literal _ -> true
+            | ScalarExpr.Cast(inner, _, _) -> isCheap inner
+            | _ -> false
+        let hoisted = ResizeArray<string * ScalarExpr>()
+        let rec rewrite (expr: ScalarExpr) =
+            match expr with
+            | ScalarExpr.Aggregation(AggKind.SumOrNull, Some argument, false) when not (isCheap argument) ->
+                let name =
+                    match hoisted |> Seq.tryFind (fun (_, e) -> e = argument) with
+                    | Some(name, _) -> name
+                    | None ->
+                        let name = $"__sum_or_null_argument_{hoisted.Count}"
+                        hoisted.Add(name, argument)
+                        name
+                ScalarExpr.Aggregation(AggKind.SumOrNull, Some(ScalarExpr.Column name), false)
+            | ScalarExpr.Aggregation _ -> expr
+            | ScalarExpr.Alias(inner, alias) -> ScalarExpr.Alias(rewrite inner, alias)
+            | ScalarExpr.Cast(inner, target, strict) -> ScalarExpr.Cast(rewrite inner, target, strict)
+            | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, rewrite inner)
+            | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, rewrite left, rewrite right)
+            | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> ScalarExpr.Conditional(rewrite test, rewrite ifTrue, rewrite ifFalse)
+            | ScalarExpr.Coalesce items -> ScalarExpr.Coalesce(items |> List.map rewrite)
+            | other -> other
+        let rewritten = aggs |> List.map (fun (name, expr) -> name, rewrite expr)
+        if hoisted.Count = 0 then input, aggs else LogicalPlan.WithColumns(input, List.ofSeq hoisted), rewritten
+
     let rec private lowerNode
         (sources: SourceBinding array)
         (shared: Collections.Generic.Dictionary<int, LazyFrameHandle>)
@@ -206,6 +239,7 @@ module internal PolarsPhysicalLowerer =
             )
 
         | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
+            let input, aggs = hoistSumOrNullArguments input aggs
             let lf = lowerNode sources shared input
             let keyHs = keys |> List.map PolarsScalarLowerer.lower |> List.toArray
             let aggHs =

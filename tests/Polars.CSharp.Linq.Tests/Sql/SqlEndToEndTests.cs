@@ -65,6 +65,7 @@ public class SqlEndToEndTests
     // Aggregates: DISTINCT counts skip NULL, empty sums are NULL, MIN and MAX put NaN above every number.
     [InlineData("SELECT g, count(DISTINCT k) AS n, count(k) AS c, count(*) AS r, sum(d) AS s, min(x) AS lo, max(x) AS hi, avg(d) AS a FROM t GROUP BY g ORDER BY g")]
     [InlineData("SELECT g, k, sum(d) AS s, grouping(k) AS gk FROM t GROUP BY ROLLUP (g, k) ORDER BY g, k, gk")]
+    [InlineData("SELECT g, sum(d * 2 + o) AS s, sum(k + o) AS t, sum(d * 2 + o) + sum(k * 1) AS u FROM t GROUP BY g ORDER BY g")]
     [InlineData("SELECT o, (SELECT sum(d) FROM t t2 WHERE t2.g = t.g AND t2.k > 5) AS none FROM t ORDER BY g, o")]
     // Expressions: division by zero is NULL, casts round, NULL in || and concat, LIKE with escapes, IN with NULL.
     [InlineData("SELECT CAST(d AS INTEGER) AS i, CAST(-2.5 AS INTEGER) AS m FROM t ORDER BY g, o")]
@@ -77,6 +78,10 @@ public class SqlEndToEndTests
     [InlineData("SELECT t.g, t.o, u.label FROM t JOIN u USING (k) ORDER BY t.g, t.o, u.label")]
     [InlineData("SELECT t.g, t.o, u.label FROM t LEFT JOIN u ON t.k = u.k AND u.label <> 'deux' ORDER BY t.g, t.o, u.label")]
     [InlineData("SELECT u.label, t.o FROM t RIGHT JOIN u ON t.k = u.k ORDER BY u.label, t.o")]
+    // Constant filters: a channel picked out of a union of marked branches, a count over a branch kept empty.
+    [InlineData("WITH c AS (SELECT g, sum(d) AS v, 'x' AS ch FROM t GROUP BY g UNION ALL SELECT k AS g, count(*) AS v, 'y' AS ch FROM u GROUP BY k) SELECT a.g, a.v, b.v AS w FROM c a JOIN c b ON a.g = b.g WHERE a.ch = 'y' AND b.ch = 'x' ORDER BY a.g")]
+    [InlineData("SELECT count(*) AS n, sum(d) AS s, 'x' AS ch FROM t WHERE 1 = 2 UNION ALL SELECT count(*), sum(d), 'y' FROM t WHERE 1999 + 2 = 2001 ORDER BY ch")]
+    [InlineData("SELECT * FROM (SELECT g, 'x' AS ch FROM t UNION ALL SELECT k, 'y' FROM u) v WHERE ch = 'z' ORDER BY g")]
     public void Gives_DuckDBs_rows(string sql)
     {
         var (dir, catalog) = Data.Value;

@@ -177,6 +177,24 @@ module SqlQueryTests =
         | [ (LogicalPlan.Project(left, _), LogicalPlan.Project(right, _), _, _, JoinKind.Inner, _) ] -> Assert.Equal(left, right)
         | other -> failwithf "unexpected %A" other
 
+    let private sharedOf (plan: LogicalPlan) =
+        nodes plan |> List.choose (function LogicalPlan.Shared(id, body) -> Some(id, body) | _ -> None)
+
+    [<Fact>]
+    let ``Filtered references share a common table expression`` () =
+        // The optimizer filters the shared plan by what they read (SharedConsumerFilters).
+        let plan =
+            (translate "WITH c AS (SELECT ss_store, sum(ss_qty) AS q FROM sales GROUP BY ss_store) SELECT a.q, b.q FROM c a, c b WHERE a.ss_store = b.ss_store AND a.ss_store = 1 AND b.ss_store = 2").Plan
+        match sharedOf plan with
+        | [ (one, first); (other, second) ] when one = other -> Assert.Equal(first, second)
+        | other -> failwithf "unexpected %A" other
+
+    [<Fact>]
+    let ``Filters that select branches of a union take copies of the common table expression`` () =
+        let text =
+            "WITH c AS (SELECT ss_store AS k, ss_qty AS q, 's' AS t FROM sales UNION ALL SELECT s_id, 1, 'x' FROM store) SELECT a.q, b.q FROM c a, c b WHERE a.k = b.k AND a.t = 's' AND b.t = 'x'"
+        Assert.Empty(sharedOf (translate text).Plan)
+
     // ----------------------------------------------------------------------------------------------------------
     // Subqueries
     // ----------------------------------------------------------------------------------------------------------

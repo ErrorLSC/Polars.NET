@@ -262,6 +262,33 @@ module SemiJoinReductionTests =
         Assert.Equal(expected, SemiJoinReduction.apply sources plan)
 
     [<Fact>]
+    let ``A semi join's small left input filters an expensive right input`` () =
+        let semiOnKey left right = LogicalPlan.Join(left, right, [ col "d_k" ], [ col "key" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let plan = semiOnKey selective (distinctKeys (inner facts returns "f_k" "r_k"))
+
+        let shared = LogicalPlan.Shared(0, selective)
+        let keys = LogicalPlan.Project(shared, [ "d_k", col "d_k" ])
+        let expected = semiOnKey shared (distinctKeys (inner (semiByKeys keys facts "f_k") (semiByKeys keys returns "r_k") "f_k" "r_k"))
+        Assert.Equal(expected, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A shared plan on the right joining on the key is copied for the consumer and reduced`` () =
+        let sharedJoin = LogicalPlan.Shared(4, inner facts returns "f_k" "r_k")
+        let plan = joinOnKey selective (distinctKeys sharedJoin)
+
+        let shared = LogicalPlan.Shared(5, selective)
+        let keys = LogicalPlan.Project(shared, [ "d_k", col "d_k" ])
+        let expected = joinOnKey shared (distinctKeys (inner (semiByKeys keys facts "f_k") (semiByKeys keys returns "r_k") "f_k" "r_k"))
+        Assert.Equal(expected, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
+    let ``A shared plan whose copy would filter a table near the key set's size is left alone`` () =
+        // About 5,000 return keys against 26,000 dimension rows: the copy would compute most of the shared plan again.
+        let returnKeys = LogicalPlan.Filter(LogicalPlan.Filter(returns, eq "r_t" 1), eq "r_t" 2)
+        let plan = inner returnKeys (distinctKeys (LogicalPlan.Shared(4, inner facts dims "f_k" "d_k"))) "r_k" "key"
+        Assert.Equal(plan, SemiJoinReduction.apply sources plan)
+
+    [<Fact>]
     let ``A right input with nothing expensive is left alone`` () =
         let plan = joinOnKey selective (distinctKeys facts)
         Assert.Equal(plan, SemiJoinReduction.apply sources plan)

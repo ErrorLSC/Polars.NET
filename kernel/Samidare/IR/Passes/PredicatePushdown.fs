@@ -27,6 +27,29 @@ module internal PredicatePushdown =
             || ScalarExprOps.dependsOnOtherRows expr
         )
 
+    /// A predicate over the `allowed` columns that holds wherever `pred` does, as strong as its AND / OR shape gives:
+    /// `(k = 1 AND sum > 0) OR k = 2` implies `k = 1 OR k = 2`. None when a branch of an OR has no part over them.
+    let rec private impliedOn (allowed: Set<string>) (pred: ScalarExpr) : ScalarExpr option =
+        match pred with
+        | ScalarExpr.Binary(BinaryOp.Or, left, right) ->
+            let rec disjuncts (e: ScalarExpr) =
+                match e with
+                | ScalarExpr.Binary(BinaryOp.Or, l, r) -> disjuncts l @ disjuncts r
+                | other -> [ other ]
+            match impliedOn allowed left, impliedOn allowed right with
+            | Some l, Some r ->
+                disjuncts l @ disjuncts r |> List.distinct |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.Or, a, b)) |> Some
+            | _ -> None
+        | ScalarExpr.Binary(BinaryOp.And, left, right) ->
+            match impliedOn allowed left, impliedOn allowed right with
+            | Some l, Some r -> Some(ScalarExpr.Binary(BinaryOp.And, l, r))
+            | Some one, None
+            | None, Some one -> Some one
+            | None, None -> None
+        | _ ->
+            let columns = ScalarExprOps.collectColumns pred
+            if not columns.IsEmpty && Set.isSubset columns allowed && isRowLocal pred then Some pred else None
+
     /// Attempts to push a single conjunct predicate down into a target plan.
     let rec pushdownConjunct (pred: ScalarExpr) (plan: LogicalPlan) : LogicalPlan =
         match pred with
@@ -43,6 +66,9 @@ module internal PredicatePushdown =
             let refCols = ScalarExprOps.collectColumns pred
 
             match plan with
+            // 0. A filter that already holds this conjunct (one pushed down by an earlier run of the pass).
+            | LogicalPlan.Filter(_, existing) when splitConjuncts existing |> List.contains pred -> plan
+
             // 1. Pushdown through Union: σ_p(R ∪ S) ≡ σ_p(R) ∪ σ_p(S)
             | LogicalPlan.Union(left, right, isAll) ->
                 let leftPushed = pushdownConjunct pred left
@@ -151,11 +177,16 @@ module internal PredicatePushdown =
                         | _ -> None)
                     |> Map.ofList
 
+                let onInput (keyPred: ScalarExpr) = ScalarExprOps.substitute (fun column -> keyExprs.TryFind column) keyPred
                 if not refCols.IsEmpty && refCols |> Set.forall keyExprs.ContainsKey then
-                    let onInput = ScalarExprOps.substitute (fun column -> keyExprs.TryFind column) pred
-                    LogicalPlan.GroupBy(pushdownConjunct onInput input, keys, aggs, having, maintainOrder)
+                    LogicalPlan.GroupBy(pushdownConjunct (onInput pred) input, keys, aggs, having, maintainOrder)
                 else
-                    LogicalPlan.Filter(plan, pred)
+                    // A disjunction whose every branch tests keys (beside aggregates) still drops whole groups by
+                    // what it implies about the keys; the predicate itself stays above.
+                    match impliedOn (keyExprs |> Map.keys |> Set.ofSeq) pred with
+                    | Some keyPred ->
+                        LogicalPlan.Filter(LogicalPlan.GroupBy(pushdownConjunct (onInput keyPred) input, keys, aggs, having, maintainOrder), pred)
+                    | None -> LogicalPlan.Filter(plan, pred)
 
             // Base case: cannot push down further
             | _ ->

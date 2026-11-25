@@ -219,13 +219,58 @@ module internal SqlQueries =
         let r = reads conjunct
         not r.IsEmpty && Set.isSubset r columns && not (ScalarExprOps.containsOuterColumn conjunct)
 
-    /// A common table expression's reference with filters of its own takes its own copy of the plan, which the filters
-    /// move into (a shared plan is a barrier to them, and sharing the part of the copies the filters leave alike
-    /// would compute it whole: TPC-DS Q4, Q11, Q39). References without filters share one plan (Q14, Q95).
-    let private unshareFiltered (plan: LogicalPlan) =
-        match plan with
-        | LogicalPlan.Project(LogicalPlan.Shared(_, body), renames) -> LogicalPlan.Project(body, renames)
-        | other -> other
+    /// The plan with copies of a common table expression's plan for the references whose filters select branches of
+    /// a UNION ALL in it.
+    ///
+    /// Every reference of a common table expression holds its shared plan, which the optimizer filters by what its
+    /// references read (`SharedConsumerFilters`): TPC-DS Q64 reads its cross_sales once per year, one computation over
+    /// both years. A filter that tests a column the plan gives as a literal (a branch of a union marked by
+    /// `'s' AS sale_type`) selects branches, which it cannot drop behind a shared plan's barrier: then each filtered
+    /// reference takes its own copy, where constant folding drops the branches it does not read, and the references
+    /// without filters share the plan. Q4 and Q11 read a union of channels' yearly totals once per channel and year:
+    /// sharing even the branches (two references per channel, each a year) saves no work, and the engine computes
+    /// shared plans one after another, where copies run side by side (Q4: 590 ms in copies, 1090 shared by branch).
+    let private unshareSelectingBranches (plan: LogicalPlan) : LogicalPlan =
+        let selectsBranches = HashSet<int>()
+        let visited = HashSet<int>()
+        /// The output columns a plan gives as a literal in some row source: through projections, filters and unions.
+        let rec literalColumns (p: LogicalPlan) : Set<string> =
+            match p with
+            | LogicalPlan.Project(input, columns) ->
+                let below = literalColumns input
+                columns
+                |> List.choose (fun (name, expr) ->
+                    match expr with
+                    | ScalarExpr.Literal _ -> Some name
+                    | ScalarExpr.Column source when below.Contains source -> Some name
+                    | _ -> None)
+                |> Set.ofList
+            | LogicalPlan.Filter(input, _) -> literalColumns input
+            | LogicalPlan.Union(left, right, true) -> Set.union (literalColumns left) (literalColumns right)
+            | _ -> Set.empty
+        let rec visit (p: LogicalPlan) =
+            match p with
+            | LogicalPlan.Filter(LogicalPlan.Project(LogicalPlan.Shared(id, body), renames), predicate) ->
+                let literals = literalColumns body
+                let read = ScalarExprOps.collectColumns predicate
+                let selects =
+                    renames
+                    |> List.exists (fun (name, expr) ->
+                        match expr with
+                        | ScalarExpr.Column source -> literals.Contains source && read.Contains name
+                        | _ -> false)
+                if selects then selectsBranches.Add id |> ignore
+                share id body
+            | LogicalPlan.Shared(id, body) -> share id body
+            | other -> LogicalPlanOps.getInputs other |> List.iter visit
+        and share id body = if visited.Add id then visit body
+        visit plan
+        let rec rewrite (p: LogicalPlan) =
+            match p with
+            | LogicalPlan.Filter(LogicalPlan.Project(LogicalPlan.Shared(id, body), renames), predicate) when selectsBranches.Contains id ->
+                LogicalPlan.Filter(LogicalPlan.Project(rewrite body, renames), predicate)
+            | other -> LogicalPlanOps.mapInputs rewrite other
+        if selectsBranches.Count = 0 then plan else rewrite plan
 
     /// The plan with a shared plan that only one reference holds made plain: a shared plan is computed once and kept,
     /// which keeps the engine from optimizing across it.
@@ -388,8 +433,8 @@ module internal SqlQueries =
                     { Name = (if i < renames.Length then renames.[i].Text else n); Internal = internalName; Type = ty; Unqualified = true })
             match env.Ctes |> List.tryFind (fun (cte, _, _) -> SqlNames.matches part cte.Text) with
             | Some(_, bound, id) ->
-                // A reference of its own: the CTE's plan, shared by every reference that keeps it whole (see
-                // `unshareFiltered` and `unshareSingle`), under fresh names.
+                // A reference of its own: the CTE's plan, shared by every reference (see `unshareSelectingBranches` and
+                // `unshareSingle`), under fresh names.
                 let renamed = bound.Columns |> List.map (fun o -> o.Name, t.Fresh o.Name, o.Type)
                 let body = if LogicalPlanOps.containsSubqueries bound.Plan then bound.Plan else LogicalPlan.Shared(id, bound.Plan)
                 let plan = LogicalPlan.Project(body, List.map2 (fun (_, fresh, _) (o: SqlOutput) -> fresh, col o.Internal) renamed bound.Columns)
@@ -527,7 +572,7 @@ module internal SqlQueries =
         match node with
         | FromNode.Leaf(plan, rs) ->
             let mine, rest = outside |> List.partition (within (relationColumns rs))
-            (if mine.IsEmpty then plan else LogicalPlan.Filter(unshareFiltered plan, conjoin mine)), rest
+            (if mine.IsEmpty then plan else LogicalPlan.Filter(plan, conjoin mine)), rest
         | FromNode.Group(items, conditions) ->
             let mine, rest = outside |> List.partition (within (relationColumns (relationsOf node)))
             let all = conditions @ mine
@@ -873,6 +918,6 @@ module internal SqlQueries =
                     c.Name)
         let plan = LogicalPlan.Project(bound.Plan, List.map2 (fun name (c: SqlOutput) -> name, col c.Internal) names bound.Columns)
         let options: Passes.Decorrelation.Options = { Fresh = t.Fresh; SupportsAssertions = supportsAssertions }
-        match Passes.Decorrelation.tryPlan options plan with
+        match Passes.Decorrelation.tryPlan options (unshareSelectingBranches plan) with
         | Ok plan -> { Plan = unshareSingle plan; Sources = t.Sources; Columns = List.map2 (fun name (c: SqlOutput) -> name, c.Type) names bound.Columns }
         | Error reason -> raise (SqlException($"This subquery is not supported: {reason}", text, query.Span, None))

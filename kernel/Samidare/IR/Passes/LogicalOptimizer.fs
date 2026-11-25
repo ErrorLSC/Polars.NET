@@ -10,6 +10,7 @@ module internal LogicalOptimizer =
         plan
         |> FilterNullSimplification.apply
         |> PredicatePushdown.apply
+        |> ConstantFilterFolding.apply
         |> ProjectionPruning.apply
         |> OuterJoinSimplification.apply
         |> AntiJoinRecognition.apply

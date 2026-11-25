@@ -22,11 +22,12 @@ open Kaminari.Samidare.IR
 /// waste, as the probing costs little next to the joins it precedes.
 ///
 /// The reduction also runs the other way, when the left input is the small one: in `σ(f) ⋈ (s1 ⋈ s2)` an expensive right
-/// input is computed for every key though only the left's keys can match. The left input is then shared, to be computed
-/// once, and its keys filter the tables on the right. It needs a join on the key itself in the right input, whose two
-/// sides are both filtered: sharing the left input costs its filters their pushdown into the scans, which filtering one
-/// table does not repay. A shared table on the right is filtered above the shared node, which stays as it is for its
-/// other consumers.
+/// input is computed for every key though only the left's keys can match. The same holds for a semi join, as SQL's
+/// `IN (subquery)` is. The left input is then shared, to be computed once, and its keys filter the tables on the right.
+/// It needs a join on the key itself in the right input, whose two sides are both filtered: sharing the left input costs
+/// its filters their pushdown into the scans, which filtering one table does not repay. A shared plan on the right (a
+/// common table expression) that holds such a join is copied for this consumer and the copy reduced; the other
+/// consumers keep the shared plan. One that does not is filtered above the shared node.
 ///
 /// Column statistics can show a table to be selective when the fixed selectivities do not. Its share is then scaled by how
 /// much of its key range the other side uses, and the reduction must pass a large join: see `shareOfFacts` and
@@ -228,7 +229,24 @@ module internal SemiJoinReduction =
             | LogicalPlan.Scan _
             | LogicalPlan.Filter(LogicalPlan.Scan _, _) -> Some(filtered ())
 
-            | LogicalPlan.Shared _ when fromLeft -> Some(filtered ())
+            // Filtering a copy of the shared plan's tables pays when it reaches a join on the key with both sides
+            // filtered (see `apply`) and every table it filters is far larger than the key set: this consumer then
+            // computes its own reduced copy, the others keep the shared plan. A key set near a dimension's size keeps
+            // most of it, and the copy would compute the shared plan again. Otherwise the shared plan's rows are
+            // filtered.
+            | LogicalPlan.Shared(_, input) when fromLeft ->
+                let copyWorthIt = ref false
+                let keyRows = fst (estimate selective)
+                let rec filtersLargeTablesOnly (plan: LogicalPlan) =
+                    match plan with
+                    | LogicalPlan.Join(table, filter, _, _, JoinKind.Semi, _, _, _) when obj.ReferenceEquals(filter, selective) ->
+                        snd (estimate table) >= minKeySetReduction * keyRows
+                    | _ -> LogicalPlanOps.getInputs plan |> List.forall filtersLargeTablesOnly
+                match reduce fromLeft needsLargeJoin selective selectiveKey copyWorthIt key input with
+                | Some reduced when copyWorthIt.Value && filtersLargeTablesOnly reduced ->
+                    worthIt.Value <- true
+                    Some reduced
+                | _ -> Some(filtered ())
 
             | LogicalPlan.Distinct(input, None, keep, maintainOrder) ->
                 recurse key input |> Option.map (fun reduced -> LogicalPlan.Distinct(reduced, None, keep, maintainOrder))
@@ -331,7 +349,7 @@ module internal SemiJoinReduction =
                 | Some reduced when worthIt.Value ->
                     LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false)
                 | _ -> join
-            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], ([ ScalarExpr.Column rightKey ] as rightOn), JoinKind.Inner, suffix, coalescing, false) as join when
+            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], ([ ScalarExpr.Column rightKey ] as rightOn), (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
                 (tableRead right).IsNone && snd (estimate right) >= minKeySetReduction * fst (estimate left)
                 ->
                 let shared, reservedId =
@@ -343,7 +361,7 @@ module internal SemiJoinReduction =
                 match reduce true false keys leftKey worthIt rightKey right with
                 | Some reduced when worthIt.Value ->
                     reservedId |> Option.iter (fun id -> nextSharedId <- id + 1)
-                    LogicalPlan.Join(shared, reduced, [ ScalarExpr.Column leftKey ], rightOn, JoinKind.Inner, suffix, coalescing, false)
+                    LogicalPlan.Join(shared, reduced, [ ScalarExpr.Column leftKey ], rightOn, how, suffix, coalescing, false)
                 | _ -> join
             | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
                 leftOn.Length >= 2 && (tableRead right).IsSome

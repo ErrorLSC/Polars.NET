@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -23,7 +24,8 @@ using Polars.Tpcds;
 // normalized, so two directories can be compared with diff. `sql` runs DuckDB's own TPC-DS texts (the SQL frontend's test
 // texts) through the SQL frontend, checks its rows against DuckDB's on the same text, then times the frontend (translation
 // included), the LINQ version and DuckDB in rotating order, and writes sql-sweep.csv and sql-sweep.md. `sql-plans`
-// writes each query's optimized plan from the SQL frontend (Qn.sql.txt) beside the LINQ version's (Qn.linq.txt).
+// writes each query's optimized plan from the SQL frontend (Qn.sql.txt), the engine's plan of it (Qn.sql.polars.txt)
+// and the LINQ version's (Qn.linq.txt).
 
 if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans"))
 {
@@ -56,6 +58,8 @@ if (args[0] == "sql-plans")
     {
         var text = File.ReadAllText(Path.Combine(textDir, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
         File.WriteAllText(Path.Combine(output, query.Name + ".sql.txt"), Kaminari.Samidare.IR.LogicalPlanOps.formatPlan(PolarsSql.plan(catalog, text).Item1));
+        using (var lazy = PolarsSql.lazyFrame(catalog, text))
+            File.WriteAllText(Path.Combine(output, query.Name + ".sql.polars.txt"), Normalize(PolarsWrapper.Explain(lazy, optimized: true)));
         File.WriteAllText(Path.Combine(output, query.Name + ".linq.txt"), Normalize(query.Explain()));
     }
     Console.WriteLine($"{selected.Count} plan pairs written to {output}");
@@ -187,6 +191,20 @@ internal sealed record SweepResult(string Name, int Rows, double PolarsMs, doubl
 /// The SQL frontend against DuckDB and the LINQ version, on DuckDB's own TPC-DS texts.
 internal static class SqlSweep
 {
+    /// Differences from DuckDB where our answer is the right one: two adjacent rows in the other order, and cells where
+    /// we give another value. The query passes only when, with the rows swapped back and those cells set to our values in
+    /// DuckDB's rows, every row is equal; any other difference still fails it.
+    static readonly FrozenDictionary<string, KnownDifference> KnownDifferences = new Dictionary<string, KnownDifference>
+    {
+        // SF2: web items 25243 and 17565 both have currency ratio 65/88 (11963.90/16197.28 and 10556.00/14291.20).
+        // Our exact decimals tie them (currency_rank 5 for both, then ORDER BY item puts 17565 first); DuckDB divides
+        // in doubles, 1 ulp apart, and ranks 17565 6th.
+        ["Q49"] = new(SwappedRow: 26, Cells: [(27, 4, 5L)],
+            Reason: "DuckDB's double division breaks an exact tie (both currency ratios are 65/88); our decimals keep it"),
+    }.ToFrozenDictionary();
+
+    sealed record KnownDifference(int SwappedRow, (int Row, int Column, object Ours)[] Cells, string Reason);
+
     /// The TPC-DS tables, each a Parquet scan under its name.
     public static ISqlCatalog Catalog()
     {
@@ -216,7 +234,7 @@ internal static class SqlSweep
             results.Add(result);
             Console.WriteLine(
                 result.Error is null
-                    ? $"{query.Name,-4} rows={result.Rows,8}  sql={result.SqlMs,9:F1}  linq={result.LinqMs,9:F1}  duckdb={result.DuckDbMs,9:F1}  translate={result.TranslateMs,6:F1}  sql/duckdb x{result.SqlRatio:F2}"
+                    ? $"{query.Name,-4} rows={result.Rows,8}  sql={result.SqlMs,9:F1}  linq={result.LinqMs,9:F1}  duckdb={result.DuckDbMs,9:F1}  translate={result.TranslateMs,6:F1}  sql/duckdb x{result.SqlRatio:F2}{(result.Note is null ? "" : "  (known difference from DuckDB)")}"
                     : $"{query.Name,-4} FAILED: {result.Error}");
         }
         Write(results, output, rounds, clock.Elapsed);
@@ -230,8 +248,20 @@ internal static class SqlSweep
             {
                 var text = File.ReadAllText(Path.Combine(texts, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
                 // Doubles as the warm-up round.
-                var difference = TpcdsVerification.FindSqlDifference(TpcdsVerification.Rows(duckDb, text), RunSql(catalog, text));
-                if (difference is not null)
+                var expected = TpcdsVerification.Rows(duckDb, text);
+                var actual = RunSql(catalog, text);
+                var difference = TpcdsVerification.FindSqlDifference(expected, actual);
+                string? note = null;
+                if (difference is not null && KnownDifferences.TryGetValue(query.Name, out var known) && known.SwappedRow + 1 < actual.Count)
+                {
+                    int row = known.SwappedRow;
+                    (actual[row], actual[row + 1]) = (actual[row + 1], actual[row]);
+                    foreach (var (cellRow, column, ours) in known.Cells)
+                        expected[cellRow][column] = ours;
+                    if (TpcdsVerification.FindSqlDifference(expected, actual) is null)
+                        note = $"{difference}; rows {row} and {row + 1} in the other order, the rest equal but the known cells ({known.Reason})";
+                }
+                if (difference is not null && note is null)
                     return new SqlSweepResult(query.Name, 0, 0, 0, 0, 0, difference);
                 query.RunPolars();
 
@@ -251,7 +281,7 @@ internal static class SqlSweep
                     for (int i = 0; i < runs.Length; i++) runs[(i + round) % runs.Length]();
                     translate.Add(Time(() => PolarsSql.plan(catalog, text)));
                 }
-                return new SqlSweepResult(query.Name, rows, Median(sql), Median(linq), Median(duck), Median(translate), null);
+                return new SqlSweepResult(query.Name, rows, Median(sql), Median(linq), Median(duck), Median(translate), null, note);
             }
             catch (Exception e)
             {
@@ -327,11 +357,13 @@ internal static class SqlSweep
             md.AppendLine(invariant, $"| {x.Name} | {x.Rows} | {x.SqlMs:F1} | {x.LinqMs:F1} | {x.DuckDbMs:F1} | {x.TranslateMs:F1} | {x.SqlRatio:F2}x | {x.SqlLinqRatio:F2}x |");
         foreach (var x in results.Where(x => x.Error is not null))
             md.AppendLine(invariant, $"\n**{x.Name} failed:** {x.Error}");
+        foreach (var x in results.Where(x => x.Note is not null))
+            md.AppendLine(invariant, $"\n**{x.Name} differs from DuckDB:** {x.Note}");
         File.WriteAllText(Path.Combine(output, "sql-sweep.md"), md.ToString());
     }
 }
 
-internal sealed record SqlSweepResult(string Name, int Rows, double SqlMs, double LinqMs, double DuckDbMs, double TranslateMs, string? Error)
+internal sealed record SqlSweepResult(string Name, int Rows, double SqlMs, double LinqMs, double DuckDbMs, double TranslateMs, string? Error, string? Note = null)
 {
     public double SqlRatio => DuckDbMs > 0 ? SqlMs / DuckDbMs : 0;
     public double SqlLinqRatio => LinqMs > 0 ? SqlMs / LinqMs : 0;

@@ -194,6 +194,24 @@ module EagerAggregationTests =
         let expected = LogicalPlan.GroupBy(inner pre dims "f_k" "d_k", [ col "d_a" ], [ "total", guardedSum (col (partial 0)) ], None, true)
         Assert.Equal(expected, apply plan)
 
+    /// SQL's SUM of a guarded value, summed in a wider type: the cast wraps the guard.
+    let private castGuardedSum (source: string) (sourceType: LogicalType) (target: LogicalType) =
+        let guarded = ScalarExpr.Conditional(overYears, col source, ScalarExpr.Literal(LiteralValue.Null sourceType))
+        ScalarExpr.Aggregation(AggKind.SumOrNull, Some(ScalarExpr.Cast(guarded, target, false)), false)
+
+    [<Fact>]
+    let ``A widening cast around a guarded sum moves inside the guard`` () =
+        let plan = LogicalPlan.GroupBy(inner facts dates "f_d" "t_k", [ col "t_y" ], [ "total", castGuardedSum "f_k" LogicalTypes.Int32 LogicalTypes.Int64 ], None, true)
+
+        let pre = LogicalPlan.GroupBy(facts, [ col "f_d" ], [ partial 0, ScalarExpr.Aggregation(AggKind.SumOrNull, Some(ScalarExpr.Cast(col "f_k", LogicalTypes.Int64, false)), false) ], None, true)
+        let final = ScalarExpr.Aggregation(AggKind.SumOrNull, Some(ScalarExpr.Conditional(overYears, col (partial 0), noValue)), false)
+        let expected = LogicalPlan.GroupBy(inner pre dates "f_d" "t_k", [ col "t_y" ], [ "total", final ], None, true)
+        Assert.Equal(expected, apply plan)
+
+    [<Fact>]
+    let ``A narrowing cast around a guarded sum is left alone`` () =
+        assertUnchanged (LogicalPlan.GroupBy(inner facts dates "f_d" "t_k", [ col "t_y" ], [ "total", castGuardedSum "f_v" LogicalTypes.Int64 LogicalTypes.Int32 ], None, true))
+
     [<Fact>]
     let ``A plain sum behind a leading dimension is left alone`` () =
         assertUnchanged (LogicalPlan.GroupBy(inner (inner filteredDates facts "t_k" "f_d") dims "f_k" "d_k", [ col "d_a" ], totals, None, true))
