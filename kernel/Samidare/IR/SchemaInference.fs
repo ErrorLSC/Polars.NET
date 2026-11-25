@@ -151,6 +151,8 @@ module internal SchemaInference =
             | AggKind.SumOrNull
             | AggKind.Min
             | AggKind.Max
+            | AggKind.MinNanLargest
+            | AggKind.MaxNanLargest
             | AggKind.First
             | AggKind.Last
             | AggKind.Quantile _

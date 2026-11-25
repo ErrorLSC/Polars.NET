@@ -178,6 +178,10 @@ type AggKind =
     /// .NET Min: over floating values, NaN as soon as one value is NaN (Max skips NaN unless every value is NaN).
     | Min
     | Max
+    /// SQL's MIN: the engine's total order, NaN above every number, so NaN only when every value is NaN.
+    | MinNanLargest
+    /// SQL's MAX: the engine's total order, NaN above every number, so NaN as soon as one value is NaN.
+    | MaxNanLargest
     | Count
     | First
     | Last

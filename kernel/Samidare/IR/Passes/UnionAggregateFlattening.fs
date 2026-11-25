@@ -17,7 +17,7 @@ open Kaminari.Samidare.IR
 /// - An outer SumOrNull of inner SumOrNulls, `COALESCE(SUM_OR_NULL(x), 0)` or 0, over integers or decimals. A branch
 ///   then passes its values as they are, `COALESCE(x, 0)` or 0, so a group a branch's 0 reaches still sums to a value,
 ///   and one only null values reach to NULL.
-/// - An outer Min or Max of the same inner aggregate or of a non-null literal, which every row of the group repeats.
+/// - An outer Min or Max (of either NaN order) of the same inner aggregate or of a non-null literal, which every row of the group repeats.
 module internal UnionAggregateFlattening =
 
     type private Branch =
@@ -191,7 +191,7 @@ module internal UnionAggregateFlattening =
                             match stripAlias expr with
                             | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some(ScalarExpr.Column column), false) ->
                                 tryFlattenSum branches kind column |> Option.map (fun (arguments, finish) -> kind, arguments, finish)
-                            | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max as kind), Some(ScalarExpr.Column column), false) ->
+                            | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max | AggKind.MinNanLargest | AggKind.MaxNanLargest as kind), Some(ScalarExpr.Column column), false) ->
                                 tryFlattenMinMax branches kind column |> Option.map (fun (arguments, finish) -> kind, arguments, finish)
                             | _ -> None)
                     if flattened.IsEmpty || flattened |> List.exists Option.isNone then

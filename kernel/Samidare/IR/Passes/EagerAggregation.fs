@@ -20,7 +20,7 @@ open Kaminari.Samidare.IR
 /// times, as the original rows would be. Only aggregates that split exactly are rewritten:
 /// - Sum and SumOrNull over integers and decimals. Floating sums round differently in another order. A SumOrNull of
 ///   partial SumOrNulls is null exactly when every row's value is.
-/// - Min, Max, Count and Len.
+/// - Min and Max (of either NaN order), Count and Len.
 /// - The mean of integers read as doubles, from a partial sum and count.
 /// - A sum guarded by a test on dimension columns (see `decompose`).
 /// - Not CheckedSum: a partial total can leave the type's range when the full total does not.
@@ -295,7 +295,7 @@ module internal EagerAggregation =
                     ScalarExpr.Literal(LiteralValue.Null double),
                     ScalarExpr.Binary(BinaryOp.Divide, total, ScalarExpr.Cast(count, double, false))
                 )
-            | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max as kind), Some argument, false) when readable argument ->
+            | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max | AggKind.MinNanLargest | AggKind.MaxNanLargest as kind), Some argument, false) when readable argument ->
                 ScalarExpr.Aggregation(kind, Some(ScalarExpr.Column(partialOf node)), false)
             | ScalarExpr.Aggregation(AggKind.Len, None, false) ->
                 ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column(partialOf node)), false)

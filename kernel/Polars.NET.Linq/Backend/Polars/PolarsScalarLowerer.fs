@@ -269,6 +269,9 @@ module internal PolarsScalarLowerer =
             // IR Min is .NET Min: NaN as soon as one value is NaN (nan_min is min on non-floating values).
             | AggKind.Min -> PolarsWrapper.NanMin baseH
             | AggKind.Max -> PolarsWrapper.Max baseH
+            // The engine's min skips NaN unless every value is NaN; nan_max propagates it.
+            | AggKind.MinNanLargest -> PolarsWrapper.Min baseH
+            | AggKind.MaxNanLargest -> PolarsWrapper.NanMax baseH
             | AggKind.Count -> if isDistinct then PolarsWrapper.NUnique baseH else PolarsWrapper.Count baseH
             | AggKind.First -> PolarsWrapper.First(baseH, false)
             | AggKind.Last -> PolarsWrapper.Last(baseH, false)

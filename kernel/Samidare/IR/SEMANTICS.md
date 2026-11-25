@@ -66,8 +66,10 @@ A floating sort key sorts by `ScalarFunction.FloatOrderKey`, an Int64 whose orde
 
 This is a single key, as `Comparer<T>.Default` orders.
 
-**Aggregates.** `Min` is .NET `Min`: NaN as soon as one value is NaN. `Max` skips NaN unless every value is
-NaN.
+**Aggregates.** `Min` and `Max` are .NET's, which orders NaN below every number: `Min` is NaN as soon as one value
+is NaN, `Max` skips NaN unless every value is NaN. `MinNanLargest` and `MaxNanLargest` (SQL's `MIN` and `MAX`) follow
+the engine's total order, NaN above every number: `MinNanLargest` skips NaN unless every value is NaN,
+`MaxNanLargest` is NaN as soon as one value is. A partial Min or Max of either order merges exactly.
 
 **Grouping.** Floating grouping keys follow .NET `Equals` (see Grouping keys).
 

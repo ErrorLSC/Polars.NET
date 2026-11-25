@@ -50,6 +50,60 @@ let ``Min is NaN as soon as one value is NaN, Max skips NaN`` () =
     let onlyNaN = filter (t2.Scan rows) (bin BinaryOp.Eq (col "Id") (i64 1L))
     Conformance.rowsInOrder t2 (project onlyNaN [ "min", agg AggKind.Min (col "X"); "max", agg AggKind.Max (col "X") ]) [ [ nan; nan ] ]
 
+/// SQL's MIN and MAX order NaN above every number: MinNanLargest skips NaN unless every value is NaN, MaxNanLargest is
+/// NaN as soon as one value is; per group, per window partition, and with no values null.
+[<Fact>]
+let ``MinNanLargest and MaxNanLargest order NaN above every number`` () =
+    let t = Tables()
+    let sqlMin e = agg AggKind.MinNanLargest e
+    let sqlMax e = agg AggKind.MaxNanLargest e
+    let scan = t.Scan rows
+    Conformance.rowsInOrder t (project scan [ "min", sqlMin (col "X"); "max", sqlMax (col "X"); "minY", sqlMin (col "Y"); "maxY", sqlMax (col "Y") ])
+        [ [ 1.0; nan; 1.0; nan ] ]
+    let onlyNaN = filter scan (bin BinaryOp.Eq (col "Id") (i64 1L))
+    Conformance.rowsInOrder t (project onlyNaN [ "min", sqlMin (col "X"); "max", sqlMax (col "X") ]) [ [ nan; nan ] ]
+    let none = filter scan (bin BinaryOp.Gt (col "Id") (i64 9L))
+    Conformance.rowsInOrder t (project none [ "min", sqlMin (col "X"); "max", sqlMax (col "X") ]) [ [ null; null ] ]
+    let odd = ScalarExpr.Binary(BinaryOp.Modulo, col "Id", i64 2L)
+    Conformance.rowsInOrder t (LogicalPlan.GroupBy(scan, [ odd ], [ "min", sqlMin (col "Y"); "max", sqlMax (col "Y") ], None, true))
+        [ [ 1L; nan; nan ]; [ 0L; 1.0; 2.0 ] ]
+    Conformance.rowsInOrder t (project scan [ "Id", col "Id"; "w", ScalarExpr.Window(sqlMin (col "X"), [ odd ], []) ])
+        [ [ 1L; 1.0 ]; [ 2L; nan ]; [ 3L; 1.0 ]; [ 4L; nan ] ]
+
+type RCX = { R: string; C: string; X: Nullable<float> }
+
+/// A grouping-sets level computed from a finer one (GroupingSetsCascade) keeps either NaN order.
+[<Fact>]
+let ``Min and Max of either NaN order merge from finer levels`` () =
+    let t = Tables()
+    let data =
+        [| { R = "east"; C = "x"; X = Nullable 1.0 }; { R = "east"; C = "x"; X = Nullable nan }
+           { R = "east"; C = "y"; X = Nullable 2.0 }; { R = "west"; C = "y"; X = Nullable nan } |]
+    let spec =
+        {
+            KeyAliases = [ "R", col "R"; "C", col "C" ]
+            Aggs =
+                [ "sqlMin", agg AggKind.MinNanLargest (col "X"); "sqlMax", agg AggKind.MaxNanLargest (col "X")
+                  "min", agg AggKind.Min (col "X"); "max", agg AggKind.Max (col "X") ]
+            Levels = [ [ 0; 1 ], Map.empty; [ 0 ], Map.empty; [], Map.empty ]
+            OutputColumns = [ "R"; "C"; "sqlMin"; "sqlMax"; "min"; "max" ]
+            LevelMerges = None
+        }
+    let plan = LogicalPlan.GroupingSets(t.Scan data, spec)
+    let cascaded = Kaminari.Samidare.IR.Passes.GroupingSetsCascade.apply plan
+    match cascaded with
+    | LogicalPlan.GroupingSets(_, { LevelMerges = Some merges }) ->
+        Assert.Equal<AggKind list>(
+            [ AggKind.MinNanLargest; AggKind.MaxNanLargest; AggKind.Min; AggKind.Max ],
+            merges |> List.map (function _, ScalarExpr.Aggregation(kind, _, _) -> kind | _, other -> failwithf "%A" other))
+    | other -> failwithf "not cascaded: %s" (LogicalPlanOps.formatPlan other)
+    let expected: obj list list =
+        [ [ "east"; "x"; 1.0; nan; nan; 1.0 ]; [ "east"; "y"; 2.0; 2.0; 2.0; 2.0 ]; [ "west"; "y"; nan; nan; nan; nan ]
+          [ "east"; null; 1.0; nan; nan; 2.0 ]; [ "west"; null; nan; nan; nan; nan ]
+          [ null; null; 1.0; nan; nan; 2.0 ] ]
+    for p in [ plan; cascaded ] do
+        Conformance.rowsInOrder t p expected
+
 type HX = { Id: int64; H: Nullable<Half> }
 
 [<Fact>]
