@@ -2,9 +2,9 @@ namespace Polars.FSharp.Query
 
 open Polars.FSharp
 open System.Linq
-open Polars.NET.Linq
+open Polars.NET.Core.Linq
 open Kaminari.Samidare
-open Polars.NET.Linq.Backend.Polars
+open Polars.NET.Core.Linq.Backend
 open System
 open System.Diagnostics.CodeAnalysis
 open Polars.NET.Core
@@ -89,12 +89,12 @@ module LinqExtension =
             | _ -> None
         // 3. Fallback: Expression tree evaluation through PolarsQuery resolver
         | _ ->
-            match PolarsObjectConverter.resolveToLazyFrameHandle q.Expression with
-            | Some h -> Some h
-            | None ->
+            match PolarsObjectConverter.ResolveToLazyFrameHandle q.Expression with
+            | null ->
                 match tryExtractExplainable (box q) with
                 | Some(:? IPolarsPlanSource as ps) -> Some(ps.GetCompiledLazyFrameHandle())
                 | _ -> None
+            | h -> Some h
 
     type LazyFrame with
         /// <summary>

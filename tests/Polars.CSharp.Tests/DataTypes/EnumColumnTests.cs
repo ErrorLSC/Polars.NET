@@ -1,7 +1,7 @@
 using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Kaminari.Samidare.IR;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
@@ -158,7 +158,7 @@ public class EnumColumnTests
         Assert.True(FSharpOption<LogicalType>.get_IsSome(logical));
         Assert.Equal(LogicalType.NewEnum(ListModule.OfArray(["Black", "Green", "Blue", "Red"])), logical!.Value);
 
-        var dtype = new DataType(PolarsVocabulary.toDataTypeHandle(logical.Value), DataTypeKind.Enum);
+        var dtype = new DataType(PolarsVocabulary.ToDataTypeHandle(logical.Value), DataTypeKind.Enum);
         Assert.Equal(["Black", "Green", "Blue", "Red"], dtype.EnumCategories!.GetCategories());
     }
 

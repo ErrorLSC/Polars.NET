@@ -3,9 +3,9 @@ using System.Linq.Expressions;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Marshalling;
 
@@ -51,7 +51,7 @@ public static partial class LinqExtensions
         LogicalSchema schema;
         using (var lazy = df.Lazy())
         {
-            schema = PolarsExprCompiler.schemaOf(lazy.Handle);
+            schema = PolarsExprCompiler.SchemaOf(lazy.Handle);
         }
 
         TranslationContext CreateContext(string paramName) =>
@@ -61,17 +61,17 @@ public static partial class LinqExtensions
 
         Expr Compile(TranslationContext ctx, Expression body, LambdaExpression selector, string role)
         {
-            var compiled = PolarsExprCompiler.tryCompile(ctx, schema, body);
-            if (!FSharpOption<ExprHandle>.get_IsSome(compiled))
+            var compiled = PolarsExprCompiler.TryCompile(ctx, schema, body);
+            if (compiled is null)
             {
                 throw new NotSupportedException($"{role} selector '{selector}' could not be translated to a Polars expression.");
             }
-            return new Expr(compiled.Value);
+            return new Expr(compiled);
         }
 
         // 3. Key columns: a plain column is partitioned on directly; a computed key, or each member of a composite
         //    key (anonymous type, tuple), is first added as a temporary column.
-        var evaluatedKeyBody = PartialEvaluator.eval(keySelector.Body);
+        var evaluatedKeyBody = QueryCompiler.EvaluateCapturedValues(keySelector.Body);
         var keyParam = keySelector.Parameters[0].Name ?? "x";
         var keyCtx = CreateContext(keyParam);
 
@@ -132,7 +132,7 @@ public static partial class LinqExtensions
         IntoExprColumn[]? elemExprs = null;
         if (!isIdentity)
         {
-            var evaluatedElemBody = PartialEvaluator.eval(elementSelector.Body);
+            var evaluatedElemBody = QueryCompiler.EvaluateCapturedValues(elementSelector.Body);
             var elemCtx = CreateContext(elementSelector.Parameters[0].Name ?? "x");
             elemExprs = TryCompositeKeyMembers(evaluatedElemBody) is { } elemMembers
                 ? [.. elemMembers.Select(m => (IntoExprColumn)Compile(elemCtx, m.Expr, elementSelector, "Element").Alias(m.Name))]

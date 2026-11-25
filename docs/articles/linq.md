@@ -1,6 +1,6 @@
 # LINQ Provider (`IQueryable`) & F# Query CE
 
-Polars.NET contains a production-grade LINQ expression-tree compiler (`Polars.NET.Linq`) that translates standard C# `IQueryable<T>` queries and F# `query { }` computation expressions into a logical plan, [optimizes it](#_10-how-queries-are-optimized), and runs it as a native Rust `LazyFrame`. All 22 TPC-H and 99 TPC-DS queries are written as LINQ in the test suite and run natively. Results follow .NET semantics, as defined by the [LINQ Semantics Contract](/articles/linq-semantics).
+Polars.NET contains a production-grade LINQ expression-tree compiler (in `Polars.NET.Core`, which `Polars.CSharp` and `Polars.FSharp` reference) that translates standard C# `IQueryable<T>` queries and F# `query { }` computation expressions into a logical plan, [optimizes it](#_10-how-queries-are-optimized), and runs it as a native Rust `LazyFrame`. All 22 TPC-H and 99 TPC-DS queries are written as LINQ in the test suite and run natively. Results follow .NET semantics, as defined by the [LINQ Semantics Contract](/articles/linq-semantics).
 
 When a query is fully pushed down, Polars executes multithreaded SIMD kernels in Rust and directly yields a `DataFrame` **without allocating a single intermediate .NET row object**.
 

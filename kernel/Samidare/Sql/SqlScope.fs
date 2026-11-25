@@ -4,7 +4,7 @@ open System
 open Kaminari.Samidare.IR
 
 /// Where a query's tables come from.
-type internal ISqlCatalog =
+type ISqlCatalog =
     /// The tables a one-part name may refer to: one, none, or several when only case tells registered names apart
     /// (an unquoted part ignores case, a quoted one matches exactly).
     abstract FindTables: name: SqlIdentifier -> (string * ILogicalTableSource) list
@@ -12,7 +12,7 @@ type internal ISqlCatalog =
     abstract TableNames: string list
 
 /// Tables registered by name.
-type internal SqlCatalog() =
+type SqlCatalog() =
     let tables = ResizeArray<string * ILogicalTableSource>()
 
     /// Registers a table under a name; a name registered again (exactly) is replaced.

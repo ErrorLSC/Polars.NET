@@ -3,7 +3,7 @@ using Microsoft.FSharp.Collections;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Enums;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 using Kaminari.Samidare.IR;
 

@@ -11,7 +11,7 @@ open Kaminari.Sazanami.Marshalling
 
 /// Global reflection cache for LINQ / Enumerable / Queryable methods and managed delegate factories.
 [<AbstractClass; Sealed>]
-type internal LinqReflectionCache private () =
+type LinqReflectionCache private () =
     static let enumerableMethods =
         typeof<Enumerable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
 

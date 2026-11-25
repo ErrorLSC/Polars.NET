@@ -28,7 +28,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\api\Polars.CSharp\Polars.CSharp.csproj" />
-    <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
     <ProjectReference Include="..\Polars.Tpcds.Cases\Polars.Tpcds.Cases.csproj" />
   </ItemGroup>
 

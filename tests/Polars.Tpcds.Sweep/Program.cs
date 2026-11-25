@@ -7,7 +7,7 @@ using Kaminari.Samidare.Sql;
 using Polars.CSharp;
 using Polars.NET.Core.Enums;
 using Polars.NET.Core.Wrappers;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Polars.Tpcds;
 
 // A quick pass over all 99 TPC-DS queries, for finding gaps and checking that a rule helps beyond the queries it was
@@ -60,8 +60,8 @@ if (args[0] == "sql-plans")
     foreach (var query in selected)
     {
         var text = File.ReadAllText(Path.Combine(textDir, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
-        File.WriteAllText(Path.Combine(output, query.Name + ".sql.txt"), Kaminari.Samidare.IR.LogicalPlanOps.formatPlan(PolarsSql.plan(catalog, text).Item1));
-        using (var lazy = PolarsSql.lazyFrame(catalog, text))
+        File.WriteAllText(Path.Combine(output, query.Name + ".sql.txt"), Kaminari.Samidare.IR.LogicalPlanOps.formatPlan(PolarsSql.Plan(catalog, text).Item1));
+        using (var lazy = PolarsSql.LazyFrame(catalog, text))
             File.WriteAllText(Path.Combine(output, query.Name + ".sql.polars.txt"), Normalize(PolarsWrapper.Explain(lazy, optimized: true)));
         File.WriteAllText(Path.Combine(output, query.Name + ".linq.txt"), Normalize(query.Explain()));
         File.WriteAllText(Path.Combine(output, query.Name + ".linq.ir.txt"), Normalize(query.ExplainLogicalPlan()));
@@ -84,7 +84,7 @@ if (args[0] == "sql-translate")
     // tier (Q88 measured 17 ms after 40 translations, 6 ms after 300).
     for (var warm = Stopwatch.StartNew(); warm.Elapsed < TimeSpan.FromSeconds(4);)
         foreach (var (_, text) in texts)
-            PolarsSql.plan(catalog, text);
+            PolarsSql.Plan(catalog, text);
     foreach (var (name, text) in texts)
     {
         var times = new List<double>();
@@ -93,7 +93,7 @@ if (args[0] == "sql-translate")
         {
             long before = GC.GetAllocatedBytesForCurrentThread();
             var watch = Stopwatch.StartNew();
-            PolarsSql.plan(catalog, text);
+            PolarsSql.Plan(catalog, text);
             times.Add(watch.Elapsed.TotalMilliseconds);
             bytes = GC.GetAllocatedBytesForCurrentThread() - before;
         }
@@ -102,13 +102,13 @@ if (args[0] == "sql-translate")
     }
     foreach (var (name, text) in texts)
     {
-        var (plan, sources) = PolarsSql.plan(catalog, text);
+        var (plan, sources) = PolarsSql.Plan(catalog, text);
         var times = new List<double>();
         for (int i = 0; i < 15; i++)
         {
             Thread.Sleep(250);
             var watch = Stopwatch.StartNew();
-            using (var lf = PolarsPhysicalLowerer.lowerPlan(sources, plan))
+            using (var lf = PolarsPhysicalLowerer.LowerPlan(sources, plan))
             using (var df = PolarsWrapper.LazyCollect(lf, PlEngine.Auto)) { }
             if (i >= 5) times.Add(watch.Elapsed.TotalMilliseconds);
         }
@@ -128,7 +128,7 @@ if (args[0] == "sql-probe")
     foreach (var query in selected)
     {
         var text = File.ReadAllText(Path.Combine(textDir, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
-        var (sqlPlan, sqlSources) = PolarsSql.plan(catalog, text);
+        var (sqlPlan, sqlSources) = PolarsSql.Plan(catalog, text);
         var linq = ((Kaminari.Samidare.IR.IInternalQueryExplainable)query.CreateQuery()).CompileLogicalQuery();
         Probe.Run($"{query.Name} SQL", sqlPlan, sqlSources);
         Probe.Run($"{query.Name} LINQ", linq.Plan, linq.Sources);
@@ -280,7 +280,7 @@ internal static class SqlSweep
     {
         var catalog = new SqlCatalog();
         foreach (var path in Directory.GetFiles(TpcdsData.DataDir, "*.parquet"))
-            catalog.Register(Path.GetFileNameWithoutExtension(path), PolarsTableSources.ofLazyFrame(LazyFrame.ScanParquet(path).Handle));
+            catalog.Register(Path.GetFileNameWithoutExtension(path), PolarsTableSources.OfLazyFrame(LazyFrame.ScanParquet(path).Handle));
         return catalog;
     }
 
@@ -349,7 +349,7 @@ internal static class SqlSweep
                 for (int round = 0; round < rounds; round++)
                 {
                     for (int i = 0; i < runs.Length; i++) runs[(i + round) % runs.Length]();
-                    translate.Add(Time(() => PolarsSql.plan(catalog, text)));
+                    translate.Add(Time(() => PolarsSql.Plan(catalog, text)));
                 }
                 return new SqlSweepResult(query.Name, rows, Median(sql), Median(linq), Median(duck), Median(translate), null, note);
             }
@@ -362,7 +362,7 @@ internal static class SqlSweep
 
     static List<object?[]> RunSql(ISqlCatalog catalog, string text)
     {
-        using var df = new DataFrame(PolarsWrapper.LazyCollect(PolarsSql.lazyFrame(catalog, text), PlEngine.Auto));
+        using var df = new DataFrame(PolarsWrapper.LazyCollect(PolarsSql.LazyFrame(catalog, text), PlEngine.Auto));
         var width = df.ColumnNames.Length;
         var rows = new List<object?[]>((int)df.Height);
         for (var r = 0; r < df.Height; r++)
@@ -480,7 +480,7 @@ internal static class Probe
 
         long Collect(Kaminari.Samidare.IR.LogicalPlan p)
         {
-            using var lf = PolarsPhysicalLowerer.lowerPlan(sources, p);
+            using var lf = PolarsPhysicalLowerer.LowerPlan(sources, p);
             using var df = new DataFrame(PolarsWrapper.LazyCollect(lf, PlEngine.Auto));
             return df.Height;
         }

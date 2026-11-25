@@ -3,9 +3,9 @@ using System.Linq.Expressions;
 using Microsoft.FSharp.Core;
 using Polars.CSharp.Linq;
 using Polars.NET.Core;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Kaminari.Samidare.IR;
 using Pl = Polars.CSharp.Polars;
 
@@ -55,7 +55,7 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
 
         // 1. Fold external closure references
-        var evaluatedBody = PartialEvaluator.eval(valueExpression.Body);
+        var evaluatedBody = QueryCompiler.EvaluateCapturedValues(valueExpression.Body);
 
         // 2. Build strongly-typed Merge context
         var targetParam = valueExpression.Parameters[0].Name ?? "target";
@@ -63,13 +63,13 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         var ctx = TranslationContext.NewMerge(targetParam, sourceParam, _sourceSuffix);
 
         // 3. Translate expression natively
-        var exprHandleOpt = PolarsExprCompiler.tryCompileAssignment(ctx, _schema, PolarsExprCompiler.columnType(_schema, colName), evaluatedBody);
-        if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
+        var exprHandleOpt = PolarsExprCompiler.TryCompileAssignment(ctx, _schema, PolarsExprCompiler.ColumnType(_schema, colName), evaluatedBody);
+        if (exprHandleOpt is null)
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
         }
 
-        Setters[colName] = new Expr(exprHandleOpt.Value);
+        Setters[colName] = new Expr(exprHandleOpt);
         return this;
     }
 
@@ -83,20 +83,20 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
 
         // 1. Fold external closure references
-        var evaluatedBody = PartialEvaluator.eval(valueExpression.Body);
+        var evaluatedBody = QueryCompiler.EvaluateCapturedValues(valueExpression.Body);
 
         // 2. Source-only context: target is empty string
         var sourceParam = valueExpression.Parameters[0].Name ?? "source";
         var ctx = TranslationContext.NewMerge("", sourceParam, _sourceSuffix);
 
         // 3. Translate expression natively
-        var exprHandleOpt = PolarsExprCompiler.tryCompileAssignment(ctx, _schema, PolarsExprCompiler.columnType(_schema, colName), evaluatedBody);
-        if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
+        var exprHandleOpt = PolarsExprCompiler.TryCompileAssignment(ctx, _schema, PolarsExprCompiler.ColumnType(_schema, colName), evaluatedBody);
+        if (exprHandleOpt is null)
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
         }
 
-        Setters[colName] = new Expr(exprHandleOpt.Value);
+        Setters[colName] = new Expr(exprHandleOpt);
         return this;
     }
 
@@ -108,7 +108,7 @@ public class TypedMergeUpdateSetterBuilder<TTarget, TSource>
         TProp value)
     {
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
-        var handle = PolarsScalarLowerer.lowerConstant(value!, typeof(TProp), PolarsExprCompiler.columnType(_schema, colName));
+        var handle = PolarsScalarLowerer.LowerConstant(value!, typeof(TProp), PolarsExprCompiler.ColumnType(_schema, colName));
         Setters[colName] = new Expr(handle);
         return this;
     }
@@ -141,20 +141,20 @@ public class TypedMergeInsertSetterBuilder<TTarget, TSource>
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
 
         // 1. Fold external closure references
-        var evaluatedBody = PartialEvaluator.eval(valueExpression.Body);
+        var evaluatedBody = QueryCompiler.EvaluateCapturedValues(valueExpression.Body);
 
         // 2. Source-only context: target is empty string
         var sourceParam = valueExpression.Parameters[0].Name ?? "source";
         var ctx = TranslationContext.NewMerge("", sourceParam, _sourceSuffix);
 
         // 3. Translate expression natively
-        var exprHandleOpt = PolarsExprCompiler.tryCompileAssignment(ctx, _schema, PolarsExprCompiler.columnType(_schema, colName), evaluatedBody);
-        if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
+        var exprHandleOpt = PolarsExprCompiler.TryCompileAssignment(ctx, _schema, PolarsExprCompiler.ColumnType(_schema, colName), evaluatedBody);
+        if (exprHandleOpt is null)
         {
             throw new NotSupportedException($"Expression '{valueExpression}' could not be translated to a native Polars expression.");
         }
 
-        Setters[colName] = new Expr(exprHandleOpt.Value);
+        Setters[colName] = new Expr(exprHandleOpt);
         return this;
     }
 
@@ -166,7 +166,7 @@ public class TypedMergeInsertSetterBuilder<TTarget, TSource>
         TProp value)
     {
         string colName = MergePropertyHelper.ExtractPropertyName(targetProperty);
-        var handle = PolarsScalarLowerer.lowerConstant(value!, typeof(TProp), PolarsExprCompiler.columnType(_schema, colName));
+        var handle = PolarsScalarLowerer.LowerConstant(value!, typeof(TProp), PolarsExprCompiler.ColumnType(_schema, colName));
         Setters[colName] = new Expr(handle);
         return this;
     }
@@ -282,7 +282,7 @@ public class TypedMergeBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         ArgumentNullException.ThrowIfNull(then);
 
         // 1. Fold external closure references
-        var evaluatedBody = PartialEvaluator.eval(condition.Body);
+        var evaluatedBody = QueryCompiler.EvaluateCapturedValues(condition.Body);
 
         // 2. Matched context: target + source with suffix
         var targetParam = condition.Parameters[0].Name ?? "target";
@@ -290,13 +290,13 @@ public class TypedMergeBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         var ctx = TranslationContext.NewMerge(targetParam, sourceParam, _tmpSfx);
 
         // 3. Translate expression natively
-        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, TranslationSchema, evaluatedBody);
-        if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
+        var exprHandleOpt = PolarsExprCompiler.TryCompile(ctx, TranslationSchema, evaluatedBody);
+        if (exprHandleOpt is null)
         {
             throw new NotSupportedException($"Condition expression '{condition}' could not be translated natively.");
         }
 
-        Expr condExpr = new(exprHandleOpt.Value);
+        Expr condExpr = new(exprHandleOpt);
         var act = new MergeMatchedAction<TTarget, TSource>(_tmpSfx, TranslationSchema);
         then(act);
 
@@ -328,20 +328,20 @@ public class TypedMergeBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         ArgumentNullException.ThrowIfNull(then);
 
         // 1. Fold external closure references
-        var evaluatedBody = PartialEvaluator.eval(condition.Body);
+        var evaluatedBody = QueryCompiler.EvaluateCapturedValues(condition.Body);
 
         // 2. Source-only context with suffix
         var sourceParam = condition.Parameters[0].Name ?? "source";
         var ctx = TranslationContext.NewMerge("", sourceParam, _tmpSfx);
 
         // 3. Translate expression natively
-        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, TranslationSchema, evaluatedBody);
-        if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
+        var exprHandleOpt = PolarsExprCompiler.TryCompile(ctx, TranslationSchema, evaluatedBody);
+        if (exprHandleOpt is null)
         {
             throw new NotSupportedException($"Source condition expression '{condition}' could not be translated natively.");
         }
 
-        Expr condExpr = new(exprHandleOpt.Value);
+        Expr condExpr = new(exprHandleOpt);
         var act = new MergeNotMatchedByTargetAction<TTarget, TSource>(_tmpSfx, TranslationSchema);
         then(act);
 
@@ -373,20 +373,20 @@ public class TypedMergeBuilder<[DynamicallyAccessedMembers(DynamicallyAccessedMe
         ArgumentNullException.ThrowIfNull(then);
 
         // 1. Fold external closure references into constants
-        var evaluatedBody = PartialEvaluator.eval(condition.Body);
+        var evaluatedBody = QueryCompiler.EvaluateCapturedValues(condition.Body);
 
         // 2. Target table context without suffix
         var targetParam = condition.Parameters[0].Name ?? "target";
         var ctx = TranslationContext.NewEntity(targetParam);
 
         // 3. Translate expression natively
-        var exprHandleOpt = PolarsExprCompiler.tryCompile(ctx, TranslationSchema, evaluatedBody);
-        if (FSharpOption<ExprHandle>.get_IsNone(exprHandleOpt))
+        var exprHandleOpt = PolarsExprCompiler.TryCompile(ctx, TranslationSchema, evaluatedBody);
+        if (exprHandleOpt is null)
         {
             throw new NotSupportedException($"Target condition expression '{condition}' could not be translated natively.");
         }
 
-        Expr condExpr = new(exprHandleOpt.Value);
+        Expr condExpr = new(exprHandleOpt);
         var act = new MergeNotMatchedBySourceAction<TTarget>();
         then(act);
 

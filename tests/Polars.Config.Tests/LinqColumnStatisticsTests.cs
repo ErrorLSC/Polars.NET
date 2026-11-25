@@ -1,7 +1,7 @@
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Config;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 
 namespace Polars.Config.Tests;
 

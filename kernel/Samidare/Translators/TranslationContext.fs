@@ -4,7 +4,7 @@ open Kaminari.Samidare.IR
 open System
 open System.Linq.Expressions
 
-type internal TranslationContext =
+type TranslationContext =
     /// Empty context with no parameter bindings (e.g. constants, unbound reductions, or outer Having predicates).
     | Empty
 

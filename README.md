@@ -206,20 +206,15 @@ Polars.NET uses a modular layered architecture that keeps the query compiler ind
 |   - Polars.CSharp                                               |
 |   - Polars.FSharp                                               |
 +-----------------------------------------------------------------+
-                                 |
-                                 v
-+-----------------------------------------------------------------+
-| Polars.NET.Linq                                                 |
-|   - LINQ provider entry points and query execution              |
-|   - Polars backend of the query compiler                        |
-+-----------------------------------------------------------------+
                |                                  |
                v                                  v
 +------------------------------+   +------------------------------+
 | Kaminari.Samidare            |   | Polars.NET.Core              |
-|   - LINQ query compiler (F#) |   |   - P/Invoke bindings        |
-|   - Logical IR and optimizer |   |   - Arrow C Data Interface   |
-|   - Query plan cache         |   |   - Native Series and config |
+|   - LINQ query compiler (F#) |<--|   - LINQ provider (C#), the  |
+|   - Logical IR and optimizer |   |     compiler's Polars backend|
+|   - Query plan cache         |   |   - P/Invoke bindings        |
+|                              |   |   - Arrow C Data Interface   |
+|                              |   |   - Native Series and config |
 |                              |   |   - Uses Kaminari.Sazanami   |
 +------------------------------+   +------------------------------+
                |                                  |

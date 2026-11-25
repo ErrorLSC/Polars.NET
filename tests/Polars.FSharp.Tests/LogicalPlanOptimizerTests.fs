@@ -6,7 +6,7 @@ open Xunit
 open Polars.FSharp
 open Polars.FSharp.Query
 open Polars.NET.Core
-open Polars.NET.Linq
+open Polars.NET.Core.Linq
 open Kaminari.Samidare
 open Kaminari.Samidare.IR
 open Kaminari.Samidare.IR.ScalarExprOps

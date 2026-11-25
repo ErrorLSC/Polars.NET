@@ -8,9 +8,9 @@ using Polars.NET.Core.Enums;
 using Polars.NET.Core.Exceptions;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Wrappers;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Kaminari.Samidare.IR;
 using Pl = Polars.CSharp.Polars;
 
@@ -4528,26 +4528,26 @@ public partial class LinqTests
     public void Test_Linq_SystemTextJson_TypeInference()
     {
         // 1. Primitive types
-        var intDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(int));
-        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(intDtypeOpt));
-        using var intDtype = intDtypeOpt.Value;
+        var intDtypeOpt = PolarsScalarLowerer.InferPolarsJsonDataType(typeof(int));
+        Assert.NotNull(intDtypeOpt);
+        using var intDtype = intDtypeOpt!;
         Assert.Equal(PlDataType.Int32, PolarsWrapper.GetDataTypeKind(intDtype));
 
-        var strDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(string));
-        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(strDtypeOpt));
-        using var strDtype = strDtypeOpt.Value;
+        var strDtypeOpt = PolarsScalarLowerer.InferPolarsJsonDataType(typeof(string));
+        Assert.NotNull(strDtypeOpt);
+        using var strDtype = strDtypeOpt!;
         Assert.Equal(PlDataType.String, PolarsWrapper.GetDataTypeKind(strDtype));
 
         // 2. Collection types (List)
-        var listDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(List<string>));
-        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(listDtypeOpt));
-        using var listDtype = listDtypeOpt.Value;
+        var listDtypeOpt = PolarsScalarLowerer.InferPolarsJsonDataType(typeof(List<string>));
+        Assert.NotNull(listDtypeOpt);
+        using var listDtype = listDtypeOpt!;
         Assert.Equal(PlDataType.List, PolarsWrapper.GetDataTypeKind(listDtype));
 
         // 3. Complex DTO with [JsonPropertyName], [JsonIgnore], and nested record
-        var dtoDtypeOpt = PolarsScalarLowerer.inferPolarsJsonDataType(typeof(JsonUserTestDto));
-        Assert.True(Microsoft.FSharp.Core.OptionModule.IsSome(dtoDtypeOpt));
-        using var dtoDtype = dtoDtypeOpt.Value;
+        var dtoDtypeOpt = PolarsScalarLowerer.InferPolarsJsonDataType(typeof(JsonUserTestDto));
+        Assert.NotNull(dtoDtypeOpt);
+        using var dtoDtype = dtoDtypeOpt!;
         Assert.Equal(PlDataType.Struct, PolarsWrapper.GetDataTypeKind(dtoDtype));
 
         // 4. Verify field metadata & custom property names

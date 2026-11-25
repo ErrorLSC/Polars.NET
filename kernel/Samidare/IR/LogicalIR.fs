@@ -1256,7 +1256,7 @@ type QueryStatistics private () =
             | _ -> None)
 
 /// Internal interface implemented by queryables to expose IR compilation for testing, inspection, and subtree grafting.
-type internal IInternalQueryExplainable =
+type IInternalQueryExplainable =
     abstract member CompileLogicalQuery: unit -> CompiledLogicalQuery
     abstract member TryGetPureLogicalPlan: unit -> (LogicalPlan * SourceBinding array) option
     /// Whether the query's rows can be produced by a native plan, without full LINQ-to-Objects fallback.

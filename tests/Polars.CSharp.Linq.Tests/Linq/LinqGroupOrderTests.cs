@@ -1,10 +1,12 @@
 using Polars.CSharp.Linq;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 
 namespace Polars.CSharp.Tests;
 
 public record GoRow(int Id, int A, int B, int V);
+
+public record GoName(string Name, int V);
 
 /// <summary>
 /// A GroupBy keeps the order of its groups (first appearance of each key) unless that order cannot be observed:
@@ -85,5 +87,20 @@ public class LinqGroupOrderTests
         Check(q => q.GroupBy(r => r.A).Select(g => g.Key).Skip(100).Count());
         Check(q => q.GroupBy(r => r.A).Select(g => g.Key).TakeLast(2).Sum());
         Check(q => q.GroupBy(r => r.A).Select(g => g.Key).TakeLast(20).Sum());
+    }
+
+    /// <summary>
+    /// Groups sorted by a text key after materialization follow the engine's order of text (ordinal: upper case before
+    /// lower), the order a pushed-down sort gives, not the current culture's.
+    /// </summary>
+    [Fact]
+    public void Materialized_Groups_Sort_By_Text_Ordinally()
+    {
+        using var df = DataFrame.FromRows<GoName>([new("b", 1), new("B", 2), new("a", 3), new("A", 4), new("b", 5)]);
+        var groups = df.AsQueryable<GoName>().GroupBy(r => r.Name).OrderBy(g => g.Key).ToList();
+        Assert.Equal(["A", "B", "a", "b"], groups.Select(g => g.Key));
+        Assert.Equal([1, 5], groups[3].Select(r => r.V));
+        var descending = df.AsQueryable<GoName>().GroupBy(r => r.Name).OrderByDescending(g => g.Key).ToList();
+        Assert.Equal(["b", "a", "B", "A"], descending.Select(g => g.Key));
     }
 }

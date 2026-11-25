@@ -2,6 +2,10 @@
 
 1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel, Parquet, JSON and CSV, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro, Excel, JSON and CSV functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
 
+## LINQ provider: part of Polars.NET.Core
+
+The LINQ provider, written in F# as the separate package `Polars.NET.Linq`, is now C# inside `Polars.NET.Core`, which `Polars.CSharp` and `Polars.FSharp` already reference. Remove any `Polars.NET.Linq` package reference: the package is no longer published. The public API is unchanged (`AsQueryable` and the F# query support give the same `IQueryable<T>`), queries compile to the same plans and run as fast. The query compiler, `Kaminari.Samidare`, gains a public entry API for C# callers.
+
 ## Avro: managed reader and writer
 
 Avro now runs on Seseragi.Files, a managed implementation of the Avro 1.12 object container format (new package `Kaminari.Seseragi.Files`, referenced by `Polars.NET.Core`), instead of the engine's Avro reader and writer. Files stream block by block through Arrow record batches; blocks live in native memory and decode straight into native Arrow buffers. Behaviour is checked against fastavro, Python Polars and the Apache Avro sample files. The native library drops its `avro` feature and seven crates (`avro-schema`, `libflate`, `libflate_lz77`, `crc`, `crc-catalog`, `adler32`, `rle-decode-fast`).

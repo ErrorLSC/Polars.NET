@@ -15,7 +15,7 @@ type internal SqlDialect =
 
 /// A name as written: its text without quotes, and whether it was quoted (a quoted name matches exactly, an unquoted
 /// one ignores case).
-type internal SqlIdentifier = { Text: string; Quoted: bool; Span: SqlSpan }
+type SqlIdentifier = { Text: string; Quoted: bool; Span: SqlSpan }
 
 /// A possibly qualified name (`t.a`, `s.t`), its parts in order.
 type internal SqlName = SqlIdentifier list

@@ -1,7 +1,7 @@
 #nullable enable
 using DuckDB.NET.Data;
 using Kaminari.Samidare.Sql;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 
 namespace Polars.CSharp.Linq.Tests.Sql;
 
@@ -38,7 +38,7 @@ public class SqlEndToEndTests
         }
         var catalog = new SqlCatalog();
         foreach (var path in Directory.GetFiles(dir, "*.parquet"))
-            catalog.Register(Path.GetFileNameWithoutExtension(path), PolarsTableSources.ofLazyFrame(LazyFrame.ScanParquet(path).Handle));
+            catalog.Register(Path.GetFileNameWithoutExtension(path), PolarsTableSources.OfLazyFrame(LazyFrame.ScanParquet(path).Handle));
         return (dir, catalog);
     });
 

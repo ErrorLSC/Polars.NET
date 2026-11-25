@@ -72,7 +72,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.FSharp" />
-    <InternalsVisibleTo Include="Polars.NET.Linq" />
+    <InternalsVisibleTo Include="Polars.Tpcds.Sweep" />
+    <InternalsVisibleTo Include="Polars.CSharp.Tests" />
+    <InternalsVisibleTo Include="Polars.CSharp.Linq.Tests" />
+    <InternalsVisibleTo Include="Polars.NET.Linq.Conformance.Tests" />
+    <InternalsVisibleTo Include="Polars.Benchmarks" />
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.Config.Tests" />
     <InternalsVisibleTo Include="Polars.FSharp.Tests" />
@@ -81,6 +85,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sazanami\Sazanami.csproj" />
+    <ProjectReference Include="..\Samidare\Samidare.fsproj" />
     <ProjectReference Include="..\Seseragi\Lakehouse\Seseragi.Lakehouse.csproj" />
     <ProjectReference Include="..\Seseragi\Files\Seseragi.Files.csproj" />
   </ItemGroup>

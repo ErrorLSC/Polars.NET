@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 
 namespace Polars.Benchmarks;

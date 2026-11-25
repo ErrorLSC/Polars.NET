@@ -12,7 +12,7 @@ open Kaminari.Samidare.Config
 /// A compiled pipeline: the optimized IR, the bound stages it was built from, and the diagnostics
 /// recorded while building it.
 [<NoEquality; NoComparison>]
-type internal CompiledPipeline =
+type CompiledPipeline =
     {
         Compiled: CompiledLogicalQuery
         Stages: LinqStage list

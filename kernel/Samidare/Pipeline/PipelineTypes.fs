@@ -15,7 +15,7 @@ type internal RowFetchKind =
 
 /// Internal interface allowing direct zero-reflection plan querying between Provider and Query instances.
 /// Returns the compiled, optimized query, whether client-side predicates / fallback apply, and the client projection.
-type internal IInternalPlanSource =
+type IInternalPlanSource =
     abstract member GetLogicalPlanInfo: unit -> CompiledLogicalQuery * bool * (Type * Func<obj, obj>) option
 
 /// Internal normalized context capturing all GroupBy variants (C# 4-args, F# pipeline, Having, Sorts)
@@ -31,7 +31,7 @@ type internal GroupFoldContext =
     }
 
 /// Strongly-typed IGrouping implementation for in-memory GroupJoin materialization.
-type internal MaterializedGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TElement array) =
+type MaterializedGrouping<'TKey, 'TElement>(key: 'TKey, elements: 'TElement array) =
     // 1. Explicit base interface implementations resolving FS0363 interface diamond collision
     interface IEnumerable<'TElement> with
         member _.GetEnumerator() : IEnumerator<'TElement> =

@@ -1,4 +1,4 @@
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 
 namespace Polars.CSharp.Tests;

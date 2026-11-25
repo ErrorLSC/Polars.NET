@@ -1,4 +1,4 @@
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Kaminari.Samidare.IR;
 #pragma warning disable CS1591
 using System.Collections.Frozen;
@@ -104,9 +104,9 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     /// source's with the temporary suffix. Read from the frames once, on first use.
     /// </summary>
     internal LogicalSchema TranslationSchema =>
-        _translationSchema ??= PolarsExprCompiler.mergeSchema(
-            PolarsExprCompiler.schemaOf(_target.Handle),
-            PolarsExprCompiler.schemaOf(_source.Handle),
+        _translationSchema ??= PolarsExprCompiler.MergeSchema(
+            PolarsExprCompiler.SchemaOf(_target.Handle),
+            PolarsExprCompiler.SchemaOf(_source.Handle),
             _tmpSfx);
 
     protected MergeBuilderBase(LazyFrame target, LazyFrame source, string[] on)

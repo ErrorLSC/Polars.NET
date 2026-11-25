@@ -1,7 +1,7 @@
 using Polars.NET.Core.Wrappers;
 using Polars.NET.Core.Config;
 using Polars.NET.Core.Enums;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 
 namespace Polars.CSharp;
 

@@ -10,14 +10,13 @@ Unlike Python Polars (which distributes platform-specific self-contained wheels 
 
 ### Required Package References
 In any project using Polars.NET, you **must reference both**:
-1. **The Managed API Library**: `Polars.CSharp` or `Polars.FSharp` (and optionally `Polars.NET.Linq`, `Polars.NET.ML`).
+1. **The Managed API Library**: `Polars.CSharp` or `Polars.FSharp` (and optionally `Polars.NET.ML`). The LINQ provider comes with them.
 2. **The Native Runtime Package** matching your execution environment (OS and CPU Architecture):
 
 ```xml
 <ItemGroup>
   <!-- 1. Managed API Library -->
   <PackageReference Include="Polars.CSharp" Version="1.0.0" />
-  <PackageReference Include="Polars.NET.Linq" Version="1.0.0" />
 
   <!-- 2. Target Platform Native Binary (Pick according to your deployment OS/Arch) -->
   <!-- Windows x64 (a CPU with AVX2): -->

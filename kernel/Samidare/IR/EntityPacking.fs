@@ -9,7 +9,7 @@ open Kaminari.Sazanami.Marshalling
 
 /// How the rows of a plan must be reshaped before they are materialized as a given element type.
 [<RequireQualifiedAccess>]
-type internal RowPacking =
+type RowPacking =
     /// The plan's columns are the element's members.
     | NotNeeded
     /// The plan with the element's entity members packed into struct columns.

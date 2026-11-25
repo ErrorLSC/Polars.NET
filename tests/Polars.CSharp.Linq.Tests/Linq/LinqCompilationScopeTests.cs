@@ -1,7 +1,7 @@
 using Polars.CSharp.Linq;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 using Kaminari.Samidare.IR;
 
 namespace Polars.CSharp.Tests;

@@ -5,7 +5,7 @@ open System.Linq
 open Xunit
 open Polars.FSharp.Query
 open Polars.FSharp
-open Polars.NET.Linq
+open Polars.NET.Core.Linq
 open Kaminari.Samidare
 
 type SqRow = { Id: int; A: int; B: int; V: float }

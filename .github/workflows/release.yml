@@ -290,7 +290,6 @@ jobs:
           dotnet pack kernel/Polars.NET.Core/Polars.NET.Core.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack api/Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack api/Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs
-          dotnet pack kernel/Polars.NET.Linq/Polars.NET.Linq.fsproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack extension/Polars.NET.ML/Polars.NET.ML.csproj -c Release -p:BuildRustNative=false -o nupkgs
 
       - name: Upload NuGet Packages

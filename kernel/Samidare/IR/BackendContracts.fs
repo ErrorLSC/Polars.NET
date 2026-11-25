@@ -4,7 +4,7 @@ open System
 
 /// Translation-time capability queries answered by the execution backend.
 /// Lets the frontend decide between native pushdown and managed fallback without referencing the backend.
-type internal IBackendCapabilities =
+type IBackendCapabilities =
     /// Whether the backend's native regex engine reads the .NET pattern (inline flags already applied) as .NET does.
     abstract IsRegexPatternSupported: pattern: string -> bool
     /// Whether the backend writes dates and times by the .NET custom format under the named culture as .NET does
@@ -19,13 +19,13 @@ type internal IBackendCapabilities =
     abstract IsEngineAssembly: assembly: System.Reflection.Assembly -> bool
 
 /// Binds backend-native runtime objects (frames, compiled queryables) as opaque table sources.
-type internal ISourceBinder =
+type ISourceBinder =
     /// Returns an opaque table source when the value is a backend-native object, otherwise None.
     /// In-memory collections are not handled here: the frontend binds them symbolically as LogicalPlanSource.InMemory.
     abstract TryBindExternalSource: value: obj -> ILogicalTableSource option
 
 /// Services an execution backend provides to the frontend during IR construction.
-type internal IQueryBackend =
+type IQueryBackend =
     inherit IBackendCapabilities
     inherit ISourceBinder
     /// The exception that reports a query stage the client evaluation policy does not allow to run on the client.

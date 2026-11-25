@@ -1,6 +1,6 @@
 #nullable enable annotations
 using Polars.CSharp.Linq;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 
 namespace Polars.CSharp.Tests.Linq;

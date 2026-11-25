@@ -5,7 +5,7 @@ open Xunit
 open Polars.NET.Core.Enums
 open Polars.NET.Core.Wrappers
 open Kaminari.Samidare.IR
-open Polars.NET.Linq.Backend.Polars
+open Polars.NET.Core.Linq.Backend
 
 /// A result relation: column names and rows of boxed values (null for a null).
 type ResultTable = { Columns: string list; Rows: obj list list }
@@ -23,7 +23,7 @@ type PolarsEngine() =
         member _.Name = "Polars"
 
         member _.Execute(plan, sources) =
-            let handle = PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan sources plan, PlEngine.Auto)
+            let handle = PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.LowerPlan(sources, plan), PlEngine.Auto)
             use df = new Polars.FSharp.DataFrame(handle)
             let columns = df.ColumnNames |> List.ofSeq
             let rows =

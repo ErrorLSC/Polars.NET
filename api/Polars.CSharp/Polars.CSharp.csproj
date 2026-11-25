@@ -23,7 +23,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\kernel\Polars.NET.Core\Polars.NET.Core.csproj" />
-    <ProjectReference Include="..\..\kernel\Polars.NET.Linq\Polars.NET.Linq.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

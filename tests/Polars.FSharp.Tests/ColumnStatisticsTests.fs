@@ -9,10 +9,21 @@ open Polars.NET.Core.Wrappers
 open Kaminari.Samidare.IR
 open Kaminari.Samidare.IR.ScalarExprOps
 open Kaminari.Samidare.IR.Passes
-open Polars.NET.Linq.Backend.Polars
+open Polars.NET.Core.Linq.Backend
 
 /// The estimator's use of column statistics, and the statistics read from a file.
 module ColumnStatisticsTests =
+
+    /// The statistics of a column as options (the backend answers null where it has none).
+    let private tryGet handle schema (rows: int64 option) column =
+        PolarsColumnStatistics.TryGet(handle, schema, Option.toNullable rows, column) |> Option.ofObj
+
+    let private tryGetRange handle schema column =
+        let range = PolarsColumnStatistics.TryGetRange(handle, schema, column)
+        if range.HasValue then
+            let struct (low, high) = range.Value
+            Some(low, high)
+        else None
 
     let private schema = LogicalSchema.OfFields [ ("country", LogicalTypes.String); ("year", LogicalTypes.Int64); ("note", LogicalTypes.String); ("price", LogicalTypes.Float64) ]
     let private table = LogicalPlan.Scan(LogicalPlanSource.Slot 0, schema)
@@ -81,7 +92,7 @@ module ColumnStatisticsTests =
         try
             let lf = LazyFrame.ScanCsv(path, tryParseDates = true)
             let fields = LogicalSchema.OfFields [ ("name", LogicalTypes.String); ("age", LogicalTypes.Int64); ("day", LogicalType.Arrow Date32Type.Default) ]
-            let read column = (PolarsColumnStatistics.tryGet lf.Handle fields (Some 4L) column).Value
+            let read column = (tryGet lf.Handle fields (Some 4L) column).Value
 
             let name = read "name"
             Assert.Equal(Some 2.0, name.DistinctCount)
@@ -108,7 +119,7 @@ module ColumnStatisticsTests =
         try
             let lf = LazyFrame.ScanCsv(path)
             let fields = LogicalSchema.OfFields [ ("name", LogicalTypes.String); ("age", LogicalTypes.Int64); ("empty", LogicalTypes.Int64) ]
-            let range column = PolarsColumnStatistics.tryGetRange lf.Handle fields column
+            let range column = tryGetRange lf.Handle fields column
 
             Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), range "age")
             Assert.Equal(None, range "name")
@@ -131,10 +142,10 @@ module ColumnStatisticsTests =
             Assert.Equal((10L, 30L), (low, high))
             Assert.False(PolarsWrapper.LazyParquetIntRange(lf.Handle, "name").HasValue)
             Assert.False(PolarsWrapper.LazyParquetIntRange(lf.Handle, "missing").HasValue)
-            Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), PolarsColumnStatistics.tryGetRange lf.Handle fields "age")
+            Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), tryGetRange lf.Handle fields "age")
             Assert.Equal(
                 Some(LiteralValue.Float64(epochDays (2020, 1, 1)), LiteralValue.Float64(epochDays (2020, 1, 5))),
-                PolarsColumnStatistics.tryGetRange lf.Handle fields "day")
+                tryGetRange lf.Handle fields "day")
             Assert.False(PolarsWrapper.LazyParquetIntRange(LazyFrame.ScanCsv(csv).Handle, "age").HasValue)
         finally
             File.Delete csv
@@ -151,7 +162,7 @@ module ColumnStatisticsTests =
             let fields = LogicalSchema.OfFields [ ("age", LogicalTypes.Int64) ]
 
             Assert.False(PolarsWrapper.LazyParquetIntRange(lf.Handle, "age").HasValue)
-            Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), PolarsColumnStatistics.tryGetRange lf.Handle fields "age")
+            Assert.Equal(Some(LiteralValue.Float64 10.0, LiteralValue.Float64 30.0), tryGetRange lf.Handle fields "age")
         finally
             File.Delete csv
             File.Delete parquet
@@ -163,6 +174,6 @@ module ColumnStatisticsTests =
         try
             let lf = LazyFrame.ScanCsv(path)
             let fields = LogicalSchema.OfFields [ ("name", LogicalTypes.String) ]
-            Assert.Equal(None, PolarsColumnStatistics.tryGet lf.Handle fields (Some 10_000_000L) "name")
+            Assert.Equal(None, tryGet lf.Handle fields (Some 10_000_000L) "name")
         finally
             File.Delete path

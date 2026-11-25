@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Polars.NET.Core.Helpers;
-using Polars.NET.Linq.Backend.Polars;
+using Polars.NET.Core.Linq.Backend;
 
 namespace Polars.CSharp.Linq;
 

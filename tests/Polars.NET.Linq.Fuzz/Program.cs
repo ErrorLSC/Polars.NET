@@ -5,7 +5,7 @@ using System.Text;
 using Polars.CSharp;
 using Polars.CSharp.Linq;
 using Polars.NET.Core.Exceptions;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 
 namespace Polars.NET.Linq.Fuzz;

@@ -11,7 +11,7 @@ open Kaminari.Sazanami.Marshalling
 
 /// Managed operation applied by the backend to the rows of a collected plan.
 [<RequireQualifiedAccess>]
-type internal RowsOp =
+type RowsOp =
     /// Row count, optionally filtered by a managed predicate. Yields int64.
     | Count of sourceType: Type * predicate: Delegate
     /// "AnyPredicate" / "AllPredicate" over a managed predicate. Yields bool.
@@ -37,7 +37,7 @@ type internal RowsOp =
 
 /// Declarative description of how a backend executes a scalar / single-row LINQ terminal.
 [<RequireQualifiedAccess>]
-type internal ScalarTerminal =
+type ScalarTerminal =
     /// Collects a single-cell row-count plan and reads it as int64.
     | RowCount of plan: LogicalPlan
     /// Collects a single-cell plan and reads the boxed value.
@@ -55,19 +55,19 @@ type internal ScalarTerminal =
 
 /// Raw outcome of running a ScalarTerminal, before managed post-processing.
 [<RequireQualifiedAccess>]
-type internal ScalarOutcome =
+type ScalarOutcome =
     | Value of obj
     | NoRows
 
 /// A planned scalar terminal: what the backend executes and how its raw outcome becomes the LINQ result.
-type internal ScalarQuery<'T> =
+type ScalarQuery<'T> =
     {
         Terminal: ScalarTerminal
         Finish: ScalarOutcome -> 'T
     }
 
 /// A planned scalar terminal together with the sources its plans scan, indexed by slot.
-type internal PlannedScalar<'T> =
+type PlannedScalar<'T> =
     {
         Query: ScalarQuery<'T>
         Sources: SourceBinding array

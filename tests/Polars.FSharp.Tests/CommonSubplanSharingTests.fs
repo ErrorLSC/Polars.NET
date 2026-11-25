@@ -154,7 +154,7 @@ module CommonSubplanSharingTests =
 
     [<Fact>]
     let ``Polars shares a row-indexed query itself, and nothing else`` () =
-        let polars = Polars.NET.Linq.Backend.Polars.PolarsQueryBackend.Instance
+        let polars = Polars.NET.Core.Linq.Backend.PolarsQueryBackend.Instance
 
         Assert.True(polars.SharesRepeatedSubplanItself(LogicalPlan.WithRowIndex(aggregate 0 1, "rid", None)))
         Assert.False(polars.SharesRepeatedSubplanItself(aggregate 0 1))

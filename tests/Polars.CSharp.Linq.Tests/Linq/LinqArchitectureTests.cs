@@ -66,7 +66,8 @@ public partial class LinqArchitectureTests
     {
         Assert.Empty(ProjectReferences("kernel", "Sazanami", "Sazanami.csproj"));
         Assert.Equal(["Sazanami"], ProjectReferences("kernel", "Samidare", "Samidare.fsproj"));
-        Assert.Equal(["Sazanami", "Seseragi.Lakehouse", "Seseragi.Files"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
+        // Core hosts the LINQ provider, the compiler's Polars backend: it reaches the compiler through its facade.
+        Assert.Equal(["Sazanami", "Samidare", "Seseragi.Lakehouse", "Seseragi.Files"], ProjectReferences("kernel", "Polars.NET.Core", "Polars.NET.Core.csproj"));
         // File formats take row filters in the compiler's IR (pushdown), so they see Samidare too.
         Assert.Equal(["Sazanami", "Samidare"], ProjectReferences("kernel", "Seseragi", "Files", "Seseragi.Files.csproj"));
         // IO kernels (table formats and their catalogs): they implement Samidare's contracts, so they may see the

@@ -1,5 +1,5 @@
 using Polars.NET.Core.Helpers;
-using Polars.NET.Linq;
+using Polars.NET.Core.Linq;
 using Kaminari.Samidare;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Display;

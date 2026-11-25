@@ -542,8 +542,8 @@ type KernelRow = { id: int; region: string; price: float }
 
 /// A LINQ query over the table read by the kernel; `scanned` receives the number of data files of each scan.
 let private kernelQuery (path: string) (scanned: ResizeArray<int>) =
-    let source = Polars.NET.Linq.Backend.Polars.DeltaKernelSource(path, Nullable(), Action<int>(scanned.Add))
-    Polars.NET.Linq.PolarsQuery<KernelRow>(source, FSharpRowCursorMaterializer(), Polars.NET.Linq.QueryLanguage.FSharp)
+    let source = Polars.NET.Core.Linq.Backend.DeltaKernelSource.Of(path, Nullable(), Action<int>(scanned.Add))
+    Polars.NET.Core.Linq.PolarsQuery<KernelRow>(source, FSharpRowCursorMaterializer(), Polars.NET.Core.Linq.QueryLanguage.FSharp)
 
 let private assertScanned (expected: int) (scanned: ResizeArray<int>) =
     Assert.NotEmpty scanned
