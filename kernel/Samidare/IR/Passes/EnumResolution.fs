@@ -511,7 +511,7 @@ module internal EnumResolution =
                     | LogicalType.Arrow(:? Apache.Arrow.Types.Int64Type) ->
                         ScalarExpr.Cast(ScalarExpr.Cast(inner', LogicalTypes.Int64, false), wide, false)
                     | _ -> ScalarExpr.Cast(inner', wide, false)
-                ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ ScalarExpr.Aggregation(AggKind.Sum, Some operand, distinct) ], summedType)
+                ScalarExprOps.checkedNarrow summedType ScalarExprOps.unguarded (ScalarExpr.Aggregation(AggKind.Sum, Some operand, distinct))
             // Over all the rows, the checked sum is one aggregation (a single-pass backend kernel); per group it is the
             // narrowed exact sum, which the engine computes for all the groups at once.
             // The operand is cast to its inferred type, which the engine's may not be (a count, a narrower column).

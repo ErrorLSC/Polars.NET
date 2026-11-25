@@ -8,13 +8,16 @@ namespace Polars.NET.Core.Exceptions;
 /// <see cref="PolarsException"/> holding its text. The callback throws the token <see cref="Capture"/> returns;
 /// the native error that comes back names the token, and the error check rethrows the captured exception.
 /// A native kernel that implements .NET checked arithmetic names <see cref="OverflowMarker"/> instead, which is
-/// raised as an <see cref="OverflowException"/>.
+/// raised as an <see cref="OverflowException"/>, or <see cref="DivideByZeroMarker"/>, raised as a
+/// <see cref="DivideByZeroException"/>.
 /// </summary>
 internal static class ManagedErrorRelay
 {
     private const string Prefix = "[[polars-net-relay:";
     /// <summary>The marker a native kernel raises for .NET's OverflowException (checked arithmetic).</summary>
     private const string OverflowMarker = "[[polars-net-overflow]]";
+    /// <summary>The marker a native kernel raises for .NET's DivideByZeroException (checked division).</summary>
+    private const string DivideByZeroMarker = "[[polars-net-divide-by-zero]]";
     private const string Suffix = "]]";
     private const int MaxPending = 1024;
 
@@ -39,6 +42,8 @@ internal static class ManagedErrorRelay
     {
         if (message.Contains(OverflowMarker, StringComparison.Ordinal))
             return new OverflowException();
+        if (message.Contains(DivideByZeroMarker, StringComparison.Ordinal))
+            return new DivideByZeroException();
 
         int start = message.IndexOf(Prefix, StringComparison.Ordinal);
         if (start < 0)

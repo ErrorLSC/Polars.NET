@@ -118,7 +118,7 @@ let ``CheckedSum fails with Overflow when the total leaves the range`` () =
     Conformance.raises<OverflowException> t (project (t.Scan ints) [ "s", agg AggKind.CheckedSum (col "I") ]) "Arithmetic operation resulted in an overflow."
 
 /// A value as an integer type, checked (the function's result type).
-let private narrow (target: Apache.Arrow.Types.IArrowType) e = ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ e ], LogicalType.Arrow target)
+let private narrow (target: Apache.Arrow.Types.IArrowType) e = ScalarExprOps.checkedNarrow (LogicalType.Arrow target) ScalarExprOps.unguarded e
 
 /// A long column's exact sum: widened to Decimal(38, 0) (cast to Int64 first, as the checked sum per group is built).
 let private exactSum e =

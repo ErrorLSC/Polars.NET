@@ -2714,6 +2714,201 @@ pub extern "C" fn pl_expr_dotnet_rem(left_ptr: *mut ExprContext, right_ptr: *mut
     dotnet_div_rem_expr(left_ptr, right_ptr, true)
 }
 
+/// The marker the managed side raises as System.DivideByZeroException (Polars.NET.Core ManagedErrorRelay).
+const DOTNET_DIVIDE_BY_ZERO: &str = "[[polars-net-divide-by-zero]] Attempted to divide by zero.";
+
+/// What a checked division computes (the IR's DivisionKind, in its declaration order).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CheckedDivision {
+    /// The quotient: IEEE over floats, over decimals rounded half away from zero at the result's scale.
+    Divide,
+    /// The integer quotient truncated toward zero.
+    IntegerDivide,
+    /// The remainder of the truncated division (the dividend's sign).
+    Remainder,
+}
+
+impl CheckedDivision {
+    fn from_i32(code: i32) -> PolarsResult<Self> {
+        Ok(match code {
+            0 => Self::Divide,
+            1 => Self::IntegerDivide,
+            2 => Self::Remainder,
+            other => polars_bail!(ComputeError: "invalid division kind: {}", other),
+        })
+    }
+}
+
+/// A column as a Series of `len` values (a one-value column is repeated).
+fn broadcast(c: &Column, len: usize) -> Series {
+    let s = c.as_materialized_series();
+    if s.len() == 1 && len != 1 { s.new_from_index(0, len) } else { s.clone() }
+}
+
+/// Checked division of one integer type: a zero divisor of a non-null dividend fails with the divide-by-zero marker,
+/// a quotient out of range (MIN div -1) with the overflow marker; MIN % -1 is 0.
+macro_rules! checked_int_division {
+    ($xs:expr, $ys:expr, $kind:expr, $getter:ident, $native:ty, $pl:ty) => {{
+        polars_ensure!($kind != CheckedDivision::Divide, ComputeError: "checked division of integers is IntegerDivide or Remainder");
+        let (mut zero, mut overflow) = (false, false);
+        let out: ChunkedArray<$pl> = polars_core::prelude::arity::binary_elementwise($xs.$getter()?, $ys.$getter()?, |l: Option<$native>, r: Option<$native>| {
+            match (l, r) {
+                (Some(_), Some(0)) => {
+                    zero = true;
+                    None
+                }
+                (Some(l), Some(r)) if $kind == CheckedDivision::Remainder => Some(l.wrapping_rem(r)),
+                (Some(l), Some(r)) => {
+                    let q = l.checked_div(r);
+                    overflow |= q.is_none();
+                    q
+                }
+                _ => None,
+            }
+        });
+        polars_ensure!(!zero, ComputeError: "{}", DOTNET_DIVIDE_BY_ZERO);
+        polars_ensure!(!overflow, ComputeError: "{}", DOTNET_OVERFLOW);
+        out.into_series()
+    }};
+}
+
+/// Checked division of one floating type: a zero divisor (0 or -0.0) of a non-null dividend fails with the
+/// divide-by-zero marker; otherwise IEEE division or the truncated remainder (fmod).
+macro_rules! checked_float_division {
+    ($xs:expr, $ys:expr, $kind:expr, $getter:ident, $native:ty, $pl:ty) => {{
+        polars_ensure!($kind != CheckedDivision::IntegerDivide, ComputeError: "checked integer division is defined for integers");
+        let mut zero = false;
+        let out: ChunkedArray<$pl> = polars_core::prelude::arity::binary_elementwise($xs.$getter()?, $ys.$getter()?, |l: Option<$native>, r: Option<$native>| {
+            match (l, r) {
+                (Some(_), Some(r)) if r == 0.0 => {
+                    zero = true;
+                    None
+                }
+                (Some(l), Some(r)) if $kind == CheckedDivision::Remainder => Some(l % r),
+                (Some(l), Some(r)) => Some(l / r),
+                _ => None,
+            }
+        });
+        polars_ensure!(!zero, ComputeError: "{}", DOTNET_DIVIDE_BY_ZERO);
+        out.into_series()
+    }};
+}
+
+/// 10^n in 256 bits (n <= 76).
+fn pow10_wide(n: u32) -> ethnum::I256 {
+    ethnum::I256::from(10i32).pow(n)
+}
+
+/// Checked division of decimals (any scales) into Decimal(precision, scale): Divide is the exact quotient rounded half
+/// away from zero at `scale`, Remainder the truncated remainder (the dividend's sign) at `scale` (truncated if
+/// narrower). A zero divisor of a non-null dividend fails with the divide-by-zero marker, a result beyond `precision`
+/// digits with the overflow marker. Computed in 256 bits: a scaled dividend too large even for them gives a quotient
+/// beyond every decimal precision.
+fn checked_decimal_division(xs: &Series, ys: &Series, kind: CheckedDivision, precision: usize, scale: usize) -> PolarsResult<Series> {
+    polars_ensure!(kind != CheckedDivision::IntegerDivide, ComputeError: "checked integer division is defined for integers");
+    let (DataType::Decimal(_, sx), DataType::Decimal(_, sy)) = (xs.dtype(), ys.dtype()) else {
+        polars_bail!(ComputeError: "checked decimal division of {} by {}", xs.dtype(), ys.dtype());
+    };
+    let (sx, sy, so) = (*sx as u32, *sy as u32, scale as u32);
+    let limit = pow10_wide(precision as u32);
+    let (mut zero, mut overflow) = (false, false);
+    let mut divide = |l: i128, r: i128| -> Option<i128> {
+        let (l, r) = (ethnum::I256::from(l), ethnum::I256::from(r));
+        let result = match kind {
+            CheckedDivision::Divide => {
+                // q = l * 10^(so + sy - sx) / r, rounded half away from zero.
+                let e = (so + sy) as i64 - sx as i64;
+                let (num, den) = if e >= 0 { (l.checked_mul(pow10_wide(e as u32)), r) } else { (Some(l), r * pow10_wide((-e) as u32)) };
+                num.map(|num| {
+                    let (q, rem) = (num / den, num % den);
+                    if rem.unsigned_abs() * ethnum::U256::from(2u32) >= den.unsigned_abs() { q + if (num < 0) == (den < 0) { 1 } else { -1 } } else { q }
+                })
+            }
+            _ => {
+                // Both at the wider scale, then at the result's.
+                let s = sx.max(sy);
+                let rem = (l * pow10_wide(s - sx)) % (r * pow10_wide(s - sy));
+                if so >= s { rem.checked_mul(pow10_wide(so - s)) } else { Some(rem / pow10_wide(s - so)) }
+            }
+        };
+        match result {
+            Some(v) if v.unsigned_abs() < limit.unsigned_abs() => Some(v.as_i128()),
+            _ => {
+                overflow = true;
+                None
+            }
+        }
+    };
+    let out: Int128Chunked = polars_core::prelude::arity::binary_elementwise(xs.decimal()?.physical(), ys.decimal()?.physical(), |l: Option<i128>, r: Option<i128>| {
+        match (l, r) {
+            (Some(_), Some(0)) => {
+                zero = true;
+                None
+            }
+            (Some(l), Some(r)) => divide(l, r),
+            _ => None,
+        }
+    });
+    polars_ensure!(!zero, ComputeError: "{}", DOTNET_DIVIDE_BY_ZERO);
+    polars_ensure!(!overflow, ComputeError: "{}", DOTNET_OVERFLOW);
+    Ok(out.into_decimal_unchecked(precision, scale).into_series())
+}
+
+/// ANSI SQL's checked division of a dividend by a divisor column (see `pl_expr_checked_div`). Integer and floating
+/// operands are taken in their supertype; decimal operands keep their scales and give Decimal(precision, scale).
+fn checked_division(a: &Column, b: &Column, kind: CheckedDivision, decimal: Option<(usize, usize)>) -> PolarsResult<Column> {
+    let len = a.len().max(b.len());
+    let name = a.name().clone();
+    let out = match decimal {
+        Some((precision, scale)) => checked_decimal_division(&broadcast(a, len), &broadcast(b, len), kind, precision, scale)?,
+        None => {
+            let dtype = polars_core::utils::try_get_supertype(a.dtype(), b.dtype())?.materialize_unknown(false)?;
+            let (xs, ys) = (broadcast(&a.cast(&dtype)?, len), broadcast(&b.cast(&dtype)?, len));
+            match &dtype {
+                DataType::Int8 => checked_int_division!(xs, ys, kind, i8, i8, Int8Type),
+                DataType::Int16 => checked_int_division!(xs, ys, kind, i16, i16, Int16Type),
+                DataType::Int32 => checked_int_division!(xs, ys, kind, i32, i32, Int32Type),
+                DataType::Int64 => checked_int_division!(xs, ys, kind, i64, i64, Int64Type),
+                DataType::UInt8 => checked_int_division!(xs, ys, kind, u8, u8, UInt8Type),
+                DataType::UInt16 => checked_int_division!(xs, ys, kind, u16, u16, UInt16Type),
+                DataType::UInt32 => checked_int_division!(xs, ys, kind, u32, u32, UInt32Type),
+                DataType::UInt64 => checked_int_division!(xs, ys, kind, u64, u64, UInt64Type),
+                DataType::Float32 => checked_float_division!(xs, ys, kind, f32, f32, Float32Type),
+                DataType::Float64 => checked_float_division!(xs, ys, kind, f64, f64, Float64Type),
+                other => polars_bail!(ComputeError: "checked division is not defined for {}", other),
+            }
+        }
+    };
+    Ok(out.with_name(name).into_column())
+}
+
+/// ANSI SQL's division (the IR's CheckedDivide; `kind`: 0 Divide, 1 IntegerDivide, 2 Remainder). Null where an operand
+/// is null; a zero divisor of a non-null dividend fails the query with the divide-by-zero marker, a result out of range
+/// with the overflow marker. A decimal result has `precision` and `scale` (precision < 0 for other types). The caller
+/// nulls the dividend on rows it must not check (the IR's guard).
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_checked_div(left_ptr: *mut ExprContext, right_ptr: *mut ExprContext, kind: i32, precision: i32, scale: i32) -> *mut ExprContext {
+    ffi_try!({
+        let left = unsafe { Box::from_raw(left_ptr) }.inner;
+        let right = unsafe { Box::from_raw(right_ptr) }.inner;
+        let kind = CheckedDivision::from_i32(kind)?;
+        let decimal = (precision >= 0).then(|| (precision as usize, scale as usize));
+        let new_expr = left.map_many(
+            move |cols: &mut [Column]| -> PolarsResult<Column> { checked_division(&cols[0], &cols[1], kind, decimal) },
+            &[right],
+            move |_schema: &Schema, fields: &[Field]| -> PolarsResult<Field> {
+                let dtype = match decimal {
+                    Some((p, s)) => DataType::Decimal(p, s),
+                    // Literal operands carry dynamic types (dyn int / dyn float): resolve them to concrete ones.
+                    None => polars_core::utils::try_get_supertype(fields[0].dtype(), fields[1].dtype())?.materialize_unknown(false)?,
+                };
+                Ok(Field::new(fields[0].name().clone(), dtype))
+            },
+        );
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
 /// An Int64 key ordering floating values as .NET does (Comparer<double>.Default): NaN before every number,
 /// -0.0 equal to 0.0, numbers in numeric order; null stays null. A single integer key, rather than a NaN key
 /// plus the value.
@@ -2984,5 +3179,117 @@ mod tests {
         let column = out.column("a").unwrap();
         assert_eq!(column.dtype(), &DataType::Int16);
         assert_eq!((0..column.len()).map(|i| column.i16().unwrap().get(i)).collect::<Vec<_>>(), [Some(1), None, Some(-7)]);
+    }
+
+    fn divide(a: Series, b: Series, kind: CheckedDivision, decimal: Option<(usize, usize)>) -> PolarsResult<Series> {
+        checked_division(&a.into_column(), &b.into_column(), kind, decimal).map(|c| c.as_materialized_series().clone())
+    }
+
+    fn as_i64s(s: &Series) -> Vec<Option<i64>> {
+        let s = s.cast(&DataType::Int64).unwrap();
+        (0..s.len()).map(|i| s.i64().unwrap().get(i)).collect()
+    }
+
+    fn decimals(values: &[Option<i128>], precision: usize, scale: usize) -> Series {
+        Int128Chunked::from_slice_options("a".into(), values).into_decimal_unchecked(precision, scale).into_series()
+    }
+
+    fn unscaled(s: &Series) -> Vec<Option<i128>> {
+        let d = s.decimal().unwrap().physical();
+        (0..d.len()).map(|i| d.get(i)).collect()
+    }
+
+    #[test]
+    fn checked_integer_division_truncates() {
+        let a = Series::new("a".into(), &[Some(7i32), Some(-7), None, Some(i32::MIN), Some(5)]);
+        let b = Series::new("b".into(), &[Some(2i32), Some(2), Some(0), Some(-1), None]);
+        assert_eq!(as_i64s(&divide(a.clone(), b.clone(), CheckedDivision::Remainder, None).unwrap()), [Some(1), Some(-1), None, Some(0), None]);
+        let out = divide(a.clone(), Series::new("b".into(), &[2i32]), CheckedDivision::IntegerDivide, None).unwrap();
+        assert_eq!(out.dtype(), &DataType::Int32);
+        assert_eq!(out.name().as_str(), "a");
+        assert_eq!(as_i64s(&out), [Some(3), Some(-3), None, Some(i32::MIN as i64 / 2), Some(2)]);
+        // 7 % -3 = 1, -7 % 3 = -1 (the dividend's sign); unsigned types too.
+        let r = divide(Series::new("a".into(), &[7i64, -7]), Series::new("b".into(), &[-3i64, 3]), CheckedDivision::Remainder, None).unwrap();
+        assert_eq!(as_i64s(&r), [Some(1), Some(-1)]);
+        let u = divide(Series::new("a".into(), &[255u8, 7]), Series::new("b".into(), &[2u8, 7]), CheckedDivision::IntegerDivide, None).unwrap();
+        assert_eq!(as_i64s(&u), [Some(127), Some(1)]);
+    }
+
+    #[test]
+    fn checked_division_fails_on_zero_only_for_a_value() {
+        let error = |r: PolarsResult<Series>| r.unwrap_err().to_string();
+        for kind in [CheckedDivision::IntegerDivide, CheckedDivision::Remainder] {
+            let e = error(divide(Series::new("a".into(), &[1i64, 2]), Series::new("b".into(), &[1i64, 0]), kind, None));
+            assert!(e.contains(DOTNET_DIVIDE_BY_ZERO), "{e}");
+            // A null dividend over a zero divisor is null, no error; so is a null divisor.
+            let ok = divide(Series::new("a".into(), &[None, Some(4i64)]), Series::new("b".into(), &[Some(0i64), None]), kind, None).unwrap();
+            assert_eq!(as_i64s(&ok), [None, None]);
+        }
+        // A zero literal divisor (one value) of a non-null dividend.
+        let e = error(divide(Series::new("a".into(), &[None, Some(1i16)]), Series::new("b".into(), &[0i16]), CheckedDivision::IntegerDivide, None));
+        assert!(e.contains(DOTNET_DIVIDE_BY_ZERO), "{e}");
+        let e = error(divide(Series::new("a".into(), &[i64::MIN]), Series::new("b".into(), &[-1i64]), CheckedDivision::IntegerDivide, None));
+        assert!(e.contains(DOTNET_OVERFLOW), "{e}");
+        // Floating zero divisors, -0.0 too, fail; NaN and infinities divide.
+        for zero in [0.0f64, -0.0] {
+            for kind in [CheckedDivision::Divide, CheckedDivision::Remainder] {
+                let e = error(divide(Series::new("a".into(), &[7.5f64]), Series::new("b".into(), &[zero]), kind, None));
+                assert!(e.contains(DOTNET_DIVIDE_BY_ZERO), "{e}");
+            }
+        }
+        let e = error(divide(Series::new("a".into(), &[1f32]), Series::new("b".into(), &[0f32]), CheckedDivision::Divide, None));
+        assert!(e.contains(DOTNET_DIVIDE_BY_ZERO), "{e}");
+        // Empty and all-null columns never fail.
+        let empty: [i64; 0] = [];
+        assert_eq!(divide(Series::new("a".into(), &empty), Series::new("b".into(), &[0i64]), CheckedDivision::IntegerDivide, None).unwrap().len(), 0);
+        let nulls = Series::new_null("a".into(), 3).cast(&DataType::Int64).unwrap();
+        assert_eq!(as_i64s(&divide(nulls, Series::new("b".into(), &[0i64]), CheckedDivision::Remainder, None).unwrap()), [None, None, None]);
+    }
+
+    #[test]
+    fn checked_float_division() {
+        let a = Series::new("a".into(), &[Some(7.5f64), Some(-7.5), None, Some(1.0)]);
+        let b = Series::new("b".into(), &[Some(2.0f64), Some(2.0), Some(0.0), Some(f64::NAN)]);
+        let q = divide(a.clone(), b.clone(), CheckedDivision::Divide, None).unwrap();
+        let q: Vec<Option<f64>> = (0..q.len()).map(|i| q.f64().unwrap().get(i)).collect();
+        assert_eq!(q[..3], [Some(3.75), Some(-3.75), None]);
+        assert!(q[3].unwrap().is_nan());
+        let r = divide(a, b, CheckedDivision::Remainder, None).unwrap();
+        let r: Vec<Option<f64>> = (0..r.len()).map(|i| r.f64().unwrap().get(i)).collect();
+        assert_eq!(r[..3], [Some(1.5), Some(-1.5), None]);
+        let f = divide(Series::new("a".into(), &[1f32]), Series::new("b".into(), &[4f32]), CheckedDivision::Divide, None).unwrap();
+        assert_eq!(f.dtype(), &DataType::Float32);
+        assert!(divide(Series::new("a".into(), &[1f64]), Series::new("b".into(), &[4f64]), CheckedDivision::IntegerDivide, None).is_err());
+        assert!(divide(Series::new("a".into(), &[1i64]), Series::new("b".into(), &[4i64]), CheckedDivision::Divide, None).is_err());
+    }
+
+    #[test]
+    fn checked_decimal_division_rounds_half_away_from_zero() {
+        // 1.00 / 3 at scale 6 = 0.333333; 2 / 3 at scale 0 = 1; -2 / 3 = -1; 5 / 2 = 3; -5 / 2 = -3; 1 / 4 = 0.
+        let a = decimals(&[Some(100), Some(200), Some(-200), Some(500), Some(-500), Some(100), None], 5, 2);
+        let b = decimals(&[Some(3), Some(3), Some(3), Some(2), Some(2), Some(4), Some(0)], 10, 0);
+        let q = divide(a.clone(), b.clone(), CheckedDivision::Divide, Some((9, 6))).unwrap();
+        assert_eq!(q.dtype(), &DataType::Decimal(9, 6));
+        assert_eq!(unscaled(&q), [Some(333_333), Some(666_667), Some(-666_667), Some(2_500_000), Some(-2_500_000), Some(250_000), None]);
+        let q0 = divide(a.clone(), b.clone(), CheckedDivision::Divide, Some((10, 0))).unwrap();
+        assert_eq!(unscaled(&q0), [Some(0), Some(1), Some(-1), Some(3), Some(-3), Some(0), None]);
+        // A divisor of a finer scale than the result: 1 / 0.003 = 333.33 at scale 2.
+        let fine = divide(decimals(&[Some(1)], 3, 0), decimals(&[Some(3)], 4, 3), CheckedDivision::Divide, Some((10, 2))).unwrap();
+        assert_eq!(unscaled(&fine), [Some(33_333)]);
+        // Beyond the result's precision: Overflow; the largest values still divide in 256 bits.
+        let e = divide(decimals(&[Some(99_999)], 5, 2), decimals(&[Some(1)], 5, 4), CheckedDivision::Divide, Some((6, 2))).unwrap_err().to_string();
+        assert!(e.contains(DOTNET_OVERFLOW), "{e}");
+        let max = 10i128.pow(38) - 1;
+        let big = divide(decimals(&[Some(max)], 38, 0), decimals(&[Some(max)], 38, 0), CheckedDivision::Divide, Some((38, 37))).unwrap();
+        assert_eq!(unscaled(&big), [Some(10i128.pow(37))]);
+        let e = divide(decimals(&[Some(max)], 38, 0), decimals(&[Some(1)], 38, 38), CheckedDivision::Divide, Some((38, 38))).unwrap_err().to_string();
+        assert!(e.contains(DOTNET_OVERFLOW), "{e}");
+        // Remainder at the wider scale: 7.5 % 2 = 1.5, -7.5 % 2 = -1.5, 7.5 % 0.4 = 0.3.
+        let r = divide(decimals(&[Some(75), Some(-75), Some(75)], 3, 1), decimals(&[Some(2), Some(2), Some(0)], 3, 0), CheckedDivision::Remainder, Some((3, 1)));
+        assert!(r.unwrap_err().to_string().contains(DOTNET_DIVIDE_BY_ZERO));
+        let mixed = divide(decimals(&[Some(75), Some(-75)], 3, 1), decimals(&[Some(2), Some(2)], 3, 0), CheckedDivision::Remainder, Some((3, 1))).unwrap();
+        assert_eq!(unscaled(&mixed), [Some(15), Some(-15)]);
+        let r = divide(decimals(&[Some(75), Some(-75), Some(75)], 3, 1), decimals(&[Some(20), Some(20), Some(4)], 3, 1), CheckedDivision::Remainder, Some((3, 1))).unwrap();
+        assert_eq!(unscaled(&r), [Some(15), Some(-15), Some(3)]);
     }
 }

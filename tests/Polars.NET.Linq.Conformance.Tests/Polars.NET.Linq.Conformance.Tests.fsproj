@@ -21,6 +21,7 @@
     <Compile Include="ReshapeConformance.fs" />
     <Compile Include="FloatConformance.fs" />
     <Compile Include="SubqueryConformance.fs" />
+    <Compile Include="CheckedDivisionConformance.fs" />
   </ItemGroup>
 
   <ItemGroup>

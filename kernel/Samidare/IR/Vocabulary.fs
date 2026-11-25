@@ -42,6 +42,17 @@ type RoundMode =
     | HalfAwayFromZero
     | ToZero
 
+/// What a ScalarFunction.CheckedDivide computes. Every kind truncates toward zero where it truncates.
+[<RequireQualifiedAccess>]
+type DivisionKind =
+    /// The quotient: over floating values the IEEE quotient, over decimals the exact quotient rounded half away from
+    /// zero at the result's scale (SQL `/`).
+    | Divide
+    /// The integer quotient truncated toward zero (-7 div 2 = -3; Spark's `div`).
+    | IntegerDivide
+    /// The remainder of the truncated division: it carries the dividend's sign (-7 % 2 = -1, 7 % -3 = 1).
+    | Remainder
+
 /// Tie-breaking method for Rank
 [<RequireQualifiedAccess>]
 type RankMethod =

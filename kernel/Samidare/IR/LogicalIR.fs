@@ -270,6 +270,8 @@ type QueryErrorKind =
     | ArgumentOutOfRange
     /// .NET's OverflowException (checked arithmetic, as Enumerable.Sum).
     | Overflow
+    /// .NET's DivideByZeroException (ScalarFunction.CheckedDivide by zero).
+    | DivideByZero
 
 /// An error a query raises when a check fails while it runs. An empty message stands for the error kind's
 /// default message.
@@ -502,11 +504,21 @@ type ScalarFunction =
     /// the check's error. It has an effect, so it must be evaluated wherever its value is used, never folded
     /// or reordered past the computation of its count.
     | AssertCount of check: CountCheck
-    /// `[value]` over integers, decimals or floating values (both truncated toward zero): the value as the function's
-    /// integer type, its result type;
-    /// the query fails with `QueryErrorKind.Overflow` when a value leaves that type's range (.NET's checked
-    /// conversion; over an exact wide sum, a checked sum per group). Null stays null. It has an effect, as AssertCount.
+    /// `[value; guard]` over integers, decimals or floating values (both truncated toward zero): the value as the
+    /// function's integer type, its result type; the query fails with `QueryErrorKind.Overflow` when a value leaves that
+    /// type's range on a row where the guard is true (.NET's checked conversion; over an exact wide sum, a checked sum
+    /// per group). Null stays null, and so does every row whose guard is not true (false or null), which never fails.
+    /// The guard is a Boolean in the value's context (literal true over aggregates); see SEMANTICS.md, Guards. It has
+    /// an effect, as AssertCount.
     | CheckedNarrow
+    /// `[dividend; divisor; guard]`, ANSI SQL's division: the operands have one numeric type (Divide: floating values or
+    /// decimals; IntegerDivide: integers; Remainder: any), the result has the function's type (the operands' type,
+    /// except a decimal Divide, whose result type the frontend chooses). Null when an operand is null, and on every
+    /// row whose guard is not true (false or null). On a guarded row with a non-null dividend, a zero divisor (0, -0.0)
+    /// fails the query with `QueryErrorKind.DivideByZero`, and a quotient beyond the result type (MinValue div -1, a
+    /// decimal beyond its precision) with `QueryErrorKind.Overflow`; MinValue % -1 is 0. The guard is a Boolean in
+    /// the operands' context; see SEMANTICS.md, Guards. It has an effect, as AssertCount.
+    | CheckedDivide of kind: DivisionKind
     /// `[value]` over integers, decimals or floating values (both truncated toward zero): the value as the function's
     /// integer type, its result type, or null when it leaves that type's range (or is NaN). A row conversion that
     /// .NET checks (checked((int)x), (int)decimal, Convert.ToInt32): an engine evaluates both sides of `&&` and `?:`
@@ -673,6 +685,7 @@ type ScalarFunction =
         | ScalarFunction.ReplaceStrict _ -> "replace_strict"
         | ScalarFunction.AssertCount _ -> "assert_count"
         | ScalarFunction.CheckedNarrow -> "checked_narrow"
+        | ScalarFunction.CheckedDivide _ -> "checked_divide"
         | ScalarFunction.NarrowOrNull -> "narrow_or_null"
         | ScalarFunction.DecimalToFloating -> "decimal_to_floating"
         | ScalarFunction.FloatingToDecimal -> "floating_to_decimal"

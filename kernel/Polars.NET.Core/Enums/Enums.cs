@@ -213,6 +213,17 @@ public enum PlRoll :byte
     Backward = 2
 }
 
+/// <summary>What a checked (ANSI SQL) division computes; the shim's codes.</summary>
+public enum PlCheckedDivision
+{
+    /// <summary>The quotient: IEEE over floats, over decimals rounded half away from zero at the result's scale.</summary>
+    Divide = 0,
+    /// <summary>The integer quotient truncated toward zero.</summary>
+    IntegerDivide = 1,
+    /// <summary>The remainder of the truncated division (the dividend's sign).</summary>
+    Remainder = 2,
+}
+
 public enum PlWindowMapping: byte
 {
     GroupsToRows = 0,

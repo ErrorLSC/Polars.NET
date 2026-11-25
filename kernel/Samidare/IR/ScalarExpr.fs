@@ -42,6 +42,17 @@ module ScalarExprOps =
     /// Column reference helper
     let col (name: string) : ScalarExpr = ScalarExpr.Column name
 
+    /// The guard of a raising node evaluated on every row it sees (SEMANTICS.md, Guards).
+    let unguarded: ScalarExpr = ScalarExpr.Literal(LiteralValue.Bool true)
+
+    /// ScalarFunction.CheckedNarrow of `value` to the integer type `target`, raising only where `guard` is true.
+    let checkedNarrow (target: LogicalType) (guard: ScalarExpr) (value: ScalarExpr) : ScalarExpr =
+        ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ value; guard ], target)
+
+    /// ScalarFunction.CheckedDivide of `kind` with result type `resultType`, raising only where `guard` is true.
+    let checkedDivide (kind: DivisionKind) (resultType: LogicalType) (guard: ScalarExpr) (dividend: ScalarExpr) (divisor: ScalarExpr) : ScalarExpr =
+        ScalarExpr.Function(ScalarFunction.CheckedDivide kind, [ dividend; divisor; guard ], resultType)
+
     /// Strongly-typed, zero-boxing overloaded literal constructor via SRTP
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))

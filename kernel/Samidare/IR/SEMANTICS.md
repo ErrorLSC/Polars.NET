@@ -153,8 +153,8 @@ The flag is always explicit. A backend never chooses it.
 
 Strict materialization then reports a null that reaches a non-nullable member.
 
-**`AssertCount`.** The nodes that raise are `ScalarFunction.AssertCount` (`[count; value]`) and
-`AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
+**`AssertCount`.** The nodes that raise are `ScalarFunction.AssertCount` (`[count; value]`), `RequireListed`,
+`CheckedNarrow`, `CheckedDivide` (see Checked division) and `AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
 row count, an overflow flag) lies in range. Otherwise the query fails with the check's `QueryError`, which the
 backend surfaces as the matching .NET exception. It has an effect, so it must be evaluated wherever its
 value is used, and never constant-folded. A backend that cannot raise answers
@@ -164,7 +164,34 @@ time and marks the compilation so its plan is not cached.
 **No short-circuit.** Expressions are evaluated whole: both sides of `And` / `Or` and both branches of a
 `Conditional`, for every row. An `AssertCount` is therefore checked once whenever its plan runs, even where
 the logic around it (`false AND ...`, an empty outer relation) would never read its value. This is stricter
-than LINQ to Objects, never laxer: whenever LINQ raises, so does the query.
+than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. Row by row, `CheckedNarrow` and
+`CheckedDivide` restore short-circuit evaluation with a guard.
+
+**Guards.** `CheckedNarrow` (`[value; guard]`) and `CheckedDivide` (`[dividend; divisor; guard]`) raise only on rows
+where their guard, a Boolean in the operands' context, is true; elsewhere (false or null) they are null and never
+raise. The guard is the node's whole precondition, so a backend or a pass may evaluate the node on more rows than
+its plan position reaches (split conjuncts, reorder them, push them, merge filters) without raising more. The
+frontend owns the guard: it conjoins every condition under which its language does not reach the node:
+
+- the test of a `Conditional` for its then-branch (`Coalesce [test; false]`), its negation for the else branch;
+- the left side of `And` for the right (`Coalesce [left; true]`), of `Or` its negation (`Not (Coalesce [left; false])`);
+- for each argument of `Coalesce` after the first, that every earlier one `IsNull`.
+
+A guard over aggregates guards a node over aggregates; a node inside an aggregation's or a window's argument is
+guarded by the conditions inside that argument only. Literal true guards nothing (a node over all the rows). A guard
+never covers the rows a lower `Filter` or a `Join` removes: the engine may push and merge a predicate below them, so
+a raising node in a filter predicate may still be evaluated on such rows. So may one in a projection that a
+`Filter` above reads, since the optimizer may inline the projection into the predicate; a projection nothing
+filters on is evaluated on the rows that reach it.
+
+**Checked division.** `CheckedDivide` is ANSI SQL's division (Spark's with `spark.sql.ansi.enabled`), where the
+arithmetic `Divide`, `TruncatedDivide` and `Modulo` give null (see Arithmetic). Its kind (`DivisionKind`) is the
+quotient (`Divide`: floating values, or decimals rounded half away from zero at the result's scale), the truncated
+integer quotient (`IntegerDivide`) or the truncated remainder (`Remainder`, the dividend's sign). A null operand gives
+null. On a guarded row with a non-null dividend, a zero divisor (0 or -0.0, for floating values too) fails the query
+with `QueryErrorKind.DivideByZero`, and a quotient beyond the result type (`MinValue` div -1, a decimal beyond its
+precision) with `QueryErrorKind.Overflow`; `MinValue % -1` is 0. It has an effect, as `AssertCount`: never
+constant-folded.
 
 **Guarded UDFs.** The frontend restores C# short-circuit evaluation for managed UDFs. A UDF on the right of
 `&&` / `||` / `??`, or in a `?:` branch, receives the guard (the left side, its negation, the left's null test,

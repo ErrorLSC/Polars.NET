@@ -468,6 +468,22 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle DotNetCheckedSum(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_dotnet_checked_sum, expr);
 
     /// <summary>
+    /// ANSI SQL's checked division of <paramref name="left"/> by <paramref name="right"/>, element by element: null where
+    /// an operand is null; a zero divisor (0, -0.0) of a non-null dividend fails with a
+    /// <see cref="DivideByZeroException"/>, a result out of range (MinValue div -1, a decimal beyond its precision) with
+    /// an <see cref="OverflowException"/>. Integers and floats are taken in their supertype; decimal operands give
+    /// Decimal(<paramref name="precision"/>, <paramref name="scale"/>) (pass a negative precision for other types).
+    /// Null the dividend on the rows that must not be checked.
+    /// </summary>
+    public static ExprHandle CheckedDiv(ExprHandle left, ExprHandle right, PlCheckedDivision kind, int precision = -1, int scale = 0)
+    {
+        var h = NativeBindings.pl_expr_checked_div(left, right, (int)kind, precision, scale);
+        left.TransferOwnership();
+        right.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    /// <summary>
     /// .NET checked narrowing of an integer, decimal or floating expression (truncated toward zero) to the integer type
     /// <paramref name="target"/>, element by element: each value as the target, or, when one leaves its range (or is
     /// NaN), an <see cref="OverflowException"/> (null with <paramref name="nullOnOverflow"/>); null stays null. In a

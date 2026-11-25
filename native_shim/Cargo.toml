@@ -29,6 +29,7 @@ futures = "*"
 rand = "*"
 regex-syntax = "*"
 ryu = "1.0.23"
+ethnum = "1.5"
 [lib]
 crate-type = ["cdylib"]
 

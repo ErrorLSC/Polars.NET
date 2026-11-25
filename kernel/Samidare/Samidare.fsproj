@@ -32,6 +32,7 @@
     <Compile Include="IR/CardinalityFeedback.fs" />
     <Compile Include="IR/SourceRegistry.fs" />
     <Compile Include="IR/SchemaInference.fs" />
+    <Compile Include="IR/RaisingGuards.fs" />
     <Compile Include="IR/Passes/Decorrelation.fs" />
     <Compile Include="Sql/SqlErrors.fs" />
     <Compile Include="Sql/SqlAst.fs" />

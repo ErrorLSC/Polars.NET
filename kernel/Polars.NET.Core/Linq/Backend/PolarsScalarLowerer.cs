@@ -167,6 +167,8 @@ internal static class PolarsScalarLowerer
                 QueryErrorKind.Tags.ArgumentOutOfRange => new ArgumentOutOfRangeException("index", error.Message),
                 QueryErrorKind.Tags.Overflow when string.IsNullOrEmpty(error.Message) => new OverflowException(),
                 QueryErrorKind.Tags.Overflow => new OverflowException(error.Message),
+                QueryErrorKind.Tags.DivideByZero when string.IsNullOrEmpty(error.Message) => new DivideByZeroException(),
+                QueryErrorKind.Tags.DivideByZero => new DivideByZeroException(error.Message),
                 _ => throw new ArgumentOutOfRangeException(nameof(error)),
             };
             return ManagedErrorRelay.Capture(exception);
@@ -310,8 +312,21 @@ internal static class PolarsScalarLowerer
             // .NET checked narrowing (null where .NET throws, for NarrowOrNull): one shim kernel, element by element
             // (per group, each group's value). An exact sum of integers in Decimal(38, 0), the IR's widest exact
             // integer, is summed in the engine's Int128: the same values, about half the time of its decimal sum.
-            case ScalarExpr.Function { func.IsCheckedNarrow: true, args: [var value] } f:
-                return LowerNarrowing(value, f.returnType, nullOnOverflow: false);
+            // A guarded row keeps its value; elsewhere it is null, which never fails (SEMANTICS.md, Guards).
+            case ScalarExpr.Function { func.IsCheckedNarrow: true, args: [var value, var guard] } f:
+                return LowerNarrowing(value, f.returnType, nullOnOverflow: false, guard);
+            // ANSI division: the dividend is null off the guard's rows, so only guarded rows can fail.
+            case ScalarExpr.Function { func: ScalarFunction.CheckedDivide division, args: [var dividend, var divisor, var guard] } f:
+            {
+                var kind = division.kind.Tag switch
+                {
+                    DivisionKind.Tags.Divide => PlCheckedDivision.Divide,
+                    DivisionKind.Tags.IntegerDivide => PlCheckedDivision.IntegerDivide,
+                    _ => PlCheckedDivision.Remainder,
+                };
+                var (precision, scale) = f.returnType is LogicalType.Arrow { arrowType: Decimal128Type d } ? (d.Precision, d.Scale) : (-1, 0);
+                return PolarsWrapper.CheckedDiv(Guarded(Lower(dividend), guard), Lower(divisor), kind, precision, scale);
+            }
             case ScalarExpr.Function { func.IsNarrowOrNull: true, args: [var value] } f:
                 return LowerNarrowing(value, f.returnType, nullOnOverflow: true);
 
@@ -485,7 +500,7 @@ internal static class PolarsScalarLowerer
             mappingCode: PlWindowMapping.GroupsToRows);
     }
 
-    private static ExprHandle LowerNarrowing(ScalarExpr value, LogicalType returnType, bool nullOnOverflow)
+    private static ExprHandle LowerNarrowing(ScalarExpr value, LogicalType returnType, bool nullOnOverflow, ScalarExpr? guard = null)
     {
         var target = returnType switch
         {
@@ -515,8 +530,18 @@ internal static class PolarsScalarLowerer
             valueH = PolarsWrapper.Sum(sum.isDistinct ? PolarsWrapper.ExprUnique(cast) : cast);
         }
         else valueH = Lower(value);
-        return PolarsWrapper.DotNetCheckedNarrow(valueH, target, nullOnOverflow: nullOnOverflow);
+        return PolarsWrapper.DotNetCheckedNarrow(Guarded(valueH, guard), target, nullOnOverflow: nullOnOverflow);
     }
+
+    /// <summary>
+    /// The input of a raising kernel restricted to its guard's rows: null where the guard is not true (a null input
+    /// never raises), unchanged without a guard or under literal true.
+    /// </summary>
+    private static ExprHandle Guarded(ExprHandle input, ScalarExpr? guard) => guard switch
+    {
+        null or ScalarExpr.Literal { value: LiteralValue.Bool { Item: true } } => input,
+        _ => PolarsWrapper.IfElse(Lower(guard), input, PolarsWrapper.LitNull()),
+    };
 
     private static ExprHandle LowerUdf(ExprHandle[] args, UdfInvoker invoker)
     {
