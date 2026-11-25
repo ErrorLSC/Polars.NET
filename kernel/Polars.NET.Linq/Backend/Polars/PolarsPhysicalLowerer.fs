@@ -78,21 +78,93 @@ module internal PolarsPhysicalLowerer =
         | LogicalPlan.Rename(input, _, _) -> slicesOrderedGroups input
         | _ -> false
 
+    /// The branch a conditional takes whatever the row, when its test reads literals alone (SQL's guard against a
+    /// literal divisor of zero). A cast of a decimal literal only types it: the comparison of the values decides.
+    let private decidedBranch (test: ScalarExpr) (ifTrue: ScalarExpr) (ifFalse: ScalarExpr) : ScalarExpr option =
+        let rec uncastLiterals (e: ScalarExpr) =
+            match e with
+            | ScalarExpr.Cast(ScalarExpr.Literal(LiteralValue.Decimal _ as value), LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type), _) ->
+                ScalarExpr.Literal value
+            | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, uncastLiterals left, uncastLiterals right)
+            | other -> other
+        match FilterShapes.foldConstants (uncastLiterals test) with
+        | ScalarExpr.Literal(LiteralValue.Bool true) -> Some ifTrue
+        | ScalarExpr.Literal(LiteralValue.Bool false)
+        | ScalarExpr.Literal(LiteralValue.Null _) -> Some ifFalse
+        | _ -> None
+
+    /// Whether an expression is no column or literal (or a cast of one): computing it costs.
+    let rec private isComputed (expr: ScalarExpr) =
+        match expr with
+        | ScalarExpr.Column _
+        | ScalarExpr.Literal _ -> false
+        | ScalarExpr.Cast(inner, _, _) -> isComputed inner
+        | _ -> true
+
+    /// The columns an expression is null exactly when one of them is (arithmetic that passes nulls on: strict casts and
+    /// casts that keep every value, addition, subtraction, multiplication, negation, division by a literal that is not
+    /// zero), if it is such an expression.
+    let private nullsFrom (schema: Lazy<LogicalSchema>) (expr: ScalarExpr) : string list option =
+        let rec passes (e: ScalarExpr) =
+            match e with
+            | ScalarExpr.Column _ -> true
+            | ScalarExpr.Literal(LiteralValue.Null _) -> false
+            | ScalarExpr.Literal _ -> true
+            // A strict cast raises where it cannot convert: it never makes a value null.
+            | ScalarExpr.Cast(inner, _, true) -> passes inner
+            | ScalarExpr.Cast(inner, target, false) ->
+                let source = SchemaInference.inferScalarType schema.Value inner
+                // A decimal to one with as many digits before the point and as many after: every value fits.
+                let decimalFits =
+                    match source, target with
+                    | LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type as f), LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type as t) ->
+                        t.Scale >= f.Scale && t.Precision - t.Scale >= f.Precision - f.Scale
+                    | _ -> false
+                (decimalFits || FilterShapes.castKeepsValuesOf source target) && passes inner
+            | ScalarExpr.Binary((BinaryOp.Add | BinaryOp.Subtract | BinaryOp.Multiply), left, right) -> passes left && passes right
+            | ScalarExpr.Binary(BinaryOp.Divide, left, divisor) ->
+                let divisor =
+                    match divisor with
+                    | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> decidedBranch test ifTrue ifFalse |> Option.defaultValue divisor
+                    | other -> other
+                let isNonZeroLiteral =
+                    match FilterShapes.foldConstants (ScalarExpr.Binary(BinaryOp.NotEq, divisor, ScalarExpr.Literal(LiteralValue.Int32 0))) with
+                    | ScalarExpr.Literal(LiteralValue.Bool true) -> true
+                    | _ ->
+                        match divisor with
+                        | ScalarExpr.Literal(LiteralValue.Decimal d)
+                        | ScalarExpr.Cast(ScalarExpr.Literal(LiteralValue.Decimal d), _, _) -> d <> 0M
+                        | _ -> false
+                isNonZeroLiteral && passes left
+            | ScalarExpr.Unary(UnaryOp.Negate, inner) -> passes inner
+            | ScalarExpr.Conditional(test, ifTrue, ifFalse) ->
+                match decidedBranch test ifTrue ifFalse with
+                | Some branch -> passes branch
+                | None -> false
+            | _ -> false
+        let columns = ScalarExprOps.collectColumns expr
+        if not columns.IsEmpty && passes expr then Some(Set.toList columns) else None
+
+    /// The count of an expression's non-null values from its columns, when its nulls are theirs: the expression is
+    /// then computed once, by its sum, and the engine's grouping keeps its fast path (see `splitSumOrNull`).
+    let private countOf (schema: Lazy<LogicalSchema>) (argument: ScalarExpr) : ScalarExpr =
+        match nullsFrom schema argument with
+        | Some [ column ] when isComputed argument -> ScalarExpr.Aggregation(AggKind.Count, Some(ScalarExpr.Column column), false)
+        | Some(first :: rest) when isComputed argument ->
+            let present column = ScalarExpr.Unary(UnaryOp.IsNotNull, ScalarExpr.Column column)
+            let rows = rest |> List.fold (fun acc column -> ScalarExpr.Binary(BinaryOp.And, acc, present column)) (present first)
+            ScalarExpr.Aggregation(AggKind.Sum, Some rows, false)
+        | _ -> ScalarExpr.Aggregation(AggKind.Count, Some argument, false)
+
     /// A SumOrNull is lowered as a count and a sum of its argument (PolarsScalarLowerer), and the engine computes an
     /// argument twice when it is an expression. One that does arithmetic or calls a function is computed once instead,
     /// as a column of the aggregation's input (a grouping, grouping sets, or a projection of aggregates): TPC-DS Q4's
     /// decimal arithmetic per row was about half the grouping's time.
-    let private hoistSumOrNullArguments (input: LogicalPlan) (aggs: (string * ScalarExpr) list) =
-        let rec isCheap (expr: ScalarExpr) =
-            match expr with
-            | ScalarExpr.Column _
-            | ScalarExpr.Literal _ -> true
-            | ScalarExpr.Cast(inner, _, _) -> isCheap inner
-            | _ -> false
+    let private hoistSumOrNullArguments (hoists: ScalarExpr -> bool) (input: LogicalPlan) (aggs: (string * ScalarExpr) list) =
         let hoisted = ResizeArray<string * ScalarExpr>()
         let rec collect (expr: ScalarExpr) =
             match expr with
-            | ScalarExpr.Aggregation(AggKind.SumOrNull, Some argument, false) when not (isCheap argument) ->
+            | ScalarExpr.Aggregation(AggKind.SumOrNull, Some argument, false) when hoists argument ->
                 if not (hoisted |> Seq.exists (fun (_, e) -> e = argument)) then
                     hoisted.Add($"__sum_or_null_argument_{hoisted.Count}", argument)
             | ScalarExpr.Aggregation _ -> ()
@@ -128,6 +200,66 @@ module internal PolarsPhysicalLowerer =
             | other -> other
         let rewritten = aggs |> List.map (fun (name, expr) -> name, rewrite expr)
         if hoisted.Count = 0 then input, aggs else LogicalPlan.WithColumns(input, List.ofSeq hoisted), rewritten
+
+    /// A grouping whose aggregates hold a SumOrNull, as a grouping of plain aggregates and a projection that combines
+    /// them: the engine's grouping runs plain aggregates (`sum`, `count`) on a fast path, and an aggregate inside an
+    /// expression (`when(count > 0).then(sum)`) on a slow, group by group one (TPC-DS Q4's pre-aggregation: 307 ms
+    /// against 110). None when no aggregate holds a SumOrNull, or with a HAVING, which reads the aggregates in place.
+    let private splitSumOrNull
+        (input: LogicalPlan)
+        (keys: ScalarExpr list)
+        (aggs: (string * ScalarExpr) list)
+        (having: ScalarExpr option)
+        (maintainOrder: bool)
+        : LogicalPlan option =
+        let rec holdsSumOrNull (expr: ScalarExpr) =
+            match expr with
+            | ScalarExpr.Aggregation(AggKind.SumOrNull, _, _) -> true
+            | ScalarExpr.Aggregation _ -> false
+            | other -> ScalarExprOps.children other |> List.exists holdsSumOrNull
+        if having.IsSome || not (aggs |> List.exists (snd >> holdsSumOrNull)) then
+            None
+        else
+            let inputSchema = SchemaInference.inferPlanSchema input
+            let schema = lazy inputSchema
+            let plain = ResizeArray<string * ScalarExpr>()
+            let plainColumn (aggregate: ScalarExpr) =
+                match plain |> Seq.tryFind (fun (_, e) -> e = aggregate) with
+                | Some(name, _) -> ScalarExpr.Column name
+                | None ->
+                    let name = $"__plain_aggregate_{plain.Count}"
+                    plain.Add(name, aggregate)
+                    ScalarExpr.Column name
+            // Each aggregate a plain one of the grouping; a SumOrNull its sum where its count is not zero.
+            let rec combine (expr: ScalarExpr) =
+                match expr with
+                | ScalarExpr.Aggregation(AggKind.SumOrNull, Some argument, false) ->
+                    let total = plainColumn (ScalarExpr.Aggregation(AggKind.Sum, Some argument, false))
+                    let counted = plainColumn (countOf schema argument)
+                    let none = ScalarExpr.Literal(LiteralValue.Null(SchemaInference.inferScalarType inputSchema expr))
+                    ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Gt, counted, ScalarExpr.Literal(LiteralValue.UInt32 0u)), total, none)
+                | ScalarExpr.Aggregation(AggKind.Count, Some argument, false) -> plainColumn (countOf schema argument)
+                | ScalarExpr.Aggregation _ -> plainColumn expr
+                | ScalarExpr.Alias(inner, alias) -> ScalarExpr.Alias(combine inner, alias)
+                | ScalarExpr.Cast(inner, target, strict) -> ScalarExpr.Cast(combine inner, target, strict)
+                | ScalarExpr.Unary(op, inner) -> ScalarExpr.Unary(op, combine inner)
+                | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, combine left, combine right)
+                | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> ScalarExpr.Conditional(combine test, combine ifTrue, combine ifFalse)
+                | ScalarExpr.Coalesce items -> ScalarExpr.Coalesce(items |> List.map combine)
+                | other -> other
+            let combined = aggs |> List.map (fun (name, expr) -> name, combine expr)
+            // A SumOrNull under an expression this cannot rebuild (a function, a window) stays as it was.
+            if combined |> List.exists (snd >> holdsSumOrNull) then
+                None
+            else
+                let grouping = LogicalPlan.GroupBy(input, keys, List.ofSeq plain, None, maintainOrder)
+                let aggNames = aggs |> List.map fst |> Set.ofList
+                let columns =
+                    (SchemaInference.inferPlanSchema (LogicalPlan.GroupBy(input, keys, aggs, None, maintainOrder))).ColumnNames
+                    |> List.map (fun name ->
+                        if aggNames.Contains name then name, (combined |> List.find (fst >> (=) name) |> snd)
+                        else name, ScalarExpr.Column name)
+                Some(LogicalPlan.Project(grouping, columns))
 
     let rec private lowerNode
         (sources: SourceBinding array)
@@ -166,7 +298,7 @@ module internal PolarsPhysicalLowerer =
 
         | LogicalPlan.Project(input, projs) ->
             let input, projs =
-                if projs |> List.exists (snd >> ScalarExprOps.containsAggregation) then hoistSumOrNullArguments input projs
+                if projs |> List.exists (snd >> ScalarExprOps.containsAggregation) then hoistSumOrNullArguments isComputed input projs
                 else input, projs
             let lf = lowerNode sources shared input
             let exprs =
@@ -260,7 +392,13 @@ module internal PolarsPhysicalLowerer =
             )
 
         | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
-            let input, aggs = hoistSumOrNullArguments input aggs
+            // An argument whose count its columns give is computed once by its sum, inside the grouping: computed
+            // beforehand as a column, it takes the grouping off its fast path (TPC-DS Q4: 110 ms against 300).
+            let schema = lazy (SchemaInference.inferPlanSchema input)
+            let input, aggs = hoistSumOrNullArguments (fun a -> isComputed a && (nullsFrom schema a).IsNone) input aggs
+            match splitSumOrNull input keys aggs having maintainOrder with
+            | Some split -> lowerNode sources shared split
+            | None ->
             let lf = lowerNode sources shared input
             let keyHs = keys |> List.map PolarsScalarLowerer.lower |> List.toArray
             let aggHs =
@@ -273,7 +411,7 @@ module internal PolarsPhysicalLowerer =
             PolarsWrapper.LazyGroupByAgg(lf, keyHs, aggHs, havingH, maintainOrder)
 
         | LogicalPlan.GroupingSets(input, spec) ->
-            let input, aggs = hoistSumOrNullArguments input spec.Aggs
+            let input, aggs = hoistSumOrNullArguments isComputed input spec.Aggs
             let spec = { spec with Aggs = aggs }
             // Every level groups the same input: it is computed once. (An explicit cache also turns off Polars'
             // own common-subplan elimination for the whole plan, so subplans the plan reuses must be explicit

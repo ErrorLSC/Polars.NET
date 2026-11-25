@@ -18,6 +18,7 @@ using Polars.Tpcds;
 //   ... -- plans --out <dir> [--queries Q1,Q2] [--data <dir>]
 //   ... -- sql --out <dir> [--rounds 5] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
 //   ... -- sql-plans --out <dir> [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
+//   ... -- sql-probe --out <dir> --queries Q1,Q2 [--data <dir>] [--texts <dir>]
 //
 // `run` first compares each query's rows with DuckDB, then times it end to end (parquet to rows, plan cache on),
 // alternating engines, and writes sweep.csv and sweep.md. `plans` writes each optimized plan with generated names
@@ -27,7 +28,7 @@ using Polars.Tpcds;
 // writes each query's optimized plan from the SQL frontend (Qn.sql.txt), the engine's plan of it (Qn.sql.polars.txt)
 // and the LINQ version's, as IR (Qn.linq.ir.txt) and the engine's (Qn.linq.txt).
 
-if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans"))
+if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans" or "sql-probe"))
 {
     Console.Error.WriteLine("usage: run|plans|sql|sql-plans --out <dir> [--rounds n] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]");
     return 2;
@@ -64,6 +65,24 @@ if (args[0] == "sql-plans")
         File.WriteAllText(Path.Combine(output, query.Name + ".linq.ir.txt"), Normalize(query.ExplainLogicalPlan()));
     }
     Console.WriteLine($"{selected.Count} plan pairs written to {output}");
+    return 0;
+}
+
+if (args[0] == "sql-probe")
+{
+    // Every join, grouping and shared subplan of a query's plan timed alone (lowered and collected), from the SQL
+    // frontend and from the LINQ version, then the whole plan: where the time of a slow query goes. A join's time
+    // includes materializing its whole output, which the grouping above it may not need.
+    var catalog = SqlSweep.Catalog();
+    var textDir = options.TryGetValue("texts", out var probeTexts) ? probeTexts : SqlSweep.FindTexts();
+    foreach (var query in selected)
+    {
+        var text = File.ReadAllText(Path.Combine(textDir, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
+        var (sqlPlan, sqlSources) = PolarsSql.plan(catalog, text);
+        var linq = ((Kaminari.Samidare.IR.IInternalQueryExplainable)query.CreateQuery()).CompileLogicalQuery();
+        Probe.Run($"{query.Name} SQL", sqlPlan, sqlSources);
+        Probe.Run($"{query.Name} LINQ", linq.Plan, linq.Sources);
+    }
     return 0;
 }
 
@@ -368,4 +387,52 @@ internal sealed record SqlSweepResult(string Name, int Rows, double SqlMs, doubl
 {
     public double SqlRatio => DuckDbMs > 0 ? SqlMs / DuckDbMs : 0;
     public double SqlLinqRatio => LinqMs > 0 ? SqlMs / LinqMs : 0;
+}
+
+/// Times the parts of a plan alone: see the sql-probe mode.
+internal static class Probe
+{
+    public static void Run(string label, Kaminari.Samidare.IR.LogicalPlan plan, Kaminari.Samidare.IR.SourceBinding[] sources)
+    {
+        Console.WriteLine($"== {label}");
+        var parts = new List<(string Label, Kaminari.Samidare.IR.LogicalPlan Part)>();
+        Find(plan, 0);
+        foreach (var (partLabel, part) in parts)
+            Console.WriteLine($"{Median(part)}  {partLabel}");
+        Console.WriteLine($"{Median(plan)}  whole");
+
+        void Find(Kaminari.Samidare.IR.LogicalPlan p, int depth)
+        {
+            if (p is Kaminari.Samidare.IR.LogicalPlan.GroupBy or Kaminari.Samidare.IR.LogicalPlan.Shared or Kaminari.Samidare.IR.LogicalPlan.Join)
+            {
+                var first = Kaminari.Samidare.IR.LogicalPlanOps.formatPlan(p).Split('\n')[0].Trim();
+                parts.Add(($"{new string(' ', depth * 2)}{(first.Length > 110 ? first[..110] : first)}", p));
+            }
+            foreach (var input in Kaminari.Samidare.IR.LogicalPlanOps.getInputs(p))
+                Find(input, depth + 1);
+        }
+
+        string Median(Kaminari.Samidare.IR.LogicalPlan p)
+        {
+            for (int w = 0; w < 4; w++) Collect(p);
+            var times = new List<double>();
+            long rows = 0;
+            for (int i = 0; i < 5; i++)
+            {
+                GC.Collect();
+                var watch = Stopwatch.StartNew();
+                rows = Collect(p);
+                times.Add(watch.Elapsed.TotalMilliseconds);
+            }
+            times.Sort();
+            return $"{times[2]:F1}".PadLeft(8) + $" ms {rows,9} rows";
+        }
+
+        long Collect(Kaminari.Samidare.IR.LogicalPlan p)
+        {
+            using var lf = PolarsPhysicalLowerer.lowerPlan(sources, p);
+            using var df = new DataFrame(PolarsWrapper.LazyCollect(lf, PlEngine.Auto));
+            return df.Height;
+        }
+    }
 }

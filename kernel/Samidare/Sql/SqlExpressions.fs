@@ -518,7 +518,9 @@ module internal SqlExpressions =
             let a, b = convert binder lSpan l operandType, convert binder rSpan r operandType
             let b = safeDivisor b (LiteralValue.Decimal 0m)
             let computed = ScalarExpr.Binary(irOp, a.Expr, b.Expr)
-            value (if operandType.Display = result.Display then computed else ScalarExpr.Cast(computed, result, false)) result
+            // Spark's result type holds every result (a quotient's integral digits grow by the divisor's scale), so the
+            // cast cannot fail: strict, it says so, and a non-null value stays non-null.
+            value (if operandType.Display = result.Display then computed else ScalarExpr.Cast(computed, result, true)) result
 
     and private like (binder: SqlBinder) (span: SqlSpan) (operand: SqlExpr) (pattern: SqlExpr) (escape: SqlExpr option) (negated: bool) : SqlValue =
         let subject = asText binder operand (bind binder operand)

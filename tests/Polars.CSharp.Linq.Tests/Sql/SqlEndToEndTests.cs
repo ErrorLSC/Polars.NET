@@ -52,6 +52,18 @@ public class SqlEndToEndTests
         Assert.Equal(3, rows.Count);
     }
 
+    /// A sum of quotients that are all null (each a division by zero) is null: the count of a quotient by a column is
+    /// the quotient's own, not its operands', which are not null. Not compared with DuckDB, as above.
+    [Fact]
+    public void Sum_of_quotients_by_zero_is_null()
+    {
+        var rows = TpcdsSqlResultTests.Run(Data.Value.Catalog, "SELECT o, sum(d / (o - 1)) AS s, count(d / (o - 1)) AS c FROM t GROUP BY o ORDER BY o");
+        Assert.Equal(3, rows.Count);
+        Assert.Null(rows[0][1]);
+        Assert.Equal(0L, Convert.ToInt64(rows[0][2]));
+        Assert.NotNull(rows[1][1]);
+    }
+
     [Theory]
     // Windows: OVER (), running aggregates that skip nulls, ranks over nullable keys in mixed directions.
     [InlineData("SELECT g, o, sum(d) OVER () AS total FROM t ORDER BY g, o")]
@@ -70,6 +82,8 @@ public class SqlEndToEndTests
     [InlineData("SELECT g, sum(d * 2 + o) AS s, sum(k + o) AS t, sum(d * 2 + o) + sum(k * 1) AS u FROM t GROUP BY g ORDER BY g")]
     [InlineData("SELECT avg(d * 2 + o) AS a, sum(d * o) AS s, count(d * o) AS c, count(*) AS n FROM t")]
     [InlineData("SELECT avg(d * 2) AS a FROM t WHERE d IS NULL")]
+    // Sums and counts of arithmetic counted from its columns when they give its nulls, not when a divisor may be zero.
+    [InlineData("SELECT g, count(d * o) AS c, avg(d + 1) AS a, sum(d / 2) AS h FROM t GROUP BY g ORDER BY g")]
     [InlineData("SELECT g, sum(d * o) AS s, avg(d + o) AS a FROM t GROUP BY ROLLUP (g) ORDER BY g")]
     [InlineData("SELECT o, (SELECT sum(d) FROM t t2 WHERE t2.g = t.g AND t2.k > 5) AS none FROM t ORDER BY g, o")]
     // Expressions: division by zero is NULL, casts round, NULL in || and concat, LIKE with escapes, IN with NULL.
