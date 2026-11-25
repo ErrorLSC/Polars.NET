@@ -294,6 +294,35 @@ module ScalarExprOps =
             | SubqueryKind.Scalar
             | SubqueryKind.Exists -> []
 
+    /// Rebuilds an expression with each immediate sub-expression (those `children` lists) mapped; a subquery's plan is
+    /// kept.
+    let mapChildren (f: ScalarExpr -> ScalarExpr) (expr: ScalarExpr) : ScalarExpr =
+        let orders (os: SortOrder list) = os |> List.map (fun o -> { o with Expr = f o.Expr })
+        match expr with
+        | ScalarExpr.Column _
+        | ScalarExpr.Literal _
+        | ScalarExpr.OuterColumn _ -> expr
+        | ScalarExpr.Binary(op, l, r) -> ScalarExpr.Binary(op, f l, f r)
+        | ScalarExpr.Unary(op, e) -> ScalarExpr.Unary(op, f e)
+        | ScalarExpr.Cast(e, t, strict) -> ScalarExpr.Cast(f e, t, strict)
+        | ScalarExpr.Function(fn, args, t) -> ScalarExpr.Function(fn, List.map f args, t)
+        | ScalarExpr.Aggregation(kind, e, distinct) -> ScalarExpr.Aggregation(kind, Option.map f e, distinct)
+        | ScalarExpr.Window(e, partitionBy, orderBy) -> ScalarExpr.Window(f e, List.map f partitionBy, orders orderBy)
+        | ScalarExpr.SortBy(e, by) -> ScalarExpr.SortBy(f e, orders by)
+        | ScalarExpr.Conditional(t, a, b) -> ScalarExpr.Conditional(f t, f a, f b)
+        | ScalarExpr.Coalesce es -> ScalarExpr.Coalesce(List.map f es)
+        | ScalarExpr.ItemAccess(t, i) -> ScalarExpr.ItemAccess(f t, f i)
+        | ScalarExpr.Slice(t, offset, length) -> ScalarExpr.Slice(f t, offset, length)
+        | ScalarExpr.Subquery(scope, plan, kind) ->
+            match kind with
+            | SubqueryKind.In(target, nullsEqual) -> ScalarExpr.Subquery(scope, plan, SubqueryKind.In(f target, nullsEqual))
+            | SubqueryKind.Scalar
+            | SubqueryKind.Exists -> expr
+        | ScalarExpr.Alias(e, name) -> ScalarExpr.Alias(f e, name)
+        | ScalarExpr.Udf(name, args, t, invoker) -> ScalarExpr.Udf(name, List.map f args, t, invoker)
+        | ScalarExpr.InList(e, source, negated, nullsEqual) -> ScalarExpr.InList(f e, source, negated, nullsEqual)
+        | ScalarExpr.EnumConvert(conversion, e, mapping) -> ScalarExpr.EnumConvert(conversion, f e, mapping)
+
     /// Checks whether an expression reads an OuterColumn outside any subquery plan it embeds (the plans are not
     /// searched; see LogicalPlanOps.outerColumns).
     let rec containsOuterColumn (expr: ScalarExpr) : bool =

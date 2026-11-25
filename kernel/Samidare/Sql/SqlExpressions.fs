@@ -29,6 +29,14 @@ type internal SqlAggregates =
     | Refused of where: string
     | Grouped of SqlGrouping
 
+/// A window aggregate over SQL's RANGE frame (ORDER BY and no frame: the partition's rows up to the current row's last
+/// peer, the rows equal to it in the ORDER BY), which the query binder computes by peers (SqlQueries.rangeWindows).
+type internal SqlRangeWindow =
+    { Partition: ScalarExpr list
+      Orders: SortOrder list
+      /// The aggregate's expression over the input (the aggregates in it, running over the peers, give the value).
+      Value: ScalarExpr }
+
 /// What an expression is bound in.
 type internal SqlBinder =
     { Text: string
@@ -37,7 +45,11 @@ type internal SqlBinder =
       /// Where window functions are refused, the text naming where; None where they are allowed (SELECT, ORDER BY).
       WindowsRefused: string option
       /// Binds a subquery inside this binder's scope.
-      Subquery: SqlBinder -> SqlQuery -> SqlSubquery }
+      Subquery: SqlBinder -> SqlQuery -> SqlSubquery
+      /// A scope number no subquery of the translation has (for one more subquery over a bound subquery's plan).
+      NextScope: unit -> int
+      /// The column a RANGE frame's window aggregate is computed into, where window functions are allowed.
+      RangeWindow: SqlRangeWindow -> ScalarExpr }
 
 /// Binds expressions (sql-frontend design, S2): names to columns, SQL's types and functions to the IR's.
 module internal SqlExpressions =
@@ -53,8 +65,11 @@ module internal SqlExpressions =
     let private aggregateNames =
         set [ "count"; "sum"; "avg"; "min"; "max"; "stddev"; "stddev_samp"; "stddev_pop"; "variance"; "var_samp"; "var_pop" ]
     let private rankNames = set [ "rank"; "dense_rank"; "row_number" ]
+    /// The aggregates whose value over a RANGE frame is computed (by peers, running).
+    let private runningKinds =
+        set [ AggKind.Len; AggKind.Count; AggKind.Sum; AggKind.SumOrNull; AggKind.Mean; AggKind.Min; AggKind.Max; AggKind.MinNanLargest; AggKind.MaxNanLargest ]
     let private scalarNames =
-        set [ "abs"; "round"; "upper"; "lower"; "substr"; "substring"; "concat"; "coalesce"; "nullif"; "length"; "char_length"; "grouping" ]
+        set [ "abs"; "round"; "upper"; "lower"; "substr"; "substring"; "left"; "right"; "concat"; "coalesce"; "nullif"; "length"; "char_length"; "isnan"; "grouping" ]
 
     let private functionName (call: SqlFunctionCall) =
         match call.Name with
@@ -87,7 +102,8 @@ module internal SqlExpressions =
         | SqlExprKind.IsNull(a, _)
         | SqlExprKind.Cast(a, _, _)
         | SqlExprKind.Extract(_, a)
-        | SqlExprKind.InSubquery(a, _, _) -> [ a ]
+        | SqlExprKind.InSubquery(a, _, _)
+        | SqlExprKind.Quantified(a, _, _, _) -> [ a ]
         | SqlExprKind.Binary(_, a, b)
         | SqlExprKind.IsDistinctFrom(a, b, _) -> [ a; b ]
         | SqlExprKind.Between(a, b, c, _) -> [ a; b; c ]
@@ -105,7 +121,8 @@ module internal SqlExpressions =
         | SqlExprKind.Function { Over = Some _ }
         | SqlExprKind.Exists _
         | SqlExprKind.ScalarSubquery _
-        | SqlExprKind.InSubquery _ -> true
+        | SqlExprKind.InSubquery _
+        | SqlExprKind.Quantified _ -> true
         | SqlExprKind.Function call when functionName call = Some "grouping" -> true
         | _ -> children e |> List.exists holdsWindowOrSubquery
 
@@ -222,6 +239,29 @@ module internal SqlExpressions =
         if not (SqlTypes.isNumeric v.Type || SqlTypes.isNull v.Type) then
             fail binder span $"{what} needs a number, not a value of type {SqlTypes.display v.Type}" None
 
+    /// A running value (`cumulative`: CumSum, CumMin or CumMax) of `input` of type `t`, each cumulative value wrapped by
+    /// `window` (its window), skipping nulls as SQL does. For a minimum or maximum of floating values NaN is above
+    /// every number, as in SQL's MIN and MAX, which the engine's running extremes skip: NaN is set aside and counted.
+    let runningValue (cumulative: ScalarFunction) (t: LogicalType) (input: ScalarExpr) (window: ScalarExpr -> ScalarExpr) : ScalarExpr =
+        let cum (f: ScalarFunction) (e: ScalarExpr) = ScalarExpr.Function(f, [ e; lit (LiteralValue.Bool false) ], LogicalType.Unknown)
+        // The engine's cumulative value is null where its input is: the last value before stands for it.
+        let filled (e: ScalarExpr) = ScalarExpr.Function(ScalarFunction.ForwardFill, [ e ], LogicalType.Unknown)
+        match cumulative, SqlTypes.classify t with
+        | (ScalarFunction.CumMin | ScalarFunction.CumMax), SqlTypeClass.Floating _ ->
+            let isNan = ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Unary(UnaryOp.IsNan, input); lit (LiteralValue.Bool false) ], LogicalTypes.Boolean)
+            let none = lit (LiteralValue.Null t)
+            let extreme = window (filled (cum cumulative (ScalarExpr.Conditional(isNan, none, input))))
+            let nanSeen =
+                ScalarExpr.Binary(BinaryOp.Gt, window (cum ScalarFunction.CumSum (ScalarExpr.Cast(isNan, LogicalTypes.Int64, false))), lit (LiteralValue.Int64 0L))
+            let nan = ScalarExpr.Cast(lit (LiteralValue.Float64 Double.NaN), t, false)
+            match cumulative with
+            | ScalarFunction.CumMax -> ScalarExpr.Conditional(nanSeen, nan, extreme)
+            | _ -> ScalarExpr.Conditional(ScalarExpr.Unary(UnaryOp.IsNotNull, extreme), extreme, ScalarExpr.Conditional(nanSeen, nan, none))
+        | _ -> window (filled (cum cumulative input))
+
+    /// The type an interval of months stands as until it is added to a date (it is never a value of its own).
+    let private monthsType = LogicalTypes.Duration
+
     let rec bind (binder: SqlBinder) (e: SqlExpr) : SqlValue =
         match binder.Aggregates with
         | SqlAggregates.Grouped grouping when not (containsAggregate e) && not (holdsWindowOrSubquery e) ->
@@ -244,6 +284,27 @@ module internal SqlExpressions =
         | SqlResolution.Found(_, _ :: _) -> true
         | _ -> false
 
+    /// A subquery bound where the query around gives groups (SELECT, HAVING and ORDER BY of a grouping query, outside
+    /// an aggregate's arguments): the row it is evaluated for is a group's, so a column it reads of the query around is
+    /// a grouping key, read as the key's column; any other column is neither grouped nor aggregated.
+    and private subqueryOf (binder: SqlBinder) (query: SqlQuery) : SqlSubquery =
+        let sub = binder.Subquery binder query
+        match binder.Aggregates with
+        | SqlAggregates.Grouped grouping ->
+            let shown (name: string) =
+                binder.Scope.Relations
+                |> List.tryPick (fun r ->
+                    r.Columns
+                    |> List.tryFind (fun c -> c.Internal = name)
+                    |> Option.map (fun c -> match r.Name with Some n -> $"{n.Text}.{c.Name}" | None -> c.Name))
+                |> Option.defaultValue name
+            let replace (name: string) (_: LogicalType) =
+                match grouping.Keys |> List.tryFind (fun (key, _) -> key = ScalarExpr.Column name) with
+                | Some(_, { Expr = ScalarExpr.Column keyColumn; Type = t }) -> ScalarExpr.OuterColumn(sub.Scope, keyColumn, t)
+                | _ -> fail binder query.Span $"The subquery reads {shown name}, which must appear in GROUP BY or be used in an aggregate function" None
+            { sub with Plan = LogicalPlanOps.mapOuterColumns sub.Scope replace sub.Plan }
+        | SqlAggregates.Refused _ -> sub
+
     and private bindNode (binder: SqlBinder) (e: SqlExpr) : SqlValue =
         let span = e.Span
         match e.Kind with
@@ -261,7 +322,10 @@ module internal SqlExpressions =
             | SqlLiteral.Interval(text, unit) ->
                 match Int32.TryParse(text.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture), unit with
                 | (true, n), ("DAY" | "DAYS") -> value (lit (LiteralValue.TimeSpan(TimeSpan.FromDays(float n)))) LogicalTypes.Duration
-                | (true, _), _ -> fail binder span $"INTERVAL ... {unit} is not supported" (Some "Intervals of days are: INTERVAL '5' DAY.")
+                // Months and years: a whole number of calendar months, added to a date only (see `arithmetic`).
+                | (true, n), ("MONTH" | "MONTHS") -> value (ScalarExpr.Function(ScalarFunction.DtOffsetMonths, [ lit (LiteralValue.Int32 n) ], monthsType)) monthsType
+                | (true, n), ("YEAR" | "YEARS") -> value (ScalarExpr.Function(ScalarFunction.DtOffsetMonths, [ lit (LiteralValue.Int32(12 * n)) ], monthsType)) monthsType
+                | (true, _), _ -> fail binder span $"INTERVAL ... {unit} is not supported" (Some "Intervals of days, months and years are: INTERVAL '5' DAY.")
                 | _ -> fail binder span $"'{text}' is not a whole number of {unit.ToLowerInvariant()}s" None
 
         | SqlExprKind.Column name -> bindColumn binder span name
@@ -337,7 +401,7 @@ module internal SqlExpressions =
 
         | SqlExprKind.InSubquery(operand, query, negated) ->
             let x = bind binder operand
-            let sub = binder.Subquery binder query
+            let sub = subqueryOf binder query
             match sub.Columns with
             | [ (column, t) ] ->
                 let common =
@@ -352,12 +416,16 @@ module internal SqlExpressions =
                 value (if negated then ScalarExpr.Unary(UnaryOp.Not, test) else test) LogicalTypes.Boolean
             | columns -> fail binder query.Span $"The subquery of IN must give one column, not {columns.Length}" None
 
+        | SqlExprKind.Quantified(operand, SqlBinaryOp.Eq, false, query) -> bindNode binder { e with Kind = SqlExprKind.InSubquery(operand, query, false) }
+        | SqlExprKind.Quantified(operand, SqlBinaryOp.NotEq, true, query) -> bindNode binder { e with Kind = SqlExprKind.InSubquery(operand, query, true) }
+        | SqlExprKind.Quantified(operand, op, all, query) -> quantified binder span operand op all query
+
         | SqlExprKind.Exists query ->
-            let sub = binder.Subquery binder query
+            let sub = subqueryOf binder query
             value (ScalarExpr.Subquery(sub.Scope, sub.Plan, SubqueryKind.Exists)) LogicalTypes.Boolean
 
         | SqlExprKind.ScalarSubquery query ->
-            let sub = binder.Subquery binder query
+            let sub = subqueryOf binder query
             match sub.Columns with
             | [ (_, t) ] -> value (ScalarExpr.Subquery(sub.Scope, sub.Plan, SubqueryKind.Scalar)) t
             | columns -> fail binder query.Span $"A subquery used as a value must give one column, not {columns.Length}" None
@@ -464,7 +532,17 @@ module internal SqlExpressions =
             match offset with
             | ScalarExpr.Literal(LiteralValue.TimeSpan t) -> lit (LiteralValue.TimeSpan(-t))
             | other -> other
+        let months (interval: SqlValue) = match interval.Expr with ScalarExpr.Function(ScalarFunction.DtOffsetMonths, [ n ], _) -> Some n | _ -> None
+        let byMonths (date: SqlValue) (n: ScalarExpr) (negated: bool) =
+            let n = match n with ScalarExpr.Literal(LiteralValue.Int32 m) when negated -> lit (LiteralValue.Int32 -m) | other -> other
+            value (ScalarExpr.Function(ScalarFunction.DtOffsetMonths, [ date.Expr; n ], date.Type)) date.Type
         match SqlTypes.classify l.Type, SqlTypes.classify r.Type, op with
+        // date ± INTERVAL 'n' MONTH (or YEAR): a date (ISO), the day clamped to the month's last.
+        | (SqlTypeClass.Date | SqlTypeClass.Timestamp), _, (SqlBinaryOp.Add | SqlBinaryOp.Subtract) when (months r).IsSome ->
+            byMonths l (months r).Value (op = SqlBinaryOp.Subtract)
+        | _, (SqlTypeClass.Date | SqlTypeClass.Timestamp), SqlBinaryOp.Add when (months l).IsSome -> byMonths r (months l).Value false
+        | _, _, _ when (months l).IsSome || (months r).IsSome ->
+            fail binder span "An interval of months or years is only added to or subtracted from a date or a timestamp" None
         // date ± days (an extension: `d_date + 5`).
         | (SqlTypeClass.Date | SqlTypeClass.Timestamp), _, (SqlBinaryOp.Add | SqlBinaryOp.Subtract) when SqlTypes.isInteger r.Type || r.Type.Display = LogicalTypes.Duration.Display ->
             let offset = days r rSpan
@@ -523,6 +601,73 @@ module internal SqlExpressions =
             // Spark's result type holds every result (a quotient's integral digits grow by the divisor's scale), so the
             // cast cannot fail: strict, it says so, and a non-null value stays non-null.
             value (if operandType.Display = result.Display then computed else ScalarExpr.Cast(computed, result, true)) result
+
+    /// `x op ANY (query)` and `x op ALL (query)` (other than `= ANY`, which is IN, and `<> ALL`, NOT IN), by SQL's
+    /// three-valued rules over the subquery's values: ANY is false over no rows, ALL true; else null for a null x;
+    /// else decided by the values that are not null (ANY true when x compares true with one, ALL false when with one
+    /// it does not: the extreme value decides, MIN and MAX of SQL); else null when a value is null; else ALL true and
+    /// ANY false. The count, the count of values, MIN and MAX are scalar subqueries over the same rows, which the
+    /// Decorrelation pass computes in one grouping.
+    and private quantified (binder: SqlBinder) (span: SqlSpan) (operand: SqlExpr) (op: SqlBinaryOp) (all: bool) (query: SqlQuery) : SqlValue =
+        let x = bind binder operand
+        let sub = subqueryOf binder query
+        let quantifier = if all then "ALL" else "ANY"
+        let column, t =
+            match sub.Columns with
+            | [ single ] -> single
+            | columns -> fail binder query.Span $"The subquery of {quantifier} must give one column, not {columns.Length}" None
+        let common =
+            match SqlTypes.common x.Type t with
+            | Some c -> c
+            | None -> fail binder span $"Cannot compare {SqlTypes.display x.Type} with the subquery's {SqlTypes.display t}" None
+        let x = (convert binder operand.Span x common).Expr
+        let rows =
+            if t.Display = common.Display then sub.Plan
+            else LogicalPlan.Project(sub.Plan, [ column, ScalarExpr.Cast(ScalarExpr.Column column, common, false) ])
+        let over (aggregate: ScalarExpr) =
+            let scope = binder.NextScope()
+            let plan = LogicalPlanOps.mapOuterColumns sub.Scope (fun name ty -> ScalarExpr.OuterColumn(scope, name, ty)) rows
+            ScalarExpr.Subquery(scope, LogicalPlan.Project(plan, [ "q", aggregate ]), SubqueryKind.Scalar)
+        let v = Some(ScalarExpr.Column column)
+        let asLong (e: ScalarExpr) = ScalarExpr.Cast(e, LogicalTypes.Int64, false)
+        let count = asLong (over (ScalarExpr.Aggregation(AggKind.Len, None, false)))
+        let values = asLong (over (ScalarExpr.Aggregation(AggKind.Count, v, false)))
+        let low = over (ScalarExpr.Aggregation(AggKind.MinNanLargest, v, false))
+        let high = over (ScalarExpr.Aggregation(AggKind.MaxNanLargest, v, false))
+        let compare (bound: ScalarExpr) =
+            let irOp =
+                match op with
+                | SqlBinaryOp.Lt -> BinaryOp.Lt
+                | SqlBinaryOp.LtEq -> BinaryOp.LtEq
+                | SqlBinaryOp.Gt -> BinaryOp.Gt
+                | _ -> BinaryOp.GtEq
+            ScalarExpr.Binary(irOp, x, bound)
+        let differs = ScalarExpr.Binary(BinaryOp.Or, ScalarExpr.Binary(BinaryOp.NotEq, x, low), ScalarExpr.Binary(BinaryOp.NotEq, x, high))
+        let not' e = ScalarExpr.Unary(UnaryOp.Not, e)
+        // The test the values that are not null decide by, and the result it decides.
+        let decisive =
+            match op, all with
+            | (SqlBinaryOp.Gt | SqlBinaryOp.GtEq), false -> compare low
+            | (SqlBinaryOp.Lt | SqlBinaryOp.LtEq), false -> compare high
+            | (SqlBinaryOp.Gt | SqlBinaryOp.GtEq), true -> not' (compare high)
+            | (SqlBinaryOp.Lt | SqlBinaryOp.LtEq), true -> not' (compare low)
+            | SqlBinaryOp.Eq, true
+            | SqlBinaryOp.NotEq, false -> differs
+            | _ -> fail binder span $"{quantifier} needs a comparison" None
+        let bool b = lit (LiteralValue.Bool b)
+        let unknown = lit (LiteralValue.Null LogicalTypes.Boolean)
+        let test =
+            ScalarExpr.Conditional(
+                ScalarExpr.Binary(BinaryOp.Eq, count, lit (LiteralValue.Int64 0L)),
+                bool all,
+                ScalarExpr.Conditional(
+                    ScalarExpr.Unary(UnaryOp.IsNull, x),
+                    unknown,
+                    ScalarExpr.Conditional(
+                        decisive,
+                        bool (not all),
+                        ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Gt, count, values), unknown, bool all))))
+        value test LogicalTypes.Boolean
 
     and private like (binder: SqlBinder) (span: SqlSpan) (operand: SqlExpr) (pattern: SqlExpr) (escape: SqlExpr option) (negated: bool) : SqlValue =
         let subject = asText binder operand (bind binder operand)
@@ -597,7 +742,17 @@ module internal SqlExpressions =
             | None -> bindWindow binder span name call window
         | None when aggregateNames.Contains name ->
             match binder.Aggregates with
-            | SqlAggregates.Refused where -> fail binder span $"Aggregate functions are not allowed {where}" None
+            | SqlAggregates.Refused where ->
+                // SQL makes an aggregate of only the query around's columns that query's aggregate (`max(t.o)` in a
+                // subquery of a query grouping t): not supported.
+                let rec names (x: SqlExpr) =
+                    match x.Kind with
+                    | SqlExprKind.Column name -> [ name ]
+                    | _ -> children x |> List.collect names
+                match call.Arguments |> List.collect names with
+                | _ :: _ as read when read |> List.forall (isOuter binder) ->
+                    fail binder span $"{name}() over columns of the query around is that query's aggregate, which is not supported inside a subquery" (Some "Compute the aggregate in the query around and compare with it there.")
+                | _ -> fail binder span $"Aggregate functions are not allowed {where}" None
             | SqlAggregates.Grouped grouping ->
                 let inner = { binder with Aggregates = SqlAggregates.Refused "inside another aggregate"; WindowsRefused = Some "inside an aggregate" }
                 grouping.Aggregate(aggregate inner span name call)
@@ -695,6 +850,7 @@ module internal SqlExpressions =
             | None, [] -> true, false
             | Some { Unit = SqlFrameUnit.Rows; Start = SqlFrameBound.UnboundedPreceding; End = (None | Some SqlFrameBound.CurrentRow) }, _ :: _ -> false, true
             | Some { Start = SqlFrameBound.UnboundedPreceding; End = Some SqlFrameBound.UnboundedFollowing }, _ -> true, false
+            | Some { Unit = SqlFrameUnit.Range; Start = SqlFrameBound.UnboundedPreceding; End = (None | Some SqlFrameBound.CurrentRow) }, _ :: _
             | None, _ :: _ -> false, false
             | Some frame, _ -> fail binder frame.Span "This window frame is not supported" (Some "Supported: no frame, ROWS UNBOUNDED PRECEDING (to CURRENT ROW), or UNBOUNDED PRECEDING to UNBOUNDED FOLLOWING.")
         if rankNames.Contains name then
@@ -725,32 +881,33 @@ module internal SqlExpressions =
             // An aggregate with OVER computes over its window; its arguments bind where the window is, so over groups
             // in an aggregating query (`avg(sum(x)) OVER ()` averages the groups' sums).
             let over = aggregate inWindow span name call
+            let declared = partition
             // OVER () is one partition of every row: partitioned by a constant (an engine needs a partition or an order).
             let partition = if partition.IsEmpty then [ lit (LiteralValue.Bool true) ] else partition
+            // The engine's running minimum and maximum take numbers and times only.
+            if not wholePartition && (name = "min" || name = "max") && SqlTypes.classify over.Type = SqlTypeClass.String then
+                fail binder span $"A running {name}() of text (OVER with ORDER BY) is not supported yet" (Some "Over the whole partition (no ORDER BY in the window) it is.")
             if wholePartition then value (ScalarExpr.Window(over.Expr, partition, [])) over.Type
             elif cumulative then
-                let running =
-                    match name, call.Arguments with
-                    | "sum", [ _ ] ->
-                        match over.Expr with
-                        | ScalarExpr.Aggregation(AggKind.SumOrNull, Some arg, false) -> Some(ScalarFunction.CumSum, arg)
-                        | _ -> None
-                    | ("min" | "max"), [ _ ] ->
-                        match over.Expr with
-                        | ScalarExpr.Aggregation(_, Some arg, false) -> Some((if name = "min" then ScalarFunction.CumMin else ScalarFunction.CumMax), arg)
-                        | _ -> None
-                    | _ -> None
-                match running with
-                | Some(f, arg) ->
-                    // SQL's running aggregate skips nulls: the engine's cumulative value is null where the input is, so
-                    // the last value before stands for it.
-                    let cum = ScalarExpr.Function(f, [ arg; lit (LiteralValue.Bool false) ], over.Type)
-                    let running = ScalarExpr.Function(ScalarFunction.ForwardFill, [ cum ], over.Type)
-                    value (ScalarExpr.Window(running, partition, orders |> List.map fst)) over.Type
-                | None -> fail binder span $"A running {name}() is not supported" None
+                let window (e: ScalarExpr) = ScalarExpr.Window(e, partition, orders |> List.map fst)
+                match name, call.Arguments, over.Expr with
+                | "sum", [ _ ], ScalarExpr.Aggregation(AggKind.SumOrNull, Some arg, false) ->
+                    value (runningValue ScalarFunction.CumSum over.Type arg window) over.Type
+                | ("min" | "max"), [ _ ], ScalarExpr.Aggregation(_, Some arg, false) ->
+                    value (runningValue (if name = "min" then ScalarFunction.CumMin else ScalarFunction.CumMax) over.Type arg window) over.Type
+                | _ -> fail binder span $"A running {name}() is not supported" None
             else
-                fail binder window.Span $"{name}() OVER (ORDER BY ...) takes SQL's default frame (RANGE, peers included), which is not supported yet"
-                    (Some "Write ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW for a running value.")
+                // SQL's RANGE frame (the default with ORDER BY): up to the current row's last peer, by peers.
+                let rec check (e: ScalarExpr) =
+                    match e with
+                    | ScalarExpr.Aggregation(_, _, true) -> fail binder span $"{name}(DISTINCT ...) OVER (ORDER BY ...) is not supported" None
+                    | ScalarExpr.Aggregation(kind, _, false) when runningKinds.Contains kind -> ()
+                    | ScalarExpr.Aggregation _ ->
+                        fail binder span $"{name}() OVER (ORDER BY ...) is not supported: its running value is not computed yet"
+                            (Some "Over the whole partition (no ORDER BY in the window) it is.")
+                    | _ -> ScalarExprOps.children e |> List.iter check
+                check over.Expr
+                value (binder.RangeWindow { Partition = declared; Orders = orders |> List.map fst; Value = over.Expr }) over.Type
         else fail binder span $"{name}() is not a window function" None
 
     and private scalarFunction (binder: SqlBinder) (span: SqlSpan) (name: string) (call: SqlFunctionCall) : SqlValue =
@@ -795,6 +952,26 @@ module internal SqlExpressions =
             if length < 0 then fail binder call.Arguments.[2].Span $"The length of {name}() cannot be negative" None
             let lengthArg = if args.Length = 3 then lit (LiteralValue.Int64(int64 length)) else lit (LiteralValue.Null LogicalTypes.Int64)
             value (ScalarExpr.Function(ScalarFunction.Slice, [ s.Expr; lit (LiteralValue.Int64(int64 (start - 1))); lengthArg ], LogicalTypes.String)) LogicalTypes.String
+        | "left"
+        | "right" ->
+            arity [ 2 ]
+            let s = asText binder call.Arguments.[0] args.[0]
+            let n = integerLiteral 1
+            if n < 0 then fail binder call.Arguments.[1].Span $"A negative length in {name}() is not supported" None
+            // The first n characters, or the last n (a slice from the end, which a string shorter than n gives whole).
+            let offset, length =
+                if name = "left" || n = 0 then 0L, int64 n
+                else int64 -n, Int64.MaxValue
+            let lengthArg = if length = Int64.MaxValue then lit (LiteralValue.Null LogicalTypes.Int64) else lit (LiteralValue.Int64 length)
+            value (ScalarExpr.Function(ScalarFunction.Slice, [ s.Expr; lit (LiteralValue.Int64 offset); lengthArg ], LogicalTypes.String)) LogicalTypes.String
+        | "isnan" ->
+            arity [ 1 ]
+            let x = args.[0]
+            match SqlTypes.classify x.Type with
+            | SqlTypeClass.Floating _ -> value (ScalarExpr.Unary(UnaryOp.IsNan, x.Expr)) LogicalTypes.Boolean
+            | SqlTypeClass.Null -> nullOf LogicalTypes.Boolean
+            | _ when SqlTypes.isNumeric x.Type -> value (ScalarExpr.Unary(UnaryOp.IsNan, ScalarExpr.Cast(x.Expr, LogicalTypes.Float64, false))) LogicalTypes.Boolean
+            | _ -> fail binder call.Arguments.[0].Span $"isnan() takes a number, not {SqlTypes.display x.Type}" None
         | "concat" ->
             if args.IsEmpty then fail binder span "concat() needs arguments" None
             // concat skips NULL arguments (DuckDB, PostgreSQL), as the IR's ConcatString does.

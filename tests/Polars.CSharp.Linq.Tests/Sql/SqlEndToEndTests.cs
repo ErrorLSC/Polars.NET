@@ -107,6 +107,69 @@ public class SqlEndToEndTests
     [InlineData("SELECT * FROM (SELECT count(*) AS a FROM t, u WHERE t.k = u.k AND (t.o = 1 OR u.label = 'deux')) x, (SELECT max(t.s) AS b FROM t, u WHERE t.k = u.k AND t.o > u.k) y")]
     [InlineData("SELECT * FROM (SELECT count(*) AS a, max(q.s) AS m FROM t p, t q WHERE p.g = q.g AND p.o = 1) x, (SELECT count(*) AS b, max(p.s) AS m FROM t p, t q WHERE p.g = q.g AND q.o = 2) y")]
     [InlineData("SELECT * FROM (SELECT count(*) AS a FROM t p, u, t q WHERE p.k = u.k AND q.k = u.k AND p.o = q.o AND p.g = 1) x, (SELECT count(*) AS b FROM t p, u, t q WHERE p.k = u.k AND q.k = u.k AND p.o = q.o AND u.label = 'two') y")]
+    // Subqueries over groups: in SELECT, HAVING and ORDER BY a correlated subquery reads the group's keys (with ROLLUP
+    // too, where a rolled-up key is null); in an aggregate's argument, the input row's columns.
+    [InlineData("SELECT g, (SELECT count(*) FROM u WHERE u.k = t.g) AS n FROM t GROUP BY g ORDER BY g")]
+    [InlineData("SELECT g, sum(o) AS s FROM t GROUP BY g HAVING sum(o) > (SELECT count(*) FROM u WHERE u.k = t.g) ORDER BY g")]
+    [InlineData("SELECT g FROM t GROUP BY g HAVING EXISTS (SELECT 1 FROM u WHERE u.k = t.g) ORDER BY g")]
+    [InlineData("SELECT g, k, (SELECT count(*) FROM u WHERE u.k = t.g) AS n FROM t GROUP BY ROLLUP (g, k) ORDER BY g, k")]
+    [InlineData("SELECT g FROM t GROUP BY g ORDER BY (SELECT count(*) FROM u WHERE u.k = t.g) DESC, g")]
+    [InlineData("SELECT g AS grp, (SELECT max(label) FROM u WHERE u.k = t.g) AS l, count(*) AS c FROM t GROUP BY grp ORDER BY grp")]
+    [InlineData("SELECT g, sum((SELECT count(*) FROM u WHERE u.k = t.k)) AS n, max((SELECT min(label) FROM u WHERE u.k = t.o)) AS m FROM t GROUP BY g ORDER BY g")]
+    [InlineData("SELECT count(*) AS c, sum((SELECT count(*) FROM u WHERE u.k = t.k)) AS n FROM t")]
+    // SQL's IN and NOT IN as values and under OR: null when no value matches and the target or a value is null, false
+    // over no rows; correlated on an expression, the sets are {1, 2}, {NULL, 2} and empty.
+    [InlineData("SELECT g, o, k IN (SELECT k FROM u) AS a, k NOT IN (SELECT k FROM u WHERE k IS NOT NULL) AS b FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, o IN (SELECT k FROM u WHERE length(u.label) = t.g + 2) AS a FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o FROM t WHERE o NOT IN (SELECT k FROM u WHERE length(u.label) = t.g + 2) ORDER BY g, o")]
+    [InlineData("SELECT g, o FROM t WHERE o = 3 OR k NOT IN (SELECT k FROM u WHERE k IS NOT NULL) ORDER BY g, o")]
+    [InlineData("SELECT g, o FROM t WHERE k NOT IN (SELECT k FROM u WHERE k > 10) ORDER BY g, o")]
+    [InlineData("SELECT g, o FROM t WHERE k NOT IN (SELECT k FROM u) ORDER BY g, o")]
+    // Quantified comparisons: ANY false and ALL true over no rows, null for a null operand or an undecided null
+    // value; NaN above every number (MIN and MAX of SQL); correlated.
+    [InlineData("SELECT g, o, o > ANY (SELECT k FROM u) AS a, o > ALL (SELECT k FROM u) AS b, o <= ANY (SELECT k FROM u WHERE k IS NOT NULL) AS c, o < ALL (SELECT k FROM u WHERE k > 10) AS d, o >= SOME (SELECT k FROM u WHERE k > 10) AS e FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, o <= ALL (SELECT k FROM u WHERE k IS NOT NULL) AS a, o < ALL (SELECT k FROM u) AS b, o >= ALL (SELECT k FROM u WHERE k IS NOT NULL) AS c, o < ANY (SELECT k FROM u) AS d FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, k = ALL (SELECT k FROM u WHERE k = 2) AS a, k <> ANY (SELECT k FROM u WHERE k IS NOT NULL) AS b, k = ALL (SELECT k FROM u) AS c, k <> ANY (SELECT k FROM u WHERE k = 2) AS d FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, o >= ALL (SELECT t2.o FROM t t2 WHERE t2.g = t.g) AS top, o < ANY (SELECT t2.k FROM t t2 WHERE t2.g = t.g) AS below FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, x > ALL (SELECT x FROM t t2 WHERE t2.g = 1) AS a, x < ANY (SELECT x FROM t t2 WHERE t2.g = 2) AS b, x >= ALL (SELECT x FROM t t2 WHERE t2.g = 2) AS c FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o FROM t WHERE d > ALL (SELECT d FROM t t2 WHERE t2.g = 1 AND t2.d IS NOT NULL) OR o > ANY (SELECT k FROM u) ORDER BY g, o")]
+    // RANGE frames (ORDER BY without a frame, or RANGE UNBOUNDED PRECEDING): up to the current row's last peer; peers
+    // with null keys together; averages of decimals and of doubles with NaN; several keys and directions.
+    [InlineData("SELECT g, o, sum(o) OVER (PARTITION BY g ORDER BY k) AS s, count(k) OVER (PARTITION BY g ORDER BY k) AS c, avg(d) OVER (ORDER BY k) AS a FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, min(d) OVER (ORDER BY g DESC) AS lo, max(x) OVER (ORDER BY k NULLS FIRST) AS hi, avg(x) OVER (ORDER BY g) AS m FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, sum(d) OVER (ORDER BY k DESC NULLS LAST, g) AS s, count(*) OVER (PARTITION BY k ORDER BY g RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, sum(o) AS s, sum(sum(o)) OVER (ORDER BY g) AS running, sum(g) OVER (ORDER BY g RANGE UNBOUNDED PRECEDING) * 2 AS twice FROM t GROUP BY g ORDER BY g")]
+    [InlineData("SELECT o, count(*) OVER (ORDER BY o) AS c FROM t ORDER BY sum(o) OVER (ORDER BY o) DESC, o")]
+    // Running values over keys in mixed directions (the engine orders a window one way: each key ranked in its own).
+    [InlineData("SELECT g, o, sum(o) OVER (ORDER BY g DESC, k NULLS LAST ROWS UNBOUNDED PRECEDING) AS r, sum(o) OVER (ORDER BY k DESC NULLS FIRST, o) AS s FROM t ORDER BY g, o")]
+    // Running MIN and MAX of doubles keep NaN above every number (a partition starting with NaN, then a number).
+    [InlineData("SELECT g, o, min(x) OVER (ORDER BY g DESC, o DESC ROWS UNBOUNDED PRECEDING) AS lo, max(x) OVER (ORDER BY g, o ROWS UNBOUNDED PRECEDING) AS hi, min(x) OVER (PARTITION BY g ORDER BY o ROWS UNBOUNDED PRECEDING) AS plo, max(x) OVER (PARTITION BY g ORDER BY o) AS phi FROM t ORDER BY g, o")]
+    // USING: unqualified, the key is the value of the side that has the row (COALESCE for FULL, the right's for RIGHT),
+    // in the left key's place for *; qualified, each side's own.
+    [InlineData("SELECT * FROM t FULL JOIN u USING (k) ORDER BY k, label, s")]
+    [InlineData("SELECT k, t.k AS tk, u.k AS uk, label, count(*) OVER (PARTITION BY k) AS n FROM t FULL JOIN u USING (k) ORDER BY k, label, tk, s")]
+    [InlineData("SELECT k, t.k AS tk, u.k AS uk, label FROM t RIGHT JOIN u USING (k) ORDER BY k, label, tk")]
+    [InlineData("SELECT * FROM t RIGHT JOIN u USING (k) ORDER BY k, label, s")]
+    [InlineData("SELECT k, count(*) AS n FROM t FULL JOIN u USING (k) GROUP BY k ORDER BY k")]
+    [InlineData("SELECT k, t.k AS tk, v.k AS vk, label FROM t FULL JOIN (SELECT k + 1 AS k, label FROM u) v USING (k) ORDER BY k, label, tk, o")]
+    [InlineData("SELECT * FROM t RIGHT JOIN (SELECT k + 2 AS k, label FROM u) v USING (k) ORDER BY k, label, o")]
+    // VALUES: a query, a derived table with column names, a common table expression, an IN list's query, a set
+    // operation's side; each column in the type its values meet in.
+    [InlineData("VALUES (1, 'a'), (2, NULL), (NULL, 'c') ORDER BY 1")]
+    [InlineData("SELECT * FROM (VALUES (1, 2.5), (3, 1)) v ORDER BY col0")]
+    [InlineData("WITH v(x, y) AS (VALUES (1, 'one'), (2, 'zwei')) SELECT t.g, v.y FROM t JOIN v ON t.g = v.x ORDER BY t.g, v.y")]
+    [InlineData("SELECT g, o FROM t WHERE o IN (VALUES (1), (3)) ORDER BY g, o")]
+    [InlineData("SELECT k FROM u UNION ALL VALUES (7) ORDER BY k")]
+    [InlineData("SELECT x, count(*) AS n FROM (VALUES (1), (1), (2)) v(x) GROUP BY x ORDER BY x")]
+    [InlineData("SELECT col0 FROM (VALUES (DATE '2000-01-01'), ('2000-01-02'), (NULL)) v ORDER BY col0")]
+    // Small syntax: SUBSTRING FROM/FOR, IS [NOT] TRUE/FALSE/UNKNOWN, intervals of months and years (a date's day kept,
+    // or the month's last; DuckDB gives a timestamp, so both sides cast), unquoted interval numbers, left() and
+    // right() (lengths 0 and longer than the text), isnan().
+    [InlineData("SELECT g, o, substring(s FROM 2 FOR 3) AS a, substring(s FROM 3) AS b, substring(s, 2) AS c FROM t ORDER BY g, o")]
+    [InlineData("SELECT g, o, (k > 1) IS TRUE AS a, (k > 1) IS NOT FALSE AS b, (k > 1) IS UNKNOWN AS c, (k > 1) IS NOT TRUE AS d, (k > 1) IS FALSE AS e FROM t ORDER BY g, o")]
+    [InlineData("SELECT CAST(CAST('2000-01-31' AS DATE) + INTERVAL '1' MONTH AS DATE) AS a, CAST(CAST('2000-02-29' AS DATE) + INTERVAL '1' YEAR AS DATE) AS b, CAST(CAST('2000-03-31' AS DATE) - INTERVAL '1' MONTH AS DATE) AS c, CAST(INTERVAL 13 MONTH + DATE '2001-01-15' AS DATE) AS d, CAST('2000-01-31' AS DATE) + INTERVAL 30 DAY AS e")]
+    [InlineData("SELECT CAST(TIMESTAMP '2000-01-31 10:30:00' + INTERVAL '1' MONTH AS TIMESTAMP) AS a, CAST(TIMESTAMP '2004-02-29 00:00:01' - INTERVAL '4' YEAR AS TIMESTAMP) AS b")]
+    [InlineData("SELECT g, o, left(s, 2) AS a, right(s, 2) AS b, left(s, 0) AS c, right(s, 0) AS d, right(s, 10) AS e, left(s, 10) AS f, isnan(x) AS n, isnan(o) AS m FROM t ORDER BY g, o")]
     public void Gives_DuckDBs_rows(string sql)
     {
         var (dir, catalog) = Data.Value;

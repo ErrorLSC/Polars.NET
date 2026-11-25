@@ -301,6 +301,26 @@ module internal PolarsScalarLowerer =
         | ScalarExpr.Window(inner, partitionBy, orderBy) ->
             let innerH = lower inner
             let partHs = partitionBy |> List.map lower |> List.toArray
+            // The engine orders a window by its keys in one direction, nulls at one end: keys in mixed directions or
+            // null placements are each replaced by its dense rank in its own direction, nulls at its own end.
+            let orderBy =
+                match orderBy with
+                | first :: rest when rest |> List.exists (fun o -> o.Descending <> first.Descending || o.NullsLast <> first.NullsLast) ->
+                    orderBy
+                    |> List.map (fun o ->
+                        let dense =
+                            ScalarExpr.Function(
+                                ScalarFunction.Rank(RankMethod.Dense, None),
+                                [ o.Expr; ScalarExpr.Literal(LiteralValue.Bool o.Descending) ],
+                                LogicalTypes.UInt32)
+                        let nullRank = if o.NullsLast then Int64.MaxValue else 0L
+                        let key =
+                            ScalarExpr.Function(
+                                ScalarFunction.FillNull,
+                                [ ScalarExpr.Cast(dense, LogicalTypes.Int64, false); ScalarExpr.Literal(LiteralValue.Int64 nullRank) ],
+                                LogicalTypes.Int64)
+                        { Expr = key; Descending = false; NullsLast = false })
+                | _ -> orderBy
             let orderHs = orderBy |> List.map (fun o -> lower o.Expr) |> List.toArray
             let isDesc = orderBy |> List.tryHead |> Option.map (fun o -> o.Descending) |> Option.defaultValue false
             let nullsLast = orderBy |> List.tryHead |> Option.map (fun o -> o.NullsLast) |> Option.defaultValue false
@@ -525,6 +545,9 @@ module internal PolarsScalarLowerer =
                 )
             | ScalarFunction.DtOffsetBy, [ e; ScalarExpr.Literal(LiteralValue.TimeSpan offset) ] ->
                 PolarsWrapper.DtOffsetBy(lower e, PolarsWrapper.Lit(DurationFormatter.ToPolarsString offset))
+            // The engine's calendar offset clamps the day to the month's last.
+            | ScalarFunction.DtOffsetMonths, [ e; ScalarExpr.Literal(LiteralValue.Int32 months) ] ->
+                PolarsWrapper.DtOffsetBy(lower e, PolarsWrapper.Lit(string months + "mo"))
 
             // Struct & List
             | ScalarFunction.StructFieldByIndex, [ a; ScalarExpr.Literal(LiteralValue.Int64 idx) ] ->

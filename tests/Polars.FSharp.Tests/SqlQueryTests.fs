@@ -270,7 +270,63 @@ module SqlQueryTests =
         // IN under OR (TPC-DS Q45).
         let underOr = (translate "SELECT s_name FROM store WHERE s_state = 'CA' OR s_id IN (SELECT ss_store FROM sales)").Plan
         Assert.False(LogicalPlanOps.containsSubqueries underOr)
-        Assert.StartsWith("This subquery is not supported", (fails "SELECT s_name FROM store WHERE s_id NOT IN (SELECT ss_store FROM sales)").Message)
+        // NOT IN by SQL's rules (null when no value matches and one is null).
+        Assert.False(LogicalPlanOps.containsSubqueries (translate "SELECT s_name FROM store WHERE s_id NOT IN (SELECT ss_store FROM sales)").Plan)
+        Assert.False(LogicalPlanOps.containsSubqueries (translate "SELECT s_name, s_id > ALL (SELECT ss_store FROM sales) AS top FROM store").Plan)
+
+    [<Fact>]
+    let ``A subquery over groups reads the grouping keys of the query around`` () =
+        // In SELECT, HAVING and ORDER BY of a grouping query the subquery is evaluated per group: its outer column is
+        // the key's column, which the plan's grouping gives.
+        let plan = (translate "SELECT ss_store, (SELECT count(*) FROM store WHERE s_id = sales.ss_store) AS n FROM sales GROUP BY ss_store HAVING EXISTS (SELECT 1 FROM store WHERE s_id = ss_store) ORDER BY (SELECT max(s_name) FROM store WHERE s_id = ss_store)").Plan
+        Assert.False(LogicalPlanOps.containsSubqueries plan)
+        // In an aggregate's argument it is evaluated per input row, over the input's columns.
+        let perRow = (translate "SELECT ss_store, sum((SELECT count(*) FROM item WHERE i_id = ss_item)) AS n FROM sales GROUP BY ss_store").Plan
+        Assert.False(LogicalPlanOps.containsSubqueries perRow)
+        let e = fails "SELECT ss_store, (SELECT count(*) FROM item WHERE i_id = sales.ss_item) AS n FROM sales GROUP BY ss_store"
+        Assert.StartsWith("The subquery reads sales.ss_item, which must appear in GROUP BY or be used in an aggregate function", e.Message)
+        Assert.StartsWith("The subquery reads sales.ss_item", (fails "SELECT count(*) AS c, (SELECT count(*) FROM item WHERE i_id = ss_item) AS n FROM sales").Message)
+        Assert.StartsWith(
+            "max() over columns of the query around is that query's aggregate",
+            (fails "SELECT ss_store, (SELECT max(i_id) FROM item WHERE i_id < max(ss_qty)) AS m FROM sales GROUP BY ss_store").Message)
+        // An aggregate of the subquery's own columns stays refused where it is.
+        Assert.StartsWith("Aggregate functions are not allowed in WHERE", (fails "SELECT s_name FROM store WHERE s_id IN (SELECT ss_store FROM sales WHERE max(ss_qty) > 1)").Message)
+
+    [<Fact>]
+    let ``A window over the RANGE frame is computed by peers, joined back`` () =
+        let plan = (translate "SELECT ss_store, sum(ss_qty) OVER (PARTITION BY ss_store ORDER BY ss_item) AS s FROM sales").Plan
+        // Grouped by partition and order keys, joined back with nulls matching.
+        Assert.Contains(nodes plan, (function LogicalPlan.GroupBy(_, keys, _, _, _) -> keys.Length = 2 | _ -> false))
+        match joinsOf plan with
+        | [ (_, _, leftOn, _, JoinKind.Left, true) ] -> Assert.Equal(2, leftOn.Length)
+        | other -> failwithf "unexpected %A" other
+        Assert.StartsWith("count(DISTINCT ...) OVER (ORDER BY ...) is not supported", (fails "SELECT count(DISTINCT ss_qty) OVER (ORDER BY ss_item) AS c FROM sales").Message)
+        Assert.StartsWith("stddev() OVER (ORDER BY ...) is not supported", (fails "SELECT stddev(ss_qty) OVER (ORDER BY ss_item) AS c FROM sales").Message)
+        Assert.StartsWith("This window frame is not supported", (fails "SELECT sum(ss_qty) OVER (ORDER BY ss_item RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) AS c FROM sales").Message)
+
+    [<Fact>]
+    let ``VALUES gives rows of columns col0, col1 in the type their values meet in`` () =
+        let sql = translate "SELECT * FROM (VALUES (1, NULL), (2.5, 'b')) v"
+        Assert.Equal<string list>([ "col0"; "col1" ], sql.Columns |> List.map fst)
+        // INTEGER meets DECIMAL(2,1) in DECIMAL(11,1).
+        Assert.Equal<string list>([ "Decimal128(11, 1)"; "StringView" ], sql.Columns |> List.map (snd >> fun t -> t.Display))
+        // Each row is given in the column's type: the union's sides have one schema.
+        match nodes (translate "VALUES (1, DATE '2000-01-01'), (2.5, '2000-01-02')").Plan |> List.choose (function LogicalPlan.Union(l, r, _) -> Some(l, r) | _ -> None) with
+        | [ (l, r) ] ->
+            let types (p: LogicalPlan) = (SchemaInference.inferPlanSchema p).Fields |> List.map (fun f -> f.DataType.Display)
+            Assert.Equal<string list>(types l, types r)
+        | other -> failwithf "unexpected %A" other
+        Assert.StartsWith("Each row of VALUES must have 2 values, not 1", (fails "VALUES (1, 2), (3)").Message)
+        Assert.StartsWith("Column 1 of VALUES holds values of types", (fails "VALUES (1), ('a')").Message)
+
+    [<Fact>]
+    let ``Intervals of months move dates; left and right take a length`` () =
+        let sql = translate "SELECT DATE '2000-01-31' + INTERVAL '1' MONTH AS a, INTERVAL '2' YEAR + DATE '2000-02-29' AS b"
+        Assert.Equal<string list>([ "Date32"; "Date32" ], sql.Columns |> List.map (snd >> fun t -> t.Display))
+        Assert.StartsWith("An interval of months or years is only added to or subtracted from a date", (fails "SELECT ss_qty + INTERVAL '1' MONTH AS a FROM sales").Message)
+        Assert.StartsWith("INTERVAL ... WEEK is not supported", (fails "SELECT DATE '2000-01-31' + INTERVAL '1' WEEK AS a").Message)
+        Assert.StartsWith("A negative length in left() is not supported", (fails "SELECT left(s_name, -1) AS a FROM store").Message)
+        Assert.StartsWith("isnan() takes a number", (fails "SELECT isnan(s_name) AS a FROM store").Message)
 
     // ----------------------------------------------------------------------------------------------------------
     // Errors

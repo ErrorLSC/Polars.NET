@@ -237,6 +237,29 @@ module internal LogicalPlanOps =
             Set.unionMany ((expressionsOf p |> List.map ofExpr) @ (getInputs p |> List.map ofPlan))
         ofPlan plan
 
+    /// The plan with each OuterColumn of `scope` replaced, nested subquery plans included.
+    let rec mapOuterColumns (scope: int) (replace: string -> LogicalType -> ScalarExpr) (plan: LogicalPlan) : LogicalPlan =
+        let rec onExpr (e: ScalarExpr) =
+            match e with
+            | ScalarExpr.OuterColumn(s, name, t) when s = scope -> replace name t
+            | ScalarExpr.Subquery(s, inner, _) ->
+                match ScalarExprOps.mapChildren onExpr e with
+                | ScalarExpr.Subquery(_, _, kind) -> ScalarExpr.Subquery(s, mapOuterColumns scope replace inner, kind)
+                | other -> other
+            | _ -> ScalarExprOps.mapChildren onExpr e
+        plan |> mapInputs (mapOuterColumns scope replace) |> mapExpressions onExpr
+
+    /// The scope numbers an expression mentions: its subqueries' and OuterColumns', nested plans included.
+    let rec scopesOf (expr: ScalarExpr) : Set<int> =
+        let own =
+            match expr with
+            | ScalarExpr.OuterColumn(s, _, _) -> Set.singleton s
+            | ScalarExpr.Subquery(s, inner, _) ->
+                let rec ofPlan (p: LogicalPlan) = Set.unionMany ((expressionsOf p |> List.map scopesOf) @ (getInputs p |> List.map ofPlan))
+                Set.add s (ofPlan inner)
+            | _ -> Set.empty
+        Set.unionMany (own :: (ScalarExprOps.children expr |> List.map scopesOf))
+
     // =========================================================================
     // 3. Plan Graph Formatter / Pretty Printer
     // =========================================================================

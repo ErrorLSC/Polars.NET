@@ -167,6 +167,7 @@ module internal SqlQueries =
             | SqlExprKind.Between(a, b, c, n) -> SqlExprKind.Between(s a, s b, s c, n)
             | SqlExprKind.InList(a, items, n) -> SqlExprKind.InList(s a, List.map s items, n)
             | SqlExprKind.InSubquery(a, q, n) -> SqlExprKind.InSubquery(s a, q, n)
+            | SqlExprKind.Quantified(a, op, all, q) -> SqlExprKind.Quantified(s a, op, all, q)
             | SqlExprKind.Like(a, p, esc, n) -> SqlExprKind.Like(s a, s p, Option.map s esc, n)
             | SqlExprKind.Case(o, whens, otherwise) -> SqlExprKind.Case(Option.map s o, whens |> List.map (fun (w, v) -> s w, s v), Option.map s otherwise)
             | SqlExprKind.Cast(a, t, isTry) -> SqlExprKind.Cast(s a, t, isTry)
@@ -367,6 +368,65 @@ module internal SqlQueries =
                     | _ -> t.JoinCores.[key] <- ResizeArray [ core ]
         | _ -> ()
 
+    /// The plan with the values of window aggregates over RANGE frames (`SqlRangeWindow`) as columns: the source grouped
+    /// by partition and order keys, one row per group of peers with the aggregates' values over it; each aggregate's
+    /// running value over those rows in the window's order (the keys are unique within a partition, so a row's running
+    /// value is its peers' as well); joined back by the keys, nulls matching. A window's value is its expression over
+    /// the running aggregates (an average is the running sum over the running count).
+    let private rangeWindows (t: SqlTranslation) (source: LogicalPlan) (ranges: (string * SqlRangeWindow) list) : LogicalPlan =
+        match ranges with
+        | [] -> source
+        | _ ->
+            let shared = LogicalPlan.Shared(t.NextShared(), source)
+            ranges
+            |> List.fold
+                (fun plan (name, r) ->
+                    let partition = r.Partition |> List.map (fun p -> t.Fresh "part", p)
+                    let orders = r.Orders |> List.map (fun o -> t.Fresh "peer", o)
+                    let keys = (partition |> List.map fst) @ (orders |> List.map fst)
+                    let partials = ResizeArray<string * ScalarExpr>()
+                    let schema = SchemaInference.inferPlanSchema source
+                    let running (cumulative: ScalarFunction) (aggregate: ScalarExpr) =
+                        let column = t.Fresh "peers"
+                        partials.Add((column, aggregate))
+                        let over = if partition.IsEmpty then [ ScalarExpr.Literal(LiteralValue.Bool true) ] else partition |> List.map (fst >> col)
+                        let window (e: ScalarExpr) = ScalarExpr.Window(e, over, orders |> List.map (fun (n, o) -> { o with Expr = col n }))
+                        let t =
+                            match aggregate with
+                            | ScalarExpr.Aggregation(_, Some argument, _) -> SchemaInference.inferScalarType schema argument
+                            | _ -> LogicalTypes.Int64
+                        SqlExpressions.runningValue cumulative t (col column) window
+                    let rec overPeers (e: ScalarExpr) =
+                        match e with
+                        | ScalarExpr.Aggregation((AggKind.Len | AggKind.Count | AggKind.Sum | AggKind.SumOrNull), _, _) -> running ScalarFunction.CumSum e
+                        | ScalarExpr.Aggregation((AggKind.Min | AggKind.MinNanLargest), _, _) -> running ScalarFunction.CumMin e
+                        | ScalarExpr.Aggregation((AggKind.Max | AggKind.MaxNanLargest), _, _) -> running ScalarFunction.CumMax e
+                        | ScalarExpr.Aggregation(AggKind.Mean, argument, _) ->
+                            let sum = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.SumOrNull, argument, false))
+                            let count = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.Count, argument, false))
+                            ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(sum, LogicalTypes.Float64, false), ScalarExpr.Cast(count, LogicalTypes.Float64, false))
+                        | ScalarExpr.Aggregation _ -> invalidOp "an aggregate without a running value"
+                        | _ -> ScalarExprOps.mapChildren overPeers e
+                    let value = overPeers r.Value
+                    let peers =
+                        LogicalPlan.GroupBy(
+                            shared,
+                            (partition |> List.map (fun (n, p) -> ScalarExpr.Alias(p, n))) @ (orders |> List.map (fun (n, o) -> ScalarExpr.Alias(o.Expr, n))),
+                            List.ofSeq partials,
+                            None,
+                            false)
+                    let values = LogicalPlan.Project(peers, (keys |> List.map (fun k -> k, col k)) @ [ name, value ])
+                    LogicalPlan.Join(
+                        plan,
+                        values,
+                        r.Partition @ (r.Orders |> List.map (fun o -> o.Expr)),
+                        keys |> List.map col,
+                        JoinKind.Left,
+                        None,
+                        JoinKeyCoalescing.KeepBoth,
+                        true))
+                shared
+
     let rec bindQuery (t: SqlTranslation) (env: SqlEnvironment) (q: SqlQuery) : SqlBound =
         if q.Recursive then fail t q.Span "WITH RECURSIVE is not supported" None
         let env =
@@ -413,6 +473,7 @@ module internal SqlQueries =
         match body with
         | SqlQueryBody.Select select -> bindSelect t env select []
         | SqlQueryBody.Nested q -> bindQuery t env q
+        | SqlQueryBody.Values(rows, span) -> bindValues t env rows span
         | SqlQueryBody.SetOperation(op, all, left, right, span) ->
             let l, r = bindBody t env left, bindBody t env right
             if l.Columns.Length <> r.Columns.Length then
@@ -455,6 +516,38 @@ module internal SqlQueries =
                 | _ -> fail t span $"{op.ToString().ToUpperInvariant()} ALL is not supported" None
             { Plan = plan; Columns = outputs }
 
+    /// `VALUES` rows: each row one projection of one row, all of them a UNION ALL, every column in the type its values
+    /// meet in; columns named col0, col1, ... (as DuckDB names them).
+    and private bindValues (t: SqlTranslation) (env: SqlEnvironment) (rows: SqlExpr list list) (span: SqlSpan) : SqlBound =
+        let width = rows.Head.Length
+        match rows |> List.tryFind (fun row -> row.Length <> width) with
+        | Some row -> fail t span $"Each row of VALUES must have {width} values, not {row.Length}" None
+        | None -> ()
+        let binder =
+            { Text = t.Text
+              Scope = { Relations = []; Outer = env.Outer }
+              Aggregates = SqlAggregates.Refused "in VALUES"
+              WindowsRefused = Some "in VALUES"
+              Subquery = subquery t env
+              NextScope = t.NextScope
+              RangeWindow = fun _ -> invalidOp "windows are refused here" }
+        let bound = rows |> List.map (List.map (SqlExpressions.bind binder))
+        let types =
+            List.init width (fun i ->
+                bound
+                |> List.map (fun row -> row.[i].Type)
+                |> List.reduce (fun a b ->
+                    match SqlTypes.common a b with
+                    | Some c -> c
+                    | None -> fail t span $"Column {i + 1} of VALUES holds values of types {SqlTypes.display a} and {SqlTypes.display b}" None))
+        let columns = types |> List.mapi (fun i ty -> { Name = $"col{i}"; Internal = t.Fresh $"col{i}"; Type = ty })
+        let rowPlan (row: SqlValue list) =
+            LogicalPlan.Project(
+                oneRow,
+                List.map2 (fun (c: SqlOutput) (v: SqlValue) -> c.Internal, (if v.Type.Display = c.Type.Display then v.Expr else ScalarExpr.Cast(v.Expr, c.Type, false))) columns row)
+        let plan = bound |> List.map rowPlan |> List.reduce (fun acc row -> LogicalPlan.Union(acc, row, true))
+        { Plan = plan; Columns = columns }
+
     /// ORDER BY over a query's outputs only (after a set operation).
     and private sortByOutputs (t: SqlTranslation) (env: SqlEnvironment) (bound: SqlBound) (orderBy: SqlOrderItem list) : SqlBound =
         if orderBy.IsEmpty then bound
@@ -465,7 +558,9 @@ module internal SqlQueries =
                   Scope = { Relations = [ relation ]; Outer = env.Outer }
                   Aggregates = SqlAggregates.Refused "in ORDER BY"
                   WindowsRefused = Some "in the ORDER BY of a set operation"
-                  Subquery = subquery t env }
+                  Subquery = subquery t env
+                  NextScope = t.NextScope
+                  RangeWindow = fun _ -> invalidOp "windows are refused here" }
             let orders =
                 orderBy
                 |> List.map (fun item ->
@@ -575,30 +670,52 @@ module internal SqlQueries =
             match kind, condition with
             | SqlJoinKind.Cross, _ -> LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false), relations
             | _, SqlJoinCondition.Using names ->
-                if kind = SqlJoinKind.Full then fail t span "FULL JOIN ... USING is not supported yet" (Some "Write the condition with ON.")
                 let scope (rs: SqlRelation list) = { Relations = rs; Outer = None }
                 let find (rs: SqlRelation list) (n: SqlIdentifier) side =
                     match SqlNames.resolve (scope rs) [ n ] with
                     | SqlResolution.Found(c, _) -> c
                     | _ -> fail t n.Span $"USING names {n.Text}, which is not a single column of the {side} side" None
                 let pairs = names |> List.map (fun n -> find lr n "left", find rr n "right")
-                let keys =
+                // Each pair's two keys in the type they meet in.
+                let typed =
                     pairs
                     |> List.map (fun (a, b) ->
                         match SqlTypes.common a.Type b.Type with
                         | Some c ->
                             let cast (x: SqlColumn) = if x.Type.Display = c.Display then col x.Internal else ScalarExpr.Cast(col x.Internal, c, false)
-                            cast a, cast b
+                            (cast a, cast b), c
                         | None -> fail t span $"USING compares {a.Name} of types {SqlTypes.display a.Type} and {SqlTypes.display b.Type}" None)
+                let keys = typed |> List.map fst
                 // The key is named once unqualified: the right side's copy is reached qualified only.
                 let hidden = pairs |> List.map (fun (_, b) -> b.Internal) |> Set.ofList
                 let rr = rr |> List.map (fun r -> { r with Columns = r.Columns |> List.map (fun c -> if hidden.Contains c.Internal then { c with Unqualified = false } else c) })
-                let plan =
-                    match kind with
-                    | SqlJoinKind.Right -> join rp lp (keys |> List.map (fun (a, b) -> b, a)) JoinKind.Left
-                    | SqlJoinKind.Left -> join lp rp keys JoinKind.Left
-                    | _ -> join lp rp keys JoinKind.Inner
-                plan, lr @ rr
+                match kind with
+                | SqlJoinKind.Right
+                | SqlJoinKind.Full ->
+                    // Unqualified, the key is the value of whichever side has the row: COALESCE of the two, in the left
+                    // key's place (SELECT *). Each side's own key stays reached qualified: each relation of the left is
+                    // there twice, under its name for qualified names only and unnamed, the key replaced, for the rest.
+                    let joined =
+                        if kind = SqlJoinKind.Full then join lp rp keys JoinKind.Full
+                        else join rp lp (keys |> List.map (fun (a, b) -> b, a)) JoinKind.Left
+                    let coalesced = List.map2 (fun (a: SqlColumn, _) (keys, common) -> a.Internal, (t.Fresh a.Name, common, keys)) pairs typed
+                    let plan =
+                        LogicalPlan.WithColumns(joined, coalesced |> List.map (fun (_, (name, _, (a, b))) -> name, ScalarExpr.Coalesce [ a; b ]))
+                    let replaced = coalesced |> List.map (fun (key, (name, common, _)) -> key, (name, common)) |> Map
+                    let lr =
+                        lr
+                        |> List.collect (fun r ->
+                            [ { r with Columns = r.Columns |> List.map (fun c -> { c with Unqualified = false }) }
+                              { Name = None
+                                Columns =
+                                  r.Columns
+                                  |> List.map (fun c ->
+                                      match replaced.TryFind c.Internal with
+                                      | Some(name, common) -> { c with Internal = name; Type = common }
+                                      | None -> c) } ])
+                    plan, lr @ rr
+                | SqlJoinKind.Left -> join lp rp keys JoinKind.Left, lr @ rr
+                | _ -> join lp rp keys JoinKind.Inner, lr @ rr
             | _, SqlJoinCondition.On on ->
                 let conjuncts = bindCondition t env relations "in a JOIN condition" on |> FilterShapes.conjuncts
                 onJoin t kind (lp, lr) (rp, rr) conjuncts on.Span, relations
@@ -611,7 +728,9 @@ module internal SqlQueries =
               Scope = { Relations = relations; Outer = env.Outer }
               Aggregates = SqlAggregates.Refused where
               WindowsRefused = Some where
-              Subquery = subquery t env }
+              Subquery = subquery t env
+              NextScope = t.NextScope
+              RangeWindow = fun _ -> invalidOp "windows are refused here" }
         let v = SqlExpressions.bind binder e
         match SqlTypes.classify v.Type with
         | SqlTypeClass.Boolean -> twoValuedInUnderOr v.Expr
@@ -775,8 +894,20 @@ module internal SqlQueries =
         |> List.tryFind (fun (_, ns) -> ns.Length > 1)
         |> Option.iter (fun (_, ns) -> fail t ns.[1].Span $"The name {ns.[1].Text} is given to two tables in this FROM" (Some "Give one of them another alias."))
         let scope = { Relations = relations; Outer = env.Outer }
+        // Window aggregates over RANGE frames, each computed into a column of the items' input (`rangeWindows`).
+        let ranges = ResizeArray<string * SqlRangeWindow>()
+        let rangeWindow (r: SqlRangeWindow) =
+            let name = t.Fresh "range"
+            ranges.Add((name, r))
+            col name
         let binderFor aggregates windows =
-            { Text = t.Text; Scope = scope; Aggregates = aggregates; WindowsRefused = windows; Subquery = subquery t env }
+            { Text = t.Text
+              Scope = scope
+              Aggregates = aggregates
+              WindowsRefused = windows
+              Subquery = subquery t env
+              NextScope = t.NextScope
+              RangeWindow = rangeWindow }
         let where =
             s.Where
             |> Option.map (fun w ->
@@ -979,7 +1110,7 @@ module internal SqlQueries =
             // in (the shape a scalar subquery's aggregate takes, which the Decorrelation pass reads).
             let inlined =
                 match keylessInline with
-                | Some writeIn when having.IsNone ->
+                | Some writeIn when having.IsNone && ranges.Count = 0 ->
                     let items = items |> List.map (fun (n, e) -> n, writeIn e)
                     if items |> List.forall (snd >> ScalarExprOps.containsAggregation) then Some(LogicalPlan.Project(input, items)) else None
                 | _ -> None
@@ -988,7 +1119,7 @@ module internal SqlQueries =
             | None ->
                 let source = match grouped with Some g -> g input | None -> input
                 let source = match having with Some h -> LogicalPlan.Filter(source, h) | None -> source
-                LogicalPlan.Project(source, items)
+                LogicalPlan.Project(rangeWindows t source (List.ofSeq ranges), items)
         let distinct = if s.Distinct then LogicalPlan.Distinct(projected, None, DistinctKeep.Any, false) else projected
         let sorted =
             if orders.IsEmpty then distinct

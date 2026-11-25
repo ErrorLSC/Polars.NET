@@ -67,6 +67,9 @@ module internal SqlFormat =
             let list = items |> List.map expression |> join ", "
             $"({expression operand} {not' negated}IN ({list}))"
         | SqlExprKind.InSubquery(operand, q, negated) -> $"({expression operand} {not' negated}IN ({query q}))"
+        | SqlExprKind.Quantified(operand, op, all, q) ->
+            let quantifier = if all then "ALL" else "ANY"
+            $"({expression operand} {binaryOp op} {quantifier} ({query q}))"
         | SqlExprKind.Like(operand, pattern, escape, negated) ->
             let escape = escape |> Option.map (fun e -> " ESCAPE " + expression e) |> Option.defaultValue ""
             $"({expression operand} {not' negated}LIKE {expression pattern}{escape})"
@@ -182,6 +185,8 @@ module internal SqlFormat =
         match b with
         | SqlQueryBody.Select s -> select s
         | SqlQueryBody.Nested q -> "(" + query q + ")"
+        | SqlQueryBody.Values(rows, _) ->
+            "VALUES " + (rows |> List.map (fun row -> "(" + (row |> List.map expression |> join ", ") + ")") |> join ", ")
         | SqlQueryBody.SetOperation(op, all, left, right, _) ->
             let opText =
                 match op with

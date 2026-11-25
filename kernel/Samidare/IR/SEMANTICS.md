@@ -120,7 +120,8 @@ LINQ to Objects reaches a type narrower than `int` through `int` and wraps (`(by
 deliberately follows .NET 11. Integer-to-integer narrowing still wraps. The frontend emits this saturation.
 
 **Date and time.** A `DateTimeOffset` is stored as a UTC instant, so its members read the UTC value: `Offset`
-is zero, and `Hour` and `DateTime` are the UTC hour and time.
+is zero, and `Hour` and `DateTime` are the UTC hour and time. `DtOffsetMonths` moves a date or time by calendar
+months, keeping the day unless the month is shorter (then its last day: 2000-01-31 plus one month is 2000-02-29).
 
 ## Strings and membership
 

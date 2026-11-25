@@ -28,7 +28,7 @@ module SqlExpressionTests =
     let private noSubqueries: SqlBinder -> SqlQuery -> SqlSubquery = fun _ _ -> failwith "no subqueries here"
 
     let private binderOf (scope: SqlScope) text aggregates =
-        { Text = text; Scope = scope; Aggregates = aggregates; WindowsRefused = None; Subquery = noSubqueries }
+        { Text = text; Scope = scope; Aggregates = aggregates; WindowsRefused = None; Subquery = noSubqueries; NextScope = (fun () -> failwith "no subqueries here"); RangeWindow = (fun _ -> failwith "no RANGE windows here") }
 
     let private plainScope = { Relations = [ sales ]; Outer = None }
 
@@ -250,7 +250,12 @@ module SqlExpressionTests =
         match (bound "sum(qty) OVER (PARTITION BY item ORDER BY sold ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)").Expr with
         | ScalarExpr.Window(ScalarExpr.Function(ScalarFunction.ForwardFill, [ ScalarExpr.Function(ScalarFunction.CumSum, _, _) ], _), [ _ ], [ { Descending = false; NullsLast = false } ]) -> ()
         | other -> failwithf "unexpected %A" other
-        Assert.StartsWith("sum() OVER (ORDER BY ...) takes SQL's default frame", (fails plainScope "sum(qty) OVER (ORDER BY sold)").Message)
+        // The default frame with ORDER BY (RANGE) goes to the query binder, which computes it by peers.
+        let mutable range = None
+        let ranged = { binderOf plainScope "sum(qty) OVER (ORDER BY sold)" (SqlAggregates.Refused "here") with RangeWindow = (fun r -> range <- Some r; ScalarExpr.Column "range") }
+        Assert.Equal(ScalarExpr.Column "range", (SqlExpressions.bind ranged (SqlParser.parseExpression SqlDialect.Standard "sum(qty) OVER (ORDER BY sold)")).Expr)
+        Assert.Equal(1, range.Value.Orders.Length)
+        Assert.StartsWith("A running min() of text", (fails plainScope "min(name) OVER (ORDER BY sold)").Message)
         let inWhere = { binderOf plainScope "rank() OVER (ORDER BY qty)" (SqlAggregates.Refused "in WHERE") with WindowsRefused = Some "in WHERE" }
         let e = Assert.Throws<SqlException>(fun () -> SqlExpressions.bind inWhere (SqlParser.parseExpression SqlDialect.Standard "rank() OVER (ORDER BY qty)") |> ignore)
         Assert.StartsWith("Window functions are not allowed in WHERE", e.Message)

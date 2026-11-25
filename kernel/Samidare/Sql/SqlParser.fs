@@ -199,12 +199,14 @@ module internal SqlParser =
         /// a set operation, ORDER BY or a limit continues or the enclosing parenthesis closes (`((SELECT ..) + 1)` is
         /// an expression), decided by reading it.
         member this.StartsQuery(ahead: int) =
-            if this.IsWord("SELECT", ahead) || this.IsWord("WITH", ahead) then true
+            // VALUES is a query only before its first row's parenthesis (otherwise a name).
+            let opens (k: int) = this.IsWord("SELECT", k) || this.IsWord("WITH", k) || (this.IsWord("VALUES", k) && this.IsSymbol("(", k + 1))
+            if opens ahead then true
             elif this.IsSymbol("(", ahead) then
                 let mutable k = ahead
                 while this.IsSymbol("(", k) do
                     k <- k + 1
-                if not (this.IsWord("SELECT", k) || this.IsWord("WITH", k)) then false
+                if not (opens k) then false
                 else
                     match startsQuery.TryGetValue(this.Position + ahead) with
                     | true, known -> known
@@ -300,6 +302,10 @@ module internal SqlParser =
 
         member this.QueryPrimary() : SqlQueryBody =
             if this.IsWord "SELECT" then SqlQueryBody.Select(this.Select())
+            elif this.IsWord "VALUES" && this.IsSymbol("(", 1) then
+                let start = this.Advance().Span.Start
+                let rows = this.CommaList(fun () -> this.Parenthesized(fun () -> this.CommaList(fun () -> this.Expression())))
+                SqlQueryBody.Values(rows, this.SpanFrom start)
             elif this.IsSymbol "(" then SqlQueryBody.Nested(this.Parenthesized(fun () -> this.Query()))
             else this.Expected("SELECT", "to start a query")
 
@@ -517,12 +523,18 @@ module internal SqlParser =
             if this.IsWord "IS" then
                 this.Advance() |> ignore
                 let negated = this.AcceptWord "NOT"
-                if this.AcceptWord "NULL" then this.Node(SqlExprKind.IsNull(left, negated), start)
+                if this.AcceptWord "NULL" || this.AcceptWord "UNKNOWN" then this.Node(SqlExprKind.IsNull(left, negated), start)
                 elif this.AcceptWord "DISTINCT" then
                     this.ExpectWord("FROM", "in IS DISTINCT FROM")
                     let right = operand ()
                     this.Node(SqlExprKind.IsDistinctFrom(left, right, negated), start)
-                else this.Expected("NULL or DISTINCT FROM", if negated then "after IS NOT" else "after IS")
+                elif this.IsWord "TRUE" || this.IsWord "FALSE" then
+                    // `x IS TRUE` is `x IS NOT DISTINCT FROM TRUE`: two-valued, false for null.
+                    let truth = this.Peek
+                    this.Advance() |> ignore
+                    let value = this.Node(SqlExprKind.Literal(SqlLiteral.Boolean(truth.Text.Equals("TRUE", StringComparison.OrdinalIgnoreCase))), truth.Span.Start)
+                    this.Node(SqlExprKind.IsDistinctFrom(left, value, not negated), start)
+                else this.Expected("NULL, TRUE, FALSE, UNKNOWN or DISTINCT FROM", if negated then "after IS NOT" else "after IS")
             else
                 let negated = this.AcceptWord "NOT"
                 if this.AcceptWord "IN" then
@@ -552,8 +564,13 @@ module internal SqlParser =
                         | "<=" -> SqlBinaryOp.LtEq
                         | ">" -> SqlBinaryOp.Gt
                         | _ -> SqlBinaryOp.GtEq
-                    let right = operand ()
-                    this.Node(SqlExprKind.Binary(op, left, right), start)
+                    if (this.IsWord "ANY" || this.IsWord "SOME" || this.IsWord "ALL") && this.IsSymbol("(", 1) && this.StartsQuery 2 then
+                        let all = this.Advance().Text.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+                        let query = this.Parenthesized(fun () -> this.Query())
+                        this.Node(SqlExprKind.Quantified(left, op, all, query), start)
+                    else
+                        let right = operand ()
+                        this.Node(SqlExprKind.Binary(op, left, right), start)
 
         member this.Prefix() : SqlExpr =
             let start = this.Peek.Span.Start
@@ -598,7 +615,8 @@ module internal SqlParser =
                 let typeName = this.Advance().Text.ToUpperInvariant()
                 let value = this.Advance().Text
                 this.Node(SqlExprKind.Literal(SqlLiteral.Typed(typeName, value)), start)
-            | SqlTokenKind.Word when this.IsWord "INTERVAL" && this.PeekAt(1).Kind = SqlTokenKind.String ->
+            | SqlTokenKind.Word when this.IsWord "INTERVAL" && (this.PeekAt(1).Kind = SqlTokenKind.String || this.PeekAt(1).Kind = SqlTokenKind.Integer) ->
+                // `INTERVAL '5' DAY`, or as DuckDB writes it, `INTERVAL 5 DAY`.
                 this.Advance() |> ignore
                 let value = this.Advance().Text
                 if this.Peek.Kind <> SqlTokenKind.Word then this.Expected("a unit (DAY, MONTH, ...)", "after the INTERVAL value")
@@ -618,6 +636,25 @@ module internal SqlParser =
                 if not (this.IsSymbol "(" && this.StartsQuery 1) then this.Expected("'(' and a query", "after EXISTS")
                 let query = this.Parenthesized(fun () -> this.Query())
                 this.Node(SqlExprKind.Exists query, start)
+            // LEFT and RIGHT are joins' words, and functions before a parenthesis.
+            | SqlTokenKind.Word when (this.IsWord "LEFT" || this.IsWord "RIGHT") && this.IsSymbol("(", 1) ->
+                let word = this.Advance()
+                this.FunctionCall([ { Text = word.Text; Quoted = false; Span = word.Span } ], start)
+            // SUBSTRING(x FROM start [FOR length]) as well as SUBSTRING(x, start[, length]).
+            | SqlTokenKind.Word when this.IsWord "SUBSTRING" && this.IsSymbol("(", 1) ->
+                let word = this.Advance()
+                let arguments =
+                    this.Parenthesized(fun () ->
+                        let subject = this.Expression()
+                        if this.AcceptWord "FROM" then
+                            let from = this.Expression()
+                            if this.AcceptWord "FOR" then [ subject; from; this.Expression() ] else [ subject; from ]
+                        elif this.IsSymbol "," then
+                            this.Advance() |> ignore
+                            subject :: this.CommaList(fun () -> this.Expression())
+                        else [ subject ])
+                let name = [ { Text = word.Text; Quoted = false; Span = word.Span } ]
+                this.Node(SqlExprKind.Function { Name = name; Distinct = false; Star = false; Arguments = arguments; Over = None }, start)
             | SqlTokenKind.Word when this.IsWord "EXTRACT" && this.IsSymbol("(", 1) ->
                 this.Advance() |> ignore
                 let field, expr =

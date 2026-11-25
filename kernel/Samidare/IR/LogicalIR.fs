@@ -405,6 +405,9 @@ type ScalarFunction =
     | FloatToText of symbols: NumberTextSymbols
     /// The offset argument is a TimeSpan literal.
     | DtOffsetBy
+    /// A date or time moved by whole calendar months (the second argument, an Int32 literal), its day kept unless the
+    /// month is shorter, then the month's last day (January 31 plus one month is February 28 or 29).
+    | DtOffsetMonths
 
     // --- Null & Conditional ---
     | FillNull
@@ -602,6 +605,7 @@ type ScalarFunction =
         | ScalarFunction.DtToText _ -> "dt_to_text"
         | ScalarFunction.FloatToText _ -> "float_to_text"
         | ScalarFunction.DtOffsetBy -> "dt_offset_by"
+        | ScalarFunction.DtOffsetMonths -> "dt_offset_months"
         | ScalarFunction.FillNull -> "fill_null"
         | ScalarFunction.Coalesce -> "coalesce"
         | ScalarFunction.StructFieldByIndex -> "struct_field_by_index"
@@ -755,6 +759,7 @@ type ScalarFunction =
         | "dt_is_leap_year" -> ScalarFunction.DtIsLeapYear
         | "dt_to_string" -> ScalarFunction.DtToString
         | "dt_offset_by" -> ScalarFunction.DtOffsetBy
+        | "dt_offset_months" -> ScalarFunction.DtOffsetMonths
         | "struct_field_by_index" -> ScalarFunction.StructFieldByIndex
         | "struct_field_by_name" -> ScalarFunction.StructFieldByName
         | "as_struct" -> ScalarFunction.AsStruct

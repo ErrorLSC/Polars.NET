@@ -100,6 +100,8 @@ and [<RequireQualifiedAccess>] internal SqlExprKind =
     | Between of SqlExpr * low: SqlExpr * high: SqlExpr * negated: bool
     | InList of SqlExpr * SqlExpr list * negated: bool
     | InSubquery of SqlExpr * SqlQuery * negated: bool
+    /// `x op ANY (query)`, `x op SOME (query)` (`all` false) or `x op ALL (query)`, op a comparison.
+    | Quantified of SqlExpr * SqlBinaryOp * all: bool * SqlQuery
     | Like of SqlExpr * pattern: SqlExpr * escape: SqlExpr option * negated: bool
     /// `EXISTS (query)`; `NOT EXISTS` is `Unary Not` around it.
     | Exists of SqlQuery
@@ -175,6 +177,8 @@ and [<RequireQualifiedAccess>] internal SqlQueryBody =
     | SetOperation of op: SqlSetOp * all: bool * left: SqlQueryBody * right: SqlQueryBody * span: SqlSpan
     /// A parenthesized query, with its own WITH, ORDER BY and limits.
     | Nested of SqlQuery
+    /// `VALUES (a, b), (c, d)`: rows of expressions, as many in each.
+    | Values of rows: SqlExpr list list * span: SqlSpan
 
 and internal SqlSelect =
     { Distinct: bool

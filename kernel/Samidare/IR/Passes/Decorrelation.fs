@@ -17,11 +17,13 @@ open Kaminari.Samidare.IR
 ///   index after joining the rows), unmatched rows get each aggregate's value over no rows, and the subquery's own
 ///   expression over them (scaling, a count check, ...) is evaluated above the join, where the enclosing expression
 ///   reads it unchanged. A condition on the outer row alone selects between that value and its value over no rows.
-///   Exists is a count above zero; In is an Exists with its target as one more key.
+///   Exists is a count above zero; In is an Exists with its target as one more key. SQL's In (without `nullsEqual`)
+///   as a value is that match, then whether the subquery has rows and whether it gives a null (true, false or null).
 /// - Subqueries of one node over the same rows and correlation share one grouping and one join.
+/// - Subqueries in aggregates' arguments or grouping keys are evaluated per input row, below the grouping.
 /// Anything else (correlation under a limit, sort, grouping, join or window; an OuterColumn in a projection;
-/// correlation with another subquery's row; a row-valued correlated scalar; null-aware NOT IN) is reported as
-/// unsupported, never guessed: the frontend then evaluates that part otherwise.
+/// correlation with another subquery's row; a row-valued correlated scalar) is reported as unsupported, never
+/// guessed: the frontend then evaluates that part otherwise.
 module internal Decorrelation =
 
     type Options =
@@ -42,33 +44,7 @@ module internal Decorrelation =
     // Expression helpers
     // =========================================================================
 
-    /// Rebuilds an expression with each immediate sub-expression mapped (a subquery's plan is kept).
-    let private mapChildren (f: ScalarExpr -> ScalarExpr) (expr: ScalarExpr) : ScalarExpr =
-        let orders (os: SortOrder list) = os |> List.map (fun o -> { o with Expr = f o.Expr })
-        match expr with
-        | ScalarExpr.Column _
-        | ScalarExpr.Literal _
-        | ScalarExpr.OuterColumn _ -> expr
-        | ScalarExpr.Binary(op, l, r) -> ScalarExpr.Binary(op, f l, f r)
-        | ScalarExpr.Unary(op, e) -> ScalarExpr.Unary(op, f e)
-        | ScalarExpr.Cast(e, t, strict) -> ScalarExpr.Cast(f e, t, strict)
-        | ScalarExpr.Function(fn, args, t) -> ScalarExpr.Function(fn, List.map f args, t)
-        | ScalarExpr.Aggregation(kind, e, distinct) -> ScalarExpr.Aggregation(kind, Option.map f e, distinct)
-        | ScalarExpr.Window(e, partitionBy, orderBy) -> ScalarExpr.Window(f e, List.map f partitionBy, orders orderBy)
-        | ScalarExpr.SortBy(e, by) -> ScalarExpr.SortBy(f e, orders by)
-        | ScalarExpr.Conditional(t, a, b) -> ScalarExpr.Conditional(f t, f a, f b)
-        | ScalarExpr.Coalesce es -> ScalarExpr.Coalesce(List.map f es)
-        | ScalarExpr.ItemAccess(t, i) -> ScalarExpr.ItemAccess(f t, f i)
-        | ScalarExpr.Slice(t, offset, length) -> ScalarExpr.Slice(f t, offset, length)
-        | ScalarExpr.Subquery(scope, plan, kind) ->
-            match kind with
-            | SubqueryKind.In(target, nullsEqual) -> ScalarExpr.Subquery(scope, plan, SubqueryKind.In(f target, nullsEqual))
-            | SubqueryKind.Scalar
-            | SubqueryKind.Exists -> expr
-        | ScalarExpr.Alias(e, name) -> ScalarExpr.Alias(f e, name)
-        | ScalarExpr.Udf(name, args, t, invoker) -> ScalarExpr.Udf(name, List.map f args, t, invoker)
-        | ScalarExpr.InList(e, source, negated, nullsEqual) -> ScalarExpr.InList(f e, source, negated, nullsEqual)
-        | ScalarExpr.EnumConvert(conversion, e, mapping) -> ScalarExpr.EnumConvert(conversion, f e, mapping)
+    let private mapChildren = ScalarExprOps.mapChildren
 
     let rec private conjuncts (expr: ScalarExpr) : ScalarExpr list =
         match expr with
@@ -465,16 +441,59 @@ module internal Decorrelation =
         let oneRow = LogicalPlan.Project(s.Plan, [ (name, value) ])
         keepOnly (constantKey opts outer oneRow) (columnsOf outer @ [ name ]), (s.Scope, ScalarExpr.Column name)
 
+    /// SQL's IN as a value (nullsEqual = false anywhere but a positive filter conjunct): true on a match; else false
+    /// when the subquery has no row; else null when the target is null or the subquery gives a null; else false. The
+    /// match is the IN itself (its membership an equi key); emptiness and nulls are an EXISTS and a count over the
+    /// subquery's rows, each under a scope of its own, which one grouping computes. By the IN's scope: the expression
+    /// that stands for it.
+    let private expandSqlIn (exprs: ScalarExpr list) : Map<int, ScalarExpr> =
+        let mutable next = (exprs |> List.map LogicalPlanOps.scopesOf |> Set.unionMany |> Seq.fold max 0) + 1
+        let fresh () =
+            next <- next + 1
+            next - 1
+        exprs
+        |> List.collect ScalarExprOps.subqueries
+        |> List.distinct
+        |> List.choose (fun (scope, plan, kind) ->
+            match kind with
+            | SubqueryKind.In(target, false) ->
+                let input, value =
+                    match stripDistinct plan with
+                    | LogicalPlan.Project(input, [ (_, value) ]) when not (ScalarExprOps.containsAggregation value) -> input, value
+                    | other -> other, ScalarExpr.Column(singleColumn other)
+                if reads scope value then
+                    unsupported "an IN subquery whose value reads its outer row"
+                let rows (s: int) = LogicalPlanOps.mapOuterColumns scope (fun name t -> ScalarExpr.OuterColumn(s, name, t)) input
+                let nonEmpty =
+                    let s = fresh ()
+                    ScalarExpr.Subquery(s, rows s, SubqueryKind.Exists)
+                let hasNull =
+                    let s = fresh ()
+                    let nulls = ScalarExpr.Binary(BinaryOp.Gt, ScalarExpr.Aggregation(AggKind.Len, None, false), ScalarExpr.Aggregation(AggKind.Count, Some value, false))
+                    ScalarExpr.Subquery(s, LogicalPlan.Project(rows s, [ ("__nulls", nulls) ]), SubqueryKind.Scalar)
+                let bool b = ScalarExpr.Literal(LiteralValue.Bool b)
+                let unknown =
+                    ScalarExpr.Conditional(
+                        ScalarExpr.Binary(BinaryOp.Or, ScalarExpr.Unary(UnaryOp.IsNull, target), hasNull),
+                        ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Boolean),
+                        bool false)
+                let value =
+                    ScalarExpr.Conditional(
+                        ScalarExpr.Subquery(scope, plan, kind),
+                        bool true,
+                        ScalarExpr.Conditional(ScalarExpr.Unary(UnaryOp.Not, nonEmpty), bool false, unknown))
+                Some(scope, value)
+            | _ -> None)
+        |> Map.ofList
+
     /// Attaches every subquery of the expressions: the outer plan with their columns, and their replacements.
     let private attachAll (opts: Options) (outer: LogicalPlan) (exprs: ScalarExpr list) : LogicalPlan * Map<int, ScalarExpr> =
+        let sqlIns = expandSqlIn exprs
+        // Each SQL IN's expansion holds the IN (its match), whose replacement the expansion then takes in.
+        let exprs = exprs |> List.map (replaceSubqueries sqlIns.TryFind)
         let subqueries = exprs |> List.collect ScalarExprOps.subqueries |> List.distinct
         if (subqueries |> List.distinctBy (fun (scope, _, _) -> scope)).Length <> subqueries.Length then
             failwith "[Samidare Bug] Two different subqueries of one node share a scope."
-        for (_, _, kind) in subqueries do
-            match kind with
-            | SubqueryKind.In(_, false) ->
-                unsupported "an IN subquery with SQL null semantics outside a positive filter conjunct (null-aware IN)"
-            | _ -> ()
         let reduced = subqueries |> List.map (fun (scope, plan, kind) -> analyze opts scope plan kind)
         let groups =
             reduced
@@ -498,7 +517,9 @@ module internal Decorrelation =
                     let plan', replacement = attachRowScalar opts plan r
                     plan', acc @ [ replacement ])
                 (plan, replacements)
-        plan, Map replacements
+        let replacements = Map replacements
+        let expanded = sqlIns |> Map.map (fun _ expansion -> replaceSubqueries replacements.TryFind expansion)
+        plan, Map.fold (fun acc scope e -> Map.add scope e acc) replacements expanded
 
     /// A filter conjunct `Exists(a) OR Exists(b) OR ...` whose branches correlate by the same outer keys alone (TPC-DS
     /// Q10, Q35): one semi join with the union of the branches' keys.
@@ -641,11 +662,39 @@ module internal Decorrelation =
     // Nodes and plans
     // =========================================================================
 
-    let private decorrelateNode (opts: Options) (node: LogicalPlan) : LogicalPlan =
+    let rec private decorrelateNode (opts: Options) (node: LogicalPlan) : LogicalPlan =
         let check (input: LogicalPlan) =
             if LogicalPlanOps.containsSubqueries input then
                 failwith "[Samidare Bug] Decorrelation of a node whose input still holds a subquery."
+        /// The subqueries in aggregates' arguments (and grouping keys) are evaluated per input row: each argument
+        /// holding one becomes a column of a WithColumns below, decorrelated there; `rebuild` takes that input and the
+        /// expressions with the columns in place (SQL `sum((SELECT ...))`).
+        let perRow (input: LogicalPlan) (keys: ScalarExpr list) (exprs: ScalarExpr list) (rebuild: LogicalPlan -> ScalarExpr list -> ScalarExpr list -> LogicalPlan) =
+            check input
+            let hoisted = ResizeArray<string * ScalarExpr>()
+            let hoist (e: ScalarExpr) =
+                if ScalarExprOps.containsSubquery e then
+                    let name = opts.Fresh "__sqarg"
+                    hoisted.Add((name, e))
+                    ScalarExpr.Column name
+                else
+                    e
+            let rec inAggregates (e: ScalarExpr) =
+                match e with
+                | ScalarExpr.Aggregation(kind, Some arg, distinct) -> ScalarExpr.Aggregation(kind, Some(hoist arg), distinct)
+                | _ -> mapChildren inAggregates e
+            let keys = keys |> List.map (function ScalarExpr.Alias(k, n) -> ScalarExpr.Alias(hoist k, n) | k -> hoist k)
+            let exprs = exprs |> List.map inAggregates
+            if exprs |> List.exists ScalarExprOps.containsSubquery then
+                unsupported "a subquery over the result of aggregates"
+            rebuild (decorrelateNode opts (LogicalPlan.WithColumns(input, List.ofSeq hoisted))) keys exprs
         match node with
+        | LogicalPlan.GroupBy(input, keys, aggs, having, maintainOrder) ->
+            perRow input keys ((aggs |> List.map snd) @ Option.toList having) (fun input keys exprs ->
+                let aggs = List.map2 (fun (n, _) e -> n, e) aggs (List.truncate aggs.Length exprs)
+                LogicalPlan.GroupBy(input, keys, aggs, (if having.IsSome then Some(List.last exprs) else None), maintainOrder))
+        | LogicalPlan.Project(input, projections) when projections |> List.exists (snd >> ScalarExprOps.containsAggregation) ->
+            perRow input [] (List.map snd projections) (fun input _ exprs -> LogicalPlan.Project(input, List.map2 (fun (n, _) e -> n, e) projections exprs))
         | LogicalPlan.Filter(input, predicate) ->
             check input
             let plain, withSubqueries = conjuncts predicate |> List.partition (ScalarExprOps.containsSubquery >> not)
@@ -669,8 +718,6 @@ module internal Decorrelation =
                 keepOnly (LogicalPlan.Filter(attached, predicate')) (columnsOf input)
         | LogicalPlan.Project(input, projections) ->
             check input
-            if projections |> List.exists (snd >> ScalarExprOps.containsAggregation) then
-                unsupported "a subquery in an aggregating projection"
             let attached, replacements = attachAll opts input (List.map snd projections)
             LogicalPlan.Project(attached, projections |> List.map (fun (n, e) -> n, replaceSubqueries replacements.TryFind e))
         | LogicalPlan.WithColumns(input, columns) ->

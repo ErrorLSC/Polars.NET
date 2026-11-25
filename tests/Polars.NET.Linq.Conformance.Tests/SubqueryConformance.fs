@@ -256,11 +256,29 @@ let ``In matches a null target with nullsEqual only`` () =
     Conformance.rowsInOrder t (pkIn t false) (ids [ 1L; 4L ])
 
 [<Fact>]
+let ``SQL In as a value is true on a match, false over no rows, else null when the target or a value is null`` () =
+    let custsOfOrders (t: Tables) = project (t.Scan orders) [ "c", col "Cust" ]
+    // The orders' customers hold a null: no match is unknown.
+    let t = Tables()
+    Conformance.rowsInOrder t
+        (project (t.Scan custs) [ "Id", col "Id"; "in", isIn (col "Id") false (custsOfOrders t) ])
+        [ [ 1L; true ]; [ 2L; true ]; [ 3L; null ]; [ 4L; true ]; [ 5L; null ] ]
+    // NOT IN then keeps no customer; without the null, those with no order.
+    let t = Tables()
+    Conformance.rowsInOrder t (customersWhere t (not' (isIn (col "Id") false (custsOfOrders t)))) []
+    let t = Tables()
+    let known = project (filter (t.Scan orders) (ScalarExpr.Unary(UnaryOp.IsNotNull, col "Cust"))) [ "c", col "Cust" ]
+    Conformance.rowsInOrder t (customersWhere t (not' (isIn (col "Id") false known))) (ids [ 3L; 5L ])
+    // Correlated: the credit among the customer's order amounts. A null target over no rows is false.
+    let t = Tables()
+    Conformance.rowsInOrder t
+        (project (t.Scan custs) [ "Id", col "Id"; "in", isIn (col "Credit") false (project (ordersOf t) [ "a", col "Amount" ]) ])
+        [ [ 1L; false ]; [ 2L; null ]; [ 3L; false ]; [ 4L; false ]; [ 5L; false ] ]
+
+[<Fact>]
 let ``Shapes the pass does not replace are reported`` () =
     let t = Tables()
     // Correlation under a limit (a correlated top-N).
     Conformance.unsupported (customersWhere t (exists (LogicalPlan.Limit(ordersOf t, 0L, 1u))))
-    // Null-aware NOT IN.
-    Conformance.unsupported (customersWhere t (not' (isIn (col "Id") false (project (t.Scan orders) [ "c", col "Cust" ]))))
     // A correlated scalar that is not an aggregate.
     Conformance.unsupported (project (t.Scan custs) [ "v", scalar (project (ordersOf t) [ "Amount", col "Amount" ]) ])

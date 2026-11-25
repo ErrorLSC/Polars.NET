@@ -84,6 +84,28 @@ module SqlParserTests =
         Assert.Equal("SELECT (a IN (((SELECT b FROM t)) UNION ((SELECT c FROM u))))", formatted "SELECT a IN ((SELECT b FROM t) UNION (SELECT c FROM u))")
 
     [<Fact>]
+    let ``Special forms: IS TRUE, SUBSTRING FROM, LEFT and RIGHT as functions, unquoted intervals`` () =
+        Assert.Equal("SELECT (a IS NOT DISTINCT FROM TRUE), (b IS DISTINCT FROM FALSE), (c IS NULL)", formatted "SELECT a IS TRUE, b IS NOT FALSE, c IS UNKNOWN")
+        Assert.Equal("SELECT SUBSTRING(s, 2, 3), substring(s, 2)", formatted "SELECT SUBSTRING(s FROM 2 FOR 3), substring(s FROM 2)")
+        Assert.Equal("SELECT LEFT(s, 2), right(s, 1) FROM (t LEFT JOIN u ON (t.a = u.a))", formatted "SELECT LEFT(s, 2), right(s, 1) FROM t LEFT JOIN u ON t.a = u.a")
+        Assert.Equal("SELECT (d + INTERVAL '5' DAY)", formatted "SELECT d + INTERVAL 5 DAY")
+
+    [<Fact>]
+    let ``VALUES is a query of rows`` () =
+        Assert.Equal("SELECT * FROM (VALUES (1, 'a'), (2, NULL)) AS v(x, y)", formatted "SELECT * FROM (VALUES (1, 'a'), (2, NULL)) v(x, y)")
+        Assert.Equal("(VALUES (1)) UNION ALL (SELECT 2)", formatted "VALUES (1) UNION ALL SELECT 2")
+        // Before no parenthesis, VALUES is a name.
+        Assert.Equal("SELECT * FROM values", formatted "SELECT * FROM values")
+
+    [<Fact>]
+    let ``A comparison quantified by ANY, SOME or ALL takes a query`` () =
+        Assert.Equal("SELECT * FROM t WHERE (a > ANY (SELECT b FROM u))", formatted "SELECT * FROM t WHERE a > ANY (SELECT b FROM u)")
+        Assert.Equal("SELECT * FROM t WHERE (a <= ANY (SELECT b FROM u))", formatted "SELECT * FROM t WHERE a <= some (SELECT b FROM u)")
+        Assert.Equal("SELECT * FROM t WHERE (a <> ALL (SELECT b FROM u))", formatted "SELECT * FROM t WHERE a != ALL (SELECT b FROM u)")
+        // Without a query, ANY is a name (a function here).
+        Assert.Equal("SELECT * FROM t WHERE (a = any(b))", formatted "SELECT * FROM t WHERE a = any(b)")
+
+    [<Fact>]
     let ``INTERSECT binds before UNION, and ORDER BY and LIMIT end the whole set operation`` () =
         Assert.Equal(
             "(SELECT 1) UNION ((SELECT 2) INTERSECT (SELECT 3)) ORDER BY 1 LIMIT 2",
