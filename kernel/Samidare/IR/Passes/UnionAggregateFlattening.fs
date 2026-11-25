@@ -14,6 +14,9 @@ open Kaminari.Samidare.IR
 /// - An outer Sum of inner Sums, over integers or decimals. Floating sums round differently in another order.
 /// - An outer Sum whose branches are `COALESCE(SUM(x), 0)` or the literal 0. A branch's 0 adds nothing, so the
 ///   branch passes NULL, and the COALESCE moves outside so a group still sums to 0 rather than NULL.
+/// - An outer SumOrNull of inner SumOrNulls, `COALESCE(SUM_OR_NULL(x), 0)` or 0, over integers or decimals. A branch
+///   then passes its values as they are, `COALESCE(x, 0)` or 0, so a group a branch's 0 reaches still sums to a value,
+///   and one only null values reach to NULL.
 /// - An outer Min or Max of the same inner aggregate or of a non-null literal, which every row of the group repeats.
 module internal UnionAggregateFlattening =
 
@@ -76,10 +79,13 @@ module internal UnionAggregateFlattening =
                 None
         | _ -> None
 
-    let private trySumPart (inner: ScalarExpr) =
+    /// What a branch's inner aggregate feeds an outer sum of `kind` (Sum or SumOrNull: the inner one is the same).
+    let private trySumPart (kind: AggKind) (inner: ScalarExpr) =
         match inner with
-        | ScalarExpr.Aggregation(AggKind.Sum, Some argument, false) -> Some(Plain argument)
-        | ScalarExpr.Coalesce [ ScalarExpr.Aggregation(AggKind.Sum, Some argument, false); ScalarExpr.Literal value as zero ] when isZero value ->
+        | ScalarExpr.Aggregation(innerKind, Some argument, false) when innerKind = kind -> Some(Plain argument)
+        | ScalarExpr.Coalesce [ ScalarExpr.Aggregation(innerKind, Some argument, false); ScalarExpr.Literal value as zero ] when
+            innerKind = kind && isZero value
+            ->
             Some(Guarded(argument, zero))
         | ScalarExpr.Literal value as zero when isZero value -> Some(Zero zero)
         | _ -> None
@@ -95,8 +101,8 @@ module internal UnionAggregateFlattening =
         | [ _ ] -> arguments |> List.forall (snd >> ScalarExprOps.dependsOnOtherRows >> not)
         | _ -> false
 
-    let private tryFlattenSum (branches: Branch list) (column: string) =
-        let parts = branches |> List.map (fun branch -> branch.Aggs.TryFind column |> Option.bind trySumPart)
+    let private tryFlattenSum (branches: Branch list) (kind: AggKind) (column: string) =
+        let parts = branches |> List.map (fun branch -> branch.Aggs.TryFind column |> Option.bind (trySumPart kind))
         if parts |> List.exists Option.isNone then
             None
         else
@@ -122,7 +128,16 @@ module internal UnionAggregateFlattening =
                         | Guarded(argument, _) -> argument
                         | Zero _ -> ScalarExpr.Literal(LiteralValue.Null argumentType))
                 let isPlain = function Plain _ -> true | _ -> false
-                if parts |> List.forall isPlain then
+                let zeroOf (zero: ScalarExpr) = ScalarExpr.Cast(zero, argumentType, false)
+                if kind = AggKind.SumOrNull then
+                    let arguments =
+                        parts
+                        |> List.map (function
+                            | Plain argument -> argument
+                            | Guarded(argument, zero) -> ScalarExpr.Coalesce [ argument; zeroOf zero ]
+                            | Zero zero -> zeroOf zero)
+                    Some(arguments, id)
+                elif parts |> List.forall isPlain then
                     Some(arguments, id)
                 elif parts |> List.exists isPlain then
                     // A plain Sum may be NULL where a branch's 0 is not, so the two do not merge on every backend.
@@ -174,8 +189,8 @@ module internal UnionAggregateFlattening =
                         aggs
                         |> List.map (fun (_, expr) ->
                             match stripAlias expr with
-                            | ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column column), false) ->
-                                tryFlattenSum branches column |> Option.map (fun (arguments, finish) -> AggKind.Sum, arguments, finish)
+                            | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some(ScalarExpr.Column column), false) ->
+                                tryFlattenSum branches kind column |> Option.map (fun (arguments, finish) -> kind, arguments, finish)
                             | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max as kind), Some(ScalarExpr.Column column), false) ->
                                 tryFlattenMinMax branches kind column |> Option.map (fun (arguments, finish) -> kind, arguments, finish)
                             | _ -> None)

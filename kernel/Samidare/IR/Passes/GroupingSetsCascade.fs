@@ -6,8 +6,8 @@ open Kaminari.Samidare.IR
 ///
 /// A ROLLUP of eight keys groups the whole input nine times. Each level is the next finer one with a key removed, so
 /// it can group that level's rows, which are usually far fewer. This pass declares how (`LevelMerges`) when every
-/// aggregate merges exactly: Sum over integers and decimals (a floating sum rounds differently in another order), and
-/// Min and Max. Groups keep their order of first appearance, since a finer level lists its groups in that order.
+/// aggregate merges exactly: Sum and SumOrNull over integers and decimals (a floating sum rounds differently in another
+/// order; a SumOrNull level is null exactly when every finer one is), and Min and Max. Groups keep their order of first appearance, since a finer level lists its groups in that order.
 module internal GroupingSetsCascade =
 
     let rec apply (plan: LogicalPlan) : LogicalPlan =
@@ -16,10 +16,10 @@ module internal GroupingSetsCascade =
             let schema = SchemaInference.inferPlanSchema input
             let merge (alias: string, aggregate: ScalarExpr) =
                 match aggregate with
-                | ScalarExpr.Aggregation(AggKind.Sum, Some argument, false) when
+                | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some argument, false) when
                     not (ScalarExprOps.dependsOnOtherRows argument) && EagerAggregation.isExactNumber schema argument
                     ->
-                    Some(alias, ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column alias), false))
+                    Some(alias, ScalarExpr.Aggregation(kind, Some(ScalarExpr.Column alias), false))
                 | ScalarExpr.Aggregation((AggKind.Min | AggKind.Max as kind), Some argument, false) when
                     not (ScalarExprOps.dependsOnOtherRows argument)
                     ->

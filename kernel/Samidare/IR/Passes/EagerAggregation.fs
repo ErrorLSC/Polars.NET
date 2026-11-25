@@ -18,7 +18,8 @@ open Kaminari.Samidare.IR
 ///
 /// Partial aggregates stay correct however many dimension rows a key matches, since each is then summed that many
 /// times, as the original rows would be. Only aggregates that split exactly are rewritten:
-/// - Sum over integers and decimals. Floating sums round differently in another order.
+/// - Sum and SumOrNull over integers and decimals. Floating sums round differently in another order. A SumOrNull of
+///   partial SumOrNulls is null exactly when every row's value is.
 /// - Min, Max, Count and Len.
 /// - The mean of integers read as doubles, from a partial sum and count.
 /// - A sum guarded by a test on dimension columns (see `decompose`).
@@ -268,7 +269,7 @@ module internal EagerAggregation =
             | ScalarExpr.Binary(op, left, right) -> ScalarExpr.Binary(op, final left, final right)
             | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> ScalarExpr.Conditional(final test, final ifTrue, final ifFalse)
             | ScalarExpr.Coalesce items -> ScalarExpr.Coalesce(items |> List.map final)
-            | ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Conditional(test, value, (ScalarExpr.Literal(LiteralValue.Null _) as none))), false) when
+            | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some(ScalarExpr.Conditional(test, value, (ScalarExpr.Literal(LiteralValue.Null _) as none))), false) when
                 readable value
                 && isExactNumber schema value
                 && not (ScalarExprOps.dependsOnOtherRows test)
@@ -278,10 +279,10 @@ module internal EagerAggregation =
                 guarded.Value <- true
                 for column in ScalarExprOps.collectColumns test do
                     if columns.Contains column then testColumns.Add column |> ignore
-                let partial = partialOf (ScalarExpr.Aggregation(AggKind.Sum, Some value, false))
-                ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Conditional(test, ScalarExpr.Column partial, none)), false)
-            | ScalarExpr.Aggregation(AggKind.Sum, Some argument, false) when readable argument && isExactNumber schema argument ->
-                ScalarExpr.Aggregation(AggKind.Sum, Some(ScalarExpr.Column(partialOf node)), false)
+                let partial = partialOf (ScalarExpr.Aggregation(kind, Some value, false))
+                ScalarExpr.Aggregation(kind, Some(ScalarExpr.Conditional(test, ScalarExpr.Column partial, none)), false)
+            | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull as kind), Some argument, false) when readable argument && isExactNumber schema argument ->
+                ScalarExpr.Aggregation(kind, Some(ScalarExpr.Column(partialOf node)), false)
             // The mean of integers as doubles: the total of the partial sums over the total count, null without values.
             | ScalarExpr.Aggregation(AggKind.Mean, Some(ScalarExpr.Cast(argument, (LogicalType.Arrow(:? DoubleType) as double), _) as asDouble), false) when
                 readable argument && isInteger schema argument

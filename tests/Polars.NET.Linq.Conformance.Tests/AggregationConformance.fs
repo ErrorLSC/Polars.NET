@@ -161,3 +161,110 @@ let ``Grouping compares strings ordinally, decimals by value, date-times by inst
     Conformance.rowsInOrder t byD [ [ 2L; 1L ]; [ 1L; 3L ] ]
     let t, byT = groupsBy "T"
     Conformance.rowsInOrder t byT [ [ 2L; 1L ]; [ 1L; 3L ] ]
+
+/// SumOrNull is SQL's SUM: the total of the non-null values, null when there are none (no rows, only nulls), per
+/// group and per window partition too; a distinct one sums the distinct values.
+[<Fact>]
+let ``SumOrNull is null without values`` () =
+    let t = Tables()
+    let rows = [| { K = 1L; V = n 2L }; { K = 1L; V = nul }; { K = 2L; V = nul }; { K = 3L; V = n 2L }; { K = 3L; V = n 5L } |]
+    let sumOrNull e = agg AggKind.SumOrNull e
+    let distinctSum e = ScalarExpr.Aggregation(AggKind.SumOrNull, Some e, true)
+    let scan = t.Scan rows
+    Conformance.rowsInOrder t (project scan [ "s", sumOrNull (col "V"); "d", distinctSum (col "V") ]) [ [ 9L; 7L ] ]
+    let onlyNulls = filter scan (bin BinaryOp.Eq (col "K") (i64 2L))
+    Conformance.rowsInOrder t (project onlyNulls [ "s", sumOrNull (col "V"); "d", distinctSum (col "V") ]) [ [ null; null ] ]
+    let none = filter scan (bin BinaryOp.Gt (col "K") (i64 5L))
+    Conformance.rowsInOrder t (project none [ "s", sumOrNull (col "V"); "sum", agg AggKind.Sum (col "V") ]) [ [ null; 0L ] ]
+    Conformance.rowsInOrder t (LogicalPlan.GroupBy(scan, [ col "K" ], [ "s", sumOrNull (col "V") ], None, true))
+        [ [ 1L; 2L ]; [ 2L; null ]; [ 3L; 7L ] ]
+    Conformance.rowsInOrder t (project scan [ "K", col "K"; "w", ScalarExpr.Window(sumOrNull (col "V"), [ col "K" ], []) ])
+        [ [ 1L; 2L ]; [ 1L; 2L ]; [ 2L; null ]; [ 3L; 7L ]; [ 3L; 7L ] ]
+
+type RCA = { R: string; C: string; A: Nullable<int64> }
+
+/// A grouping-sets level computed from a finer one (GroupingSetsCascade) keeps SumOrNull's nulls: a coarser group is
+/// null exactly when every finer one is.
+[<Fact>]
+let ``SumOrNull levels merge from finer levels`` () =
+    let t = Tables()
+    let rows =
+        [| { R = "east"; C = "x"; A = n 1L }; { R = "east"; C = "x"; A = nul }; { R = "east"; C = "y"; A = nul }
+           { R = "west"; C = "y"; A = nul } |]
+    let spec =
+        {
+            KeyAliases = [ "R", col "R"; "C", col "C" ]
+            Aggs = [ "total", agg AggKind.SumOrNull (col "A") ]
+            Levels = [ [ 0; 1 ], Map.empty; [ 0 ], Map.empty; [], Map.empty ]
+            OutputColumns = [ "R"; "C"; "total" ]
+            LevelMerges = None
+        }
+    let plan = LogicalPlan.GroupingSets(t.Scan rows, spec)
+    let cascaded = Kaminari.Samidare.IR.Passes.GroupingSetsCascade.apply plan
+    match cascaded with
+    | LogicalPlan.GroupingSets(_, { LevelMerges = Some [ "total", ScalarExpr.Aggregation(AggKind.SumOrNull, _, false) ] }) -> ()
+    | other -> failwithf "not cascaded: %s" (LogicalPlanOps.formatPlan other)
+    let expected =
+        [ [ box "east"; box "x"; box 1L ]; [ "east"; "y"; null ]; [ "west"; "y"; null ]
+          [ "east"; null; 1L ]; [ "west"; null; null ]
+          [ null; null; 1L ] ]
+    for p in [ plan; cascaded ] do
+        Conformance.rowsInOrder t p expected
+
+type LKV = { LK: int64; LV: Nullable<int64> }
+type RKV = { RK: int64; RV: Nullable<int64> }
+
+/// A SumOrNull of a UNION ALL of groupings flattened into one grouping (UnionAggregateFlattening): a branch's 0 and
+/// COALESCE(SUM_OR_NULL(x), 0) still reach their groups as 0, and groups only nulls reach stay null.
+[<Fact>]
+let ``SumOrNull over a union of groupings flattens into one grouping`` () =
+    let t = Tables()
+    let left = t.Scan [| { LK = 1L; LV = nul }; { LK = 2L; LV = n 5L } |]
+    let right = t.Scan [| { RK = 1L; RV = nul }; { RK = 3L; RV = nul } |]
+    let sumOrNull name = agg AggKind.SumOrNull (col name)
+    let zero = i64 0L
+    let inner input key aggs = LogicalPlan.GroupBy(input, [ ScalarExpr.Alias(col key, "k") ], aggs, None, true)
+    let plan =
+        LogicalPlan.GroupBy(
+            LogicalPlan.Union(
+                inner left "LK" [ "a", sumOrNull "LV"; "b", zero; "c", sumOrNull "LV" ],
+                inner right "RK" [ "a", zero; "b", ScalarExpr.Coalesce [ sumOrNull "RV"; zero ]; "c", sumOrNull "RV" ],
+                true),
+            [ col "k" ],
+            [ "a", sumOrNull "a"; "b", sumOrNull "b"; "c", sumOrNull "c" ],
+            None,
+            true)
+    let flattened = Kaminari.Samidare.IR.Passes.UnionAggregateFlattening.apply plan
+    match flattened with
+    | LogicalPlan.GroupBy(LogicalPlan.Union(LogicalPlan.Project _, LogicalPlan.Project _, true), _, _, None, true) -> ()
+    | other -> failwithf "not flattened: %s" (LogicalPlanOps.formatPlan other)
+    for p in [ plan; flattened ] do
+        Conformance.rowsInOrder t p [ [ 1L; 0L; 0L; null ]; [ 2L; 5L; 0L; 5L ]; [ 3L; 0L; 0L; null ] ]
+
+type FKV = { FK: int64; FV: Nullable<int64> }
+type DKA = { DK: int64; DA: string; DT: int64 }
+
+/// SumOrNull aggregated on the join key beneath its dimension (EagerAggregation), plainly and guarded by a test on
+/// dimension columns: a group is null when none of its rows has a value (or passes the test).
+[<Fact>]
+let ``SumOrNull is aggregated before the join of its dimension`` () =
+    let t = Tables()
+    let fact =
+        [| for v in [ n 1L; nul; n 2L; nul ] -> { FK = 1L; FV = v }
+           for v in [ n 5L; nul; nul; nul ] -> { FK = 2L; FV = v }
+           for _ in 1..8 -> { FK = 3L; FV = nul }
+           for _ in 1..4 -> { FK = 4L; FV = n 7L } |]
+    let dims = [| { DK = 1L; DA = "a"; DT = 1L }; { DK = 2L; DA = "a"; DT = 0L }; { DK = 3L; DA = "b"; DT = 1L }; { DK = 4L; DA = "c"; DT = 0L } |]
+    let factScan = t.Scan fact
+    let dimScan = t.Scan dims
+    let joined = LogicalPlan.Join(factScan, dimScan, [ col "FK" ], [ col "DK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+    let guarded =
+        ScalarExpr.Conditional(bin BinaryOp.Eq (col "DT") (i64 1L), col "FV", ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Int64))
+    let plan =
+        LogicalPlan.GroupBy(joined, [ col "DA" ], [ "s", agg AggKind.SumOrNull (col "FV"); "g", agg AggKind.SumOrNull guarded ], None, true)
+    let eager = Kaminari.Samidare.IR.Passes.EagerAggregation.apply t.Sources plan
+    match eager with
+    | LogicalPlan.GroupBy(LogicalPlan.Join(LogicalPlan.GroupBy _, _, _, _, _, _, _, _), _, _, _, _) -> ()
+    | other -> failwithf "not aggregated eagerly: %s" (LogicalPlanOps.formatPlan other)
+    for p in [ plan; eager ] do
+        Conformance.rowsInOrder t p [ [ "a"; 8L; 3L ]; [ "b"; null; null ]; [ "c"; 28L; null ] ]

@@ -260,6 +260,11 @@ module internal PolarsScalarLowerer =
             match kind with
             | AggKind.Sum -> PolarsWrapper.Sum baseH
             | AggKind.CheckedSum -> PolarsWrapper.DotNetCheckedSum baseH
+            // The engine sums no values to 0: null unless a value is counted (distinct or not, the same test).
+            | AggKind.SumOrNull ->
+                let counted = lower (ScalarExpr.Aggregation(AggKind.Count, exprOpt, false))
+                let anyValue = PolarsWrapper.Gt(counted, lowerLiteral (LiteralValue.UInt32 0u))
+                PolarsWrapper.IfElse(anyValue, PolarsWrapper.Sum baseH, PolarsWrapper.LitNull())
             | AggKind.Mean -> PolarsWrapper.Mean baseH
             // IR Min is .NET Min: NaN as soon as one value is NaN (nan_min is min on non-floating values).
             | AggKind.Min -> PolarsWrapper.NanMin baseH

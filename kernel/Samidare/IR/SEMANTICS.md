@@ -10,6 +10,12 @@ every engine in `Engines.all`, both as written and after `LogicalOptimizer.optim
 the suite by implementing `IIrEngine`. When a rule changes, change this file, the doc comments in
 `LogicalIR.fs` and the conformance tests together.
 
+## Frontends
+
+A plan means what its frontend's language means. Where languages differ, the IR has a node for each meaning and a
+frontend emits its own: LINQ sums with `Sum` (no values: 0) and `CheckedSum`, SQL with `SumOrNull` (no values:
+null). Backends and passes read the nodes alone and never ask which frontend built a plan.
+
 ## Values and logic
 
 **Typed nulls.** Every type has a null. `LiteralValue.Null` carries its type.
@@ -197,7 +203,7 @@ guarantee beneath them. `GroupOrderRelaxation` frees order only under order-free
 
 **Aggregates skip nulls.**
 
-- `Sum` over no values is 0.
+- `Sum` and `CheckedSum` over no values are 0; `SumOrNull` (SQL's `SUM`) is null.
 - `Mean`, `Min`, `Max`, `First`, `Last` and `Median` over no values are null.
 - `Count` counts non-null values. `Len` counts rows.
 - `Std` / `Var` with ddof d are null with at most d values.
@@ -286,7 +292,8 @@ subquery's row (multi-level correlation).
   `plan` yields a row and `target` or a value is null, false otherwise.
 - **Negation** is `Unary Not` around the subquery: `NOT EXISTS` is two-valued, and `Not(In(.., false))` is SQL
   `NOT IN` (null when the set holds a null and nothing matched).
-- **Aggregates over no rows** keep their rules (see Rows and order: `Sum` and `Len` 0, the rest null); a `List`
+- **Aggregates over no rows** keep their rules (see Rows and order: `Sum`, `CheckedSum`, `Count` and `Len` 0, the
+  rest null, `SumOrNull` too); a `List`
   aggregate over no rows is an empty list (`LiteralValue.EmptyList`), never null.
 - **Correlation** is whatever predicate `plan` states over its rows and the OuterColumns: `Eq` does not match a
   null, `EqMissing` does, and a frontend writes its own NaN rule into the predicate as it does in a filter.

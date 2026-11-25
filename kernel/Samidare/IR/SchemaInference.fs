@@ -148,6 +148,7 @@ module internal SchemaInference =
             | AggKind.Std _
             | AggKind.Var _ -> LogicalTypes.Float64
             | AggKind.Sum
+            | AggKind.SumOrNull
             | AggKind.Min
             | AggKind.Max
             | AggKind.First

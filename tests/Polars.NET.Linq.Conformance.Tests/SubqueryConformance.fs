@@ -146,6 +146,29 @@ let ``Aggregates over no correlated rows keep their rules`` () =
             [ 5L; 0L; 0.0; null; 0L ]
         ]
 
+/// SQL's SUM (SumOrNull) of a scalar subquery: null for a row without correlated rows and for one whose values are all
+/// null, as over no rows uncorrelated.
+[<Fact>]
+let ``A SumOrNull subquery is null without values`` () =
+    let t = Tables()
+    let sumOrNull plan = project plan [ "s", agg AggKind.SumOrNull (col "Amount") ]
+    let dayThree scope = filter (ordersAt t scope) (bin BinaryOp.Eq (col "Day") (i64 3L))
+    let noOrders = filter (t.Scan orders) (bin BinaryOp.Gt (col "Day") (i64 10L))
+    Conformance.rowsInOrder t
+        (project (t.Scan custs) [
+            "Id", col "Id"
+            "sum", scalarAt 1 (sumOrNull (ordersAt t 1))
+            "day3", scalarAt 2 (sumOrNull (dayThree 2))
+            "none", scalarAt 3 (sumOrNull noOrders)
+        ])
+        [
+            [ 1L; 150.0; null; null ]
+            [ 2L; 40.0; null; null ]
+            [ 3L; null; null; null ]
+            [ 4L; 5.0; null; null ]
+            [ 5L; null; null; null ]
+        ]
+
 [<Fact>]
 let ``A count over an OR of correlated conditions (TPC-DS Q41)`` () =
     let t = Tables()
