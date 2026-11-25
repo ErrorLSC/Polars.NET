@@ -94,7 +94,7 @@ module SqlQueryTests =
         | [ ScalarExpr.Alias(ScalarExpr.Column name, _) ] -> Assert.StartsWith("s_name#", name)
         | other -> failwithf "unexpected %A" other
         match groupKeys (translate "SELECT substr(s_name, 1, 2) prefix, count(*) n FROM store GROUP BY prefix").Plan with
-        | [ ScalarExpr.Alias(ScalarExpr.Slice _, _) ] -> ()
+        | [ ScalarExpr.Alias(ScalarExpr.Function(ScalarFunction.Slice, _, _), _) ] -> ()
         | other -> failwithf "unexpected %A" other
         match groupKeys (translate "SELECT s_state, count(*) FROM store GROUP BY 1").Plan with
         | [ ScalarExpr.Alias(ScalarExpr.Column name, _) ] -> Assert.StartsWith("s_state#", name)

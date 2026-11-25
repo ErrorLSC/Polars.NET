@@ -9,6 +9,7 @@ namespace Polars.CSharp.Linq.Tests.Sql;
 /// the same syntax tree for DuckDB (json_serialize_sql, source locations left out) as the original text. A wrong
 /// precedence or a misread clause changes the tree.
 /// </summary>
+[Trait("Category", "Sql")]
 public class TpcdsSqlParseTests
 {
     public static TheoryData<int> Queries => [.. Enumerable.Range(1, 99)];

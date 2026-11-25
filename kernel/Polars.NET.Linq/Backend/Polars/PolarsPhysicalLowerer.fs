@@ -409,7 +409,10 @@ module internal PolarsPhysicalLowerer =
             let leftFields, rightFields =
                 nodeSchemas sources plan (fun () -> getLazySchemaFields leftLf, getLazySchemaFields rightLf)
             let alignedRightLf = alignToFields leftFields rightFields rightLf
-            PolarsWrapper.LazyConcat([| leftLf; alignedRightLf |], PlConcatType.Vertical, false, isAll)
+            let concatenated = PolarsWrapper.LazyConcat([| leftLf; alignedRightLf |], PlConcatType.Vertical)
+            // Without isAll, the first of equal rows (null equal to null), in order.
+            if isAll then concatenated
+            else PolarsWrapper.LazyUnique(concatenated, null, PolarsVocabulary.uniqueKeep DistinctKeep.First, maintainOrder = true)
 
         | LogicalPlan.WithRowIndex(input, name, offsetOpt) ->
             let lf = lowerNode sources shared input

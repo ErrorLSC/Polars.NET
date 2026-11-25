@@ -126,13 +126,37 @@ module internal SqlExpressions =
             | true, d -> LiteralValue.DateTime d
             | _ -> fail binder span $"'{text}' is not a timestamp" (Some "Write timestamps as 'YYYY-MM-DD HH:MM:SS'.")
 
-    /// A value as type `target`, for an implicit conversion: a NULL literal typed, a string literal read as a date,
-    /// otherwise a cast (numeric widening, which cannot fail).
+    /// A numeric literal as a literal of a wider type (an integer literal compared with a BIGINT column is a BIGINT, so
+    /// an IN list stays a list of literals), or None.
+    let private widenLiteral (expr: ScalarExpr) (target: LogicalType) : ScalarExpr option =
+        let integer =
+            match expr with
+            | ScalarExpr.Literal(LiteralValue.Int16 v) -> Some(int64 v)
+            | ScalarExpr.Literal(LiteralValue.Int32 v) -> Some(int64 v)
+            | ScalarExpr.Literal(LiteralValue.Int64 v) -> Some v
+            | _ -> None
+        let exact =
+            match expr, integer with
+            | _, Some v -> Some(decimal v)
+            | ScalarExpr.Cast(ScalarExpr.Literal(LiteralValue.Decimal m), _, _), _ -> Some m
+            | _ -> None
+        match SqlTypes.classify target, integer, exact with
+        | SqlTypeClass.Integer(16, true), Some v, _ when v >= int64 Int16.MinValue && v <= int64 Int16.MaxValue -> Some(lit (LiteralValue.Int16(int16 v)))
+        | SqlTypeClass.Integer(32, true), Some v, _ when v >= int64 Int32.MinValue && v <= int64 Int32.MaxValue -> Some(lit (LiteralValue.Int32(int v)))
+        | SqlTypeClass.Integer(64, true), Some v, _ -> Some(lit (LiteralValue.Int64 v))
+        | SqlTypeClass.Decimal _, _, Some m -> Some(ScalarExpr.Cast(lit (LiteralValue.Decimal m), target, false))
+        | SqlTypeClass.Floating 64, _, Some m -> Some(lit (LiteralValue.Float64(float m)))
+        | SqlTypeClass.Floating 32, _, Some m -> Some(lit (LiteralValue.Float32(float32 m)))
+        | _ -> None
+
+    /// A value as type `target`, for an implicit conversion: a NULL literal typed, a numeric literal widened, a string
+    /// literal read as a date, otherwise a cast (numeric widening, which cannot fail).
     let convert (binder: SqlBinder) (span: SqlSpan) (v: SqlValue) (target: LogicalType) : SqlValue =
         if v.Type.Display = target.Display then v
         else
             match v.Expr, SqlTypes.classify target with
             | ScalarExpr.Literal(LiteralValue.Null _), _ -> nullOf target
+            | literal, _ when (widenLiteral literal target).IsSome -> value (widenLiteral literal target).Value target
             | ScalarExpr.Literal(LiteralValue.String text), (SqlTypeClass.Date | SqlTypeClass.Timestamp) ->
                 value (lit (parseTemporal binder span text target)) target
             | _, (SqlTypeClass.Date | SqlTypeClass.Timestamp) when SqlTypes.classify v.Type = SqlTypeClass.String ->
@@ -457,11 +481,12 @@ module internal SqlExpressions =
             | SqlBinaryOp.Multiply -> BinaryOp.Multiply
             | SqlBinaryOp.Divide -> BinaryOp.Divide
             | _ -> BinaryOp.Modulo
-        // Division and remainder by zero are null (the engine raises for decimals; floating division gives infinity).
-        let guarded (divisor: ScalarExpr) (zero: LiteralValue) (t: LogicalType) (quotient: ScalarExpr) =
+        // Division and remainder by zero are null: a zero divisor is made null (the engine raises for decimals, gives
+        // infinity for floating values, and evaluates both branches of a conditional, so the quotient cannot be masked).
+        let safeDivisor (divisor: SqlValue) (zero: LiteralValue) =
             if op = SqlBinaryOp.Divide || op = SqlBinaryOp.Modulo then
-                ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Eq, divisor, lit zero), lit (LiteralValue.Null t), quotient)
-            else quotient
+                { divisor with Expr = ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Eq, divisor.Expr, lit zero), lit (LiteralValue.Null divisor.Type), divisor.Expr) }
+            else divisor
         let common =
             match SqlTypes.commonNumeric l.Type r.Type with
             | Some t -> t
@@ -476,7 +501,8 @@ module internal SqlExpressions =
         | SqlTypeClass.Floating _ ->
             let a, b = convert binder lSpan l common, convert binder rSpan r common
             let zero = if common.Display = LogicalTypes.Float32.Display then LiteralValue.Float32 0.0f else LiteralValue.Float64 0.0
-            value (guarded b.Expr zero common (ScalarExpr.Binary(irOp, a.Expr, b.Expr))) common
+            let b = safeDivisor b zero
+            value (ScalarExpr.Binary(irOp, a.Expr, b.Expr)) common
         | _ ->
             // Decimals: the result type as Spark computes it (Q4); the operands meet in their common decimal, a dividend
             // widened to the quotient's scale, and the result is cast to its type.
@@ -490,9 +516,9 @@ module internal SqlExpressions =
                     SqlTypes.decimal (SqlTypes.fitDecimal (integral + s) s)
                 | _ -> common
             let a, b = convert binder lSpan l operandType, convert binder rSpan r operandType
+            let b = safeDivisor b (LiteralValue.Decimal 0m)
             let computed = ScalarExpr.Binary(irOp, a.Expr, b.Expr)
-            let typed = if operandType.Display = result.Display then computed else ScalarExpr.Cast(computed, result, false)
-            value (guarded b.Expr (LiteralValue.Decimal 0m) result typed) result
+            value (if operandType.Display = result.Display then computed else ScalarExpr.Cast(computed, result, false)) result
 
     and private like (binder: SqlBinder) (span: SqlSpan) (operand: SqlExpr) (pattern: SqlExpr) (escape: SqlExpr option) (negated: bool) : SqlValue =
         let subject = asText binder operand (bind binder operand)
@@ -617,9 +643,10 @@ module internal SqlExpressions =
                 let wide = SqlTypes.decimal (SqlTypes.maxPrecision, s')
                 let total = ScalarExpr.Cast(agg AggKind.SumOrNull (ScalarExpr.Cast(v.Expr, SqlTypes.decimal (min SqlTypes.maxPrecision (p + 10), s), false)), wide, false)
                 let count = ScalarExpr.Aggregation(AggKind.Count, Some v.Expr, distinct)
-                let quotient = ScalarExpr.Cast(ScalarExpr.Binary(BinaryOp.Divide, total, ScalarExpr.Cast(count, wide, false)), result, false)
+                // No values: the count is made null rather than 0 (the engine raises on a decimal division by zero).
                 let none = ScalarExpr.Binary(BinaryOp.Eq, asBigint count, lit (LiteralValue.Int64 0L))
-                value (ScalarExpr.Conditional(none, lit (LiteralValue.Null result), quotient)) result
+                let divisor = ScalarExpr.Conditional(none, lit (LiteralValue.Null wide), ScalarExpr.Cast(count, wide, false))
+                value (ScalarExpr.Cast(ScalarExpr.Binary(BinaryOp.Divide, total, divisor), result, false)) result
             | SqlTypeClass.Integer _
             | SqlTypeClass.Floating _ -> value (agg AggKind.Mean (ScalarExpr.Cast(v.Expr, LogicalTypes.Float64, false))) LogicalTypes.Float64
             | SqlTypeClass.Null -> nullOf LogicalTypes.Float64
@@ -687,11 +714,15 @@ module internal SqlExpressions =
                 | "dense_rank" -> RankMethod.Dense
                 | _ -> RankMethod.Ordinal
             let ranked = ScalarExpr.Function(ScalarFunction.Rank(method, None), [ key; lit (LiteralValue.Bool false) ], LogicalTypes.Int64)
-            value (ScalarExpr.Cast(ScalarExpr.Window(ranked, partition, []), LogicalTypes.Int64, false)) LogicalTypes.Int64
+            // Without PARTITION BY the rank is over the whole input: no window.
+            let windowed = if partition.IsEmpty then ranked else ScalarExpr.Window(ranked, partition, [])
+            value (ScalarExpr.Cast(windowed, LogicalTypes.Int64, false)) LogicalTypes.Int64
         elif aggregateNames.Contains name then
             // An aggregate with OVER computes over its window; its arguments bind where the window is, so over groups
             // in an aggregating query (`avg(sum(x)) OVER ()` averages the groups' sums).
             let over = aggregate inWindow span name call
+            // OVER () is one partition of every row: partitioned by a constant (an engine needs a partition or an order).
+            let partition = if partition.IsEmpty then [ lit (LiteralValue.Bool true) ] else partition
             if wholePartition then value (ScalarExpr.Window(over.Expr, partition, [])) over.Type
             elif cumulative then
                 let running =
@@ -707,8 +738,11 @@ module internal SqlExpressions =
                     | _ -> None
                 match running with
                 | Some(f, arg) ->
+                    // SQL's running aggregate skips nulls: the engine's cumulative value is null where the input is, so
+                    // the last value before stands for it.
                     let cum = ScalarExpr.Function(f, [ arg; lit (LiteralValue.Bool false) ], over.Type)
-                    value (ScalarExpr.Window(cum, partition, orders |> List.map fst)) over.Type
+                    let running = ScalarExpr.Function(ScalarFunction.ForwardFill, [ cum ], over.Type)
+                    value (ScalarExpr.Window(running, partition, orders |> List.map fst)) over.Type
                 | None -> fail binder span $"A running {name}() is not supported" None
             else
                 fail binder window.Span $"{name}() OVER (ORDER BY ...) takes SQL's default frame (RANGE, peers included), which is not supported yet"
@@ -755,7 +789,8 @@ module internal SqlExpressions =
             if start < 1 then fail binder call.Arguments.[1].Span $"{name}() counts from 1; a start of {start} is not supported" None
             let length = if args.Length = 3 then integerLiteral 2 else Int32.MaxValue
             if length < 0 then fail binder call.Arguments.[2].Span $"The length of {name}() cannot be negative" None
-            value (ScalarExpr.Slice(s.Expr, int64 (start - 1), uint32 length)) LogicalTypes.String
+            let lengthArg = if args.Length = 3 then lit (LiteralValue.Int64(int64 length)) else lit (LiteralValue.Null LogicalTypes.Int64)
+            value (ScalarExpr.Function(ScalarFunction.Slice, [ s.Expr; lit (LiteralValue.Int64(int64 (start - 1))); lengthArg ], LogicalTypes.String)) LogicalTypes.String
         | "concat" ->
             if args.IsEmpty then fail binder span "concat() needs arguments" None
             // concat skips NULL arguments (DuckDB, PostgreSQL), as the IR's ConcatString does.

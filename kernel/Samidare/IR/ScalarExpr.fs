@@ -343,6 +343,7 @@ module ScalarExprOps =
         | ScalarFunction.CumSum
         | ScalarFunction.CumMin
         | ScalarFunction.CumMax
+        | ScalarFunction.ForwardFill
         | ScalarFunction.CumProd
         | ScalarFunction.CumCount
         | ScalarFunction.Implode

@@ -1,5 +1,5 @@
 /// Contract: Filter, Project and WithColumns keep row order. Sort is stable and places nulls by NullsLast.
-/// Union lists the left rows, then the right. Distinct with maintainOrder keeps the kept rows in input order.
+/// Union lists the left rows, then the right (without isAll, the first of equal rows). Distinct with maintainOrder keeps the kept rows in input order.
 /// Limit takes `count` rows after `offset`. Inner and Left joins list rows in left order, then right order
 /// among matches; Semi and Anti keep left order. Null keys match exactly when `nullsEqual`.
 module Polars.NET.Linq.Conformance.Tests.OrderingAndJoinConformance
@@ -30,6 +30,15 @@ let ``Union lists left rows then right rows`` () =
     let scan = t.Scan left
     let plan = LogicalPlan.Union(ids (filter scan (bin BinaryOp.Gt (col "Id") (i64 3L))), ids scan, true)
     Conformance.rowsInOrder t plan [ [ 4L ]; [ 5L ]; [ 1L ]; [ 2L ]; [ 3L ]; [ 4L ]; [ 5L ] ]
+
+/// Without isAll, duplicates are removed (null equal to null), the first of equal rows kept in order.
+[<Fact>]
+let ``Union without isAll removes duplicates`` () =
+    let t = Tables()
+    let keys plan = project plan [ "K", col "K" ]
+    let scan = t.Scan left
+    let plan = LogicalPlan.Union(keys (filter scan (bin BinaryOp.Gt (col "Id") (i64 3L))), keys scan, false)
+    Conformance.rowsInOrder t plan [ [ 2L ]; [ null ]; [ 1L ] ]
 
 [<Fact>]
 let ``Ordered Distinct keeps the first row per key in input order`` () =

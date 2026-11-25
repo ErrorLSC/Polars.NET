@@ -456,6 +456,10 @@ type ScalarFunction =
     | CumMax
     | CumProd
     | CumCount
+    /// The last non-null value at or before each row, in the input's order (in a window, its partition in the
+    /// window's order); null before the first. With a cumulative function under it, a running aggregate that skips
+    /// nulls, as SQL's (the engine's cumulative functions are null where their input is).
+    | ForwardFill
 
     // --- Bitwise ---
     | BitLeftShift
@@ -636,6 +640,7 @@ type ScalarFunction =
         | ScalarFunction.CumSum -> "cum_sum"
         | ScalarFunction.CumMin -> "cum_min"
         | ScalarFunction.CumMax -> "cum_max"
+        | ScalarFunction.ForwardFill -> "forward_fill"
         | ScalarFunction.CumProd -> "cum_prod"
         | ScalarFunction.CumCount -> "cum_count"
         | ScalarFunction.BitLeftShift -> "bit_left_shift"
@@ -786,6 +791,7 @@ type ScalarFunction =
         | "cum_sum" -> ScalarFunction.CumSum
         | "cum_min" -> ScalarFunction.CumMin
         | "cum_max" -> ScalarFunction.CumMax
+        | "forward_fill" -> ScalarFunction.ForwardFill
         | "cum_prod" -> ScalarFunction.CumProd
         | "cum_count" -> ScalarFunction.CumCount
         | "bit_left_shift" -> ScalarFunction.BitLeftShift

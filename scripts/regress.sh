@@ -7,14 +7,17 @@
 #                                       DeltaLakeTests, Unity Catalog, file system contract (starts containers)
 #   scripts/regress.sh full             every test project of the library (Seseragi.Files and the net11 LINQ suite
 #                                       included), plus the delta tier's integration tests
-#                                       (not: real-cloud, ML, MSSQL, ADBC, LINQ integration)
+#                                       (not: real-cloud, ML, MSSQL, ADBC, LINQ integration, the SQL frontend's
+#                                       TPC-DS runs: Category=Sql, about a minute)
+#   scripts/regress.sh sql              the SQL frontend: its F# unit tests and the LINQ suite's Category=Sql tests
+#                                       (TPC-DS texts parsed, translated and run against DuckDB; small-table cases)
 #
 # Each step's output goes to $REGRESS_LOG_DIR (default: $TMPDIR/polars-regress); a summary table is printed at the
 # end. The exit code is non-zero when a build or a test run failed.
 set -u
 tier=${1:-quick}
 extra=${2:-}
-case "$tier" in quick|delta|full) ;; *) echo "usage: $0 quick|delta|full [integration filter]" >&2; exit 2 ;; esac
+case "$tier" in quick|delta|full|sql) ;; *) echo "usage: $0 quick|delta|full|sql [integration filter]" >&2; exit 2 ;; esac
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
@@ -55,6 +58,19 @@ test_run() { # test_run NAME PROJECT [FILTER]
 
 integration=tests/Polars.Integration.Tests
 
+if [ "$tier" = sql ]; then
+    for p in tests/Polars.FSharp.Tests tests/Polars.CSharp.Linq.Tests; do step "build $(basename "$p")" dotnet build "$p"; done
+    if [ $failed -eq 0 ]; then
+        test_run "F# SQL" tests/Polars.FSharp.Tests "FullyQualifiedName~Polars.FSharp.Tests.Sql"
+        test_run "SQL (LINQ suite)" tests/Polars.CSharp.Linq.Tests "Category=Sql"
+    fi
+    echo
+    echo "Regression (sql) — logs in $logs"
+    printf '%s\n' "${summary[@]}"
+    [ -s "$logs/failures.txt" ] && cat "$logs/failures.txt"
+    exit $failed
+fi
+
 # One build of everything the tier runs; every test run after it uses --no-build.
 projects=(tests/Seseragi.Lakehouse.Tests tests/Polars.FSharp.Tests tests/Polars.CSharp.Tests)
 [ "$tier" != quick ] || [ -n "$extra" ] && projects+=("$integration")
@@ -73,7 +89,7 @@ if [ "$tier" = full ]; then
     test_run "Sazanami" tests/Sazanami.Tests
     test_run "Seseragi.Files" tests/Seseragi.Files.Tests
     test_run "Config (serial)" tests/Polars.Config.Tests
-    test_run "LINQ (net11)" tests/Polars.CSharp.Linq.Tests
+    test_run "LINQ (net11)" tests/Polars.CSharp.Linq.Tests "Category!=Sql"
 else
     test_run "F# Delta" tests/Polars.FSharp.Tests "FullyQualifiedName~Seseragi|FullyQualifiedName~DeltaTests"
     test_run "C# Delta" tests/Polars.CSharp.Tests "FullyQualifiedName~Delta"

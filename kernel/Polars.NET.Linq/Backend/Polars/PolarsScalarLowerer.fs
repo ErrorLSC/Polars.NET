@@ -90,27 +90,43 @@ module internal PolarsScalarLowerer =
             PolarsWrapper.Implode(PolarsWrapper.Filter(none, PolarsWrapper.Lit false), maintainOrder = true)
 
     /// A typed array holding the values of homogeneous literals (strings or integers), for a Series literal.
-    let private literalArray (values: LiteralValue list) : Array =
+    /// Literals of one CLR kind as a typed array (a Series of them), or None for another value (null, a decimal,
+    /// kinds mixed).
+    let private tryLiteralArray (values: LiteralValue list) : Array option =
         let boxed =
             values
             |> List.map (function
-                | LiteralValue.String s -> box s
-                | LiteralValue.Int8 v -> box v
-                | LiteralValue.Int16 v -> box v
-                | LiteralValue.Int32 v -> box v
-                | LiteralValue.Int64 v -> box v
-                | LiteralValue.UInt8 v -> box v
-                | LiteralValue.UInt16 v -> box v
-                | LiteralValue.UInt32 v -> box v
-                | LiteralValue.UInt64 v -> box v
-                | other -> failwithf "[Polars.NET.Linq Bug] Unsupported literal in a value list: %A" other)
-        let elementType =
-            match boxed with
-            | first :: _ -> first.GetType()
-            | [] -> typeof<string>
-        let array = Array.CreateInstance(elementType, boxed.Length)
-        boxed |> List.iteri (fun i v -> array.SetValue(v, i))
-        array
+                | LiteralValue.String s -> Some(box s)
+                | LiteralValue.Int8 v -> Some(box v)
+                | LiteralValue.Int16 v -> Some(box v)
+                | LiteralValue.Int32 v -> Some(box v)
+                | LiteralValue.Int64 v -> Some(box v)
+                | LiteralValue.UInt8 v -> Some(box v)
+                | LiteralValue.UInt16 v -> Some(box v)
+                | LiteralValue.UInt32 v -> Some(box v)
+                | LiteralValue.UInt64 v -> Some(box v)
+                | LiteralValue.Float32 v -> Some(box v)
+                | LiteralValue.Float64 v -> Some(box v)
+                | LiteralValue.Bool v -> Some(box v)
+                | LiteralValue.Date v -> Some(box v)
+                | _ -> None)
+        if boxed |> List.exists Option.isNone then None
+        else
+            let boxed = boxed |> List.map Option.get
+            let elementType =
+                match boxed with
+                | first :: _ -> first.GetType()
+                | [] -> typeof<string>
+            if boxed |> List.exists (fun v -> v.GetType() <> elementType) then None
+            else
+                let array = Array.CreateInstance(elementType, boxed.Length)
+                boxed |> List.iteri (fun i v -> array.SetValue(v, i))
+                Some array
+
+    let private literalArray (values: LiteralValue list) : Array =
+        match tryLiteralArray values with
+        | Some array -> array
+        | None -> failwithf "[Polars.NET.Linq Bug] Unsupported literals in a value list: %A" values
 
     /// Lowers a SortOrder into a tuple of (ExprHandle, isDescending, nullsLast)
     /// The managed callback of ScalarFunction.AssertCount: true for every count in the check's range, otherwise
@@ -573,6 +589,7 @@ module internal PolarsScalarLowerer =
             | ScalarFunction.CumMin, [ a ] -> PolarsWrapper.CumMin(lower a, false)
             | ScalarFunction.CumMin, [ a; ScalarExpr.Literal(LiteralValue.Bool rev) ] -> PolarsWrapper.CumMin(lower a, rev)
             | ScalarFunction.CumMax, [ a ] -> PolarsWrapper.CumMax(lower a, false)
+            | ScalarFunction.ForwardFill, [ a ] -> PolarsWrapper.FillNullWithStrategy(lower a, PlFillNullStrategy.Forward, Nullable())
             | ScalarFunction.CumMax, [ a; ScalarExpr.Literal(LiteralValue.Bool rev) ] -> PolarsWrapper.CumMax(lower a, rev)
             | ScalarFunction.CumProd, [ a ] -> PolarsWrapper.CumProd(lower a, false)
             | ScalarFunction.CumProd, [ a; ScalarExpr.Literal(LiteralValue.Bool rev) ] -> PolarsWrapper.CumProd(lower a, rev)
@@ -671,15 +688,23 @@ module internal PolarsScalarLowerer =
             | UdfInvoker.StringToList toList ->
                 PolarsWrapper.MapStringToList(argHs.[0], toList)
 
+        // Literals of another kind (a null among them, decimals): one equality per value, which gives IN's result
+        // (true on a match; without nullsEqual null when a side is null and nothing matched).
+        | ScalarExpr.InList(inner, InListSource.Literals values, negated, nullsEqual) when (tryLiteralArray values).IsNone && not values.IsEmpty ->
+            let eq = if nullsEqual then BinaryOp.EqMissing else BinaryOp.Eq
+            let any =
+                values
+                |> List.map (fun v -> ScalarExpr.Binary(eq, inner, ScalarExpr.Literal v))
+                |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.Or, a, b))
+            lower (if negated then ScalarExpr.Unary(UnaryOp.Not, any) else any)
+
         | ScalarExpr.InList(inner, source, negated, nullsEqual) ->
             let innerH = lower inner
-            let listH =
+            let values =
                 match source with
-                | InListSource.Collection(coll, _) ->
-                    let seriesLit = PolarsWrapper.Lit(createSeriesHandle "in_vals" coll)
-                    PolarsWrapper.Implode(seriesLit, maintainOrder = false)
-                | InListSource.Literals _ ->
-                    failwith "InListSource.Literals must be lowered via Disjunction or Collection"
+                | InListSource.Collection(coll, _) -> createSeriesHandle "in_vals" coll
+                | InListSource.Literals literals -> createSeriesHandle "in_vals" (literalArray literals)
+            let listH = PolarsWrapper.Implode(PolarsWrapper.Lit values, maintainOrder = false)
             let isInH = PolarsWrapper.IsIn(innerH, listH, nullsEqual = nullsEqual)
             if negated then PolarsWrapper.Not isInH else isInH
 

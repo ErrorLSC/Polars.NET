@@ -104,8 +104,9 @@ module SqlExpressionTests =
         Assert.Equal("DOUBLE", typeOf "ratio * item")
         // SQL integer division truncates; by zero it is null.
         Assert.Equal(ScalarExpr.Binary(BinaryOp.TruncatedDivide, c "item#1", lit (LiteralValue.Int32 2)), (bound "item / 2").Expr)
-        match (bound "ratio / 2").Expr with
-        | ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Eq, _, ScalarExpr.Literal(LiteralValue.Float64 0.0)), ScalarExpr.Literal(LiteralValue.Null _), _) -> ()
+        // A zero divisor is made null (the engine evaluates both branches of a conditional).
+        match (bound "ratio / qty").Expr with
+        | ScalarExpr.Binary(BinaryOp.Divide, _, ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Eq, _, ScalarExpr.Literal(LiteralValue.Float64 0.0)), ScalarExpr.Literal(LiteralValue.Null _), _)) -> ()
         | other -> failwithf "unguarded %A" other
         Assert.StartsWith("'+' needs a number, not a value of type VARCHAR", (fails plainScope "name + 1").Message)
 
@@ -119,6 +120,13 @@ module SqlExpressionTests =
         match (bound "item = price").Expr with
         | ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Cast(_, t, false), _) -> Assert.Equal("DECIMAL(12, 2)", SqlTypes.display t)
         | other -> failwithf "unexpected %A" other
+
+    [<Fact>]
+    let ``A numeric literal meeting a wider type is a literal of it, so an IN list stays literals`` () =
+        Assert.Equal(
+            ScalarExpr.InList(c "qty#1", InListSource.Literals [ LiteralValue.Int64 1L; LiteralValue.Int64 2L ], false, false),
+            (bound "qty IN (1, 2)").Expr)
+        Assert.Equal(ScalarExpr.Binary(BinaryOp.Gt, c "ratio#1", lit (LiteralValue.Float64 1.0)), (bound "ratio > 1").Expr)
 
     [<Fact>]
     let ``Date arithmetic adds whole days`` () =
@@ -162,8 +170,9 @@ module SqlExpressionTests =
 
     [<Fact>]
     let ``Scalar functions map to the IR's`` () =
-        Assert.Equal(ScalarExpr.Slice(c "name#1", 0L, 5u), (bound "substr(name, 1, 5)").Expr)
-        Assert.Equal(ScalarExpr.Slice(c "name#1", 2L, UInt32.MaxValue >>> 1), (bound "SUBSTRING(name, 3)").Expr)
+        let slice offset length = ScalarExpr.Function(ScalarFunction.Slice, [ c "name#1"; lit (LiteralValue.Int64 offset); lit length ], LogicalTypes.String)
+        Assert.Equal(slice 0L (LiteralValue.Int64 5L), (bound "substr(name, 1, 5)").Expr)
+        Assert.Equal(slice 2L (LiteralValue.Null LogicalTypes.Int64), (bound "SUBSTRING(name, 3)").Expr)
         match (bound "concat(name, '-', name)").Expr with
         | ScalarExpr.Function(ScalarFunction.ConcatString, [ ScalarExpr.Literal(LiteralValue.String ""); _; _; _ ], _) -> ()
         | other -> failwithf "unexpected %A" other
@@ -231,7 +240,7 @@ module SqlExpressionTests =
         | other -> failwithf "unexpected %A" other
         // Several keys, in their own directions: one struct of their dense ranks.
         match (bound "dense_rank() OVER (ORDER BY qty DESC, name NULLS LAST)").Expr with
-        | ScalarExpr.Cast(ScalarExpr.Window(ScalarExpr.Function(ScalarFunction.Rank(RankMethod.Dense, None), [ ScalarExpr.Function(ScalarFunction.AsStruct, fields, _); _ ], _), [], []), _, _) ->
+        | ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.Rank(RankMethod.Dense, None), [ ScalarExpr.Function(ScalarFunction.AsStruct, fields, _); _ ], _), _, _) ->
             Assert.Equal<ScalarExpr list>([ ScalarExpr.Alias(denseKey "qty#1" true Int64.MaxValue, "k0"); ScalarExpr.Alias(denseKey "name#1" false Int64.MaxValue, "k1") ], fields)
         | other -> failwithf "unexpected %A" other
         let partitioned, _ = grouped "avg(sum(qty)) OVER (PARTITION BY item)"
@@ -239,7 +248,7 @@ module SqlExpressionTests =
         | ScalarExpr.Window(ScalarExpr.Aggregation(AggKind.Mean, Some(ScalarExpr.Cast(ScalarExpr.Column "agg0", _, _)), false), [ ScalarExpr.Column "key0" ], []) -> ()
         | other -> failwithf "unexpected %A" other
         match (bound "sum(qty) OVER (PARTITION BY item ORDER BY sold ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)").Expr with
-        | ScalarExpr.Window(ScalarExpr.Function(ScalarFunction.CumSum, _, _), [ _ ], [ { Descending = false; NullsLast = false } ]) -> ()
+        | ScalarExpr.Window(ScalarExpr.Function(ScalarFunction.ForwardFill, [ ScalarExpr.Function(ScalarFunction.CumSum, _, _) ], _), [ _ ], [ { Descending = false; NullsLast = false } ]) -> ()
         | other -> failwithf "unexpected %A" other
         Assert.StartsWith("sum() OVER (ORDER BY ...) takes SQL's default frame", (fails plainScope "sum(qty) OVER (ORDER BY sold)").Message)
         let inWhere = { binderOf plainScope "rank() OVER (ORDER BY qty)" (SqlAggregates.Refused "in WHERE") with WindowsRefused = Some "in WHERE" }

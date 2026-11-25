@@ -9,6 +9,7 @@ namespace Polars.CSharp.Linq.Tests.Sql;
 /// The SQL frontend translates DuckDB's 99 TPC-DS texts to IR plans over the TPC-DS tables (their Parquet schemas),
 /// subqueries replaced by joins.
 /// </summary>
+[Trait("Category", "Sql")]
 public class TpcdsSqlTranslateTests
 {
     static readonly Lazy<ISqlCatalog> Catalog = new(() =>

@@ -32,6 +32,20 @@ let ``A filter above a window does not change the window values`` () =
         ]
     Conformance.rowsInOrder t (filter windowed (bin BinaryOp.NotEq (col "Id") (i64 2L))) [ [ 1L; 40L ]; [ 3L; 60L ]; [ 4L; 60L ] ]
 
+type GOV = { Id: int64; G: int64; O: int64; V: Nullable<int64> }
+
+/// ForwardFill gives the last non-null value at or before each row, in a window's order within its partition (null
+/// before the first): over a cumulative function, SQL's running aggregate that skips nulls.
+[<Fact>]
+let ``ForwardFill over a cumulative maximum skips nulls in the window's order`` () =
+    let t = Tables()
+    let data =
+        [| { Id = 1L; G = 1L; O = 3L; V = n 5L }; { Id = 2L; G = 1L; O = 1L; V = nul }; { Id = 3L; G = 1L; O = 2L; V = n 7L }
+           { Id = 4L; G = 1L; O = 4L; V = nul }; { Id = 5L; G = 2L; O = 1L; V = n 2L }; { Id = 6L; G = 2L; O = 2L; V = nul } |]
+    let running = fn ScalarFunction.ForwardFill [ fn ScalarFunction.CumMax [ col "V"; bool false ] ]
+    let plan = project (t.Scan data) [ "Id", col "Id"; "m", ScalarExpr.Window(running, [ col "G" ], [ asc (col "O") ]) ]
+    Conformance.rowsInOrder t plan [ [ 1L; 7L ]; [ 2L; null ]; [ 3L; 7L ]; [ 4L; 7L ]; [ 5L; 2L ]; [ 6L; 2L ] ]
+
 let private exactlyOne =
     {
         Min = 1L
