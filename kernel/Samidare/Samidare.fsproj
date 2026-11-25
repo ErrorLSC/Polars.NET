@@ -38,6 +38,10 @@
     <Compile Include="Sql/SqlLexer.fs" />
     <Compile Include="Sql/SqlParser.fs" />
     <Compile Include="Sql/SqlFormat.fs" />
+    <Compile Include="Sql/SqlTypes.fs" />
+    <Compile Include="Sql/SqlScope.fs" />
+    <Compile Include="Sql/SqlExpressions.fs" />
+    <Compile Include="Sql/SqlQueries.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="LinqReflectionCache.fs" />

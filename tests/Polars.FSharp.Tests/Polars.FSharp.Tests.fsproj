@@ -62,6 +62,8 @@
     <Compile Include="QueryOptionSemanticsTests.fs" />
     <Compile Include="DisplayTests.fs" />
     <Compile Include="SqlParserTests.fs" />
+    <Compile Include="SqlExpressionTests.fs" />
+    <Compile Include="SqlQueryTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
