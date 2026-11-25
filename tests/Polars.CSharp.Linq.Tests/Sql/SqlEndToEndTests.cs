@@ -101,6 +101,12 @@ public class SqlEndToEndTests
     [InlineData("WITH c AS (SELECT g, sum(d) AS v, 'x' AS ch FROM t GROUP BY g UNION ALL SELECT k AS g, count(*) AS v, 'y' AS ch FROM u GROUP BY k) SELECT a.g, a.v, b.v AS w FROM c a JOIN c b ON a.g = b.g WHERE a.ch = 'y' AND b.ch = 'x' ORDER BY a.g")]
     [InlineData("SELECT count(*) AS n, sum(d) AS s, 'x' AS ch FROM t WHERE 1 = 2 UNION ALL SELECT count(*), sum(d), 'y' FROM t WHERE 1999 + 2 = 2001 ORDER BY ch")]
     [InlineData("SELECT * FROM (SELECT g, 'x' AS ch FROM t UNION ALL SELECT k, 'y' FROM u) v WHERE ch = 'z' ORDER BY g")]
+    // Blocks joining the same tables alike share one join (TPC-DS Q88): each its own filter, one with none, one testing
+    // both tables; keys with nulls never match.
+    [InlineData("SELECT * FROM (SELECT count(*) AS a FROM t, u WHERE t.k = u.k AND t.g = 1) x, (SELECT count(*) AS b FROM t, u WHERE t.k = u.k AND u.label <> 'deux') y, (SELECT sum(t.d) AS c, count(*) AS n FROM t, u WHERE u.k = t.k) z")]
+    [InlineData("SELECT * FROM (SELECT count(*) AS a FROM t, u WHERE t.k = u.k AND (t.o = 1 OR u.label = 'deux')) x, (SELECT max(t.s) AS b FROM t, u WHERE t.k = u.k AND t.o > u.k) y")]
+    [InlineData("SELECT * FROM (SELECT count(*) AS a, max(q.s) AS m FROM t p, t q WHERE p.g = q.g AND p.o = 1) x, (SELECT count(*) AS b, max(p.s) AS m FROM t p, t q WHERE p.g = q.g AND q.o = 2) y")]
+    [InlineData("SELECT * FROM (SELECT count(*) AS a FROM t p, u, t q WHERE p.k = u.k AND q.k = u.k AND p.o = q.o AND p.g = 1) x, (SELECT count(*) AS b FROM t p, u, t q WHERE p.k = u.k AND q.k = u.k AND p.o = q.o AND u.label = 'two') y")]
     public void Gives_DuckDBs_rows(string sql)
     {
         var (dir, catalog) = Data.Value;

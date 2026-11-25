@@ -212,6 +212,45 @@ module SqlQueryTests =
         Assert.Empty(sharedOf different)
 
     [<Fact>]
+    let ``Blocks joining the same tables on the same equalities share one join, each filtering it`` () =
+        // TPC-DS Q88's shape: counts over one join, each with its own conditions.
+        let block filter = $"(SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id AND {filter})"
+        let ca, qty = block "s_state = 'CA'", block "ss_qty > 2 AND s_name = 'x'"
+        let plan = (translate $"SELECT * FROM {ca} a, {qty} b").Plan
+        match sharedOf plan with
+        | [ (one, first); (other, second) ] when one = other ->
+            Assert.Equal(first, second)
+            // The shared join is unfiltered; each block filters it.
+            Assert.Equal<JoinKind list>([ JoinKind.Inner ], kinds first)
+            Assert.DoesNotContain(nodes first, (function LogicalPlan.Filter _ -> true | _ -> false))
+        | other -> failwithf "unexpected %A" other
+        let filters = nodes plan |> List.choose (function LogicalPlan.Filter(LogicalPlan.Shared _, p) | LogicalPlan.Filter(LogicalPlan.Project(LogicalPlan.Shared _, _), p) -> Some p | _ -> None)
+        Assert.Equal(2, filters.Length)
+        Assert.True(readsColumn "s_state" filters.[0])
+        Assert.True(readsColumn "ss_qty" filters.[1] && readsColumn "s_name" filters.[1])
+        // The key equality written the other way round is the same join.
+        let swapped = (translate $"SELECT * FROM {ca} a, (SELECT count(*) AS n FROM sales, store WHERE s_id = ss_store) b").Plan
+        Assert.Equal(2, (sharedOf swapped).Length)
+
+    [<Fact>]
+    let ``A join is shared only with blocks joining alike, of tables, on conditions of the row`` () =
+        let shares text = not (sharedOf (translate text).Plan).IsEmpty
+        // Once: no sharing.
+        Assert.False(shares "SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id AND s_state = 'CA'")
+        // Other keys, other tables, another table order.
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id) a, (SELECT count(*) AS n FROM sales, store WHERE ss_item = s_id) b")
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id) a, (SELECT count(*) AS n FROM sales, item WHERE ss_item = i_id) b")
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id) a, (SELECT count(*) AS n FROM store, sales WHERE ss_store = s_id) b")
+        // Tables joined by no equality (a cross join), an outer join, a subquery in a condition.
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM sales, store WHERE ss_qty = 1) a, (SELECT count(*) AS n FROM sales, store WHERE ss_qty = 2) b")
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM sales LEFT JOIN store ON ss_store = s_id) a, (SELECT count(*) AS n FROM sales LEFT JOIN store ON ss_store = s_id WHERE ss_qty = 2) b")
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id AND ss_item IN (SELECT i_id FROM item)) a, (SELECT count(*) AS n FROM sales, store WHERE ss_store = s_id) b")
+        // Derived tables are not tables: two blocks joining different ones to the same table do not share.
+        Assert.False(shares "SELECT * FROM (SELECT count(*) AS n FROM (SELECT ss_store AS k FROM sales WHERE ss_qty = 1) d, store WHERE d.k = s_id) a, (SELECT count(*) AS n FROM (SELECT ss_store AS k FROM sales WHERE ss_qty = 2) d, store WHERE d.k = s_id) b")
+        // A block inside a subquery is left as bound.
+        Assert.False(shares "SELECT s_name FROM store WHERE s_id IN (SELECT ss_store FROM sales, item WHERE ss_item = i_id AND i_name = 'a') AND s_id IN (SELECT ss_store FROM sales, item WHERE ss_item = i_id AND i_name = 'b')")
+
+    [<Fact>]
     let ``Filters that select branches of a union take copies of the common table expression`` () =
         let text =
             "WITH c AS (SELECT ss_store AS k, ss_qty AS q, 's' AS t FROM sales UNION ALL SELECT s_id, 1, 'x' FROM store) SELECT a.q, b.q FROM c a, c b WHERE a.k = b.k AND a.t = 's' AND b.t = 'x'"

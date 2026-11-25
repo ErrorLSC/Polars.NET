@@ -19,6 +19,7 @@ using Polars.Tpcds;
 //   ... -- sql --out <dir> [--rounds 5] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
 //   ... -- sql-plans --out <dir> [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
 //   ... -- sql-probe --out <dir> --queries Q1,Q2 [--data <dir>] [--texts <dir>]
+//   ... -- sql-translate --out <dir> [--rounds 50] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
 //
 // `run` first compares each query's rows with DuckDB, then times it end to end (parquet to rows, plan cache on),
 // alternating engines, and writes sweep.csv and sweep.md. `plans` writes each optimized plan with generated names
@@ -26,11 +27,12 @@ using Polars.Tpcds;
 // texts) through the SQL frontend, checks its rows against DuckDB's on the same text, then times the frontend (translation
 // included), the LINQ version and DuckDB in rotating order, and writes sql-sweep.csv and sql-sweep.md. `sql-plans`
 // writes each query's optimized plan from the SQL frontend (Qn.sql.txt), the engine's plan of it (Qn.sql.polars.txt)
-// and the LINQ version's, as IR (Qn.linq.ir.txt) and the engine's (Qn.linq.txt).
+// and the LINQ version's, as IR (Qn.linq.ir.txt) and the engine's (Qn.linq.txt). `sql-translate` times the SQL
+// frontend's translation (with the bytes it allocates) and the execution of its plan apart.
 
-if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans" or "sql-probe"))
+if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans" or "sql-probe" or "sql-translate"))
 {
-    Console.Error.WriteLine("usage: run|plans|sql|sql-plans --out <dir> [--rounds n] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]");
+    Console.Error.WriteLine("usage: run|plans|sql|sql-plans|sql-probe|sql-translate --out <dir> [--rounds n] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]");
     return 2;
 }
 
@@ -65,6 +67,54 @@ if (args[0] == "sql-plans")
         File.WriteAllText(Path.Combine(output, query.Name + ".linq.ir.txt"), Normalize(query.ExplainLogicalPlan()));
     }
     Console.WriteLine($"{selected.Count} plan pairs written to {output}");
+    return 0;
+}
+
+if (args[0] == "sql-translate")
+{
+    // Translation (text to optimized IR) and execution (lowering and collecting that plan) timed apart: translation in
+    // a process with no native op yet (Polars' workers spin after one and slow the managed code that follows), with
+    // the bytes it allocates, after a warm-up; execution after it (10 runs after 5), with a pause before each run.
+    var catalog = SqlSweep.Catalog();
+    var textDir = options.TryGetValue("texts", out var translateTexts) ? translateTexts : SqlSweep.FindTexts();
+    int repeats = options.TryGetValue("rounds", out var rr) ? int.Parse(rr, CultureInfo.InvariantCulture) : 50;
+    var texts = selected.Select(q => (q.Name, Text: File.ReadAllText(Path.Combine(textDir, $"q{int.Parse(q.Name[1..], CultureInfo.InvariantCulture):00}.sql")))).ToList();
+    var translation = new Dictionary<string, string>();
+    // Warm up for a few seconds over all the texts: a few dozen translations leave the compiler's code at the first
+    // tier (Q88 measured 17 ms after 40 translations, 6 ms after 300).
+    for (var warm = Stopwatch.StartNew(); warm.Elapsed < TimeSpan.FromSeconds(4);)
+        foreach (var (_, text) in texts)
+            PolarsSql.plan(catalog, text);
+    foreach (var (name, text) in texts)
+    {
+        var times = new List<double>();
+        long bytes = 0;
+        for (int i = 0; i < repeats; i++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            var watch = Stopwatch.StartNew();
+            PolarsSql.plan(catalog, text);
+            times.Add(watch.Elapsed.TotalMilliseconds);
+            bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        times.Sort();
+        translation[name] = $"translate median {times[times.Count / 2],6:F2} min {times[0],6:F2} ms, {bytes / 1024.0:F0} KiB";
+    }
+    foreach (var (name, text) in texts)
+    {
+        var (plan, sources) = PolarsSql.plan(catalog, text);
+        var times = new List<double>();
+        for (int i = 0; i < 15; i++)
+        {
+            Thread.Sleep(250);
+            var watch = Stopwatch.StartNew();
+            using (var lf = PolarsPhysicalLowerer.lowerPlan(sources, plan))
+            using (var df = PolarsWrapper.LazyCollect(lf, PlEngine.Auto)) { }
+            if (i >= 5) times.Add(watch.Elapsed.TotalMilliseconds);
+        }
+        times.Sort();
+        Console.WriteLine($"{name,-4} {translation[name]}; execute median {times[times.Count / 2],6:F2} min {times[0],6:F2} ms");
+    }
     return 0;
 }
 

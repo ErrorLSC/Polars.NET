@@ -284,7 +284,9 @@ module internal SqlExpressions =
             v
 
         | SqlExprKind.Binary((SqlBinaryOp.And | SqlBinaryOp.Or) as op, left, right) ->
-            let side (x: SqlExpr) = expectBoolean binder x.Span $"An operand of {op.ToString().ToUpperInvariant()}" (bind binder x)
+            // A union case's ToString goes through reflection: name the operator directly.
+            let what = if op = SqlBinaryOp.And then "An operand of AND" else "An operand of OR"
+            let side (x: SqlExpr) = expectBoolean binder x.Span what (bind binder x)
             let l, r = side left, side right
             value (ScalarExpr.Binary((if op = SqlBinaryOp.And then BinaryOp.And else BinaryOp.Or), l.Expr, r.Expr)) LogicalTypes.Boolean
 

@@ -17,6 +17,18 @@ type internal SqlPlan =
       Sources: SourceBinding array
       Columns: (string * LogicalType) list }
 
+/// One query block's FROM as a join of tables, recorded to share it with the blocks that join the same tables on the same
+/// equalities (see `shareJoinCores`).
+type internal SqlJoinCore =
+    { /// The plan the block was bound to (its tables joined, its conditions applied), replaced by reference when shared.
+      Bound: LogicalPlan
+      /// The tables, unfiltered, in FROM order, with their columns.
+      Tables: (LogicalPlan * SqlRelation list) list
+      /// The equalities between columns of two tables: the join's keys.
+      Keys: ScalarExpr list
+      /// The other conditions (each of the row alone): the block's own filter over the shared join.
+      Filters: ScalarExpr list }
+
 /// One translation's state: the text (for errors), the catalog, the sources read, fresh names, subquery scopes.
 type internal SqlTranslation(text: string, catalog: ISqlCatalog, supportsAssertions: bool) =
     let sources = ResizeArray<SourceBinding>()
@@ -35,6 +47,10 @@ type internal SqlTranslation(text: string, catalog: ISqlCatalog, supportsAsserti
     /// Derived tables bound so far, by their text and the common table expressions in scope: a derived table written
     /// again is the same plan, shared as a common table expression is.
     member val DerivedTables = Dictionary<string, SqlBound * int>()
+
+    /// Query blocks' joins of tables, by the tables (in order) and the equalities joining them: blocks that differ only
+    /// in their other conditions share one join.
+    member val JoinCores = Dictionary<string, ResizeArray<SqlJoinCore>>()
     member _.Catalog = catalog
     member _.Sources = sources.ToArray()
 
@@ -282,6 +298,74 @@ module internal SqlQueries =
     // ----------------------------------------------------------------------------------------------------------
     // Queries
     // ----------------------------------------------------------------------------------------------------------
+
+    /// Records a query block's FROM, bound to `bound`, when it is a join of tables another block may join alike (see
+    /// `shareJoinCores`): every item a table (no derived table, common table expression or outer join), every condition of
+    /// the row alone, the tables connected by equalities between their columns. The key is the tables in order and those
+    /// equalities, each column named by its table's position and its own (a table read twice is told apart by position).
+    let private recordJoinCore (t: SqlTranslation) (from: FromNode) (conjuncts: ScalarExpr list) (bound: LogicalPlan) =
+        let rec flat (node: FromNode) =
+            match node with
+            | FromNode.Leaf(plan, rs) -> Some([ plan, rs ], [])
+            | FromNode.Group(items, conditions) ->
+                let parts = items |> List.map flat
+                if parts |> List.forall Option.isSome then
+                    let parts = parts |> List.choose id
+                    Some(parts |> List.collect fst, (parts |> List.collect snd) @ conditions)
+                else
+                    None
+            | FromNode.Outer _ -> None
+        // A table as `bindTable` reads it: every column of a scan under its own name.
+        let slotOf (plan: LogicalPlan) =
+            match plan with
+            | LogicalPlan.Project(LogicalPlan.Scan(LogicalPlanSource.Slot slot, schema), columns) when
+                columns.Length = schema.Fields.Length
+                && List.forall2 (fun (_, e) (f: LogicalField) -> e = ScalarExpr.Column f.Name) columns schema.Fields
+                ->
+                Some slot
+            | _ -> None
+        match flat from with
+        | Some(tables, conditions) when tables.Length >= 2 ->
+            let slots = tables |> List.map (fst >> slotOf)
+            let all = conditions @ conjuncts
+            if slots |> List.forall Option.isSome && List.forall rowLocal all then
+                let position = Dictionary<string, int * int>()
+                tables
+                |> List.iteri (fun i (_, rs) -> rs |> List.collect (fun r -> r.Columns) |> List.iteri (fun j c -> position.[c.Internal] <- (i, j)))
+                let edge (c: ScalarExpr) =
+                    match c with
+                    | ScalarExpr.Binary(BinaryOp.Eq, ScalarExpr.Column a, ScalarExpr.Column b) ->
+                        match position.TryGetValue a, position.TryGetValue b with
+                        | (true, (i, j)), (true, (k, l)) when i <> k -> Some(min (i, j) (k, l), max (i, j) (k, l))
+                        | _ -> None
+                    | _ -> None
+                let edges = all |> List.map (fun c -> c, edge c)
+                // The equalities alone connect the tables: the shared join has no cross join.
+                let reached = HashSet<int>([ 0 ])
+                let mutable grown = true
+                while grown do
+                    grown <- false
+                    for _, e in edges do
+                        match e with
+                        | Some((i, _), (k, _)) when reached.Contains i <> reached.Contains k ->
+                            reached.Add i |> ignore
+                            reached.Add k |> ignore
+                            grown <- true
+                        | _ -> ()
+                if reached.Count = tables.Length then
+                    let key =
+                        String.Join(",", slots |> List.map (fun s -> string s.Value))
+                        + "|"
+                        + String.Join(",", edges |> List.choose snd |> List.map (fun ((i, j), (k, l)) -> $"{i}.{j}={k}.{l}") |> List.sort)
+                    let core =
+                        { Bound = bound
+                          Tables = tables
+                          Keys = edges |> List.filter (snd >> Option.isSome) |> List.map fst
+                          Filters = edges |> List.filter (snd >> Option.isNone) |> List.map fst }
+                    match t.JoinCores.TryGetValue key with
+                    | true, uses -> uses.Add core
+                    | _ -> t.JoinCores.[key] <- ResizeArray [ core ]
+        | _ -> ()
 
     let rec bindQuery (t: SqlTranslation) (env: SqlEnvironment) (q: SqlQuery) : SqlBound =
         if q.Recursive then fail t q.Span "WITH RECURSIVE is not supported" None
@@ -703,7 +787,9 @@ module internal SqlQueries =
                 | _ -> fail t w.Span $"WHERE needs a condition, not a value of type {SqlTypes.display v.Type}" None)
         // The FROM joined with the WHERE's conjuncts taken where they apply; the rest (a correlation with the query
         // around, a condition reading no column) filter the joined rows.
-        let input, leftover = build t from (where |> Option.map (FilterShapes.conjuncts >> factorOrs) |> Option.defaultValue [])
+        let conjuncts = where |> Option.map (FilterShapes.conjuncts >> factorOrs) |> Option.defaultValue []
+        let input, leftover = build t from conjuncts
+        if leftover.IsEmpty && env.Outer.IsNone then recordJoinCore t from conjuncts input
         let input = if leftover.IsEmpty then input else LogicalPlan.Filter(input, conjoin leftover)
 
         let selectExprs = s.Items |> List.choose (function SqlSelectItem.Expr(e, alias) -> Some(e, alias) | _ -> None)
@@ -921,6 +1007,44 @@ module internal SqlQueries =
     // Statements
     // ----------------------------------------------------------------------------------------------------------
 
+    /// Query blocks joining the same tables on the same equalities and differing in their other conditions (TPC-DS
+    /// Q88's eight half-hour counts, Q90's two) share one join of the unfiltered tables, which each block filters by its
+    /// own conditions. The optimizer filters the shared join by the disjunction of the blocks' conditions
+    /// (SharedConsumerFilters) and moves into its tables what they have in common, so the fact table is read and joined
+    /// once instead of once per block. A join of one block alone stays as it was bound.
+    let private shareJoinCores (t: SqlTranslation) (plan: LogicalPlan) : LogicalPlan =
+        let replacements = Dictionary<LogicalPlan, LogicalPlan>(HashIdentity.Reference)
+        for uses in t.JoinCores.Values do
+            if uses.Count >= 2 then
+                let first = uses.[0]
+                // Each table joins on all its equalities with the tables before it, so none is left over; should one
+                // be, it filters the join as `build` would.
+                let core, cycle = joinGreedy t first.Tables first.Keys
+                let shared = LogicalPlan.Shared(t.NextShared(), (if cycle.IsEmpty then core else LogicalPlan.Filter(core, conjoin cycle)))
+                let columnsOf (u: SqlJoinCore) = u.Tables |> List.collect (snd >> List.collect (fun r -> r.Columns |> List.map (fun c -> c.Internal)))
+                for u in uses do
+                    // The same tables in the same order: the columns match by position.
+                    let source =
+                        if obj.ReferenceEquals(u, first) then shared
+                        else LogicalPlan.Project(shared, List.map2 (fun mine theirs -> mine, col theirs) (columnsOf u) (columnsOf first))
+                    replacements.[u.Bound] <- if u.Filters.IsEmpty then source else LogicalPlan.Filter(source, conjoin u.Filters)
+        if replacements.Count = 0 then
+            plan
+        else
+            // A common table expression's plan sits under each of its references: rewritten once.
+            let rewritten = Dictionary<LogicalPlan, LogicalPlan>(HashIdentity.Reference)
+            let rec swap (p: LogicalPlan) =
+                match replacements.TryGetValue p with
+                | true, replacement -> replacement
+                | _ ->
+                    match rewritten.TryGetValue p with
+                    | true, done' -> done'
+                    | _ ->
+                        let r = LogicalPlanOps.mapInputs swap p
+                        rewritten.[p] <- r
+                        r
+            swap plan
+
     /// Translates a query to an IR plan: parsed, bound, its columns named as the query names them (a name given twice
     /// takes `_1`, `_2` suffixes), its subqueries replaced by joins.
     let translate (catalog: ISqlCatalog) (supportsAssertions: bool) (text: string) : SqlPlan =
@@ -940,6 +1064,6 @@ module internal SqlQueries =
                     c.Name)
         let plan = LogicalPlan.Project(bound.Plan, List.map2 (fun name (c: SqlOutput) -> name, col c.Internal) names bound.Columns)
         let options: Passes.Decorrelation.Options = { Fresh = t.Fresh; SupportsAssertions = supportsAssertions }
-        match Passes.Decorrelation.tryPlan options (unshareSelectingBranches plan) with
+        match Passes.Decorrelation.tryPlan options (unshareSelectingBranches (shareJoinCores t plan)) with
         | Ok plan -> { Plan = unshareSingle plan; Sources = t.Sources; Columns = List.map2 (fun name (c: SqlOutput) -> name, c.Type) names bound.Columns }
         | Error reason -> raise (SqlException($"This subquery is not supported: {reason}", text, query.Span, None))

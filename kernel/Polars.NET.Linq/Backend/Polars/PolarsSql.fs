@@ -11,6 +11,8 @@ module internal PolarsSql =
 
     /// The optimized IR plan of a SQL query over the catalog's tables, and the sources its Scan slots read.
     let plan (catalog: ISqlCatalog) (text: string) : LogicalPlan * SourceBinding array =
+        // Each pass infers schemas of the nodes it meets: once per node for the whole translation, as a LINQ compile does.
+        use _schemas = PlanSchemaCache.Enter()
         let backend = PolarsQueryBackend.Instance
         let sql = SqlQueries.translate catalog backend.SupportsAssertions text
         // The frontend shares a common table expression's plan among its references; their filters move down to it
@@ -27,5 +29,6 @@ module internal PolarsSql =
 
     /// A SQL query over the catalog's tables as a LazyFrame.
     let lazyFrame (catalog: ISqlCatalog) (text: string) : LazyFrameHandle =
+        use _schemas = PlanSchemaCache.Enter()
         let optimized, sources = plan catalog text
         PolarsPhysicalLowerer.lowerPlan sources optimized

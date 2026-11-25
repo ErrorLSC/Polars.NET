@@ -205,10 +205,19 @@ module internal LogicalPlanOps =
         Set.union currentCols childCols
 
     /// The scalar expressions of a plan node (not of its inputs).
+    /// The same expressions, in the same order, as `mapExpressions` visits them, without rebuilding the node.
     let expressionsOf (plan: LogicalPlan) : ScalarExpr list =
-        let found = ResizeArray<ScalarExpr>()
-        mapExpressions (fun e -> found.Add e; e) plan |> ignore
-        List.ofSeq found
+        match plan with
+        | LogicalPlan.Filter(_, pred) -> [ pred ]
+        | LogicalPlan.Project(_, projs)
+        | LogicalPlan.WithColumns(_, projs) -> projs |> List.map snd
+        | LogicalPlan.Join(_, _, lOn, rOn, _, _, _, _) -> lOn @ rOn
+        | LogicalPlan.JoinAsOf(_, _, spec) -> [ spec.LeftOn; spec.RightOn ] @ spec.LeftBy @ spec.RightBy
+        | LogicalPlan.GroupBy(_, keys, aggs, having, _) -> keys @ (aggs |> List.map snd) @ Option.toList having
+        | LogicalPlan.GroupingSets(_, spec) ->
+            (spec.KeyAliases |> List.map snd) @ (spec.Aggs |> List.map snd) @ (spec.Levels |> List.collect (fun (_, m) -> m |> Map.toList |> List.map snd))
+        | LogicalPlan.Sort(_, orderings) -> orderings |> List.map (fun o -> o.Expr)
+        | _ -> []
 
     /// Whether any node of the plan holds a subquery.
     let rec containsSubqueries (plan: LogicalPlan) : bool =
