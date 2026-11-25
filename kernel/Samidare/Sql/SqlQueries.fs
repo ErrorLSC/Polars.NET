@@ -401,6 +401,11 @@ module internal SqlQueries =
                         | ScalarExpr.Aggregation((AggKind.Len | AggKind.Count | AggKind.Sum | AggKind.SumOrNull), _, _) -> running ScalarFunction.CumSum e
                         | ScalarExpr.Aggregation((AggKind.Min | AggKind.MinNanLargest), _, _) -> running ScalarFunction.CumMin e
                         | ScalarExpr.Aggregation((AggKind.Max | AggKind.MaxNanLargest), _, _) -> running ScalarFunction.CumMax e
+                        // last_value over the default frame: the current row's last peer, its peers' last value.
+                        | ScalarExpr.Aggregation(AggKind.Last, _, _) ->
+                            let column = t.Fresh "peers"
+                            partials.Add((column, e))
+                            col column
                         | ScalarExpr.Aggregation(AggKind.Mean, argument, _) ->
                             let sum = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.SumOrNull, argument, false))
                             let count = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.Count, argument, false))
@@ -530,7 +535,8 @@ module internal SqlQueries =
               WindowsRefused = Some "in VALUES"
               Subquery = subquery t env
               NextScope = t.NextScope
-              RangeWindow = fun _ -> invalidOp "windows are refused here" }
+              RangeWindow = (fun _ -> invalidOp "windows are refused here")
+              Staged = fun _ -> invalidOp "windows are refused here" }
         let bound = rows |> List.map (List.map (SqlExpressions.bind binder))
         let types =
             List.init width (fun i ->
@@ -560,7 +566,8 @@ module internal SqlQueries =
                   WindowsRefused = Some "in the ORDER BY of a set operation"
                   Subquery = subquery t env
                   NextScope = t.NextScope
-                  RangeWindow = fun _ -> invalidOp "windows are refused here" }
+                  RangeWindow = (fun _ -> invalidOp "windows are refused here")
+                  Staged = fun _ -> invalidOp "windows are refused here" }
             let orders =
                 orderBy
                 |> List.map (fun item ->
@@ -730,7 +737,8 @@ module internal SqlQueries =
               WindowsRefused = Some where
               Subquery = subquery t env
               NextScope = t.NextScope
-              RangeWindow = fun _ -> invalidOp "windows are refused here" }
+              RangeWindow = (fun _ -> invalidOp "windows are refused here")
+              Staged = fun _ -> invalidOp "windows are refused here" }
         let v = SqlExpressions.bind binder e
         match SqlTypes.classify v.Type with
         | SqlTypeClass.Boolean -> twoValuedInUnderOr v.Expr
@@ -900,6 +908,12 @@ module internal SqlQueries =
             let name = t.Fresh "range"
             ranges.Add((name, r))
             col name
+        // Columns the items' windows read (frames' indexes), computed below the items.
+        let stagedColumns = ResizeArray<string * ScalarExpr>()
+        let staged (e: ScalarExpr) =
+            let name = t.Fresh "frame"
+            stagedColumns.Add((name, e))
+            col name
         let binderFor aggregates windows =
             { Text = t.Text
               Scope = scope
@@ -907,7 +921,8 @@ module internal SqlQueries =
               WindowsRefused = windows
               Subquery = subquery t env
               NextScope = t.NextScope
-              RangeWindow = rangeWindow }
+              RangeWindow = rangeWindow
+              Staged = staged }
         let where =
             s.Where
             |> Option.map (fun w ->
@@ -1110,7 +1125,7 @@ module internal SqlQueries =
             // in (the shape a scalar subquery's aggregate takes, which the Decorrelation pass reads).
             let inlined =
                 match keylessInline with
-                | Some writeIn when having.IsNone && ranges.Count = 0 ->
+                | Some writeIn when having.IsNone && ranges.Count = 0 && stagedColumns.Count = 0 ->
                     let items = items |> List.map (fun (n, e) -> n, writeIn e)
                     if items |> List.forall (snd >> ScalarExprOps.containsAggregation) then Some(LogicalPlan.Project(input, items)) else None
                 | _ -> None
@@ -1119,7 +1134,9 @@ module internal SqlQueries =
             | None ->
                 let source = match grouped with Some g -> g input | None -> input
                 let source = match having with Some h -> LogicalPlan.Filter(source, h) | None -> source
-                LogicalPlan.Project(rangeWindows t source (List.ofSeq ranges), items)
+                let source = rangeWindows t source (List.ofSeq ranges)
+                let source = if stagedColumns.Count = 0 then source else LogicalPlan.WithColumns(source, List.ofSeq stagedColumns)
+                LogicalPlan.Project(source, items)
         let distinct = if s.Distinct then LogicalPlan.Distinct(projected, None, DistinctKeep.Any, false) else projected
         let sorted =
             if orders.IsEmpty then distinct

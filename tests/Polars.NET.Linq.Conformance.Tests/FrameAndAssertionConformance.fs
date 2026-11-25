@@ -46,6 +46,21 @@ let ``ForwardFill over a cumulative maximum skips nulls in the window's order`` 
     let plan = project (t.Scan data) [ "Id", col "Id"; "m", ScalarExpr.Window(running, [ col "G" ], [ asc (col "O") ]) ]
     Conformance.rowsInOrder t plan [ [ 1L; 7L ]; [ 2L; null ]; [ 3L; 7L ]; [ 4L; 7L ]; [ 5L; 2L ]; [ 6L; 2L ] ]
 
+/// RollingWindow(offset, length) aggregates, for each row, the rows of its partition whose index lies in
+/// (index + offset, index + offset + length]: equal indexes share a frame, a frame past the partition's ends holds
+/// the rows inside it, and a frame holding no values gives the aggregate over none (Sum 0, Max null).
+[<Fact>]
+let ``RollingWindow aggregates the rows of a frame by an index`` () =
+    let t = Tables()
+    let data =
+        [| { Id = 1L; G = 1L; O = 1L; V = n 1L }; { Id = 2L; G = 1L; O = 2L; V = n 2L }; { Id = 3L; G = 1L; O = 2L; V = nul }
+           { Id = 4L; G = 1L; O = 4L; V = n 8L }; { Id = 5L; G = 2L; O = 1L; V = n 16L }; { Id = 6L; G = 2L; O = 9L; V = nul } |]
+    // The frame [O - 1, O]: offset -2, length 2.
+    let framed (aggregate: ScalarExpr) = ScalarExpr.Window(fn (ScalarFunction.RollingWindow(-2L, 2L)) [ aggregate; col "O" ], [ col "G" ], [ asc (col "O") ])
+    let plan = project (t.Scan data) [ "Id", col "Id"; "s", framed (agg AggKind.Sum (col "V")); "n", framed len; "m", framed (agg AggKind.Max (col "V")) ]
+    Conformance.rowsInAnyOrder t plan
+        [ [ 1L; 1L; 1L; 1L ]; [ 2L; 3L; 3L; 2L ]; [ 3L; 3L; 3L; 2L ]; [ 4L; 8L; 1L; 8L ]; [ 5L; 16L; 1L; 16L ]; [ 6L; 0L; 1L; null ] ]
+
 let private exactlyOne =
     {
         Min = 1L

@@ -451,6 +451,11 @@ type ScalarFunction =
     | Shift
     | Diff of nullBehavior: NullBehavior
     | Rank of method: RankMethod * seed: uint64 option
+    /// An aggregate (the first argument) over a frame of rows by an index (the second, an Int64 column ascending in
+    /// the window's order): for each row, the aggregate over the rows of its partition whose index lies in
+    /// (index + offset, index + offset + length]. SQL's bounded window frames (ROWS: the row number; RANGE: the
+    /// order key).
+    | RollingWindow of offset: int64 * length: int64
     | PctChange
     | Interpolate of method: InterpolationMethod
     | InterpolateBy
@@ -638,6 +643,7 @@ type ScalarFunction =
         | ScalarFunction.Shift -> "shift"
         | ScalarFunction.Diff _ -> "diff"
         | ScalarFunction.Rank _ -> "rank"
+        | ScalarFunction.RollingWindow _ -> "rolling_window"
         | ScalarFunction.PctChange -> "pct_change"
         | ScalarFunction.Interpolate _ -> "interpolate"
         | ScalarFunction.InterpolateBy -> "interpolate_by"

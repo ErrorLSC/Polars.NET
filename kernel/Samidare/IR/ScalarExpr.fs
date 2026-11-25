@@ -366,6 +366,7 @@ module ScalarExprOps =
         | ScalarFunction.Shift
         | ScalarFunction.Diff _
         | ScalarFunction.Rank _
+        | ScalarFunction.RollingWindow _
         | ScalarFunction.PctChange
         | ScalarFunction.Interpolate _
         | ScalarFunction.InterpolateBy

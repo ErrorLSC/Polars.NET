@@ -302,7 +302,17 @@ module SqlQueryTests =
         | other -> failwithf "unexpected %A" other
         Assert.StartsWith("count(DISTINCT ...) OVER (ORDER BY ...) is not supported", (fails "SELECT count(DISTINCT ss_qty) OVER (ORDER BY ss_item) AS c FROM sales").Message)
         Assert.StartsWith("stddev() OVER (ORDER BY ...) is not supported", (fails "SELECT stddev(ss_qty) OVER (ORDER BY ss_item) AS c FROM sales").Message)
-        Assert.StartsWith("This window frame is not supported", (fails "SELECT sum(ss_qty) OVER (ORDER BY ss_item RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) AS c FROM sales").Message)
+        // Frames: refused shapes, each by name.
+        let frame text = (fails $"SELECT sum(ss_qty) OVER ({text}) AS c FROM sales").Message
+        Assert.StartsWith("GROUPS frames are not supported", frame "ORDER BY ss_item GROUPS 1 PRECEDING")
+        Assert.StartsWith("A RANGE frame with an offset needs exactly one ORDER BY key", frame "ORDER BY ss_item, ss_store RANGE 1 PRECEDING")
+        Assert.StartsWith("A RANGE frame unbounded at one end and with an offset at the other", frame "ORDER BY ss_item RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING")
+        Assert.StartsWith("This frame starts after it ends", frame "ORDER BY ss_item ROWS BETWEEN 1 FOLLOWING AND 1 PRECEDING")
+        Assert.StartsWith("A ROWS frame needs ORDER BY", frame "ROWS BETWEEN 1 PRECEDING AND CURRENT ROW")
+        Assert.StartsWith("The offset 0.005 has more decimals than the ORDER BY key's 2", frame "ORDER BY ss_price RANGE BETWEEN 0.005 PRECEDING AND CURRENT ROW")
+        Assert.StartsWith("A RANGE frame with an offset needs a number, a date or a timestamp", (fails "SELECT sum(s_id) OVER (ORDER BY s_name RANGE 1 PRECEDING) AS c FROM store").Message)
+        Assert.StartsWith("lag() needs ORDER BY", (fails "SELECT lag(ss_qty) OVER () AS c FROM sales").Message)
+        Assert.StartsWith("lead() needs OVER", (fails "SELECT lead(ss_qty) AS c FROM sales").Message)
 
     [<Fact>]
     let ``VALUES gives rows of columns col0, col1 in the type their values meet in`` () =

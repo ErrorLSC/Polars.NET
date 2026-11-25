@@ -201,6 +201,11 @@ skipped.
 that computes them. A `Filter` above that node never changes their values, so predicate pushdown must not
 move a filter below it.
 
+**Frames.** `RollingWindow(offset, length)` aggregates, for each row, the rows of its window partition whose index
+(an Int64 column ascending in the window's order) lies in `(index + offset, index + offset + length]`: rows with
+equal indexes share their frames (SQL's RANGE peers), and a frame reaching past the partition's ends holds the
+rows inside it (none: the aggregate over no values).
+
 **Order-reading aggregates.** `First`, `Last` and `List` read their input's order, so a pass must keep every order
 guarantee beneath them. `GroupOrderRelaxation` frees order only under order-free aggregates.
 

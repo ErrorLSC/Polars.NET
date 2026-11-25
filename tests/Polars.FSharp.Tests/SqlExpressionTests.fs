@@ -28,7 +28,7 @@ module SqlExpressionTests =
     let private noSubqueries: SqlBinder -> SqlQuery -> SqlSubquery = fun _ _ -> failwith "no subqueries here"
 
     let private binderOf (scope: SqlScope) text aggregates =
-        { Text = text; Scope = scope; Aggregates = aggregates; WindowsRefused = None; Subquery = noSubqueries; NextScope = (fun () -> failwith "no subqueries here"); RangeWindow = (fun _ -> failwith "no RANGE windows here") }
+        { Text = text; Scope = scope; Aggregates = aggregates; WindowsRefused = None; Subquery = noSubqueries; NextScope = (fun () -> failwith "no subqueries here"); RangeWindow = (fun _ -> failwith "no RANGE windows here"); Staged = (fun _ -> failwith "no staged columns here") }
 
     let private plainScope = { Relations = [ sales ]; Outer = None }
 

@@ -599,6 +599,9 @@ module internal PolarsScalarLowerer =
 
             // Window & Extensions
             | ScalarFunction.Shift, [ a; b ] -> PolarsWrapper.Shift(lower a, lower b)
+            // The engine's rolling groups: the window (index + offset, index + offset + length] of an integer index.
+            | ScalarFunction.RollingWindow(offset, length), [ aggregate; ScalarExpr.Column index ] ->
+                PolarsWrapper.ExprRolling(lower aggregate, PolarsWrapper.Col index, $"{length}i", $"{offset}i", PlClosedInterval.Right)
             | ScalarFunction.Diff nb, [ a; b ] ->
                 PolarsWrapper.Diff(lower a, lower b, PolarsVocabulary.nullBehavior nb)
             | ScalarFunction.Rank(m, seed), [ a; ScalarExpr.Literal(LiteralValue.Bool desc) ] ->
