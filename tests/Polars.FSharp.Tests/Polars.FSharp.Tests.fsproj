@@ -61,6 +61,7 @@
     <Compile Include="SubqueryGraftingTests.fs" />
     <Compile Include="QueryOptionSemanticsTests.fs" />
     <Compile Include="DisplayTests.fs" />
+    <Compile Include="SqlParserTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -33,6 +33,11 @@
     <Compile Include="IR/SourceRegistry.fs" />
     <Compile Include="IR/SchemaInference.fs" />
     <Compile Include="IR/Passes/Decorrelation.fs" />
+    <Compile Include="Sql/SqlErrors.fs" />
+    <Compile Include="Sql/SqlAst.fs" />
+    <Compile Include="Sql/SqlLexer.fs" />
+    <Compile Include="Sql/SqlParser.fs" />
+    <Compile Include="Sql/SqlFormat.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="LinqReflectionCache.fs" />
