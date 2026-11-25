@@ -440,10 +440,17 @@ module internal SqlQueries =
                         | 0L, None -> running
                         // GROUPS: the running values `shift` groups later (past the end the last one) or earlier.
                         | shift, None ->
+                            // Past the partition's end (where a test that is never null, moved alike, is null) the last
+                            // group's value: a partition of few groups may lie past its end on every group.
+                            let marker = ScalarExpr.Unary(UnaryOp.IsNull, col keys.Head)
+                            let outside =
+                                ScalarExpr.Unary(UnaryOp.IsNull, window (ScalarExpr.Function(ScalarFunction.Shift, [ marker; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown)))
                             let moved (n: string, _, counts) =
-                                let shifted = ScalarExpr.Function(ScalarFunction.Shift, [ col n; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown)
-                                let filled = if shift > 0L then ScalarExpr.Function(ScalarFunction.ForwardFill, [ shifted ], LogicalType.Unknown) else shifted
-                                n, counted counts (window filled)
+                                let shifted = window (ScalarExpr.Function(ScalarFunction.Shift, [ col n; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown))
+                                let value =
+                                    if shift > 0L then ScalarExpr.Conditional(outside, window (ScalarExpr.Aggregation(AggKind.Last, Some(col n), false)), shifted)
+                                    else shifted
+                                n, counted counts value
                             LogicalPlan.Project(running, keyColumns @ (runs |> Seq.map moved |> List.ofSeq))
                         // RANGE: the running values of the last group whose index is at most the current one's plus
                         // `reach` (a null key's own: nulls sit at ±2^60, beyond every reach), in its partition: an

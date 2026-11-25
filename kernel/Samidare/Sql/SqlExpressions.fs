@@ -991,11 +991,16 @@ module internal SqlExpressions =
         /// none, a count 0).
         let cumulative (order: SortOrder list) (shift: int64) (t: LogicalType) (e: ScalarExpr) =
             let window (inner: ScalarExpr) =
-                let moved =
-                    if shift = 0L then inner
-                    elif shift > 0L then ScalarExpr.Function(ScalarFunction.ForwardFill, [ ScalarExpr.Function(ScalarFunction.Shift, [ inner; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown) ], LogicalType.Unknown)
-                    else ScalarExpr.Function(ScalarFunction.Shift, [ inner; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown)
-                ScalarExpr.Window(moved, partition, order)
+                let over (x: ScalarExpr) = ScalarExpr.Window(x, partition, order)
+                let moved = over (ScalarExpr.Function(ScalarFunction.Shift, [ inner; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown))
+                if shift = 0L then over inner
+                elif shift > 0L then
+                    // Past the partition's end (where a test that is never null, moved alike, is null) the last running
+                    // value: a short partition may lie past its end on every row.
+                    let marker = ScalarExpr.Unary(UnaryOp.IsNull, (List.head orders |> snd).Expr)
+                    let outside = ScalarExpr.Unary(UnaryOp.IsNull, over (ScalarExpr.Function(ScalarFunction.Shift, [ marker; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown)))
+                    ScalarExpr.Conditional(outside, over (ScalarExpr.Aggregation(AggKind.Last, Some inner, false)), moved)
+                else moved
             let counted (c: ScalarExpr) = if shift < 0L then ScalarExpr.Function(ScalarFunction.FillNull, [ c; lit (LiteralValue.Int64 0L) ], LogicalTypes.Int64) else c
             let countOf (x: ScalarExpr) =
                 counted (window (ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.CumCount, [ x; lit (LiteralValue.Bool false) ], LogicalTypes.UInt32), LogicalTypes.Int64, false)))
@@ -1078,25 +1083,65 @@ module internal SqlExpressions =
                 | true, true -> AggKind.FirstNonNull
                 | false, true -> AggKind.LastNonNull
             let aggregate = ScalarExpr.Aggregation(kind, Some x.Expr, false)
-            let upToPeers (value: ScalarExpr) = binder.RangeWindow { Partition = declared; Orders = sorts; Value = value; Shift = 0L; Reach = None }
+            let ignoreNulls = call.IgnoreNulls
+            let over (order: SortOrder list) (e: ScalarExpr) = ScalarExpr.Window(e, partition, order)
+            let fn (f: ScalarFunction) (args: ScalarExpr list) = ScalarExpr.Function(f, args, LogicalType.Unknown)
+            let shift (e: ScalarExpr) (by: int64) = fn ScalarFunction.Shift [ e; lit (LiteralValue.Int64 -by) ]
+            let none = lit (LiteralValue.Null x.Type)
+            let positive (count: ScalarExpr) = ScalarExpr.Binary(BinaryOp.Gt, ScalarExpr.Cast(count, LogicalTypes.Int64, false), lit (LiteralValue.Int64 0L))
+            let firstOf (order: SortOrder list) =
+                over order (ScalarExpr.Aggregation((if ignoreNulls then AggKind.FirstNonNull else AggKind.First), Some x.Expr, false))
+            let lastOf (order: SortOrder list) =
+                over order (ScalarExpr.Aggregation((if ignoreNulls then AggKind.LastNonNull else AggKind.Last), Some x.Expr, false))
+            /// The first (`first`) or last value of the ROWS frame from the partition's start to `f` rows after the
+            /// current one in `order`. A test that is never null, moved by `f`, is null where row i + f is outside the
+            /// partition.
+            let rowsUpTo (order: SortOrder list) (f: int64) (first: bool) =
+                let outside = ScalarExpr.Unary(UnaryOp.IsNull, over order (shift (ScalarExpr.Unary(UnaryOp.IsNull, x.Expr)) f))
+                let filled = fn ScalarFunction.ForwardFill [ x.Expr ]
+                match first, ignoreNulls with
+                // The partition's first row, unless the frame ends before the start.
+                | true, false -> if f >= 0L then firstOf order else ScalarExpr.Conditional(outside, none, firstOf order)
+                // Its first non-null value, once the frame holds one.
+                | true, true ->
+                    let counted = fn ScalarFunction.CumCount [ x.Expr; lit (LiteralValue.Bool false) ]
+                    let upTo =
+                        if f = 0L then over order counted
+                        elif f > 0L then ScalarExpr.Conditional(outside, over order (ScalarExpr.Aggregation(AggKind.Count, Some x.Expr, false)), over order (shift counted f))
+                        // Before the start no count: no value either.
+                        else over order (shift counted f)
+                    ScalarExpr.Conditional(positive upTo, firstOf order, none)
+                // Row i + f's value; past the end the partition's last, before the start none.
+                | false, false ->
+                    if f = 0L then x.Expr
+                    elif f > 0L then ScalarExpr.Conditional(outside, lastOf order, over order (shift x.Expr f))
+                    else over order (shift x.Expr f)
+                // The last non-null value up to row i + f; past the end the partition's last.
+                | false, true ->
+                    if f = 0L then over order filled
+                    elif f > 0L then ScalarExpr.Conditional(outside, lastOf order, over order (shift filled f))
+                    else over order (shift filled f)
+            /// The first or last value of the RANGE / GROUPS frame from the partition's start to the current row's last
+            /// peer in `order`: the first from the window, the last by peers.
+            let peersUpTo (order: SortOrder list) (first: bool) =
+                let byPeers (value: ScalarExpr) = binder.RangeWindow { Partition = declared; Orders = order; Value = value; Shift = 0L; Reach = None }
+                match first, ignoreNulls with
+                | true, false -> firstOf order
+                | true, true -> ScalarExpr.Conditional(positive (byPeers (ScalarExpr.Aggregation(AggKind.Count, Some x.Expr, false))), firstOf order, none)
+                | false, _ -> byPeers (ScalarExpr.Aggregation((if ignoreNulls then AggKind.LastNonNull else AggKind.Last), Some x.Expr, false))
+            // A frame from an offset to the partition's end is one from its start in the other order, where the first
+            // value is the last.
             let result =
-                match frameOf binder window orders, kind with
-                | (_, None, None), _ -> windowed aggregate
-                // From the partition's start: its first row; ignoring nulls, the partition's first non-null value once
-                // the frame holds one.
-                | (_, None, Some 0L), AggKind.First -> windowed aggregate
-                | (unit, None, Some 0L), AggKind.FirstNonNull ->
-                    let counted =
-                        let count = ScalarExpr.Aggregation(AggKind.Count, Some x.Expr, false)
-                        if unit = SqlFrameUnit.Rows then
-                            windowed (ScalarExpr.Function(ScalarFunction.CumCount, [ x.Expr; lit (LiteralValue.Bool false) ], LogicalTypes.UInt32))
-                        else upToPeers count
-                    ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Gt, ScalarExpr.Cast(counted, LogicalTypes.Int64, false), lit (LiteralValue.Int64 0L)), windowed aggregate, lit (LiteralValue.Null x.Type))
-                | (SqlFrameUnit.Rows, None, Some 0L), AggKind.Last -> x.Expr
-                | (SqlFrameUnit.Rows, None, Some 0L), _ -> windowed (ScalarExpr.Function(ScalarFunction.ForwardFill, [ x.Expr ], LogicalType.Unknown))
-                | (_, None, Some 0L), _ -> upToPeers aggregate
-                | (unit, Some s, Some f), _ -> rolling unit s f aggregate
-                | _ -> fail binder span $"{name}() over this frame is not supported" (Some "Over a frame bounded at both ends, the whole partition or the default frame it is.")
+                match frameOf binder window orders with
+                | _, None, None -> if first then firstOf sorts else lastOf sorts
+                | SqlFrameUnit.Rows, None, Some f -> rowsUpTo sorts f first
+                | SqlFrameUnit.Rows, Some s, None -> rowsUpTo reversed -s (not first)
+                | _, None, Some 0L -> peersUpTo sorts first
+                | _, Some 0L, None -> peersUpTo reversed (not first)
+                | unit, Some s, Some f -> rolling unit s f aggregate
+                | _ ->
+                    fail binder span $"{name}() over a RANGE or GROUPS frame unbounded at one end and with an offset at the other is not supported"
+                        (Some "Use ROWS, bound it at both ends, or end it at the current row.")
             value result x.Type
         elif aggregateNames.Contains name then
             // An aggregate with OVER computes over its window; its arguments bind where the window is, so over groups

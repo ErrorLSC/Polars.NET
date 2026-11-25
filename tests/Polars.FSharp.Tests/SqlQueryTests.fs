@@ -313,6 +313,9 @@ module SqlQueryTests =
         // first_value IGNORE NULLS over ROWS from the start: a running count of the values, no peers joined back.
         Assert.Empty(joinsOf (translate "SELECT first_value(ss_qty IGNORE NULLS) OVER (ORDER BY ss_item ROWS UNBOUNDED PRECEDING) AS c FROM sales").Plan)
         Assert.StartsWith("IGNORE NULLS is for lag(), lead(), first_value() and last_value(), not sum()", (fails "SELECT sum(ss_qty IGNORE NULLS) OVER (ORDER BY ss_item) AS c FROM sales").Message)
+        Assert.StartsWith(
+            "first_value() over a RANGE or GROUPS frame unbounded at one end and with an offset at the other is not supported",
+            (fails "SELECT first_value(ss_qty) OVER (ORDER BY ss_item RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING) AS c FROM sales").Message)
         Assert.StartsWith("IGNORE NULLS is for lag()", (fails "SELECT rank() IGNORE NULLS OVER (ORDER BY ss_item) AS c FROM sales").Message)
         Assert.StartsWith("This frame starts after it ends", frame "ORDER BY ss_item ROWS BETWEEN 1 FOLLOWING AND 1 PRECEDING")
         Assert.StartsWith("A ROWS frame needs ORDER BY", frame "ROWS BETWEEN 1 PRECEDING AND CURRENT ROW")
