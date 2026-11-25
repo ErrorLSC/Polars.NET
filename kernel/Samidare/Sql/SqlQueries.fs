@@ -18,12 +18,19 @@ type internal SqlPlan =
       Columns: (string * LogicalType) list }
 
 /// One translation's state: the text (for errors), the catalog, the sources read, fresh names, subquery scopes.
-type internal SqlTranslation(text: string, catalog: ISqlCatalog) =
+type internal SqlTranslation(text: string, catalog: ISqlCatalog, supportsAssertions: bool) =
     let sources = ResizeArray<SourceBinding>()
     let slots = Dictionary<ILogicalTableSource, int>(HashIdentity.Reference)
     let mutable names = 0
     let mutable scopes = 0
+    let mutable shared = 0
     member _.Text = text
+    member _.SupportsAssertions = supportsAssertions
+
+    /// An id for a common table expression's shared plan.
+    member _.NextShared() =
+        shared <- shared + 1
+        shared
     member _.Catalog = catalog
     member _.Sources = sources.ToArray()
 
@@ -36,6 +43,18 @@ type internal SqlTranslation(text: string, catalog: ISqlCatalog) =
         scopes <- scopes + 1
         scopes
 
+    /// The rows a plan reads at most: its largest table's estimate (0 when no table has one).
+    member _.EstimatedRows(plan: LogicalPlan) : int64 =
+        let rec scans (p: LogicalPlan) =
+            match p with
+            | LogicalPlan.Scan(LogicalPlanSource.Slot slot, _) when slot < sources.Count -> [ sources.[slot] ]
+            | other -> LogicalPlanOps.getInputs other |> List.collect scans
+        scans plan
+        |> List.choose (function
+            | SourceBinding.Table table -> QueryStatistics.RowCount table
+            | SourceBinding.InMemory(rows, _) -> Some(int64 rows.Length))
+        |> List.fold max 0L
+
     member _.Slot(source: ILogicalTableSource) =
         match slots.TryGetValue source with
         | true, slot -> slot
@@ -47,7 +66,7 @@ type internal SqlTranslation(text: string, catalog: ISqlCatalog) =
 
 /// What a query is bound in: the common table expressions in reach and the query around it (for correlation).
 type internal SqlEnvironment =
-    { Ctes: (SqlIdentifier * SqlBound) list
+    { Ctes: (SqlIdentifier * SqlBound * int) list
       Outer: (SqlScope * int) option }
 
 /// Builds the IR plan of a query (sql-frontend design, S3): FROM (comma lists joined on the WHERE's equalities), WHERE,
@@ -174,6 +193,58 @@ module internal SqlQueries =
             | _ -> None
         | _ -> None
 
+    /// A FROM item before it is planned: inner joins and comma lists are one group of items joined on the equalities
+    /// among their conditions and the WHERE's; an outer join keeps its two sides (its ON condition bound).
+    [<RequireQualifiedAccess>]
+    type private FromNode =
+        | Leaf of LogicalPlan * SqlRelation list
+        | Group of FromNode list * conditions: ScalarExpr list
+        | Outer of SqlJoinKind * FromNode * FromNode * on: ScalarExpr * span: SqlSpan
+
+    let rec private relationsOf (node: FromNode) : SqlRelation list =
+        match node with
+        | FromNode.Leaf(_, rs) -> rs
+        | FromNode.Group(items, _) -> items |> List.collect relationsOf
+        | FromNode.Outer(_, l, r, _, _) -> relationsOf l @ relationsOf r
+
+    /// The columns a conjunct reads of this row, the outer columns of its subqueries included.
+    let private reads (conjunct: ScalarExpr) =
+        ScalarExprOps.subqueries conjunct
+        |> List.fold (fun acc (scope, plan, _) -> Set.union acc (LogicalPlanOps.outerColumns scope plan)) (ScalarExprOps.collectColumns conjunct)
+
+    /// Whether a conjunct can filter rows holding these columns before they are joined: it reads some of them and
+    /// nothing else, and no column of the query around (a correlation stays on top, where the Decorrelation pass pulls
+    /// it up from; it does not pull through joins).
+    let private within (columns: Set<string>) (conjunct: ScalarExpr) =
+        let r = reads conjunct
+        not r.IsEmpty && Set.isSubset r columns && not (ScalarExprOps.containsOuterColumn conjunct)
+
+    /// A common table expression's reference with filters of its own takes its own copy of the plan, which the filters
+    /// move into (a shared plan is a barrier to them, and sharing the part of the copies the filters leave alike
+    /// would compute it whole: TPC-DS Q4, Q11, Q39). References without filters share one plan (Q14, Q95).
+    let private unshareFiltered (plan: LogicalPlan) =
+        match plan with
+        | LogicalPlan.Project(LogicalPlan.Shared(_, body), renames) -> LogicalPlan.Project(body, renames)
+        | other -> other
+
+    /// The plan with a shared plan that only one reference holds made plain: a shared plan is computed once and kept,
+    /// which keeps the engine from optimizing across it.
+    let private unshareSingle (plan: LogicalPlan) : LogicalPlan =
+        let counts = Dictionary<int, int>()
+        let rec count (p: LogicalPlan) =
+            match p with
+            | LogicalPlan.Shared(id, input) ->
+                let seen = match counts.TryGetValue id with | true, n -> n | _ -> 0
+                counts.[id] <- seen + 1
+                if seen = 0 then count input
+            | other -> LogicalPlanOps.getInputs other |> List.iter count
+        count plan
+        let rec unwrap (p: LogicalPlan) =
+            match p with
+            | LogicalPlan.Shared(id, input) when counts.[id] = 1 -> unwrap input
+            | other -> LogicalPlanOps.mapInputs unwrap other
+        unwrap plan
+
     // ----------------------------------------------------------------------------------------------------------
     // Queries
     // ----------------------------------------------------------------------------------------------------------
@@ -184,7 +255,7 @@ module internal SqlQueries =
             q.With
             |> List.fold
                 (fun (env: SqlEnvironment) cte ->
-                    if env.Ctes |> List.exists (fun (name, _) -> SqlNames.matches cte.Name name.Text && SqlNames.matches name cte.Name.Text) then
+                    if env.Ctes |> List.exists (fun (name, _, _) -> SqlNames.matches cte.Name name.Text && SqlNames.matches name cte.Name.Text) then
                         fail t cte.Name.Span $"The common table expression {cte.Name.Text} is defined twice" None
                     let bound = bindQuery t env cte.Query
                     let bound =
@@ -192,7 +263,15 @@ module internal SqlQueries =
                         elif cte.Columns.Length <> bound.Columns.Length then
                             fail t cte.Span $"{cte.Name.Text} names {cte.Columns.Length} columns, but its query gives {bound.Columns.Length}" None
                         else { bound with Columns = List.map2 (fun (c: SqlIdentifier) (o: SqlOutput) -> { o with Name = c.Text }) cte.Columns bound.Columns }
-                    { env with Ctes = (cte.Name, bound) :: env.Ctes })
+                    // Its subqueries become joins here, once, so that every reference holds the same plan.
+                    let bound =
+                        if not (LogicalPlanOps.containsSubqueries bound.Plan) then bound
+                        else
+                            let options: Passes.Decorrelation.Options = { Fresh = t.Fresh; SupportsAssertions = t.SupportsAssertions }
+                            match Passes.Decorrelation.tryPlan options bound.Plan with
+                            | Ok plan -> { bound with Plan = plan }
+                            | Error _ -> bound
+                    { env with Ctes = (cte.Name, bound, t.NextShared()) :: env.Ctes })
                 env
         let bound =
             match q.Body with
@@ -307,11 +386,13 @@ module internal SqlQueries =
                 columns
                 |> List.mapi (fun i (n, internalName, ty) ->
                     { Name = (if i < renames.Length then renames.[i].Text else n); Internal = internalName; Type = ty; Unqualified = true })
-            match env.Ctes |> List.tryFind (fun (cte, _) -> SqlNames.matches part cte.Text) with
-            | Some(_, bound) ->
-                // A reference of its own: the CTE's plan under fresh names, so every reference is one equal subplan.
+            match env.Ctes |> List.tryFind (fun (cte, _, _) -> SqlNames.matches part cte.Text) with
+            | Some(_, bound, id) ->
+                // A reference of its own: the CTE's plan, shared by every reference that keeps it whole (see
+                // `unshareFiltered` and `unshareSingle`), under fresh names.
                 let renamed = bound.Columns |> List.map (fun o -> o.Name, t.Fresh o.Name, o.Type)
-                let plan = LogicalPlan.Project(bound.Plan, List.map2 (fun (_, fresh, _) (o: SqlOutput) -> fresh, col o.Internal) renamed bound.Columns)
+                let body = if LogicalPlanOps.containsSubqueries bound.Plan then bound.Plan else LogicalPlan.Shared(id, bound.Plan)
+                let plan = LogicalPlan.Project(body, List.map2 (fun (_, fresh, _) (o: SqlOutput) -> fresh, col o.Internal) renamed bound.Columns)
                 plan, [ { Name = Some relationName; Columns = named renamed } ]
             | None ->
                 match t.Catalog.FindTables part with
@@ -368,49 +449,136 @@ module internal SqlQueries =
                     | _ -> join lp rp keys JoinKind.Inner
                 plan, lr @ rr
             | _, SqlJoinCondition.On on ->
-                let binder =
-                    { Text = t.Text
-                      Scope = { Relations = relations; Outer = env.Outer }
-                      Aggregates = SqlAggregates.Refused "in a JOIN condition"
-                      WindowsRefused = Some "in a JOIN condition"
-                      Subquery = subquery t env }
-                let condition = SqlExpressions.bind binder on
-                let condition =
-                    match SqlTypes.classify condition.Type with
-                    | SqlTypeClass.Boolean -> condition.Expr
-                    | _ -> fail t on.Span "A JOIN condition must be a condition" None
-                let conjuncts = FilterShapes.conjuncts condition
-                let classified = conjuncts |> List.map (fun c -> c, equiKey lCols rCols c)
-                let keys = classified |> List.choose snd
-                let rest = classified |> List.filter (fun (_, k) -> k.IsNone) |> List.map fst
-                let reads (side: Set<string>) (e: ScalarExpr) = rowLocal e && Set.isSubset (ScalarExprOps.collectColumns e) side
-                match kind with
-                | SqlJoinKind.Inner ->
-                    let joined = if keys.IsEmpty then LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false) else join lp rp keys JoinKind.Inner
-                    (if rest.IsEmpty then joined else LogicalPlan.Filter(joined, conjoin rest)), relations
-                | SqlJoinKind.Left
-                | SqlJoinKind.Right ->
-                    // An outer join's other conditions may only restrict the side whose rows may go unmatched.
-                    let innerPlan = if kind = SqlJoinKind.Left then rp else lp
-                    let innerCols = if kind = SqlJoinKind.Left then rCols else lCols
-                    if keys.IsEmpty then fail t on.Span "An outer join needs an equality between its two sides" None
-                    match rest |> List.tryFind (fun c -> not (reads innerCols c)) with
-                    | Some _ -> fail t on.Span "This outer join condition is not supported: besides equalities, it may only test the joined table's own columns" None
-                    | None ->
-                        let innerPlan = if rest.IsEmpty then innerPlan else LogicalPlan.Filter(innerPlan, conjoin rest)
-                        let plan =
-                            if kind = SqlJoinKind.Left then join lp innerPlan keys JoinKind.Left
-                            else join rp innerPlan (keys |> List.map (fun (a, b) -> b, a)) JoinKind.Left
-                        plan, relations
-                | _ ->
-                    if keys.IsEmpty || not rest.IsEmpty then
-                        fail t on.Span "A FULL JOIN condition must be equalities between its two sides" None
-                    join lp rp keys JoinKind.Full, relations
+                let conjuncts = bindCondition t env relations "in a JOIN condition" on |> FilterShapes.conjuncts
+                onJoin t kind (lp, lr) (rp, rr) conjuncts on.Span, relations
             | _, SqlJoinCondition.None -> fail t span "This join needs ON or USING" None
 
-    /// The FROM list joined: a comma list of items on the equalities among the WHERE's conjuncts (an inner join is a
-    /// cross join filtered), one item after another; the conjuncts left over, filtered after.
-    and private joinItems (items: (LogicalPlan * SqlRelation list) list) (conjuncts: ScalarExpr list) : LogicalPlan * ScalarExpr list =
+    /// A condition bound over relations: its IR expression, SQL's IN under OR made two-valued.
+    and private bindCondition (t: SqlTranslation) (env: SqlEnvironment) (relations: SqlRelation list) (where: string) (e: SqlExpr) : ScalarExpr =
+        let binder =
+            { Text = t.Text
+              Scope = { Relations = relations; Outer = env.Outer }
+              Aggregates = SqlAggregates.Refused where
+              WindowsRefused = Some where
+              Subquery = subquery t env }
+        let v = SqlExpressions.bind binder e
+        match SqlTypes.classify v.Type with
+        | SqlTypeClass.Boolean -> twoValuedInUnderOr v.Expr
+        | SqlTypeClass.Null -> ScalarExpr.Literal(LiteralValue.Bool false)
+        | _ -> fail t e.Span $"A condition is needed {where}, not a value of type {SqlTypes.display v.Type}" None
+
+    /// A join on an ON condition's conjuncts: equalities between the two sides are its keys. An inner join filters by
+    /// the rest; an outer join's other conditions may only restrict the side whose rows may go unmatched (they filter it
+    /// before the join); a full join takes equalities only.
+    and private onJoin (t: SqlTranslation) (kind: SqlJoinKind) (lp: LogicalPlan, lr: SqlRelation list) (rp: LogicalPlan, rr: SqlRelation list) (conjuncts: ScalarExpr list) (span: SqlSpan) : LogicalPlan =
+        let lCols, rCols = relationColumns lr, relationColumns rr
+        let classified = conjuncts |> List.map (fun c -> c, equiKey lCols rCols c)
+        let keys = classified |> List.choose snd
+        let rest = classified |> List.filter (fun (_, k) -> k.IsNone) |> List.map fst
+        let readsOnly (side: Set<string>) (e: ScalarExpr) = rowLocal e && Set.isSubset (ScalarExprOps.collectColumns e) side
+        match kind with
+        | SqlJoinKind.Inner
+        | SqlJoinKind.Cross ->
+            let joined = if keys.IsEmpty then LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false) else join lp rp keys JoinKind.Inner
+            if rest.IsEmpty then joined else LogicalPlan.Filter(joined, conjoin rest)
+        | SqlJoinKind.Left
+        | SqlJoinKind.Right ->
+            let innerPlan = if kind = SqlJoinKind.Left then rp else lp
+            let innerCols = if kind = SqlJoinKind.Left then rCols else lCols
+            if keys.IsEmpty then fail t span "An outer join needs an equality between its two sides" None
+            match rest |> List.tryFind (fun c -> not (readsOnly innerCols c)) with
+            | Some _ -> fail t span "This outer join condition is not supported: besides equalities, it may only test the joined table's own columns" None
+            | None ->
+                let innerPlan = if rest.IsEmpty then innerPlan else LogicalPlan.Filter(innerPlan, conjoin rest)
+                if kind = SqlJoinKind.Left then join lp innerPlan keys JoinKind.Left
+                else join rp innerPlan (keys |> List.map (fun (a, b) -> b, a)) JoinKind.Left
+        | SqlJoinKind.Full ->
+            if keys.IsEmpty || not rest.IsEmpty then fail t span "A FULL JOIN condition must be equalities between its two sides" None
+            join lp rp keys JoinKind.Full
+
+    /// A FROM item as a node: inner joins (and their ON conditions) merge into one group; USING joins are planned as
+    /// written.
+    and private flatten (t: SqlTranslation) (env: SqlEnvironment) (ref: SqlTableRef) : FromNode =
+        match ref with
+        | SqlTableRef.Join(left, right, ((SqlJoinKind.Inner | SqlJoinKind.Cross) as kind), condition, _) when
+            (match condition with SqlJoinCondition.Using _ -> false | _ -> true)
+            ->
+            let l, r = flatten t env left, flatten t env right
+            let members (n: FromNode) =
+                match n with
+                | FromNode.Group(items, conditions) -> items, conditions
+                | other -> [ other ], []
+            let li, lc = members l
+            let ri, rc = members r
+            let on =
+                match kind, condition with
+                | SqlJoinKind.Inner, SqlJoinCondition.On e -> bindCondition t env (relationsOf l @ relationsOf r) "in a JOIN condition" e |> FilterShapes.conjuncts |> factorOrs
+                | _ -> []
+            FromNode.Group(li @ ri, lc @ rc @ on)
+        | SqlTableRef.Join(left, right, kind, SqlJoinCondition.On e, _) ->
+            let l, r = flatten t env left, flatten t env right
+            FromNode.Outer(kind, l, r, bindCondition t env (relationsOf l @ relationsOf r) "in a JOIN condition" e, e.Span)
+        | other -> FromNode.Leaf(bindTable t env other)
+
+    /// The plan of a FROM node, with the conjuncts from outside it that it can apply before joining (each as deep as the
+    /// columns it reads allow); the others are returned. In a group every condition is joined or filtered, its
+    /// equalities chosen as join keys item by item. An outer join takes conjuncts on the side whose rows it keeps.
+    and private build (t: SqlTranslation) (node: FromNode) (outside: ScalarExpr list) : LogicalPlan * ScalarExpr list =
+        match node with
+        | FromNode.Leaf(plan, rs) ->
+            let mine, rest = outside |> List.partition (within (relationColumns rs))
+            (if mine.IsEmpty then plan else LogicalPlan.Filter(unshareFiltered plan, conjoin mine)), rest
+        | FromNode.Group(items, conditions) ->
+            let mine, rest = outside |> List.partition (within (relationColumns (relationsOf node)))
+            let all = conditions @ mine
+            // Each item takes the conditions it alone reads; the rest join or filter the items. A subquery is not joined
+            // to the item with the most rows (the fact table) before the other items reduce it: a semi or anti join on
+            // a whole fact table (TPC-DS Q16, Q94) costs more than on the rows the dimensions keep.
+            let largest =
+                if items.Length < 2 then -1
+                else
+                    let rec leaves (n: FromNode) =
+                        match n with
+                        | FromNode.Leaf(plan, _) -> [ plan ]
+                        | FromNode.Group(members, _) -> members |> List.collect leaves
+                        | FromNode.Outer(_, l, r, _, _) -> leaves l @ leaves r
+                    items |> List.mapi (fun i item -> i, leaves item |> List.map t.EstimatedRows |> List.fold max 0L) |> List.maxBy snd |> fst
+            let owner (c: ScalarExpr) =
+                items
+                |> List.tryFindIndex (fun item -> within (relationColumns (relationsOf item)) c)
+                |> Option.filter (fun i -> i <> largest || (ScalarExprOps.subqueries c).IsEmpty)
+            let owned = all |> List.map (fun c -> c, owner c)
+            let built, leftovers =
+                items
+                |> List.mapi (fun i item ->
+                    let plan, left = build t item (owned |> List.choose (fun (c, o) -> if o = Some i then Some c else None))
+                    (plan, relationsOf item), left)
+                |> List.unzip
+            let pending = (owned |> List.filter (fun (_, o) -> o.IsNone) |> List.map fst) @ List.concat leftovers
+            let plan, left = joinGreedy t built pending
+            (if left.IsEmpty then plan else LogicalPlan.Filter(plan, conjoin left)), rest
+        | FromNode.Outer(kind, l, r, on, span) ->
+            let preserved = match kind with SqlJoinKind.Left -> Some l | SqlJoinKind.Right -> Some r | _ -> None
+            let mine, rest =
+                match preserved with
+                | Some side -> outside |> List.partition (within (relationColumns (relationsOf side)))
+                | None -> [], outside
+            let side (n: FromNode) =
+                let plan, left = build t n (if preserved |> Option.exists (fun p -> obj.ReferenceEquals(p, n)) then mine else [])
+                (if left.IsEmpty then plan else LogicalPlan.Filter(plan, conjoin left)), relationsOf n
+            onJoin t kind (side l) (side r) (FilterShapes.conjuncts on) span, rest
+
+    /// Items joined one after another, starting from the one with the most rows (the fact table, as a LINQ query is
+    /// written: the optimizer's rewrites read the fact table on the left), each next on the equalities between it and
+    /// those joined so far (in FROM order among the items that have one; an item with none is a cross join); the
+    /// conjuncts not used as keys are returned.
+    and private joinGreedy (t: SqlTranslation) (items: (LogicalPlan * SqlRelation list) list) (conjuncts: ScalarExpr list) : LogicalPlan * ScalarExpr list =
+        let items =
+            match items with
+            | [] | [ _ ] -> items
+            | _ ->
+                let largest = items |> List.maxBy (fst >> t.EstimatedRows)
+                largest :: (items |> List.filter (fun i -> not (obj.ReferenceEquals(i, largest))))
         match items with
         | [] -> oneRow, conjuncts
         | (first, firstRelations) :: others ->
@@ -447,8 +615,8 @@ module internal SqlQueries =
     // ----------------------------------------------------------------------------------------------------------
 
     and private bindSelect (t: SqlTranslation) (env: SqlEnvironment) (s: SqlSelect) (orderBy: SqlOrderItem list) : SqlBound =
-        let items = s.From |> List.map (bindTable t env)
-        let relations = items |> List.collect snd
+        let from = FromNode.Group(s.From |> List.map (flatten t env), [])
+        let relations = relationsOf from
         // Two FROM items under one name are ambiguous wherever they are named.
         relations
         |> List.choose (fun r -> r.Name)
@@ -466,7 +634,9 @@ module internal SqlQueries =
                 | SqlTypeClass.Boolean -> twoValuedInUnderOr v.Expr
                 | SqlTypeClass.Null -> ScalarExpr.Literal(LiteralValue.Bool false)
                 | _ -> fail t w.Span $"WHERE needs a condition, not a value of type {SqlTypes.display v.Type}" None)
-        let input, leftover = joinItems items (where |> Option.map (FilterShapes.conjuncts >> factorOrs) |> Option.defaultValue [])
+        // The FROM joined with the WHERE's conjuncts taken where they apply; the rest (a correlation with the query
+        // around, a condition reading no column) filter the joined rows.
+        let input, leftover = build t from (where |> Option.map (FilterShapes.conjuncts >> factorOrs) |> Option.defaultValue [])
         let input = if leftover.IsEmpty then input else LogicalPlan.Filter(input, conjoin leftover)
 
         let selectExprs = s.Items |> List.choose (function SqlSelectItem.Expr(e, alias) -> Some(e, alias) | _ -> None)
@@ -688,7 +858,7 @@ module internal SqlQueries =
     /// takes `_1`, `_2` suffixes), its subqueries replaced by joins.
     let translate (catalog: ISqlCatalog) (supportsAssertions: bool) (text: string) : SqlPlan =
         let query = SqlParser.parseQuery SqlDialect.Standard text
-        let t = SqlTranslation(text, catalog)
+        let t = SqlTranslation(text, catalog, supportsAssertions)
         let bound = bindQuery t { Ctes = []; Outer = None } query
         let seen = Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         let names =
@@ -704,5 +874,5 @@ module internal SqlQueries =
         let plan = LogicalPlan.Project(bound.Plan, List.map2 (fun name (c: SqlOutput) -> name, col c.Internal) names bound.Columns)
         let options: Passes.Decorrelation.Options = { Fresh = t.Fresh; SupportsAssertions = supportsAssertions }
         match Passes.Decorrelation.tryPlan options plan with
-        | Ok plan -> { Plan = plan; Sources = t.Sources; Columns = List.map2 (fun name (c: SqlOutput) -> name, c.Type) names bound.Columns }
+        | Ok plan -> { Plan = unshareSingle plan; Sources = t.Sources; Columns = List.map2 (fun name (c: SqlOutput) -> name, c.Type) names bound.Columns }
         | Error reason -> raise (SqlException($"This subquery is not supported: {reason}", text, query.Span, None))

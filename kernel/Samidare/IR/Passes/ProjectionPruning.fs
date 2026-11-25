@@ -11,7 +11,17 @@ module internal ProjectionPruning =
         match plan with
         // 1. Double Project Collapsing
         | LogicalPlan.Project(LogicalPlan.Project(innerInput, innerProjs), outerProjs) ->
-            if innerProjs |> List.exists (fun (_, e) -> ScalarExprOps.containsWindow e) then
+            // Over an aggregating projection (one row), an outer expression that aggregates or reads other rows would
+            // read the input's rows once collapsed, and one reading no inner column would make it a row per input row.
+            let innerNames = innerProjs |> List.map fst |> Set.ofList
+            let overAggregates =
+                innerProjs |> List.exists (snd >> ScalarExprOps.containsAggregation)
+                && outerProjs
+                   |> List.exists (fun (_, e) ->
+                       ScalarExprOps.containsAggregation e
+                       || ScalarExprOps.dependsOnOtherRows e
+                       || Set.isEmpty (Set.intersect (ScalarExprOps.collectColumns e) innerNames))
+            if overAggregates || innerProjs |> List.exists (fun (_, e) -> ScalarExprOps.containsWindow e) then
                 LogicalPlan.Project(prune (LogicalPlan.Project(innerInput, innerProjs)), outerProjs)
             else
                 let prunedInput = prune innerInput

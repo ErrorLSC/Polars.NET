@@ -47,11 +47,7 @@ public class TpcdsSqlResultTests
     /// The query through the SQL frontend, optimized and run as the LINQ provider runs its plans.
     internal static List<object?[]> Run(ISqlCatalog catalog, string text)
     {
-        var sql = SqlQueries.translate(catalog, true, text);
-        var plan = EnumResolution.resolvePlan(sql.Plan);
-        plan = CommonSubplanSharing.apply(PolarsQueryBackend.Instance, sql.Sources, plan);
-        plan = LogicalOptimizer.optimizeComplete(SamidareConfig.AllowUnstableOrdering, SamidareConfig.CollectColumnStatistics, sql.Sources, plan);
-        using var df = new DataFrame(PolarsWrapper.LazyCollect(PolarsPhysicalLowerer.lowerPlan(sql.Sources, plan), PlEngine.Auto));
+        using var df = new DataFrame(PolarsWrapper.LazyCollect(PolarsSql.lazyFrame(catalog, text), PlEngine.Auto));
         var width = df.ColumnNames.Length;
         var rows = new List<object?[]>((int)df.Height);
         for (var r = 0; r < df.Height; r++)

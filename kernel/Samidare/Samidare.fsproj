@@ -99,6 +99,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Polars.Tpcds.Sweep" />
     <InternalsVisibleTo Include="Polars.NET.Linq" />
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.CSharp.Tests" />

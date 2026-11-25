@@ -64,6 +64,39 @@ public static class TpcdsVerification
         return null;
     }
 
+    /// <summary>
+    /// The first difference between DuckDB rows and the SQL frontend's rows (column by column), or null if there is none.
+    /// As <see cref="FindDifference"/>, except that a double of DuckDB's against a decimal of the frontend's (decimal
+    /// division and AVG stay decimals there) matches within one unit of the decimal's last digit.
+    /// </summary>
+    public static string? FindSqlDifference(IReadOnlyList<object?[]> expected, IReadOnlyList<object?[]> actual)
+    {
+        if (expected.Count != actual.Count)
+            return $"{expected.Count} rows expected, {actual.Count} found";
+        for (int i = 0; i < expected.Count; i++)
+        {
+            if (expected[i].Length != actual[i].Length)
+                return $"row {i}: {expected[i].Length} columns expected, {actual[i].Length} found";
+            for (int c = 0; c < expected[i].Length; c++)
+            {
+                var (e, a) = (expected[i][c], actual[i][c]);
+                var unit = (e, a) switch
+                {
+                    (double or float, decimal d) => Unit(d),
+                    _ => 0.0,
+                };
+                bool same = unit > 0
+                    ? Math.Abs(Convert.ToDouble(e) - (double)(decimal)a!) <= unit + 1e-9 * Math.Max(1.0, Math.Abs(Convert.ToDouble(e)))
+                    : Same(e, a);
+                if (!same)
+                    return $"row {i}, column {c}: expected {e ?? "NULL"}, found {a ?? "NULL"}";
+            }
+        }
+        return null;
+    }
+
+    private static double Unit(decimal d) => Math.Pow(10, -((decimal.GetBits(d)[3] >> 16) & 0x7F));
+
     private static bool Same(object? e, object? a)
     {
         if (e is null || a is null)

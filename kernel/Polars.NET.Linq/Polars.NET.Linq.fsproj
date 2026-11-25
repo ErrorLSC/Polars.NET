@@ -27,6 +27,7 @@
     <Compile Include="Backend/Polars/PolarsPhysicalLowerer.fs" />
     <Compile Include="Backend/Polars/PolarsObjectConverter.fs" />
     <Compile Include="Backend/Polars/PolarsQueryBackend.fs" />
+    <Compile Include="Backend/Polars/PolarsSql.fs" />
     <Compile Include="Backend/Polars/PolarsScalarRunner.fs" />
     <Compile Include="Backend/Polars/PolarsExprCompiler.fs" />
     <Compile Include="Execution/PipelineCompilation.fs" />
@@ -44,6 +45,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Polars.Tpcds.Sweep" />
     <InternalsVisibleTo Include="Polars.CSharp" />
     <InternalsVisibleTo Include="Polars.CSharp.Tests" />
     <InternalsVisibleTo Include="Polars.CSharp.Linq.Tests" />

@@ -2,6 +2,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Kaminari.Samidare.Sql;
+using Polars.CSharp;
+using Polars.NET.Core.Enums;
+using Polars.NET.Core.Wrappers;
+using Polars.NET.Linq.Backend.Polars;
 using Polars.Tpcds;
 
 // A quick pass over all 99 TPC-DS queries, for finding gaps and checking that a rule helps beyond the queries it was
@@ -10,14 +15,19 @@ using Polars.Tpcds;
 //   DOTNET_ROOT=$HOME/.dotnet ~/.dotnet/dotnet run -c Release --project tests/Polars.Tpcds.Sweep \
 //     -p:SkipRust=true -p:RustTargetDir=release -- run --out <dir> [--rounds 5] [--queries Q1,Q2] [--data <dir>]
 //   ... -- plans --out <dir> [--queries Q1,Q2] [--data <dir>]
+//   ... -- sql --out <dir> [--rounds 5] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
+//   ... -- sql-plans --out <dir> [--queries Q1,Q2] [--data <dir>] [--texts <dir>]
 //
 // `run` first compares each query's rows with DuckDB, then times it end to end (parquet to rows, plan cache on),
 // alternating engines, and writes sweep.csv and sweep.md. `plans` writes each optimized plan with generated names
-// normalized, so two directories can be compared with diff.
+// normalized, so two directories can be compared with diff. `sql` runs DuckDB's own TPC-DS texts (the SQL frontend's test
+// texts) through the SQL frontend, checks its rows against DuckDB's on the same text, then times the frontend (translation
+// included), the LINQ version and DuckDB in rotating order, and writes sql-sweep.csv and sql-sweep.md. `sql-plans`
+// writes each query's optimized plan from the SQL frontend (Qn.sql.txt) beside the LINQ version's (Qn.linq.txt).
 
-if (args.Length == 0 || args[0] is not ("run" or "plans"))
+if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans"))
 {
-    Console.Error.WriteLine("usage: run|plans --out <dir> [--rounds n] [--queries Q1,Q2] [--data <dir>]");
+    Console.Error.WriteLine("usage: run|plans|sql|sql-plans --out <dir> [--rounds n] [--queries Q1,Q2] [--data <dir>] [--texts <dir>]");
     return 2;
 }
 
@@ -38,6 +48,20 @@ var selected = options.TryGetValue("queries", out var names)
     ? names.Split(',').Select(TpcdsCatalog.Get).ToList()
     : TpcdsCatalog.All.ToList();
 
+if (args[0] == "sql-plans")
+{
+    var catalog = SqlSweep.Catalog();
+    var textDir = options.TryGetValue("texts", out var t) ? t : SqlSweep.FindTexts();
+    foreach (var query in selected)
+    {
+        var text = File.ReadAllText(Path.Combine(textDir, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
+        File.WriteAllText(Path.Combine(output, query.Name + ".sql.txt"), Kaminari.Samidare.IR.LogicalPlanOps.formatPlan(PolarsSql.plan(catalog, text).Item1));
+        File.WriteAllText(Path.Combine(output, query.Name + ".linq.txt"), Normalize(query.Explain()));
+    }
+    Console.WriteLine($"{selected.Count} plan pairs written to {output}");
+    return 0;
+}
+
 if (args[0] == "plans")
 {
     foreach (var query in selected)
@@ -48,6 +72,9 @@ if (args[0] == "plans")
 
 int rounds = options.TryGetValue("rounds", out var r) ? int.Parse(r, CultureInfo.InvariantCulture) : 5;
 using var duckDb = TpcdsVerification.OpenDuckDb();
+
+if (args[0] == "sql")
+    return SqlSweep.Run(duckDb, selected, options.TryGetValue("texts", out var texts) ? texts : SqlSweep.FindTexts(), output, rounds);
 var results = new List<SweepResult>();
 var clock = Stopwatch.StartNew();
 
@@ -155,4 +182,157 @@ static void Write(List<SweepResult> results, string output, int rounds, TimeSpan
 internal sealed record SweepResult(string Name, int Rows, double PolarsMs, double DuckDbMs, double PolarsMin, double DuckDbMin, string? Error)
 {
     public double Ratio => DuckDbMs > 0 ? PolarsMs / DuckDbMs : 0;
+}
+
+/// The SQL frontend against DuckDB and the LINQ version, on DuckDB's own TPC-DS texts.
+internal static class SqlSweep
+{
+    /// The TPC-DS tables, each a Parquet scan under its name.
+    public static ISqlCatalog Catalog()
+    {
+        var catalog = new SqlCatalog();
+        foreach (var path in Directory.GetFiles(TpcdsData.DataDir, "*.parquet"))
+            catalog.Register(Path.GetFileNameWithoutExtension(path), PolarsTableSources.ofLazyFrame(LazyFrame.ScanParquet(path).Handle));
+        return catalog;
+    }
+
+    public static int Run(DuckDB.NET.Data.DuckDBConnection duckDb, List<TpcdsCase> selected, string texts, string output, int rounds)
+    {
+        var catalog = Catalog();
+        var views = new StringBuilder();
+        foreach (var path in Directory.GetFiles(TpcdsData.DataDir, "*.parquet"))
+            views.Append(CultureInfo.InvariantCulture, $"CREATE VIEW {Path.GetFileNameWithoutExtension(path)} AS SELECT * FROM read_parquet('{path}');");
+        using (var setup = duckDb.CreateCommand())
+        {
+            setup.CommandText = views.ToString();
+            setup.ExecuteNonQuery();
+        }
+
+        var clock = Stopwatch.StartNew();
+        var results = new List<SqlSweepResult>();
+        foreach (var query in selected)
+        {
+            var result = Measure(query);
+            results.Add(result);
+            Console.WriteLine(
+                result.Error is null
+                    ? $"{query.Name,-4} rows={result.Rows,8}  sql={result.SqlMs,9:F1}  linq={result.LinqMs,9:F1}  duckdb={result.DuckDbMs,9:F1}  translate={result.TranslateMs,6:F1}  sql/duckdb x{result.SqlRatio:F2}"
+                    : $"{query.Name,-4} FAILED: {result.Error}");
+        }
+        Write(results, output, rounds, clock.Elapsed);
+        int failed = results.Count(x => x.Error is not null);
+        Console.WriteLine($"{results.Count - failed} of {results.Count} queries measured in {clock.Elapsed:mm\\:ss}; report in {output}");
+        return failed == 0 ? 0 : 1;
+
+        SqlSweepResult Measure(TpcdsCase query)
+        {
+            try
+            {
+                var text = File.ReadAllText(Path.Combine(texts, $"q{int.Parse(query.Name[1..], CultureInfo.InvariantCulture):00}.sql"));
+                // Doubles as the warm-up round.
+                var difference = TpcdsVerification.FindSqlDifference(TpcdsVerification.Rows(duckDb, text), RunSql(catalog, text));
+                if (difference is not null)
+                    return new SqlSweepResult(query.Name, 0, 0, 0, 0, 0, difference);
+                query.RunPolars();
+
+                var sql = new List<double>();
+                var linq = new List<double>();
+                var duck = new List<double>();
+                var translate = new List<double>();
+                int rows = 0;
+                Action[] runs =
+                [
+                    () => sql.Add(Time(() => rows = RunSql(catalog, text).Count)),
+                    () => linq.Add(Time(() => query.RunPolars())),
+                    () => duck.Add(Time(() => TpcdsVerification.Rows(duckDb, text))),
+                ];
+                for (int round = 0; round < rounds; round++)
+                {
+                    for (int i = 0; i < runs.Length; i++) runs[(i + round) % runs.Length]();
+                    translate.Add(Time(() => PolarsSql.plan(catalog, text)));
+                }
+                return new SqlSweepResult(query.Name, rows, Median(sql), Median(linq), Median(duck), Median(translate), null);
+            }
+            catch (Exception e)
+            {
+                return new SqlSweepResult(query.Name, 0, 0, 0, 0, 0, e.GetBaseException().Message.ReplaceLineEndings(" "));
+            }
+        }
+    }
+
+    static List<object?[]> RunSql(ISqlCatalog catalog, string text)
+    {
+        using var df = new DataFrame(PolarsWrapper.LazyCollect(PolarsSql.lazyFrame(catalog, text), PlEngine.Auto));
+        var width = df.ColumnNames.Length;
+        var rows = new List<object?[]>((int)df.Height);
+        for (var r = 0; r < df.Height; r++)
+        {
+            var row = new object?[width];
+            for (var c = 0; c < width; c++) row[c] = df[r, c];
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    static double Time(Action action)
+    {
+        GC.Collect();
+        var watch = Stopwatch.StartNew();
+        action();
+        return watch.Elapsed.TotalMilliseconds;
+    }
+
+    static double Median(List<double> values)
+    {
+        var sorted = values.Order().ToList();
+        int middle = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+
+    /// The SQL frontend's test texts (DuckDB's tpcds_queries()).
+    public static string FindTexts()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "tests", "Polars.CSharp.Linq.Tests", "Sql", "Tpcds");
+            if (File.Exists(Path.Combine(candidate, "q01.sql")))
+                return candidate;
+        }
+        throw new InvalidOperationException("The TPC-DS SQL texts were not found; pass --texts.");
+    }
+
+    static void Write(List<SqlSweepResult> results, string output, int rounds, TimeSpan elapsed)
+    {
+        var invariant = CultureInfo.InvariantCulture;
+        var csv = new StringBuilder("query,rows,sql_ms,linq_ms,duckdb_ms,translate_ms,sql_duckdb,sql_linq,error\n");
+        foreach (var x in results)
+            csv.AppendLine(invariant, $"{x.Name},{x.Rows},{x.SqlMs:F2},{x.LinqMs:F2},{x.DuckDbMs:F2},{x.TranslateMs:F2},{x.SqlRatio:F3},{x.SqlLinqRatio:F3},\"{x.Error?.Replace("\"", "'")}\"");
+        File.WriteAllText(Path.Combine(output, "sql-sweep.csv"), csv.ToString());
+
+        var ok = results.Where(x => x.Error is null).ToList();
+        double sql = ok.Sum(x => x.SqlMs), linq = ok.Sum(x => x.LinqMs), duck = ok.Sum(x => x.DuckDbMs), translate = ok.Sum(x => x.TranslateMs);
+        double Geo(Func<SqlSweepResult, double> ratio) => ok.Count == 0 ? 0 : Math.Exp(ok.Average(x => Math.Log(ratio(x))));
+        var md = new StringBuilder();
+        md.AppendLine(invariant, $"# TPC-DS SQL sweep: {ok.Count} of {results.Count} queries, median of {rounds} rounds ({elapsed:mm\\:ss})");
+        md.AppendLine();
+        md.AppendLine(invariant, $"Data: {TpcdsData.DataDir}");
+        md.AppendLine();
+        md.AppendLine(invariant, $"Total SQL / LINQ / DuckDB: {sql:F0} / {linq:F0} / {duck:F0} ms; SQL/DuckDB {sql / duck:F2}x (geometric {Geo(x => x.SqlRatio):F2}x), SQL/LINQ {sql / linq:F2}x (geometric {Geo(x => x.SqlLinqRatio):F2}x); translation {translate:F0} ms in all.");
+        md.AppendLine();
+        md.AppendLine("Sorted by SQL's gap to DuckDB. SQL time includes translation (parse, bind, decorrelate, optimize); LINQ uses its plan cache.");
+        md.AppendLine();
+        md.AppendLine("| Query | Rows | SQL ms | LINQ ms | DuckDB ms | Translate ms | SQL/DuckDB | SQL/LINQ |");
+        md.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|");
+        foreach (var x in ok.OrderByDescending(x => x.SqlMs - x.DuckDbMs))
+            md.AppendLine(invariant, $"| {x.Name} | {x.Rows} | {x.SqlMs:F1} | {x.LinqMs:F1} | {x.DuckDbMs:F1} | {x.TranslateMs:F1} | {x.SqlRatio:F2}x | {x.SqlLinqRatio:F2}x |");
+        foreach (var x in results.Where(x => x.Error is not null))
+            md.AppendLine(invariant, $"\n**{x.Name} failed:** {x.Error}");
+        File.WriteAllText(Path.Combine(output, "sql-sweep.md"), md.ToString());
+    }
+}
+
+internal sealed record SqlSweepResult(string Name, int Rows, double SqlMs, double LinqMs, double DuckDbMs, double TranslateMs, string? Error)
+{
+    public double SqlRatio => DuckDbMs > 0 ? SqlMs / DuckDbMs : 0;
+    public double SqlLinqRatio => LinqMs > 0 ? SqlMs / LinqMs : 0;
 }

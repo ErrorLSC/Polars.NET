@@ -268,3 +268,14 @@ let ``SumOrNull is aggregated before the join of its dimension`` () =
     | other -> failwithf "not aggregated eagerly: %s" (LogicalPlanOps.formatPlan other)
     for p in [ plan; eager ] do
         Conformance.rowsInOrder t p [ [ "a"; 8L; 3L ]; [ "b"; null; null ]; [ "c"; 28L; null ] ]
+
+/// A projection over an aggregating projection (one row) counts and reads that one row: the optimizer does not collapse
+/// the two when the outer one aggregates or reads no inner column.
+[<Fact>]
+let ``A projection over aggregates reads their one row`` () =
+    let t = Tables()
+    let rows = [| { K = 1L; V = n 2L }; { K = 2L; V = n 3L }; { K = 3L; V = nul } |]
+    let totals = project (t.Scan rows) [ "s", agg AggKind.Sum (col "V") ]
+    Conformance.rowsInOrder t (project totals [ "rows", len; "first", agg AggKind.First (col "s") ]) [ [ 1L; 5L ] ]
+    Conformance.rowsInOrder t (project totals [ "one", i64 1L ]) [ [ 1L ] ]
+    Conformance.rowsInOrder t (project totals [ "twice", bin BinaryOp.Multiply (col "s") (i64 2L) ]) [ [ 10L ] ]

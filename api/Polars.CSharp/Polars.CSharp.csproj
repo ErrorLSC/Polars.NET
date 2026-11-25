@@ -27,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Polars.Tpcds.Sweep" />
     <InternalsVisibleTo Include="Polars.NET.ML" />
     <InternalsVisibleTo Include="Polars.CSharp.Tests" />
     <InternalsVisibleTo Include="Polars.CSharp.Linq.Tests" />
