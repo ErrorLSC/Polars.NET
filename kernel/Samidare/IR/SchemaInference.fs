@@ -155,6 +155,8 @@ module internal SchemaInference =
             | AggKind.MaxNanLargest
             | AggKind.First
             | AggKind.Last
+            | AggKind.FirstNonNull
+            | AggKind.LastNonNull
             | AggKind.Quantile _
             | AggKind.List ->
                 match innerOpt with

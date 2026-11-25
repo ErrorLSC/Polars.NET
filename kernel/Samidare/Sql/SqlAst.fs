@@ -121,6 +121,9 @@ and internal SqlFunctionCall =
       /// `f(*)`: no arguments, every row.
       Star: bool
       Arguments: SqlExpr list
+      /// `IGNORE NULLS`, written inside the parentheses (`lag(x IGNORE NULLS)`) or after them (`lag(x) IGNORE NULLS`);
+      /// false for `RESPECT NULLS` and when not written.
+      IgnoreNulls: bool
       Over: SqlWindow option }
 
 and internal SqlWindow =

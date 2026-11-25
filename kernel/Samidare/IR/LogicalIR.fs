@@ -185,6 +185,10 @@ type AggKind =
     | Count
     | First
     | Last
+    /// The first non-null value in the input's order, null when there is none (SQL's first_value IGNORE NULLS).
+    | FirstNonNull
+    /// The last non-null value in the input's order, null when there is none (SQL's last_value IGNORE NULLS).
+    | LastNonNull
     | Median
     | Std of ddof: byte
     | Var of ddof: byte

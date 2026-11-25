@@ -45,6 +45,8 @@ module internal GroupOrderRelaxation =
         match kind with
         | AggKind.First
         | AggKind.Last
+        | AggKind.FirstNonNull
+        | AggKind.LastNonNull
         | AggKind.List -> false
         | _ -> true
 

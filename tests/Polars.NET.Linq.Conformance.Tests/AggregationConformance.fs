@@ -70,8 +70,30 @@ let ``The optimizer keeps the order beneath order-reading aggregates`` () =
         | other -> failwithf "unexpected plan %s" (LogicalPlanOps.formatPlan other)
     Assert.True(keepsOrder (project groups [ "last", agg AggKind.Last (col "K") ]))
     Assert.True(keepsOrder (project groups [ "first", agg AggKind.First (col "K") ]))
+    Assert.True(keepsOrder (project groups [ "last", agg AggKind.LastNonNull (col "K") ]))
+    Assert.True(keepsOrder (project groups [ "first", agg AggKind.FirstNonNull (col "K") ]))
     Assert.False(keepsOrder (project groups [ "total", agg AggKind.Sum (col "K") ]))
     Conformance.rowsInOrder t (project groups [ "last", agg AggKind.Last (col "K") ]) [ [ 1L ] ]
+
+/// First and Last take the first and the last row's value, null or not; FirstNonNull and LastNonNull the first and
+/// the last non-null value in the input's order, null when there is none.
+[<Fact>]
+let ``FirstNonNull and LastNonNull skip nulls, First and Last do not`` () =
+    let t = Tables()
+    let rows =
+        [| { K = 1L; V = nul }; { K = 1L; V = n 2L }; { K = 1L; V = n 3L }; { K = 1L; V = nul }
+           { K = 2L; V = nul }; { K = 2L; V = nul } |]
+    let groups =
+        LogicalPlan.GroupBy(
+            t.Scan rows,
+            [ col "K" ],
+            [ "first", agg AggKind.First (col "V")
+              "last", agg AggKind.Last (col "V")
+              "firstNonNull", agg AggKind.FirstNonNull (col "V")
+              "lastNonNull", agg AggKind.LastNonNull (col "V") ],
+            None,
+            true)
+    Conformance.rowsInOrder t groups [ [ 1L; null; null; 2L; 3L ]; [ 2L; null; null; null; null ] ]
 
 type KI = { K: int64; I: Nullable<int> }
 

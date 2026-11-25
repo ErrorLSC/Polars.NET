@@ -35,7 +35,12 @@ type internal SqlRangeWindow =
     { Partition: ScalarExpr list
       Orders: SortOrder list
       /// The aggregate's expression over the input (the aggregates in it, running over the peers, give the value).
-      Value: ScalarExpr }
+      Value: ScalarExpr
+      /// GROUPS: the frame ends this many groups of peers after the current row's (before it when negative).
+      Shift: int64
+      /// RANGE with an offset: the frame ends at the last peer whose order key, the one ascending Int64 index in
+      /// Orders (nulls at ±2^60), is at most the current row's plus this; a null key's frame ends at its own peers.
+      Reach: int64 option }
 
 /// What an expression is bound in.
 type internal SqlBinder =
@@ -739,6 +744,8 @@ module internal SqlExpressions =
             match functionName call with
             | Some n -> n
             | None -> fail binder span "Qualified function names are not supported" None
+        if call.IgnoreNulls && not (navigationNames.Contains name) then
+            fail binder span $"IGNORE NULLS is for lag(), lead(), first_value() and last_value(), not {name}()" None
         match call.Over with
         | Some window ->
             match binder.WindowsRefused with
@@ -845,23 +852,24 @@ module internal SqlExpressions =
             | SqlNullOrder.Default -> descending
         { Expr = v.Expr; Descending = descending; NullsLast = nullsLast }, v
 
-    /// A window's frame as bounds relative to the current row (None: unbounded), in rows (ROWS) or in the units of its
-    /// one order key (RANGE: the key's integer value, a decimal's in units of its scale, a date's in days, a
-    /// timestamp's in microseconds). No frame: the whole partition without ORDER BY, else RANGE up to the current row.
+    /// A window's frame as bounds relative to the current row (None: unbounded), in rows (ROWS), groups of peers
+    /// (GROUPS) or the units of its one order key (RANGE: the key's integer value, a decimal's in units of its scale, a
+    /// date's in days, a timestamp's in microseconds). No frame: the whole partition without ORDER BY, else RANGE up to
+    /// the current row.
     and private frameOf (binder: SqlBinder) (window: SqlWindow) (orders: (SortOrder * SqlValue) list) : SqlFrameUnit * int64 option * int64 option =
         match window.Frame with
         | None -> if orders.IsEmpty then SqlFrameUnit.Rows, None, None else SqlFrameUnit.Range, None, Some 0L
         | Some frame ->
-            if frame.Unit = SqlFrameUnit.Groups then fail binder frame.Span "GROUPS frames are not supported" (Some "Write ROWS or RANGE.")
             let offset (e: SqlExpr) : int64 =
                 let whole (text: string) =
                     match Int64.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture) with
                     | true, n when n <= (1L <<< 40) -> n
                     | _ -> fail binder e.Span $"A frame offset must be a whole number up to {1L <<< 40}" None
                 match frame.Unit, e.Kind with
-                | SqlFrameUnit.Rows, SqlExprKind.Literal(SqlLiteral.Integer text) -> whole text
+                | (SqlFrameUnit.Rows | SqlFrameUnit.Groups), SqlExprKind.Literal(SqlLiteral.Integer text) -> whole text
                 | SqlFrameUnit.Rows, _ -> fail binder e.Span "A ROWS offset must be a whole number written as a literal" None
-                | _ ->
+                | SqlFrameUnit.Groups, _ -> fail binder e.Span "A GROUPS offset must be a whole number written as a literal" None
+                | SqlFrameUnit.Range, _ ->
                     let key =
                         match orders with
                         | [ (_, key) ] -> key
@@ -905,7 +913,16 @@ module internal SqlExpressions =
                 fail binder frame.Span "A RANGE frame needs ORDER BY in its window" None
             if frame.Unit = SqlFrameUnit.Rows && orders.IsEmpty && (start, finish) <> (None, None) then
                 fail binder frame.Span "A ROWS frame needs ORDER BY in its window" None
-            frame.Unit, start, finish
+            match frame.Unit, start, finish with
+            // GROUPS without ORDER BY: the partition is one group of peers, so the frame is all of it when it holds the
+            // current group, else empty (bounded around group 0 without holding it, for `rolling`).
+            | SqlFrameUnit.Groups, _, _ when orders.IsEmpty ->
+                let first = defaultArg start Int64.MinValue
+                let last = defaultArg finish Int64.MaxValue
+                if first <= 0L && last >= 0L then SqlFrameUnit.Groups, None, None
+                elif first > 0L then SqlFrameUnit.Groups, Some first, Some first
+                else SqlFrameUnit.Groups, Some last, Some last
+            | unit, start, finish -> unit, start, finish
 
     and private bindWindow (binder: SqlBinder) (span: SqlSpan) (name: string) (call: SqlFunctionCall) (window: SqlWindow) : SqlValue =
         let inWindow = { binder with WindowsRefused = Some "inside a window function" }
@@ -937,24 +954,38 @@ module internal SqlExpressions =
         /// engine's rolling groups over an index computed below (the row number for ROWS; the order key in its units for
         /// RANGE, negated when descending, nulls far beyond its values, where their frames hold only them). The rows
         /// are ordered by that index, so where the nulls go is the index's affair alone.
-        let rolling (unit: SqlFrameUnit) (start: int64) (finish: int64) (e: ScalarExpr) =
-            let index =
-                if unit = SqlFrameUnit.Rows then ranked RankMethod.Ordinal
-                else
-                    let order, key = orders.Head
-                    let units =
-                        match SqlTypes.classify key.Type with
-                        | SqlTypeClass.Decimal(_, scale) ->
-                            ScalarExpr.Cast(ScalarExpr.Binary(BinaryOp.Multiply, key.Expr, ScalarExpr.Cast(lit (LiteralValue.Decimal(pown 10m scale)), key.Type, false)), LogicalTypes.Int64, false)
-                        // An integer as itself, a date as its days, a timestamp as its microseconds.
-                        | _ -> ScalarExpr.Cast(key.Expr, LogicalTypes.Int64, false)
-                    let signed = if order.Descending then ScalarExpr.Unary(UnaryOp.Negate, units) else units
-                    ScalarExpr.Function(ScalarFunction.FillNull, [ signed; lit (LiteralValue.Int64(1L <<< 60)) ], LogicalTypes.Int64)
+        /// The one order key in its units (RANGE offsets'), ascending in `order` (negated when descending), a null at
+        /// 2^60 or -2^60, beyond the values, at the end `nullsLast` puts it.
+        let keyIndex (order: SortOrder) (nullsLast: bool) =
+            let key = snd orders.Head
+            let units =
+                match SqlTypes.classify key.Type with
+                | SqlTypeClass.Decimal(_, scale) ->
+                    ScalarExpr.Cast(ScalarExpr.Binary(BinaryOp.Multiply, key.Expr, ScalarExpr.Cast(lit (LiteralValue.Decimal(pown 10m scale)), key.Type, false)), LogicalTypes.Int64, false)
+                // An integer as itself, a date as its days, a timestamp as its microseconds.
+                | _ -> ScalarExpr.Cast(key.Expr, LogicalTypes.Int64, false)
+            let signed = if order.Descending then ScalarExpr.Unary(UnaryOp.Negate, units) else units
+            ScalarExpr.Function(ScalarFunction.FillNull, [ signed; lit (LiteralValue.Int64(if nullsLast then 1L <<< 60 else -(1L <<< 60))) ], LogicalTypes.Int64)
+        /// `e` (an aggregate's expression) over the rows whose `index` (Int64, ascending in the window's order) lies in
+        /// (i + offset, i + offset + length], i the current row's.
+        let rollingOver (index: ScalarExpr) (offset: int64) (length: int64) (e: ScalarExpr) =
             let index = binder.Staged index
             ScalarExpr.Window(
-                ScalarExpr.Function(ScalarFunction.RollingWindow(start - 1L, finish - start + 1L), [ e; index ], LogicalType.Unknown),
+                ScalarExpr.Function(ScalarFunction.RollingWindow(offset, length), [ e; index ], LogicalType.Unknown),
                 partition,
                 [ { Expr = index; Descending = false; NullsLast = false } ])
+        /// `e` (an aggregate's expression) over the frame [start, finish] around each row, bounded at both ends: by the
+        /// engine's rolling groups over an index: the row number (ROWS), the dense rank of the order keys in the
+        /// partition (GROUPS), the order key in its units (RANGE; nulls far beyond its values, where their frames hold
+        /// only them). The rows are ordered by that index, so where the nulls go is the index's affair alone.
+        let rolling (unit: SqlFrameUnit) (start: int64) (finish: int64) (e: ScalarExpr) =
+            let index =
+                match unit with
+                | SqlFrameUnit.Rows -> ranked RankMethod.Ordinal
+                | SqlFrameUnit.Groups when orders.IsEmpty -> lit (LiteralValue.Int64 0L)
+                | SqlFrameUnit.Groups -> ranked RankMethod.Dense
+                | SqlFrameUnit.Range -> keyIndex (fst orders.Head) true
+            rollingOver index (start - 1L) (finish - start + 1L) e
         /// `e` (an aggregate's expression of type `t`) over the rows from the partition's start to `shift` rows after
         /// the current one, in `order`: running values, moved by `shift` (past the end the last one; before the start
         /// none, a count 0).
@@ -1011,25 +1042,59 @@ module internal SqlExpressions =
             let shifted (e: ScalarExpr) = ScalarExpr.Function(ScalarFunction.Shift, [ e; lit (LiteralValue.Int64(if name = "lag" then n else -n)) ], LogicalType.Unknown)
             let result =
                 match fallback with
-                | None -> shifted x.Expr
+                | _ when n = 0L -> x.Expr
+                | _ when call.IgnoreNulls ->
+                    // The n-th non-null value before the row (lead: after it, in the other order); null without one, where
+                    // the default goes.
+                    let order = if name = "lag" then sorts else reversed
+                    let found =
+                        if n = 1L then
+                            ScalarExpr.Window(ScalarExpr.Function(ScalarFunction.ForwardFill, [ ScalarExpr.Function(ScalarFunction.Shift, [ x.Expr; lit (LiteralValue.Int64 1L) ], LogicalType.Unknown) ], LogicalType.Unknown), partition, order)
+                        else
+                            // Indexed by the count of non-null values before it, the rows of one index hold one non-null
+                            // value, the next after them: the rows of index i - n hold the n-th before row i.
+                            let counted = ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.CumCount, [ x.Expr; lit (LiteralValue.Bool false) ], LogicalTypes.UInt32), LogicalTypes.Int64, false)
+                            let before = ScalarExpr.Function(ScalarFunction.Shift, [ counted; lit (LiteralValue.Int64 1L) ], LogicalType.Unknown)
+                            let index = ScalarExpr.Window(ScalarExpr.Function(ScalarFunction.FillNull, [ before; lit (LiteralValue.Int64 0L) ], LogicalTypes.Int64), partition, order)
+                            rollingOver index (-n - 1L) 1L (ScalarExpr.Aggregation(AggKind.LastNonNull, Some x.Expr, false))
+                    match fallback with
+                    | Some d -> ScalarExpr.Coalesce [ found; d.Expr ]
+                    | None -> found
+                | None -> windowed (shifted x.Expr)
                 // The default only where the row is outside the partition (not where its value is null): a test that is
                 // never null, moved alike, is null there.
-                | Some d -> ScalarExpr.Conditional(ScalarExpr.Unary(UnaryOp.IsNull, shifted (ScalarExpr.Unary(UnaryOp.IsNull, x.Expr))), d.Expr, shifted x.Expr)
-            value (windowed result) t
+                | Some d -> windowed (ScalarExpr.Conditional(ScalarExpr.Unary(UnaryOp.IsNull, shifted (ScalarExpr.Unary(UnaryOp.IsNull, x.Expr))), d.Expr, shifted x.Expr))
+            value result t
         elif name = "first_value" || name = "last_value" then
             let x =
                 match call.Arguments with
                 | [ a ] -> bind inWindow a
                 | args -> fail binder span $"{name}() takes one argument, not {args.Length}" None
-            let kind = if name = "first_value" then AggKind.First else AggKind.Last
+            let first = name = "first_value"
+            let kind =
+                match first, call.IgnoreNulls with
+                | true, false -> AggKind.First
+                | false, false -> AggKind.Last
+                | true, true -> AggKind.FirstNonNull
+                | false, true -> AggKind.LastNonNull
             let aggregate = ScalarExpr.Aggregation(kind, Some x.Expr, false)
+            let upToPeers (value: ScalarExpr) = binder.RangeWindow { Partition = declared; Orders = sorts; Value = value; Shift = 0L; Reach = None }
             let result =
                 match frameOf binder window orders, kind with
                 | (_, None, None), _ -> windowed aggregate
-                // From the partition's start: its first row.
+                // From the partition's start: its first row; ignoring nulls, the partition's first non-null value once
+                // the frame holds one.
                 | (_, None, Some 0L), AggKind.First -> windowed aggregate
-                | (SqlFrameUnit.Rows, None, Some 0L), _ -> x.Expr
-                | (SqlFrameUnit.Range, None, Some 0L), _ -> binder.RangeWindow { Partition = declared; Orders = sorts; Value = aggregate }
+                | (unit, None, Some 0L), AggKind.FirstNonNull ->
+                    let counted =
+                        let count = ScalarExpr.Aggregation(AggKind.Count, Some x.Expr, false)
+                        if unit = SqlFrameUnit.Rows then
+                            windowed (ScalarExpr.Function(ScalarFunction.CumCount, [ x.Expr; lit (LiteralValue.Bool false) ], LogicalTypes.UInt32))
+                        else upToPeers count
+                    ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Gt, ScalarExpr.Cast(counted, LogicalTypes.Int64, false), lit (LiteralValue.Int64 0L)), windowed aggregate, lit (LiteralValue.Null x.Type))
+                | (SqlFrameUnit.Rows, None, Some 0L), AggKind.Last -> x.Expr
+                | (SqlFrameUnit.Rows, None, Some 0L), _ -> windowed (ScalarExpr.Function(ScalarFunction.ForwardFill, [ x.Expr ], LogicalType.Unknown))
+                | (_, None, Some 0L), _ -> upToPeers aggregate
                 | (unit, Some s, Some f), _ -> rolling unit s f aggregate
                 | _ -> fail binder span $"{name}() over this frame is not supported" (Some "Over a frame bounded at both ends, the whole partition or the default frame it is.")
             value result x.Type
@@ -1041,7 +1106,7 @@ module internal SqlExpressions =
                 // The engine's running minimum and maximum take numbers and times only.
                 if textExtreme over.Type then
                     fail binder span $"A running {name}() of text is not supported yet" (Some "Over the whole partition or a frame bounded at both ends it is.")
-            let peers (order: SortOrder list) =
+            let peers (order: SortOrder list) (shift: int64) (reach: int64 option) =
                 runningText ()
                 let rec check (e: ScalarExpr) =
                     match e with
@@ -1052,17 +1117,22 @@ module internal SqlExpressions =
                             (Some "Over the whole partition, or a frame bounded at both ends (n PRECEDING / FOLLOWING), it is.")
                     | _ -> ScalarExprOps.children e |> List.iter check
                 check over.Expr
-                binder.RangeWindow { Partition = declared; Orders = order; Value = over.Expr }
+                binder.RangeWindow { Partition = declared; Orders = order; Value = over.Expr; Shift = shift; Reach = reach }
+            // RANGE with an offset: the peers by the order key's index, ascending, nulls where `order` puts them.
+            let byKey (order: SortOrder) = [ { Expr = keyIndex order order.NullsLast; Descending = false; NullsLast = false } ]
             let result =
                 match frameOf binder window orders with
                 | _, None, None -> ScalarExpr.Window(over.Expr, partition, [])
                 // SQL's RANGE frame (the default with ORDER BY): up to the current row's last peer, by peers; from the
                 // current row's first peer to the end, by peers in the other order.
-                | SqlFrameUnit.Range, None, Some 0L -> peers sorts
-                | SqlFrameUnit.Range, Some 0L, None -> peers reversed
-                | SqlFrameUnit.Range, _, None
-                | SqlFrameUnit.Range, None, _ ->
-                    fail binder span "A RANGE frame unbounded at one end and with an offset at the other is not supported" (Some "Bound it at both ends, or use ROWS.")
+                | (SqlFrameUnit.Range | SqlFrameUnit.Groups), None, Some 0L -> peers sorts 0L None
+                | (SqlFrameUnit.Range | SqlFrameUnit.Groups), Some 0L, None -> peers reversed 0L None
+                // GROUPS from or to an offset: the running values by peers, moved by groups.
+                | SqlFrameUnit.Groups, None, Some f -> peers sorts f None
+                | SqlFrameUnit.Groups, Some s, None -> peers reversed -s None
+                // RANGE from or to an offset: the running values of the last peers in reach.
+                | SqlFrameUnit.Range, None, Some f -> peers (byKey sorts.Head) 0L (Some f)
+                | SqlFrameUnit.Range, Some s, None -> peers (byKey reversed.Head) 0L (Some -s)
                 | SqlFrameUnit.Rows, None, Some f ->
                     runningText ()
                     cumulative sorts f over.Type over.Expr
@@ -1076,7 +1146,6 @@ module internal SqlExpressions =
                         | _ -> ScalarExprOps.children e |> List.iter check
                     check over.Expr
                     rolling unit s f over.Expr
-                | SqlFrameUnit.Groups, _, _ -> fail binder span "GROUPS frames are not supported" None
             value result over.Type
         else fail binder span $"{name}() is not a window function" None
 

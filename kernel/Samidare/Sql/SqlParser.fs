@@ -654,7 +654,7 @@ module internal SqlParser =
                             subject :: this.CommaList(fun () -> this.Expression())
                         else [ subject ])
                 let name = [ { Text = word.Text; Quoted = false; Span = word.Span } ]
-                this.Node(SqlExprKind.Function { Name = name; Distinct = false; Star = false; Arguments = arguments; Over = None }, start)
+                this.Node(SqlExprKind.Function { Name = name; Distinct = false; Star = false; Arguments = arguments; IgnoreNulls = false; Over = None }, start)
             | SqlTokenKind.Word when this.IsWord "EXTRACT" && this.IsSymbol("(", 1) ->
                 this.Advance() |> ignore
                 let field, expr =
@@ -671,20 +671,37 @@ module internal SqlParser =
                 else this.Node(SqlExprKind.Column name, start)
             | _ -> this.Expected("an expression", "")
 
+        /// `IGNORE NULLS` (Some true) or `RESPECT NULLS` (Some false) when it comes next.
+        member this.NullTreatment() : bool option =
+            if (this.IsWord "IGNORE" || this.IsWord "RESPECT") && this.IsWord("NULLS", 1) then
+                let ignoreNulls = this.Advance().Text.Equals("IGNORE", StringComparison.OrdinalIgnoreCase)
+                this.Advance() |> ignore
+                Some ignoreNulls
+            else None
+
         member this.FunctionCall(name: SqlName, start: int) : SqlExpr =
-            let distinct, star, arguments =
+            let distinct, star, arguments, inside =
                 this.Parenthesized(fun () ->
                     if this.IsSymbol "*" then
                         this.Advance() |> ignore
-                        false, true, []
-                    elif this.IsSymbol ")" then false, false, []
+                        false, true, [], None
+                    elif this.IsSymbol ")" then false, false, [], None
                     else
                         let distinct =
                             if this.AcceptWord "DISTINCT" then true
                             else
                                 this.AcceptWord "ALL" |> ignore
                                 false
-                        distinct, false, this.CommaList(fun () -> this.Expression()))
+                        let arguments = this.CommaList(fun () -> this.Expression())
+                        distinct, false, arguments, this.NullTreatment())
+            // Both spellings: inside the parentheses (DuckDB, BigQuery) and after them (ISO, Oracle, SQL Server, Spark).
+            let treatmentStart = this.Peek.Span
+            let ignoreNulls =
+                match inside, this.NullTreatment() with
+                | Some _, Some _ -> this.Fail("IGNORE NULLS or RESPECT NULLS is written once", treatmentStart, "Keep the one inside the parentheses or the one after them.")
+                | Some i, None
+                | None, Some i -> i
+                | None, None -> false
             if this.IsWord "FILTER" && this.IsSymbol("(", 1) then
                 this.Fail("FILTER clauses are not supported", this.Peek.Span, "Write the condition in a CASE inside the aggregate.")
             let over =
@@ -693,7 +710,7 @@ module internal SqlParser =
                         this.Fail("Named windows are not supported", this.Peek.Span, "Write the window in parentheses after OVER.")
                     Some(this.Window())
                 else None
-            this.Node(SqlExprKind.Function { Name = name; Distinct = distinct; Star = star; Arguments = arguments; Over = over }, start)
+            this.Node(SqlExprKind.Function { Name = name; Distinct = distinct; Star = star; Arguments = arguments; IgnoreNulls = ignoreNulls; Over = over }, start)
 
         member this.Window() : SqlWindow =
             let start = this.Peek.Span.Start

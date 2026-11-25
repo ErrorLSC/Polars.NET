@@ -304,9 +304,16 @@ module SqlQueryTests =
         Assert.StartsWith("stddev() OVER (ORDER BY ...) is not supported", (fails "SELECT stddev(ss_qty) OVER (ORDER BY ss_item) AS c FROM sales").Message)
         // Frames: refused shapes, each by name.
         let frame text = (fails $"SELECT sum(ss_qty) OVER ({text}) AS c FROM sales").Message
-        Assert.StartsWith("GROUPS frames are not supported", frame "ORDER BY ss_item GROUPS 1 PRECEDING")
+        Assert.StartsWith("A GROUPS offset must be a whole number", frame "ORDER BY ss_item GROUPS BETWEEN 1.5 PRECEDING AND CURRENT ROW")
         Assert.StartsWith("A RANGE frame with an offset needs exactly one ORDER BY key", frame "ORDER BY ss_item, ss_store RANGE 1 PRECEDING")
-        Assert.StartsWith("A RANGE frame unbounded at one end and with an offset at the other", frame "ORDER BY ss_item RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING")
+        // RANGE from the partition's start to an offset: the running values of the last peers in reach, by an as-of
+        // join of the groups of peers with themselves.
+        let reach = (translate "SELECT sum(ss_qty) OVER (ORDER BY ss_item RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING) AS c FROM sales").Plan
+        Assert.Contains(nodes reach, (function LogicalPlan.JoinAsOf _ -> true | _ -> false))
+        // first_value IGNORE NULLS over ROWS from the start: a running count of the values, no peers joined back.
+        Assert.Empty(joinsOf (translate "SELECT first_value(ss_qty IGNORE NULLS) OVER (ORDER BY ss_item ROWS UNBOUNDED PRECEDING) AS c FROM sales").Plan)
+        Assert.StartsWith("IGNORE NULLS is for lag(), lead(), first_value() and last_value(), not sum()", (fails "SELECT sum(ss_qty IGNORE NULLS) OVER (ORDER BY ss_item) AS c FROM sales").Message)
+        Assert.StartsWith("IGNORE NULLS is for lag()", (fails "SELECT rank() IGNORE NULLS OVER (ORDER BY ss_item) AS c FROM sales").Message)
         Assert.StartsWith("This frame starts after it ends", frame "ORDER BY ss_item ROWS BETWEEN 1 FOLLOWING AND 1 PRECEDING")
         Assert.StartsWith("A ROWS frame needs ORDER BY", frame "ROWS BETWEEN 1 PRECEDING AND CURRENT ROW")
         Assert.StartsWith("The offset 0.005 has more decimals than the ORDER BY key's 2", frame "ORDER BY ss_price RANGE BETWEEN 0.005 PRECEDING AND CURRENT ROW")

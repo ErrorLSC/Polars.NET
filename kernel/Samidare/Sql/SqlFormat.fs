@@ -87,7 +87,10 @@ module internal SqlFormat =
         | SqlExprKind.Function call ->
             let arguments =
                 if call.Star then "*"
-                else (if call.Distinct then "DISTINCT " else "") + (call.Arguments |> List.map expression |> join ", ")
+                else
+                    (if call.Distinct then "DISTINCT " else "")
+                    + (call.Arguments |> List.map expression |> join ", ")
+                    + (if call.IgnoreNulls then " IGNORE NULLS" else "")
             let over = call.Over |> Option.map (fun w -> " OVER (" + window w + ")") |> Option.defaultValue ""
             $"{qualified call.Name}({arguments}){over}"
 

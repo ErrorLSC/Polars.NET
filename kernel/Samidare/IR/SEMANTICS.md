@@ -206,7 +206,7 @@ move a filter below it.
 equal indexes share their frames (SQL's RANGE peers), and a frame reaching past the partition's ends holds the
 rows inside it (none: the aggregate over no values).
 
-**Order-reading aggregates.** `First`, `Last` and `List` read their input's order, so a pass must keep every order
+**Order-reading aggregates.** `First`, `Last`, `FirstNonNull`, `LastNonNull` and `List` read their input's order, so a pass must keep every order
 guarantee beneath them. `GroupOrderRelaxation` frees order only under order-free aggregates.
 
 **Aggregates skip nulls.**
@@ -214,6 +214,8 @@ guarantee beneath them. `GroupOrderRelaxation` frees order only under order-free
 - `Sum` and `CheckedSum` over no values are 0; `SumOrNull` (SQL's `SUM`) is null.
 - `Mean`, `Min`, `Max`, `First`, `Last` and `Median` over no values are null.
 - `Count` counts non-null values. `Len` counts rows.
+- `First` and `Last` take the first and the last row's value, null or not; `FirstNonNull` and `LastNonNull` (SQL's
+  `first_value` / `last_value` `IGNORE NULLS`) the first and the last non-null value, null when there is none.
 - `Std` / `Var` with ddof d are null with at most d values.
 - A `Project` whose projections all aggregate yields exactly one row, even over no input rows. A `GroupBy`
   over no rows yields no rows, and a `GroupingSets` level with an empty key subset still yields its one

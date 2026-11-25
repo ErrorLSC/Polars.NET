@@ -371,44 +371,55 @@ module internal SqlQueries =
     /// The plan with the values of window aggregates over RANGE frames (`SqlRangeWindow`) as columns: the source grouped
     /// by partition and order keys, one row per group of peers with the aggregates' values over it; each aggregate's
     /// running value over those rows in the window's order (the keys are unique within a partition, so a row's running
-    /// value is its peers' as well); joined back by the keys, nulls matching. A window's value is its expression over
-    /// the running aggregates (an average is the running sum over the running count).
+    /// value is its peers' as well); for GROUPS offsets moved by groups, for RANGE offsets taken at the last group of
+    /// peers in reach (an as-of join of the groups with themselves); joined back by the keys, nulls matching. A window's
+    /// value is its expression over the running aggregates (an average is the running sum over the running count).
     let private rangeWindows (t: SqlTranslation) (source: LogicalPlan) (ranges: (string * SqlRangeWindow) list) : LogicalPlan =
         match ranges with
         | [] -> source
         | _ ->
             let shared = LogicalPlan.Shared(t.NextShared(), source)
+            let schema = SchemaInference.inferPlanSchema source
             ranges
             |> List.fold
                 (fun plan (name, r) ->
                     let partition = r.Partition |> List.map (fun p -> t.Fresh "part", p)
                     let orders = r.Orders |> List.map (fun o -> t.Fresh "peer", o)
                     let keys = (partition |> List.map fst) @ (orders |> List.map fst)
+                    let keyColumns = keys |> List.map (fun k -> k, col k)
+                    let over = if partition.IsEmpty then [ ScalarExpr.Literal(LiteralValue.Bool true) ] else partition |> List.map (fst >> col)
+                    let peerOrder = orders |> List.map (fun (n, o) -> { o with Expr = col n })
+                    let window (e: ScalarExpr) = ScalarExpr.Window(e, over, peerOrder)
                     let partials = ResizeArray<string * ScalarExpr>()
-                    let schema = SchemaInference.inferPlanSchema source
-                    let running (cumulative: ScalarFunction) (aggregate: ScalarExpr) =
+                    // Each running aggregate over the groups of peers: its column, its value and whether it counts (0
+                    // over no rows, where the others are null).
+                    let runs = ResizeArray<string * ScalarExpr * bool>()
+                    let run (partial: ScalarExpr) (counts: bool) (value: ScalarExpr -> ScalarExpr) =
                         let column = t.Fresh "peers"
-                        partials.Add((column, aggregate))
-                        let over = if partition.IsEmpty then [ ScalarExpr.Literal(LiteralValue.Bool true) ] else partition |> List.map (fst >> col)
-                        let window (e: ScalarExpr) = ScalarExpr.Window(e, over, orders |> List.map (fun (n, o) -> { o with Expr = col n }))
+                        partials.Add((column, partial))
+                        let name = t.Fresh "run"
+                        runs.Add((name, value (col column), counts))
+                        col name
+                    let running (cumulative: ScalarFunction) (aggregate: ScalarExpr) (counts: bool) =
                         let t =
                             match aggregate with
                             | ScalarExpr.Aggregation(_, Some argument, _) -> SchemaInference.inferScalarType schema argument
                             | _ -> LogicalTypes.Int64
-                        SqlExpressions.runningValue cumulative t (col column) window
+                        run aggregate counts (fun c -> SqlExpressions.runningValue cumulative t c window)
                     let rec overPeers (e: ScalarExpr) =
                         match e with
-                        | ScalarExpr.Aggregation((AggKind.Len | AggKind.Count | AggKind.Sum | AggKind.SumOrNull), _, _) -> running ScalarFunction.CumSum e
-                        | ScalarExpr.Aggregation((AggKind.Min | AggKind.MinNanLargest), _, _) -> running ScalarFunction.CumMin e
-                        | ScalarExpr.Aggregation((AggKind.Max | AggKind.MaxNanLargest), _, _) -> running ScalarFunction.CumMax e
-                        // last_value over the default frame: the current row's last peer, its peers' last value.
-                        | ScalarExpr.Aggregation(AggKind.Last, _, _) ->
-                            let column = t.Fresh "peers"
-                            partials.Add((column, e))
-                            col column
+                        | ScalarExpr.Aggregation((AggKind.Len | AggKind.Count), _, _) -> running ScalarFunction.CumSum e true
+                        | ScalarExpr.Aggregation((AggKind.Sum | AggKind.SumOrNull), _, _) -> running ScalarFunction.CumSum e false
+                        | ScalarExpr.Aggregation((AggKind.Min | AggKind.MinNanLargest), _, _) -> running ScalarFunction.CumMin e false
+                        | ScalarExpr.Aggregation((AggKind.Max | AggKind.MaxNanLargest), _, _) -> running ScalarFunction.CumMax e false
+                        // last_value over the default frame: the current row's last peer, its peers' last value; with
+                        // IGNORE NULLS the last non-null value of the peers so far.
+                        | ScalarExpr.Aggregation(AggKind.Last, _, _) -> run e false id
+                        | ScalarExpr.Aggregation(AggKind.LastNonNull, _, _) ->
+                            run e false (fun c -> window (ScalarExpr.Function(ScalarFunction.ForwardFill, [ c ], LogicalType.Unknown)))
                         | ScalarExpr.Aggregation(AggKind.Mean, argument, _) ->
-                            let sum = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.SumOrNull, argument, false))
-                            let count = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.Count, argument, false))
+                            let sum = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.SumOrNull, argument, false)) false
+                            let count = running ScalarFunction.CumSum (ScalarExpr.Aggregation(AggKind.Count, argument, false)) true
                             ScalarExpr.Binary(BinaryOp.Divide, ScalarExpr.Cast(sum, LogicalTypes.Float64, false), ScalarExpr.Cast(count, LogicalTypes.Float64, false))
                         | ScalarExpr.Aggregation _ -> invalidOp "an aggregate without a running value"
                         | _ -> ScalarExprOps.mapChildren overPeers e
@@ -420,7 +431,68 @@ module internal SqlQueries =
                             List.ofSeq partials,
                             None,
                             false)
-                    let values = LogicalPlan.Project(peers, (keys |> List.map (fun k -> k, col k)) @ [ name, value ])
+                    let running = LogicalPlan.Project(peers, keyColumns @ (runs |> Seq.map (fun (n, v, _) -> n, v) |> List.ofSeq))
+                    // Over no rows (a frame before the partition's start or out of reach) a count is 0.
+                    let counted (counts: bool) (e: ScalarExpr) =
+                        if counts then ScalarExpr.Function(ScalarFunction.FillNull, [ e; lit (LiteralValue.Int64 0L) ], LogicalTypes.Int64) else e
+                    let framed =
+                        match r.Shift, r.Reach with
+                        | 0L, None -> running
+                        // GROUPS: the running values `shift` groups later (past the end the last one) or earlier.
+                        | shift, None ->
+                            let moved (n: string, _, counts) =
+                                let shifted = ScalarExpr.Function(ScalarFunction.Shift, [ col n; lit (LiteralValue.Int64 -shift) ], LogicalType.Unknown)
+                                let filled = if shift > 0L then ScalarExpr.Function(ScalarFunction.ForwardFill, [ shifted ], LogicalType.Unknown) else shifted
+                                n, counted counts (window filled)
+                            LogicalPlan.Project(running, keyColumns @ (runs |> Seq.map moved |> List.ofSeq))
+                        // RANGE: the running values of the last group whose index is at most the current one's plus
+                        // `reach` (a null key's own: nulls sit at ±2^60, beyond every reach), in its partition: an
+                        // as-of join of the groups, sorted by the index, with themselves. The engine's as-of join
+                        // matches no null partition key, so partitions are matched by their dense rank.
+                        | _, Some reach ->
+                            let index = col (fst orders.Head)
+                            let partitionId = t.Fresh "partition"
+                            let identified =
+                                let id =
+                                    match partition with
+                                    | [] -> lit (LiteralValue.Int64 0L)
+                                    | parts ->
+                                        let key =
+                                            match parts with
+                                            | [ (n, _) ] -> col n
+                                            | several -> ScalarExpr.Function(ScalarFunction.AsStruct, several |> List.map (fst >> col), LogicalType.Unknown)
+                                        let dense = ScalarExpr.Function(ScalarFunction.Rank(RankMethod.Dense, None), [ key; lit (LiteralValue.Bool false) ], LogicalTypes.UInt32)
+                                        ScalarExpr.Function(ScalarFunction.FillNull, [ ScalarExpr.Cast(dense, LogicalTypes.Int64, false); lit (LiteralValue.Int64 0L) ], LogicalTypes.Int64)
+                                let withId = LogicalPlan.WithColumns(running, [ partitionId, id ])
+                                LogicalPlan.Shared(t.NextShared(), LogicalPlan.Sort(withId, [ { Expr = index; Descending = false; NullsLast = false } ]))
+                            let probe = t.Fresh "probe"
+                            let sentinel = lit (LiteralValue.Int64(1L <<< 60))
+                            let isNullKey = ScalarExpr.Binary(BinaryOp.GtEq, ScalarExpr.Unary(UnaryOp.Abs, index), sentinel)
+                            let reached = ScalarExpr.Conditional(isNullKey, index, ScalarExpr.Binary(BinaryOp.Add, index, lit (LiteralValue.Int64 reach)))
+                            let left = LogicalPlan.Project(identified, keyColumns @ [ partitionId, col partitionId; probe, reached ])
+                            let renamed = runs |> Seq.map (fun (n, _, counts) -> n, t.Fresh "reached", counts) |> List.ofSeq
+                            let rightId = t.Fresh "partition"
+                            let rightIndex = t.Fresh "index"
+                            let right =
+                                LogicalPlan.Project(
+                                    identified,
+                                    [ rightId, col partitionId; rightIndex, index ] @ (renamed |> List.map (fun (n, r, _) -> r, col n)))
+                            let joined =
+                                LogicalPlan.JoinAsOf(
+                                    left,
+                                    right,
+                                    { LeftOn = col probe
+                                      RightOn = col rightIndex
+                                      LeftBy = [ col partitionId ]
+                                      RightBy = [ col rightId ]
+                                      Strategy = AsofStrategy.Backward
+                                      Tolerance = None
+                                      AllowEq = true
+                                      CheckSorted = false
+                                      Suffix = None
+                                      Coalesce = JoinKeyCoalescing.KeepBoth })
+                            LogicalPlan.Project(joined, keyColumns @ (renamed |> List.map (fun (n, r, counts) -> n, counted counts (col r))))
+                    let values = LogicalPlan.Project(framed, keyColumns @ [ name, value ])
                     LogicalPlan.Join(
                         plan,
                         values,

@@ -189,6 +189,19 @@ module SqlParserTests =
             formatted "SELECT sum(x) OVER (PARTITION BY a ORDER BY d ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), rank() OVER (ORDER BY y DESC)")
 
     [<Fact>]
+    let ``IGNORE NULLS goes inside the parentheses or after them, RESPECT NULLS is the default`` () =
+        let ignores text =
+            match (firstItem text).Kind with
+            | SqlExprKind.Function call -> call.IgnoreNulls
+            | other -> failwithf "unexpected %A" other
+        Assert.True(ignores "SELECT lag(x, 2, 0 IGNORE NULLS) OVER (ORDER BY d)")
+        Assert.True(ignores "SELECT lag(x) ignore nulls OVER (ORDER BY d)")
+        Assert.False(ignores "SELECT lag(x RESPECT NULLS) OVER (ORDER BY d)")
+        Assert.False(ignores "SELECT lag(x) RESPECT NULLS OVER (ORDER BY d)")
+        Assert.Equal("SELECT last_value(x IGNORE NULLS) OVER (ORDER BY d)", formatted "SELECT last_value(x) IGNORE NULLS OVER (ORDER BY d)")
+        Assert.StartsWith("IGNORE NULLS or RESPECT NULLS is written once", (fails "SELECT lag(x IGNORE NULLS) RESPECT NULLS OVER (ORDER BY d)").Message)
+
+    [<Fact>]
     let ``Typed literals, CASE and EXTRACT`` () =
         Assert.Equal("(DATE '2000-01-01' + INTERVAL '5' DAY)", expr "date '2000-01-01' + interval '5' day")
         Assert.Equal("(CASE a WHEN 1 THEN 'x' ELSE 'y' END)", expr "CASE a WHEN 1 THEN 'x' ELSE 'y' END")

@@ -291,6 +291,8 @@ module internal PolarsScalarLowerer =
             | AggKind.Count -> if isDistinct then PolarsWrapper.NUnique baseH else PolarsWrapper.Count baseH
             | AggKind.First -> PolarsWrapper.First(baseH, false)
             | AggKind.Last -> PolarsWrapper.Last(baseH, false)
+            | AggKind.FirstNonNull -> PolarsWrapper.First(baseH, true)
+            | AggKind.LastNonNull -> PolarsWrapper.Last(baseH, true)
             | AggKind.Median -> PolarsWrapper.Median baseH
             | AggKind.Std ddof -> PolarsWrapper.Std(baseH, ddof)
             | AggKind.Var ddof -> PolarsWrapper.Var(baseH, ddof)
