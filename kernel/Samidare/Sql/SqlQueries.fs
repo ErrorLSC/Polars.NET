@@ -31,6 +31,10 @@ type internal SqlTranslation(text: string, catalog: ISqlCatalog, supportsAsserti
     member _.NextShared() =
         shared <- shared + 1
         shared
+
+    /// Derived tables bound so far, by their text and the common table expressions in scope: a derived table written
+    /// again is the same plan, shared as a common table expression is.
+    member val DerivedTables = Dictionary<string, SqlBound * int>()
     member _.Catalog = catalog
     member _.Sources = sources.ToArray()
 
@@ -120,22 +124,7 @@ module internal SqlQueries =
     /// The conjuncts of a condition with what every disjunct of an OR holds taken out of it:
     /// `(a AND x) OR (a AND y)` is `a AND (x OR y)` (Kleene logic distributes), so a join key written in each branch
     /// (TPC-DS Q13, Q48) joins the tables instead of filtering their cross product.
-    let private factorOrs (conjuncts: ScalarExpr list) : ScalarExpr list =
-        conjuncts
-        |> List.collect (fun conjunct ->
-            match FilterShapes.disjuncts conjunct with
-            | [ _ ] -> [ conjunct ]
-            | disjuncts ->
-                let branches = disjuncts |> List.map FilterShapes.conjuncts
-                let common = branches.Head |> List.filter (fun c -> branches.Tail |> List.forall (List.contains c)) |> List.distinct
-                if common.IsEmpty then [ conjunct ]
-                else
-                    let rests = branches |> List.map (List.filter (fun c -> not (List.contains c common)))
-                    // A branch left with nothing is true, and so is the OR.
-                    if rests |> List.exists List.isEmpty then common
-                    else
-                        let andOf (cs: ScalarExpr list) = cs |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.And, a, b))
-                        common @ [ rests |> List.map andOf |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.Or, a, b)) ])
+    let private factorOrs (conjuncts: ScalarExpr list) : ScalarExpr list = FilterShapes.factorDisjunctions conjuncts
 
     let private conjoin (conjuncts: ScalarExpr list) =
         conjuncts |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.And, a, b))
@@ -462,7 +451,32 @@ module internal SqlQueries =
                     let names = many |> List.map fst |> String.concat ", "
                     fail t part.Span $"The table name {part.Text} is ambiguous: {names}" (Some "Quote it to match one exactly.")
         | SqlTableRef.Derived(query, alias, span) ->
-            let bound = bindQuery t env query
+            // A derived table written twice (TPC-DS Q65's sa and sc) is bound once and shared, under fresh names the
+            // second time; one written once is unshared again (`unshareSingle`). Not one that reads the query around
+            // or holds a subquery, as common table expressions.
+            let key = String.Join("|", SqlFormat.query query :: (env.Ctes |> List.map (fun (_, _, id) -> string id)))
+            let readsOuter (plan: LogicalPlan) =
+                let rec go (p: LogicalPlan) =
+                    LogicalPlanOps.expressionsOf p |> List.exists ScalarExprOps.containsOuterColumn || LogicalPlanOps.getInputs p |> List.exists go
+                go plan
+            let bound =
+                match t.DerivedTables.TryGetValue key with
+                | true, (first, id) ->
+                    let fresh = first.Columns |> List.map (fun o -> { o with Internal = t.Fresh o.Name })
+                    let plan =
+                        LogicalPlan.Project(
+                            LogicalPlan.Shared(id, first.Plan),
+                            List.map2 (fun (f: SqlOutput) (o: SqlOutput) -> f.Internal, col o.Internal) fresh first.Columns
+                        )
+                    { first with Plan = plan; Columns = fresh }
+                | _ ->
+                    let bound = bindQuery t env query
+                    if LogicalPlanOps.containsSubqueries bound.Plan || readsOuter bound.Plan then
+                        bound
+                    else
+                        let id = t.NextShared()
+                        t.DerivedTables.[key] <- (bound, id)
+                        { bound with Plan = LogicalPlan.Shared(id, bound.Plan) }
             let renames = alias |> Option.map (fun a -> a.Columns) |> Option.defaultValue []
             if renames.Length > bound.Columns.Length then fail t span $"The derived table has {bound.Columns.Length} columns; the alias names {renames.Length}" None
             let columns =

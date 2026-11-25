@@ -17,6 +17,13 @@ module internal JoinStages =
     /// True when every member of a result selector is a path over its parameters (a parameter, a member chain,
     /// or a nested tuple / anonymous row of such paths). Downstream stages resolve such a row through its path
     /// scopes even when it cannot be projected as columns here (F# AnonymousObject rows, for instance).
+    /// The first of `base`, `base2`, `base3`, ... that gives none of the right's columns a name the left has.
+    let private uniqueJoinSuffix (baseSuffix: string) (leftColSet: Set<string>) (rightCols: string list) =
+        let rec find (cnt: int) =
+            let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
+            if rightCols |> List.exists (fun rc -> leftColSet.Contains(rc + candidate)) then find (cnt + 1) else candidate
+        find 1
+
     let private isPathOnlySelector (resSel: LambdaExpression) =
         let names = resSel.Parameters |> Seq.map (fun p -> p.Name) |> Set.ofSeq
         let rec isPath (e: Expression) =
@@ -165,12 +172,7 @@ module internal JoinStages =
             let leftColSet = Set.ofList leftCols
 
             let baseSuffix = if isRightJoin then LinqConstants.DefaultLeftSuffix else LinqConstants.DefaultRightSuffix
-            let rec findUniqueSuffix (cnt: int) =
-                let candidate = if cnt = 1 then baseSuffix else sprintf "%s%d" baseSuffix cnt
-                let hasConflict = rightCols |> List.exists (fun rc -> leftColSet.Contains (rc + candidate))
-                if not hasConflict then candidate
-                else findUniqueSuffix (cnt + 1)
-            let uniqueSuffix = findUniqueSuffix 1
+            let uniqueSuffix = uniqueJoinSuffix baseSuffix leftColSet rightCols
 
             let outerParam = outerKey.Parameters.[0]
             let innerParam = innerKey.Parameters.[0]
@@ -417,7 +419,9 @@ module internal JoinStages =
             let leftCols = (SchemaInference.inferPlanSchema state.Plan).ColumnNames
             let rightCols = (SchemaInference.inferPlanSchema rightPlan).ColumnNames
             let leftColSet = Set.ofList leftCols
-            let uniqueSuffix = LinqConstants.DefaultRightSuffix
+            // Three or more single-value sequences joined in a row each bring a column of the same name (`LongCount`):
+            // the suffix must make the right's names new on the left built so far (TPC-DS Q88).
+            let uniqueSuffix = uniqueJoinSuffix LinqConstants.DefaultRightSuffix leftColSet rightCols
             let joinPlan = LogicalPlan.Join(state.Plan, rightPlan, [], [], JoinKind.Cross, Some uniqueSuffix, JoinKeyCoalescing.Default, false)
 
             let leftScope = "outer"

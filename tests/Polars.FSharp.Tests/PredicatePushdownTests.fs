@@ -93,6 +93,17 @@ module PredicatePushdownTests =
         Assert.Equal(unbounded, PredicatePushdown.apply unbounded)
 
     [<Fact>]
+    let ``A test every branch of a disjunction makes goes down on its own`` () =
+        // (v > 1 AND w > 2) OR (v > 1 AND w > 3): v > 1 filters the left side, the rest stays above the join.
+        let branch other = ScalarExpr.Binary(BinaryOp.And, gt "v" 1, gt "w" other)
+        let plan = LogicalPlan.Filter(join JoinKind.Inner left right, ScalarExpr.Binary(BinaryOp.Or, branch 2, branch 3))
+        let expected = join JoinKind.Inner (LogicalPlan.Filter(left, gt "v" 1)) (LogicalPlan.Filter(right, ScalarExpr.Binary(BinaryOp.Or, gt "w" 2, gt "w" 3)))
+        Assert.Equal(expected, PredicatePushdown.apply plan)
+        // A branch that is the shared test alone makes the disjunction true: (v > 1) OR (v > 1 AND w > 2) is v > 1.
+        let absorbed = LogicalPlan.Filter(join JoinKind.Inner left right, ScalarExpr.Binary(BinaryOp.Or, gt "v" 1, branch 2))
+        Assert.Equal(join JoinKind.Inner (LogicalPlan.Filter(left, gt "v" 1)) right, PredicatePushdown.apply absorbed)
+
+    [<Fact>]
     let ``Sort and distinct let a predicate through, a distinct only on its subset`` () =
         let order = [ { SortOrder.Expr = col "k"; Descending = false; NullsLast = false } ]
         Assert.Equal(

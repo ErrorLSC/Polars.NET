@@ -25,6 +25,27 @@ module FilterShapes =
             | other -> other :: acc
         go expr []
 
+    /// Conjuncts with the conjuncts every branch of a disjunction shares taken out of it:
+    /// `(a AND b) OR (a AND c)` is `a AND (b OR c)`, and a branch left with nothing makes the rest true
+    /// (`a OR (a AND b)` is `a`). A shared test on one table then filters that table alone (TPC-DS Q13, Q48, Q88).
+    let factorDisjunctions (tests: ScalarExpr list) : ScalarExpr list =
+        tests
+        |> List.collect (fun conjunct ->
+            match disjuncts conjunct with
+            | [ _ ] -> [ conjunct ]
+            | branches ->
+                let branches = branches |> List.map conjuncts
+                let common = branches.Head |> List.filter (fun c -> branches.Tail |> List.forall (List.contains c)) |> List.distinct
+                if common.IsEmpty then
+                    [ conjunct ]
+                else
+                    let rests = branches |> List.map (List.filter (fun c -> not (List.contains c common)))
+                    if rests |> List.exists List.isEmpty then
+                        common
+                    else
+                        let andOf (cs: ScalarExpr list) = cs |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.And, a, b))
+                        common @ [ rests |> List.map andOf |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.Or, a, b)) ])
+
     /// Whether a literal is positive infinity (of any floating width).
     let isPositiveInfinity (value: LiteralValue) : bool =
         match value with

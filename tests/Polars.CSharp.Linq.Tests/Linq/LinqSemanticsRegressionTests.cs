@@ -141,6 +141,23 @@ public partial class LinqSemanticsRegressionTests
                      query.ToList().OrderBy(t => t.K).ThenBy(t => t.bk).ThenBy(t => t.z));
     }
 
+    [Fact]
+    public void Cross_Join_Of_Several_Counts_Keeps_Each_Count()
+    {
+        // Each count is a column of the same name: the third join used to give its column the name the second had.
+        using var l = DataFrame.From(Left);
+        var rows = l.AsQueryable<Kv>();
+        IQueryable<long> CountAbove(long v) => rows.Where(x => x.V > v).GroupBy(_ => 1).Select(g => g.LongCount());
+        var (above0, above10, above20, above30) = (CountAbove(0), CountAbove(10), CountAbove(20), CountAbove(30));
+        var query = from a in above0
+                    from b in above10
+                    from c in above20
+                    from d in above30
+                    select new { a, b, c, d };
+
+        Assert.Equal([new { a = 3L, b = 2L, c = 1L, d = 0L }], query.ToList());
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Set operations return distinct elements (By forms: first element per key, in source order).
     // ---------------------------------------------------------------------------------------------

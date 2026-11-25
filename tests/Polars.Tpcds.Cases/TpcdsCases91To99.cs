@@ -212,14 +212,19 @@ LIMIT 100;
         var startDate = new DateOnly(1999, 2, 1);
         var endDate = new DateOnly(1999, 4, 2);
 
-        var multiWarehouseOrders = (from ws1 in webSalesQuery
-                                    join ws2 in webSalesQuery on ws1.ws_order_number equals ws2.ws_order_number
-                                    // SQL <> is unknown when either warehouse is NULL
-                                    where ws1.ws_warehouse_sk != null && ws2.ws_warehouse_sk != null
-                                       && ws1.ws_warehouse_sk != ws2.ws_warehouse_sk
-                                    select ws1.ws_order_number).Distinct();
+        // As the SQL text writes it: ws_wh read by both IN subqueries, the second joined to web_returns.
+        var wsWh = from ws1 in webSalesQuery
+                   join ws2 in webSalesQuery on ws1.ws_order_number equals ws2.ws_order_number
+                   // SQL <> is unknown when either warehouse is NULL
+                   where ws1.ws_warehouse_sk != null && ws2.ws_warehouse_sk != null
+                      && ws1.ws_warehouse_sk != ws2.ws_warehouse_sk
+                   select new { ws1.ws_order_number, wh1 = ws1.ws_warehouse_sk, wh2 = ws2.ws_warehouse_sk };
 
-        var returnedOrders = webReturnsQuery.Select(wr => wr.wr_order_number).Distinct();
+        var multiWarehouseOrders = wsWh.Select(x => x.ws_order_number).Distinct();
+
+        var returnedOrders = (from wr in webReturnsQuery
+                              join w in wsWh on wr.wr_order_number equals w.ws_order_number
+                              select wr.wr_order_number).Distinct();
 
         var q95 = (from ws1 in webSalesQuery
                    join d in dateDimQuery on ws1.ws_ship_date_sk equals d.d_date_sk

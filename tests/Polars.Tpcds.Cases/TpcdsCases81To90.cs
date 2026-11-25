@@ -747,26 +747,41 @@ public static partial class TpcdsCases
         var timeDimQuery = TpcdsData.TimeDimQuery();
         var storeQuery = TpcdsData.StoreQuery();
 
-        var q88 = from ss in storeSalesQuery
-                  join hd in hdemoQuery on ss.ss_hdemo_sk equals hd.hd_demo_sk
-                  join t in timeDimQuery on ss.ss_sold_time_sk equals t.t_time_sk
-                  join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
-                  where s.s_store_name == "ese"
-                     && ((hd.hd_dep_count == 4 && hd.hd_vehicle_count <= 6)
-                         || (hd.hd_dep_count == 2 && hd.hd_vehicle_count <= 4)
-                         || (hd.hd_dep_count == 0 && hd.hd_vehicle_count <= 2))
-                  group t by 1 into g
-                  select new
-                  {
-                      h8_30_to_9 = g.Sum(x => x.t_hour == 8 && x.t_minute >= 30 ? 1L : 0L),
-                      h9_to_9_30 = g.Sum(x => x.t_hour == 9 && x.t_minute < 30 ? 1L : 0L),
-                      h9_30_to_10 = g.Sum(x => x.t_hour == 9 && x.t_minute >= 30 ? 1L : 0L),
-                      h10_to_10_30 = g.Sum(x => x.t_hour == 10 && x.t_minute < 30 ? 1L : 0L),
-                      h10_30_to_11 = g.Sum(x => x.t_hour == 10 && x.t_minute >= 30 ? 1L : 0L),
-                      h11_to_11_30 = g.Sum(x => x.t_hour == 11 && x.t_minute < 30 ? 1L : 0L),
-                      h11_30_to_12 = g.Sum(x => x.t_hour == 11 && x.t_minute >= 30 ? 1L : 0L),
-                      h12_to_12_30 = g.Sum(x => x.t_hour == 12 && x.t_minute < 30 ? 1L : 0L)
-                  };
+        // As the SQL text writes it: one count per half hour, each over its own join, the eight joined into one row.
+        IQueryable<long> HalfHour(int hour, bool secondHalf)
+        {
+            var sold = from ss in storeSalesQuery
+                       join hd in hdemoQuery on ss.ss_hdemo_sk equals hd.hd_demo_sk
+                       join t in timeDimQuery on ss.ss_sold_time_sk equals t.t_time_sk
+                       join s in storeQuery on ss.ss_store_sk equals s.s_store_sk
+                       where t.t_hour == hour
+                          && s.s_store_name == "ese"
+                          && ((hd.hd_dep_count == 4 && hd.hd_vehicle_count <= 6)
+                              || (hd.hd_dep_count == 2 && hd.hd_vehicle_count <= 4)
+                              || (hd.hd_dep_count == 0 && hd.hd_vehicle_count <= 2))
+                       select t;
+            var inHalf = secondHalf ? sold.Where(t => t.t_minute >= 30) : sold.Where(t => t.t_minute < 30);
+            return inHalf.GroupBy(_ => 1).Select(g => g.LongCount());
+        }
+
+        var s1 = HalfHour(8, secondHalf: true);
+        var s2 = HalfHour(9, secondHalf: false);
+        var s3 = HalfHour(9, secondHalf: true);
+        var s4 = HalfHour(10, secondHalf: false);
+        var s5 = HalfHour(10, secondHalf: true);
+        var s6 = HalfHour(11, secondHalf: false);
+        var s7 = HalfHour(11, secondHalf: true);
+        var s8 = HalfHour(12, secondHalf: false);
+
+        var q88 = from h8_30_to_9 in s1
+                  from h9_to_9_30 in s2
+                  from h9_30_to_10 in s3
+                  from h10_to_10_30 in s4
+                  from h10_30_to_11 in s5
+                  from h11_to_11_30 in s6
+                  from h11_30_to_12 in s7
+                  from h12_to_12_30 in s8
+                  select new { h8_30_to_9, h9_to_9_30, h9_30_to_10, h10_to_10_30, h10_30_to_11, h11_to_11_30, h11_30_to_12, h12_to_12_30 };
 
         return q88;
     }

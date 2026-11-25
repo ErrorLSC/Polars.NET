@@ -197,7 +197,9 @@ module internal PredicatePushdown =
         match plan with
         | LogicalPlan.Filter(input, pred) ->
             let optimizedInput = apply input
-            let conjuncts = splitConjuncts pred
+            // A test every branch of a disjunction makes goes down on its own (a common subplan's filter is the
+            // disjunction of its consumers' filters, which often share all but one test: TPC-DS Q88).
+            let conjuncts = splitConjuncts pred |> FilterShapes.factorDisjunctions
             conjuncts
             |> List.fold (fun currentPlan conjunct -> pushdownConjunct conjunct currentPlan) optimizedInput
 

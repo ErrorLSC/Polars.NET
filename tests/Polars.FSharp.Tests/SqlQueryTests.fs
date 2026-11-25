@@ -201,6 +201,17 @@ module SqlQueryTests =
         | other -> failwithf "unexpected %A" other
 
     [<Fact>]
+    let ``A derived table written twice is one shared plan, one written once is not shared`` () =
+        let twice =
+            (translate "SELECT a.ss_store FROM (SELECT ss_store, sum(ss_qty) AS q FROM sales GROUP BY ss_store) a, (SELECT ss_store, sum(ss_qty) AS q FROM sales GROUP BY ss_store) b WHERE a.ss_store = b.ss_store AND a.q > b.q").Plan
+        match sharedOf twice with
+        | [ (one, first); (other, second) ] when one = other -> Assert.Equal(first, second)
+        | other -> failwithf "unexpected %A" other
+        let different =
+            (translate "SELECT a.ss_store FROM (SELECT ss_store, sum(ss_qty) AS q FROM sales GROUP BY ss_store) a, (SELECT ss_store, max(ss_qty) AS q FROM sales GROUP BY ss_store) b WHERE a.ss_store = b.ss_store").Plan
+        Assert.Empty(sharedOf different)
+
+    [<Fact>]
     let ``Filters that select branches of a union take copies of the common table expression`` () =
         let text =
             "WITH c AS (SELECT ss_store AS k, ss_qty AS q, 's' AS t FROM sales UNION ALL SELECT s_id, 1, 'x' FROM store) SELECT a.q, b.q FROM c a, c b WHERE a.k = b.k AND a.t = 's' AND b.t = 'x'"

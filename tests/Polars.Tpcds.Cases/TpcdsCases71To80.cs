@@ -1403,13 +1403,12 @@ public static partial class TpcdsCases
         var storeReturnsQuery = TpcdsData.StoreReturnsQuery();
         var dateDimQuery = TpcdsData.DateDimQuery();
 
-        var dates2000 = dateDimQuery.Where(d => d.d_year == 2000);
-
+        // As the SQL text writes it: each channel over every year, the year chosen by the final filter on the store side.
         var ws = from w in webSalesQuery
                  join r in webReturnsQuery on new { order_number = (long?)w.ws_order_number, item_sk = (long?)w.ws_item_sk }
                                        equals new { order_number = (long?)r.wr_order_number, item_sk = (long?)r.wr_item_sk } into rGroup
                  from r in rGroup.DefaultIfEmpty()
-                 join d in dates2000 on w.ws_sold_date_sk equals d.d_date_sk
+                 join d in dateDimQuery on w.ws_sold_date_sk equals d.d_date_sk
                  where r == null
                  group w by new { d.d_year, w.ws_item_sk, w.ws_bill_customer_sk } into g
                  select new
@@ -1427,7 +1426,7 @@ public static partial class TpcdsCases
                  join r in catalogReturnsQuery on new { order_number = (long?)c.cs_order_number, item_sk = (long?)c.cs_item_sk }
                                            equals new { order_number = (long?)r.cr_order_number, item_sk = (long?)r.cr_item_sk } into rGroup
                  from r in rGroup.DefaultIfEmpty()
-                 join d in dates2000 on c.cs_sold_date_sk equals d.d_date_sk
+                 join d in dateDimQuery on c.cs_sold_date_sk equals d.d_date_sk
                  where r == null
                  group c by new { d.d_year, c.cs_item_sk, c.cs_bill_customer_sk } into g
                  select new
@@ -1444,7 +1443,7 @@ public static partial class TpcdsCases
                  join r in storeReturnsQuery on new { ticket_number = (long?)s.ss_ticket_number, item_sk = (long?)s.ss_item_sk }
                                          equals new { ticket_number = (long?)r.sr_ticket_number, item_sk = (long?)r.sr_item_sk } into rGroup
                  from r in rGroup.DefaultIfEmpty()
-                 join d in dates2000 on s.ss_sold_date_sk equals d.d_date_sk
+                 join d in dateDimQuery on s.ss_sold_date_sk equals d.d_date_sk
                  where r == null
                  group s by new { d.d_year, s.ss_item_sk, s.ss_customer_sk } into g
                  select new
@@ -1464,7 +1463,7 @@ public static partial class TpcdsCases
                      join c in cs on new { year = s.ss_sold_year, item = s.ss_item_sk, cust = s.ss_customer_sk }
                               equals new { year = c.cs_sold_year, item = c.cs_item_sk, cust = c.cs_customer_sk } into cGroup
                      from c in cGroup.DefaultIfEmpty()
-                     where (w.ws_qty ?? 0L) > 0L || (c.cs_qty ?? 0L) > 0L
+                     where ((w.ws_qty ?? 0L) > 0L || (c.cs_qty ?? 0L) > 0L) && s.ss_sold_year == 2000
                      select new
                      {
                          s.ss_sold_year,

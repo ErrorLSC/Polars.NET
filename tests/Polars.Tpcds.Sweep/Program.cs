@@ -25,7 +25,7 @@ using Polars.Tpcds;
 // texts) through the SQL frontend, checks its rows against DuckDB's on the same text, then times the frontend (translation
 // included), the LINQ version and DuckDB in rotating order, and writes sql-sweep.csv and sql-sweep.md. `sql-plans`
 // writes each query's optimized plan from the SQL frontend (Qn.sql.txt), the engine's plan of it (Qn.sql.polars.txt)
-// and the LINQ version's (Qn.linq.txt).
+// and the LINQ version's, as IR (Qn.linq.ir.txt) and the engine's (Qn.linq.txt).
 
 if (args.Length == 0 || args[0] is not ("run" or "plans" or "sql" or "sql-plans"))
 {
@@ -61,6 +61,7 @@ if (args[0] == "sql-plans")
         using (var lazy = PolarsSql.lazyFrame(catalog, text))
             File.WriteAllText(Path.Combine(output, query.Name + ".sql.polars.txt"), Normalize(PolarsWrapper.Explain(lazy, optimized: true)));
         File.WriteAllText(Path.Combine(output, query.Name + ".linq.txt"), Normalize(query.Explain()));
+        File.WriteAllText(Path.Combine(output, query.Name + ".linq.ir.txt"), Normalize(query.ExplainLogicalPlan()));
     }
     Console.WriteLine($"{selected.Count} plan pairs written to {output}");
     return 0;
