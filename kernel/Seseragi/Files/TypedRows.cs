@@ -43,7 +43,7 @@ internal static class TypedRows
         // Captured values and local computations as constants first, as the LINQ provider does.
         where = (Expression<Func<T, bool>>)PartialEvaluator.eval(where);
         ParameterExpression row = where.Parameters[0];
-        TranslationContext context = SubqueryDecorrelator.createContextForTypeWithCols(typeof(T), ListModule.OfSeq(names), row.Name ?? "row");
+        TranslationContext context = SubqueryPatterns.createContextForTypeWithCols(typeof(T), ListModule.OfSeq(names), row.Name ?? "row");
         List<ScalarExpr> pushed = [];
         List<Expression> client = [];
         // The fields as the reader reads them, for whether a pushed conjunct is evaluated exactly.

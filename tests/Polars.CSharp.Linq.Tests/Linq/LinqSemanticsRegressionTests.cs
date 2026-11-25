@@ -3,6 +3,7 @@ using Polars.CSharp.Linq;
 using Polars.NET.Linq;
 using Kaminari.Samidare;
 using Polars.NET.Core.Exceptions;
+using System.Text.RegularExpressions;
 
 namespace Polars.CSharp.Tests.Linq;
 
@@ -10,7 +11,7 @@ namespace Polars.CSharp.Tests.Linq;
 /// Regression tests for LINQ semantics the TPC-DS audit found broken: results are compared with LINQ to Objects
 /// (or with hand-computed values for Polars-only operators such as Rank and Std).
 /// </summary>
-public class LinqSemanticsRegressionTests
+public partial class LinqSemanticsRegressionTests
 {
     public class Kv
     {
@@ -326,10 +327,14 @@ public class LinqSemanticsRegressionTests
     private static string LogicalPlanOf<T>(IQueryable<T> query) =>
         (string)query.GetType().GetMethod("ExplainLogicalPlan")!.Invoke(query, null)!;
 
+    // The column the Decorrelation pass attaches a planned scalar subquery as.
+    [GeneratedRegex(@"__sq\d+_(agg|scalar|value)")]
+    private static partial Regex PlannedScalarColumn { get; }
+
     private static void AssertScalarIsPlanned<T>(IQueryable<T> query)
     {
         Assert.False(IsFullFallback(query));
-        Assert.Contains("__subquery_agg_u", LogicalPlanOf(query));
+        Assert.Matches(PlannedScalarColumn, LogicalPlanOf(query));
     }
 
     [Fact]
@@ -679,7 +684,7 @@ public class LinqSemanticsRegressionTests
         var outOfRange = q.Where(x => x.V > others.Select(y => y.V).ElementAt(5)).Select(x => x.K);
 
         // Compiling (Explain) does not run the subquery.
-        Assert.Contains("__subquery_agg_u", LogicalPlanOf(none));
+        Assert.Matches(PlannedScalarColumn, LogicalPlanOf(none));
 
         AssertSameFailure(() => Facts.Where(x => x.V > Others.Single(y => y.K == 99).V).ToList(), () => none.ToList());
         AssertSameFailure(() => Facts.Where(x => x.V > Others.Single(y => y.K > 7).V).ToList(), () => many.ToList());
@@ -1961,5 +1966,141 @@ public class LinqSemanticsRegressionTests
         using var df = DataFrame.FromColumns(new { K = new long?[] { 1, null }, V = new long?[] { 10, 20 } });
         var q = df.AsQueryable<SKv>();
         Assert.Equal([true, false], q.Select(x => (SKv?)x).Select(x => x.HasValue).ToList());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Correlated subqueries (2026-11-25 probes): a negated comparison with a correlated aggregate, NaN correlation
+    // keys, and nested collections of unmatched rows.
+    // ---------------------------------------------------------------------------------------------
+
+    public class CorrOuter
+    {
+        public long K { get; set; }
+        public long? V { get; set; }
+        public double D { get; set; }
+        public int N { get; set; }
+    }
+
+    public class CorrInner
+    {
+        public long K { get; set; }
+        public long? V { get; set; }
+        public double D { get; set; }
+    }
+
+    private static readonly CorrOuter[] COuter =
+    [
+        new() { K = 1, V = 4, D = 0.5, N = 1 },
+        new() { K = 1, V = null, D = double.NaN, N = 9 },
+        new() { K = 2, V = 30, D = 5.0, N = 0 },
+        new() { K = 2, V = null, D = 1.0, N = 5 },
+        new() { K = 3, V = 7, D = double.NaN, N = 2 },
+        new() { K = 4, V = 1, D = 1.0, N = 3 },
+    ];
+
+    private static readonly CorrInner[] CInner =
+    [
+        new() { K = 1, V = 5, D = 1.0 },
+        new() { K = 1, V = null, D = double.NaN },
+        new() { K = 2, V = 20, D = 2.0 },
+        new() { K = 3, V = null, D = 3.0 },
+    ];
+
+    private static void AssertCorrelated(Func<IQueryable<CorrOuter>, IQueryable<CorrInner>, IQueryable<CorrOuter>> build)
+    {
+        using var lo = DataFrame.From(COuter);
+        using var li = DataFrame.From(CInner);
+        var query = build(lo.AsQueryable<CorrOuter>(), li.AsQueryable<CorrInner>());
+        var expected = build(COuter.AsQueryable(), CInner.AsQueryable()).AsEnumerable().Select(x => (x.K, x.N)).ToList();
+        var plan = ((IQueryExplainable)query).InspectPlan(true);
+        Assert.False(plan.IsFullFallback);
+        Assert.False(plan.HasClientPredicates);
+        Assert.Equal(expected, [.. query.Select(x => new { x.K, x.N }).AsEnumerable().Select(x => (x.K, x.N))]);
+    }
+
+    [Fact]
+    public void Negated_Comparison_With_A_Correlated_Aggregate_Keeps_Null_Rows()
+    {
+        // `!(a < agg)` used to become `a >= agg`, which drops the rows where a side is null (C# `!(null < x)` is true).
+        AssertCorrelated((o, i) => o.Where(x => !(x.V < i.Where(y => y.K == x.K).Max(y => y.V))));
+        AssertCorrelated((o, i) => o.Where(x => !(x.V >= i.Where(y => y.K == x.K).Sum(y => y.V))));
+        AssertCorrelated((o, i) => o.Where(x => !(i.Where(y => y.K == x.K).Max(y => y.V) > x.V)));
+        // with a theta condition
+        AssertCorrelated((o, i) => o.Where(x => !(x.V < i.Where(y => y.K == x.K && y.D < x.D).Max(y => y.V))));
+    }
+
+    [Fact]
+    public void Negated_Comparison_With_A_Correlated_Aggregate_Keeps_NaN_Rows()
+    {
+        // K = 4 has no inner rows, where LINQ's non-nullable Max throws: it is left out.
+        AssertCorrelated((o, i) => o.Where(x => x.K < 4).Where(x => !(x.D < i.Where(y => y.K == x.K).Max(y => y.D))));
+        AssertCorrelated((o, i) => o.Where(x => x.K < 4).Where(x => !(x.D >= i.Where(y => y.K == x.K).Max(y => y.D))));
+    }
+
+    public class NanKey
+    {
+        public long Id { get; set; }
+        public double A { get; set; }
+        public double? B { get; set; }
+    }
+
+    [Fact]
+    public void NaN_Correlation_Key_Never_Matches()
+    {
+        // C# `NaN == NaN` is false; a join key matches equal NaNs, so NaN inner keys are filtered out.
+        NanKey[] rows = [new() { Id = 1, A = 1, B = 1 }, new() { Id = 2, A = double.NaN, B = double.NaN }, new() { Id = 3, A = 3, B = null }];
+        using var df = DataFrame.From(rows);
+        var q = df.AsQueryable<NanKey>();
+        var r = rows.AsQueryable();
+        void Check(Func<IQueryable<NanKey>, IQueryable<NanKey>> build)
+        {
+            var query = build(q);
+            Assert.False(((IQueryExplainable)query).InspectPlan(true).IsFullFallback);
+            Assert.Equal(build(r).Select(x => x.Id).ToList(), query.Select(x => x.Id).ToList());
+        }
+        Check(s => s.Where(x => s.Any(y => y.A == x.A && y.Id != 0)));
+        Check(s => s.Where(x => !s.Any(y => y.A == x.A && y.Id != 0)));
+        Check(s => s.Where(x => s.Count(y => y.A == x.A) > 0));
+        Check(s => s.Where(x => s.Any(y => y.B == x.B)));
+        Check(s => s.Where(x => !s.Any(y => y.B == x.A)));
+        Check(s => s.Where(x => s.Any(y => y.A == x.A && y.Id < x.Id)));
+    }
+
+    [Fact]
+    public void Correlated_Collection_Of_An_Unmatched_Row_Is_Empty()
+    {
+        // The left join leaves no list for a row without matches; ToList / ToArray never yield null.
+        using var lo = DataFrame.From(COuter);
+        using var li = DataFrame.From(CInner);
+        var o = lo.AsQueryable<CorrOuter>();
+        var i = li.AsQueryable<CorrInner>();
+        var lists = o.Select(x => new { x.K, x.N, Vs = i.Where(y => y.K == x.K).Select(y => y.V).ToList() }).ToList();
+        var expectedLists = COuter.Select(x => new { x.K, x.N, Vs = CInner.Where(y => y.K == x.K).Select(y => y.V).ToList() }).ToList();
+        Assert.Equal(expectedLists.Select(x => (x.K, x.N, string.Join(",", x.Vs))), lists.Select(x => (x.K, x.N, string.Join(",", x.Vs))));
+        Assert.All(lists, x => Assert.NotNull(x.Vs));
+        var arrays = o.Select(x => new { x.K, Ds = i.Where(y => y.K == x.K && y.D < x.D).Select(y => y.D).ToArray() }).ToList();
+        var expectedArrays = COuter.Select(x => new { x.K, Ds = CInner.Where(y => y.K == x.K && y.D < x.D).Select(y => y.D).ToArray() }).ToList();
+        Assert.Equal(expectedArrays.Select(x => (x.K, string.Join(",", x.Ds))), arrays.Select(x => (x.K, string.Join(",", x.Ds))));
+        Assert.All(arrays, x => Assert.NotNull(x.Ds));
+    }
+
+    [Fact]
+    public void Subquery_With_Its_Own_Let_Reads_The_Outer_Let()
+    {
+        // C# query syntax names the transparent identifiers of an outer and an inner `let` alike: inside the
+        // subquery, the outer one must still read the outer row.
+        using var lo = DataFrame.From(COuter);
+        using var li = DataFrame.From(CInner);
+        static IQueryable<long> Filtered(IQueryable<CorrOuter> outer, IQueryable<CorrInner> inner) =>
+            from x in outer
+            let limit = x.N * 2
+            where (from y in inner let w = y.K * 10 where y.K == x.K && w > limit select y).Any()
+            select x.K * 100 + x.N;
+        static IQueryable<long> Counted(IQueryable<CorrOuter> outer, IQueryable<CorrInner> inner) =>
+            from x in outer
+            let limit = x.N * 2
+            select x.K * 1000 + (from y in inner let w = y.K * 10 where y.K == x.K && w > limit select y).Count();
+        Assert.Equal(Filtered(COuter.AsQueryable(), CInner.AsQueryable()).ToList(), Filtered(lo.AsQueryable<CorrOuter>(), li.AsQueryable<CorrInner>()).ToList());
+        Assert.Equal(Counted(COuter.AsQueryable(), CInner.AsQueryable()).ToList(), Counted(lo.AsQueryable<CorrOuter>(), li.AsQueryable<CorrInner>()).ToList());
     }
 }

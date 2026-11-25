@@ -174,11 +174,15 @@ module internal SchemaInference =
             | _ -> LogicalType.Unknown
         | ScalarExpr.Slice _ -> LogicalType.Unknown
 
-        | ScalarExpr.Subquery(_, kind) ->
+        | ScalarExpr.Subquery(_, plan, kind) ->
             match kind with
-            | SubqueryKind.Exists _
-            | SubqueryKind.InSubquery _ -> LogicalTypes.Boolean
-            | SubqueryKind.ScalarScalar -> LogicalType.Unknown
+            | SubqueryKind.Exists
+            | SubqueryKind.In _ -> LogicalTypes.Boolean
+            | SubqueryKind.Scalar ->
+                match (inferPlanSchema plan).Fields with
+                | [ field ] -> field.DataType
+                | _ -> LogicalType.Unknown
+        | ScalarExpr.OuterColumn(_, _, dataType) -> dataType
 
         | ScalarExpr.Alias(inner, _) -> inferScalarType schema inner
         | ScalarExpr.Udf(_, _, returnType, _) -> returnType
@@ -196,7 +200,7 @@ module internal SchemaInference =
     // =========================================================================
 
     /// The schema of a plan's output, inferred once per node within a compilation (see PlanSchemaCache).
-    let rec inferPlanSchema (plan: LogicalPlan) : LogicalSchema =
+    and inferPlanSchema (plan: LogicalPlan) : LogicalSchema =
         match PlanSchemaCache.Current with
         | null -> computePlanSchema plan
         | cache ->

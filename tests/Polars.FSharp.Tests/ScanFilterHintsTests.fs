@@ -55,7 +55,7 @@ module ScanFilterHintsTests =
 
     [<Fact>]
     let ``A subquery anywhere makes the plan opaque`` () =
-        let sub = ScalarExpr.Subquery(scan 0, SubqueryKind.ScalarScalar)
+        let sub = ScalarExpr.Subquery(1, scan 0, SubqueryKind.Scalar)
         let plan = LogicalPlan.Filter(LogicalPlan.Filter(scan 0, eq "k" 1), bin BinaryOp.Eq (col "v") sub)
         Assert.Equal(None, hintOf (apply plan) 0)
 

@@ -231,24 +231,17 @@ module internal JoinStages =
                             let tupleSel, proj = splitResultSelector resSel
                             continueWith state rowShape (LinqStage.Join(methodInfo, innerExpr, outerKey, innerKey, Some tupleSel) :: LinqStage.Project proj :: tail)
 
-                    match SubqueryDecorrelator.tryDecorrelateProjection env.ResolveSequence joinPlan resSel updatedRowShape with
-                    | Some (decorPlan, rewrittenResSel) ->
-                        let postDecorCols = (SchemaInference.inferPlanSchema decorPlan).ColumnNames
-                        let pLeft2 = rewrittenResSel.Parameters.[0]
-                        let pRight2 = rewrittenResSel.Parameters.[1]
-                        let resCtx2 =
-                            if not updatedRowShape.IsEmpty then
-                                TranslationContext.ScopedEntity([ pLeft2.Name; pRight2.Name ], updatedRowShape, postDecorCols)
-                            else
-                                TranslationContext.BinaryJoin(pLeft2.Name, pRight2.Name, leftColSet, uniqueSuffix)
-
-                        match tryExtractJoinProjections resCtx2 decorPlan pLeft2 pRight2 leftCols rightCols uniqueSuffix isRightJoin rewrittenResSel.Body with
-                        | Some projs -> continueWith { state with Plan = LogicalPlan.Project(decorPlan, projs) } RowShape.Empty tail
-                        | None -> splitSelector decorPlan
+                    let irPlan =
+                        tryWithSubqueries
+                            resSel.Body
+                            (fun () -> tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body)
+                            (fun projs -> LogicalPlan.Project(joinPlan, projs))
+                    match irPlan with
+                    | Some plan -> continueWith { state with Plan = plan } RowShape.Empty tail
                     | None ->
-                        match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body with
-                        | Some projs -> continueWith { state with Plan = LogicalPlan.Project(joinPlan, projs) } RowShape.Empty tail
-                        | None -> splitSelector joinPlan
+                    match tryExtractJoinProjections resCtx joinPlan pLeft pRight leftCols rightCols uniqueSuffix isRightJoin resSel.Body with
+                    | Some projs -> continueWith { state with Plan = LogicalPlan.Project(joinPlan, projs) } RowShape.Empty tail
+                    | None -> splitSelector joinPlan
             | _ ->
                 continueWith (fallback state) rowShape tail
         | None ->

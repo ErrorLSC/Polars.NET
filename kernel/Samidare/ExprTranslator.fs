@@ -11,6 +11,14 @@ module internal ExprTranslator =
     let rec tryTranslateToScalar (ctx: TranslationContext) (expr: Expression) : ScalarExpr option =
         let eval = tryTranslateToScalar
         try
+            // Inside a subquery: an expression reading only the enclosing query's row (an OuterColumn).
+            match SubqueryTranslator.tryTranslateOuterReference eval ctx expr with
+            | Some s -> Some s
+            | None ->
+            // A subquery (Any, Contains, an aggregate, an element of another source) as an IR subquery.
+            match SubqueryTranslator.tryTranslateSubquery eval ctx expr with
+            | Some s -> Some s
+            | None ->
             match expr with
             // 0. Row-level String Split exact index access: s.Split(sep)[idx] -> StrSplitExact + StructFieldByIndex
             | SplitIndexAccess(target, sep, idx) ->
@@ -116,9 +124,7 @@ module internal ExprTranslator =
 
             // 9. Parameter mapping: delegate physical column resolution directly to TranslationContext
             | :? ParameterExpression as p ->
-                if not (isNull p.Name) && (p.Name.StartsWith "__subquery_agg_" || p.Name.StartsWith "__subquery_col_") then
-                    Some(ScalarExpr.Column p.Name)
-                elif not (isNull p.Name) && p.Name.StartsWith "__key_col_" then
+                if not (isNull p.Name) && p.Name.StartsWith "__key_col_" then
                     Some(ScalarExpr.Column(p.Name.Substring 10))
                 else
                     ctx.TryResolveParameter p.Name

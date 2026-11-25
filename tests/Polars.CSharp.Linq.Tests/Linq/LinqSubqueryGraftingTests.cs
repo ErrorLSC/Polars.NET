@@ -72,7 +72,8 @@ public class LinqSubqueryGraftingTests
 
         var distinct = AssertAgrees((q, inner) =>
             q.Where(r => inner.Where(x => x.V > 25).Select(x => x.A).Distinct().Contains(r.B)).Select(r => r.Id));
-        Assert.Contains("Distinct: subset=None keep=First maintainOrder=false", distinct);
+        // A Distinct under the semi join reads no order (the Decorrelation pass drops it: the join deduplicates).
+        Assert.DoesNotContain("maintainOrder=true", distinct);
     }
 
     [Fact]

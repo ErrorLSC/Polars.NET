@@ -58,7 +58,7 @@ module internal PolarsScalarLowerer =
         JsonDataTypeInference.tryInfer t |> Option.map lowerJsonDataType
 
     /// Strongly-typed zero-boxing conversion from LiteralValue to Polars ExprHandle
-    let lowerLiteral (value: LiteralValue) : ExprHandle =
+    let rec lowerLiteral (value: LiteralValue) : ExprHandle =
         match value with
         // A typed null keeps its type, so operators (negation, not, a filter) accept it.
         | LiteralValue.Null dt when dt <> LogicalType.Unknown && dt <> LogicalTypes.Null ->
@@ -84,6 +84,10 @@ module internal PolarsScalarLowerer =
         | LiteralValue.DateTimeOffset dto -> PolarsWrapper.Lit dto
         | LiteralValue.TimeSpan ts -> PolarsWrapper.Lit ts
         | LiteralValue.TimeOnly to' -> PolarsWrapper.Lit to'
+        // A typed null filtered to no rows and imploded: one empty list, a scalar that broadcasts.
+        | LiteralValue.EmptyList element ->
+            let none = lowerLiteral (LiteralValue.Null element)
+            PolarsWrapper.Implode(PolarsWrapper.Filter(none, PolarsWrapper.Lit false), maintainOrder = true)
 
     /// A typed array holding the values of homogeneous literals (strings or integers), for a Series literal.
     let private literalArray (values: LiteralValue list) : Array =
@@ -671,8 +675,9 @@ module internal PolarsScalarLowerer =
             let isInH = PolarsWrapper.IsIn(innerH, listH, nullsEqual = nullsEqual)
             if negated then PolarsWrapper.Not isInH else isInH
 
-        | ScalarExpr.Subquery(_, kind) ->
-            failwithf "Subquery scalar expression must be decorrelated into relational join before physical lowering: %A" kind
+        | ScalarExpr.Subquery(scope, _, _)
+        | ScalarExpr.OuterColumn(scope, _, _) ->
+            failwithf "[Samidare Bug] Subquery #%d reached physical lowering: the Decorrelation pass replaces subqueries by joins first." scope
 
 
     /// Lowers a CLR constant of the given type, to be stored into a column of `columnType`, to a native literal

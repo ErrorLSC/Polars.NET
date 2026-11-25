@@ -58,8 +58,12 @@ module internal PipelineCompilation =
             else
                 None
 
+        // A subquery's sequence reading the enclosing query's row compiles for that row (its scope numbers and
+        // columns): it is not cached.
+        let readsOuterRows = CompilationScope.TryCurrent |> Option.exists (fun s -> s.ReadsOuterRows)
         let probe =
             keyed
+            |> Option.filter (fun _ -> not readsOuterRows)
             |> Option.bind (fun (_, keyExtraction) ->
                 QueryPlanCache.TryCreateProbe(targetType, keyExtraction.NormalizedExpression, keyExtraction.Parameters, mergeDiagnostics))
 

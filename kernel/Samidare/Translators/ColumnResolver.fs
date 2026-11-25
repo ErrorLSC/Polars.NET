@@ -84,12 +84,6 @@ module internal ColumnResolver =
         else
             match expr with
             | :? ParameterExpression as p when
-                not (isNull p.Name)
-                && (p.Name.StartsWith "__subquery_agg_" || p.Name.StartsWith "__subquery_col_")
-                ->
-                Some p.Name
-
-            | :? ParameterExpression as p when
                 not (isNull p.Name) && p.Name.StartsWith "__key_col_"
                 ->
                 Some(p.Name.Substring 10)
@@ -127,8 +121,7 @@ module internal ColumnResolver =
                         else
                             Some itemProp.Name
                     | TranslationContext.TupleJoin(_, leftCols, _)
-                    | TranslationContext.BinaryJoin(_, _, leftCols, _)
-                    | TranslationContext.CorrelatedJoin(_, _, leftCols, _, _) ->
+                    | TranslationContext.BinaryJoin(_, _, leftCols, _) ->
                         if leftCols.Contains itemProp.Name then
                             Some itemProp.Name
                         elif itemIdx >= 0 && itemIdx < leftCols.Count then
@@ -192,34 +185,6 @@ module internal ColumnResolver =
                                 Some m.Name
                         else
                             None
-
-                    | TranslationContext.CorrelatedJoin(outerParams, innerParam, leftCols, rightSuffix, rowShape) ->
-                        let scopeOpt = tryExtractScopeName inner
-                        match scopeOpt with
-                        | Some s when s = innerParam ->
-                            if leftCols.Contains m.Name then
-                                Some(m.Name + rightSuffix)
-                            else
-                                Some m.Name
-                        | Some s when List.contains s outerParams || rowShape.HasScope(RowScope.Named s) ->
-                            match rowShape.TryResolve(RowScope.Named s, m.Name) with
-                            | Some physicalCol -> Some physicalCol
-                            | None ->
-                                if leftCols.Contains m.Name then Some m.Name
-                                else Some m.Name
-                        | _ ->
-                            if isRootedIn innerParam inner then
-                                if leftCols.Contains m.Name then Some(m.Name + rightSuffix)
-                                else Some m.Name
-                            elif outerParams |> List.exists (fun p -> isRootedIn p inner) then
-                                match scopeOpt with
-                                | Some s ->
-                                    match rowShape.TryResolve(RowScope.Named s, m.Name) with
-                                    | Some physicalCol -> Some physicalCol
-                                    | None -> Some m.Name
-                                | None -> Some m.Name
-                            else
-                                None
 
                     | TranslationContext.TupleJoin(pairParam, leftCols, rightSuffix) ->
                         match isTupleAccess pairParam inner with
@@ -390,8 +355,7 @@ module internal ColumnResolver =
                         rowShape.Members scope |> List.tryHead |> Option.map (snd >> ScalarExpr.Column)
 
                 match ctx with
-                | TranslationContext.ScopedEntity(_, rowShape, _)
-                | TranslationContext.CorrelatedJoin(_, _, _, _, rowShape) ->
+                | TranslationContext.ScopedEntity(_, rowShape, _) ->
                     findColInRowShape rowShape
                 | TranslationContext.BinaryJoin(leftParam, rightParam, leftCols, rightSuffix) ->
                     if scope = RowScope.Named leftParam then

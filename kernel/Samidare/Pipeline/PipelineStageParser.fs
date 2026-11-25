@@ -20,9 +20,9 @@ module internal PipelineStageParser =
     /// Creates a TranslationContext with scope and column names.
     let createContextWithScopeAndCols (rowShape: RowShape) (elemType: Type) (cols: string list) (paramName: string) : TranslationContext =
         if ClrTypeHelper.IsScalarType elemType then
-            SubqueryDecorrelator.createContextForTypeWithCols elemType cols paramName
+            SubqueryPatterns.createContextForTypeWithCols elemType cols paramName
         elif rowShape.IsEmpty then
-            SubqueryDecorrelator.createContextForTypeWithCols elemType cols paramName
+            SubqueryPatterns.createContextForTypeWithCols elemType cols paramName
         else
             TranslationContext.ScopedEntity([ paramName ], rowShape, cols)
 
@@ -1063,7 +1063,7 @@ module internal PipelineStageParser =
                 | _ -> None
 
             let paramName = colSel.Parameters.[0].Name
-            let containsParam = SubqueryDecorrelator.containsParameter paramName colSel.Body
+            let containsParam = SubqueryPatterns.containsParameter paramName colSel.Body
 
             let isGroupSource, groupKeySelOpt, baseGroupSource =
                 match source with

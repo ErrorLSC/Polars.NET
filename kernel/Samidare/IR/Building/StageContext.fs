@@ -50,3 +50,35 @@ module internal StageContext =
     let makeCtx (rowShape: RowShape) (t: Type) (pName: string) (plan: LogicalPlan) =
         let cols = (SchemaInference.inferPlanSchema plan).ColumnNames
         PipelineStageParser.createContextWithScopeAndCols rowShape t cols pName
+
+    /// For a lambda body holding a subquery: translates with subqueries allowed, builds the node that holds them,
+    /// and replaces them with the Decorrelation pass. None when the body holds no subquery, or a part does not
+    /// translate or decorrelate: the caller then takes its other path (a client step).
+    let tryWithSubqueries (body: Expression) (translate: unit -> 'T option) (build: 'T -> LogicalPlan) : LogicalPlan option =
+        if not (SubqueryPatterns.containsSubquery body) then
+            None
+        else
+            let scope = CompilationScope.Current
+            let saved = scope.AllowSubqueries
+            let evaluatedBefore = scope.EvaluatedAtCompile
+            scope.AllowSubqueries <- true
+            let translated =
+                try
+                    translate ()
+                finally
+                    scope.AllowSubqueries <- saved
+            translated
+            |> Option.bind (fun t ->
+                let node = build t
+                if LogicalPlanOps.containsSubqueries node then
+                    let options: Passes.Decorrelation.Options =
+                        { Fresh = scope.FreshName; SupportsAssertions = scope.Backend.SupportsAssertions }
+                    match Passes.Decorrelation.tryNode options node with
+                    | Ok plan -> Some plan
+                    | Error _ -> None
+                // A subquery evaluated while compiling (design Qc) left a literal: the node is final.
+                elif scope.EvaluatedAtCompile && not evaluatedBefore then
+                    Some node
+                // A body that only looked like it held a subquery (a sequence method of another kind): the usual path.
+                else
+                    None)

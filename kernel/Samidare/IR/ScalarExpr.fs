@@ -201,10 +201,14 @@ module ScalarExprOps =
         | ScalarExpr.Coalesce exprs -> exprs |> List.map collectColumns |> Set.unionMany
         | ScalarExpr.ItemAccess(target, idx) -> Set.union (collectColumns target) (collectColumns idx)
         | ScalarExpr.Slice(target, _, _) -> collectColumns target
-        | ScalarExpr.Subquery(_, kind) ->
+        // The columns of the holding row a subquery's plan reads are OuterColumns inside the plan
+        // (LogicalPlanOps.outerColumns), not collected here; an OuterColumn is not a column of this row.
+        | ScalarExpr.Subquery(_, _, kind) ->
             match kind with
-            | SubqueryKind.InSubquery(target, _) -> collectColumns target
-            | _ -> Set.empty
+            | SubqueryKind.In(target, _) -> collectColumns target
+            | SubqueryKind.Scalar
+            | SubqueryKind.Exists -> Set.empty
+        | ScalarExpr.OuterColumn _ -> Set.empty
         | ScalarExpr.Alias(inner, _) -> collectColumns inner
         | ScalarExpr.Udf(_, args, _, _) -> args |> List.map collectColumns |> Set.unionMany
         | ScalarExpr.InList(target, _, _, _) -> collectColumns target
@@ -262,6 +266,46 @@ module ScalarExprOps =
         | ScalarExpr.Udf(_, args, _, _) -> args |> List.exists containsSubquery
         | ScalarExpr.InList(target, _, _, _) -> containsSubquery target
         | _ -> false
+
+    /// The immediate sub-expressions of an expression (a subquery's In target; never a subquery's plan).
+    let children (expr: ScalarExpr) : ScalarExpr list =
+        match expr with
+        | ScalarExpr.Column _
+        | ScalarExpr.Literal _
+        | ScalarExpr.OuterColumn _ -> []
+        | ScalarExpr.Binary(_, left, right) -> [ left; right ]
+        | ScalarExpr.Unary(_, inner)
+        | ScalarExpr.Cast(inner, _, _)
+        | ScalarExpr.EnumConvert(_, inner, _)
+        | ScalarExpr.Alias(inner, _)
+        | ScalarExpr.Slice(inner, _, _)
+        | ScalarExpr.InList(inner, _, _, _) -> [ inner ]
+        | ScalarExpr.Function(_, args, _)
+        | ScalarExpr.Udf(_, args, _, _)
+        | ScalarExpr.Coalesce args -> args
+        | ScalarExpr.Aggregation(_, innerOpt, _) -> Option.toList innerOpt
+        | ScalarExpr.Window(inner, partitionBy, orderBy) -> inner :: partitionBy @ (orderBy |> List.map (fun o -> o.Expr))
+        | ScalarExpr.SortBy(inner, orderBy) -> inner :: (orderBy |> List.map (fun o -> o.Expr))
+        | ScalarExpr.Conditional(test, ifTrue, ifFalse) -> [ test; ifTrue; ifFalse ]
+        | ScalarExpr.ItemAccess(target, idx) -> [ target; idx ]
+        | ScalarExpr.Subquery(_, _, kind) ->
+            match kind with
+            | SubqueryKind.In(target, _) -> [ target ]
+            | SubqueryKind.Scalar
+            | SubqueryKind.Exists -> []
+
+    /// Checks whether an expression reads an OuterColumn outside any subquery plan it embeds (the plans are not
+    /// searched; see LogicalPlanOps.outerColumns).
+    let rec containsOuterColumn (expr: ScalarExpr) : bool =
+        match expr with
+        | ScalarExpr.OuterColumn _ -> true
+        | _ -> children expr |> List.exists containsOuterColumn
+
+    /// The subqueries an expression embeds, outermost first (not those inside their plans), as (scope, plan, kind).
+    let rec subqueries (expr: ScalarExpr) : (int * LogicalPlan * SubqueryKind) list =
+        match expr with
+        | ScalarExpr.Subquery(scope, plan, kind) -> (scope, plan, kind) :: (children expr |> List.collect subqueries)
+        | _ -> children expr |> List.collect subqueries
 
     /// Checks whether an expression embeds a window expression.
     let rec containsWindow (expr: ScalarExpr) : bool =
@@ -382,12 +426,13 @@ module ScalarExprOps =
         | ScalarExpr.ItemAccess(target, idx) ->
             ScalarExpr.ItemAccess(substitute subst target, substitute subst idx)
         | ScalarExpr.Slice(target, off, len) -> ScalarExpr.Slice(substitute subst target, off, len)
-        | ScalarExpr.Subquery(plan, kind) ->
+        | ScalarExpr.Subquery(scope, plan, kind) ->
             let newKind =
                 match kind with
-                | SubqueryKind.InSubquery(target, neg) -> SubqueryKind.InSubquery(substitute subst target, neg)
+                | SubqueryKind.In(target, nullsEqual) -> SubqueryKind.In(substitute subst target, nullsEqual)
                 | other -> other
-            ScalarExpr.Subquery(plan, newKind)
+            ScalarExpr.Subquery(scope, plan, newKind)
+        | ScalarExpr.OuterColumn _ -> expr
         | ScalarExpr.Alias(inner, name) -> ScalarExpr.Alias(substitute subst inner, name)
         | ScalarExpr.Udf(name, args, ret, inv) ->
             ScalarExpr.Udf(name, args |> List.map (substitute subst), ret, inv)

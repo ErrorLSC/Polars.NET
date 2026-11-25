@@ -27,6 +27,8 @@ type LiteralValue =
     | DateTimeOffset of DateTimeOffset
     | TimeSpan of TimeSpan
     | TimeOnly of TimeOnly
+    /// An empty list whose elements have the given type (the value of a list aggregate over no rows).
+    | EmptyList of element: LogicalType
     with
         /// Returns the exact engine data type for this literal value.
         member this.DataType: LogicalType =
@@ -51,6 +53,7 @@ type LiteralValue =
             | DateTimeOffset _ -> LogicalTypes.DatetimeUtc
             | TimeSpan _ -> LogicalTypes.Duration
             | TimeOnly _ -> LogicalTypes.Time
+            | EmptyList element -> LogicalType.ListOf element
 
         /// Extracts the boxed object representation on demand for FFI boundaries.
         member this.BoxedValue: obj =
@@ -75,6 +78,7 @@ type LiteralValue =
             | DateTimeOffset dto -> box dto
             | TimeSpan ts -> box ts
             | TimeOnly to' -> box to'
+            | EmptyList _ -> box ([||]: obj array)
 
         /// Converts a dynamic runtime object into a strongly-typed LiteralValue.
         static member OfObject(raw: obj) : LiteralValue =
@@ -854,7 +858,14 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     | Coalesce of exprs: ScalarExpr list
     | ItemAccess of target: ScalarExpr * index: ScalarExpr
     | Slice of target: ScalarExpr * offset: int64 * length: uint32
-    | Subquery of plan: LogicalPlan * kind: SubqueryKind
+    /// A subquery: `plan` evaluated once for each row of the node holding the expression (a Filter, Project or
+    /// WithColumns, or another subquery's plan), with every `OuterColumn(scope, ..)` inside it reading that row.
+    /// `kind` says what the rows give (SEMANTICS.md, Subqueries). No backend evaluates it: the Decorrelation pass
+    /// replaces it by joins before a plan is optimized or lowered.
+    | Subquery of scope: int * plan: LogicalPlan * kind: SubqueryKind
+    /// Inside a subquery's plan: the column `name` (of type `dataType`) of the row the subquery with this `scope`
+    /// is evaluated for.
+    | OuterColumn of scope: int * name: string * dataType: LogicalType
     | Alias of expr: ScalarExpr * alias: string
     | Udf of name: string * args: ScalarExpr list * returnType: LogicalType * invoker: UdfInvoker
     /// Whether a value is in an in-memory collection. With `nullsEqual` a null value is in a collection holding
@@ -863,11 +874,16 @@ type [<RequireQualifiedAccess>] ScalarExpr =
     /// An enum conversion awaiting EnumResolution, which replaces it before the plan is lowered.
     | EnumConvert of conversion: EnumConversion * expr: ScalarExpr * mapping: EnumMapping
 
-/// Subquery semantics when a scalar expression embeds a logical plan
+/// What a subquery's rows give. Negation is `Unary Not` around the subquery.
 and [<RequireQualifiedAccess>] SubqueryKind =
-    | ScalarScalar
-    | Exists of negated: bool
-    | InSubquery of target: ScalarExpr * negated: bool
+    /// The value of the plan's single column: null for no row, the row's value for one row; more rows fail the query.
+    | Scalar
+    /// Whether the plan yields a row; never null.
+    | Exists
+    /// Whether `target` equals a value of the plan's single column. With `nullsEqual` a null matches a null and the
+    /// result is never null (.NET Contains); without, as SQL IN: true on a match, otherwise null when `target` is
+    /// null or the column holds a null (and the plan yields a row), otherwise false.
+    | In of target: ScalarExpr * nullsEqual: bool
 
 /// Ordering specification for sorting and window operations
 and SortOrder =

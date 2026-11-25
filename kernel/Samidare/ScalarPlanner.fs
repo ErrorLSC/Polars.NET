@@ -144,7 +144,7 @@ module internal ScalarPlanner =
         | Some predLambda ->
             let nativeFilterOpt =
                 if src.ClientProjection.IsNone then
-                    let ctx = SubqueryDecorrelator.createContextForType elemType src.Plan predLambda.Parameters.[0].Name
+                    let ctx = SubqueryPatterns.createContextForType elemType src.Plan predLambda.Parameters.[0].Name
                     tryTranslateToScalar ctx predLambda.Body
                 else
                     None
@@ -563,7 +563,7 @@ module internal ScalarPlanner =
                 if src.ClientProjection.IsNone then
                     match selectorOpt with
                     | Some selector ->
-                        let ctx = SubqueryDecorrelator.createContextForType elemType src.Plan selector.Parameters.[0].Name
+                        let ctx = SubqueryPatterns.createContextForType elemType src.Plan selector.Parameters.[0].Name
                         tryTranslateToScalar ctx selector.Body
                     | None ->
                         tryGetScalarColumnNameFromCols elemType (planColumns src.Plan)
@@ -725,7 +725,7 @@ module internal ScalarPlanner =
 
             let nativeSortKeyOpt =
                 if src.ClientProjection.IsNone && isNull compObj then
-                    let ctx = SubqueryDecorrelator.createContextForType elemType src.Plan keyLambda.Parameters.[0].Name
+                    let ctx = SubqueryPatterns.createContextForType elemType src.Plan keyLambda.Parameters.[0].Name
                     tryTranslateToScalar ctx keyLambda.Body
                 else
                     None

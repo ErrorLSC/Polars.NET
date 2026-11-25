@@ -32,12 +32,14 @@
     <Compile Include="IR/CardinalityFeedback.fs" />
     <Compile Include="IR/SourceRegistry.fs" />
     <Compile Include="IR/SchemaInference.fs" />
+    <Compile Include="IR/Passes/Decorrelation.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />
     <Compile Include="LinqReflectionCache.fs" />
     <Compile Include="ScopeNavigation.fs" />
     <Compile Include="Translators/TranslationContext.fs" />
     <Compile Include="Translators/NullSemantics.fs" />
+    <Compile Include="Translators/SubqueryPatterns.fs" />
     <Compile Include="Translators/ColumnResolver.fs" />
     <Compile Include="Translators/MemberAccessTranslator.fs" />
     <Compile Include="Translators/DotNetText.fs" />
@@ -48,11 +50,11 @@
     <Compile Include="Translators/ListTranslator.fs" />
     <Compile Include="Translators/JsonTranslator.fs" />
     <Compile Include="Translators/OperatorAndUdfTranslator.fs" />
+    <Compile Include="Translators/SubqueryTranslator.fs" />
     <Compile Include="ExprTranslator.fs" />
     <Compile Include="AggTranslator.fs" />
     <Compile Include="FSharpAstRewriter.fs" />
     <Compile Include="SourceResolver.fs" />
-    <Compile Include="SubqueryDecorrelator.fs" />
     <Compile Include="QueryCache/QueryPlanCache.fs" />
     <Compile Include="Pipeline/PipelineTypes.fs" />
     <Compile Include="Pipeline/PipelineStageParser.fs" />

@@ -79,7 +79,6 @@ module internal GroupByPlanning =
 
     /// Pure symbolic GroupBy builder powering both single-key and multi-key GroupBy pipelines (C# LINQ & F# QueryBuilder).
     let buildUnifiedGroupByPlan
-        (resolveSequence: Expression -> LogicalPlan option)
         (basePlan: LogicalPlan)
         (ctx: GroupFoldContext)
         (projBody: Expression)
@@ -507,39 +506,42 @@ module internal GroupByPlanning =
                                     Some colName
                                 | None -> None
 
-                    // Uncorrelated scalar subqueries in having predicates become one-row plans joined to the
-                    // grouped rows before the having filters (see havingScalars below).
-                    let havingScalars = ResizeArray<SubqueryDecorrelator.UncorrelatedScalar>()
-
                     let rec translateHaving (expr: Expression) : ScalarExpr option =
-                        let foldedExpr =
-                            if SubqueryDecorrelator.containsSubquery expr then
-                                match SubqueryDecorrelator.tryRewriteUncorrelatedScalars resolveSequence (Set.ofList [ groupParamName ]) expr with
-                                | Some(rewritten, scalars) ->
-                                    havingScalars.AddRange scalars
-                                    rewritten
-                                | None -> expr
+                        // A subquery of the having predicate (uncorrelated: it reads no group) is an IR subquery, replaced
+                        // by the Decorrelation pass on the having filter below.
+                        let irSubquery =
+                            if SubqueryPatterns.containsSubquery expr then
+                                let scope = CompilationScope.Current
+                                let saved = scope.AllowSubqueries
+                                scope.AllowSubqueries <- true
+                                try
+                                    ExprTranslator.tryTranslateToScalar TranslationContext.Empty expr
+                                finally
+                                    scope.AllowSubqueries <- saved
                             else
-                                expr
-                        match foldedExpr with
+                                None
+                        match irSubquery with
+                        | Some s -> Some s
+                        | None ->
+                        match expr with
                         | Binary(op, left, right) ->
                             match translateHaving left, translateHaving right with
                             | Some l, Some r ->
-                                OperatorAndUdfTranslator.combineBinary op (left.Type, Some l) (right.Type, Some r) foldedExpr.Type
+                                OperatorAndUdfTranslator.combineBinary op (left.Type, Some l) (right.Type, Some r) expr.Type
                             | _ ->
-                                tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
+                                tryTranslatePostGroupExpr (Some derivedKeyColMap) expr
                         | Unary(op, inner) when op = ExpressionType.Convert || op = ExpressionType.ConvertChecked ->
                             match translateHaving inner with
                             | Some innerS ->
-                                match ScalarExprOps.tryTranslateCast (match foldedExpr with :? UnaryExpression as u -> u.Type | _ -> typeof<obj>) innerS with
+                                match ScalarExprOps.tryTranslateCast (match expr with :? UnaryExpression as u -> u.Type | _ -> typeof<obj>) innerS with
                                 | Some castS -> Some castS
                                 | None -> Some innerS
-                            | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
+                            | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) expr
                         | Unary(op, inner) ->
                             match translateHaving inner with
                             | Some innerS -> OperatorAndUdfTranslator.translateUnary op innerS
-                            | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
-                        | Constant _ -> ExprTranslator.tryTranslateToScalar TranslationContext.Empty foldedExpr
+                            | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) expr
+                        | Constant _ -> ExprTranslator.tryTranslateToScalar TranslationContext.Empty expr
                         | other ->
                             match resolveResultColName other with
                             | Some colName -> Some(ScalarExpr.Column colName)
@@ -548,9 +550,9 @@ module internal GroupByPlanning =
                                 | :? MethodCallExpression as aggCall ->
                                     match resolveHavingAggColName aggCall with
                                     | Some c -> Some(ScalarExpr.Column c)
-                                    | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
+                                    | None -> tryTranslatePostGroupExpr (Some derivedKeyColMap) expr
                                 | _ ->
-                                    tryTranslatePostGroupExpr (Some derivedKeyColMap) foldedExpr
+                                    tryTranslatePostGroupExpr (Some derivedKeyColMap) expr
 
                     let havingFilterOpt =
                         ctx.HavingPreds
@@ -666,9 +668,27 @@ module internal GroupByPlanning =
                             if preFilterDerivedCols.IsEmpty then afterEarlySortPlan
                             else LogicalPlan.WithColumns(afterEarlySortPlan, preFilterDerivedCols)
 
-                        let afterFilterPlan =
+                        let afterFilterPlanOpt =
                             havingFilterExprs
-                            |> List.fold (fun p f -> LogicalPlan.Filter(p, f)) (SubqueryDecorrelator.attachUncorrelatedScalars afterDerivedColsPlan (List.ofSeq havingScalars))
+                            |> List.fold
+                                (fun planOpt f ->
+                                    planOpt
+                                    |> Option.bind (fun p ->
+                                        let node = LogicalPlan.Filter(p, f)
+                                        if ScalarExprOps.containsSubquery f then
+                                            let scope = CompilationScope.Current
+                                            let options: Passes.Decorrelation.Options =
+                                                { Fresh = scope.FreshName; SupportsAssertions = scope.Backend.SupportsAssertions }
+                                            match Passes.Decorrelation.tryNode options node with
+                                            | Ok plan -> Some plan
+                                            | Error _ -> None
+                                        else
+                                            Some node))
+                                (Some afterDerivedColsPlan)
+
+                        match afterFilterPlanOpt with
+                        | None -> None
+                        | Some afterFilterPlan ->
 
                         let afterHavingPlan =
                             if postFilterDerivedCols.IsEmpty then afterFilterPlan

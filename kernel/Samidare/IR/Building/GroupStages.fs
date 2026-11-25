@@ -140,7 +140,7 @@ module internal GroupStages =
                     | Some name -> name
                     | None -> projLambda.Parameters.[0].Name
 
-                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx finalProjBody gParamName isKeyArg rowShape with
+                match buildUnifiedGroupByPlan state.Plan ctx finalProjBody gParamName isKeyArg rowShape with
                 | Some nextPlan ->
                     continueWith { state with Plan = nextPlan } RowShape.Empty next
                 | None ->
@@ -200,7 +200,7 @@ module internal GroupStages =
                     | _ -> false
                 let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = None; HavingPreds = []; SortStages = []; PreFilterLets = [] }
                 let groupParamName = if resLam.Parameters.Count >= 2 then resLam.Parameters.[1].Name else resLam.Parameters.[0].Name
-                match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg rowShape with
+                match buildUnifiedGroupByPlan state.Plan ctx resLam.Body groupParamName isKeyArg rowShape with
                 | Some nextPlan ->
                     continueWith { state with Plan = nextPlan } RowShape.Empty tail
                 | None ->
@@ -223,7 +223,7 @@ module internal GroupStages =
                 | _ -> false
             let ctx: GroupFoldContext = { KeyLambda = keyLam; ElemLambdaOpt = Some elemLam; HavingPreds = []; SortStages = []; PreFilterLets = [] }
             let groupParamName = if resLam.Parameters.Count >= 2 then resLam.Parameters.[1].Name else resLam.Parameters.[0].Name
-            match buildUnifiedGroupByPlan env.ResolveSequence state.Plan ctx resLam.Body groupParamName isKeyArg rowShape with
+            match buildUnifiedGroupByPlan state.Plan ctx resLam.Body groupParamName isKeyArg rowShape with
             | Some nextPlan ->
                 continueWith { state with Plan = nextPlan } RowShape.Empty tail
             | None ->

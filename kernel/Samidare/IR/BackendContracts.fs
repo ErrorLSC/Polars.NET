@@ -31,6 +31,11 @@ type internal IQueryBackend =
     /// The exception that reports a query stage the client evaluation policy does not allow to run on the client.
     abstract CreatePushdownFailure: stage: string * expressionText: string * unsupportedFeature: string -> exn
 
+/// An outer row a nested compilation reads: inside a subquery, a lambda parameter of the enclosing query named
+/// `Name` reads the row the subquery with `Scope` is evaluated for, translated in `Context` (the enclosing
+/// translation context, boxed: its type is defined after this one) over `Schema`.
+type internal OuterBinding = { Name: string; Scope: int; Context: obj; Schema: LogicalSchema }
+
 /// The state one compilation shares with the translators it runs: the backend, the diagnostics collected
 /// while translating (the full-fallback reason, the UDFs pushed down) and per-projection translation hints.
 ///
@@ -46,6 +51,7 @@ type internal CompilationScope private (backend: IQueryBackend, enclosing: Compi
     static val mutable private current: CompilationScope
 
     let udfs = ResizeArray<string>()
+    let mutable counter = 0
 
     member _.Backend = backend
 
@@ -79,6 +85,44 @@ type internal CompilationScope private (backend: IQueryBackend, enclosing: Compi
         this.EvaluatedAtCompile <- this.EvaluatedAtCompile || evaluatedAtCompile
         for udf in nestedUdfs do
             this.RecordUdf udf
+
+    /// The outermost scope this one is nested in (itself for a root compilation).
+    member this.Root: CompilationScope = if isNull enclosing then this else enclosing.Root
+
+    /// A number unique within the root compilation, which nested compilations share; a recompilation of the same
+    /// query draws the same numbers (subquery scopes, fresh column names).
+    member this.NextId() : int =
+        let root = this.Root
+        root.Bump()
+
+    member private _.Bump() : int =
+        counter <- counter + 1
+        counter
+
+    /// A fresh column name with a hint, unique within the root compilation.
+    member this.FreshName(hint: string) : string = sprintf "__sq%d_%s" (this.NextId()) hint
+
+    /// The outer rows this compilation reads (set while a subquery's sequence compiles in a nested scope).
+    member val OuterBindings: OuterBinding list = [] with get, set
+
+    /// The binding of a lambda parameter of an enclosing query, here or in an enclosing compilation.
+    member this.TryFindOuterBinding(name: string) : OuterBinding option =
+        match this.OuterBindings |> List.tryFind (fun b -> b.Name = name) with
+        | Some b -> Some b
+        | None when isNull enclosing -> None
+        | None -> enclosing.TryFindOuterBinding name
+
+    /// Whether this compilation or an enclosing one reads outer rows: its plan is then not cached (it depends on
+    /// the enclosing query's row and scope numbers).
+    member this.ReadsOuterRows: bool =
+        not this.OuterBindings.IsEmpty || (not (isNull enclosing) && enclosing.ReadsOuterRows)
+
+    /// Whether the expression being translated may hold subqueries: set by the stages that replace them with the
+    /// Decorrelation pass right after translating (elsewhere a subquery is not translated).
+    member val AllowSubqueries = false with get, set
+
+    /// Resolves a sequence expression into a plan over this compilation's sources (set by the compilation entry).
+    member val ResolveSequence: (System.Linq.Expressions.Expression -> LogicalPlan option) option = None with get, set
 
     /// The innermost open scope. Throws if translation runs outside any scope.
     static member Current: CompilationScope =

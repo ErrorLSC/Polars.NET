@@ -270,6 +270,31 @@ A null join key matches a null key exactly when the join's `nullsEqual` is true.
   (the check runs on the client). Entities are flat columns without a presence bit, so the materializer reads an
   all-null row as a null `Nullable<T>`; a present struct whose members are all null is indistinguishable.
 
+## Subqueries
+
+`ScalarExpr.Subquery(scope, plan, kind)` evaluates `plan` once for each row of the node that holds the expression:
+a `Filter`, `Project` or `WithColumns`, or another subquery's plan. Inside `plan`, `ScalarExpr.OuterColumn(scope,
+name, type)` reads the column `name` of that row; an OuterColumn of an enclosing subquery's scope reads that
+subquery's row (multi-level correlation).
+
+- **`Scalar`.** `plan` has one column. No row gives a null of its type, one row gives its value, more rows fail the
+  query (`QueryErrorKind.InvalidOperation`). A frontend that needs another rule composes it in `plan` (an
+  aggregate always yields one row; .NET `Single` asserts the count with `AssertCount`).
+- **`Exists`.** True when `plan` yields a row, otherwise false; never null.
+- **`In(target, nullsEqual)`.** `plan` has one column. True when a value equals `target`. Otherwise, with
+  `nullsEqual`, false (a null `target` matches a null value, as .NET `Contains`); without it, as SQL `IN`: null when
+  `plan` yields a row and `target` or a value is null, false otherwise.
+- **Negation** is `Unary Not` around the subquery: `NOT EXISTS` is two-valued, and `Not(In(.., false))` is SQL
+  `NOT IN` (null when the set holds a null and nothing matched).
+- **Aggregates over no rows** keep their rules (see Rows and order: `Sum` and `Len` 0, the rest null); a `List`
+  aggregate over no rows is an empty list (`LiteralValue.EmptyList`), never null.
+- **Correlation** is whatever predicate `plan` states over its rows and the OuterColumns: `Eq` does not match a
+  null, `EqMissing` does, and a frontend writes its own NaN rule into the predicate as it does in a filter.
+
+No backend evaluates a subquery. `Passes/Decorrelation` replaces each one by joins (semi, anti, or a left join that
+attaches its value as a column) before the plan is optimized or lowered, and reports the shapes it cannot replace,
+which the frontend then evaluates otherwise. The optimizer passes never see a subquery.
+
 ## Aggregates over DefaultIfEmpty
 
 In correlated subqueries (and so in `GroupJoin` groups), `Agg(s.DefaultIfEmpty(d))` is

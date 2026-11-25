@@ -74,6 +74,20 @@ module Ir =
     let nul: Nullable<int64> = Nullable()
 
 module Conformance =
+    /// Subqueries are replaced by joins before a plan reaches an engine (no engine evaluates one): the
+    /// Decorrelation pass is part of every frontend's compilation, so the suite runs it first.
+    let decorrelate (plan: LogicalPlan) : Result<LogicalPlan, string> =
+        let mutable n = 0
+        let fresh (hint: string) =
+            n <- n + 1
+            $"__sq{n}_{hint}"
+        Kaminari.Samidare.IR.Passes.Decorrelation.tryPlan { Fresh = fresh; SupportsAssertions = true } plan
+
+    let private prepare (plan: LogicalPlan) : LogicalPlan =
+        match decorrelate plan with
+        | Ok p -> p
+        | Error reason -> failwithf "Decorrelation refused the plan: %s\n%s" reason (LogicalPlanOps.formatPlan plan)
+
     /// Integral values compare as int64 and floating values as double: the contract fixes a value's kind
     /// (integer, floating, string, bool), not its width.
     let private normalize (v: obj) : obj =
@@ -92,6 +106,7 @@ module Conformance =
     /// backend must implement each node's semantics, and the passes must preserve them.
     let private run (ordered: bool) (tables: Tables) (plan: LogicalPlan) (expected: obj list list) =
         let expected = normalizeRows expected
+        let plan = prepare plan
         for engine in Engines.all do
             for label, p in [ "as written", plan; "optimized", LogicalOptimizer.optimize plan ] do
                 let actual = engine.Execute(p, tables.Sources).Rows |> normalizeRows
@@ -109,11 +124,19 @@ module Conformance =
 
     /// The column names of the result.
     let columns (tables: Tables) (plan: LogicalPlan) (expected: string list) =
+        let plan = prepare plan
         for engine in Engines.all do
             Assert.Equal<string list>(expected, engine.Execute(plan, tables.Sources).Columns)
 
     /// Running the plan raises the exception `'E` with this message, on every engine.
     let raises<'E when 'E :> exn> (tables: Tables) (plan: LogicalPlan) (message: string) =
+        let plan = prepare plan
         for engine in Engines.all do
             let ex = Assert.Throws<'E>(fun () -> engine.Execute(plan, tables.Sources) |> ignore)
             Assert.Equal(message, ex.Message)
+
+    /// The Decorrelation pass reports the plan's subquery shape as unsupported (the frontend evaluates it otherwise).
+    let unsupported (plan: LogicalPlan) =
+        match decorrelate plan with
+        | Error _ -> ()
+        | Ok p -> Assert.Fail(sprintf "expected an unsupported subquery, got:\n%s" (LogicalPlanOps.formatPlan p))

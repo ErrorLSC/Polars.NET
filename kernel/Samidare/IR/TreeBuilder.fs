@@ -27,6 +27,8 @@ module internal TreeBuilder =
                 ResolveSequence = SourceResolver.resolveSequencePlan backend sources
                 IsGrouping = isGrouping
             }
+        // Subqueries met while translating resolve their sequences over this compilation's sources.
+        CompilationScope.Current.ResolveSequence <- Some env.ResolveSequence
 
         let initState: CompiledLogicalQuery =
             {

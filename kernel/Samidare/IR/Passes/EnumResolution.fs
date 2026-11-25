@@ -571,12 +571,13 @@ module internal EnumResolution =
             ScalarExpr.SortBy(resolve inner, orderBy |> List.map (fun o -> { o with Expr = resolve o.Expr }))
         | ScalarExpr.ItemAccess(target, index) -> ScalarExpr.ItemAccess(resolve target, resolve index)
         | ScalarExpr.Slice(target, offset, length) -> ScalarExpr.Slice(resolve target, offset, length)
-        | ScalarExpr.Subquery(plan, kind) ->
+        | ScalarExpr.Subquery(scope, plan, kind) ->
             let kind' =
                 match kind with
-                | SubqueryKind.InSubquery(target, negated) -> SubqueryKind.InSubquery(resolve target, negated)
+                | SubqueryKind.In(target, nullsEqual) -> SubqueryKind.In(resolve target, nullsEqual)
                 | other -> other
-            ScalarExpr.Subquery(resolvePlan plan, kind')
+            ScalarExpr.Subquery(scope, resolvePlan plan, kind')
+        | ScalarExpr.OuterColumn _ -> expr
         | ScalarExpr.Alias(inner, alias) -> ScalarExpr.Alias(resolve inner, alias)
         | ScalarExpr.Udf(name, args, t, invoker) -> ScalarExpr.Udf(name, args |> List.map resolve, t, invoker)
 

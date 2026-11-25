@@ -29,9 +29,6 @@ type internal TranslationContext =
     /// Resolves pair.Outer (Item1) and pair.Inner (Item2) against physical columns in the joined LazyFrame.
     | TupleJoin of pairParam: string * leftCols: Set<string> * rightSuffix: string
 
-    /// Binary correlated subquery join context (outerParams, innerParam, leftCols, rightSuffix, rowShape)
-    | CorrelatedJoin of outerParams: string list * innerParam: string * leftCols: Set<string> * rightSuffix: string * rowShape: RowShape
-
     /// Scoped entity context carrying the row shape: where each scope's members live (e.g. sn.n_name -> "n_name_right")
     /// across cascaded multi-table joins.
     | ScopedEntity of paramNames: string list * rowShape: RowShape * fallbackCols: string list
@@ -52,8 +49,6 @@ type internal TranslationContext =
         | TranslationContext.BinaryJoin(left, right, _, _) -> name = left || name = right
         | TranslationContext.Merge(target, source, _) -> name = target || name = source
         | TranslationContext.TupleJoin(pairParam, _, _) -> name = pairParam
-        | TranslationContext.CorrelatedJoin(outerParams, inner, _, _, rowShape) ->
-            List.contains name outerParams || name = inner || rowShape.HasScope(RowScope.Named name)
 
     /// Attempts to resolve the parameter expression node itself to a pure symbolic ScalarExpr.
     member this.TryResolveParameter(name: string) : ScalarExpr option =
