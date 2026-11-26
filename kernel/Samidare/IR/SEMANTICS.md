@@ -14,7 +14,9 @@ the suite by implementing `IIrEngine`. When a rule changes, change this file, th
 
 A plan means what its frontend's language means. Where languages differ, the IR has a node for each meaning and a
 frontend emits its own: LINQ sums with `Sum` (no values: 0) and `CheckedSum`, SQL with `SumOrNull` (no values:
-null). Backends and passes read the nodes alone and never ask which frontend built a plan.
+null). Backends and passes read the nodes alone and never ask which frontend built a plan. Spark's expressions (Delta
+constraints, generated columns, defaults) fail where Spark's ANSI mode fails: they bind integer arithmetic, narrowing
+casts and division to `CheckedNarrow`, `CheckedRescale` and `CheckedDivide`.
 
 ## Values and logic
 
@@ -122,6 +124,8 @@ deliberately follows .NET 11. Integer-to-integer narrowing still wraps. The fron
 **Date and time.** A `DateTimeOffset` is stored as a UTC instant, so its members read the UTC value: `Offset`
 is zero, and `Hour` and `DateTime` are the UTC hour and time. `DtOffsetMonths` moves a date or time by calendar
 months, keeping the day unless the month is shorter (then its last day: 2000-01-31 plus one month is 2000-02-29).
+`DtInZone` reads an instant (a date-time with a time zone) as the wall clock of a time zone: 2021-03-05 04:00 UTC in
+`America/Los_Angeles` is 2021-03-04 20:00, a date-time without a zone, whose date and parts are those of that zone.
 
 ## Strings and membership
 
@@ -154,7 +158,7 @@ The flag is always explicit. A backend never chooses it.
 Strict materialization then reports a null that reaches a non-nullable member.
 
 **`AssertCount`.** The nodes that raise are `ScalarFunction.AssertCount` (`[count; value]`), `RequireListed`,
-`CheckedNarrow`, `CheckedDivide` (see Checked division) and `AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
+`CheckedNarrow`, `CheckedRescale`, `CheckedDivide` (see Checked division) and `AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
 row count, an overflow flag) lies in range. Otherwise the query fails with the check's `QueryError`, which the
 backend surfaces as the matching .NET exception. It has an effect, so it must be evaluated wherever its
 value is used, and never constant-folded. A backend that cannot raise answers
@@ -164,10 +168,10 @@ time and marks the compilation so its plan is not cached.
 **No short-circuit.** Expressions are evaluated whole: both sides of `And` / `Or` and both branches of a
 `Conditional`, for every row. An `AssertCount` is therefore checked once whenever its plan runs, even where
 the logic around it (`false AND ...`, an empty outer relation) would never read its value. For `AssertCount` this is
-stricter than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. Row by row, `CheckedNarrow` and
-`CheckedDivide` restore short-circuit evaluation with a guard.
+stricter than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. Row by row, `CheckedNarrow`,
+`CheckedRescale` and `CheckedDivide` restore short-circuit evaluation with a guard.
 
-**Guards.** `CheckedNarrow` (`[value; guard]`), `RequireListed` (`[value; guard]`) and `CheckedDivide`
+**Guards.** `CheckedNarrow`, `CheckedRescale`, `RequireListed` (each `[value; guard]`) and `CheckedDivide`
 (`[dividend; divisor; guard]`) raise only on rows
 where their guard, a Boolean in the operands' context, is true; elsewhere (false or null) they are null and never
 raise. The guard is the node's whole precondition, so a backend or a pass may evaluate the node on more rows than
@@ -205,6 +209,11 @@ null. On a guarded row with a non-null dividend, a zero divisor (0 or -0.0, for 
 with `QueryErrorKind.DivideByZero`, and a quotient beyond the result type (`MinValue` div -1, a decimal beyond its
 precision) with `QueryErrorKind.Overflow`; `MinValue % -1` is 0. It has an effect, as `AssertCount`: never
 constant-folded.
+
+**Checked rescale.** `CheckedRescale` is ANSI SQL's `CAST` to a decimal: a decimal as the function's
+decimal type, rounded half away from zero at its scale (`2.5` as `DECIMAL(3, 0)` is 3, `-2.5` is -3). On a guarded
+row a result beyond the type's precision (`9.995` as `DECIMAL(3, 2)`) fails the query with `QueryErrorKind.Overflow`.
+Null stays null.
 
 **Guarded UDFs.** The frontend restores C# short-circuit evaluation for managed UDFs. A UDF on the right of
 `&&` / `||` / `??`, or in a `?:` branch, receives the guard (the left side, its negation, the left's null test,

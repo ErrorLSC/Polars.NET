@@ -1,14 +1,16 @@
 namespace Kaminari.Samidare.Sql
 
 /// The SQL a text is read as. `Standard` is ISO SQL with the documented extensions; `SparkExpression` reads the
-/// scalar expressions Delta stores in its log (CHECK constraints, generated columns, defaults), which may quote
-/// identifiers with backticks.
+/// scalar expressions Delta stores in its log (CHECK constraints, generated columns, defaults) as Spark writes them.
 [<RequireQualifiedAccess>]
 type internal SqlDialect =
     | Standard
     | SparkExpression
 
-    member this.BacktickIdentifiers =
+    /// Spark's lexing and operators: names quoted with backticks, `"..."` a string, strings take backslash escapes
+    /// and run together when adjacent, numbers take type suffixes (`1L`, `1.5D`, `2BD`), and `==`, `<=>`, `!`, `div`,
+    /// RLIKE and ILIKE.
+    member this.IsSpark =
         match this with
         | Standard -> false
         | SparkExpression -> true
@@ -29,6 +31,9 @@ type internal SqlLiteral =
     | Decimal of text: string
     /// A number with an exponent: `1e3`, `2.5E-2`.
     | Float of text: string
+    /// A number with Spark's type suffix (SparkExpression only): its digits as written and the suffix upper case,
+    /// one of Y (TINYINT), S (SMALLINT), L (BIGINT), BD (DECIMAL), D (DOUBLE), F (FLOAT): `10L`, `1.5D`, `2e3BD`.
+    | Suffixed of number: string * suffix: string
     /// The string's value (its doubled quotes made single).
     | String of value: string
     | Boolean of bool
@@ -62,6 +67,8 @@ type internal SqlBinaryOp =
     | Multiply
     | Divide
     | Modulo
+    /// Spark's `div`: integral division, truncated toward zero (SparkExpression only).
+    | IntegerDivide
     | Concat
 
 /// An ORDER BY direction: written or left to the default.
@@ -103,6 +110,10 @@ and [<RequireQualifiedAccess>] internal SqlExprKind =
     /// `x op ANY (query)`, `x op SOME (query)` (`all` false) or `x op ALL (query)`, op a comparison.
     | Quantified of SqlExpr * SqlBinaryOp * all: bool * SqlQuery
     | Like of SqlExpr * pattern: SqlExpr * escape: SqlExpr option * negated: bool
+    /// `x [NOT] ILIKE pattern`: LIKE ignoring case (SparkExpression only).
+    | ILike of SqlExpr * pattern: SqlExpr * escape: SqlExpr option * negated: bool
+    /// `x [NOT] RLIKE pattern` or `x [NOT] REGEXP pattern`: a regular expression found in x (SparkExpression only).
+    | RLike of SqlExpr * pattern: SqlExpr * negated: bool
     /// `EXISTS (query)`; `NOT EXISTS` is `Unary Not` around it.
     | Exists of SqlQuery
     | ScalarSubquery of SqlQuery

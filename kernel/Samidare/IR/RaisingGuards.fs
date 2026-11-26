@@ -3,7 +3,7 @@ namespace Kaminari.Samidare.IR
 /// Short-circuit evaluation for the raising row nodes (SEMANTICS.md, Guards). A frontend whose language skips the
 /// right of AND / OR, the untaken branch of CASE and the later arguments of COALESCE (SQL as Spark evaluates it, C#'s
 /// `&&`, `||`, `?:`, `??`) runs this once, right after binding and before the optimizer (which may reorder conjuncts):
-/// it conjoins into each `CheckedNarrow` / `CheckedDivide` / `RequireListed` guard the conditions under which the node
+/// it conjoins into each `CheckedNarrow` / `CheckedRescale` / `CheckedDivide` / `RequireListed` guard the conditions under which the node
 /// is reached.
 /// Running it twice repeats conditions, which changes nothing but the plan's size.
 module RaisingGuards =
@@ -11,6 +11,7 @@ module RaisingGuards =
     let private isRaising (fn: ScalarFunction) =
         match fn with
         | ScalarFunction.CheckedNarrow
+        | ScalarFunction.CheckedRescale
         | ScalarFunction.CheckedDivide _
         | ScalarFunction.RequireListed _ -> true
         | _ -> false

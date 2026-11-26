@@ -466,15 +466,22 @@ module internal SqlParser =
 
         member this.Node(kind: SqlExprKind, start: int) : SqlExpr = { Kind = kind; Span = this.SpanFrom start }
 
-        /// Whether the next tokens are NOT followed by IN, BETWEEN or LIKE.
+        /// Whether the token `ahead` is a pattern-matching word: LIKE, and Spark's ILIKE, RLIKE and REGEXP.
+        member this.AtPatternWord(ahead: int) =
+            this.IsWord("LIKE", ahead)
+            || (dialect.IsSpark && (this.IsWord("ILIKE", ahead) || this.IsWord("RLIKE", ahead) || this.IsWord("REGEXP", ahead)))
+
+        /// Whether the next tokens are NOT followed by IN, BETWEEN or a pattern-matching word.
         member this.AtNegatedPredicate() =
-            this.IsWord "NOT" && (this.IsWord("IN", 1) || this.IsWord("BETWEEN", 1) || this.IsWord("LIKE", 1))
+            this.IsWord "NOT" && (this.IsWord("IN", 1) || this.IsWord("BETWEEN", 1) || this.AtPatternWord 1)
 
         /// Whether the next token is a comparison-level operator.
         member this.AtComparison() =
             let t = this.Peek
-            (t.Kind = SqlTokenKind.Symbol && (t.Text = "=" || t.Text = "<>" || t.Text = "!=" || t.Text = "<" || t.Text = "<=" || t.Text = ">" || t.Text = ">="))
-            || this.IsWord "IS" || this.IsWord "IN" || this.IsWord "BETWEEN" || this.IsWord "LIKE" || this.AtNegatedPredicate()
+            (t.Kind = SqlTokenKind.Symbol
+             && (t.Text = "=" || t.Text = "<>" || t.Text = "!=" || t.Text = "<" || t.Text = "<=" || t.Text = ">" || t.Text = ">="
+                 || t.Text = "==" || t.Text = "<=>"))
+            || this.IsWord "IS" || this.IsWord "IN" || this.IsWord "BETWEEN" || this.AtPatternWord 0 || this.AtNegatedPredicate()
 
         member this.Binary(minPrecedence: int) : SqlExpr =
             let start = this.Peek.Span.Start
@@ -505,12 +512,13 @@ module internal SqlParser =
                     let op = if this.Advance().Text = "+" then SqlBinaryOp.Add else SqlBinaryOp.Subtract
                     let right = this.Binary 7
                     left <- this.Node(SqlExprKind.Binary(op, left, right), start)
-                elif minPrecedence <= 7 && (this.IsSymbol "*" || this.IsSymbol "/" || this.IsSymbol "%") then
+                elif minPrecedence <= 7 && (this.IsSymbol "*" || this.IsSymbol "/" || this.IsSymbol "%" || (dialect.IsSpark && this.IsWord "DIV")) then
                     let op =
                         match this.Advance().Text with
                         | "*" -> SqlBinaryOp.Multiply
                         | "/" -> SqlBinaryOp.Divide
-                        | _ -> SqlBinaryOp.Modulo
+                        | "%" -> SqlBinaryOp.Modulo
+                        | _ -> SqlBinaryOp.IntegerDivide
                     let right = this.Binary 8
                     left <- this.Node(SqlExprKind.Binary(op, left, right), start)
                 else go <- false
@@ -550,14 +558,23 @@ module internal SqlParser =
                     this.ExpectWord("AND", "between the bounds of BETWEEN")
                     let high = operand ()
                     this.Node(SqlExprKind.Between(left, low, high, negated), start)
-                elif this.AcceptWord "LIKE" then
+                elif this.IsWord "LIKE" || this.IsWord "ILIKE" then
+                    let insensitive = this.Advance().Text.Length = 5
                     let pattern = operand ()
                     let escape = if this.AcceptWord "ESCAPE" then Some(operand ()) else None
-                    this.Node(SqlExprKind.Like(left, pattern, escape, negated), start)
+                    if insensitive then this.Node(SqlExprKind.ILike(left, pattern, escape, negated), start)
+                    else this.Node(SqlExprKind.Like(left, pattern, escape, negated), start)
+                elif this.AcceptWord "RLIKE" || this.AcceptWord "REGEXP" then
+                    let pattern = operand ()
+                    this.Node(SqlExprKind.RLike(left, pattern, negated), start)
+                elif this.AcceptSymbol "<=>" then
+                    let right = operand ()
+                    this.Node(SqlExprKind.IsDistinctFrom(left, right, true), start)
                 else
                     let op =
                         match this.Advance().Text with
-                        | "=" -> SqlBinaryOp.Eq
+                        | "="
+                        | "==" -> SqlBinaryOp.Eq
                         | "<>"
                         | "!=" -> SqlBinaryOp.NotEq
                         | "<" -> SqlBinaryOp.Lt
@@ -574,7 +591,7 @@ module internal SqlParser =
 
         member this.Prefix() : SqlExpr =
             let start = this.Peek.Span.Start
-            if this.IsWord "NOT" then
+            if this.IsWord "NOT" || this.IsSymbol "!" then
                 this.Advance() |> ignore
                 let operand = this.Binary 4
                 this.Node(SqlExprKind.Unary(SqlUnaryOp.Not, operand), start)
@@ -594,6 +611,16 @@ module internal SqlParser =
             | SqlTokenKind.Integer -> literal (SqlLiteral.Integer t.Text)
             | SqlTokenKind.Decimal -> literal (SqlLiteral.Decimal t.Text)
             | SqlTokenKind.Float -> literal (SqlLiteral.Float t.Text)
+            | SqlTokenKind.SuffixedNumber ->
+                let text = t.Text
+                let suffixLength = if text.EndsWith("BD", StringComparison.OrdinalIgnoreCase) then 2 else 1
+                literal (SqlLiteral.Suffixed(text.Substring(0, text.Length - suffixLength), text.Substring(text.Length - suffixLength).ToUpperInvariant()))
+            // Spark runs adjacent strings together: 'a' 'b' is 'ab'.
+            | SqlTokenKind.String when dialect.IsSpark && this.PeekAt(1).Kind = SqlTokenKind.String ->
+                let builder = Text.StringBuilder()
+                while this.Peek.Kind = SqlTokenKind.String do
+                    builder.Append(this.Advance().Text) |> ignore
+                this.Node(SqlExprKind.Literal(SqlLiteral.String(builder.ToString())), start)
             | SqlTokenKind.String -> literal (SqlLiteral.String t.Text)
             | SqlTokenKind.Symbol when t.Text = "(" ->
                 if this.StartsQuery 1 then
@@ -610,7 +637,8 @@ module internal SqlParser =
             | SqlTokenKind.Word when this.IsWord "NULL" -> literal SqlLiteral.Null
             | SqlTokenKind.Word when this.IsWord "TRUE" -> literal (SqlLiteral.Boolean true)
             | SqlTokenKind.Word when this.IsWord "FALSE" -> literal (SqlLiteral.Boolean false)
-            | SqlTokenKind.Word when (this.IsWord "DATE" || this.IsWord "TIME" || this.IsWord "TIMESTAMP")
+            | SqlTokenKind.Word when (this.IsWord "DATE" || this.IsWord "TIME" || this.IsWord "TIMESTAMP"
+                                      || (dialect.IsSpark && (this.IsWord "TIMESTAMP_NTZ" || this.IsWord "TIMESTAMP_LTZ")))
                                      && this.PeekAt(1).Kind = SqlTokenKind.String ->
                 let typeName = this.Advance().Text.ToUpperInvariant()
                 let value = this.Advance().Text

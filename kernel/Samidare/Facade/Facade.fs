@@ -240,6 +240,16 @@ type QueryCompiler =
     /// The expression under its quotes and conversions.
     static member Unwrap(expr: Expression) : Expression = ExpressionPatterns.unwrap expr
 
+/// A Spark expression bound to the IR (SqlFrontend.BindSparkExpression).
+[<Sealed>]
+type BoundSparkExpression(expr: ScalarExpr, valueType: LogicalType, columns: string array) =
+    /// The value, its raising nodes guarded (RaisingGuards).
+    member _.Expr = expr
+    /// The value's type (Spark's: an instant for TIMESTAMP, a timestamp without a zone for TIMESTAMP_NTZ).
+    member _.Type = valueType
+    /// The columns it reads, as the table defines them, in the order first read.
+    member _.Columns = columns
+
 /// The SQL frontend for C# backends (part of Samidare's facade; see IrOps).
 [<AbstractClass; Sealed>]
 type SqlFrontend =
@@ -264,6 +274,22 @@ type SqlFrontend =
                 Kaminari.Samidare.Config.SamidareConfig.CollectColumnStatistics
                 sql.Sources
         struct (optimized, sql.Sources)
+
+    /// A Spark SQL expression as Delta stores it (a CHECK constraint, a generated column, a column default) bound over
+    /// the table's columns with Spark 4's ANSI semantics. TIMESTAMP values are read on the wall clock of
+    /// `sessionTimeZone` (an IANA name); `now` is the write's time (current_date(), current_timestamp() in a default).
+    /// Fails with SqlException where the text is not an expression this profile supports or `use` allows.
+    static member BindSparkExpression
+        (text: string, columns: struct (string * LogicalType) seq, ``use``: Kaminari.Samidare.Sql.SparkExpressionUse, sessionTimeZone: string, now: DateTimeOffset)
+        : BoundSparkExpression =
+        if isNull text then nullArg (nameof text)
+        let zone =
+            match TimeZoneInfo.TryFindSystemTimeZoneById sessionTimeZone with
+            | true, zone -> zone
+            | _ -> invalidArg (nameof sessionTimeZone) $"Unknown time zone '{sessionTimeZone}': give an IANA name such as UTC or America/Los_Angeles."
+        let columns = columns |> Seq.map (fun struct (name, t) -> name, t) |> List.ofSeq
+        let v, read = Kaminari.Samidare.Sql.SparkExpressions.bind' text columns ``use`` zone now
+        BoundSparkExpression(v.Expr, v.Type, Array.ofList read)
 
     /// Schemas inferred once per plan node until the returned scope is disposed (wrap a lowering that infers them).
     static member EnterSchemaCache() : IDisposable = PlanSchemaCache.Enter()

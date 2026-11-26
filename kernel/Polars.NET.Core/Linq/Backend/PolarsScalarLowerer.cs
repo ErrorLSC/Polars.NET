@@ -327,6 +327,15 @@ internal static class PolarsScalarLowerer
                 var (precision, scale) = f.returnType is LogicalType.Arrow { arrowType: Decimal128Type d } ? (d.Precision, d.Scale) : (-1, 0);
                 return PolarsWrapper.CheckedDiv(Guarded(Lower(dividend), guard), Lower(divisor), kind, precision, scale);
             }
+            // ANSI CAST to DECIMAL: the checked division by one rounds half away from zero at the result's scale and fails
+            // beyond its precision.
+            case ScalarExpr.Function { func.IsCheckedRescale: true, args: [var value, var guard] } f:
+            {
+                var target = (Decimal128Type)((LogicalType.Arrow)f.returnType).arrowType;
+                using var one = PolarsVocabulary.ToDataTypeHandle(LogicalTypes.decimalOf(1, 0));
+                var divisor = PolarsWrapper.ExprCast(PolarsWrapper.Lit(1), PolarsWrapper.DataTypeExprFromDataType(one), strict: true, wrapNumerical: false);
+                return PolarsWrapper.CheckedDiv(Guarded(Lower(value), guard), divisor, PlCheckedDivision.Divide, target.Precision, target.Scale);
+            }
             case ScalarExpr.Function { func.IsNarrowOrNull: true, args: [var value] } f:
                 return LowerNarrowing(value, f.returnType, nullOnOverflow: true);
 
@@ -720,6 +729,9 @@ internal static class PolarsScalarLowerer
             // The engine's calendar offset clamps the day to the month's last.
             case ({ IsDtOffsetMonths: true }, [var e, ScalarExpr.Literal { value: LiteralValue.Int32 months }]):
                 return PolarsWrapper.DtOffsetBy(L(e), PolarsWrapper.Lit($"{months.Item}mo"));
+            // The instant's wall clock in the zone, the zone then dropped.
+            case (ScalarFunction.DtInZone zone, [var e]):
+                return PolarsWrapper.DtReplaceTimeZone(PolarsWrapper.DtConvertTimeZone(L(e), zone.zone), null, PolarsWrapper.Lit("raise"), PlNonExistent.Raise);
 
             // Struct & List
             case ({ IsStructFieldByIndex: true }, [var a, ScalarExpr.Literal { value: LiteralValue.Int64 index }]):

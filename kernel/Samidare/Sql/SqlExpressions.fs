@@ -117,7 +117,9 @@ module internal SqlExpressions =
         | SqlExprKind.IsDistinctFrom(a, b, _) -> [ a; b ]
         | SqlExprKind.Between(a, b, c, _) -> [ a; b; c ]
         | SqlExprKind.InList(a, items, _) -> a :: items
-        | SqlExprKind.Like(a, b, escape, _) -> a :: b :: Option.toList escape
+        | SqlExprKind.Like(a, b, escape, _)
+        | SqlExprKind.ILike(a, b, escape, _) -> a :: b :: Option.toList escape
+        | SqlExprKind.RLike(a, b, _) -> [ a; b ]
         | SqlExprKind.Case(operand, whens, otherwise) ->
             Option.toList operand @ (whens |> List.collect (fun (t, v) -> [ t; v ])) @ Option.toList otherwise
         | SqlExprKind.Function call ->
@@ -328,6 +330,8 @@ module internal SqlExpressions =
             | SqlLiteral.Typed("DATE", text) -> value (lit (parseTemporal binder span text LogicalTypes.Date)) LogicalTypes.Date
             | SqlLiteral.Typed("TIMESTAMP", text) -> value (lit (parseTemporal binder span text LogicalTypes.Datetime)) LogicalTypes.Datetime
             | SqlLiteral.Typed(typeName, _) -> fail binder span $"{typeName} literals are not supported" None
+            // Spark's own syntax (SparkExpression texts are bound by SparkExpressions).
+            | SqlLiteral.Suffixed _ -> fail binder span "Typed number suffixes are Spark's, not SQL's" None
             | SqlLiteral.Interval(text, unit) ->
                 match Int32.TryParse(text.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture), unit with
                 | (true, n), ("DAY" | "DAYS") -> value (lit (LiteralValue.TimeSpan(TimeSpan.FromDays(float n)))) LogicalTypes.Duration
@@ -440,6 +444,8 @@ module internal SqlExpressions =
             | columns -> fail binder query.Span $"A subquery used as a value must give one column, not {columns.Length}" None
 
         | SqlExprKind.Like(operand, pattern, escape, negated) -> like binder span operand pattern escape negated
+        | SqlExprKind.ILike _
+        | SqlExprKind.RLike _ -> fail binder span "ILIKE and RLIKE are Spark's, not SQL's" None
 
         | SqlExprKind.Case(operand, whens, otherwise) ->
             let tests =

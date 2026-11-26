@@ -414,6 +414,9 @@ type ScalarFunction =
     /// A date or time moved by whole calendar months (the second argument, an Int32 literal), its day kept unless the
     /// month is shorter, then the month's last day (January 31 plus one month is February 28 or 29).
     | DtOffsetMonths
+    /// `[value]` over date-times with a time zone (instants): the wall-clock date-time of the instant in the time zone
+    /// `zone` (an IANA name, or `UTC`), as a date-time without a zone. Null stays null.
+    | DtInZone of zone: string
 
     // --- Null & Conditional ---
     | FillNull
@@ -520,6 +523,11 @@ type ScalarFunction =
     /// decimal beyond its precision) with `QueryErrorKind.Overflow`; MinValue % -1 is 0. The guard is a Boolean in
     /// the operands' context; see SEMANTICS.md, Guards. It has an effect, as AssertCount.
     | CheckedDivide of kind: DivisionKind
+    /// `[value; guard]` over decimals: the value as the function's decimal type, rounded half away from
+    /// zero at its scale (ANSI SQL's CAST to DECIMAL); the query fails with `QueryErrorKind.Overflow` where the result
+    /// leaves the type's precision on a row where the guard is true. Null stays null, and so does every row whose guard
+    /// is not true (false or null), which never fails. See SEMANTICS.md, Guards. It has an effect, as AssertCount.
+    | CheckedRescale
     /// `[value]` over integers, decimals or floating values (both truncated toward zero): the value as the function's
     /// integer type, its result type, or null when it leaves that type's range (or is NaN). A row conversion that
     /// .NET checks (checked((int)x), (int)decimal, Convert.ToInt32): an engine evaluates both sides of `&&` and `?:`
@@ -628,6 +636,7 @@ type ScalarFunction =
         | ScalarFunction.FloatToText _ -> "float_to_text"
         | ScalarFunction.DtOffsetBy -> "dt_offset_by"
         | ScalarFunction.DtOffsetMonths -> "dt_offset_months"
+        | ScalarFunction.DtInZone _ -> "dt_in_zone"
         | ScalarFunction.FillNull -> "fill_null"
         | ScalarFunction.Coalesce -> "coalesce"
         | ScalarFunction.StructFieldByIndex -> "struct_field_by_index"
@@ -687,6 +696,7 @@ type ScalarFunction =
         | ScalarFunction.AssertCount _ -> "assert_count"
         | ScalarFunction.CheckedNarrow -> "checked_narrow"
         | ScalarFunction.CheckedDivide _ -> "checked_divide"
+        | ScalarFunction.CheckedRescale -> "checked_rescale"
         | ScalarFunction.NarrowOrNull -> "narrow_or_null"
         | ScalarFunction.DecimalToFloating -> "decimal_to_floating"
         | ScalarFunction.FloatingToDecimal -> "floating_to_decimal"

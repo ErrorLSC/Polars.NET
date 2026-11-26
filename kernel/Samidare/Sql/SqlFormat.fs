@@ -19,6 +19,7 @@ module internal SqlFormat =
         | SqlLiteral.Integer text
         | SqlLiteral.Decimal text
         | SqlLiteral.Float text -> text
+        | SqlLiteral.Suffixed(number, suffix) -> number + suffix
         | SqlLiteral.String value -> quote value
         | SqlLiteral.Boolean true -> "TRUE"
         | SqlLiteral.Boolean false -> "FALSE"
@@ -41,6 +42,7 @@ module internal SqlFormat =
         | SqlBinaryOp.Multiply -> "*"
         | SqlBinaryOp.Divide -> "/"
         | SqlBinaryOp.Modulo -> "%"
+        | SqlBinaryOp.IntegerDivide -> "DIV"
         | SqlBinaryOp.Concat -> "||"
 
     let private typeName (t: SqlTypeName) =
@@ -73,6 +75,10 @@ module internal SqlFormat =
         | SqlExprKind.Like(operand, pattern, escape, negated) ->
             let escape = escape |> Option.map (fun e -> " ESCAPE " + expression e) |> Option.defaultValue ""
             $"({expression operand} {not' negated}LIKE {expression pattern}{escape})"
+        | SqlExprKind.ILike(operand, pattern, escape, negated) ->
+            let escape = escape |> Option.map (fun e -> " ESCAPE " + expression e) |> Option.defaultValue ""
+            $"({expression operand} {not' negated}ILIKE {expression pattern}{escape})"
+        | SqlExprKind.RLike(operand, pattern, negated) -> $"({expression operand} {not' negated}RLIKE {expression pattern})"
         | SqlExprKind.Exists q -> $"(EXISTS ({query q}))"
         | SqlExprKind.ScalarSubquery q -> $"({query q})"
         | SqlExprKind.Case(operand, whens, otherwise) ->

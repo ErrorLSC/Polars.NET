@@ -42,6 +42,7 @@
     <Compile Include="Sql/SqlTypes.fs" />
     <Compile Include="Sql/SqlScope.fs" />
     <Compile Include="Sql/SqlExpressions.fs" />
+    <Compile Include="Sql/SparkExpressions.fs" />
     <Compile Include="Sql/SqlQueries.fs" />
     <Compile Include="QueryCache/QueryCacheKey.fs" />
     <Compile Include="ExpressionPatterns.fs" />

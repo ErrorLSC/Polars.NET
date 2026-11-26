@@ -67,6 +67,7 @@
     <Compile Include="SqlParserTests.fs" />
     <Compile Include="SqlExpressionTests.fs" />
     <Compile Include="SqlQueryTests.fs" />
+    <Compile Include="SparkExpressionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,2689 @@
+{
+ "spark": "4.2.0",
+ "cases": [
+  {
+   "expr": "'it\\'s'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "it's",
+    "it's",
+    "it's",
+    "it's"
+   ]
+  },
+  {
+   "expr": "\"dq\" || 'x'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "dqx",
+    "dqx",
+    "dqx",
+    "dqx"
+   ]
+  },
+  {
+   "expr": "'a' 'b'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "ab",
+    "ab",
+    "ab",
+    "ab"
+   ]
+  },
+  {
+   "expr": "r'a\\nb'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "a\\nb",
+    "a\\nb",
+    "a\\nb",
+    "a\\nb"
+   ]
+  },
+  {
+   "expr": "'\\u0041\\%'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "A\\%",
+    "A\\%",
+    "A\\%",
+    "A\\%"
+   ]
+  },
+  {
+   "expr": "'\\U0001F600' || '\\101'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "😀A",
+    "😀A",
+    "😀A",
+    "😀A"
+   ]
+  },
+  {
+   "expr": "1Y + 0Y",
+   "zone": "UTC",
+   "type": "tinyint",
+   "rows": [
+    "1",
+    "1",
+    "1",
+    "1"
+   ]
+  },
+  {
+   "expr": "1S",
+   "zone": "UTC",
+   "type": "smallint",
+   "rows": [
+    "1",
+    "1",
+    "1",
+    "1"
+   ]
+  },
+  {
+   "expr": "10L",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "10",
+    "10",
+    "10",
+    "10"
+   ]
+  },
+  {
+   "expr": "1BD",
+   "zone": "UTC",
+   "type": "decimal(1,0)",
+   "rows": [
+    "1",
+    "1",
+    "1",
+    "1"
+   ]
+  },
+  {
+   "expr": "1.5D",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "1.5",
+    "1.5",
+    "1.5",
+    "1.5"
+   ]
+  },
+  {
+   "expr": "1.5F",
+   "zone": "UTC",
+   "type": "float",
+   "rows": [
+    "1.5",
+    "1.5",
+    "1.5",
+    "1.5"
+   ]
+  },
+  {
+   "expr": "2147483648",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "2147483648",
+    "2147483648",
+    "2147483648",
+    "2147483648"
+   ]
+  },
+  {
+   "expr": "99999999999999999999",
+   "zone": "UTC",
+   "type": "decimal(20,0)",
+   "rows": [
+    "99999999999999999999",
+    "99999999999999999999",
+    "99999999999999999999",
+    "99999999999999999999"
+   ]
+  },
+  {
+   "expr": "1.50",
+   "zone": "UTC",
+   "type": "decimal(3,2)",
+   "rows": [
+    "1.50",
+    "1.50",
+    "1.50",
+    "1.50"
+   ]
+  },
+  {
+   "expr": ".5",
+   "zone": "UTC",
+   "type": "decimal(1,1)",
+   "rows": [
+    "0.5",
+    "0.5",
+    "0.5",
+    "0.5"
+   ]
+  },
+  {
+   "expr": "0.05",
+   "zone": "UTC",
+   "type": "decimal(2,2)",
+   "rows": [
+    "0.05",
+    "0.05",
+    "0.05",
+    "0.05"
+   ]
+  },
+  {
+   "expr": "1e3",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "1000.0",
+    "1000.0",
+    "1000.0",
+    "1000.0"
+   ]
+  },
+  {
+   "expr": "DATE '2021-3-5'",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-03-05",
+    "2021-03-05",
+    "2021-03-05",
+    "2021-03-05"
+   ]
+  },
+  {
+   "expr": "TIMESTAMP '2021-03-05 04:00:00'",
+   "zone": "UTC",
+   "type": "timestamp",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "2021-03-05 04:00:00",
+    "2021-03-05 04:00:00",
+    "2021-03-05 04:00:00"
+   ]
+  },
+  {
+   "expr": "TIMESTAMP_NTZ '2021-03-05 04:00:00.5'",
+   "zone": "UTC",
+   "type": "timestamp_ntz",
+   "rows": [
+    "2021-03-05 04:00:00.5",
+    "2021-03-05 04:00:00.5",
+    "2021-03-05 04:00:00.5",
+    "2021-03-05 04:00:00.5"
+   ]
+  },
+  {
+   "expr": "`I` + 1",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    null,
+    "-2147483647"
+   ]
+  },
+  {
+   "expr": "NULL",
+   "zone": "UTC",
+   "type": "void",
+   "rows": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "i + 1",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    null,
+    "-2147483647"
+   ]
+  },
+  {
+   "expr": "i + i",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "i * 2",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "l + 1",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "11",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    null,
+    "-9223372036854775807"
+   ]
+  },
+  {
+   "expr": "l * l",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "100",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "l - 1",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "9",
+    "9223372036854775806",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "t + t",
+   "zone": "UTC",
+   "type": "tinyint",
+   "rows": [
+    "2",
+    "ERROR:BINARY_ARITHMETIC_OVERFLOW",
+    null,
+    "ERROR:BINARY_ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "sm * sm",
+   "zone": "UTC",
+   "type": "smallint",
+   "rows": [
+    "1",
+    "ERROR:BINARY_ARITHMETIC_OVERFLOW",
+    null,
+    "ERROR:BINARY_ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "-i",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "-1",
+    "-2147483647",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "-l",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "-10",
+    "-9223372036854775807",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "-t",
+   "zone": "UTC",
+   "type": "tinyint",
+   "rows": [
+    "-1",
+    "-127",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "abs(i)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "2147483647",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "abs(l)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "10",
+    "9223372036854775807",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "abs(t)",
+   "zone": "UTC",
+   "type": "tinyint",
+   "rows": [
+    "1",
+    "127",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "d + 1",
+   "zone": "UTC",
+   "type": "decimal(5,2)",
+   "rows": [
+    "13.34",
+    "-98.99",
+    null,
+    "1.05"
+   ]
+  },
+  {
+   "expr": "d * d",
+   "zone": "UTC",
+   "type": "decimal(9,4)",
+   "rows": [
+    "152.2756",
+    "9998.0001",
+    null,
+    "0.0025"
+   ]
+  },
+  {
+   "expr": "d - d",
+   "zone": "UTC",
+   "type": "decimal(5,2)",
+   "rows": [
+    "0.00",
+    "0.00",
+    null,
+    "0.00"
+   ]
+  },
+  {
+   "expr": "d + i",
+   "zone": "UTC",
+   "type": "decimal(13,2)",
+   "rows": [
+    "13.34",
+    "2147483547.01",
+    null,
+    "-2147483647.95"
+   ]
+  },
+  {
+   "expr": "d * l",
+   "zone": "UTC",
+   "type": "decimal(25,2)",
+   "rows": [
+    "123.40",
+    "-922244969965109032941.93",
+    null,
+    "-461168601842738790.40"
+   ]
+  },
+  {
+   "expr": "i + f",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "2.5",
+    "2.1474836445E9",
+    null,
+    "NaN"
+   ]
+  },
+  {
+   "expr": "i + fl",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "2.5",
+    "NaN",
+    null,
+    "-2.147483648E9"
+   ]
+  },
+  {
+   "expr": "f * 2",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "3.0",
+    "-5.0",
+    null,
+    "NaN"
+   ]
+  },
+  {
+   "expr": "d + f",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "13.84",
+    "-102.49",
+    null,
+    "NaN"
+   ]
+  },
+  {
+   "expr": "i / 2",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "0.5",
+    "1.0737418235E9",
+    null,
+    "-1.073741824E9"
+   ]
+  },
+  {
+   "expr": "i / z",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "1.0737418235E9",
+    null,
+    "2.147483648E9"
+   ]
+  },
+  {
+   "expr": "l / z",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "4.611686018427388E18",
+    null,
+    "9.223372036854776E18"
+   ]
+  },
+  {
+   "expr": "d / 3",
+   "zone": "UTC",
+   "type": "decimal(8,6)",
+   "rows": [
+    "4.113333",
+    "-33.330000",
+    null,
+    "0.016667"
+   ]
+  },
+  {
+   "expr": "d / z",
+   "zone": "UTC",
+   "type": "decimal(15,13)",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "-49.9950000000000",
+    null,
+    "-0.0500000000000"
+   ]
+  },
+  {
+   "expr": "f / z",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "-1.25",
+    null,
+    "NaN"
+   ]
+  },
+  {
+   "expr": "f / 0D",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "ERROR:DIVIDE_BY_ZERO",
+    null,
+    "ERROR:DIVIDE_BY_ZERO"
+   ]
+  },
+  {
+   "expr": "i div z",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "1073741823",
+    null,
+    "2147483648"
+   ]
+  },
+  {
+   "expr": "7 div 2",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "3",
+    "3",
+    "3",
+    "3"
+   ]
+  },
+  {
+   "expr": "-7 div 2",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "-3",
+    "-3",
+    "-3",
+    "-3"
+   ]
+  },
+  {
+   "expr": "l div -1",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "-10",
+    "-9223372036854775807",
+    null,
+    "ERROR:ARITHMETIC_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "d div 1.1",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "11",
+    "-90",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "d div z",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "ERROR:DIVIDE_BY_ZERO",
+    "-49",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "i % z",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "ERROR:REMAINDER_BY_ZERO",
+    "1",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "7 % -3",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "1",
+    "1",
+    "1"
+   ]
+  },
+  {
+   "expr": "-7 % 3",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "-1",
+    "-1",
+    "-1",
+    "-1"
+   ]
+  },
+  {
+   "expr": "d % 3",
+   "zone": "UTC",
+   "type": "decimal(3,2)",
+   "rows": [
+    "0.34",
+    "-0.99",
+    null,
+    "0.05"
+   ]
+  },
+  {
+   "expr": "f % 2",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "1.5",
+    "-0.5",
+    null,
+    "NaN"
+   ]
+  },
+  {
+   "expr": "pmod(-7, 3)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "2",
+    "2",
+    "2"
+   ]
+  },
+  {
+   "expr": "pmod(i, -3)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "1",
+    null,
+    "-2"
+   ]
+  },
+  {
+   "expr": "1 + 1.5",
+   "zone": "UTC",
+   "type": "decimal(3,1)",
+   "rows": [
+    "2.5",
+    "2.5",
+    "2.5",
+    "2.5"
+   ]
+  },
+  {
+   "expr": "cast(i as tinyint)",
+   "zone": "UTC",
+   "type": "tinyint",
+   "rows": [
+    "1",
+    "ERROR:CAST_OVERFLOW",
+    null,
+    "ERROR:CAST_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "cast(l as int)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "10",
+    "ERROR:CAST_OVERFLOW",
+    null,
+    "ERROR:CAST_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "cast(f as int)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "-2",
+    null,
+    "ERROR:CAST_OVERFLOW"
+   ]
+  },
+  {
+   "expr": "cast(fl as int)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "ERROR:CAST_OVERFLOW",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "cast(d as int)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "12",
+    "-99",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "cast(d as decimal(3,1))",
+   "zone": "UTC",
+   "type": "decimal(3,1)",
+   "rows": [
+    "12.3",
+    "ERROR:NUMERIC_VALUE_OUT_OF_RANGE",
+    null,
+    "0.1"
+   ]
+  },
+  {
+   "expr": "cast(d as decimal(4,1))",
+   "zone": "UTC",
+   "type": "decimal(4,1)",
+   "rows": [
+    "12.3",
+    "-100.0",
+    null,
+    "0.1"
+   ]
+  },
+  {
+   "expr": "cast(i as decimal(5,2))",
+   "zone": "UTC",
+   "type": "decimal(5,2)",
+   "rows": [
+    "1.00",
+    "ERROR:NUMERIC_VALUE_OUT_OF_RANGE",
+    null,
+    "ERROR:NUMERIC_VALUE_OUT_OF_RANGE"
+   ]
+  },
+  {
+   "expr": "cast(l as decimal(20,0))",
+   "zone": "UTC",
+   "type": "decimal(20,0)",
+   "rows": [
+    "10",
+    "9223372036854775807",
+    null,
+    "-9223372036854775808"
+   ]
+  },
+  {
+   "expr": "cast(d as decimal(10,4))",
+   "zone": "UTC",
+   "type": "decimal(10,4)",
+   "rows": [
+    "12.3400",
+    "-99.9900",
+    null,
+    "0.0500"
+   ]
+  },
+  {
+   "expr": "cast(i as string)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "1",
+    "2147483647",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "cast(d as string)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "12.34",
+    "-99.99",
+    null,
+    "0.05"
+   ]
+  },
+  {
+   "expr": "cast(b as string)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "true",
+    "false",
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "cast(dt as string)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "2021-03-05",
+    "2020-02-29",
+    null,
+    "1969-12-31"
+   ]
+  },
+  {
+   "expr": "cast(ts as string)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "2021-07-01 06:30:00.5",
+    null,
+    "1969-12-31 23:59:59"
+   ]
+  },
+  {
+   "expr": "cast(tn as string)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "1999-12-31 23:59:59.123456",
+    null,
+    "1970-01-01 00:00:00"
+   ]
+  },
+  {
+   "expr": "cast(ts as date)",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-03-05",
+    "2021-07-01",
+    null,
+    "1969-12-31"
+   ]
+  },
+  {
+   "expr": "cast(tn as date)",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-03-05",
+    "1999-12-31",
+    null,
+    "1970-01-01"
+   ]
+  },
+  {
+   "expr": "cast(dt as timestamp_ntz)",
+   "zone": "UTC",
+   "type": "timestamp_ntz",
+   "rows": [
+    "2021-03-05 00:00:00",
+    "2020-02-29 00:00:00",
+    null,
+    "1969-12-31 00:00:00"
+   ]
+  },
+  {
+   "expr": "cast(ts as timestamp_ntz)",
+   "zone": "UTC",
+   "type": "timestamp_ntz",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "2021-07-01 06:30:00.5",
+    null,
+    "1969-12-31 23:59:59"
+   ]
+  },
+  {
+   "expr": "cast(i as double)",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "1.0",
+    "2.147483647E9",
+    null,
+    "-2.147483648E9"
+   ]
+  },
+  {
+   "expr": "cast(d as double)",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "12.34",
+    "-99.99",
+    null,
+    "0.05"
+   ]
+  },
+  {
+   "expr": "cast(b as int)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "0",
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "cast(i as boolean)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "cast(d as boolean)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "cast(f as boolean)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "cast('12' as int)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "12",
+    "12",
+    "12",
+    "12"
+   ]
+  },
+  {
+   "expr": "cast('2021-01-02' as date)",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-01-02",
+    "2021-01-02",
+    "2021-01-02",
+    "2021-01-02"
+   ]
+  },
+  {
+   "expr": "cast(i as bigint)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "1",
+    "2147483647",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "i = 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "i == 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "i <> 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "i != 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "i < l",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "d > 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "d = 12.34",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "f = 1.5",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "f = f",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "f > 1e300",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "false",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "s = 'Ab'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s < 'a'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "s > 'B'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "b = true",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "dt = '2021-03-05'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "dt < ts",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "ts = TIMESTAMP '2021-03-05 04:00:00'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "tn = ts",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "ts > '2021-01-01'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "'1' = i",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "i <=> NULL",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "false",
+    "true",
+    "false"
+   ]
+  },
+  {
+   "expr": "i <=> z",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "false",
+    "true",
+    "false"
+   ]
+  },
+  {
+   "expr": "i IS DISTINCT FROM z",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    "false",
+    "true"
+   ]
+  },
+  {
+   "expr": "i BETWEEN 0 AND 2",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "i NOT BETWEEN 0 AND 2",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "i IN (1, 2)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "i IN (1, NULL)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "i NOT IN (1, NULL)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "i IN (z, 1)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s IN ('Ab', 'x')",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "NOT b",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "!b",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "b AND i = 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "b OR i = 1",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "i IS NULL",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "false",
+    "true",
+    "false"
+   ]
+  },
+  {
+   "expr": "s IS NOT NULL",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    "false",
+    "true"
+   ]
+  },
+  {
+   "expr": "isnull(i)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "false",
+    "true",
+    "false"
+   ]
+  },
+  {
+   "expr": "isnotnull(s)",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    "false",
+    "true"
+   ]
+  },
+  {
+   "expr": "CASE WHEN z = 0 THEN NULL ELSE i / z END",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    null,
+    "1.0737418235E9",
+    null,
+    "2.147483648E9"
+   ]
+  },
+  {
+   "expr": "IF(z <> 0, i div z, -1)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "-1",
+    "1073741823",
+    "-1",
+    "2147483648"
+   ]
+  },
+  {
+   "expr": "z <> 0 AND i div z > 0",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "z = 0 OR i div z > 0",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "COALESCE(1, i div z)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "1",
+    "1",
+    "1",
+    "1"
+   ]
+  },
+  {
+   "expr": "nvl(i, l div z)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "1",
+    "2147483647",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "CASE WHEN i > 0 THEN i + 1 ELSE 0 END",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "ERROR:ARITHMETIC_OVERFLOW",
+    "0",
+    "0"
+   ]
+  },
+  {
+   "expr": "CASE i WHEN 1 THEN 'one' WHEN 2147483647 THEN 'max' ELSE 'other' END",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "one",
+    "max",
+    "other",
+    "other"
+   ]
+  },
+  {
+   "expr": "length(s)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2",
+    "5",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "upper(s)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "AB",
+    "É XYZ",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "lower(s)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "ab",
+    "é xyz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "ucase(s)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "AB",
+    "É XYZ",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "substring(s, 0, 2)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab",
+    "é ",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "substring(s, 2)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "b",
+    " xyz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "substring(s, -2)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab",
+    "yz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "substring(s, -10, 3)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "",
+    "",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "substring(s, -3, 2)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "A",
+    "xy",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "substr(s, 3, 100)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "",
+    "xyz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "left(s, 2)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab",
+    "é ",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "right(s, 2)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab",
+    "yz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "concat(s, 'x')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Abx",
+    "é xyzx",
+    null,
+    "x"
+   ]
+  },
+  {
+   "expr": "s || '!'",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab!",
+    "é xyz!",
+    null,
+    "!"
+   ]
+  },
+  {
+   "expr": "s || i",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab1",
+    "é xyz2147483647",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "concat(s, NULL)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "expr": "concat_ws('-', s, NULL, 'z')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab-z",
+    "é xyz-z",
+    "z",
+    "-z"
+   ]
+  },
+  {
+   "expr": "concat_ws('-', NULL)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "expr": "trim('  a ')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "a",
+    "a",
+    "a",
+    "a"
+   ]
+  },
+  {
+   "expr": "trim(s)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab",
+    "é xyz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "ltrim(' a ')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "a ",
+    "a ",
+    "a ",
+    "a "
+   ]
+  },
+  {
+   "expr": "rtrim(' a ')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    " a",
+    " a",
+    " a",
+    " a"
+   ]
+  },
+  {
+   "expr": "replace(s, 'b', '-')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "A-",
+    "é xyz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "replace(s, '')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "Ab",
+    "é xyz",
+    null,
+    ""
+   ]
+  },
+  {
+   "expr": "lpad(s, 4, '0')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "00Ab",
+    "é xy",
+    null,
+    "0000"
+   ]
+  },
+  {
+   "expr": "rpad(s, 1, '*')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "A",
+    "é",
+    null,
+    "*"
+   ]
+  },
+  {
+   "expr": "lpad(s, 5)",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "   Ab",
+    "é xyz",
+    null,
+    "     "
+   ]
+  },
+  {
+   "expr": "startswith(s, 'A')",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "endswith(s, 'z')",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "contains(s, 'x')",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s LIKE 'A%'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s LIKE '%b'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s LIKE '_b'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s LIKE '%x%'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "p LIKE 'a\\\\_c'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "p LIKE '\\\\%'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s ILIKE 'ab'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s NOT LIKE 'A%'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "s RLIKE '^A'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s RLIKE 'b$'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s RLIKE '\\\\d'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s RLIKE '[a-c]+'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s RLIKE '(?i)AB'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s REGEXP 'x.z'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "s RLIKE 'é'",
+   "zone": "UTC",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "round(d, 1)",
+   "zone": "UTC",
+   "type": "decimal(4,1)",
+   "rows": [
+    "12.3",
+    "-100.0",
+    null,
+    "0.1"
+   ]
+  },
+  {
+   "expr": "round(d)",
+   "zone": "UTC",
+   "type": "decimal(3,0)",
+   "rows": [
+    "12",
+    "-100",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "round(f)",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "2.0",
+    "-3.0",
+    null,
+    "NaN"
+   ]
+  },
+  {
+   "expr": "round(-2.5)",
+   "zone": "UTC",
+   "type": "decimal(2,0)",
+   "rows": [
+    "-3",
+    "-3",
+    "-3",
+    "-3"
+   ]
+  },
+  {
+   "expr": "bround(2.5)",
+   "zone": "UTC",
+   "type": "decimal(2,0)",
+   "rows": [
+    "2",
+    "2",
+    "2",
+    "2"
+   ]
+  },
+  {
+   "expr": "bround(d, 1)",
+   "zone": "UTC",
+   "type": "decimal(4,1)",
+   "rows": [
+    "12.3",
+    "-100.0",
+    null,
+    "0.0"
+   ]
+  },
+  {
+   "expr": "floor(f)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "1",
+    "-3",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "ceil(f)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "2",
+    "-2",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "floor(d)",
+   "zone": "UTC",
+   "type": "decimal(3,0)",
+   "rows": [
+    "12",
+    "-100",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "ceil(d)",
+   "zone": "UTC",
+   "type": "decimal(3,0)",
+   "rows": [
+    "13",
+    "-99",
+    null,
+    "1"
+   ]
+  },
+  {
+   "expr": "floor(i)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "1",
+    "2147483647",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "floor(f * 1e300)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "9223372036854775807",
+    "-9223372036854775808",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "ceil(f * -1e300)",
+   "zone": "UTC",
+   "type": "bigint",
+   "rows": [
+    "-9223372036854775808",
+    "9223372036854775807",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "greatest(i, z, 0)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "2147483647",
+    "0",
+    "0"
+   ]
+  },
+  {
+   "expr": "least(i, z)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "0",
+    "2",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "greatest(f, 1.0D)",
+   "zone": "UTC",
+   "type": "double",
+   "rows": [
+    "1.5",
+    "1.0",
+    "1.0",
+    "NaN"
+   ]
+  },
+  {
+   "expr": "least(d, 1)",
+   "zone": "UTC",
+   "type": "decimal(12,2)",
+   "rows": [
+    "1.00",
+    "-99.99",
+    "1.00",
+    "0.05"
+   ]
+  },
+  {
+   "expr": "greatest(s, 'B')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "B",
+    "é xyz",
+    "B",
+    "B"
+   ]
+  },
+  {
+   "expr": "nullif(i, 1)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    null,
+    "2147483647",
+    null,
+    "-2147483648"
+   ]
+  },
+  {
+   "expr": "nvl2(s, 1, 2)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "1",
+    "2",
+    "1"
+   ]
+  },
+  {
+   "expr": "if(b, 'y', 'n')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "y",
+    "n",
+    "n",
+    "n"
+   ]
+  },
+  {
+   "expr": "year(ts)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2021",
+    "2021",
+    null,
+    "1969"
+   ]
+  },
+  {
+   "expr": "month(dt)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "3",
+    "2",
+    null,
+    "12"
+   ]
+  },
+  {
+   "expr": "day(dt)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "5",
+    "29",
+    null,
+    "31"
+   ]
+  },
+  {
+   "expr": "dayofmonth(ts)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "5",
+    "1",
+    null,
+    "31"
+   ]
+  },
+  {
+   "expr": "hour(ts)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "4",
+    "6",
+    null,
+    "23"
+   ]
+  },
+  {
+   "expr": "minute(ts)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "0",
+    "30",
+    null,
+    "59"
+   ]
+  },
+  {
+   "expr": "second(ts)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "0",
+    "0",
+    null,
+    "59"
+   ]
+  },
+  {
+   "expr": "hour(tn)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "4",
+    "23",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "quarter(dt)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "1",
+    "1",
+    null,
+    "4"
+   ]
+  },
+  {
+   "expr": "dayofweek(dt)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "6",
+    "7",
+    null,
+    "4"
+   ]
+  },
+  {
+   "expr": "weekday(dt)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "4",
+    "5",
+    null,
+    "2"
+   ]
+  },
+  {
+   "expr": "year('2021-03-05')",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2021",
+    "2021",
+    "2021",
+    "2021"
+   ]
+  },
+  {
+   "expr": "date_format(ts, 'yyyy-MM')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "2021-03",
+    "2021-07",
+    null,
+    "1969-12"
+   ]
+  },
+  {
+   "expr": "date_format(ts, 'yyyy-MM-dd HH:mm:ss')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "2021-07-01 06:30:00",
+    null,
+    "1969-12-31 23:59:59"
+   ]
+  },
+  {
+   "expr": "date_format(dt, 'yyyy/MM/dd')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "2021/03/05",
+    "2020/02/29",
+    null,
+    "1969/12/31"
+   ]
+  },
+  {
+   "expr": "date_format(tn, 'HH:mm:ss.SSS')",
+   "zone": "UTC",
+   "type": "string",
+   "rows": [
+    "04:00:00.000",
+    "23:59:59.123",
+    null,
+    "00:00:00.000"
+   ]
+  },
+  {
+   "expr": "trunc(dt, 'MM')",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-03-01",
+    "2020-02-01",
+    null,
+    "1969-12-01"
+   ]
+  },
+  {
+   "expr": "trunc(dt, 'YEAR')",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-01-01",
+    "2020-01-01",
+    null,
+    "1969-01-01"
+   ]
+  },
+  {
+   "expr": "trunc(dt, 'QUARTER')",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-01-01",
+    "2020-01-01",
+    null,
+    "1969-10-01"
+   ]
+  },
+  {
+   "expr": "trunc(dt, 'WEEK')",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-03-01",
+    "2020-02-24",
+    null,
+    "1969-12-29"
+   ]
+  },
+  {
+   "expr": "trunc(ts, 'MM')",
+   "zone": "UTC",
+   "type": "date",
+   "rows": [
+    "2021-03-01",
+    "2021-07-01",
+    null,
+    "1969-12-01"
+   ]
+  },
+  {
+   "expr": "date_trunc('HOUR', ts)",
+   "zone": "UTC",
+   "type": "timestamp",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "2021-07-01 06:00:00",
+    null,
+    "1969-12-31 23:00:00"
+   ]
+  },
+  {
+   "expr": "date_trunc('DAY', ts)",
+   "zone": "UTC",
+   "type": "timestamp",
+   "rows": [
+    "2021-03-05 00:00:00",
+    "2021-07-01 00:00:00",
+    null,
+    "1969-12-31 00:00:00"
+   ]
+  },
+  {
+   "expr": "date_trunc('MONTH', ts)",
+   "zone": "UTC",
+   "type": "timestamp",
+   "rows": [
+    "2021-03-01 00:00:00",
+    "2021-07-01 00:00:00",
+    null,
+    "1969-12-01 00:00:00"
+   ]
+  },
+  {
+   "expr": "date_trunc('MINUTE', tn)",
+   "zone": "UTC",
+   "type": "timestamp",
+   "rows": [
+    "2021-03-05 04:00:00",
+    "1999-12-31 23:59:00",
+    null,
+    "1970-01-01 00:00:00"
+   ]
+  },
+  {
+   "expr": "extract(YEAR FROM dt)",
+   "zone": "UTC",
+   "type": "int",
+   "rows": [
+    "2021",
+    "2020",
+    null,
+    "1969"
+   ]
+  },
+  {
+   "expr": "hour(ts)",
+   "zone": "America/Los_Angeles",
+   "type": "int",
+   "rows": [
+    "20",
+    "23",
+    null,
+    "15"
+   ]
+  },
+  {
+   "expr": "cast(ts as date)",
+   "zone": "America/Los_Angeles",
+   "type": "date",
+   "rows": [
+    "2021-03-04",
+    "2021-06-30",
+    null,
+    "1969-12-31"
+   ]
+  },
+  {
+   "expr": "date_format(ts, 'yyyy-MM-dd HH')",
+   "zone": "America/Los_Angeles",
+   "type": "string",
+   "rows": [
+    "2021-03-04 20",
+    "2021-06-30 23",
+    null,
+    "1969-12-31 15"
+   ]
+  },
+  {
+   "expr": "cast(ts as string)",
+   "zone": "America/Los_Angeles",
+   "type": "string",
+   "rows": [
+    "2021-03-04 20:00:00",
+    "2021-06-30 23:30:00.5",
+    null,
+    "1969-12-31 15:59:59"
+   ]
+  },
+  {
+   "expr": "day(ts)",
+   "zone": "America/Los_Angeles",
+   "type": "int",
+   "rows": [
+    "4",
+    "30",
+    null,
+    "31"
+   ]
+  },
+  {
+   "expr": "ts = TIMESTAMP '2021-03-04 20:00:00'",
+   "zone": "America/Los_Angeles",
+   "type": "boolean",
+   "rows": [
+    "true",
+    "false",
+    null,
+    "false"
+   ]
+  },
+  {
+   "expr": "dt < ts",
+   "zone": "America/Los_Angeles",
+   "type": "boolean",
+   "rows": [
+    "false",
+    "true",
+    null,
+    "true"
+   ]
+  },
+  {
+   "expr": "trunc(ts, 'MM')",
+   "zone": "America/Los_Angeles",
+   "type": "date",
+   "rows": [
+    "2021-03-01",
+    "2021-06-01",
+    null,
+    "1969-12-01"
+   ]
+  },
+  {
+   "expr": "hour(tn)",
+   "zone": "America/Los_Angeles",
+   "type": "int",
+   "rows": [
+    "4",
+    "23",
+    null,
+    "0"
+   ]
+  },
+  {
+   "expr": "cast(ts as timestamp_ntz)",
+   "zone": "America/Los_Angeles",
+   "type": "timestamp_ntz",
+   "rows": [
+    "2021-03-04 20:00:00",
+    "2021-06-30 23:30:00.5",
+    null,
+    "1969-12-31 15:59:59"
+   ]
+  }
+ ]
+}

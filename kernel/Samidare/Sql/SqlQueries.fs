@@ -169,6 +169,8 @@ module internal SqlQueries =
             | SqlExprKind.InSubquery(a, q, n) -> SqlExprKind.InSubquery(s a, q, n)
             | SqlExprKind.Quantified(a, op, all, q) -> SqlExprKind.Quantified(s a, op, all, q)
             | SqlExprKind.Like(a, p, esc, n) -> SqlExprKind.Like(s a, s p, Option.map s esc, n)
+            | SqlExprKind.ILike(a, p, esc, n) -> SqlExprKind.ILike(s a, s p, Option.map s esc, n)
+            | SqlExprKind.RLike(a, p, n) -> SqlExprKind.RLike(s a, s p, n)
             | SqlExprKind.Case(o, whens, otherwise) -> SqlExprKind.Case(Option.map s o, whens |> List.map (fun (w, v) -> s w, s v), Option.map s otherwise)
             | SqlExprKind.Cast(a, t, isTry) -> SqlExprKind.Cast(s a, t, isTry)
             | SqlExprKind.Extract(field, a) -> SqlExprKind.Extract(field, s a)
