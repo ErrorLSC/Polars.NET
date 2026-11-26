@@ -518,6 +518,32 @@ public readonly partial struct PolarsWrapper
         DeltaDropColumnDefault(access.Location, column, cloudKeys, cloudValues);
     }
 
+    /// <summary>Adds columns to a catalog table.</summary>
+    public static void CatalogAddColumns(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[] columns, DataTypeHandle[] types,
+        string?[] comments, string?[] afters, bool[] firsts, string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaAddColumns(access.Location, columns, types, comments, afters, firsts, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Removes table properties of a catalog table.</summary>
+    public static void CatalogUnsetTableProperties(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[] keys, bool ifExists,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaUnsetTableProperties(access.Location, keys, ifExists, cloudKeys, cloudValues);
+    }
+
+    /// <summary>What DESCRIBE DETAIL tells about a catalog table.</summary>
+    public static Kaminari.Seseragi.Lakehouse.Delta.TableDetail CatalogTableDetail(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, false, ref cloudKeys, ref cloudValues);
+        return DeltaDetail(access.Location, cloudKeys, cloudValues);
+    }
+
     /// <summary>Moves a column of a catalog table.</summary>
     public static void CatalogMoveColumn(
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string? after,

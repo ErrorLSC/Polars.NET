@@ -323,9 +323,11 @@ public static partial class AlterTable
     }
 
     /// <summary>The steps of a column path in the schema; field names match without regard to case.</summary>
-    private static List<Step> Resolve(StructType schema, string column)
+    private static List<Step> Resolve(StructType schema, string column) => Resolve(schema, ColumnNames.Split(column), column);
+
+    /// <summary>The steps of a column path given by its parts (<paramref name="column"/> names it in messages).</summary>
+    private static List<Step> Resolve(StructType schema, IReadOnlyList<string> parts, string column)
     {
-        IReadOnlyList<string> parts = ColumnNames.Split(column);
         List<Step> steps = [];
         DeltaType type = schema;
         foreach (string part in parts)

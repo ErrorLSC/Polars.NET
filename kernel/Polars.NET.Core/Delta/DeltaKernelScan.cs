@@ -882,10 +882,25 @@ public static class DeltaKernelScan
 
     internal static string Combine(string root, string relative)
     {
+        // A local file by its URI (a shallow clone's, a deletion vector's): file:/dir/f as Spark writes it, file:///dir/f.
+        if (relative.StartsWith("file:", StringComparison.Ordinal)) return LocalPathOf(relative);
         if (relative.Contains("://", StringComparison.Ordinal) || Path.IsPathRooted(relative)) return relative;
         return root.Contains("://", StringComparison.Ordinal)
             ? root.TrimEnd('/') + "/" + relative
             : Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>The local path of a (decoded) <c>file:</c> URI, its host dropped.</summary>
+    private static string LocalPathOf(string uri)
+    {
+        string rest = uri["file:".Length..];
+        if (rest.StartsWith("//", StringComparison.Ordinal))
+        {
+            int slash = rest.IndexOf('/', 2);
+            rest = slash < 0 ? "/" : rest[slash..];
+        }
+        // file:/C:/dir on Windows.
+        return rest.Length > 2 && rest[0] == '/' && rest[2] == ':' ? rest[1..] : rest;
     }
 
     private static string PartitionKey(Snapshot snapshot, AddAction file)

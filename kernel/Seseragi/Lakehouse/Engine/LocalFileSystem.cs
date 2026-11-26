@@ -24,6 +24,9 @@ public sealed class LocalFileSystem : IWritableFileSystem, ITailReadable
         if (relative.Length == 0) return _root;
         if (relative.Contains("://", StringComparison.Ordinal) || relative.StartsWith("file:", StringComparison.Ordinal))
         {
+            // Spark (Hadoop) writes local URIs with one slash, file:/dir/file; .NET reads file:///dir/file.
+            if (relative.StartsWith("file:/", StringComparison.Ordinal) && !relative.StartsWith("file://", StringComparison.Ordinal))
+                relative = "file://" + relative["file:".Length..];
             if (!Uri.TryCreate(relative, UriKind.Absolute, out Uri? uri) || !uri.IsFile)
                 throw new NotSupportedException($"The local file system cannot read '{relative}'.");
             return uri.LocalPath; // decodes %XX escapes

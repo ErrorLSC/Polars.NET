@@ -42,6 +42,25 @@ internal static class DeltaKernelCreate
         CreateCore(tablePath, schema, partitionBy, configuration, identity, cloud, clusterBy, features: null, generated, defaults);
 
     /// <summary>
+    /// Replaces a table's definition, as Spark's <c>REPLACE TABLE</c> (<paramref name="orCreate"/>: <c>CREATE OR REPLACE
+    /// TABLE</c>): one commit with the new schema, partitioning, clustering, properties and declarations, removing every
+    /// data file. The history stays (time travel reads the old definition), the protocol is never lowered, and the
+    /// properties Spark carries over are kept: deletion vectors and row tracking turned on (the row ids go on). Returns
+    /// the version committed.
+    /// </summary>
+    /// <param name="orCreate">Create the table when there is none; otherwise that is refused.</param>
+    /// <exception cref="PolarsException">There is no table to replace (without <paramref name="orCreate"/>), or the
+    /// declaration is not valid.</exception>
+    public static long Replace(
+        string tablePath, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string>? configuration,
+        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy,
+        IReadOnlyList<DeltaGeneratedColumn>? generated, IReadOnlyList<DeltaColumnDefault>? defaults, bool orCreate) =>
+        CreateCore(tablePath, schema, partitionBy, configuration, identity, cloud, clusterBy, features: null, generated, defaults,
+            orCreate ? Replacing.OrCreate : Replacing.Replace);
+
+    private enum Replacing { No, Replace, OrCreate }
+
+    /// <summary>
     /// Creates version 0 of a catalog-managed table at the location its catalog staged, as Delta Spark writes it (a
     /// published commit); returns what that version holds, from which the caller registers the table with the
     /// catalog.
@@ -92,7 +111,7 @@ internal static class DeltaKernelCreate
     private static long CreateCore(
         string tablePath, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string>? configuration,
         IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string>? features,
-        IReadOnlyList<DeltaGeneratedColumn>? generated, IReadOnlyList<DeltaColumnDefault>? defaults)
+        IReadOnlyList<DeltaGeneratedColumn>? generated, IReadOnlyList<DeltaColumnDefault>? defaults, Replacing replacing = Replacing.No)
     {
         ArgumentNullException.ThrowIfNull(schema);
         if (schema.Fields.Count == 0) throw new PolarsException("A table needs at least one column.");
@@ -101,8 +120,14 @@ internal static class DeltaKernelCreate
         IWritableFileSystem store = TableStorage.Open(tablePath, cloud).Store;
         try
         {
-            if (DeltaKernelWrite.TryLoad(store, tablePath, cloud) is not null)
+            Snapshot? existing = DeltaKernelWrite.TryLoad(store, tablePath, cloud);
+            if (existing is not null && replacing == Replacing.No)
                 throw new PolarsException($"Table already exists at {tablePath} (a Delta table).");
+            if (existing is null && replacing == Replacing.Replace)
+                throw new PolarsException($"No Delta table at {tablePath} to replace; use orCreate to create one.");
+            // Replaced, the table keeps what Spark keeps: deletion vectors and row tracking turned on (and the row
+            // tracking column names, so that the ids go on); the given properties win.
+            if (existing is not null) configuration = Carried(existing.Metadata.Configuration, configuration);
 
             // The identity columns are declared on the schema first; column mapping (if on) then maps it whole.
             var declared = new Dictionary<string, KernelIdentityColumn>(StringComparer.Ordinal);
@@ -126,9 +151,37 @@ internal static class DeltaKernelCreate
             if (clustered.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [Clustering.Feature]);
             if (features is not null) protocol = TableFeatures.WithFeatures(protocol, features);
 
-            var transaction = (features is null
-                    ? Transaction.Create(store, protocol, metadata, "CREATE TABLE")
-                    : Transaction.CreateCatalogManaged(store, protocol, metadata, "CREATE TABLE").WithParameter("isManaged", "true"))
+            string operation = replacing switch
+            {
+                Replacing.No => "CREATE TABLE",
+                Replacing.Replace => "REPLACE TABLE",
+                _ => "CREATE OR REPLACE TABLE",
+            };
+            Transaction transaction;
+            if (existing is null)
+            {
+                transaction = features is null
+                    ? Transaction.Create(store, protocol, metadata, operation)
+                    : Transaction.CreateCatalogManaged(store, protocol, metadata, operation).WithParameter("isManaged", "true");
+            }
+            else
+            {
+                // Every file goes; a concurrent commit makes this one fail (it changes the metadata).
+                transaction = Transaction.Start(store, existing, operation).ReadPredicate(null).SetMetadata(metadata);
+                ProtocolAction kept = AtLeast(existing.Protocol, protocol);
+                if (!ReferenceEquals(kept, existing.Protocol)) transaction.SetProtocol(kept);
+                long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                foreach (AddAction file in existing.Files)
+                    transaction.Add(new RemoveAction
+                    {
+                        Path = file.Path, DeletionTimestamp = now, DataChange = true, ExtendedFileMetadata = true,
+                        PartitionValues = file.PartitionValues, Size = file.Size, DeletionVector = file.DeletionVector,
+                        BaseRowId = file.BaseRowId, DefaultRowCommitVersion = file.DefaultRowCommitVersion,
+                    });
+                // A clustered table no longer clustered keeps an empty clustering domain, as Spark writes it.
+                if (clustered.Count == 0 && existing.DomainMetadata.ContainsKey(Clustering.Domain)) transaction.Add(Clustering.DomainFor([]));
+            }
+            transaction
                 .WithParameter("partitionBy", JsonText.StringArray(partitions))
                 .WithParameter("clusterBy", JsonText.StringArray([.. clustered.Select(Clustering.LogicalName)]))
                 .WithParameter("properties", JsonText.Object(configuration ?? new Dictionary<string, string>()));
@@ -143,6 +196,29 @@ internal static class DeltaKernelCreate
         {
             (store as IDisposable)?.Dispose();
         }
+    }
+
+    /// <summary>The properties a replaced table keeps (as Spark keeps them), under the given ones.</summary>
+    private static Dictionary<string, string> Carried(IReadOnlyDictionary<string, string> old, IReadOnlyDictionary<string, string>? given)
+    {
+        string[] keptKeys = [TableFeatures.EnableDeletionVectorsKey, RowTracking.EnableKey, RowTracking.MaterializedRowIdKey, RowTracking.MaterializedRowCommitVersionKey];
+        var configuration = old.Where(p => keptKeys.Contains(p.Key, StringComparer.Ordinal)).ToDictionary(StringComparer.Ordinal);
+        foreach (var (key, value) in given ?? new Dictionary<string, string>()) configuration[key] = value;
+        return configuration;
+    }
+
+    /// <summary>The table's protocol raised to support what <paramref name="needed"/> supports; never lowered.</summary>
+    internal static ProtocolAction AtLeast(ProtocolAction current, ProtocolAction needed)
+    {
+        if (current.MinWriterVersion < 7 && needed.MinWriterVersion < 7)
+            return needed.MinReaderVersion <= current.MinReaderVersion && needed.MinWriterVersion <= current.MinWriterVersion
+                ? current
+                : new ProtocolAction
+                {
+                    MinReaderVersion = Math.Max(current.MinReaderVersion, needed.MinReaderVersion),
+                    MinWriterVersion = Math.Max(current.MinWriterVersion, needed.MinWriterVersion),
+                };
+        return TableFeatures.WithFeatures(current, [.. TableFeatures.WriterFeaturesOf(needed), .. TableFeatures.ReaderFeaturesOf(needed)]);
     }
 
     /// <summary>

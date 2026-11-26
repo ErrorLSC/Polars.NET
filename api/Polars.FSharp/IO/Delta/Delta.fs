@@ -169,6 +169,68 @@ type DeltaColumnDefault(column: string, expression: string) =
     /// <summary>The default.</summary>
     member _.Expression = expression
 
+/// <summary>A column to add with Delta.AddColumns; it is nullable (Delta adds no NOT NULL column).</summary>
+/// <param name="column">The column, or dotted for a field of a struct (address.zip; element / key / value through
+/// arrays and maps: items.element.price; a part holding a dot in backticks). Every part but the last names what exists.</param>
+/// <param name="dataType">Its type, as data of this type would be written.</param>
+/// <param name="comment">Its comment.</param>
+/// <param name="after">The field of the same struct to place it after, by its name only; omitted to place it last (or first, with first).</param>
+/// <param name="first">Place it first in its struct.</param>
+type DeltaNewColumn(column: string, dataType: DataType, ?comment: string, ?after: string, ?first: bool) =
+    /// <summary>The column.</summary>
+    member _.Column = column
+    /// <summary>Its type.</summary>
+    member _.DataType = dataType
+    /// <summary>Its comment, or null.</summary>
+    member _.Comment = Option.toObj comment
+    /// <summary>The field to place it after, or null.</summary>
+    member _.After = Option.toObj after
+    /// <summary>Whether it goes first.</summary>
+    member _.First = defaultArg first false
+
+/// <summary>What Delta.Detail tells about a table, as Spark's DESCRIBE DETAIL, at its latest version.</summary>
+type DeltaTableDetail =
+    { /// <summary>Always delta.</summary>
+      Format: string
+      /// <summary>The table's id.</summary>
+      Id: string
+      /// <summary>The name its metadata holds, if any.</summary>
+      Name: string option
+      /// <summary>The description its metadata holds, if any.</summary>
+      Description: string option
+      /// <summary>Where it is: the URL given, or the local directory made absolute.</summary>
+      Location: string
+      /// <summary>When it was created, if recorded.</summary>
+      CreatedAt: DateTimeOffset option
+      /// <summary>When its latest version was committed.</summary>
+      LastModified: DateTimeOffset
+      /// <summary>Its latest version.</summary>
+      Version: int64
+      /// <summary>Its partition columns.</summary>
+      PartitionColumns: string list
+      /// <summary>Its liquid clustering columns, dotted for nested fields.</summary>
+      ClusteringColumns: string list
+      /// <summary>The data files of the latest version.</summary>
+      NumFiles: int64
+      /// <summary>Their total size.</summary>
+      SizeInBytes: int64
+      /// <summary>Its table properties.</summary>
+      Properties: Map<string, string>
+      /// <summary>The protocol's reader version.</summary>
+      MinReaderVersion: int
+      /// <summary>The protocol's writer version.</summary>
+      MinWriterVersion: int
+      /// <summary>The table features its protocol supports, sorted.</summary>
+      TableFeatures: string list }
+
+    static member internal Of(d: Kaminari.Seseragi.Lakehouse.Delta.TableDetail) =
+        { Format = "delta"; Id = d.Id; Name = Option.ofObj d.Name; Description = Option.ofObj d.Description; Location = d.Location
+          CreatedAt = Option.ofNullable d.CreatedAt; LastModified = d.LastModified; Version = d.Version
+          PartitionColumns = List.ofSeq d.PartitionColumns; ClusteringColumns = List.ofSeq d.ClusteringColumns
+          NumFiles = d.NumFiles; SizeInBytes = d.SizeInBytes
+          Properties = d.Properties |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+          MinReaderVersion = d.MinReaderVersion; MinWriterVersion = d.MinWriterVersion; TableFeatures = List.ofSeq d.TableFeatures }
+
 /// <summary>
 /// Methods for DeltaLake 
 /// </summary>
@@ -293,6 +355,143 @@ type Delta =
     static member DropColumnDefault(path: string, column: string, ?cloudOptions: CloudOptions) =
         let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.DeltaDropColumnDefault(path, column, cKeys, cVals)
+
+    /// <summary>
+    /// Replaces a table's definition, as Spark's REPLACE TABLE (with orCreate, CREATE OR REPLACE TABLE): one commit with
+    /// the new schema, partitioning, clustering, properties and declarations (as Delta.CreateTable takes them), removing
+    /// every row. The history stays; the protocol is never lowered; of the old properties the table keeps what Spark
+    /// keeps (deletion vectors and row tracking turned on). Unlike Spark's CREATE OR REPLACE on a path, any definition
+    /// replaces the old one.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="schema">The columns of the table.</param>
+    /// <param name="partitionBy">Partition columns.</param>
+    /// <param name="clusterBy">Liquid clustering columns.</param>
+    /// <param name="properties">Table properties.</param>
+    /// <param name="identityColumns">Identity columns.</param>
+    /// <param name="generatedColumns">Generated columns.</param>
+    /// <param name="columnDefaults">Column defaults.</param>
+    /// <param name="orCreate">Create the table when there is none (false by default: refused).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member ReplaceTable(
+        path: string,
+        schema: PolarsSchema,
+        ?partitionBy: seq<string>,
+        ?clusterBy: seq<string>,
+        ?properties: seq<string * string>,
+        ?identityColumns: seq<DeltaIdentityColumn>,
+        ?generatedColumns: seq<DeltaGeneratedColumn>,
+        ?columnDefaults: seq<DeltaColumnDefault>,
+        ?orCreate: bool,
+        ?cloudOptions: CloudOptions
+    ) =
+        let props = defaultArg properties Seq.empty |> Seq.toArray
+        let identity = defaultArg identityColumns Seq.empty |> Seq.toArray
+        let generated = defaultArg generatedColumns Seq.empty |> Seq.toArray
+        let defaults = defaultArg columnDefaults Seq.empty |> Seq.toArray
+        let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaCreateTable(
+            path,
+            schema.Handle,
+            (match partitionBy with Some p -> Seq.toArray p | None -> null),
+            (props |> Array.map fst),
+            (props |> Array.map snd),
+            (identity |> Array.map (fun c -> c.Column)),
+            (identity |> Array.map (fun c -> c.Start)),
+            (identity |> Array.map (fun c -> c.Step)),
+            (identity |> Array.map (fun c -> c.GeneratedAlways)),
+            cProv,
+            cRet,
+            cToMs,
+            cInitMs,
+            cMaxMs,
+            cCache,
+            cKeys,
+            cVals,
+            (match clusterBy with Some c -> Seq.toArray c | None -> null),
+            (generated |> Array.map (fun c -> c.Column)),
+            (generated |> Array.map (fun c -> c.Expression)),
+            (defaults |> Array.map (fun c -> c.Column)),
+            (defaults |> Array.map (fun c -> c.Expression)),
+            true,
+            defaultArg orCreate false
+        )
+
+    /// <summary>
+    /// Adds columns, as Spark's ALTER TABLE … ADD COLUMNS: one metadata commit; rows already written read null for
+    /// them. Nested fields are added to their struct. Under column mapping they get ids and physical names; a column
+    /// holding timestamps without time zone brings the timestampNtz feature. Fails, committing nothing, when a column
+    /// exists already (names compare without regard to case), its parent is not a struct, or after names no field.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The columns, added in order.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member AddColumns(path: string, columns: seq<DeltaNewColumn>, ?cloudOptions: CloudOptions) =
+        let added = Seq.toArray columns
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        let handles = added |> Array.map (fun c -> c.DataType.CreateHandle())
+        try
+            PolarsWrapper.DeltaAddColumns(
+                path, (added |> Array.map (fun c -> c.Column)), handles, (added |> Array.map (fun c -> c.Comment)),
+                (added |> Array.map (fun c -> c.After)), (added |> Array.map (fun c -> c.First)), cKeys, cVals)
+        finally
+            for h in handles do h.Dispose()
+
+    /// <summary>
+    /// Removes table properties, as Spark's ALTER TABLE … UNSET TBLPROPERTIES: one metadata commit, none when nothing is
+    /// removed. Refused, naming the operation to use instead: delta.columnMapping.mode (Delta.DropFeature),
+    /// delta.constraints.* (Delta.DropConstraint), delta.feature.* and the protocol versions (Delta.DropFeature), and the
+    /// properties the table keeps itself.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="keys">The properties; a delta. key matches without regard to case.</param>
+    /// <param name="ifExists">Skip properties the table does not have instead of failing.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member UnsetTableProperties(path: string, keys: seq<string>, ?ifExists: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaUnsetTableProperties(path, Seq.toArray keys, defaultArg ifExists false, cKeys, cVals)
+
+    /// <summary>
+    /// What Spark's DESCRIBE DETAIL tells about a table at its latest version. Reads the log only; any table that can
+    /// be read is described.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member Detail(path: string, ?cloudOptions: CloudOptions) : DeltaTableDetail =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        DeltaTableDetail.Of(PolarsWrapper.DeltaDetail(path, cKeys, cVals))
+
+    /// <summary>
+    /// Shallow-clones a table, as Spark's CREATE TABLE … SHALLOW CLONE: a new table whose version 0 refers to the
+    /// source's data files by their absolute paths, copying none. The target must be an empty location on the same
+    /// store (both local, or the same bucket). A Vacuum of the source that deletes files the clone refers to breaks it.
+    /// </summary>
+    /// <param name="sourcePath">The table to clone.</param>
+    /// <param name="targetPath">Where the clone goes.</param>
+    /// <param name="version">The source version to clone; its latest when omitted.</param>
+    /// <param name="timestamp">The source version current at this time (not with version).</param>
+    /// <param name="properties">Table properties set on the clone, over the source's.</param>
+    /// <param name="cloudOptions">Cloud storage configuration, for both tables.</param>
+    static member Clone(sourcePath: string, targetPath: string, ?version: int64, ?timestamp: DateTimeOffset, ?properties: seq<string * string>, ?cloudOptions: CloudOptions) =
+        let props = defaultArg properties Seq.empty |> Seq.toArray
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaClone(
+            sourcePath, targetPath, Option.toNullable version, Option.toNullable timestamp,
+            (props |> Array.map fst), (props |> Array.map snd), cKeys, cVals)
+
+    /// <summary>
+    /// Turns a directory of Parquet files into a Delta table in place, as Spark's CONVERT TO DELTA: version 0 lists every
+    /// file (none is rewritten) with the schema their footers hold and, unless collectStatistics is false, their
+    /// statistics. Nothing is done when the directory holds a Delta table already.
+    /// </summary>
+    /// <param name="path">The directory. Every file outside names starting with _ or . is read as Parquet.</param>
+    /// <param name="partitionBy">The partition columns and their types, when the files lie in Hive directories.</param>
+    /// <param name="collectStatistics">Give each file the statistics of its footer (true by default).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member ConvertToDelta(path: string, ?partitionBy: PolarsSchema, ?collectStatistics: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaConvertToDelta(
+            path, (match partitionBy with Some p -> p.Handle | None -> null), defaultArg collectStatistics true, cKeys, cVals)
 
     /// <summary>
     /// Changes the liquid clustering columns of a table, as Spark's ALTER TABLE … CLUSTER BY (no columns: CLUSTER BY
@@ -1261,6 +1460,40 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     member this.DropCatalogColumnDefault(catalogName: string, schemaName: string, tableName: string, column: string, ?cloudOptions: CloudOptions) =
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.CatalogDropColumnDefault(this.Handle, catalogName, schemaName, tableName, column, keys, values)
+    /// <summary>Adds columns to a catalog table; see Delta.AddColumns.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="columns">The columns to add.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.AddCatalogColumns(catalogName: string, schemaName: string, tableName: string, columns: seq<DeltaNewColumn>, ?cloudOptions: CloudOptions) =
+        let added = Seq.toArray columns
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        let handles = added |> Array.map (fun c -> c.DataType.CreateHandle())
+        try
+            PolarsWrapper.CatalogAddColumns(
+                this.Handle, catalogName, schemaName, tableName, (added |> Array.map (fun c -> c.Column)), handles,
+                (added |> Array.map (fun c -> c.Comment)), (added |> Array.map (fun c -> c.After)), (added |> Array.map (fun c -> c.First)), keys, values)
+        finally
+            for h in handles do h.Dispose()
+    /// <summary>Removes table properties of a catalog table; see Delta.UnsetTableProperties.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="keys">The properties.</param>
+    /// <param name="ifExists">Skip properties the table does not have instead of failing.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.UnsetCatalogTableProperties(catalogName: string, schemaName: string, tableName: string, keys: seq<string>, ?ifExists: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogUnsetTableProperties(this.Handle, catalogName, schemaName, tableName, Seq.toArray keys, defaultArg ifExists false, cKeys, cVals)
+    /// <summary>What Spark's DESCRIBE DETAIL tells about a catalog table; see Delta.Detail.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.CatalogTableDetail(catalogName: string, schemaName: string, tableName: string, ?cloudOptions: CloudOptions) : DeltaTableDetail =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        DeltaTableDetail.Of(PolarsWrapper.CatalogTableDetail(this.Handle, catalogName, schemaName, tableName, keys, values))
     /// <summary>Moves a column of a catalog table; see Delta.MoveColumn.</summary>
     /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>

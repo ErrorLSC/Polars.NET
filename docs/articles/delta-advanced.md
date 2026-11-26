@@ -1,6 +1,6 @@
 # Delta Lake: Advanced Table Features
 
-The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, column changes, check constraints, generated columns and column defaults, dropping table features, and variant columns. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them (variant tables are read only). What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
+The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, column changes, check constraints, generated columns and column defaults, table details, replacing, cloning and converting tables, dropping table features, and variant columns. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them (variant tables are read only). What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
 
 ---
 
@@ -87,13 +87,14 @@ Delta.Optimize("./lake/events", full = true) |> ignore
 
 ## 3. Column Changes
 
-Columns are renamed, dropped, widened, commented and moved as Spark's `ALTER TABLE` does it: one commit that changes the schema, without rewriting data. Nested fields are named with dots, `element` for an array's element and `key` / `value` for a map's (`items.element.price`); a part holding a dot goes in backticks.
+Columns are added, renamed, dropped, widened, commented and moved as Spark's `ALTER TABLE` does it: one commit that changes the schema, without rewriting data. Nested fields are named with dots, `element` for an array's element and `key` / `value` for a map's (`items.element.price`); a part holding a dot goes in backticks.
 
+* `Delta.AddColumns` (`ADD COLUMNS`) adds nullable columns, or fields to a struct (`address.zip`, `items.element.price`), last or where `DeltaNewColumn` places them (`First`, `After`), with a comment if given; the rows already written read null for them. Under column mapping they get ids and physical names; a timestamp without time zone brings the `timestampNtz` feature (Spark asks for it first).
 * `Delta.RenameColumn` and `Delta.DropColumns` need column mapping (`delta.columnMapping.mode` = `name`, which `Delta.SetTableProperties` turns on for an existing table without rewriting it): data files keep their physical column names, so a renamed column reads its old data, and a dropped one is no longer read (a column added later under the same name is a new, empty column). Partition columns and `delta.dataSkippingStatsColumns` follow a rename. Partition columns, clustering columns (and structs holding one) and the last column of the table or of a struct cannot be dropped.
 * `Delta.DropColumnNotNull` (`ALTER COLUMN … DROP NOT NULL`) lets a column, a nested field, or an array's elements or a map's values (`items.element`, `tags.value`) hold nulls. There is no way back, in Spark either: Delta cannot make a nullable column NOT NULL again. Identity columns and map keys cannot be changed.
 * `Delta.SetColumnComment` (`ALTER COLUMN … COMMENT`) keeps the comment in the column's metadata, where Spark, Databricks and Unity Catalog show it. Array elements and map keys and values take no comment.
 * `Delta.MoveColumn` (`ALTER COLUMN … FIRST` / `AFTER`) moves a column, or a field within its struct, first or after another field of the same struct, named by its name only (`MoveColumn("address.zip", after: "city")`). Files hold columns by name, so only the schema's order changes; positional `INSERT INTO … VALUES` in Spark follows the new order.
-* These three always commit, also when nothing changes, as Spark does. Unity Catalog: `DropCatalogColumnNotNull`, `SetCatalogColumnComment`, `MoveCatalogColumn` (the catalog's columns follow).
+* These three always commit, also when nothing changes, as Spark does. Unity Catalog: `AddCatalogColumns`, `DropCatalogColumnNotNull`, `SetCatalogColumnComment`, `MoveCatalogColumn` (the catalog's columns follow).
 * `Delta.Purge` (Spark's `REORG TABLE … APPLY (PURGE)`; Unity Catalog: `PurgeCatalogTable`) removes what a drop or a delete only hides from the current files: the files that still hold a dropped column (at any depth) and the files with deletion vectors are rewritten without it, packed per partition, in one commit that changes no data; on a clustered table they become new clustered cubes, as Spark writes them. `partitionFilters` limits it to some partitions (Spark's `REORG TABLE … WHERE`, partition columns only; a null value matches a null partition). It returns the number of files rewritten, and commits nothing when no file needs it. The old files stay for time travel until `Delta.Vacuum` removes them, so purge and then vacuum to remove the data from storage. Catalog-managed tables refuse it, as Spark does.
 * `Delta.ChangeColumnType` needs type widening (`delta.enableTypeWidening` = `true`). Allowed: integers to wider integers, a wide enough decimal, or (from Int8, Int16, Int32) Float64; Float32 to Float64; decimals to wider decimals; Date to Datetime without a time zone (needs the `timestampNtz` feature). Older files are read in their own types and cast.
 
@@ -102,6 +103,7 @@ Columns are renamed, dropped, widened, commented and moved as Spark's `ALTER TAB
 ```csharp [C# (Fluent)]
 Delta.SetTableProperties("./lake/orders", new() { ["delta.columnMapping.mode"] = "name", ["delta.enableTypeWidening"] = "true" });
 
+Delta.AddColumns("./lake/orders", [new DeltaNewColumn("discount", DataType.Float64, Comment: "percent", After: "price")]);
 Delta.RenameColumn("./lake/orders", "customer", "client");
 Delta.RenameColumn("./lake/orders", "address.zip", "postcode");      // a nested field
 Delta.DropColumns("./lake/orders", ["comment", "address.line2"]);
@@ -117,6 +119,7 @@ Delta.Vacuum("./lake/orders", retentionHours: 168);                   // and, on
 ```fsharp [F# (Pipeline)]
 Delta.SetTableProperties("./lake/orders", [ "delta.columnMapping.mode", "name"; "delta.enableTypeWidening", "true" ])
 
+Delta.AddColumns("./lake/orders", [ DeltaNewColumn("discount", DataType.Float64, comment = "percent", after = "price") ])
 Delta.RenameColumn("./lake/orders", "customer", "client")
 Delta.RenameColumn("./lake/orders", "address.zip", "postcode")
 Delta.DropColumns("./lake/orders", [ "comment"; "address.line2" ])
@@ -183,7 +186,48 @@ Delta.DropConstraint("./lake/events", "positive_amount")
 
 ---
 
-## 5. Dropping Table Features
+## 5. Table Details, Replacing, Cloning and Converting
+
+* `Delta.Detail` tells what Spark's `DESCRIBE DETAIL` tells: id, location, creation and last commit times, version, partition and clustering columns, number and size of the files, properties, protocol versions and table features. It reads the log only. Unity Catalog: `CatalogTableDetail`.
+* `Delta.UnsetTableProperties` (`UNSET TBLPROPERTIES`) removes properties; a property that turned a feature on stops using it, the feature staying in the protocol until `Delta.DropFeature`. A property the table does not have is refused unless `ifExists`. Properties another operation owns are refused, naming it: `delta.columnMapping.mode` (`DropFeature("columnMapping")`), `delta.constraints.*` (`DropConstraint`), `delta.feature.*` and the protocol versions (`DropFeature`), and those the table keeps itself. Unity Catalog: `UnsetCatalogTableProperties`.
+* `Delta.ReplaceTable` (`REPLACE TABLE`; with `orCreate`, `CREATE OR REPLACE TABLE`) gives the table a new definition, as `CreateTable` takes one, in one commit that removes every row. The history stays (time travel reads the old definition until `Vacuum` removes its files) and the protocol is never lowered. Of the old properties the table keeps what Spark keeps: deletion vectors and row tracking turned on, the row ids going on after the old ones.
+* `Delta.Clone` (`SHALLOW CLONE`) makes a new table whose version 0 refers to the source's files (data and deletion vectors) by their absolute paths, copying none, at the source's latest version or one given by `version` or `timestamp`; `properties` are set over the source's. The clone is written and maintained on its own: its writes, deletes and `Vacuum` never touch the source's files. The target must be an empty location on the source's store (both local, or the same bucket). A `Vacuum` of the source that deletes files the clone still refers to breaks the clone, as in Spark.
+* `Delta.ConvertToDelta` (`CONVERT TO DELTA`) turns a directory of Parquet files into a Delta table in place: version 0 lists the files, none rewritten, with the schema of their footers (the union of their columns; a column whose type differs between files is refused) and their footers' statistics (`collectStatistics: false` for none). Files in Hive directories (`key=value`) need `partitionBy`, the partition columns and their types. Every file outside names starting with `_` or `.` is read as Parquet. A directory that holds a Delta table already is left as it is.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+DeltaTableDetail detail = Delta.Detail("./lake/orders");
+Console.WriteLine($"{detail.NumFiles} files, {detail.SizeInBytes} bytes, features: {string.Join(", ", detail.TableFeatures)}");
+
+Delta.UnsetTableProperties("./lake/orders", ["delta.logRetentionDuration"]);
+
+Delta.Clone("./lake/orders", "./lake/orders_test", version: detail.Version);   // a test copy, no file copied
+
+Delta.ReplaceTable("./lake/staging", PolarsSchema.From<Staged>(), orCreate: true);
+
+// Hive-partitioned Parquet files written by another tool become a Delta table.
+Delta.ConvertToDelta("./lake/events_parquet", partitionBy: PolarsSchema.From<EventPartition>());
+
+record Staged(long Id, string Payload);
+record EventPartition(DateOnly Day);
+```
+
+```fsharp [F# (Pipeline)]
+let detail = Delta.Detail("./lake/orders")
+printfn "%d files, %d bytes" detail.NumFiles detail.SizeInBytes
+
+Delta.UnsetTableProperties("./lake/orders", [ "delta.logRetentionDuration" ])
+Delta.Clone("./lake/orders", "./lake/orders_test", version = detail.Version)
+Delta.ReplaceTable("./lake/staging", PolarsSchema([ "id", DataType.Int64; "payload", DataType.String ]), orCreate = true)
+Delta.ConvertToDelta("./lake/events_parquet", partitionBy = PolarsSchema([ "day", DataType.Date ]))
+```
+
+:::
+
+---
+
+## 6. Dropping Table Features
 
 `Delta.DropFeature` removes a table feature, as Spark's `ALTER TABLE … DROP FEATURE` does, so readers and writers that lack the feature can use the table again. The feature's traces go first, each step its own commit and each skipped when already done, so a drop that was interrupted is finished by running it again:
 
@@ -246,7 +290,7 @@ Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateH
 
 :::
 
-## 6. Variant Columns
+## 7. Variant Columns
 
 Tables with `VARIANT` columns (Spark 4 and Databricks semi-structured data, the `variantType` feature) are read, at any depth: top-level columns, struct fields, array elements and map values. A variant is read as it is stored, a struct of its `value` and `metadata` binaries (the Parquet Variant encoding), or, with `variantAsJson: true`, as JSON text, exactly as Spark's `to_json` renders it (timestamps in UTC; times and nanosecond timestamps, which Spark does not write, in the same style). Such tables are read only.
 
@@ -270,7 +314,7 @@ let json = DataFrame.ReadDelta("./lake/events", variantAsJson = true) // payload
 
 :::
 
-## 7. Catalog-Managed Tables
+## 8. Catalog-Managed Tables
 
 A catalog-managed table (the `catalogManaged` feature, which Unity Catalog's managed Delta tables use) is committed to through its catalog rather than by writing log files: a writer stages a commit, the catalog ratifies it as the next version, and the commit is then published to `_delta_log`. The catalog is the authority on the table's latest version, which may include commits not published yet.
 

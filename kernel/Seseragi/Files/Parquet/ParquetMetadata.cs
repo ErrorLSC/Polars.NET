@@ -27,9 +27,19 @@ public enum ParquetTimeUnit
 /// <param name="DecimalPrecision">The precision of a decimal, from the logical or the converted type.</param>
 /// <param name="IsDate">Whether the leaf is annotated as a date.</param>
 /// <param name="IsVariant">Whether the group is annotated as a variant (its <c>value</c> and <c>metadata</c> binaries).</param>
+/// <param name="IsString">Whether the leaf is annotated as text (STRING, ENUM or JSON; UTF8 as converted type).</param>
+/// <param name="IsList">Whether the group is annotated as a list (LIST).</param>
+/// <param name="IsMap">Whether the group is annotated as a map (MAP, or MAP_KEY_VALUE as converted type).</param>
+/// <param name="IsUnsigned">Whether the annotated integer is unsigned.</param>
+/// <param name="IsAdjustedToUtc">Whether a timestamp is adjusted to UTC (an instant); a converted-type timestamp is.</param>
+/// <param name="IsTime">Whether the leaf is annotated as a time of day (TIME).</param>
+/// <param name="Annotation">The logical type of an annotated node this model names no flag for (UUID, FLOAT16,
+/// INTERVAL, GEOMETRY, …), by its Thrift name; null otherwise.</param>
 public sealed record ParquetSchemaElement(
     string Name, int? PhysicalType, int? Repetition, int ChildCount, int? TypeLength, int? DecimalScale, ParquetTimeUnit? TimeUnit,
-    int? FieldId = null, int? IntBitWidth = null, int? DecimalPrecision = null, bool IsDate = false, bool IsVariant = false);
+    int? FieldId = null, int? IntBitWidth = null, int? DecimalPrecision = null, bool IsDate = false, bool IsVariant = false,
+    bool IsString = false, bool IsList = false, bool IsMap = false, bool IsUnsigned = false, bool IsAdjustedToUtc = true,
+    bool IsTime = false, string? Annotation = null);
 
 /// <summary>The statistics of one column chunk: the raw PLAIN-encoded bounds and the null count, each absent when not written.</summary>
 public sealed record ParquetColumnStatistics(byte[]? Min, byte[]? Max, long? NullCount);
@@ -193,10 +203,23 @@ public sealed class ParquetMetadata
     {
         int? scale = null, precision = null, bitWidth = null;
         ParquetTimeUnit? unit = null;
-        bool date = false, variant = false;
+        bool date = false, variant = false, text = false, list = false, map = false, unsigned = false, adjusted = true, time = false;
+        string? annotation = null;
         if (e.LogicalType is { } logical)
         {
             variant = logical.Kind == LogicalTypeKind.Variant;
+            text = logical.Kind is LogicalTypeKind.String or LogicalTypeKind.Enum or LogicalTypeKind.Json;
+            list = logical.Kind == LogicalTypeKind.List;
+            map = logical.Kind == LogicalTypeKind.Map;
+            time = logical.Kind == LogicalTypeKind.Time;
+            if (logical.Kind == LogicalTypeKind.Timestamp) adjusted = logical.IsAdjustedToUtc;
+            if (logical.Kind == LogicalTypeKind.Integer) unsigned = !logical.IsSigned;
+            annotation = logical.Kind switch
+            {
+                LogicalTypeKind.Uuid or LogicalTypeKind.Float16 or LogicalTypeKind.Bson or LogicalTypeKind.Unknown or LogicalTypeKind.Geometry
+                    or LogicalTypeKind.Geography or LogicalTypeKind.File or LogicalTypeKind.FiniteVector => logical.Kind.ToString().ToUpperInvariant(),
+                _ => null,
+            };
             if (logical.Kind == LogicalTypeKind.Decimal)
             {
                 scale = logical.Scale;
@@ -215,6 +238,13 @@ public sealed class ParquetMetadata
         if (unit is null && converted == ConvertedType.TimestampMillis) unit = ParquetTimeUnit.Millis;
         if (unit is null && converted == ConvertedType.TimestampMicros) unit = ParquetTimeUnit.Micros;
         date |= converted == ConvertedType.Date;
+        text |= converted is ConvertedType.Utf8 or ConvertedType.Enum or ConvertedType.Json;
+        list |= converted == ConvertedType.List;
+        map |= converted is ConvertedType.Map or ConvertedType.MapKeyValue;
+        time |= converted is ConvertedType.TimeMillis or ConvertedType.TimeMicros;
+        unsigned |= converted is ConvertedType.UInt8 or ConvertedType.UInt16 or ConvertedType.UInt32 or ConvertedType.UInt64;
+        if (converted == ConvertedType.Interval) annotation ??= "INTERVAL";
+        if (converted == ConvertedType.Bson) annotation ??= "BSON";
         bitWidth ??= converted switch
         {
             ConvertedType.Int8 or ConvertedType.UInt8 => 8,
@@ -225,6 +255,6 @@ public sealed class ParquetMetadata
         };
         return new ParquetSchemaElement(
             e.Name, (int?)e.Type, (int?)e.Repetition, e.NumChildren ?? 0, e.TypeLength, scale, unit, e.FieldId,
-            bitWidth, precision, date, variant);
+            bitWidth, precision, date, variant, text, list, map, unsigned, adjusted, time, annotation);
     }
 }

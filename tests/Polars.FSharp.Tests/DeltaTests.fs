@@ -307,6 +307,36 @@ let ``Delta declarations: generated columns, defaults and CHECK constraints`` ()
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Delta table operations: AddColumns, UnsetTableProperties, Detail, ReplaceTable, Clone, ConvertToDelta`` () =
+    let root = Path.Combine(Path.GetTempPath(), $"delta_ops_{Guid.NewGuid()}")
+    try
+        let path = Path.Combine(root, "t")
+        Delta.CreateTable(path, new PolarsSchema([ "id", DataType.Int32 ]), properties = [ "foo", "1" ])
+        DataFrame.create [| Series.create("id", [ 1; 2 ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+        Delta.AddColumns(path, [ DeltaNewColumn("note", DataType.String, comment = "hi", first = true) ])
+        Delta.UnsetTableProperties(path, [ "foo"; "missing" ], ifExists = true)
+        let detail = Delta.Detail(path)
+        Assert.Equal(3L, detail.Version)
+        Assert.True(detail.Properties.IsEmpty)
+        let read = DataFrame.ReadDelta(path).Sort("id")
+        Assert.Equal<string list>([ "note"; "id" ], read.Columns |> List.ofArray)
+
+        let clone = Path.Combine(root, "clone")
+        Delta.Clone(path, clone, version = 1L)
+        Assert.Equal<int list>([ 1; 2 ], DataFrame.ReadDelta(clone).Sort("id").["id"].ToArray<int>() |> List.ofArray)
+
+        Delta.ReplaceTable(path, new PolarsSchema([ "k", DataType.Int64 ]))
+        Assert.Equal(0L, Delta.Detail(path).NumFiles)
+
+        let parquet = Path.Combine(root, "pq")
+        Directory.CreateDirectory(Path.Combine(parquet, "p=1")) |> ignore
+        (DataFrame.create [| Series.create("id", [ 7 ]) |]).WriteParquet(Path.Combine(parquet, "p=1", "f.parquet")) |> ignore
+        Delta.ConvertToDelta(parquet, partitionBy = new PolarsSchema([ "p", DataType.Int32 ]), collectStatistics = false)
+        Assert.Equal<string list>([ "p" ], Delta.Detail(parquet).PartitionColumns)
+    finally
+        if Directory.Exists root then Directory.Delete(root, true)
+
+[<Fact>]
 let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the data`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_columns_{Guid.NewGuid()}")
     try

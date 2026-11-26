@@ -326,6 +326,46 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         PolarsWrapper.CatalogDropColumnDefault(Handle, catalogName, schemaName, tableName, column, keys, values);
     }
+    /// <summary>Adds columns to a catalog table; see <see cref="Delta.AddColumns"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="columns">The columns to add.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void AddCatalogColumns(
+        string catalogName, string schemaName, string tableName, IEnumerable<DeltaNewColumn> columns, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        DeltaNewColumn[] added = [.. columns];
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogAddColumns(
+            Handle, catalogName, schemaName, tableName, [.. added.Select(c => c.Column)], [.. added.Select(c => c.Type.Handle)],
+            [.. added.Select(c => c.Comment)], [.. added.Select(c => c.After)], [.. added.Select(c => c.First)], keys, values);
+    }
+    /// <summary>Removes table properties of a catalog table; see <see cref="Delta.UnsetTableProperties"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="keys">The properties.</param>
+    /// <param name="ifExists">Skip properties the table does not have instead of failing.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void UnsetCatalogTableProperties(
+        string catalogName, string schemaName, string tableName, IEnumerable<string> keys, bool ifExists = false, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        var (_, _, _, _, _, _, cloudKeys, cloudValues) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogUnsetTableProperties(Handle, catalogName, schemaName, tableName, [.. keys], ifExists, cloudKeys, cloudValues);
+    }
+    /// <summary>What Spark's <c>DESCRIBE DETAIL</c> tells about a catalog table; see <see cref="Delta.Detail"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public DeltaTableDetail CatalogTableDetail(string catalogName, string schemaName, string tableName, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        return DeltaTableDetail.Of(PolarsWrapper.CatalogTableDetail(Handle, catalogName, schemaName, tableName, keys, values));
+    }
     /// <summary>Moves a column of a catalog table; see <see cref="Delta.MoveColumn"/>.</summary>
     /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>

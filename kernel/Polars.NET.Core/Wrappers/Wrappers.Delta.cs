@@ -175,6 +175,43 @@ public readonly partial struct PolarsWrapper
         if ((columns?.Length ?? 0) != (expressions?.Length ?? 0)) throw new ArgumentException("Each column default needs one expression.", nameof(expressions));
         return [.. (columns ?? []).Select((c, i) => new Kaminari.Seseragi.Lakehouse.Delta.DeltaColumnDefault(c, expressions![i]))];
     }
+    /// <summary>Adds columns (ALTER TABLE … ADD COLUMNS): the arrays run in parallel; the types are borrowed.</summary>
+    public static void DeltaAddColumns(
+        string path, string[] columns, DataTypeHandle[] types, string?[] comments, string?[] afters, bool[] firsts,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        if (types.Length != columns.Length || comments.Length != columns.Length || afters.Length != columns.Length || firsts.Length != columns.Length)
+            throw new ArgumentException("Each column needs a type, a comment, a position.", nameof(types));
+        Delta.KernelNewColumn[] added = [.. columns.Select((c, i) => new Delta.KernelNewColumn(c, types[i], comments[i], afters[i], firsts[i]))];
+        Delta.DeltaKernelAlter.AddColumns(path, added, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    }
+    /// <summary>Removes table properties (ALTER TABLE … UNSET TBLPROPERTIES [IF EXISTS]).</summary>
+    public static void DeltaUnsetTableProperties(string path, string[] keys, bool ifExists, string[]? cloudKeys, string[]? cloudValues)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        Delta.DeltaKernelAlter.UnsetProperties(path, keys, ifExists, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    }
+    /// <summary>What DESCRIBE DETAIL tells about a table.</summary>
+    public static Kaminari.Seseragi.Lakehouse.Delta.TableDetail DeltaDetail(string path, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.Detail(path, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Shallow-clones a table (CREATE TABLE … SHALLOW CLONE); version below 0: the latest (or the one the timestamp picks).</summary>
+    public static void DeltaClone(
+        string sourcePath, string targetPath, long? version, DateTimeOffset? timestamp, string[]? propertyKeys, string[]? propertyValues,
+        string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelClone.Clone(sourcePath, targetPath, version, timestamp, Properties(propertyKeys, propertyValues),
+            Delta.CloudArgs.ForLocation(sourcePath, cloudKeys, cloudValues));
+    /// <summary>Converts a directory of Parquet files into a Delta table (CONVERT TO DELTA); the partition schema is borrowed.</summary>
+    public static void DeltaConvertToDelta(string path, SchemaHandle? partitionSchema, bool collectStatistics, string[]? cloudKeys, string[]? cloudValues)
+    {
+        Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType? partitions = null;
+        if (partitionSchema is not null)
+        {
+            using DataFrameHandle empty = DataFrameFromSchema(partitionSchema, 0);
+            partitions = Delta.DeltaKernelWrite.SchemaOf(empty);
+        }
+        Delta.DeltaKernelConvert.Convert(path, partitions, collectStatistics, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    }
     /// <summary>Moves a column (ALTER COLUMN … FIRST / AFTER; after null: first).</summary>
     public static void DeltaMoveColumn(string path, string column, string? after, string[]? cloudKeys, string[]? cloudValues) =>
         Delta.DeltaKernelAlter.MoveColumn(path, column, after, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
@@ -358,7 +395,9 @@ public readonly partial struct PolarsWrapper
         string[]? generatedColumns = null,
         string[]? generationExpressions = null,
         string[]? defaultColumns = null,
-        string[]? defaultExpressions = null)
+        string[]? defaultExpressions = null,
+        bool replace = false,
+        bool orCreate = false)
     {
         ArgumentNullException.ThrowIfNull(schema);
         Dictionary<string, string>? properties = null;
@@ -379,9 +418,14 @@ public readonly partial struct PolarsWrapper
         var tableSchema = Delta.DeltaKernelWrite.SchemaOf(empty);
         var cloud = new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
             cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path);
-        Delta.DeltaKernelCreate.Create(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud,
-            clusterBy is { Length: > 0 } ? clusterBy : null,
-            GeneratedColumns(generatedColumns, generationExpressions), ColumnDefaults(defaultColumns, defaultExpressions));
+        if (replace)
+            Delta.DeltaKernelCreate.Replace(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud,
+                clusterBy is { Length: > 0 } ? clusterBy : null,
+                GeneratedColumns(generatedColumns, generationExpressions), ColumnDefaults(defaultColumns, defaultExpressions), orCreate);
+        else
+            Delta.DeltaKernelCreate.Create(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud,
+                clusterBy is { Length: > 0 } ? clusterBy : null,
+                GeneratedColumns(generatedColumns, generationExpressions), ColumnDefaults(defaultColumns, defaultExpressions));
     }
     public static void DeltaDelete(
         string path,

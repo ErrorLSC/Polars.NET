@@ -260,16 +260,17 @@ public static class SchemaEvolution
         if (HasNtz(schema) && !TableFeatures.WriterFeaturesOf(protocol).Contains(TableFeatures.TimestampNtz))
             throw new DeltaException(
                 "The schema holds timestamps without time zone, which the table's protocol does not support (table feature timestampNtz).");
-
-        static bool HasNtz(DeltaType type) => type switch
-        {
-            PrimitiveType { Name: PrimitiveType.TimestampNtz } => true,
-            StructType s => s.Fields.Any(f => HasNtz(f.Type)),
-            ArrayType a => HasNtz(a.ElementType),
-            MapType m => HasNtz(m.KeyType) || HasNtz(m.ValueType),
-            _ => false,
-        };
     }
+
+    /// <summary>Whether the type holds timestamps without time zone, at any depth (they need the timestampNtz feature).</summary>
+    public static bool HasNtz(DeltaType type) => type switch
+    {
+        PrimitiveType { Name: PrimitiveType.TimestampNtz } => true,
+        StructType s => s.Fields.Any(f => HasNtz(f.Type)),
+        ArrayType a => HasNtz(a.ElementType),
+        MapType m => HasNtz(m.KeyType) || HasNtz(m.ValueType),
+        _ => false,
+    };
 
     /// <summary>
     /// Metadata whose schema is <paramref name="schema"/> outright (overwriting with a new schema): under column
@@ -353,6 +354,46 @@ public static class SchemaEvolution
             Name = field.Name, Type = field.Type, Nullable = field.Nullable, Metadata = metadata,
             JsonMetadataKeys = new HashSet<string>(field.JsonMetadataKeys) { TypeChangesKey },
         };
+    }
+
+    /// <summary>
+    /// The metadata with <paramref name="schema"/>, in which the caller added fields: under column mapping, each field
+    /// without a column id (a new one, and the struct fields inside it) gets the next id and a fresh physical name, as
+    /// Spark's <c>ADD COLUMNS</c> gives them, and <c>delta.columnMapping.maxColumnId</c> follows.
+    /// </summary>
+    public static MetadataAction WithAddedFields(MetadataAction metadata, StructType schema)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        ArgumentNullException.ThrowIfNull(schema);
+        if (TableFeatures.ColumnMappingModeOf(metadata) == ColumnMappingMode.None) return WithSchema(metadata, schema, null);
+        int maxId = MaxColumnId(metadata, StructType.Parse(metadata.SchemaString));
+        var mapped = (StructType)MapNew(schema, ref maxId);
+        return WithSchema(metadata, mapped, maxId);
+
+        static DeltaType MapNew(DeltaType type, ref int maxId)
+        {
+            switch (type)
+            {
+                case StructType s:
+                    var fields = new List<StructField>(s.Fields.Count);
+                    foreach (StructField field in s.Fields)
+                        fields.Add(field.FieldId is null
+                            ? Mapped(field, ref maxId)
+                            : new StructField
+                            {
+                                Name = field.Name, Type = MapNew(field.Type, ref maxId), Nullable = field.Nullable,
+                                Metadata = field.Metadata, JsonMetadataKeys = field.JsonMetadataKeys,
+                            });
+                    return new StructType(fields);
+                case ArrayType a:
+                    return new ArrayType(MapNew(a.ElementType, ref maxId), a.ContainsNull);
+                case MapType m:
+                    DeltaType key = MapNew(m.KeyType, ref maxId);
+                    return new MapType(key, MapNew(m.ValueType, ref maxId), m.ValueContainsNull);
+                default:
+                    return type;
+            }
+        }
     }
 
     /// <summary>A new field under column mapping: the next id and a fresh physical name; nested struct fields too.</summary>

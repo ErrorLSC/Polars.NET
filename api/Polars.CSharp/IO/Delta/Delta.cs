@@ -148,6 +148,44 @@ public sealed record DeltaGeneratedColumn(string Column, string Expression);
 /// Spark stores in the column, whose value fits it.</param>
 public sealed record DeltaColumnDefault(string Column, string Expression);
 
+/// <summary>A column to add with <see cref="Delta.AddColumns"/>; it is nullable (Delta adds no NOT NULL column).</summary>
+/// <param name="Column">The column, or dotted for a field of a struct (<c>address.zip</c>; <c>element</c> / <c>key</c> /
+/// <c>value</c> through arrays and maps: <c>items.element.price</c>; a part holding a dot in backticks). Every part but
+/// the last names what exists.</param>
+/// <param name="Type">Its type, as data of this type would be written (Int64 is Delta's long, and so on).</param>
+/// <param name="Comment">Its comment; null for none.</param>
+/// <param name="After">The field of the same struct to place it after, by its name only; null to place it last (or first,
+/// with <paramref name="First"/>).</param>
+/// <param name="First">Place it first in its struct.</param>
+public sealed record DeltaNewColumn(string Column, DataType Type, string? Comment = null, string? After = null, bool First = false);
+
+/// <summary>What <see cref="Delta.Detail"/> tells about a table, as Spark's <c>DESCRIBE DETAIL</c>, at its latest version.</summary>
+/// <param name="Format">Always <c>delta</c>.</param>
+/// <param name="Id">The table's id.</param>
+/// <param name="Name">The name its metadata holds; null when none.</param>
+/// <param name="Description">The description its metadata holds; null when none.</param>
+/// <param name="Location">Where it is: the URL given, or the local directory made absolute.</param>
+/// <param name="CreatedAt">When it was created; null when not recorded.</param>
+/// <param name="LastModified">When its latest version was committed.</param>
+/// <param name="Version">Its latest version.</param>
+/// <param name="PartitionColumns">Its partition columns.</param>
+/// <param name="ClusteringColumns">Its liquid clustering columns, dotted for nested fields.</param>
+/// <param name="NumFiles">The data files of the latest version.</param>
+/// <param name="SizeInBytes">Their total size.</param>
+/// <param name="Properties">Its table properties.</param>
+/// <param name="MinReaderVersion">The protocol's reader version.</param>
+/// <param name="MinWriterVersion">The protocol's writer version.</param>
+/// <param name="TableFeatures">The table features its protocol supports (those a legacy version implies too), sorted.</param>
+public sealed record DeltaTableDetail(
+    string Format, string Id, string? Name, string? Description, string Location, DateTimeOffset? CreatedAt, DateTimeOffset LastModified,
+    long Version, IReadOnlyList<string> PartitionColumns, IReadOnlyList<string> ClusteringColumns, long NumFiles, long SizeInBytes,
+    IReadOnlyDictionary<string, string> Properties, int MinReaderVersion, int MinWriterVersion, IReadOnlyList<string> TableFeatures)
+{
+    internal static DeltaTableDetail Of(Kaminari.Seseragi.Lakehouse.Delta.TableDetail d) => new(
+        "delta", d.Id, d.Name, d.Description, d.Location, d.CreatedAt, d.LastModified, d.Version, d.PartitionColumns, d.ClusteringColumns,
+        d.NumFiles, d.SizeInBytes, d.Properties, d.MinReaderVersion, d.MinWriterVersion, d.TableFeatures);
+}
+
 /// <summary>
 /// Methods for DeltaLake 
 /// </summary>
@@ -199,7 +237,46 @@ public static class Delta
         IEnumerable<DeltaIdentityColumn>? identityColumns = null,
         IEnumerable<DeltaGeneratedColumn>? generatedColumns = null,
         IEnumerable<DeltaColumnDefault>? columnDefaults = null,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null) =>
+        Define(path, schema, partitionBy, clusterBy, properties, identityColumns, generatedColumns, columnDefaults, cloudOptions, replace: false, orCreate: false);
+
+    /// <summary>
+    /// Replaces a table's definition, as Spark's <c>REPLACE TABLE</c> (with <paramref name="orCreate"/>, <c>CREATE OR
+    /// REPLACE TABLE</c>): one commit with the new schema, partitioning, clustering, properties and declarations (as
+    /// <see cref="CreateTable"/> takes them), removing every row. The history stays: time travel reads the old
+    /// definition and its data, until <see cref="Vacuum"/> removes the files. The protocol is never lowered. Of the old
+    /// properties, the table keeps what Spark keeps: deletion vectors and row tracking turned on (row ids go on after
+    /// the old ones); give the others again.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="schema">The columns of the table.</param>
+    /// <param name="partitionBy">Partition columns; none when null.</param>
+    /// <param name="clusterBy">Liquid clustering columns (see <see cref="CreateTable"/>).</param>
+    /// <param name="properties">Table properties.</param>
+    /// <param name="identityColumns">Identity columns.</param>
+    /// <param name="generatedColumns">Generated columns.</param>
+    /// <param name="columnDefaults">Column defaults.</param>
+    /// <param name="orCreate">Create the table when there is none; otherwise that is refused.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    /// <remarks>Unlike Spark's <c>CREATE OR REPLACE TABLE delta.`path`</c>, which refuses a schema or partitioning that
+    /// differs from the table's, any definition replaces the old one.</remarks>
+    public static void ReplaceTable(
+        string path,
+        IntoSchema schema,
+        string[]? partitionBy = null,
+        IEnumerable<string>? clusterBy = null,
+        Dictionary<string, string>? properties = null,
+        IEnumerable<DeltaIdentityColumn>? identityColumns = null,
+        IEnumerable<DeltaGeneratedColumn>? generatedColumns = null,
+        IEnumerable<DeltaColumnDefault>? columnDefaults = null,
+        bool orCreate = false,
+        CloudOptions? cloudOptions = null) =>
+        Define(path, schema, partitionBy, clusterBy, properties, identityColumns, generatedColumns, columnDefaults, cloudOptions, replace: true, orCreate);
+
+    private static void Define(
+        string path, IntoSchema schema, string[]? partitionBy, IEnumerable<string>? clusterBy, Dictionary<string, string>? properties,
+        IEnumerable<DeltaIdentityColumn>? identityColumns, IEnumerable<DeltaGeneratedColumn>? generatedColumns,
+        IEnumerable<DeltaColumnDefault>? columnDefaults, CloudOptions? cloudOptions, bool replace, bool orCreate)
     {
         ArgumentNullException.ThrowIfNull(schema);
         DeltaIdentityColumn[] identity = identityColumns?.ToArray() ?? [];
@@ -231,11 +308,124 @@ public static class Delta
                 [.. generated.Select(c => c.Column)],
                 [.. generated.Select(c => c.Expression)],
                 [.. defaults.Select(c => c.Column)],
-                [.. defaults.Select(c => c.Expression)]);
+                [.. defaults.Select(c => c.Expression)],
+                replace,
+                orCreate);
         }
         finally
         {
             schema.DisposeTempSchema();
+        }
+    }
+
+    /// <summary>
+    /// Adds columns, as Spark's <c>ALTER TABLE … ADD COLUMNS</c>: one metadata commit; the rows already written read
+    /// null for them. Nested fields are added to their struct (inside arrays and maps too). Under column mapping they
+    /// get ids and physical names. A column holding timestamps without time zone brings the timestampNtz feature into
+    /// the protocol (Spark asks for it first).
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="columns">The columns, added in order (a later one may be placed after an earlier one).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    /// <remarks>Fails when a column exists already (names compare without regard to case), its parent is not a struct,
+    /// or <c>After</c> names no field of its struct; nothing is committed then.</remarks>
+    public static void AddColumns(string path, IEnumerable<DeltaNewColumn> columns, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        DeltaNewColumn[] added = [.. columns];
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaAddColumns(
+            path, [.. added.Select(c => c.Column)], [.. added.Select(c => c.Type.Handle)], [.. added.Select(c => c.Comment)],
+            [.. added.Select(c => c.After)], [.. added.Select(c => c.First)], keys, values);
+    }
+
+    /// <summary>
+    /// Removes table properties, as Spark's <c>ALTER TABLE … UNSET TBLPROPERTIES</c>: one metadata commit, none when
+    /// nothing is removed. A property that turned a feature on stops using it; the feature stays in the protocol (drop
+    /// it with <see cref="DropFeature"/>). Refused, naming the operation to use instead: <c>delta.columnMapping.mode</c>
+    /// (<see cref="DropFeature"/>, which rewrites the files; Spark does that silently here), <c>delta.constraints.*</c>
+    /// (<see cref="DropConstraint"/>), <c>delta.feature.*</c> and the protocol versions (<see cref="DropFeature"/>), and
+    /// the properties the table keeps itself.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="keys">The properties; a <c>delta.</c> key matches without regard to case.</param>
+    /// <param name="ifExists">Skip properties the table does not have instead of failing (Spark always skips them).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static void UnsetTableProperties(string path, IEnumerable<string> keys, bool ifExists = false, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        var (_, _, _, _, _, _, cloudKeys, cloudValues) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaUnsetTableProperties(path, [.. keys], ifExists, cloudKeys, cloudValues);
+    }
+
+    /// <summary>
+    /// What Spark's <c>DESCRIBE DETAIL</c> tells about a table at its latest version: id, location, creation and last
+    /// commit times, partitioning and clustering, files and size, properties, protocol and table features. Reads the
+    /// log only; any table that can be read is described (variant tables too).
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    public static DeltaTableDetail Detail(string path, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        return DeltaTableDetail.Of(PolarsWrapper.DeltaDetail(path, keys, values));
+    }
+
+    /// <summary>
+    /// Shallow-clones a table, as Spark's <c>CREATE TABLE … SHALLOW CLONE</c>: a new table whose version 0 refers to
+    /// the source's data files by their absolute paths, copying none; the source's schema, partitioning, properties,
+    /// protocol and domains (row tracking, clustering) come along, with a new table id. The clone is written and
+    /// maintained on its own from then on: what it writes or deletes stays in the clone, and its <see cref="Vacuum"/>
+    /// never deletes the source's files.
+    /// </summary>
+    /// <param name="sourcePath">The table to clone: a local directory or a cloud URL.</param>
+    /// <param name="targetPath">Where the clone goes: an empty location on the same store (both local, or in the same
+    /// bucket or container, reached with the same <paramref name="cloudOptions"/>).</param>
+    /// <param name="version">The source version to clone; null for its latest.</param>
+    /// <param name="timestamp">The source version current at this time; null for its latest. Not with <paramref name="version"/>.</param>
+    /// <param name="properties">Table properties set on the clone, over the source's.</param>
+    /// <param name="cloudOptions">Cloud storage configuration, for both tables.</param>
+    /// <remarks>The clone reads the source's files: a <see cref="Vacuum"/> of the source that deletes files the clone
+    /// still refers to breaks the clone, as in Spark.</remarks>
+    public static void Clone(
+        string sourcePath,
+        string targetPath,
+        long? version = null,
+        DateTimeOffset? timestamp = null,
+        Dictionary<string, string>? properties = null,
+        CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.DeltaClone(sourcePath, targetPath, version, timestamp, properties?.Keys.ToArray(), properties?.Values.ToArray(), keys, values);
+    }
+
+    /// <summary>
+    /// Turns a directory of Parquet files into a Delta table in place, as Spark's <c>CONVERT TO DELTA</c>: version 0
+    /// lists every file (none is rewritten) with the schema their footers hold and, unless
+    /// <paramref name="collectStatistics"/> is false, the statistics their footers give. Nothing is done when the
+    /// directory holds a Delta table already.
+    /// </summary>
+    /// <param name="path">The directory: a local directory or a cloud URL. Every file outside directories and files
+    /// whose names start with <c>_</c> or <c>.</c> is read as Parquet.</param>
+    /// <param name="partitionBy">The partition columns and their types, when the files lie in Hive directories
+    /// (<c>key=value</c>, percent-encoded, <c>__HIVE_DEFAULT_PARTITION__</c> for null); they come last in the table's
+    /// schema. Null for none.</param>
+    /// <param name="collectStatistics">Give each file the statistics of its footer (true, as Spark); false for none
+    /// (Spark's <c>NO STATISTICS</c>).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    /// <remarks>The schema is the union of the files' columns; a column whose type differs between files is refused,
+    /// as are types Delta has no counterpart for (times, nanosecond timestamps). Types are read as Spark reads them:
+    /// unsigned integers widened, timestamps not adjusted to UTC as timestamps without time zone.</remarks>
+    public static void ConvertToDelta(string path, IntoSchema? partitionBy = null, bool collectStatistics = true, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        try
+        {
+            PolarsWrapper.DeltaConvertToDelta(path, partitionBy?.Consume().Handle, collectStatistics, keys, values);
+        }
+        finally
+        {
+            partitionBy?.DisposeTempSchema();
         }
     }
 
