@@ -318,12 +318,18 @@ internal static class DeltaKernelWrite
     /// The metadata of a new table, and its schema as the table keeps it: partition columns checked, row tracking
     /// columns named when it is on, ids and physical names given under column mapping.
     /// </summary>
+    /// <param name="schema">The columns.</param>
+    /// <param name="partitions">The partition columns.</param>
+    /// <param name="configuration">The table properties.</param>
+    /// <param name="replaced">The metadata of the table this one replaces: its column ids go on (and are kept for
+    /// unchanged columns), and its constraints, carried in <paramref name="configuration"/>, are allowed; null for a
+    /// new table, whose properties hold no constraint.</param>
+    /// <param name="id">The table id; null for a new one.</param>
     internal static (MetadataAction Metadata, StructType Schema) NewTableMetadata(
-        StructType schema, string[] partitions, IReadOnlyDictionary<string, string>? configuration)
+        StructType schema, string[] partitions, IReadOnlyDictionary<string, string>? configuration,
+        MetadataAction? replaced = null, string? id = null)
     {
-        // A constraint given as a property would not be checked (Spark stores it so); AddConstraint checks it.
-        if (configuration?.Keys.FirstOrDefault(k => k.StartsWith(Constraints.ConfigurationPrefix, StringComparison.OrdinalIgnoreCase)) is { } constraint)
-            throw new PolarsException(AlterTable.ConstraintPropertyRefused(constraint));
+        if (replaced is null) RefuseConstraintProperties(configuration);
         foreach (string column in partitions)
         {
             StructField field = schema.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");
@@ -332,7 +338,7 @@ internal static class DeltaKernelWrite
         }
         var metadata = new MetadataAction
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = id ?? Guid.NewGuid().ToString(),
             SchemaString = schema.ToJson(),
             PartitionColumns = partitions,
             Configuration = WithRowTrackingNames(configuration ?? new Dictionary<string, string>()),
@@ -343,10 +349,22 @@ internal static class DeltaKernelWrite
         if (TableFeatures.ColumnMappingModeOf(metadata) != ColumnMappingMode.None)
         {
             // Column mapping from the start: every column gets an id and a physical name.
-            metadata = SchemaEvolution.Replace(metadata, schema, partitions);
+            metadata = replaced is null
+                ? SchemaEvolution.Replace(metadata, schema, partitions)
+                : SchemaEvolution.Redefine(metadata, schema, partitions, replaced);
             schema = StructType.Parse(metadata.SchemaString);
         }
         return (metadata, schema);
+    }
+
+    /// <summary>
+    /// Refuses a constraint given as a table property: it would not be checked (Spark stores it so); AddConstraint
+    /// checks it.
+    /// </summary>
+    internal static void RefuseConstraintProperties(IReadOnlyDictionary<string, string>? configuration)
+    {
+        if (configuration?.Keys.FirstOrDefault(k => k.StartsWith(Constraints.ConfigurationPrefix, StringComparison.OrdinalIgnoreCase)) is { } constraint)
+            throw new PolarsException(AlterTable.ConstraintPropertyRefused(constraint));
     }
 
     /// <summary>A new table's properties: with row tracking on, the names of its materialized columns too (as Spark).</summary>

@@ -156,14 +156,17 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 * **`Delta.AddConstraint` / `DropConstraint`** (Spark's `ADD` / `DROP CONSTRAINT`): the table's rows are checked first. **`CreateTable`** takes `generatedColumns` and `columnDefaults`; **`SetColumnDefault` / `DropColumnDefault`** change a default. Each declaration is checked as Spark checks it, and brings its table feature.
 * **`Delta.SessionTimeZone`**: the zone those expressions read instants in, process-wide, UTC by default.
 * **`Delta.AddColumns`** (`ADD COLUMNS`, nested fields and positions too), **`UnsetTableProperties`** (`UNSET TBLPROPERTIES`), **`Detail`** (`DESCRIBE DETAIL`), **`ReplaceTable`** (`REPLACE TABLE`, `CREATE OR REPLACE TABLE`), **`Clone`** (`SHALLOW CLONE`) and **`ConvertToDelta`** (`CONVERT TO DELTA`, Parquet directories, Hive partitions), as delta-spark 4.4 commits them. Unity Catalog: `AddCatalogConstraint`, `DropCatalogConstraint`, `SetCatalogColumnDefault`, `DropCatalogColumnDefault`, `AddCatalogColumns`, `UnsetCatalogTableProperties`, `CatalogTableDetail`.
+* **`UnityCatalog.ReplaceCatalogTable`** (`REPLACE TABLE` / `CREATE OR REPLACE TABLE` on a managed, catalog-managed table) as Delta Spark commits it through Unity Catalog: the table keeps its id and its `delta.*` properties, unchanged columns keep their column ids, and the catalog gets the new columns.
 
 ### Changed
 
 * `delta.constraints.*` properties are refused by `CreateTable` and by writes that create a table, as by `SetTableProperties`: constraints are added with `AddConstraint`, which checks them.
+* A commit to a catalog-managed table that would change or remove a property the catalog requires of a managed table (deletion vectors, in-commit timestamps, V2 checkpoints and their statistics, the catalog's table id) is refused before the catalog sees it; Unity Catalog 0.7 would take it and then refuse the table's next protocol change.
 
 ### Fixed
 
 * Shallow clones made by Spark (data files and deletion vectors at absolute `file:/…` paths) could not be read.
+* `ReplaceTable` with column mapping numbered the columns from 1 again with new physical names; it now goes on after the old highest id and keeps the id of a column whose name and type stay, as Spark. With rows, column mapping and the change data feed on, a replacement that drops, renames or retypes a column is refused, as Spark refuses it.
 
 ## Arrow interop
 

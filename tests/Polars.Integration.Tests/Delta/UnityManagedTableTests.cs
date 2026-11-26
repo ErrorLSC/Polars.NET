@@ -356,4 +356,112 @@ public class UnityManagedTableTests(UnityCatalogFixture uc) : IClassFixture<Unit
         using JsonDocument history = JsonDocument.Parse(SparkRows(catalog, $"DESCRIBE HISTORY {table}"));
         Assert.Equal(["MERGE", "UPDATE"], history.RootElement.EnumerateArray().Take(2).Select(r => r.GetProperty("operation").GetString()));
     }
+
+    // ---- REPLACE TABLE (Spark: managed, catalog-managed tables only) ----
+
+    private sealed record ReplacedRow(long id, int? w);
+
+    /// <summary>The actions of a table's version, from its published log.</summary>
+    private JsonElement[] VersionActions(string catalog, string name, long version)
+    {
+        using JsonDocument state = Load(catalog, name);
+        string location = new Uri(state.RootElement.GetProperty("metadata").GetProperty("location").GetString()!).LocalPath;
+        return [.. File.ReadAllLines(Path.Combine(location, "_delta_log", $"{version:D20}.json")).Select(l => JsonDocument.Parse(l).RootElement.Clone())];
+    }
+
+    private static JsonElement Single(JsonElement[] actions, string kind) => actions.Single(a => a.TryGetProperty(kind, out _)).GetProperty(kind);
+
+    /// <summary>A table's properties, with the values that differ table by table (generated names and ids) left out.</summary>
+    private static string Comparable(JsonElement configuration) => string.Join(",", configuration.EnumerateObject()
+        .Select(p => p.Name is "io.unitycatalog.tableId" || p.Name.StartsWith("delta.rowTracking.materialized", StringComparison.Ordinal)
+            ? p.Name : $"{p.Name}={p.Value.GetString()}")
+        .Order(StringComparer.Ordinal));
+
+    private static string Features(JsonElement protocol) =>
+        string.Join(",", protocol.GetProperty("writerFeatures").EnumerateArray().Select(f => f.GetString()).Order(StringComparer.Ordinal));
+
+    [SparkFact]
+    public async Task Replaced_TheTableKeepsWhatSparkKeeps_AndTheCatalogAndSparkSeeTheNewDefinition()
+    {
+        // Two equal tables Spark made: Spark replaces one, the kernel the other, with the same definition.
+        string catalog = await uc.NewCatalogAsync();
+        string[] tables = ["sp", "ours"];
+        LocalSpark.Run(["uc_sql", uc.Url, catalog, .. tables.SelectMany(t => (string[])[
+            $"CREATE TABLE {catalog}.s.{t} (id BIGINT, s STRING) USING delta TBLPROPERTIES ('foo' = 'bar', 'delta.checkpointInterval' = '7', 'delta.appendOnly' = 'false')",
+            $"INSERT INTO {catalog}.s.{t} VALUES (1, 'a'), (2, 'b')"]),
+            $"REPLACE TABLE {catalog}.s.sp (id BIGINT, w INT) USING delta TBLPROPERTIES ('k2' = 'v2')"]);
+        using var client = new UnityCatalog(uc.Url, "");
+        client.ReplaceCatalogTable(catalog, "s", "ours", PolarsSchema.From<ReplacedRow>(), properties: new() { ["k2"] = "v2" });
+
+        JsonElement[] spark = VersionActions(catalog, "sp", 2), ours = VersionActions(catalog, "ours", 2);
+        Assert.Equal("REPLACE TABLE", Single(ours, "commitInfo").GetProperty("operation").GetString());
+        Assert.Equal(2, ours.Count(a => a.TryGetProperty("remove", out _)));
+        JsonElement metadata = Single(ours, "metaData");
+        // Every delta.* property kept (foo dropped), as Spark; the table id too.
+        Assert.Equal(Comparable(Single(spark, "metaData").GetProperty("configuration")), Comparable(metadata.GetProperty("configuration")));
+        Assert.Equal(Single(VersionActions(catalog, "ours", 0), "metaData").GetProperty("id").GetString(), metadata.GetProperty("id").GetString());
+        // Under column mapping, id keeps its column id and w takes the next one, as Spark numbers them.
+        string Ids(JsonElement m) => string.Join(",", JsonDocument.Parse(m.GetProperty("schemaString").GetString()!).RootElement.GetProperty("fields")
+            .EnumerateArray().Select(f => $"{f.GetProperty("name").GetString()}:{f.GetProperty("metadata").GetProperty("delta.columnMapping.id").GetInt32()}"));
+        Assert.Equal(Ids(Single(spark, "metaData")), Ids(metadata));
+        Assert.Equal("id:1,w:3", Ids(metadata));
+
+        // The catalog has the new columns and properties.
+        using (JsonDocument state = Load(catalog, "ours"))
+        {
+            JsonElement m = state.RootElement.GetProperty("metadata");
+            Assert.Equal(["id", "w"], m.GetProperty("columns").GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+            Assert.Equal("v2", m.GetProperty("properties").GetProperty("k2").GetString());
+            Assert.False(m.GetProperty("properties").TryGetProperty("foo", out _));
+            Assert.Equal(2, state.RootElement.GetProperty("latest-table-version").GetInt64());
+        }
+        // Spark writes and reads it; time travel reads the old definition.
+        LocalSpark.Run("uc_sql", uc.Url, catalog, $"INSERT INTO {catalog}.s.ours VALUES (5, 50)");
+        Assert.Equal("""[{"id":5,"w":50}]""", SparkRows(catalog, $"SELECT * FROM {catalog}.s.ours"));
+        using (DataFrame read = client.ScanCatalogTable(catalog, "s", "ours").Collect())
+            Assert.Equal((1L, 5L, 50), (read.Height, (long)read["id"][0]!, (int)read["w"][0]!));
+        Assert.Equal("""[{"id":1,"s":"a"},{"id":2,"s":"b"}]""", SparkRows(catalog, $"SELECT * FROM {catalog}.s.ours VERSION AS OF 1 ORDER BY id"));
+    }
+
+    [SparkFact]
+    public async Task Replace_IsRefusedWhereSparkRefusesIt_OrWhereItWouldBreakTheTable_AndOrCreateCreates()
+    {
+        string catalog = await uc.NewCatalogAsync();
+        string external = Path.Combine(uc.Storage, $"ext_{Guid.NewGuid():N}");
+        LocalSpark.Run(["uc_sql", uc.Url, catalog,
+            $"CREATE TABLE {catalog}.s.t (id BIGINT, s STRING) USING delta TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')",
+            $"INSERT INTO {catalog}.s.t VALUES (1, 'a')",
+            $"ALTER TABLE {catalog}.s.t ADD CONSTRAINT pos CHECK (s <> 'x')",
+            $"CREATE TABLE {catalog}.s.e (id BIGINT) USING delta LOCATION 'file://{external}'"]);
+        using var client = new UnityCatalog(uc.Url, "");
+        string Refusal(Action action) => Assert.ThrowsAny<Exception>(action).Message;
+        PolarsSchema replaced = PolarsSchema.From<ReplacedRow>(), same = PolarsSchema.From<Row>();
+
+        // As Spark: an external table, and a missing one without orCreate.
+        Assert.Contains("Only a managed, catalog-managed table can be replaced", Refusal(() => client.ReplaceCatalogTable(catalog, "s", "e", replaced)));
+        Assert.Contains($"The catalog table {catalog}.s.none does not exist; use orCreate", Refusal(() => client.ReplaceCatalogTable(catalog, "s", "none", replaced)));
+        // A kept constraint the new schema cannot hold (Spark keeps it, and every insert then fails).
+        Assert.Contains("CHECK constraint 'pos' (s <> 'x')", Refusal(() => client.ReplaceCatalogTable(catalog, "s", "t", replaced)));
+        client.DropCatalogConstraint(catalog, "s", "t", "pos");
+        // As Spark: the change data feed (kept), column mapping and rows, and a column dropped.
+        Assert.Contains("change data feed (CDF)", Refusal(() => client.ReplaceCatalogTable(catalog, "s", "t", replaced)));
+        // What the catalog requires of a managed table, by any operation.
+        Assert.Contains("'delta.enableDeletionVectors'='true'", Refusal(() => client.ReplaceCatalogTable(
+            catalog, "s", "t", same, properties: new() { ["delta.enableDeletionVectors"] = "false" })));
+        Assert.Contains("'delta.enableDeletionVectors'='true'", Refusal(() => client.UnsetCatalogTableProperties(catalog, "s", "t", ["delta.enableDeletionVectors"])));
+        using (JsonDocument state = Load(catalog))
+            Assert.Equal(3, state.RootElement.GetProperty("latest-table-version").GetInt64());
+
+        // The same columns replace it (the change data feed stays on); orCreate names the operation.
+        client.ReplaceCatalogTable(catalog, "s", "t", same, orCreate: true);
+        JsonElement[] actions = VersionActions(catalog, "t", 4);
+        Assert.Equal("CREATE OR REPLACE TABLE", Single(actions, "commitInfo").GetProperty("operation").GetString());
+        Assert.Equal("true", Single(actions, "metaData").GetProperty("configuration").GetProperty("delta.enableChangeDataFeed").GetString());
+
+        // A missing table, with orCreate: created managed, as Spark's CREATE OR REPLACE TABLE.
+        client.ReplaceCatalogTable(catalog, "s", "n", replaced, orCreate: true);
+        Assert.Equal("CREATE OR REPLACE TABLE", Single(Version0Actions(catalog, "n"), "commitInfo").GetProperty("operation").GetString());
+        LocalSpark.Run("uc_sql", uc.Url, catalog, $"INSERT INTO {catalog}.s.n VALUES (7, 70)");
+        Assert.Equal("""[{"id":7,"w":70}]""", SparkRows(catalog, $"SELECT * FROM {catalog}.s.n"));
+    }
 }

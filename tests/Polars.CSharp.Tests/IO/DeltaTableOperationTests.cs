@@ -20,6 +20,11 @@ public class DeltaTableOperationTests
     private sealed record Replaced(long K, string? V);
     private sealed record IdOnly(int Id);
     private sealed record IdLong(long Id);
+    private sealed record Remapped(int ID, long? S, string? M);
+    private sealed record Nested(int Id, Inner T);
+    private sealed record Inner(int A, string? B);
+    private sealed record NestedChanged(int Id, InnerChanged T);
+    private sealed record InnerChanged(long A, string? B);
 
     private static void InDirectory(string name, Action<string> body)
     {
@@ -266,6 +271,87 @@ public class DeltaTableOperationTests
         Delta.ReplaceTable(path, PolarsSchema.From<Row>());
         Assert.Equal("""{"clusteringColumns":[],"domainName":"delta.clustering"}""", Action(path, 1, "domainMetadata").GetProperty("configuration").GetString());
         Assert.Empty(Delta.Detail(path).ClusteringColumns);
+    });
+
+    private static Dictionary<string, StructField> Mapped(Snapshot table)
+    {
+        Dictionary<string, StructField> fields = [];
+        Walk(table.Schema, "");
+        return fields;
+
+        void Walk(StructType type, string path)
+        {
+            foreach (StructField field in type.Fields)
+            {
+                fields[path + field.Name] = field;
+                if (field.Type is StructType inner) Walk(inner, path + field.Name + ".");
+            }
+        }
+    }
+
+    [Fact]
+    public void Replaced_under_column_mapping_a_column_whose_name_and_type_stay_keeps_its_id_and_new_ones_go_on() => InDirectory("replacemapped", path =>
+    {
+        Dictionary<string, string> mapped = new() { ["delta.columnMapping.mode"] = "name" };
+        Delta.CreateTable(path, PolarsSchema.From<Wide>(), properties: mapped);
+        Dictionary<string, StructField> old = Mapped(Latest(path));
+        Assert.Equal((1, 2, 3), (old["Id"].FieldId, old["S"].FieldId, old["N"].FieldId));
+
+        // As Spark: a name matched in any case and the same type keep the id and physical name; a changed type or a
+        // new column takes the next id after the old highest one.
+        Delta.ReplaceTable(path, PolarsSchema.From<Remapped>(), properties: mapped);
+        Snapshot table = Latest(path);
+        Dictionary<string, StructField> now = Mapped(table);
+        Assert.Equal((1, old["Id"].PhysicalName), (now["ID"].FieldId, now["ID"].PhysicalName));
+        Assert.Equal((4, 5), (now["S"].FieldId, now["M"].FieldId));
+        Assert.NotEqual(old["S"].PhysicalName, now["S"].PhysicalName);
+        Assert.Equal("5", table.Metadata.Configuration["delta.columnMapping.maxColumnId"]);
+
+        // Another mode: every column gets a new id, still after the highest.
+        Delta.ReplaceTable(path, PolarsSchema.From<Remapped>(), properties: new() { ["delta.columnMapping.mode"] = "id" });
+        Assert.Equal([6, 7, 8], Mapped(Latest(path)).Values.Select(f => f.FieldId!.Value).Order());
+        // Without column mapping given again, none (as Spark: the path table does not keep it).
+        Delta.ReplaceTable(path, PolarsSchema.From<Remapped>());
+        Assert.All(Mapped(Latest(path)).Values, f => Assert.Null(f.FieldId));
+    });
+
+    [Fact]
+    public void Replaced_under_column_mapping_a_struct_whose_type_changes_gets_a_new_id_and_its_unchanged_children_keep_theirs() => InDirectory("replacenested", path =>
+    {
+        Dictionary<string, string> mapped = new() { ["delta.columnMapping.mode"] = "name" };
+        Delta.CreateTable(path, PolarsSchema.From<Nested>(), properties: mapped);
+        Dictionary<string, StructField> old = Mapped(Latest(path));
+        Delta.ReplaceTable(path, PolarsSchema.From<NestedChanged>(), properties: mapped);
+        Dictionary<string, StructField> now = Mapped(Latest(path));
+        Assert.Equal(old["Id"].FieldId, now["Id"].FieldId);
+        Assert.Equal(old["T.B"].PhysicalName, now["T.B"].PhysicalName);
+        // Numbered parent first, as Spark: T, then T.A.
+        Assert.Equal((5, 6), (now["T"].FieldId!.Value, now["T.A"].FieldId!.Value));
+        // An unchanged struct keeps its id and its children's.
+        Delta.ReplaceTable(path, PolarsSchema.From<NestedChanged>(), properties: mapped);
+        Assert.Equal([.. now.Select(p => (p.Key, p.Value.FieldId))], Mapped(Latest(path)).Select(p => (p.Key, p.Value.FieldId)));
+    });
+
+    [Fact]
+    public void A_table_with_rows_column_mapping_and_the_change_data_feed_cannot_be_replaced_without_one_of_its_columns() => InDirectory("replacecdf", path =>
+    {
+        Dictionary<string, string> both = new() { ["delta.columnMapping.mode"] = "name", [DeltaTableProperties.EnableChangeDataFeed] = "true" };
+        Delta.CreateTable(path, PolarsSchema.From<Row>(), properties: both);
+        Write(path, [new Row(1, "a")]);
+
+        // As Spark: dropping (or renaming, or retyping) a column is refused.
+        string refusal = Refusal(() => Delta.ReplaceTable(path, PolarsSchema.From<IdOnly>(), properties: both));
+        Assert.StartsWith(
+            """Operation "REPLACE TABLE" is not allowed when the table has enabled change data feed (CDF) and has undergone schema changes using DROP COLUMN or RENAME COLUMN: the new schema drops or renames 'S'""",
+            refusal);
+        Assert.Equal(1, Latest(path).Version);
+        // Adding one is not; nor, on a table without rows, anything.
+        Delta.ReplaceTable(path, PolarsSchema.From<Wide>(), properties: both);
+        Delta.ReplaceTable(path, PolarsSchema.From<IdOnly>(), properties: both);
+        // Nor, once it has rows again, a definition without the change data feed (a path table does not keep it).
+        Write(path, [new IdOnly(1)]);
+        Delta.ReplaceTable(path, PolarsSchema.From<IdLong>(), properties: new() { ["delta.columnMapping.mode"] = "name" });
+        Assert.Equal(5, Latest(path).Version);
     });
 
     // ---- SHALLOW CLONE ----

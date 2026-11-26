@@ -97,6 +97,10 @@ public sealed class UnityCatalogCommitter(UnityCatalogClient client, string cata
     public CatalogCommitOutcome Ratify(CatalogCommit commit)
     {
         ArgumentNullException.ThrowIfNull(commit);
+        // Refused here, before the catalog sees it: the catalog itself would take it (see UnityManagedTables).
+        if (commit.Metadata is { } metadata && UnityManagedTables.BrokenRequirement(commit.ReadMetadata.Configuration, metadata.Configuration) is { } broken)
+            throw new CatalogCommitRejectedException(
+                $"The commit of version {commit.Version} of {catalogName}.{schemaName}.{tableName} is refused: {broken}");
         byte[] request = UpdateRequest(_tableUuid ?? Load().TableUuid, commit);
         for (int attempt = 0; ; attempt++)
         {

@@ -107,6 +107,7 @@ public readonly partial struct PolarsWrapper
     {
         public TableInfo Table => access.Table;
         public string Location => access.Location;
+        public bool IsCatalogManaged => scope is not null;
         public void Dispose() => scope?.Dispose();
     }
 
@@ -644,7 +645,7 @@ public readonly partial struct PolarsWrapper
         CatalogHandle handle, string catalogName, string schemaName, string tableName, Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType schema,
         string[]? partitionBy, string[]? clusterBy, Dictionary<string, string>? properties, List<Delta.KernelIdentityColumn> identity,
         List<Kaminari.Seseragi.Lakehouse.Delta.DeltaGeneratedColumn> generated, List<Kaminari.Seseragi.Lakehouse.Delta.DeltaColumnDefault> defaults,
-        string[]? cloudKeys, string[]? cloudValues)
+        string[]? cloudKeys, string[]? cloudValues, bool orReplace = false)
     {
         try
         {
@@ -657,8 +658,70 @@ public readonly partial struct PolarsWrapper
         }
         StagedTable staged = StageManagedTable(handle, catalogName, schemaName, tableName, properties, cloudKeys, cloudValues);
         Delta.DeltaKernelCreate.CreateCatalogManaged(
-            staged.Staging.Location, schema, partitionBy, staged.Configuration, identity, staged.Cloud, clusterBy, staged.Features, generated, defaults);
+            staged.Staging.Location, schema, partitionBy, staged.Configuration, identity, staged.Cloud, clusterBy, staged.Features, generated, defaults, orReplace);
         RegisterManagedTable(handle, catalogName, schemaName, tableName, staged);
+    }
+
+    /// <summary>
+    /// Replaces a catalog table's definition, as Delta Spark's <c>REPLACE TABLE</c> through Unity Catalog (with
+    /// <paramref name="orCreate"/>, <c>CREATE OR REPLACE TABLE</c>): one commit, ratified by the catalog, with the new
+    /// schema, partitioning, clustering, properties and declarations, removing every row. The table keeps its id,
+    /// every <c>delta.*</c> property (the given ones win) and its history; the catalog gets the new columns. Only a
+    /// managed, catalog-managed table can be replaced, as in Spark; a missing one is created with
+    /// <paramref name="orCreate"/>.
+    /// </summary>
+    public static void ReplaceCatalogTable(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        SchemaHandle schema,
+        string[]? partitionBy = null,
+        string[]? clusterBy = null,
+        string[]? propertyKeys = null,
+        string[]? propertyValues = null,
+        string[]? identityColumns = null,
+        long[]? identityStarts = null,
+        long[]? identitySteps = null,
+        bool[]? identityGeneratedAlways = null,
+        string[]? generatedColumns = null,
+        string[]? generationExpressions = null,
+        string[]? defaultColumns = null,
+        string[]? defaultExpressions = null,
+        bool orCreate = false,
+        string[]? cloudKeys = null,
+        string[]? cloudValues = null)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        if (schema is null || schema.IsInvalid) throw new PolarsException("Schema pointer is null");
+        Dictionary<string, string>? properties = Properties(propertyKeys, propertyValues);
+        List<Delta.KernelIdentityColumn> identity = IdentityColumns(identityColumns, identityStarts, identitySteps, identityGeneratedAlways);
+        var generated = GeneratedColumns(generatedColumns, generationExpressions);
+        var defaults = ColumnDefaults(defaultColumns, defaultExpressions);
+        using DataFrameHandle empty = DataFrameFromSchema(schema, 0);
+        var tableSchema = Delta.DeltaKernelWrite.SchemaOf(empty);
+        string[]? partitions = partitionBy is { Length: > 0 } ? partitionBy : null;
+        string[]? clustering = clusterBy is { Length: > 0 } ? clusterBy : null;
+        string name = $"{catalogName}.{schemaName}.{tableName}";
+
+        string[]? callerKeys = cloudKeys, callerValues = cloudValues;
+        using (CatalogTable? access = TryResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues))
+        {
+            if (access is not null)
+            {
+                if (!access.IsCatalogManaged)
+                    throw new PolarsException(
+                        $"Only a managed, catalog-managed table can be replaced; {name} is not one (Delta Spark refuses it too). " +
+                        "Delete it from the catalog and create it again.");
+                Delta.DeltaKernelCreate.Replace(
+                    access.Location, tableSchema, partitions, properties, identity, Delta.CloudArgs.ForLocation(access.Location, cloudKeys, cloudValues),
+                    clustering, generated, defaults, orCreate);
+                return;
+            }
+        }
+        if (!orCreate) throw new PolarsException($"The catalog table {name} does not exist; use orCreate to create it.");
+        CreateManagedTable(handle, catalogName, schemaName, tableName, tableSchema, partitions, clustering, properties, identity, generated, defaults,
+            callerKeys, callerValues, orReplace: true);
     }
 
     /// <summary>A managed table the catalog staged: what its version 0 gets, and how to reach its location.</summary>

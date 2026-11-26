@@ -1628,6 +1628,72 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         )
 
     /// <summary>
+    /// Replaces a managed table's definition, as Delta Spark's REPLACE TABLE through Unity Catalog (with orCreate,
+    /// CREATE OR REPLACE TABLE): one commit, ratified by the catalog, with the new schema, partitioning, clustering,
+    /// properties and declarations (as CreateCatalogTable takes them), removing every row. As in Spark, the table keeps
+    /// its id, its history (time travel reads the old definition), its protocol and every delta.* property, the given
+    /// ones over them (other properties are dropped); under column mapping, a column whose name and type stay keeps
+    /// its column id. The catalog gets the new columns. Only a managed, catalog-managed table can be replaced, as in
+    /// Spark. Also refused: a CHECK constraint the table keeps that the new schema cannot hold (drop it first with
+    /// DropCatalogConstraint), and, on a table with the change data feed on, column mapping and rows, a new schema
+    /// that drops or renames a column.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog.</param>
+    /// <param name="schemaName">The name of the schema.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="polarsSchema">The columns of the table.</param>
+    /// <param name="partitionBy">Partition columns.</param>
+    /// <param name="clusterBy">Liquid clustering columns (see Delta.CreateTable).</param>
+    /// <param name="properties">Table properties. A property the catalog requires cannot be set to another value.</param>
+    /// <param name="identityColumns">Identity columns.</param>
+    /// <param name="generatedColumns">Generated columns (see Delta.CreateTable).</param>
+    /// <param name="columnDefaults">Column defaults (see Delta.CreateTable).</param>
+    /// <param name="orCreate">Create the table (managed) when the catalog has none; otherwise that is refused.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.ReplaceCatalogTable(
+        catalogName: string,
+        schemaName: string,
+        tableName: string,
+        polarsSchema: PolarsSchema,
+        ?partitionBy: seq<string>,
+        ?clusterBy: seq<string>,
+        ?properties: seq<string * string>,
+        ?identityColumns: seq<DeltaIdentityColumn>,
+        ?generatedColumns: seq<DeltaGeneratedColumn>,
+        ?columnDefaults: seq<DeltaColumnDefault>,
+        ?orCreate: bool,
+        ?cloudOptions: CloudOptions) =
+
+        let props = defaultArg properties Seq.empty |> Seq.toArray
+        let identity = defaultArg identityColumns Seq.empty |> Seq.toArray
+        let generated = defaultArg generatedColumns Seq.empty |> Seq.toArray
+        let defaults = defaultArg columnDefaults Seq.empty |> Seq.toArray
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+
+        PolarsWrapper.ReplaceCatalogTable(
+            this.Handle,
+            catalogName,
+            schemaName,
+            tableName,
+            polarsSchema.Handle,
+            (match partitionBy with Some p -> Seq.toArray p | None -> null),
+            (match clusterBy with Some c -> Seq.toArray c | None -> null),
+            (props |> Array.map fst),
+            (props |> Array.map snd),
+            (identity |> Array.map (fun c -> c.Column)),
+            (identity |> Array.map (fun c -> c.Start)),
+            (identity |> Array.map (fun c -> c.Step)),
+            (identity |> Array.map (fun c -> c.GeneratedAlways)),
+            (generated |> Array.map (fun c -> c.Column)),
+            (generated |> Array.map (fun c -> c.Expression)),
+            (defaults |> Array.map (fun c -> c.Column)),
+            (defaults |> Array.map (fun c -> c.Expression)),
+            defaultArg orCreate false,
+            cKeys,
+            cVals
+        )
+
+    /// <summary>
     /// Deletes (drops) a table from the Unity Catalog. 
     /// For Managed tables, this typically removes both the metadata and the underlying physical data. 
     /// For External tables, only the metadata registration is removed, leaving the physical data intact in your cloud storage.

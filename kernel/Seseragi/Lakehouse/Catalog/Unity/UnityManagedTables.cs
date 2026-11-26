@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Net;
 using System.Text.Json;
 using Kaminari.Seseragi.Lakehouse.Delta;
@@ -214,6 +215,51 @@ public static class UnityManagedTables
 {
     /// <summary>The domains whose configuration the catalog keeps (the Delta API names these two).</summary>
     private static readonly string[] KeptDomains = ["delta.clustering", "delta.rowTracking"];
+
+    /// <summary>The key of the catalog's id of the table, which never changes.</summary>
+    public const string TableIdKey = "io.unitycatalog.tableId";
+
+    /// <summary>
+    /// The properties the catalog requires of a managed table, with their values: those Unity Catalog 0.7 stages a table
+    /// with (<c>required-properties</c>) and validates on later commits. The catalog checks them only on a commit that
+    /// also changes the protocol, so one that breaks them otherwise would be taken, and the table's next protocol
+    /// change refused.
+    /// </summary>
+    private static readonly FrozenDictionary<string, string> RequiredProperties = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["delta.enableInCommitTimestamps"] = "true",
+        ["delta.enableDeletionVectors"] = "true",
+        ["delta.checkpointPolicy"] = "v2",
+        ["delta.checkpoint.writeStatsAsJson"] = "true",
+        ["delta.checkpoint.writeStatsAsStruct"] = "true",
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Why a commit changing a managed table's properties from <paramref name="before"/> to <paramref name="after"/>
+    /// breaks what the catalog requires (a required property set to another value or removed, or the catalog's table
+    /// id changed); null when it does not. Properties the commit leaves as they were are not judged.
+    /// </summary>
+    public static string? BrokenRequirement(IReadOnlyDictionary<string, string> before, IReadOnlyDictionary<string, string> after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        before.TryGetValue(TableIdKey, out string? id);
+        after.TryGetValue(TableIdKey, out string? newId);
+        if (id is not null && newId != id)
+            return $"The table property '{TableIdKey}' is the catalog's id of the table, which cannot change (it is '{id}').";
+        foreach (var (key, required) in RequiredProperties)
+        {
+            before.TryGetValue(key, out string? old);
+            if (!after.TryGetValue(key, out string? value))
+            {
+                if (old is not null) return $"The catalog requires the table property '{key}'='{required}' of a managed table, which cannot be removed.";
+                continue;
+            }
+            if (value != old && !string.Equals(value, required, StringComparison.OrdinalIgnoreCase))
+                return $"The catalog requires the table property '{key}'='{required}' of a managed table, but '{key}'='{value}' was given. Leave it out.";
+        }
+        return null;
+    }
 
     /// <summary>
     /// The request that creates a table from the version 0 written at <paramref name="location"/>, as Delta Spark sends

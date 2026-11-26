@@ -136,4 +136,62 @@ public class UnityCatalogCommitterTests
         var (committer, _) = Committer(_ => (HttpStatusCode.ServiceUnavailable, "{}"));
         Assert.Throws<CatalogCommitOutcomeUnknownException>(() => committer.Ratify(Commit(2)));
     }
+
+    // ---- What the catalog requires of a managed table (UC 0.7 checks it only on protocol changes) ----
+
+    private static readonly (string, string)[] Required =
+    [
+        ("delta.enableInCommitTimestamps", "true"), ("delta.enableDeletionVectors", "true"), ("delta.checkpointPolicy", "v2"),
+        ("delta.checkpoint.writeStatsAsJson", "true"), ("delta.checkpoint.writeStatsAsStruct", "true"), (UnityManagedTables.TableIdKey, "uc-1"),
+    ];
+
+    private static Dictionary<string, string> Properties(params (string Key, string Value)[] changes)
+    {
+        Dictionary<string, string> properties = Required.ToDictionary(p => p.Item1, p => p.Item2);
+        foreach (var (key, value) in changes) properties[key] = value;
+        return properties;
+    }
+
+    [Theory]
+    [InlineData("delta.enableDeletionVectors", "false")]
+    [InlineData("delta.enableInCommitTimestamps", "false")]
+    [InlineData("delta.checkpointPolicy", "classic")]
+    [InlineData("delta.checkpoint.writeStatsAsJson", "false")]
+    [InlineData("delta.checkpoint.writeStatsAsStruct", "false")]
+    public void ARequiredPropertySetOtherwise_IsABrokenRequirement(string key, string value)
+    {
+        string required = Required.Single(p => p.Item1 == key).Item2;
+        Assert.Equal(
+            $"The catalog requires the table property '{key}'='{required}' of a managed table, but '{key}'='{value}' was given. Leave it out.",
+            UnityManagedTables.BrokenRequirement(Properties(), Properties((key, value))));
+        Dictionary<string, string> removed = Properties();
+        removed.Remove(key);
+        Assert.Equal(
+            $"The catalog requires the table property '{key}'='{required}' of a managed table, which cannot be removed.",
+            UnityManagedTables.BrokenRequirement(Properties(), removed));
+    }
+
+    [Fact]
+    public void TheCatalogsTableId_CannotChange_AndWhatACommitLeavesAsItWas_IsNotJudged()
+    {
+        Assert.Equal(
+            "The table property 'io.unitycatalog.tableId' is the catalog's id of the table, which cannot change (it is 'uc-1').",
+            UnityManagedTables.BrokenRequirement(Properties(), Properties((UnityManagedTables.TableIdKey, "uc-2"))));
+        Assert.Null(UnityManagedTables.BrokenRequirement(Properties(), Properties(("foo", "1"), ("delta.enableDeletionVectors", "TRUE"))));
+        // A table that already breaks a requirement (an older catalog's, say) can still take commits that leave it so.
+        Dictionary<string, string> old = Properties(("delta.checkpointPolicy", "classic"));
+        Assert.Null(UnityManagedTables.BrokenRequirement(old, new Dictionary<string, string>(old) { ["foo"] = "1" }));
+    }
+
+    [Fact]
+    public void ACommitBreakingARequirement_IsRefusedBeforeTheCatalogSeesIt()
+    {
+        var (committer, handler) = Committer(_ => (HttpStatusCode.OK, LoadResponse));
+        MetadataAction read = Metadata(Schema, Required), changed = Metadata(Schema, [.. Required.Where(p => p.Item1 != "delta.enableDeletionVectors"), ("delta.enableDeletionVectors", "false")]);
+        var refusal = Assert.Throws<CatalogCommitRejectedException>(() => committer.Ratify(Commit(2, metadata: changed, read: read)));
+        Assert.Equal(
+            "The commit of version 2 of probe.s.t3 is refused: The catalog requires the table property 'delta.enableDeletionVectors'='true' of a managed table, but 'delta.enableDeletionVectors'='false' was given. Leave it out.",
+            refusal.Message);
+        Assert.DoesNotContain(handler.Requests, r => r.Method == HttpMethod.Post);
+    }
 }

@@ -76,14 +76,16 @@ internal static class DeltaKernelCreate
     /// (<see cref="TableFeatures.CatalogManaged"/> among them).</param>
     /// <param name="generated">Generated columns; null for none.</param>
     /// <param name="defaults">Column defaults; null for none.</param>
+    /// <param name="orReplace">Created by <c>CREATE OR REPLACE TABLE</c> (the operation version 0 records).</param>
     /// <exception cref="PolarsException">A table exists at the location, or the declaration is not valid.</exception>
     public static CreatedTable CreateCatalogManaged(
         string location, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string> configuration,
         IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string> features,
-        IReadOnlyList<DeltaGeneratedColumn>? generated = null, IReadOnlyList<DeltaColumnDefault>? defaults = null)
+        IReadOnlyList<DeltaGeneratedColumn>? generated = null, IReadOnlyList<DeltaColumnDefault>? defaults = null, bool orReplace = false)
     {
         ArgumentNullException.ThrowIfNull(features);
-        CreateCore(location, schema, partitionBy, configuration, identity, cloud, clusterBy, features, generated, defaults);
+        CreateCore(location, schema, partitionBy, configuration, identity, cloud, clusterBy, features, generated, defaults,
+            orReplace ? Replacing.OrCreate : Replacing.No);
         return Version0(location, cloud);
     }
 
@@ -125,9 +127,16 @@ internal static class DeltaKernelCreate
                 throw new PolarsException($"Table already exists at {tablePath} (a Delta table).");
             if (existing is null && replacing == Replacing.Replace)
                 throw new PolarsException($"No Delta table at {tablePath} to replace; use orCreate to create one.");
-            // Replaced, the table keeps what Spark keeps: deletion vectors and row tracking turned on (and the row
-            // tracking column names, so that the ids go on); the given properties win.
-            if (existing is not null) configuration = Carried(existing.Metadata.Configuration, configuration);
+            // A catalog stages an empty location for a new table.
+            if (existing is not null && features is not null) throw new PolarsException($"Table already exists at {tablePath} (a Delta table).");
+            // Replaced, the table keeps the properties Spark keeps (the given ones win); a catalog-managed table also
+            // keeps its id, as Spark keeps it.
+            bool catalogOwned = existing is not null && CatalogManaged.IsCatalogManaged(existing.Protocol);
+            if (existing is not null)
+            {
+                DeltaKernelWrite.RefuseConstraintProperties(configuration);
+                configuration = Carried(existing.Metadata.Configuration, configuration, catalogOwned);
+            }
 
             // The identity columns are declared on the schema first; column mapping (if on) then maps it whole.
             var declared = new Dictionary<string, KernelIdentityColumn>(StringComparer.Ordinal);
@@ -142,7 +151,8 @@ internal static class DeltaKernelCreate
                 : f).ToList();
             StructType declaredSchema = DeclareExpressions(new StructType(fields), declared.Keys, generated ?? [], defaults ?? []);
 
-            var (metadata, tableSchema) = DeltaKernelWrite.NewTableMetadata(declaredSchema, partitions, configuration);
+            var (metadata, tableSchema) = DeltaKernelWrite.NewTableMetadata(
+                declaredSchema, partitions, configuration, existing?.Metadata, catalogOwned ? existing!.Metadata.Id : null);
             ProtocolAction protocol = DeltaKernelWrite.ProtocolFor(tableSchema, metadata.Configuration);
             if (declared.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.IdentityColumns]);
             if (generated is { Count: > 0 }) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.GeneratedColumns]);
@@ -157,6 +167,11 @@ internal static class DeltaKernelCreate
                 Replacing.Replace => "REPLACE TABLE",
                 _ => "CREATE OR REPLACE TABLE",
             };
+            if (existing is not null)
+            {
+                RefuseUnboundConstraints(tableSchema, metadata.Configuration);
+                RefuseDroppedChangeFeedColumns(existing, metadata, tableSchema, operation);
+            }
             Transaction transaction;
             if (existing is null)
             {
@@ -198,13 +213,85 @@ internal static class DeltaKernelCreate
         }
     }
 
-    /// <summary>The properties a replaced table keeps (as Spark keeps them), under the given ones.</summary>
-    private static Dictionary<string, string> Carried(IReadOnlyDictionary<string, string> old, IReadOnlyDictionary<string, string>? given)
+    /// <summary>The key of the catalog's table id, which a catalog-managed table keeps when replaced.</summary>
+    private const string CatalogTableIdKey = "io.unitycatalog.tableId";
+
+    /// <summary>
+    /// The properties a replaced table keeps, as Spark keeps them, under the given ones: deletion vectors and row
+    /// tracking turned on (and the row tracking column names, so that the ids go on); a catalog-managed table keeps
+    /// every <c>delta.*</c> property and its catalog's table id.
+    /// </summary>
+    private static Dictionary<string, string> Carried(IReadOnlyDictionary<string, string> old, IReadOnlyDictionary<string, string>? given, bool catalogOwned)
     {
         string[] keptKeys = [TableFeatures.EnableDeletionVectorsKey, RowTracking.EnableKey, RowTracking.MaterializedRowIdKey, RowTracking.MaterializedRowCommitVersionKey];
-        var configuration = old.Where(p => keptKeys.Contains(p.Key, StringComparer.Ordinal)).ToDictionary(StringComparer.Ordinal);
+        var configuration = old
+            .Where(p => catalogOwned
+                ? p.Key.StartsWith("delta.", StringComparison.Ordinal) || p.Key == CatalogTableIdKey
+                : keptKeys.Contains(p.Key, StringComparer.Ordinal))
+            .ToDictionary(StringComparer.Ordinal);
         foreach (var (key, value) in given ?? new Dictionary<string, string>()) configuration[key] = value;
         return configuration;
+    }
+
+    /// <summary>
+    /// Refuses a CHECK constraint the replaced table keeps that does not hold over the new schema (a column it reads is
+    /// gone, say). Spark keeps it, and every write then fails on it.
+    /// </summary>
+    private static void RefuseUnboundConstraints(StructType schema, IReadOnlyDictionary<string, string> configuration)
+    {
+        foreach (var (key, expression) in configuration.Where(p => p.Key.StartsWith(Constraints.ConfigurationPrefix, StringComparison.Ordinal)))
+        {
+            if (DeltaConstraintCheck.Unenforceable(schema, expression) is { } reason)
+                throw new PolarsException(
+                    $"The table keeps its CHECK constraint '{key[Constraints.ConfigurationPrefix.Length..]}' ({expression}), which does not hold " +
+                    $"over the new schema: {reason}. Drop it first (DropConstraint), then replace the table.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses, as Spark does, a replacement that drops or renames a column of a table with rows, column mapping before
+    /// and after, and the change data feed on in the new definition (a catalog-managed table keeps it; a table
+    /// replaced by path keeps it only when given again): a column counts as dropped when the new schema does not keep
+    /// its physical name (a column whose name or type changes gets a new one).
+    /// </summary>
+    private static void RefuseDroppedChangeFeedColumns(Snapshot existing, MetadataAction replacement, StructType schema, string operation)
+    {
+        if (existing.Files.Count == 0
+            || TableFeatures.ColumnMappingModeOf(existing.Metadata) == ColumnMappingMode.None
+            || TableFeatures.ColumnMappingModeOf(replacement) == ColumnMappingMode.None
+            || !(replacement.Configuration.TryGetValue(ChangeFeed.EnableKey, out string? on) && string.Equals(on, "true", StringComparison.OrdinalIgnoreCase)))
+            return;
+        var kept = new HashSet<string>(StringComparer.Ordinal);
+        Walk(schema, "", (field, _) => kept.Add(field.PhysicalName));
+        List<string> dropped = [];
+        Walk(existing.Schema, "", (field, path) => { if (!kept.Contains(field.PhysicalName)) dropped.Add(path); });
+        if (dropped.Count == 0) return;
+        throw new PolarsException(
+            $"Operation \"{operation}\" is not allowed when the table has enabled change data feed (CDF) and has undergone schema changes " +
+            $"using DROP COLUMN or RENAME COLUMN: the new schema drops or renames {string.Join(", ", dropped.Select(p => $"'{p}'"))} " +
+            "(a column whose name or type changes counts as dropped). Keep those columns as they are, or delete the table's rows first.");
+
+        static void Walk(DeltaType type, string path, Action<StructField, string> visit)
+        {
+            switch (type)
+            {
+                case StructType s:
+                    foreach (StructField field in s.Fields)
+                    {
+                        string at = path.Length == 0 ? field.Name : $"{path}.{field.Name}";
+                        visit(field, at);
+                        Walk(field.Type, at, visit);
+                    }
+                    break;
+                case ArrayType a:
+                    Walk(a.ElementType, path + ".element", visit);
+                    break;
+                case MapType m:
+                    Walk(m.KeyType, path + ".key", visit);
+                    Walk(m.ValueType, path + ".value", visit);
+                    break;
+            }
+        }
     }
 
     /// <summary>The table's protocol raised to support what <paramref name="needed"/> supports; never lowered.</summary>

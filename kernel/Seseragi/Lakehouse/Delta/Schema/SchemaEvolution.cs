@@ -293,6 +293,95 @@ public static class SchemaEvolution
     }
 
     /// <summary>
+    /// Metadata whose schema is <paramref name="schema"/> in place of <paramref name="previous"/>'s, as Spark's
+    /// <c>REPLACE TABLE</c> maps it: under column mapping, ids go on after the previous table's highest one, and when
+    /// the mapping mode stays the same, a field whose path (any case) and type are unchanged keeps its id and
+    /// physical name. Fields are numbered parent first: a struct whose type changed gets a new id, while a child of
+    /// it that did not change keeps its own.
+    /// </summary>
+    public static MetadataAction Redefine(MetadataAction metadata, StructType schema, IReadOnlyList<string> partitionColumns, MetadataAction previous)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        ColumnMappingMode mapping = TableFeatures.ColumnMappingModeOf(metadata);
+        if (mapping == ColumnMappingMode.None) return Replace(metadata, schema, partitionColumns);
+        StructType old = StructType.Parse(previous.SchemaString);
+        int maxId = Math.Max(MaxColumnId(metadata, StructType.Parse(metadata.SchemaString)), MaxColumnId(previous, old));
+        var kept = new Dictionary<string, StructField>(StringComparer.OrdinalIgnoreCase);
+        if (TableFeatures.ColumnMappingModeOf(previous) == mapping) Index(old, "", kept);
+        var fresh = (StructType)Remapped(WithoutColumnMapping(schema), "", kept, ref maxId);
+        MetadataAction redefined = WithSchema(metadata, fresh, maxId);
+        return new MetadataAction
+        {
+            Id = redefined.Id, Name = redefined.Name, Description = redefined.Description, FormatProvider = redefined.FormatProvider,
+            FormatOptions = redefined.FormatOptions, SchemaString = redefined.SchemaString, PartitionColumns = partitionColumns,
+            Configuration = redefined.Configuration, CreatedTime = redefined.CreatedTime,
+        };
+
+        // Every mapped field of the previous schema, by path.
+        static void Index(DeltaType type, string path, Dictionary<string, StructField> fields)
+        {
+            switch (type)
+            {
+                case StructType s:
+                    foreach (StructField field in s.Fields)
+                    {
+                        string at = path + "." + field.Name;
+                        if (field.FieldId is not null && field.Metadata.ContainsKey(StructField.PhysicalNameKey)) fields[at] = field;
+                        Index(field.Type, at, fields);
+                    }
+                    break;
+                case ArrayType a:
+                    Index(a.ElementType, path + ".element", fields);
+                    break;
+                case MapType m:
+                    Index(m.KeyType, path + ".key", fields);
+                    Index(m.ValueType, path + ".value", fields);
+                    break;
+            }
+        }
+
+        static DeltaType Remapped(DeltaType type, string path, Dictionary<string, StructField> kept, ref int maxId)
+        {
+            switch (type)
+            {
+                case StructType s:
+                    var fields = new List<StructField>(s.Fields.Count);
+                    foreach (StructField field in s.Fields)
+                    {
+                        string at = path + "." + field.Name;
+                        var metadata = new Dictionary<string, string>(field.Metadata);
+                        if (kept.TryGetValue(at, out StructField? before) && TypeJson(UnmappedType(before.Type)) == TypeJson(field.Type))
+                        {
+                            metadata[StructField.ColumnIdKey] = before.Metadata[StructField.ColumnIdKey];
+                            metadata[StructField.PhysicalNameKey] = before.Metadata[StructField.PhysicalNameKey];
+                        }
+                        else
+                        {
+                            metadata[StructField.ColumnIdKey] = (++maxId).ToString(CultureInfo.InvariantCulture);
+                            metadata[StructField.PhysicalNameKey] = $"col-{Guid.NewGuid()}";
+                        }
+                        fields.Add(new StructField
+                        {
+                            Name = field.Name, Type = Remapped(field.Type, at, kept, ref maxId), Nullable = field.Nullable,
+                            Metadata = metadata, JsonMetadataKeys = field.JsonMetadataKeys,
+                        });
+                    }
+                    return new StructType(fields);
+                case ArrayType a:
+                    return new ArrayType(Remapped(a.ElementType, path + ".element", kept, ref maxId), a.ContainsNull);
+                case MapType m:
+                    DeltaType key = Remapped(m.KeyType, path + ".key", kept, ref maxId);
+                    return new MapType(key, Remapped(m.ValueType, path + ".value", kept, ref maxId), m.ValueContainsNull);
+                default:
+                    return type;
+            }
+        }
+
+        // A type as JSON, so that two are compared whole (nested names, nullability, field metadata).
+        static string TypeJson(DeltaType type) => new StructType([new StructField { Name = "t", Type = type, Nullable = true }]).ToJson();
+    }
+
+    /// <summary>
     /// Metadata of a table switching from no column mapping to mapping by name: every field, nested ones included,
     /// gets an id, and its physical name is its current name, since the data files already hold it under that name
     /// (as Spark does). The mode property itself is the caller's to set.

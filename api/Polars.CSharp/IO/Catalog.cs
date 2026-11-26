@@ -457,6 +457,81 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             IntoSchema.DisposeTempSchema();
         }
     }
+
+    /// <summary>
+    /// Replaces a managed table's definition, as Delta Spark's <c>REPLACE TABLE</c> through Unity Catalog (with
+    /// <paramref name="orCreate"/>, <c>CREATE OR REPLACE TABLE</c>): one commit, ratified by the catalog, with the new
+    /// schema, partitioning, clustering, properties and declarations (as <see cref="CreateCatalogTable"/> takes them),
+    /// removing every row. As in Spark, the table keeps its id, its history (time travel reads the old definition),
+    /// its protocol and every <c>delta.*</c> property, the given ones over them (other properties are dropped); under
+    /// column mapping, a column whose name and type stay keeps its column id. The catalog gets the new columns.
+    /// </summary>
+    /// <param name="catalogName">The name of the catalog.</param>
+    /// <param name="schemaName">The name of the schema.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="schema">The columns of the table.</param>
+    /// <param name="partitionBy">Partition columns; none when null.</param>
+    /// <param name="clusterBy">Liquid clustering columns (see <see cref="Delta.CreateTable"/>).</param>
+    /// <param name="properties">Table properties. A property the catalog requires cannot be set to another value.</param>
+    /// <param name="identityColumns">Identity columns.</param>
+    /// <param name="generatedColumns">Generated columns (see <see cref="Delta.CreateTable"/>).</param>
+    /// <param name="columnDefaults">Column defaults (see <see cref="Delta.CreateTable"/>).</param>
+    /// <param name="orCreate">Create the table (managed) when the catalog has none; otherwise that is refused.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    /// <remarks>Only a managed, catalog-managed table can be replaced, as in Spark: an external one is refused. Also
+    /// refused: a CHECK constraint the table keeps that the new schema cannot hold (drop it first with
+    /// <see cref="DropCatalogConstraint"/>), and, on a table with the change data feed on, column mapping and rows, a
+    /// new schema that drops or renames a column.</remarks>
+    public void ReplaceCatalogTable(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        IntoSchema schema,
+        string[]? partitionBy = null,
+        IEnumerable<string>? clusterBy = null,
+        Dictionary<string, string>? properties = null,
+        IEnumerable<DeltaIdentityColumn>? identityColumns = null,
+        IEnumerable<DeltaGeneratedColumn>? generatedColumns = null,
+        IEnumerable<DeltaColumnDefault>? columnDefaults = null,
+        bool orCreate = false,
+        CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        DeltaIdentityColumn[] identity = identityColumns?.ToArray() ?? [];
+        DeltaGeneratedColumn[] generated = generatedColumns?.ToArray() ?? [];
+        DeltaColumnDefault[] defaults = columnDefaults?.ToArray() ?? [];
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        // The schema is borrowed: only one made from a dictionary, names etc. is disposed afterwards.
+        try
+        {
+            PolarsWrapper.ReplaceCatalogTable(
+                Handle,
+                catalogName,
+                schemaName,
+                tableName,
+                schema.Consume().Handle,
+                partitionBy,
+                clusterBy?.ToArray(),
+                properties?.Keys.ToArray(),
+                properties?.Values.ToArray(),
+                [.. identity.Select(c => c.Column)],
+                [.. identity.Select(c => c.Start)],
+                [.. identity.Select(c => c.Step)],
+                [.. identity.Select(c => c.GeneratedAlways)],
+                [.. generated.Select(c => c.Column)],
+                [.. generated.Select(c => c.Expression)],
+                [.. defaults.Select(c => c.Column)],
+                [.. defaults.Select(c => c.Expression)],
+                orCreate,
+                keys,
+                values);
+        }
+        finally
+        {
+            schema.DisposeTempSchema();
+        }
+    }
+
     /// <summary>
     /// Deletes (drops) a table from the Unity Catalog.
     /// For Managed tables, this typically removes both the metadata and the underlying physical data.

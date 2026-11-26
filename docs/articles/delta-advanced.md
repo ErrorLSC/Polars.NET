@@ -190,7 +190,7 @@ Delta.DropConstraint("./lake/events", "positive_amount")
 
 * `Delta.Detail` tells what Spark's `DESCRIBE DETAIL` tells: id, location, creation and last commit times, version, partition and clustering columns, number and size of the files, properties, protocol versions and table features. It reads the log only. Unity Catalog: `CatalogTableDetail`.
 * `Delta.UnsetTableProperties` (`UNSET TBLPROPERTIES`) removes properties; a property that turned a feature on stops using it, the feature staying in the protocol until `Delta.DropFeature`. A property the table does not have is refused unless `ifExists`. Properties another operation owns are refused, naming it: `delta.columnMapping.mode` (`DropFeature("columnMapping")`), `delta.constraints.*` (`DropConstraint`), `delta.feature.*` and the protocol versions (`DropFeature`), and those the table keeps itself. Unity Catalog: `UnsetCatalogTableProperties`.
-* `Delta.ReplaceTable` (`REPLACE TABLE`; with `orCreate`, `CREATE OR REPLACE TABLE`) gives the table a new definition, as `CreateTable` takes one, in one commit that removes every row. The history stays (time travel reads the old definition until `Vacuum` removes its files) and the protocol is never lowered. Of the old properties the table keeps what Spark keeps: deletion vectors and row tracking turned on, the row ids going on after the old ones.
+* `Delta.ReplaceTable` (`REPLACE TABLE`; with `orCreate`, `CREATE OR REPLACE TABLE`) gives the table a new definition, as `CreateTable` takes one, in one commit that removes every row. The history stays (time travel reads the old definition until `Vacuum` removes its files) and the protocol is never lowered. Of the old properties the table keeps what Spark keeps: deletion vectors and row tracking turned on, the row ids going on after the old ones. Under column mapping (given again) the column ids go on after the old ones, and a column whose name (in any case) and type stay keeps its id, as Spark numbers them. A table with rows replaced with both column mapping and the change data feed on cannot lose a column (dropped, renamed or retyped), as in Spark. Unity Catalog: `ReplaceCatalogTable` (section 8).
 * `Delta.Clone` (`SHALLOW CLONE`) makes a new table whose version 0 refers to the source's files (data and deletion vectors) by their absolute paths, copying none, at the source's latest version or one given by `version` or `timestamp`; `properties` are set over the source's. The clone is written and maintained on its own: its writes, deletes and `Vacuum` never touch the source's files. The target must be an empty location on the source's store (both local, or the same bucket). A `Vacuum` of the source that deletes files the clone still refers to breaks the clone, as in Spark.
 * `Delta.ConvertToDelta` (`CONVERT TO DELTA`) turns a directory of Parquet files into a Delta table in place: version 0 lists the files, none rewritten, with the schema of their footers (the union of their columns; a column whose type differs between files is refused) and their footers' statistics (`collectStatistics: false` for none). Files in Hive directories (`key=value`) need `partitionBy`, the partition columns and their types. Every file outside names starting with `_` or `.` is read as Parquet. A directory that holds a Delta table already is left as it is.
 
@@ -355,3 +355,25 @@ uc.DeleteCatalogRecords("main", "sales", "events", pl.col "id" .== pl.lit 3L)
 `CreateCatalogTable` (managed, the default) creates such a table as Delta Spark does with Unity Catalog: the catalog stages the table and says what its version 0 needs, version 0 is written at the location the catalog gives, and the catalog registers the table. The table gets the protocol and properties the catalog requires (Unity Catalog: deletion vectors, V2 checkpoints, in-commit timestamps, …) and, unless `properties` sets them otherwise, the ones it suggests (column mapping, row tracking, random file prefixes); a property contradicting a required one is refused before anything is written. Partition columns, clustering columns and identity columns are declared here, as with `Delta.CreateTable`.
 
 Writing to a table that does not exist (`SinkCatalogTable`, `WriteCatalogTable`, in any mode) creates it the same way, with the rows in version 0, as Spark's `saveAsTable` and `CREATE TABLE AS SELECT` do: its partitioning and clustering come from the write's `partitionBy` and `clusterBy`.
+
+`ReplaceCatalogTable` gives a managed table a new definition, as Spark's `REPLACE TABLE` does through Unity Catalog (with `orCreate`, `CREATE OR REPLACE TABLE`, which creates a missing table as `CreateCatalogTable` does): one commit, ratified by the catalog, that removes every row. Unlike a table replaced by its path, the table keeps its id and every `delta.*` property (column mapping, the change data feed, retention settings, check constraints, …), the given properties over them; other properties are dropped. Column ids go on after the old ones, a column whose name and type stay keeping its own. The catalog gets the new columns and properties, and time travel still reads the old definition. As in Spark, only a managed, catalog-managed table can be replaced (an external one is refused), and a table with rows, column mapping and the change data feed on cannot lose a column. A kept check constraint the new schema cannot hold is refused: drop it first with `DropCatalogConstraint`.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+using var uc = new UnityCatalog("https://my-workspace.cloud.databricks.com", token);
+using var schema = PolarsSchema.From<Event>();
+uc.ReplaceCatalogTable("main", "sales", "events", schema, partitionBy: ["kind"], orCreate: true);
+
+record Event(long id, string kind, double amount);
+```
+
+```fsharp [F# (Pipeline)]
+use uc = new UnityCatalog("https://my-workspace.cloud.databricks.com", token)
+use schema = new PolarsSchema([ "id", DataType.Int64; "kind", DataType.String; "amount", DataType.Float64 ])
+uc.ReplaceCatalogTable("main", "sales", "events", schema, partitionBy = [ "kind" ], orCreate = true)
+```
+
+:::
+
+Whatever the operation, a commit that would set a property the catalog requires of a managed table to another value, or remove it, is refused before the catalog sees it (Unity Catalog 0.7 requires `delta.enableDeletionVectors`, `delta.enableInCommitTimestamps`, `delta.checkpointPolicy` = `v2`, `delta.checkpoint.writeStatsAsJson`, `delta.checkpoint.writeStatsAsStruct`, and `io.unitycatalog.tableId` never changes).

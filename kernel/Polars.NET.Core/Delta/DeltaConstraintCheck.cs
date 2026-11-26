@@ -64,6 +64,21 @@ internal static class DeltaConstraintCheck
         }
     }
 
+    /// <summary>Why a CHECK constraint cannot be bound over the columns of <paramref name="schema"/>; null when it can.</summary>
+    public static string? Unenforceable(DeltaStructType schema, string expression)
+    {
+        (string, LogicalType)[] columns = [.. schema.Fields.Select(f => (f.Name, LogicalTypeOf(f.Type)))];
+        try
+        {
+            SqlFrontend.BindSparkExpression(expression, [.. columns], SparkExpressionUse.Check, DeltaSession.TimeZone, DateTimeOffset.UtcNow);
+            return null;
+        }
+        catch (SqlException e)
+        {
+            return e.Reason;
+        }
+    }
+
     /// <summary>A Boolean expression true on every row, which fails the query on a row violating the constraint.</summary>
     private static ExprHandle Checked(DeltaConstraint constraint, (string, LogicalType)[] columns)
     {
