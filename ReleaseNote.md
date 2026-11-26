@@ -130,9 +130,9 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 
 ### New
 
-* **Map columns are written as Parquet maps.** Tables with map columns (made by Spark or Databricks) can be appended to, updated, merged into, optimized, and have deletion vectors, type widening or column mapping dropped; Spark reads the files back. Appends and merges take a list of two-field structs (the engine's map) as the table's map.
+* **Map columns are written as Parquet maps.** Tables with map columns (made by Spark or Databricks) can be appended to, updated, merged into, optimized, and have deletion vectors, type widening or column mapping dropped; Spark reads the files back. Appends and merges take a list of two-field structs (the engine's map) as the table's map, by position, whatever the fields' names.
 * `POLARS_NET_DELTA_SINK_MEMORY` sets how much memory the files being written may hold together: a size (`2GiB`, `512MiB`) or a share of the memory the process may use (`25%`). By default an eighth of the memory available to the process (a container's limit, not the machine's), at least 256 MB.
-* `POLARS_NET_DELTA_SINK=native` writes with the engine's sink, as before. It is also used where the managed storage clients do not serve the store.
+* The engine's Parquet sink is no longer used for Delta data files (`POLARS_NET_DELTA_SINK` is gone). Where the managed storage clients do not serve the store, the files go through the engine's object store, each held whole in native memory until it closes, within `POLARS_NET_DELTA_SINK_MEMORY`; tables with map columns are written there too.
 * Checkpoints are read with the managed Parquet reader and written in native memory, streamed to the store; a large checkpoint no longer passes through the managed heap.
 * Deletion vectors are decoded into native bitmaps (roaring), off the managed heap.
 * Writes into many partitions hold less memory: each open file keeps its levels a byte each and takes its buffers only when it needs them (10,000 partitions of 10M rows: about 1 GB less at the peak; there, twice as fast as the engine's sink in our measurements). Beyond `POLARS_NET_DELTA_SINK_MEMORY`, row groups end early, as many as it takes, before any file closes early.
@@ -147,6 +147,23 @@ Delta data files are written by Polars.NET's own Parquet writer (Seseragi.Files)
 ### Fixed
 
 * Float and double partition values `NaN`, `Infinity` and `-Infinity` were logged as null, and read back as null. They are now written as Spark writes them.
+
+## Delta Lake: SQL expressions and table operations
+
+### New
+
+* **Check constraints, column invariants, generated columns and column defaults** are evaluated as Spark 4 evaluates them (ANSI semantics, Spark's session time zone) on appends, merges, updates and optimize; tables that use them were read only. A violating row fails the write with Spark's message, nothing committed.
+* **`Delta.AddConstraint` / `DropConstraint`** (Spark's `ADD` / `DROP CONSTRAINT`): the table's rows are checked first. **`CreateTable`** takes `generatedColumns` and `columnDefaults`; **`SetColumnDefault` / `DropColumnDefault`** change a default. Each declaration is checked as Spark checks it, and brings its table feature.
+* **`Delta.SessionTimeZone`**: the zone those expressions read instants in, process-wide, UTC by default.
+* **`Delta.AddColumns`** (`ADD COLUMNS`, nested fields and positions too), **`UnsetTableProperties`** (`UNSET TBLPROPERTIES`), **`Detail`** (`DESCRIBE DETAIL`), **`ReplaceTable`** (`REPLACE TABLE`, `CREATE OR REPLACE TABLE`), **`Clone`** (`SHALLOW CLONE`) and **`ConvertToDelta`** (`CONVERT TO DELTA`, Parquet directories, Hive partitions), as delta-spark 4.4 commits them. Unity Catalog: `AddCatalogConstraint`, `DropCatalogConstraint`, `SetCatalogColumnDefault`, `DropCatalogColumnDefault`, `AddCatalogColumns`, `UnsetCatalogTableProperties`, `CatalogTableDetail`.
+
+### Changed
+
+* `delta.constraints.*` properties are refused by `CreateTable` and by writes that create a table, as by `SetTableProperties`: constraints are added with `AddConstraint`, which checks them.
+
+### Fixed
+
+* Shallow clones made by Spark (data files and deletion vectors at absolute `file:/…` paths) could not be read.
 
 ## Arrow interop
 
@@ -243,7 +260,7 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 * **Log cleanup follows Spark** in where it cuts the log: the retention's cutoff is rounded down to midnight UTC, and the log is cut at the newest checkpoint whose earlier files (by modification time) are all past it, rather than the newest checkpoint whose own commit is. Cleanup may run up to a day later, and then cut up to one checkpoint further, than before.
 * **Time travel by time** uses the protocol's commit time: the log file's modification time, or the in-commit timestamp. A time without an offset is UTC.
 * **`AddFeature`** of `deletionVectors`, `changeDataFeed` or `appendOnly` also sets the property that turns it on (`delta.enableDeletionVectors`, ...), unless the table sets it already. `appendOnly` therefore makes the table append-only.
-* **`SetTableProperties(raiseIfNotExists: true)`** refuses unknown `delta.` properties only; other keys are stored. `delta.constraints.*` is refused (check constraints come with their own operation later).
+* **`SetTableProperties(raiseIfNotExists: true)`** refuses unknown `delta.` properties only; other keys are stored. `delta.constraints.*` is refused (check constraints are added with `Delta.AddConstraint`, in 1.3.0).
 * **Optimize:** partition filters may name partition columns only, Z-order columns may not be partition columns (as Spark).
 * **Unity Catalog** scans take the schema from the Delta log.
 * **Deletion vectors written by earlier Polars.NET versions** did not follow the protocol and are refused with a hint: run `Delta.Optimize` with the earlier version first, so that no file carries a deletion vector.

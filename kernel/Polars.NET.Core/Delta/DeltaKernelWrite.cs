@@ -484,14 +484,14 @@ internal static class DeltaKernelWrite
     /// <summary>The rows in the table's column order, every column cast to the exact type the table reads.</summary>
     internal static DataFrameHandle Normalize(DataFrameHandle df, StructType schema)
     {
-        var present = SchemaOf(df).Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        StructType data = SchemaOf(df);
         var exprs = new ExprHandle[schema.Fields.Count];
         for (int i = 0; i < exprs.Length; i++)
         {
             StructField field = schema.Fields[i];
             using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
             // A column the data lacks is null (the schema check allowed it).
-            ExprHandle value = present.Contains(field.Name) ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
+            ExprHandle value = data.Field(field.Name) is { } given ? EntriesByPosition(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
                 field.Name);
@@ -654,8 +654,6 @@ internal static class DeltaKernelWrite
         CloudArgs? cloud, string? bucketColumn = null)
     {
         StructField[] dataFields = [.. schema.Fields.Where(f => !partitions.Contains(f.Name))];
-        bool managed = ManagedSink.Applies(fileSystem);
-        if (!managed) EnsureNoMaps(dataFields);
         // Partition columns under their names (the sink keys on them and leaves them out of the files), data
         // columns under their physical names, then the materialized row tracking columns, then the change type.
         ExprHandle[] columns =
@@ -676,40 +674,22 @@ internal static class DeltaKernelWrite
         string suffix = CodecSuffix(options.Compression);
         string[] notNullPartitions = [.. partitions.Where(p => !schema.Field(p)!.Nullable)];
         string[] sinkKeys = bucketColumn is null ? partitions : [.. partitions, bucketColumn];
-        if (managed)
-        {
-            // The managed writer: files paired with their partition values by path (in the order it gives them).
-            ManagedSink.SinkResult sunk = ManagedSink.Sink(
-                fileSystem, shaped, sinkKeys, options.KeysPreGrouped, dataFields, Describe, PathFor, options, approxBytesPerFile);
-            if (sunk.ClosedForMemory > 0)
-                System.Diagnostics.Trace.TraceInformation($"{sunk.ClosedForMemory} data files were closed before their target size to hold the memory the open files take.");
-            Dictionary<string, Dictionary<string, string?>> valuesOf = written.ToDictionary(w => w.Relative, w => w.Values, StringComparer.Ordinal);
-            try
-            {
-                return [.. sunk.Files.Select(f => new SunkFile(f.Relative, valuesOf[f.Relative], f.Size, f.Footer))];
-            }
-            catch
-            {
-                foreach (ManagedSink.Written file in sunk.Files) file.Footer.Dispose();
-                throw;
-            }
-        }
-        HostPathSink.Sink(
-            shaped, root, sinkKeys, options.KeysPreGrouped, options.MaxRowsPerFile, approxBytesPerFile, (keys, index) => PathFor(Describe(keys), index),
-            options.Compression, options.CompressionLevel, options.RowGroupSize, options.DataPageSize, options.MaintainOrder,
-            options.SyncOnClose, cloud, FieldIds(dataFields));
-
-        // Sizes and footers: one read of each file's end where the store can, else a listing per directory.
-        (long Size, ParquetMetadata Footer)[] footers;
+        // The managed writer, into any store (one that cannot stream holds each file in native memory until it is
+        // published, counted against the sink's memory budget): files paired with their partition values by path.
+        ManagedSink.SinkResult sunk = ManagedSink.Sink(
+            fileSystem, shaped, sinkKeys, options.KeysPreGrouped, dataFields, Describe, PathFor, options, approxBytesPerFile);
+        if (sunk.ClosedForMemory > 0)
+            System.Diagnostics.Trace.TraceInformation($"{sunk.ClosedForMemory} data files were closed before their target size to hold the memory the open files take.");
+        Dictionary<string, Dictionary<string, string?>> valuesOf = written.ToDictionary(w => w.Relative, w => w.Values, StringComparer.Ordinal);
         try
         {
-            footers = ParquetFooters.Read(fileSystem, [.. written.Select(w => w.Relative)]);
+            return [.. sunk.Files.Select(f => new SunkFile(f.Relative, valuesOf[f.Relative], f.Size, f.Footer))];
         }
-        catch (FileNotFoundException e)
+        catch
         {
-            throw new PolarsException(e.Message);
+            foreach (ManagedSink.Written file in sunk.Files) file.Footer.Dispose();
+            throw;
         }
-        return [.. written.Select((w, i) => new SunkFile(w.Relative, w.Values, footers[i].Size, new ParquetFooter(footers[i].Footer)))];
 
         // The partition values of the rows whose key values are the one row of `keys` (none without sink keys),
         // checked against the table's NOT NULL partition columns.
@@ -744,61 +724,6 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>
-    /// The Parquet field ids of the data columns under column mapping (null without), as Spark writes them: every
-    /// struct field at any depth (inside list elements and map entries too) gets its column mapping id. In the
-    /// sink's form: <c>path TAB id</c> lines, a path being the physical names from the top joined by U+001F, with
-    /// <c>[]</c> for a list's element (a map is a list of key/value structs).
-    /// </summary>
-    internal static string? FieldIds(IEnumerable<StructField> dataFields)
-    {
-        var lines = new StringBuilder();
-        foreach (StructField field in dataFields) Field(field, null);
-        return lines.Length == 0 ? null : lines.ToString();
-
-        void Field(StructField field, string? parent)
-        {
-            string path = parent is null ? field.PhysicalName : parent + PathSeparator + field.PhysicalName;
-            if (field.FieldId is int id) lines.Append(path).Append('\t').Append(id.ToString(CultureInfo.InvariantCulture)).Append('\n');
-            Nested(field.Type, path);
-        }
-
-        void Nested(DeltaType type, string path)
-        {
-            switch (type)
-            {
-                case StructType s:
-                    foreach (StructField child in s.Fields) Field(child, path);
-                    break;
-                case ArrayType a:
-                    Nested(a.ElementType, path + PathSeparator + "[]");
-                    break;
-                case MapType m:
-                    Nested(m.KeyType, path + PathSeparator + "[]" + PathSeparator + "key");
-                    Nested(m.ValueType, path + PathSeparator + "[]" + PathSeparator + "value");
-                    break;
-            }
-        }
-    }
-
-    private const char PathSeparator = '\u001f';
-
-    /// <summary>
-    /// Refuses writing files with map columns (at any depth) through the engine's own sink: the engine has no map type,
-    /// holds a map as a list of key/value structs and would write it as a Parquet LIST, which Spark and other readers
-    /// then refuse to read as the table's map. The managed sink writes Parquet maps.
-    /// </summary>
-    internal static void EnsureNoMaps(IEnumerable<StructField> dataFields)
-    {
-        string[] maps = [.. dataFields.Where(f => HasMap(f.Type)).Select(f => f.Name)];
-        if (maps.Length > 0)
-            throw new PolarsException(
-                $"The table has map columns ({string.Join(", ", maps)}), which the engine's own sink cannot write in a form " +
-                $"other readers (Spark, Databricks) read, so data files of this table are not written. The managed sink " +
-                $"writes them: unset {ManagedSink.Variable}=native, on a local disk or a store the managed clients serve. " +
-                "Deletes on a table with deletion vectors (delta.enableDeletionVectors) need no rewrite and are not affected.");
-    }
-
-    /// <summary>
     /// The data's schema with maps where the table has them: the engine has no map type and holds a map as a list of
     /// key/value structs, so where the table has a map (at any depth) and the data a list of two-field structs, the
     /// data's is taken as a map of the fields' types (by position, whatever their names). Other types are left as they
@@ -817,8 +742,42 @@ internal static class DeltaKernelWrite
         _ => data,
     };
 
-    /// <summary>Whether the type holds a map at any depth (see <see cref="EnsureNoMaps"/>).</summary>
-    internal static bool HasMap(DeltaType type) => type switch
+    /// <summary>
+    /// A column's data with the entries of the table's maps named <c>key</c> and <c>value</c> by position: a write takes
+    /// a list of two-field structs as a map, whatever the fields' names, while the cast to the table's type matches
+    /// struct fields by name. Maps at any depth (array elements, map values, struct fields the data has all of).
+    /// </summary>
+    private static ExprHandle EntriesByPosition(ExprHandle column, DeltaType table, DeltaType data)
+    {
+        if (!HasMap(table)) return column;
+        switch (table, data)
+        {
+            case (MapType m, ArrayType { ElementType: StructType { Fields: [var k, var v] } }):
+            {
+                ExprHandle entry = PolarsWrapper.StructRenameFields(PolarsWrapper.Col(""), ["key", "value"]);
+                ExprHandle key = PolarsWrapper.Alias(EntriesByPosition(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(entry), ["key"]), m.KeyType, k.Type), "key");
+                ExprHandle value = PolarsWrapper.Alias(EntriesByPosition(PolarsWrapper.StructFieldByName(entry, ["value"]), m.ValueType, v.Type), "value");
+                return PolarsWrapper.ListEval(column, PolarsWrapper.AsStruct([key, value]));
+            }
+            case (ArrayType a, ArrayType d):
+                return PolarsWrapper.ListEval(column, EntriesByPosition(PolarsWrapper.Col(""), a.ElementType, d.ElementType));
+            case (StructType s, StructType d) when s.Fields.All(f => d.Field(f.Name) is not null):
+            {
+                ExprHandle[] fields =
+                [
+                    .. s.Fields.Select(f => PolarsWrapper.Alias(
+                        EntriesByPosition(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(column), [f.Name]), f.Type, d.Field(f.Name)!.Type), f.Name)),
+                ];
+                // Rebuilt field by field, so a null struct is put back explicitly.
+                return PolarsWrapper.IfElse(PolarsWrapper.IsNull(column), PolarsWrapper.LitNull(), PolarsWrapper.AsStruct(fields));
+            }
+            default:
+                return column;
+        }
+    }
+
+    /// <summary>Whether the type holds a map at any depth.</summary>
+    private static bool HasMap(DeltaType type) => type switch
     {
         MapType => true,
         StructType s => s.Fields.Any(f => HasMap(f.Type)),
@@ -878,14 +837,14 @@ internal static class DeltaKernelWrite
     /// </summary>
     internal static LazyFrameHandle NormalizeLazy(LazyFrameHandle lf, StructType schema, string[]? extraColumns = null)
     {
-        var present = SchemaOf(lf).Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        StructType data = SchemaOf(lf);
         var exprs = new ExprHandle[schema.Fields.Count + (extraColumns?.Length ?? 0)];
         for (int i = 0; i < schema.Fields.Count; i++)
         {
             StructField field = schema.Fields[i];
             using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
             // A column the data lacks is null (the schema check allowed it).
-            ExprHandle value = present.Contains(field.Name) ? PolarsWrapper.Col(field.Name) : PolarsWrapper.LitNull();
+            ExprHandle value = data.Field(field.Name) is { } given ? EntriesByPosition(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
                 field.Name);

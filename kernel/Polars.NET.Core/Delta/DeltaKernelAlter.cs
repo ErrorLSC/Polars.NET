@@ -144,7 +144,6 @@ internal static partial class DeltaKernelAlter
             // The drop itself writes log files only; each data rewrite opens the table on its own, so its rollback
             // covers its own commit and never the drop's other commits.
             using DmlTable table = DmlTable.Open(tablePath, cloud);
-            EnsureRewritable(table, feature);
             return Kaminari.Seseragi.Lakehouse.Delta.DropFeature.Run(
                 table.FileSystem, () => Snapshot.Load(table.FileSystem), feature, new EngineRewriter(tablePath, cloud),
                 truncateHistory: truncateHistory, snapshotAt: version => Snapshot.Load(table.FileSystem, version),
@@ -153,24 +152,6 @@ internal static partial class DeltaKernelAlter
         catch (DeltaException e)
         {
             throw new PolarsException(e.Message, e);
-        }
-
-        // Refuses, before anything is committed, a drop whose data rewrite could not write the table's files (map
-        // columns through the engine's own sink; see DeltaKernelWrite.EnsureNoMaps).
-        static void EnsureRewritable(DmlTable table, string feature)
-        {
-            if (ManagedSink.Applies(table.FileSystem)) return;
-            Snapshot snapshot = table.Snapshot;
-            if (!snapshot.Schema.Fields.Any(f => !snapshot.PartitionColumns.Contains(f.Name) && DeltaKernelWrite.HasMap(f.Type))) return;
-            bool rewrites = feature.ToLowerInvariant() switch
-            {
-                "deletionvectors" => DeltaKernelOptimize.PurgeFiles(table).Count > 0,
-                "typewidening" or "typewidening-preview" =>
-                    snapshot.Files.Count > 0 && snapshot.Metadata.SchemaString.Contains(SchemaEvolution.TypeChangesKey, StringComparison.Ordinal),
-                "columnmapping" => snapshot.Files.Count > 0 && snapshot.ColumnMappingMode != ColumnMappingMode.None,
-                _ => false,
-            };
-            if (rewrites) DeltaKernelWrite.EnsureNoMaps(snapshot.Schema.Fields.Where(f => !snapshot.PartitionColumns.Contains(f.Name)));
         }
     }
 

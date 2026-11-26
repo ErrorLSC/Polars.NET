@@ -15,14 +15,14 @@ using DeltaSchema = Kaminari.Seseragi.Lakehouse.Delta.Schema;
 namespace Polars.Config.Tests;
 
 /// <summary>
-/// Delta data files written by the managed Parquet writer (<see cref="ManagedSink"/>, chosen by
-/// <c>POLARS_NET_DELTA_SINK</c>, process-wide: hence here, in the serial project) against the engine's own sink: the
-/// same rows come back, the log records the same statistics, and the files have the same Parquet schema, but for the
-/// root's name (ours <c>schema</c>, the engine's <c>root</c>: readers ignore it) and the legacy converted type ours adds
-/// to UTC timestamps (TIMESTAMP_MICROS, as Spark writes it). Files split by size on disk and by rows; a failure on the
-/// way leaves no file and no commit. Partitioned writes (partition values of every type, Hive-escaped directories, an
-/// empty string as null), partitioned change data and clustering's buckets alike; rows grouped by their keys already;
-/// files closed early to hold the memory budget; a failure with many files open leaves none.
+/// Delta data files written by the managed Parquet writer (<see cref="ManagedSink"/>; here, in the serial project, for
+/// its process-wide memory budget and footer counts): the rows come back, the log's statistics and the files' Parquet
+/// schemas are the ones recorded in <c>Golden/ManagedSink</c> (captured when the writer still ran against the engine's
+/// own sink and wrote what it wrote; the root's name and the legacy converted type of UTC timestamps aside). Files
+/// split by size on disk and by rows; a failure on the way leaves no file and no commit. Partitioned writes (partition
+/// values of every type, Hive-escaped directories, an empty string as null), partitioned change data and clustering's
+/// buckets alike; rows grouped by their keys already; files closed early to hold the memory budget, also on a store
+/// that holds whole files (the native object store); a failure with many files open leaves none.
 /// </summary>
 public sealed class DeltaManagedSinkTests : IDisposable
 {
@@ -30,25 +30,30 @@ public sealed class DeltaManagedSinkTests : IDisposable
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable(ManagedSink.Variable, null);
         if (Directory.Exists(_dir)) Directory.Delete(_dir, true);
     }
 
     private string Table(string name) => Path.Combine(_dir, name);
 
-    /// <summary>Runs <paramref name="write"/> with the given sink chosen.</summary>
-    private static void Sink(string sink, Action write)
+    /// <summary>
+    /// Checks lines against the golden file <paramref name="name"/> (under <c>Golden/ManagedSink</c> next to this
+    /// source); with <c>POLARS_NET_UPDATE_GOLDEN=1</c> writes them instead.
+    /// </summary>
+    private static void Golden(string name, IEnumerable<string> lines, [CallerFilePath] string source = "")
     {
-        Environment.SetEnvironmentVariable(ManagedSink.Variable, sink);
-        try
+        string path = Path.Combine(Path.GetDirectoryName(source)!, "Golden", "ManagedSink", name + ".txt");
+        string[] actual = [.. lines];
+        if (Environment.GetEnvironmentVariable("POLARS_NET_UPDATE_GOLDEN") == "1")
         {
-            write();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllLines(path, actual);
+            return;
         }
-        finally
-        {
-            Environment.SetEnvironmentVariable(ManagedSink.Variable, null);
-        }
+        Assert.True(File.Exists(path), $"no golden file {path}");
+        Assert.Equal(File.ReadAllLines(path), actual);
     }
+
+    private static long Records(JsonElement add) => JsonDocument.Parse(add.GetProperty("stats").GetString()!).RootElement.GetProperty("numRecords").GetInt64();
 
     private static string[] DataFiles(string table, string under = "") =>
         [.. Directory.GetFiles(Path.Combine(table, under), "*.parquet", SearchOption.AllDirectories)
@@ -105,32 +110,27 @@ public sealed class DeltaManagedSinkTests : IDisposable
             When(Col("Id") == 7).Then(double.NaN).Otherwise(Col("Double")).Alias("WithNaN")).Collect();
     }
 
-    /// <summary>The same write through both sinks: the rows, the statistics of each file and the files' schemas agree.</summary>
-    private void SameAsTheEnginesSink(Action<string> write, string orderBy = "Id")
+    /// <summary>
+    /// A write whose statistics (each file's, in the log's order) and file schemas are the recorded ones; the rows come
+    /// back as <paramref name="expected"/>.
+    /// </summary>
+    private void AsRecorded(string golden, string table, DataFrame expected, string orderBy = "Id")
     {
-        string native = Table("native"), managed = Table("managed");
-        Sink("native", () => write(native));
-        Sink("managed", () => write(managed));
-
-        using (DataFrame a = DataFrame.ReadDelta(native).Sort(orderBy), b = DataFrame.ReadDelta(managed).Sort(orderBy))
-            Assert.True(a.Equals(b), "the tables hold other rows");
-        List<JsonElement> nativeAdds = Adds(native), managedAdds = Adds(managed);
-        Assert.Equal(nativeAdds.Count, managedAdds.Count);
-        for (int i = 0; i < nativeAdds.Count; i++)
-            Assert.Equal(nativeAdds[i].GetProperty("stats").GetString(), managedAdds[i].GetProperty("stats").GetString());
+        using (DataFrame read = DataFrame.ReadDelta(table).Sort(orderBy))
+            Assert.True(read.Equals(expected), "the table holds other rows");
+        List<JsonElement> adds = Adds(table);
+        Golden(golden + ".stats", adds.Select(a => a.GetProperty("stats").GetString()!));
         // File by file, in the log's order (their names are random).
-        for (int i = 0; i < nativeAdds.Count; i++)
-            Assert.Equal(SchemaOf(AddedFile(native, nativeAdds[i])), SchemaOf(AddedFile(managed, managedAdds[i])));
-        string[] nativeFiles = DataFiles(native), managedFiles = DataFiles(managed);
-        Assert.All(managedFiles, f => Assert.StartsWith("seseragi", CreatedBy(f)));
-        Assert.All(nativeFiles, f => Assert.DoesNotContain("seseragi", CreatedBy(f)));
+        Golden(golden + ".schema", adds.SelectMany((a, i) => (string[])[$"# file {i}", .. SchemaOf(AddedFile(table, a))]));
+        Assert.All(DataFiles(table), f => Assert.StartsWith("seseragi", CreatedBy(f)));
     }
 
     [Fact]
-    public void EveryType_WritesWhatTheEnginesSinkWrites()
+    public void EveryType_WritesWhatTheEnginesSinkWrote()
     {
         using DataFrame rows = Typed(3000);
-        SameAsTheEnginesSink(table => rows.WriteDelta(table));
+        rows.WriteDelta(Table("managed"));
+        AsRecorded("every_type", Table("managed"), rows);
 
         // The files' own bounds are whole (the table's statistics cut strings their own way): a reader pruning row
         // groups on them sees the real 80-character maximum.
@@ -148,7 +148,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
         using PolarsSchema schema = rows.Schema;
         string table = Table("mapped");
         Delta.CreateTable(table, schema, properties: new() { ["delta.columnMapping.mode"] = "id" });
-        Sink("managed", () => rows.WriteDelta(table, mode: DeltaSaveMode.Append));
+        rows.WriteDelta(table, mode: DeltaSaveMode.Append);
 
         // The ids of the log's schema by physical name (struct fields inside too), against the file's.
         using JsonDocument metadata = JsonDocument.Parse(File.ReadLines(Directory.GetFiles(Path.Combine(table, "_delta_log"), "*.json").Order().First())
@@ -176,32 +176,31 @@ public sealed class DeltaManagedSinkTests : IDisposable
     }
 
     [Fact]
-    public void RowTrackingAndChangeData_OfAnUpdate_AreWhatTheEnginesSinkWrites()
+    public void RowTrackingAndChangeData_OfAnUpdate_AreWhatTheEnginesSinkWrote()
     {
         using DataFrame rows = Typed(2000);
         Dictionary<string, string> properties = new() { [DeltaTableProperties.EnableRowTracking] = "true", [DeltaTableProperties.EnableChangeDataFeed] = "true" };
-        SameAsTheEnginesSink(table =>
-        {
-            using PolarsSchema schema = rows.Schema;
-            Delta.CreateTable(table, schema, properties: properties);
-            rows.WriteDelta(table, mode: DeltaSaveMode.Append);
-            Delta.Update(table, Col("Id") < 300, new Dictionary<string, Expr> { ["Int"] = Col("Int") + 1 });
-        });
-        // The change data files hold the same rows.
-        // (The materialized row tracking columns' names are each table's own: renamed alike.)
-        DataFrame ChangeData(string table)
-        {
-            using DataFrame read = DataFrame.ReadParquet(Path.Combine(Table(table), "_change_data", "*.parquet"));
-            using DataFrame renamed = read.Rename([.. read.Columns], [.. read.Columns.Select(Stable)]);
-            return renamed.Sort([(IntoSelector)"Id", "_change_type"]);
-        }
-        using DataFrame native = ChangeData("native"), managed = ChangeData("managed");
-        Assert.Equal(600, managed.Height);
-        Assert.True(native.Equals(managed), "the change data differ");
+        string table = Table("managed");
+        using (PolarsSchema schema = rows.Schema) Delta.CreateTable(table, schema, properties: properties);
+        rows.WriteDelta(table, mode: DeltaSaveMode.Append);
+        using DataFrame idsBefore = LazyFrame.ScanDelta(table, rowIdColumn: "row_id").Select(Col("Id"), Col("row_id")).Collect().Sort("Id");
+        Delta.Update(table, Col("Id") < 300, new Dictionary<string, Expr> { ["Int"] = Col("Int") + 1 });
+        using DataFrame updated = rows.Lazy().WithColumns(When(Col("Id") < 300).Then(Col("Int") + 1).Otherwise(Col("Int")).Alias("Int")).Collect();
+        AsRecorded("row_tracking_update", table, updated);
+
+        // The change data: the pre- and post-images of the 300 rows updated.
+        using DataFrame read = DataFrame.ReadParquet(Path.Combine(table, "_change_data", "*.parquet"));
+        using DataFrame changes = read.Sort([(IntoSelector)"Id", "_change_type"]);
+        Assert.Equal(600, changes.Height);
+        using DataFrame pre = changes.Filter(Col("_change_type") == "update_preimage").Select(Col("Id"), Col("Int")).Sort("Id");
+        using DataFrame post = changes.Filter(Col("_change_type") == "update_postimage").Select(Col("Id"), Col("Int")).Sort("Id");
+        using DataFrame original = rows.Filter(Col("Id") < 300).Select(Col("Id"), Col("Int")).Sort("Id");
+        Assert.True(pre.Equals(original), "the pre-images");
+        using DataFrame raised = original.Lazy().WithColumns((Col("Int") + 1).Alias("Int")).Collect();
+        Assert.True(post.Equals(raised), "the post-images");
         // The rewritten file carries the materialized row ids: the same ids come back.
-        using DataFrame a = LazyFrame.ScanDelta(Table("native"), rowIdColumn: "row_id").Collect().Sort("Id");
-        using DataFrame b = LazyFrame.ScanDelta(Table("managed"), rowIdColumn: "row_id").Collect().Sort("Id");
-        Assert.True(a.Equals(b), "the row ids differ");
+        using DataFrame idsAfter = LazyFrame.ScanDelta(table, rowIdColumn: "row_id").Select(Col("Id"), Col("row_id")).Collect().Sort("Id");
+        Assert.True(idsBefore.Equals(idsAfter), "the row ids differ");
     }
 
     [Fact]
@@ -211,14 +210,14 @@ public sealed class DeltaManagedSinkTests : IDisposable
         const long Target = 1 << 20;
         string bySize = Table("by_size");
         // Pages small against the files: a file's size is known to within its open pages (taken at their plain size).
-        Sink("managed", () => rows.WriteDelta(bySize, approxBytesPerFile: Target, dataPageSize: 32 << 10));
+        rows.WriteDelta(bySize, approxBytesPerFile: Target, dataPageSize: 32 << 10);
         long[] sizes = [.. DataFiles(bySize).Select(f => new FileInfo(f).Length)];
         Assert.True(sizes.Length >= 10, $"{sizes.Length} files");
         Assert.All(Adds(bySize).Select(a => a.GetProperty("size").GetInt64()).SkipLast(1), size => Assert.InRange(size, Target * 85 / 100, Target * 115 / 100));
         Assert.Equal(sizes.Order(), Adds(bySize).Select(a => a.GetProperty("size").GetInt64()).Order());
 
         string byRows = Table("by_rows");
-        Sink("managed", () => rows.WriteDelta(byRows, maxRowsPerFile: 30_000));
+        rows.WriteDelta(byRows, maxRowsPerFile: 30_000);
         long[] counts = [.. Adds(byRows).Select(a => JsonDocument.Parse(a.GetProperty("stats").GetString()!).RootElement.GetProperty("numRecords").GetInt64())];
         Assert.Equal(200_000, counts.Sum());
         Assert.All(counts, c => Assert.InRange(c, 1, 30_000));
@@ -235,14 +234,14 @@ public sealed class DeltaManagedSinkTests : IDisposable
         // frees them; a failed write frees those of the files it closed.
         using DataFrame rows = Typed(100_000);
         long live = ParquetFooter.Held;
-        Sink("managed", () => rows.WriteDelta(Table("footers"), maxRowsPerFile: 10_000));
+        rows.WriteDelta(Table("footers"), maxRowsPerFile: 10_000);
         Assert.Equal(10, DataFiles(Table("footers")).Length);
         Assert.Equal(live, ParquetFooter.Held);
 
         // A cast failing on a late batch: files of the earlier ones are closed by then.
         using DataFrame more = Typed(300_000);
         LazyFrame failing = more.Lazy().WithColumns(When(Col("Id") == 250_000).Then(Lit(1000)).Otherwise(Col("Tiny")).Cast(DataType.Int8, strict: true).Alias("Tiny"));
-        Sink("managed", () => Assert.ThrowsAny<Exception>(() => failing.SinkDelta(Table("failing"), maxRowsPerFile: 10_000)));
+        Assert.ThrowsAny<Exception>(() => failing.SinkDelta(Table("failing"), maxRowsPerFile: 10_000));
         Assert.Equal(live, ParquetFooter.Held);
     }
 
@@ -271,10 +270,10 @@ public sealed class DeltaManagedSinkTests : IDisposable
         // A cast that fails on a row of the second batch: the first file is open (or written) by then.
         using DataFrame rows = Typed(300_000);
         string table = Table("failed");
-        using (DataFrame first = Typed(10)) Sink("managed", () => first.WriteDelta(table));
+        using (DataFrame first = Typed(10)) first.WriteDelta(table);
         string[] before = AllFiles(table);
         LazyFrame failing = rows.Lazy().WithColumns(When(Col("Id") == 250_000).Then(Lit(1000)).Otherwise(Col("Tiny")).Cast(DataType.Int8, strict: true).Alias("Tiny"));
-        Sink("managed", () => Assert.ThrowsAny<Exception>(() => failing.SinkDelta(table, mode: DeltaSaveMode.Append)));
+        Assert.ThrowsAny<Exception>(() => failing.SinkDelta(table, mode: DeltaSaveMode.Append));
         Assert.Equal(before, AllFiles(table)); // no data file, no temporary file, no commit
         Assert.Single(Directory.GetFiles(Path.Combine(table, "_delta_log"), "*.json"));
     }
@@ -284,7 +283,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
     {
         using DataFrame rows = Typed(3000);
         string table = Table("zstd");
-        Sink("managed", () => rows.WriteDelta(table, compression: ParquetCompression.ZSTD, rowGroupSize: 1000));
+        rows.WriteDelta(table, compression: ParquetCompression.ZSTD, rowGroupSize: 1000);
         string file = Assert.Single(DataFiles(table));
         Assert.EndsWith(".zstd.parquet", file);
         using ParquetFile parquet = ParquetFile.Open(file);
@@ -315,32 +314,34 @@ public sealed class DeltaManagedSinkTests : IDisposable
             .ToDictionary(g => g.Key, g => g.OrderBy(a => a.GetProperty("stats").GetString(), StringComparer.Ordinal).ToList());
 
     /// <summary>
-    /// A partitioned write through both sinks: the same rows, the same partitions in the same directories holding as
-    /// many rows, and where each sink wrote one file of a partition, the same statistics and file schema (the engine's
-    /// sink writes the rows of an empty string and of a null in files of their own; ours, one partition, in one).
+    /// The rows as a table partitioned by <paramref name="partitions"/> reads them: the categorical column as text, an
+    /// empty string partition value as null (Spark writes it so).
     /// </summary>
-    private void SamePartitionedAsTheEnginesSink(Action<string> write, string native, string managed)
+    private static DataFrame AsRead(DataFrame rows, IEnumerable<string> partitions)
     {
-        Sink("native", () => write(native));
-        Sink("managed", () => write(managed));
-        using (DataFrame a = DataFrame.ReadDelta(native).Sort("Id"), b = DataFrame.ReadDelta(managed).Sort("Id"))
-            Assert.True(a.Equals(b), "the tables hold other rows");
-        Dictionary<string, List<JsonElement>> nativeAdds = ByPartition(native), managedAdds = ByPartition(managed);
-        Assert.Equal(nativeAdds.Keys.Order(), managedAdds.Keys.Order());
-        static long Records(JsonElement add) => JsonDocument.Parse(add.GetProperty("stats").GetString()!).RootElement.GetProperty("numRecords").GetInt64();
+        LazyFrame lazy = rows.Lazy().WithColumns(Col("PCat").Cast(DataType.String));
+        foreach (string p in partitions.Where(p => p is "PStr" or "PCat"))
+            lazy = lazy.WithColumns(When(Col(p) == "").Then(Lit((string?)null)).Otherwise(Col(p)).Alias(p));
+        return lazy.Collect();
+    }
+
+    /// <summary>
+    /// A partitioned write as recorded: the rows come back as <paramref name="expected"/>, and per partition (by its
+    /// values) the directories, the rows and each file's statistics are the recorded ones, with the schema of one file.
+    /// </summary>
+    private void PartitionedAsRecorded(string golden, string table, DataFrame expected)
+    {
+        using (DataFrame read = DataFrame.ReadDelta(table).Sort("Id"))
+            Assert.True(read.Equals(expected), "the table holds other rows");
         static string? DirectoryOf(JsonElement add) => Path.GetDirectoryName(add.GetProperty("path").GetString());
-        foreach (var (partition, adds) in nativeAdds)
-        {
-            List<JsonElement> ours = managedAdds[partition];
-            Assert.Equal(adds.Sum(Records), ours.Sum(Records));
-            Assert.Equal(adds.Select(DirectoryOf).Distinct(), ours.Select(DirectoryOf).Distinct());
-            if (adds.Count == 1 && ours.Count == 1)
-            {
-                Assert.Equal(adds[0].GetProperty("stats").GetString(), ours[0].GetProperty("stats").GetString());
-                Assert.Equal(SchemaOf(AddedFile(native, adds[0])), SchemaOf(AddedFile(managed, ours[0])));
-            }
-        }
-        Assert.All(DataFiles(managed), f => Assert.StartsWith("seseragi", CreatedBy(f)));
+        Dictionary<string, List<JsonElement>> adds = ByPartition(table);
+        Golden(golden + ".partitions", adds.OrderBy(p => p.Key, StringComparer.Ordinal).SelectMany(p => (string[])
+        [
+            $"# {p.Key} | {string.Join(",", p.Value.Select(DirectoryOf).Distinct().Order(StringComparer.Ordinal))} | {p.Value.Sum(Records)} rows",
+            .. p.Value.Select(a => a.GetProperty("stats").GetString()!),
+        ]));
+        Golden(golden + ".schema", SchemaOf(AddedFile(table, Adds(table)[0])));
+        Assert.All(DataFiles(table), f => Assert.StartsWith("seseragi", CreatedBy(f)));
     }
 
     [Theory]
@@ -353,11 +354,14 @@ public sealed class DeltaManagedSinkTests : IDisposable
     [InlineData("PFloat")]
     [InlineData("PCat")]
     [InlineData("PCat,PInt")]
-    public void PartitionedWrites_WriteWhatTheEnginesSinkWrites(string partitionBy)
+    public void PartitionedWrites_WriteWhatTheEnginesSinkWrote(string partitionBy)
     {
         using DataFrame rows = WithPartitionColumns(5000);
         string name = partitionBy.Replace(',', '_');
-        SamePartitionedAsTheEnginesSink(table => rows.WriteDelta(table, partitionBy: Selectors.ByName(partitionBy.Split(','))), Table($"native_{name}"), Table($"managed_{name}"));
+        string table = Table($"managed_{name}");
+        rows.WriteDelta(table, partitionBy: Selectors.ByName(partitionBy.Split(',')));
+        using DataFrame expected = AsRead(rows, partitionBy.Split(','));
+        PartitionedAsRecorded($"partitioned_{name}", table, expected);
     }
 
     [Fact]
@@ -367,7 +371,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
         // sink keeps -0.0 and 0.0 apart when it groups by several columns).
         using DataFrame rows = WithPartitionColumns(4200);
         string table = Table("float_keys");
-        Sink("managed", () => rows.WriteDelta(table, partitionBy: Selectors.ByName("PFloat", "PInt")));
+        rows.WriteDelta(table, partitionBy: Selectors.ByName("PFloat", "PInt"));
         List<(string? Float, string Int, long Rows)> partitions = [.. Adds(table).Select(a => (
             a.GetProperty("partitionValues").GetProperty("PFloat").GetString(),
             a.GetProperty("partitionValues").GetProperty("PInt").GetString()!,
@@ -386,11 +390,10 @@ public sealed class DeltaManagedSinkTests : IDisposable
         }
     }
 
-    [Theory]
-    [InlineData("native")]
-    [InlineData("managed")]
-    public void NonFinitePartitionValues_AreWrittenAsSparkWritesThem(string sink)
+    [Fact]
+    public void NonFinitePartitionValues_AreWrittenAsSparkWritesThem()
     {
+        const string sink = "managed";
         // NaN and the infinities have no JSON number: their partition values are Java's Double.toString, as Spark's.
         double otherNaN = BitConverter.Int64BitsToDouble(0x7FF8000000000001L);
         double?[] doubles = [double.NaN, double.PositiveInfinity, double.NegativeInfinity, 1.5, null, otherNaN];
@@ -398,7 +401,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
         foreach (string column in (string[])["D", "F"])
         {
             string table = Table($"non_finite_{sink}_{column}");
-            Sink(sink, () => rows.WriteDelta(table, partitionBy: column));
+            rows.WriteDelta(table, partitionBy: column);
             List<string?> values = [.. Adds(table).Select(a => a.GetProperty("partitionValues").GetProperty(column).GetString()).Distinct().OrderBy(v => v, StringComparer.Ordinal)];
             Assert.Equal([null, "-Infinity", "1.5", "Infinity", "NaN"], values);
             Assert.True(Directory.Exists(Path.Combine(table, $"{column}=NaN")) && Directory.Exists(Path.Combine(table, $"{column}=-Infinity")), "the directories");
@@ -425,7 +428,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
         // Rows of "" and of null, sorted apart, make one partition: one directory, one file.
         using DataFrame rows = WithPartitionColumns(800);
         string table = Table("empty_is_null");
-        Sink("managed", () => rows.WriteDelta(table, partitionBy: "PStr"));
+        rows.WriteDelta(table, partitionBy: "PStr");
         string[] nulls = [.. Adds(table).Where(a => a.GetProperty("partitionValues").GetProperty("PStr").ValueKind == JsonValueKind.Null)
             .Select(a => a.GetProperty("path").GetString()!)];
         string file = Assert.Single(nulls);
@@ -435,60 +438,49 @@ public sealed class DeltaManagedSinkTests : IDisposable
     }
 
     [Fact]
-    public void PartitionedChangeData_IsWhatTheEnginesSinkWrites()
+    public void PartitionedChangeData_IsWhatTheEnginesSinkWrote()
     {
         using DataFrame rows = WithPartitionColumns(3000);
         Dictionary<string, string> properties = new() { [DeltaTableProperties.EnableChangeDataFeed] = "true" };
-        void Write(string table)
-        {
-            using PolarsSchema schema = rows.Schema;
-            Delta.CreateTable(table, schema, partitionBy: ["PStr"], properties: properties);
-            rows.WriteDelta(table, mode: DeltaSaveMode.Append);
-            Delta.Update(table, Col("Id") % 3 == 0, new Dictionary<string, Expr> { ["PInt"] = Col("PInt") + 100 });
-        }
-        SamePartitionedAsTheEnginesSink(Write, Table("cdc_native"), Table("cdc_managed"));
-        // The change data: under _change_data, in the partitions' directories, the same rows.
-        static string[] Directories(string table) =>
-            [.. Directory.GetFiles(Path.Combine(table, "_change_data"), "*.parquet", SearchOption.AllDirectories)
-                .Select(f => Path.GetRelativePath(table, Path.GetDirectoryName(f)!)).Distinct().Order()];
-        Assert.Equal(Directories(Table("cdc_native")), Directories(Table("cdc_managed")));
-        DataFrame ChangeData(string table)
-        {
-            using DataFrame read = DataFrame.ReadParquet(Path.Combine(Table(table), "_change_data", "**", "*.parquet"));
-            return read.Sort([(IntoSelector)"Id", "_change_type"]);
-        }
-        using DataFrame native = ChangeData("cdc_native"), managed = ChangeData("cdc_managed");
-        Assert.Equal(2000, managed.Height);
-        Assert.True(native.Equals(managed), "the change data differ");
+        string table = Table("cdc_managed");
+        using (PolarsSchema schema = rows.Schema) Delta.CreateTable(table, schema, partitionBy: ["PStr"], properties: properties);
+        rows.WriteDelta(table, mode: DeltaSaveMode.Append);
+        Delta.Update(table, Col("Id") % 3 == 0, new Dictionary<string, Expr> { ["PInt"] = Col("PInt") + 100 });
+        using DataFrame raisedRows = rows.Lazy().WithColumns(When(Col("Id") % 3 == 0).Then(Col("PInt") + 100).Otherwise(Col("PInt")).Alias("PInt")).Collect();
+        using DataFrame updated = AsRead(raisedRows, ["PStr"]);
+        PartitionedAsRecorded("partitioned_change_data", table, updated);
+        // The change data: under _change_data, in the partitions' directories, the pre- and post-images of the rows updated.
+        Golden("partitioned_change_data.directories",
+            Directory.GetFiles(Path.Combine(table, "_change_data"), "*.parquet", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(table, Path.GetDirectoryName(f)!)).Distinct().Order(StringComparer.Ordinal));
+        using DataFrame read = DataFrame.ReadParquet(Path.Combine(table, "_change_data", "**", "*.parquet"));
+        Assert.Equal(2000, read.Height);
+        using DataFrame pre = read.Filter(Col("_change_type") == "update_preimage").Select(Col("Id"), Col("PInt")).Sort("Id");
+        using DataFrame post = read.Filter(Col("_change_type") == "update_postimage").Select(Col("Id"), Col("PInt")).Sort("Id");
+        using DataFrame original = rows.Filter(Col("Id") % 3 == 0).Select(Col("Id"), Col("PInt")).Sort("Id");
+        Assert.True(pre.Equals(original), "the pre-images");
+        using DataFrame raised = original.Lazy().WithColumns((Col("PInt") + 100).Alias("PInt")).Collect();
+        Assert.True(post.Equals(raised), "the post-images");
     }
 
     [Fact]
-    public void ClusteringBuckets_SplitTheFiles_AsTheEnginesSinkDoes()
+    public void ClusteringBuckets_SplitTheFiles_AsTheEnginesSinkDid()
     {
         using DataFrame rows = WithPartitionColumns(20_000);
-        void Write(string table)
+        string table = Table("clustered_managed");
+        using (PolarsSchema schema = rows.Schema) Delta.CreateTable(table, schema, clusterBy: ["PLong", "PInt"]);
+        for (int k = 0; k < 4; k++)
         {
-            using PolarsSchema schema = rows.Schema;
-            Delta.CreateTable(table, schema, clusterBy: ["PLong", "PInt"]);
-            for (int k = 0; k < 4; k++)
-            {
-                using DataFrame part = rows.Slice(k * 5000, 5000);
-                part.WriteDelta(table, mode: DeltaSaveMode.Append);
-            }
-            Assert.True(Delta.Optimize(table, targetSizeMb: 1) > 0);
+            using DataFrame part = rows.Slice(k * 5000, 5000);
+            part.WriteDelta(table, mode: DeltaSaveMode.Append);
         }
-        string native = Table("clustered_native"), managed = Table("clustered_managed");
-        Sink("native", () => Write(native));
-        Sink("managed", () => Write(managed));
-        using (DataFrame a = DataFrame.ReadDelta(native).Sort("Id"), b = DataFrame.ReadDelta(managed).Sort("Id"))
-            Assert.True(a.Equals(b), "the tables hold other rows");
-        // The optimize's files: as many, each a bucket's rows, the bucket column left out.
-        static List<JsonElement> Optimized(string table) =>
-            [.. Adds(table).Where(a => a.TryGetProperty("clusteringProvider", out _))];
-        List<JsonElement> nativeFiles = Optimized(native), managedFiles = Optimized(managed);
-        Assert.Equal(nativeFiles.Count, managedFiles.Count);
-        Assert.Equal(nativeFiles.Select(a => a.GetProperty("stats").GetString()).Order(), managedFiles.Select(a => a.GetProperty("stats").GetString()).Order());
-        Assert.All(managedFiles, a => Assert.DoesNotContain(SchemaOf(AddedFile(managed, a)), e => e.Contains("bucket", StringComparison.OrdinalIgnoreCase)));
+        Assert.True(Delta.Optimize(table, targetSizeMb: 1) > 0);
+        using (DataFrame read = DataFrame.ReadDelta(table).Sort("Id"), expected = rows.Lazy().WithColumns(Col("PCat").Cast(DataType.String)).Collect())
+            Assert.True(read.Equals(expected), "the table holds other rows");
+        // The optimize's files: as many as recorded, each a bucket's rows, the bucket column left out.
+        List<JsonElement> optimized = [.. Adds(table).Where(a => a.TryGetProperty("clusteringProvider", out _))];
+        Golden("clustering_buckets.stats", optimized.Select(a => a.GetProperty("stats").GetString()!).Order(StringComparer.Ordinal));
+        Assert.All(optimized, a => Assert.DoesNotContain(SchemaOf(AddedFile(table, a)), e => e.Contains("bucket", StringComparison.OrdinalIgnoreCase)));
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Handle")]
@@ -569,11 +561,11 @@ public sealed class DeltaManagedSinkTests : IDisposable
     {
         using DataFrame rows = Typed(300_000);
         string table = Table("failed_partitioned");
-        using (DataFrame first = Typed(10)) Sink("managed", () => first.Lazy().WithColumns((Col("Id") % 50).Alias("Part")).SinkDelta(table, partitionBy: "Part"));
+        using (DataFrame first = Typed(10)) first.Lazy().WithColumns((Col("Id") % 50).Alias("Part")).SinkDelta(table, partitionBy: "Part");
         string[] before = AllFiles(table);
         LazyFrame failing = rows.Lazy()
             .WithColumns((Col("Id") % 50).Alias("Part"), When(Col("Id") == 250_000).Then(Lit(1000)).Otherwise(Col("Tiny")).Cast(DataType.Int8, strict: true).Alias("Tiny"));
-        Sink("managed", () => Assert.ThrowsAny<Exception>(() => failing.SinkDelta(table, partitionBy: "Part", mode: DeltaSaveMode.Append)));
+        Assert.ThrowsAny<Exception>(() => failing.SinkDelta(table, partitionBy: "Part", mode: DeltaSaveMode.Append));
         Assert.Equal(before, AllFiles(table)); // no data file, no temporary file, no commit
         Assert.Single(Directory.GetFiles(Path.Combine(table, "_delta_log"), "*.json"));
     }
@@ -585,7 +577,7 @@ public sealed class DeltaManagedSinkTests : IDisposable
         // (on a local disk, that is enough: the pages go to the file); the rows are all there.
         using DataFrame rows = Typed(200_000);
         string table = Table("budget");
-        WithBudget(2 << 20, () => Sink("managed", () => rows.Lazy().WithColumns((Col("Id") % 40).Alias("Part")).SinkDelta(table, partitionBy: "Part")));
+        WithBudget(2 << 20, () => rows.Lazy().WithColumns((Col("Id") % 40).Alias("Part")).SinkDelta(table, partitionBy: "Part"));
         Assert.Equal(40, Adds(table).Count);
         using DataFrame read = DataFrame.ReadDelta(table).Drop("Part").Sort("Id");
         Assert.True(read.Equals(rows), "the table holds other rows");
@@ -692,27 +684,39 @@ public sealed class DeltaManagedSinkTests : IDisposable
     }
 
     [Fact]
-    public void TheSinkVariable_ChoosesTheManagedSink_UnlessItSaysNative()
+    public void OnTheNativeObjectStore_FilesAreHeldWhole_WithinTheBudget_AndMapsAreWritten()
     {
-        foreach (string? setting in (string?[])[null, "", " ", "managed", " Managed "]) Assert.True(ManagedSink.Chosen(setting), setting);
-        Assert.False(ManagedSink.Chosen("native"));
-        Assert.False(ManagedSink.Chosen("NATIVE "));
-        Assert.Contains(ManagedSink.Variable, Assert.Throws<ArgumentException>(() => ManagedSink.Chosen("auto")).Message);
-
-        // By default on a local disk; the engine's sink when asked, which refuses maps and says how to write them.
-        string root = Table("choice");
-        Directory.CreateDirectory(root);
-        var disk = new Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem(root);
-        Assert.True(ManagedSink.Applies(disk));
-        Sink("native", () => Assert.False(ManagedSink.Applies(disk)));
-        DeltaSchema.StructField[] fields =
+        // A file:// URL is served by the native object store (the managed clients take none): the store cannot
+        // stream, so each file is held in native memory until it is closed, within the memory budget, and then put
+        // whole. Map columns are written as Parquet maps there too (the engine's own sink refused them).
+        string table = Table("native_store");
+        Directory.CreateDirectory(table);
+        var local = new Kaminari.Seseragi.Lakehouse.Engine.LocalFileSystem(table);
+        static DeltaSchema.StructField F(string name, DeltaSchema.DeltaType type) => new() { Name = name, Type = type };
+        var schema = new DeltaSchema.StructType(
         [
-            new() { Name = "id", Type = new DeltaSchema.PrimitiveType("long") },
-            new() { Name = "tags", Type = new DeltaSchema.MapType(new DeltaSchema.PrimitiveType("string"), new DeltaSchema.PrimitiveType("long"), true) },
-        ];
-        string message = Assert.Throws<Polars.NET.Core.Exceptions.PolarsException>(() => DeltaKernelWrite.EnsureNoMaps(fields)).Message;
-        Assert.Contains("(tags)", message);
-        Assert.Contains($"{ManagedSink.Variable}=native", message);
+            F("Id", new DeltaSchema.PrimitiveType("long")),
+            F("Part", new DeltaSchema.PrimitiveType("long")),
+            F("Tags", new DeltaSchema.MapType(new DeltaSchema.PrimitiveType("string"), new DeltaSchema.PrimitiveType("long"), true)),
+        ]);
+        Kaminari.Seseragi.Lakehouse.Delta.Transaction.Create(local,
+            new Kaminari.Seseragi.Lakehouse.Delta.Actions.ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 2 },
+            new Kaminari.Seseragi.Lakehouse.Delta.Actions.MetadataAction { Id = "native-store", SchemaString = schema.ToJson(), PartitionColumns = ["Part"], Configuration = new Dictionary<string, string>() })
+            .Commit();
+        string url = new Uri(table).AbsoluteUri;
+        using DataFrame rows = DataFrame.From<Tagged>([.. Enumerable.Range(0, 200_000).Select(i => new Tagged(i, i % 20, [new Tag($"k{i % 3}", i)]))]);
+        WithBudget(64 << 10, () => rows.WriteDelta(url, mode: DeltaSaveMode.Append));
+        List<JsonElement> adds = Adds(table);
+        Assert.True(adds.Count > 20, $"{adds.Count} files: some closed early for the budget");
+        Assert.Equal(200_000, adds.Sum(Records));
+        using (ParquetFile file = ParquetFile.Open(AddedFile(table, adds[0])))
+            Assert.Contains(file.Metadata.Thrift!.Schema, e => e.LogicalType?.Kind == Kaminari.Seseragi.Files.Parquet.Metadata.LogicalTypeKind.Map);
+        using DataFrame read = DataFrame.ReadDelta(url).Sort("Id");
+        Assert.Equal(200_000, read.Height);
+        // The entries, named Key and Value in the data, are the map's keys and values.
+        using DataFrame first = read.Head(2).Select(Col("Tags").List.First().Struct.Field("key").Alias("K"), Col("Tags").List.First().Struct.Field("value").Alias("V"));
+        Assert.Equal(["k0", "k1"], first["K"].ToArray<string>());
+        Assert.Equal([0L, 1L], first["V"].ToArray<long>());
     }
 
     [Fact]
@@ -807,6 +811,10 @@ public sealed class DeltaManagedSinkTests : IDisposable
     private sealed record Grouped(long Key, long Value);
 
     private sealed record NonFinite(long Id, double? D, float? F);
+
+    private sealed record Tag(string Key, long Value);
+
+    private sealed record Tagged(long Id, long Part, List<Tag> Tags);
 
     private sealed record Row(long Id, sbyte Tiny, short Small, int Int, float Single, double Double, decimal Money, string? Text,
         bool Flag, DateOnly Day, DateTimeOffset At, List<int>? Numbers, Inner? Nested)

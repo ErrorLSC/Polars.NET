@@ -19,21 +19,15 @@ using StructField = Kaminari.Seseragi.Lakehouse.Delta.Schema.StructField;
 namespace Polars.NET.Core.Delta;
 
 /// <summary>
-/// Writes a table's data files with the managed Parquet writer instead of the engine's sink: the engine streams the
-/// rows (its streaming engine, batch by batch, as Arrow), the writer encodes them and the store takes the bytes as
-/// they come (in parts on a cloud store, a temporary file renamed on a local disk). Files are split by size on disk
+/// Writes a table's data files with the managed Parquet writer: the engine streams the rows (its streaming engine,
+/// batch by batch, as Arrow), the writer encodes them and the store takes the bytes as they come (in parts on a cloud
+/// store the managed clients serve, a temporary file renamed on a local disk; a store the native object store serves
+/// holds each file in native memory, counted against <see cref="MemoryBudget"/>, and takes it whole when it is closed). Files are split by size on disk
 /// (and by rows), maps are written as Parquet maps, field ids come from the table's column mapping, and each file's
 /// footer comes from the writer (nothing read back).
 /// </summary>
 internal static class ManagedSink
 {
-    /// <summary>
-    /// The environment variable choosing the sink of data files: <c>managed</c> (the default: this one, where the store
-    /// streams) or <c>native</c> (the engine's own sink, which writes maps as lists and splits files by their size in
-    /// memory).
-    /// </summary>
-    public const string Variable = "POLARS_NET_DELTA_SINK";
-
     /// <summary>The rows of a row group (and of a batch the engine hands over): the engine's own sink's row groups.</summary>
     internal const int DefaultRowGroupRows = 122_880;
 
@@ -68,31 +62,6 @@ internal static class ManagedSink
 
     /// <summary>The budget a <paramref name="setting"/> (null or blank: the default) gives with <paramref name="available"/> bytes.</summary>
     internal static long Budget(string? setting, long available) => DatasetSink<object>.Budget(setting, available, MemoryVariable);
-
-    /// <summary>
-    /// Whether the managed writer writes these files: unless <see cref="Variable"/> asks for the engine's sink, into a
-    /// store that streams (a local disk, or a cloud store served by the managed clients: the native store would hold
-    /// every file whole in memory).
-    /// </summary>
-    /// <exception cref="ArgumentException"><see cref="Variable"/> names neither sink.</exception>
-    public static bool Applies(IWritableFileSystem fileSystem) => Chosen(Environment.GetEnvironmentVariable(Variable)) && Streams(fileSystem);
-
-    /// <summary>Whether a <see cref="Variable"/> setting (null: not set) leaves the files to the managed writer.</summary>
-    internal static bool Chosen(string? setting) => setting?.Trim().ToLowerInvariant() switch
-    {
-        null or "" or "managed" => true,
-        "native" => false,
-        _ => throw new ArgumentException($"{Variable} is '{setting}': 'managed' (the default) or 'native' (the engine's own sink)."),
-    };
-
-    private static bool Streams(IWritableFileSystem fileSystem) => fileSystem switch
-    {
-        TrackingFileSystem tracking => Streams(tracking.Inner),
-        CatalogManagedFileSystem catalog => Streams(catalog.Inner),
-        LocalFileSystem => true,
-        ObjectStoreFileSystem store => store.StreamsWrites,
-        _ => false,
-    };
 
     /// <summary>
     /// Sinks <paramref name="rows"/> (consumed: the <paramref name="keys"/> columns, then the data columns under their
