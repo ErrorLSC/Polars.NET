@@ -35,6 +35,7 @@
     <Compile Include="QueryTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DataFrameTests.fs" />
+    <Compile Include="EagerEngineTests.fs" />
     <Compile Include="AsyncTests.fs" />
     <Compile Include="StreamWriteTests.fs" />
     <Compile Include="StreamWriteTests.ParquetCsv.fs" />

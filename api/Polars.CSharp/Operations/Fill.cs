@@ -42,7 +42,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         ArgumentNullException.ThrowIfNull(fillValue);
         using var lf = Lazy();
         var filledLf = lf.FillNull(fillValue);
-        return filledLf.Collect();
+        return filledLf.CollectEager();
     }
 
     /// <summary>
@@ -52,7 +52,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     {
         using var lf = Lazy();
         var filledLf = lf.FillNull(value);
-        return filledLf.Collect();
+        return filledLf.CollectEager();
     }
     /// <summary>
     /// Fill NaN values in floating point columns with a specified Expression.
@@ -62,6 +62,6 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         ArgumentNullException.ThrowIfNull(fillValue);
         using var lf = Lazy();
         var filledLf = lf.FillNan(fillValue);
-        return filledLf.Collect();
+        return filledLf.CollectEager();
     }
 }

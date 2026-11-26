@@ -14,7 +14,7 @@ Polars.NET features a comprehensive, strongly-typed temporal data system:
 
 ### Parsing Strings to Dates & Timestamps
 
-When reading CSV or Parquet files, temporal parsing can be activated automatically via `tryParseDates = true`. You can also parse strings explicitly within expression pipelines using `.Str.ToDate()` or `.Str.ToDatetime()`:
+When reading CSV or Parquet files, temporal parsing can be activated automatically via `tryParseDates = true`. You can also parse strings explicitly within expression pipelines using `.Str.ToDate()`, `.Str.ToDatetime()` or `.Str.ToTime()`. `Cast` does not turn text into these types: the engine refuses it (since Polars 2.0), so parse the text with one of these, which also take a format:
 
 ::: code-group
 

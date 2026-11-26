@@ -181,7 +181,7 @@ pub extern "C" fn pl_series_to_string(
 pub extern "C" fn pl_series_slice(series: *mut Series, offset: i64, length: usize) -> *mut Series {
     ffi_try!({
         let s = unsafe { &*series };
-        let new_s = s.slice(offset, length);
+        let new_s = s.slice((offset, length));
         Ok(Box::into_raw(Box::new(new_s)))
     })
 }

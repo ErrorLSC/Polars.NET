@@ -60,8 +60,9 @@ internal sealed class ReadNode
 /// <summary>
 /// Maps the Parquet schema tree to an Arrow schema: leaves by <see cref="LeafTypes"/>, groups as structs, lists and
 /// maps by the rules of LogicalTypes.md (backward compatibility included), refined by the Arrow schema a writer stored
-/// in the <c>ARROW:schema</c> key (time zones, durations, fixed-size lists, dictionary columns, field metadata).
-/// Where that schema disagrees with the Parquet types, the Parquet types win.
+/// in the <c>ARROW:schema</c> key (time zones, durations, INT96 units, fixed-size lists, dictionary columns, field
+/// metadata). Where that schema disagrees with the Parquet types, the Parquet types win, as in pyarrow: a timestamp
+/// keeps its stored unit, an unannotated integer its physical width.
 /// </summary>
 internal static class ArrowMapping
 {
@@ -134,38 +135,13 @@ internal static class ArrowMapping
         IArrowType want = hint.DataType;
         switch (leaf.Kind, leaf.ArrowType, want)
         {
-            case (ValueKind.Int64, TimestampType ours, TimestampType theirs) when ours.Unit == theirs.Unit:
-                return leaf with { ArrowType = new TimestampType(ours.Unit, Zone(ours, theirs)) };
+            // The unit stays Parquet's (as pyarrow reads it): a writer that stored seconds as milliseconds, or nanoseconds
+            // in format 1.0 as microseconds, gets back what the file holds.
             case (ValueKind.Int64, TimestampType ours, TimestampType theirs):
-            {
-                // Writers store units Parquet lacks (seconds) or a format version lacks (nanoseconds in 1.0) in another.
-                long from = LeafTypes.Nanos(ours.Unit), to = LeafTypes.Nanos(theirs.Unit);
-                return leaf with
-                {
-                    ArrowType = new TimestampType(theirs.Unit, Zone(ours, theirs)),
-                    Kind = ValueKind.RescaledInt64,
-                    Unit = theirs.Unit,
-                    Multiplier = from > to ? from / to : 1,
-                    Divisor = to > from ? to / from : 1,
-                };
-            }
+                return leaf with { ArrowType = new TimestampType(ours.Unit, Zone(ours, theirs)) };
+            // INT96 has no unit or zone of its own: the stored schema gives them (the read options otherwise).
             case (ValueKind.Int96Timestamp, _, TimestampType theirs):
                 return leaf with { ArrowType = new TimestampType(theirs.Unit, theirs.Timezone), Unit = theirs.Unit };
-            case (ValueKind.Int64, Int64Type, Int8Type or Int16Type or Int32Type or UInt8Type or UInt16Type or UInt32Type):
-                return leaf with { ArrowType = want, Kind = ValueKind.NarrowInt64 };
-            case (ValueKind.Int32, Int32Type, Int8Type or Int16Type or UInt8Type or UInt16Type or UInt32Type):
-                return leaf with
-                {
-                    ArrowType = want,
-                    Kind = want switch
-                    {
-                        Int8Type => ValueKind.Int8,
-                        Int16Type => ValueKind.Int16,
-                        UInt8Type => ValueKind.UInt8,
-                        UInt16Type => ValueKind.UInt16,
-                        _ => ValueKind.Int32,
-                    },
-                };
             case (ValueKind.FlbaTimestamp, TimestampType ours, TimestampType theirs):
                 return leaf with { ArrowType = new TimestampType(ours.Unit, Zone(ours, theirs)) };
             case (ValueKind.Int64, Int64Type, DurationType duration):

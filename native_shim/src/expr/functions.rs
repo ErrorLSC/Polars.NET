@@ -64,7 +64,7 @@ pub extern "C" fn pl_expr_date_range(
                 .to_str()
                 .map_err(|_| polars_err!(ComputeError: "Invalid UTF-8 string passed for interval"))?;
             
-            Some(polars::time::Duration::parse(s))
+            Some(polars::prelude::Duration::parse(s))
         };
 
         let closed = parse_closed_window(closed_val);
@@ -94,7 +94,7 @@ pub extern "C" fn pl_expr_date_ranges(
             let s = unsafe { CStr::from_ptr(interval_ptr) }
                 .to_str()
                 .map_err(|_| polars_err!(ComputeError: "Invalid UTF-8 string passed for interval"))?;
-            Some(polars::time::Duration::parse(s))
+            Some(polars::prelude::Duration::parse(s))
         };
 
         let closed = parse_closed_window(closed_val);
@@ -126,7 +126,7 @@ pub extern "C" fn pl_expr_datetime_range(
             let s = unsafe { CStr::from_ptr(interval_ptr) }
                 .to_str()
                 .map_err(|_| polars_err!(ComputeError: "Invalid UTF-8 string passed for interval"))?;
-            Some(polars::time::Duration::parse(s))
+            Some(polars::prelude::Duration::parse(s))
         };
 
         let tz_str = if time_zone_ptr.is_null() {
@@ -177,7 +177,7 @@ pub extern "C" fn pl_expr_datetime_ranges(
             let s = unsafe { CStr::from_ptr(interval_ptr) }
                 .to_str()
                 .map_err(|_| polars_err!(ComputeError: "Invalid UTF-8 string passed for interval"))?;
-            Some(polars::time::Duration::parse(s))
+            Some(polars::prelude::Duration::parse(s))
         };
 
         let tz_str = if time_zone_ptr.is_null() {
@@ -221,7 +221,7 @@ pub extern "C" fn pl_expr_time_range(
         let s = unsafe { CStr::from_ptr(interval_ptr) }
             .to_str()
             .map_err(|_| polars_err!(ComputeError: "Invalid UTF-8 string passed for interval"))?;
-        let interval = polars::time::Duration::parse(s);
+        let interval = polars::prelude::Duration::parse(s);
 
         let closed = parse_closed_window(closed_val);
 
@@ -245,7 +245,7 @@ pub extern "C" fn pl_expr_time_ranges(
         let s = unsafe { CStr::from_ptr(interval_ptr) }
             .to_str()
             .map_err(|_| polars_err!(ComputeError: "Invalid UTF-8 string passed for interval"))?;
-        let interval = polars::time::Duration::parse(s);
+        let interval = polars::prelude::Duration::parse(s);
 
         let closed = parse_closed_window(closed_val);
 
@@ -405,8 +405,8 @@ fn parse_rolling_cov_options(
 {
     RollingCovOptions{
         window_size:window_size,
-        min_periods: min_periods,
-        ddof:ddof 
+        min_samples: min_periods,
+        ddof: Some(ddof) 
     }
 }
 
@@ -421,7 +421,9 @@ pub extern "C" fn pl_expr_rolling_corr(
     ffi_try!({
         let a = unsafe { Box::from_raw(x_ptr) }.inner;
         let b = unsafe { Box::from_raw(y_ptr) }.inner;
-        let options = parse_rolling_cov_options(window_size, min_periods, ddof);
+        // A correlation does not depend on ddof (it cancels out); Polars 2.x refuses one for it.
+        let _ = ddof;
+        let options = RollingCovOptions { window_size, min_samples: min_periods, ddof: None };
         let new_expr = dsl::rolling_corr(a, b,options);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))

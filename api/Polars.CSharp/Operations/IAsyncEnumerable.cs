@@ -112,14 +112,14 @@ public static class AsyncExtensions
     /// <param name="lazyDf">The source LazyFrame.</param>
     /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
     /// <param name="engine">Execution engine selection.</param>
-    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of hydrated row objects.</returns>
     public static async IAsyncEnumerable<T> ToAsyncEnumerable<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
         this LazyFrame lazyDf,
         long chunkSize = 0,
         Engine engine = Engine.Auto,
-        bool maintainOrder = false,
+        bool maintainOrder = true,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lazyDf);
@@ -159,14 +159,14 @@ public static class AsyncExtensions
     /// <param name="lazyDf">The source LazyFrame.</param>
     /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
     /// <param name="engine">Execution engine selection.</param>
-    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of DataFrame batches.</returns>
     public static async IAsyncEnumerable<DataFrame> ToBatchAsyncEnumerable(
         this LazyFrame lazyDf,
         long chunkSize = 0,
         Engine engine = Engine.Auto,
-        bool maintainOrder = false,
+        bool maintainOrder = true,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lazyDf);
@@ -201,7 +201,7 @@ public static class AsyncExtensions
     /// <param name="boundedCapacity">Maximum capacity of the intermediate buffer channel.</param>
     /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
     /// <param name="engine">Execution engine selection.</param>
-    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of hydrated row objects with backpressure.</returns>
     public static async IAsyncEnumerable<T> ToAsyncEnumerableWithBackpressure<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(
@@ -209,7 +209,7 @@ public static class AsyncExtensions
         int boundedCapacity = 20_000,
         long chunkSize = 0,
         Engine engine = Engine.Auto,
-        bool maintainOrder = false,
+        bool maintainOrder = true,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lazyDf);
@@ -287,7 +287,7 @@ public static class AsyncExtensions
     /// <param name="boundedCapacity">Maximum number of in-flight DataFrame batches buffered.</param>
     /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
     /// <param name="engine">Execution engine selection.</param>
-    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of DataFrame batches with backpressure.</returns>
     public static async IAsyncEnumerable<DataFrame> ToBatchAsyncEnumerableWithBackpressure(
@@ -295,7 +295,7 @@ public static class AsyncExtensions
         int boundedCapacity = 16,
         long chunkSize = 0,
         Engine engine = Engine.Auto,
-        bool maintainOrder = false,
+        bool maintainOrder = true,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lazyDf);

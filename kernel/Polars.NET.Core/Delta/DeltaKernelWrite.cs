@@ -509,7 +509,7 @@ internal static class DeltaKernelWrite
             StructField field = schema.Fields[i];
             using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
             // A column the data lacks is null (the schema check allowed it).
-            ExprHandle value = data.Field(field.Name) is { } given ? EntriesByPosition(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
+            ExprHandle value = data.Field(field.Name) is { } given ? Conformed(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
                 field.Name);
@@ -761,30 +761,35 @@ internal static class DeltaKernelWrite
     };
 
     /// <summary>
-    /// A column's data with the entries of the table's maps named <c>key</c> and <c>value</c> by position: a write takes
-    /// a list of two-field structs as a map, whatever the fields' names, while the cast to the table's type matches
-    /// struct fields by name. Maps at any depth (array elements, map values, struct fields the data has all of).
+    /// A column's data in the shape of the table's type, for the strict cast to it: the entries of the table's maps
+    /// named <c>key</c> and <c>value</c> by position (a write takes a list of two-field structs as a map, whatever the
+    /// fields' names, while the cast matches struct fields by name), and each struct rebuilt in the table's fields and
+    /// their order, a field the data lacks null (schema evolution added it; the engine's strict cast takes only the same
+    /// fields in the same order). At any depth: array elements, map values, struct fields.
     /// </summary>
-    private static ExprHandle EntriesByPosition(ExprHandle column, DeltaType table, DeltaType data)
+    private static ExprHandle Conformed(ExprHandle column, DeltaType table, DeltaType data)
     {
-        if (!HasMap(table)) return column;
+        if (!Reshaped(table, data)) return column;
         switch (table, data)
         {
             case (MapType m, ArrayType { ElementType: StructType { Fields: [var k, var v] } }):
             {
                 ExprHandle entry = PolarsWrapper.StructRenameFields(PolarsWrapper.Col(""), ["key", "value"]);
-                ExprHandle key = PolarsWrapper.Alias(EntriesByPosition(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(entry), ["key"]), m.KeyType, k.Type), "key");
-                ExprHandle value = PolarsWrapper.Alias(EntriesByPosition(PolarsWrapper.StructFieldByName(entry, ["value"]), m.ValueType, v.Type), "value");
+                ExprHandle key = PolarsWrapper.Alias(Conformed(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(entry), ["key"]), m.KeyType, k.Type), "key");
+                ExprHandle value = PolarsWrapper.Alias(Conformed(PolarsWrapper.StructFieldByName(entry, ["value"]), m.ValueType, v.Type), "value");
                 return PolarsWrapper.ListEval(column, PolarsWrapper.AsStruct([key, value]));
             }
             case (ArrayType a, ArrayType d):
-                return PolarsWrapper.ListEval(column, EntriesByPosition(PolarsWrapper.Col(""), a.ElementType, d.ElementType));
-            case (StructType s, StructType d) when s.Fields.All(f => d.Field(f.Name) is not null):
+                return PolarsWrapper.ListEval(column, Conformed(PolarsWrapper.Col(""), a.ElementType, d.ElementType));
+            case (StructType s, StructType d):
             {
                 ExprHandle[] fields =
                 [
                     .. s.Fields.Select(f => PolarsWrapper.Alias(
-                        EntriesByPosition(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(column), [f.Name]), f.Type, d.Field(f.Name)!.Type), f.Name)),
+                        d.Field(f.Name) is { } given
+                            ? Conformed(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(column), [f.Name]), f.Type, given.Type)
+                            : NullOf(f.Type),
+                        f.Name)),
                 ];
                 // Rebuilt field by field, so a null struct is put back explicitly.
                 return PolarsWrapper.IfElse(PolarsWrapper.IsNull(column), PolarsWrapper.LitNull(), PolarsWrapper.AsStruct(fields));
@@ -792,14 +797,25 @@ internal static class DeltaKernelWrite
             default:
                 return column;
         }
+
+        static ExprHandle NullOf(DeltaType type)
+        {
+            using DataTypeHandle t = DeltaKernelScan.EngineType(type);
+            return PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(t), strict: true, wrapNumerical: false);
+        }
     }
 
-    /// <summary>Whether the type holds a map at any depth.</summary>
-    private static bool HasMap(DeltaType type) => type switch
+    /// <summary>
+    /// Whether the data must be reshaped for the table's type (see <see cref="Conformed"/>): a map in the table's type,
+    /// or a struct whose fields are not the table's, in its order.
+    /// </summary>
+    private static bool Reshaped(DeltaType table, DeltaType data) => (table, data) switch
     {
-        MapType => true,
-        StructType s => s.Fields.Any(f => HasMap(f.Type)),
-        ArrayType a => HasMap(a.ElementType),
+        (MapType, _) => true,
+        (ArrayType a, ArrayType d) => Reshaped(a.ElementType, d.ElementType),
+        (StructType s, StructType d) =>
+            !s.Fields.Select(f => f.Name).SequenceEqual(d.Fields.Select(f => f.Name), StringComparer.Ordinal)
+            || s.Fields.Any(f => Reshaped(f.Type, d.Field(f.Name)!.Type)),
         _ => false,
     };
 
@@ -862,7 +878,7 @@ internal static class DeltaKernelWrite
             StructField field = schema.Fields[i];
             using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
             // A column the data lacks is null (the schema check allowed it).
-            ExprHandle value = data.Field(field.Name) is { } given ? EntriesByPosition(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
+            ExprHandle value = data.Field(field.Name) is { } given ? Conformed(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
                 PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
                 field.Name);

@@ -332,14 +332,14 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     // Top-K & Bottom-K
     // ==========================================
     /// <summary>
-    /// Get the top k largest values.
-    /// <para>This is much faster than Sort().Head(k) for large datasets.</para>
+    /// Get the top k largest values, in no particular order (sort the result to order it).
+    /// <para>This is much faster than Sort(descending).Head(k) for large datasets.</para>
     /// </summary>
     public Expr TopK(int k) => new(PolarsWrapper.TopK(CloneHandle(), (uint)k));
 
     /// <summary>
-    /// Get the bottom k smallest values.
-    /// <para>This is much faster than Sort().Tail(k) for large datasets.</para>
+    /// Get the bottom k smallest values, in no particular order (sort the result to order it).
+    /// <para>This is much faster than Sort().Head(k) for large datasets.</para>
     /// </summary>
     public Expr BottomK(int k) => new(PolarsWrapper.BottomK(CloneHandle(), (uint)k));
     /// <summary>
@@ -620,6 +620,11 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     /// </summary>
     /// <param name="dtype">The target type (can be .NET Type, Polars DataType, or DataTypeExpr)</param>
     /// <param name="strict">Throws an error if conversion had overflows.</param>
+    /// <remarks>
+    /// Text does not cast to a date, a timestamp or a time of day: the engine refuses it (since Polars 2.0). Parse the
+    /// text with <see cref="StringOps.ToDate"/>, <see cref="StringOps.ToDatetime"/> or <see cref="StringOps.ToTime"/> instead
+    /// (<c>Str.ToDate()</c> and so on), which also take a format.
+    /// </remarks>
     /// <param name="wrapNumerical">Allows wrapping numerical overflow.</param>
     public Expr Cast(IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
     {

@@ -122,7 +122,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             descending,
             nullsLast,
             maintainOrder
-        ).Collect();
+        ).CollectEager();
     }
     /// <summary>
     /// Sort the DataFrame by multiple columns (all ascending or all descending).
@@ -138,12 +138,12 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             descending,
             nullsLast,
             maintainOrder
-        ).Collect();
+        ).CollectEager();
     }
     /// <summary>
     /// Sort the LazyFrame using specific sorting configurations for each column/selector.
     /// </summary>
     public DataFrame Sort(params (IntoSelector By, bool Descending)[] sortConfigs)
-        => Lazy().Sort(sortConfigs).Collect();
+        => Lazy().Sort(sortConfigs).CollectEager();
 
 }

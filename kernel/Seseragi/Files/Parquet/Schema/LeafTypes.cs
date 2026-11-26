@@ -18,10 +18,6 @@ internal enum ValueKind
     UInt16,
     /// <summary>INT64 copied as it is: Int64, UInt64, Time64, Timestamp, Duration.</summary>
     Int64,
-    /// <summary>INT64 timestamps rescaled to the unit the file's Arrow schema gives (exactly, or an error).</summary>
-    RescaledInt64,
-    /// <summary>Unannotated INT64 narrowed to the integer type the file's Arrow schema gives, checked.</summary>
-    NarrowInt64,
     Float,
     Double,
     /// <summary>A decimal stored in INT32, INT64, or big-endian bytes (FIXED_LEN_BYTE_ARRAY or BYTE_ARRAY).</summary>
@@ -56,10 +52,6 @@ internal sealed record LeafType(IArrowType ArrowType, ValueKind Kind)
 
     /// <summary>Whether the column is output dictionary-encoded (the file's Arrow schema asks for it).</summary>
     public bool Dictionary { get; init; }
-
-    /// <summary>For <see cref="ValueKind.RescaledInt64"/>: the factor values are multiplied or divided by.</summary>
-    public long Multiplier { get; init; } = 1;
-    public long Divisor { get; init; } = 1;
 }
 
 /// <summary>Maps a Parquet leaf (physical type and annotations) to Arrow, as LogicalTypes.md describes.</summary>

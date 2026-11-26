@@ -1193,6 +1193,8 @@ type ``Complex Query Tests`` () =
                 (Some (fun ctx -> ctx.TargetCol "score" .< pl.lit 80))
             |> Merge.maintainOrder JoinMaintainOrder.Left
             |> Merge.executeEager Engine.Auto
+            // Left keeps the target's rows in order; the inserted rows come after them in no defined order.
+            |> fun df -> df.Sort(pl.col "key", false)
 
         Assert.Equal(4L, result.Height)
 

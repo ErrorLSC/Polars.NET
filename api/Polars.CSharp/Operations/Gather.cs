@@ -76,7 +76,7 @@ public partial class DataFrame
     /// <param name="index">The indices of the rows to select.</param>
     /// <param name="nullOnOob">If true when an index is out-of-bounds a null row will be generated instead of raising an error.</param>
     public DataFrame Gather(IntoIndexLazyFrame index, bool nullOnOob = false)
-        => Lazy().Gather(index, nullOnOob).Collect();
+        => Lazy().Gather(index, nullOnOob).CollectEager();
     /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
     public DataFrame GatherEvery(int n, int offset = 0)
         => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));

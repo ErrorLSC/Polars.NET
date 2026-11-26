@@ -249,7 +249,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             columnNaming: columnNaming
         );
 
-        return lf.Collect();
+        return lf.CollectEager();
     }
     /// <summary>
     /// Pivot the DataFrame from long to wide format.
@@ -377,7 +377,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         IEnumerable<string>? on = null,
         string variableName = "variable",
         string valueName = "value")
-    => Lazy().Unpivot(index, on, variableName, valueName).Collect();
+    => Lazy().Unpivot(index, on, variableName, valueName).CollectEager();
     /// <summary>
     /// Unpivot (Melt) the DataFrame from wide to long format.
     /// </summary>
@@ -391,7 +391,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         IntoSelector? on = null,
         string variableName = "variable",
         string valueName = "value")
-        => Lazy().Unpivot(index, on, variableName, valueName).Collect();
+        => Lazy().Unpivot(index, on, variableName, valueName).CollectEager();
 
     /// <inheritdoc cref="Unpivot(IntoSelector, IntoSelector?, string, string)"/>
     public DataFrame Melt(IntoSelector index, IntoSelector? on = null, string variableName = "variable", string valueName = "value")

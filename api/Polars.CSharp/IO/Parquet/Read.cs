@@ -83,7 +83,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>
@@ -145,7 +145,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>
@@ -207,7 +207,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>
@@ -269,7 +269,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>

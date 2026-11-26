@@ -1,7 +1,6 @@
 use polars::prelude::*;
 use polars_arrow::ffi::{ArrowArrayStream, export_iterator};
 use polars_arrow::datatypes::Field;
-use polars_core::utils::Container;
 
 use crate::types::DataFrameContext;
 
@@ -48,19 +47,13 @@ pub unsafe extern "C" fn pl_dataframe_export_to_stream(
         let root_dtype = polars_arrow::datatypes::ArrowDataType::Struct(fields);
         let root_field = polars_arrow::datatypes::Field::new("".into(), root_dtype.clone(), false);
 
-        let n_chunks = df.n_chunks();
-        let mut owned_chunks: Vec<Box<dyn polars_arrow::array::Array>> = Vec::with_capacity(n_chunks);
-
-        for i in 0..n_chunks {
-            let mut chunk_arrays = Vec::with_capacity(df.width());
-            
-            for series in df.columns() {
-                let logical_arrow_array = series.as_materialized_series().to_arrow(i, compat);
-                chunk_arrays.push(logical_arrow_array);
-            }
-            let chunk_len = chunk_arrays.first().map_or(0, |arr| arr.len());
-
-            let struct_arr = polars_arrow::array::StructArray::new(root_dtype.clone(), chunk_len, chunk_arrays, None);
+        // The frame's chunks as Polars lays them out: scalar and dictionary columns follow the series columns' chunks
+        // (since Polars 2.x they keep no chunks of their own, so chunk `i` of each column is not the batch's).
+        let mut owned_chunks: Vec<Box<dyn polars_arrow::array::Array>> = Vec::new();
+        for batch in df.try_iter_chunks(compat, false) {
+            let batch = batch?;
+            let chunk_len = batch.height();
+            let struct_arr = polars_arrow::array::StructArray::new(root_dtype.clone(), chunk_len, batch.into_arrays(), None);
             owned_chunks.push(Box::new(struct_arr));
         }
 

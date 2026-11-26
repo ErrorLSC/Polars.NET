@@ -167,6 +167,15 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
     IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine)
         => Collect((Engine)engine);
+
+    /// <summary>
+    /// Collects the plan of a single-step eager DataFrame or Series operation in memory, without optimizations, as
+    /// Python Polars collects its eager methods.
+    /// </summary>
+    internal DataFrame CollectEager() => new(PolarsWrapper.LazyCollectEager(CloneHandle(), optimize: false));
+
+    /// <summary>Collects the plan of an eager read in memory, with the optimizations, as Python Polars' eager reads.</summary>
+    internal DataFrame CollectEagerRead() => new(PolarsWrapper.LazyCollectEager(CloneHandle(), optimize: true));
     /// <summary>
     /// Execute the query plan asynchronously and return a DataFrame.
     /// </summary>
@@ -182,18 +191,18 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
     /// <summary>
     /// Streams materialized DataFrame batches asynchronously.
-    /// With <see cref="Engine.Streaming"/> the native streaming engine produces them as it goes, so memory stays
-    /// bounded by the batch size; the default <see cref="Engine.Auto"/> runs the query in memory first.
+    /// The streaming engine (also the default <see cref="Engine.Auto"/>'s) produces them as it goes, so memory stays
+    /// bounded by the batch size; <see cref="Engine.InMemory"/> runs the query in memory first.
     /// </summary>
     /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
     /// <param name="engine">Execution engine selection.</param>
-    /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+    /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
     /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
     /// <returns>An asynchronous stream of DataFrame batches.</returns>
     public IAsyncEnumerable<DataFrame> CollectBatchesAsync(
         long chunkSize = 0,
         Engine engine = Engine.Auto,
-        bool maintainOrder = false,
+        bool maintainOrder = true,
         CancellationToken cancellationToken = default)
         => this.ToBatchAsyncEnumerable(chunkSize, engine, maintainOrder, cancellationToken);
 

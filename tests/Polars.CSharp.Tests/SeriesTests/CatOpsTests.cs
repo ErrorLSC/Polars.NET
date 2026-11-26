@@ -39,6 +39,19 @@ public class SeriesCategoricalOpsTests
     }
     [Fact]
     [Trait("Series", "Categorical")]
+    public void Cat_GetCategories_Gives_The_Categories_Once_On_The_Streaming_Engine()
+    {
+        // Many morsels of one column: the categories come once, not once per morsel.
+        string[] names = ["apple", "banana", "波拉熊"];
+        using Series text = Pl.CreateSeries("c", Enumerable.Range(0, 400_000).Select(i => names[i % 3]).ToArray());
+        using Series categorical = text.Cast(DataType.Categorical("fruit"));
+        using var df = DataFrame.FromSeries(categorical);
+        using var categories = df.Lazy().Select(Pl.Col("c").Cat.GetCategories()).Collect();
+        Assert.Equal(names, categories["c"].ToArray<string>());
+    }
+
+    [Fact]
+    [Trait("Series", "Categorical")]
     public void Test_Series_Cat_To_Physical()
     {
         string[] data = [

@@ -67,7 +67,7 @@ public readonly struct ListOps
     /// <inheritdoc cref="SeriesListOps.Gather(IntoExprColumn, bool)"/>
     public Expr Gather(IntoExprColumn indices,bool nullOnOob=false) => new(PolarsWrapper.ListGather(_expr.CloneHandle(),indices.Consume().Handle,nullOnOob));
     /// <inheritdoc cref="SeriesListOps.Gather(IntoExprColumn, bool)"/>
-    public Expr Gather(ReadOnlySpan<int> indices,bool nullOnOob=false) => Gather(Pl.Lit(indices),nullOnOob);
+    public Expr Gather(ReadOnlySpan<int> indices,bool nullOnOob=false) => Gather(Pl.Lit(indices).Implode(),nullOnOob);
     /// <inheritdoc cref="SeriesListOps.GatherEvery(IntoExprColumn,IntoExprColumn)"/>
     public Expr GatherEvery(IntoExprColumn n,IntoExprColumn offset) => new(PolarsWrapper.ListGatherEvery(_expr.CloneHandle(),n.Consume().Handle,offset.Consume().Handle));
     /// <inheritdoc cref="SeriesListOps.GatherEvery(IntoExprColumn)"/>

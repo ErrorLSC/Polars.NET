@@ -134,7 +134,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
 
         using var lf = this.Lazy();
         using var droppedLf = lf.Drop(exprs);
-        return droppedLf.Collect();
+        return droppedLf.CollectEager();
     }
     /// <summary>
     /// Drop a column in-place and return it as a Series.
@@ -152,34 +152,34 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// Drop rows containing one or more Null values.
     /// </summary>
     public DataFrame DropNulls()
-        => Lazy().DropNulls().Collect();
+        => Lazy().DropNulls().CollectEager();
 
     /// <summary>
     /// Drop rows with Nulls in specific columns.
     /// </summary>
     public DataFrame DropNulls(IEnumerable<string> subsets)
-        => Lazy().DropNulls(subsets).Collect();
+        => Lazy().DropNulls(subsets).CollectEager();
 
     /// <summary>
     /// Drop rows with Nulls by specific Expressions.
     /// </summary>
     public DataFrame DropNulls(params IntoSelector[] subsets)
-        => Lazy().DropNulls(subsets).Collect();
+        => Lazy().DropNulls(subsets).CollectEager();
 
     /// <summary>
     /// Drop rows containing one or more NaN values.
     /// </summary>
     public DataFrame DropNans()
-        => Lazy().DropNans().Collect();
+        => Lazy().DropNans().CollectEager();
     /// <summary>
     /// Drop rows with NaN in specific columns.
     /// </summary>
     public DataFrame DropNans(params IntoSelector[] subsets)
-        => Lazy().DropNans(subsets).Collect();
+        => Lazy().DropNans(subsets).CollectEager();
 
     /// <summary>
     /// Drop rows with NaN by specific Expressions.
     /// </summary>
     public DataFrame DropNans(IEnumerable<string> subsets)
-        => Lazy().DropNans(subsets).Collect();
+        => Lazy().DropNans(subsets).CollectEager();
 }

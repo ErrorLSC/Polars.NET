@@ -8,9 +8,10 @@ using Kaminari.Seseragi.Files.Parquet.Thrift;
 namespace Seseragi.Files.Tests.Parquet;
 
 /// <summary>
-/// The stored Arrow schema (<c>ARROW:schema</c>) refines the mapping — units, narrower integers, durations, zones —
-/// exactly or with an error; it never makes an instant local or a local value an instant. Files from the checkpoint
-/// writer with a stored schema added to their footer.
+/// The stored Arrow schema (<c>ARROW:schema</c>) refines the mapping — durations, zones — where Parquet cannot say it;
+/// where it disagrees with the Parquet types (a timestamp unit, an integer width) they win, as pyarrow reads such files.
+/// It never makes an instant local or a local value an instant. Files from the checkpoint writer with a stored schema
+/// added to their footer.
 /// </summary>
 public class ParquetArrowSchemaTests
 {
@@ -55,21 +56,20 @@ public class ParquetArrowSchemaTests
     private static Apache.Arrow.Schema One(string name, IArrowType type) => new([new Field(name, type, true)], null);
 
     [Fact]
-    public void TimestampUnits_AreRescaledExactly()
+    public void TimestampUnits_StayAsStored()
     {
+        // A writer stores seconds as milliseconds, nanoseconds of format 1.0 as microseconds: the values read in the
+        // stored unit, unchanged (pyarrow 26: timestamp[us] from a timestamp[ns] hint, timestamp[ms] from timestamp[s]).
         var micros = new ParquetLeaf("ts", Repetition.Optional, PhysicalType.Int64, Annotation: Annotation.TimestampMicros);
-        // Finer: multiplied, checked.
-        var (type, values) = Read(WithArrowSchema(Write(micros, 1_500L, null), One("ts", new TimestampType(TimeUnit.Nanosecond, "UTC"))));
-        Assert.Equal(TimeUnit.Nanosecond, ((TimestampType)type).Unit);
-        Assert.Equal(1_500_000L, ((TimestampArray)values).GetValue(0));
-        Assert.Contains("does not fit 64 bits", Assert.Throws<ParquetFormatException>(() =>
-            Read(WithArrowSchema(Write(micros, long.MaxValue / 100), One("ts", new TimestampType(TimeUnit.Nanosecond, "UTC"))))).Message);
-        // Coarser: divided, exactly.
-        (type, values) = Read(WithArrowSchema(Write(micros, 3_000L), One("ts", new TimestampType(TimeUnit.Millisecond, "UTC"))));
-        Assert.Equal(TimeUnit.Millisecond, ((TimestampType)type).Unit);
-        Assert.Equal(3L, ((TimestampArray)values).GetValue(0));
-        Assert.Contains("finer part", Assert.Throws<ParquetFormatException>(() =>
-            Read(WithArrowSchema(Write(micros, 3_001L), One("ts", new TimestampType(TimeUnit.Millisecond, "UTC"))))).Message);
+        var (type, values) = Read(WithArrowSchema(Write(micros, long.MaxValue / 100, null), One("ts", new TimestampType(TimeUnit.Nanosecond, "UTC"))));
+        Assert.Equal((TimeUnit.Microsecond, "UTC"), (((TimestampType)type).Unit, ((TimestampType)type).Timezone));
+        Assert.Equal(long.MaxValue / 100, ((TimestampArray)values).GetValue(0));
+        (type, values) = Read(WithArrowSchema(Write(micros, 3_001L), One("ts", new TimestampType(TimeUnit.Millisecond, "UTC"))));
+        Assert.Equal(TimeUnit.Microsecond, ((TimestampType)type).Unit);
+        Assert.Equal(3_001L, ((TimestampArray)values).GetValue(0));
+        // The zone of an instant still comes from the stored schema, whatever its unit.
+        var zoned = (TimestampType)Read(WithArrowSchema(Write(micros, 1L), One("ts", new TimestampType(TimeUnit.Nanosecond, "Asia/Tokyo")))).Type;
+        Assert.Equal((TimeUnit.Microsecond, "Asia/Tokyo"), (zoned.Unit, zoned.Timezone));
     }
 
     [Fact]
@@ -83,14 +83,19 @@ public class ParquetArrowSchemaTests
     }
 
     [Fact]
-    public void UnannotatedIntegers_AreNarrowedExactly_AndDurationsKept()
+    public void UnannotatedIntegers_KeepTheirWidth_AndDurationsKept()
     {
+        // pyarrow 26 reads an unannotated INT64 as int64 and an INT32 as int32, whatever narrower type the stored schema
+        // names (a uint32 written by format 1.0 comes back as int64); a duration over INT64 is restored.
         var plain = new ParquetLeaf("n", Repetition.Optional, PhysicalType.Int64);
-        var (type, values) = Read(WithArrowSchema(Write(plain, 4_294_967_295L, 0L), One("n", UInt32Type.Default)));
-        Assert.IsType<UInt32Type>(type);
-        Assert.Equal(4_294_967_295u, ((UInt32Array)values).GetValue(0));
-        Assert.Contains("does not fit", Assert.Throws<ParquetFormatException>(() => Read(WithArrowSchema(Write(plain, -1L), One("n", UInt32Type.Default)))).Message);
+        var (type, values) = Read(WithArrowSchema(Write(plain, 4_294_967_295L, -1L), One("n", UInt32Type.Default)));
+        Assert.IsType<Int64Type>(type);
+        Assert.Equal([4_294_967_295L, -1L], [((Int64Array)values).GetValue(0)!.Value, ((Int64Array)values).GetValue(1)!.Value]);
+        Assert.IsType<Int64Type>(Read(WithArrowSchema(Write(plain, 5L), One("n", Int32Type.Default))).Type);
         Assert.IsType<DurationType>(Read(WithArrowSchema(Write(plain, 5L), One("n", DurationType.Millisecond))).Type);
+        var plain32 = new ParquetLeaf("n", Repetition.Optional, PhysicalType.Int32);
+        Assert.IsType<Int32Type>(Read(WithArrowSchema(Write(plain32, 300), One("n", Int8Type.Default))).Type);
+        Assert.IsType<Int32Type>(Read(WithArrowSchema(Write(plain32, 5), One("n", UInt16Type.Default))).Type);
 
         // An annotated column keeps its annotation: the Parquet side wins.
         var int16 = new ParquetLeaf("n", Repetition.Optional, PhysicalType.Int32, Annotation: Annotation.Int16);

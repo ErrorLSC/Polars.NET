@@ -56,7 +56,7 @@ internal static class AsyncQueryEnumerator
         : IAsyncEnumerator<T>
     {
         private readonly IAsyncEnumerator<DataFrameHandle> _batches =
-            PolarsWrapper.LazyCollectBatchesStreamAsync(nativeLf, PlEngine.Auto, maintainOrder: false, chunkSize: 0L, cancellationToken: cancellationToken)
+            PolarsWrapper.LazyCollectBatchesStreamAsync(nativeLf, PlEngine.Auto, maintainOrder: true, chunkSize: 0L, cancellationToken: cancellationToken)
                 .GetAsyncEnumerator(cancellationToken);
         private DataFrameHandle? _currentBatch;
         private IEnumerator<T>? _currentRows;

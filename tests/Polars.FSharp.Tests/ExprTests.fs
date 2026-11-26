@@ -752,18 +752,14 @@ type ``String Logic Tests`` () =
         // Data: [1, 5, 2, 4, 3]
         let s = Series.create("vals", [1; 5; 2; 4; 3])
 
-        // TopK(2) -> [5, 4]
+        // TopK(2) -> {5, 4}, BottomK(2) -> {1, 2}, in no particular order
         let sTop = s.TopK 2
-
         Assert.Equal(2L, sTop.Length)
-        Assert.Equal(5, sTop.GetValue<int> 0)
-        Assert.Equal(4, sTop.GetValue<int> 1)
+        Assert.Equal<int list>([4; 5], List.sort [ sTop.GetValue<int> 0; sTop.GetValue<int> 1 ])
 
-        // BottomK(2) -> [1, 2]
         let sBot = s.BottomK 2
         Assert.Equal(2L, sBot.Length)
-        Assert.Equal(1, sBot.GetValue<int> 0)
-        Assert.Equal(2, sBot.GetValue<int> 1)
+        Assert.Equal<int list>([1; 2], List.sort [ sBot.GetValue<int> 0; sBot.GetValue<int> 1 ])
 
     [<Fact>]
     member _.``Expr: TopKBy (Series vs Series)`` () =

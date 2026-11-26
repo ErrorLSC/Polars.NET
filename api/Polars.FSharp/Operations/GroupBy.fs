@@ -251,7 +251,7 @@ type GroupBy(df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
 
         safeKeys |> Array.iter (fun k -> (k :> IDisposable).Dispose())
 
-        lazyResult.Collect()
+        lazyResult.CollectEager()
 
     /// <summary>
     /// Aggregate columns using the provided expressions.

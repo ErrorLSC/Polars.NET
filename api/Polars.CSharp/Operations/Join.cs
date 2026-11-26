@@ -605,7 +605,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             sliceLen
         );
 
-        return lf.Collect();
+        return lf.CollectEager();
     }
     /// <summary>
     /// Join with another DataFrame using column names.
@@ -687,7 +687,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             nullsEqual,
             sliceOffset,
             sliceLen
-        ).Collect();
+        ).CollectEager();
     }
     /// <summary>
     /// Join using specific multiple expressions or column names.
@@ -721,7 +721,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             nullsEqual,
             sliceOffset,
             sliceLen
-        ).Collect();
+        ).CollectEager();
     }
 
     /// <summary>
@@ -764,7 +764,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             nullsEqual,
             sliceOffset,
             sliceLen
-        ).Collect();
+        ).CollectEager();
     }
     public DataFrame Join(
         DataFrame other,
@@ -792,7 +792,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             nullsEqual,
             sliceOffset,
             sliceLen
-        ).Collect();
+        ).CollectEager();
     }
     /// <summary>
     /// Join using specific multiple expressions. (C# Array Covariance Helper)
@@ -826,7 +826,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             nullsEqual,
             sliceOffset,
             sliceLen
-        ).Collect();
+        ).CollectEager();
     }
 
     /// <summary>
@@ -859,7 +859,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             nullsEqual,
             sliceOffset,
             sliceLen
-        ).Collect();
+        ).CollectEager();
     }
     /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoExprColumn, IntoExprColumn, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
     /// <example>
@@ -928,7 +928,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             right, on, tolerance, by, strategy,
             allowEq, checkSorted, suffix, validation, coalesce,
             maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen
-        ).Collect();
+        ).CollectEager();
     }
 
     /// <summary>
@@ -960,7 +960,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             right, leftOn, rightOn, tolerance, leftBy, rightBy, strategy,
             allowEq, checkSorted, suffix, validation, coalesce,
             maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen
-        ).Collect();
+        ).CollectEager();
     }
     /// <summary>
     /// Join with another DataFrame using multiple boolean expressions.
@@ -981,7 +981,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             right, predicates, how,
             suffix, validation, coalesce,
             maintainOrder, nullsEqual
-        ).Collect();
+        ).CollectEager();
     }
 
     /// <summary>
@@ -1019,13 +1019,13 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
     {
         using var right = other.Lazy();
         using var left = Lazy();
-        return left.MergeSorted(right, key, maintainOrder).Collect();
+        return left.MergeSorted(right, key, maintainOrder).CollectEager();
     }
     /// <inheritdoc cref="LazyFrame.MergeSorted(LazyFrame, string[], bool)"/>
     public DataFrame MergeSorted(DataFrame other, string[] key, bool maintainOrder = false)
     {
         using var right = other.Lazy();
         using var left = Lazy();
-        return left.MergeSorted(right, key, maintainOrder).Collect();
+        return left.MergeSorted(right, key, maintainOrder).CollectEager();
     }
 }

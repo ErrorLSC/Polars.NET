@@ -35,5 +35,5 @@ public partial class LazyFrame : IDisposable
 public partial class DataFrame : IDisposable, IEnumerable<Series>
 {
     /// <inheritdoc cref="LazyFrame.SetSorted(IntoSelector, bool, bool)"/>
-    public DataFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false) => Lazy().SetSorted(columns, descending, nullsLast).Collect();
+    public DataFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false) => Lazy().SetSorted(columns, descending, nullsLast).CollectEager();
 }

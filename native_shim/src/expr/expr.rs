@@ -158,7 +158,7 @@ macro_rules! gen_rolling_op {
                 // Build Fixed Window Options
                 let options = RollingOptionsFixedWindow {
                     window_size,
-                    min_periods: min_periods, 
+                    min_samples: min_periods, 
                     weights,    
                     center,     
                     fn_params: None,
@@ -198,7 +198,7 @@ macro_rules! gen_rolling_by_op {
                 // Build Options
                 let options = RollingOptionsDynamicWindow {
                     window_size: duration,
-                    min_periods: min_periods,
+                    min_samples: min_periods,
                     closed_window: closed_window,
                     fn_params: None,
                 };
@@ -235,7 +235,7 @@ macro_rules! gen_ewm_op {
                     alpha: alpha,
                     adjust: adjust,
                     bias: bias,
-                    min_periods: min_periods,
+                    min_samples: min_periods,
                     ignore_nulls: ignore_nulls,
                 };
 
@@ -312,7 +312,11 @@ gen_str_ctor!(pl_expr_lit_str, lit);
 
 // --- Group 3: Unarp Ops ---
 gen_unary_op!(pl_expr_neg, neg);
-gen_unary_op!(pl_expr_rechunk, rechunk);
+/// Rechunking inside a query is gone from Polars 2.x (it has no defined effect there): the expression as it is.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_rechunk(expr_ptr: *mut ExprContext) -> *mut ExprContext {
+    expr_ptr
+}
 gen_unary_op!(pl_expr_approx_n_unique, approx_n_unique);
 gen_unary_op!(pl_expr_sum, sum);
 gen_unary_op!(pl_expr_mean, mean);
@@ -1368,7 +1372,7 @@ pub extern "C" fn pl_expr_rolling_var(
 
         let options = RollingOptionsFixedWindow {
             window_size,
-            min_periods,
+            min_samples: min_periods,
             weights: weights,
             center: center,
             fn_params: Some(params),
@@ -1400,7 +1404,7 @@ pub extern "C" fn pl_expr_rolling_var_by(
 
         let options = RollingOptionsDynamicWindow {
             window_size: duration,
-            min_periods,
+            min_samples: min_periods,
             closed_window,
             fn_params: Some(params),
         };
@@ -1437,7 +1441,7 @@ pub extern "C" fn pl_expr_rolling_skew(
 
         let options = RollingOptionsFixedWindow {
             window_size,
-            min_periods,
+            min_samples: min_periods,
             weights: weights,
             center: center,
             fn_params: Some(params),
@@ -1488,7 +1492,7 @@ pub extern "C" fn pl_expr_rolling_kurtosis(
 
         let options = RollingOptionsFixedWindow {
             window_size,
-            min_periods,
+            min_samples: min_periods,
             weights: weights,
             center: center,
             fn_params: Some(params),
@@ -1586,7 +1590,7 @@ pub extern "C" fn pl_expr_rolling_rank(
 
         let options = RollingOptionsFixedWindow {
             window_size,
-            min_periods,
+            min_samples: min_periods,
             weights,
             center: center,
             fn_params: Some(rank_params) 
@@ -1629,7 +1633,7 @@ pub extern "C" fn pl_expr_rolling_rank_by(
 
         let options = RollingOptionsDynamicWindow {
             window_size: duration,
-            min_periods,
+            min_samples: min_periods,
             closed_window,
             fn_params: Some(rank_params) 
         };
@@ -2020,7 +2024,7 @@ pub extern "C" fn pl_expr_rolling_quantile(
 
         let options = RollingOptionsFixedWindow {
             window_size,
-            min_periods,
+            min_samples: min_periods,
             weights,
             center: center,
             fn_params: None
@@ -2054,7 +2058,7 @@ pub extern "C" fn pl_expr_rolling_quantile_by(
 
         let options = RollingOptionsDynamicWindow {
             window_size: duration,
-            min_periods,
+            min_samples: min_periods,
             closed_window,
             fn_params: None, 
         };
@@ -2265,7 +2269,9 @@ pub extern "C" fn pl_expr_hash(
     ffi_try!({
         let ctx = unsafe {Box::from_raw(expr_ptr) };
 
-        let res_expr = ctx.inner.hash(k0,k1,k2,k3);
+        // Polars 2.x hashes with one seed (k1..k3 are no longer taken).
+        let _ = (k1, k2, k3);
+        let res_expr = ctx.inner.hash(k0);
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: res_expr })))
     })
@@ -3109,9 +3115,51 @@ const DOTNET_INVALID_CAST: &str = "[[polars-net-invalid-cast]]";
 
 /// The values as `target` where each converts (null stays null); otherwise a ComputeError naming the first value
 /// that does not (text that is no number or date, a value beyond the target's range) after DOTNET_INVALID_CAST.
+/// Text as a date, a timestamp or a time of day, read by the ISO 8601 forms row by row after trimming it, null where
+/// none matches (Samidare's ScalarExprOps.isoTextAs, the same forms); None for any other target. Polars 2.x has no cast
+/// of text to these types.
+fn iso_text_as(s: &Series, target: &DataType) -> PolarsResult<Option<Series>> {
+    use polars_core::chunked_array::temporal::string::StringMethods;
+    let trimmed: StringChunked = s.str()?.apply_values(|v| std::borrow::Cow::Borrowed(v.trim()));
+    // The first form that reads each row.
+    fn first(parsed: Vec<Series>) -> PolarsResult<Series> {
+        let mut parsed = parsed.into_iter();
+        let mut out = parsed.next().expect("a form");
+        for next in parsed {
+            let read = out.is_not_null();
+            out = out.zip_with(&read, &next)?;
+        }
+        Ok(out)
+    }
+    let raise = StringChunked::from_slice(PlSmallStr::EMPTY, &["raise"]);
+    Ok(Some(match target {
+        DataType::Date => trimmed.as_date(Some("%Y-%m-%d"), false)?.into_series(),
+        DataType::Datetime(unit, zone) => {
+            let forms = ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"];
+            let naive: PolarsResult<Vec<Series>> = forms
+                .iter()
+                .map(|f| Ok(trimmed.as_datetime(Some(f), TimeUnit::Microseconds, false, false, None, &raise)?.into_series()))
+                .collect();
+            first(naive?)?.cast(&DataType::Datetime(*unit, zone.clone()))?
+        },
+        DataType::Time => {
+            let forms = ["%H:%M:%S%.f", "%H:%M"];
+            let times: PolarsResult<Vec<Series>> = forms.iter().map(|f| Ok(trimmed.as_time(Some(f), false)?.into_series())).collect();
+            first(times?)?
+        },
+        _ => return Ok(None),
+    }))
+}
+
 fn checked_cast(c: Column, target: &DataType) -> PolarsResult<Column> {
     let s = c.as_materialized_series();
-    let out = s.cast_with_options(target, CastOptions::NonStrict)?;
+    let out = match s.dtype() {
+        DataType::String => match iso_text_as(s, target)? {
+            Some(parsed) => parsed.with_name(s.name().clone()),
+            None => s.cast_with_options(target, CastOptions::NonStrict)?,
+        },
+        _ => s.cast_with_options(target, CastOptions::NonStrict)?,
+    };
     if out.null_count() > s.null_count() {
         let failed = &s.is_not_null() & &out.is_null();
         if let Some(i) = (0..failed.len()).find(|&i| failed.get(i) == Some(true)) {

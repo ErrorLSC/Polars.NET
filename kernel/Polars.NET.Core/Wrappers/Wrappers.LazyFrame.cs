@@ -89,6 +89,16 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
+    /// <summary>
+    /// Collects the plan of an eager operation in memory, as Python Polars collects its eager methods: an operation of a
+    /// DataFrame or Series without optimizations (<paramref name="optimize"/> false), an eager read with them.
+    /// </summary>
+    public static DataFrameHandle LazyCollectEager(LazyFrameHandle lf, bool optimize)
+    {
+        var df = NativeBindings.pl_lazy_collect_eager(lf, optimize);
+        lf.TransferOwnership();
+        return ErrorHelper.Check(df);
+    }
     public static DataFrameHandle[] LazyCollectAll(LazyFrameHandle[] lfs, PlEngine engine)
     {
         EnsureEngineSupported(engine);

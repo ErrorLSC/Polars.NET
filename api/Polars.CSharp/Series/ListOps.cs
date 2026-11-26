@@ -19,7 +19,8 @@ public readonly struct SeriesListOps
     /// </summary>
     public Series Get(long index, bool nullOnOob = false) => Apply(e => e.List.Get(index, nullOnOob));
     /// <summary>
-    /// Take sublists by multiple indices.The indices may be defined in a single column, or by sublists in another column of dtype List.
+    /// Take sublists by multiple indices: one list of indices for every row (a list literal, such as
+    /// <c>Pl.Lit([0, 2]).Implode()</c>), or a List column with each row's own indices. A flat column of indices is refused.
     /// </summary>
     /// <param name="indices">Indices to return per sublist</param>
     /// <param name="nullOnOob">Behavior if an index is out of bounds: True -> set as null False -> raise an error Note that defaulting to raising an error is much cheaper</param>
@@ -27,7 +28,8 @@ public readonly struct SeriesListOps
     /// <inheritdoc cref="Gather(IntoExprColumn,bool)"/>
     public Series Gather(ReadOnlySpan<int> indices, bool maintainOrder = false)
     {
-        Expr indexExpr = Pl.Lit(indices);
+        // One list of indices for every row (the engine takes a flat column as per-row indices no more).
+        Expr indexExpr = Pl.Lit(indices).Implode();
         return Apply(e => e.List.Gather(indexExpr, maintainOrder));
     }
     /// <summary>

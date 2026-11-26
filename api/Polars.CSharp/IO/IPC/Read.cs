@@ -76,7 +76,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     // ---------------------------------------------------------
@@ -134,7 +134,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>
@@ -188,7 +188,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>
@@ -242,7 +242,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
             lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     // ---------------------------------------------------------

@@ -451,7 +451,7 @@ module JoinOps =
                         ?sliceLen = sliceLen
                     )
 
-            lf.Collect()
+            lf.CollectEager()
 
         /// <summary>
         /// Join with another DataFrame with single on Expr.
@@ -572,7 +572,7 @@ module JoinOps =
                     ?sliceOffset = sliceOffset,
                     ?sliceLen = sliceLen
                 )
-                .Collect()
+                .CollectEager()
 
         /// <summary>
         /// Join with another LazyFrame using multiple boolean expressions.
@@ -591,7 +591,7 @@ module JoinOps =
                     ?maintainOrder = maintainOrder,
                     ?nullsEqual = nullsEqual
                 )
-                .Collect()
+                .CollectEager()
 
         /// <summary>
         /// Take two sorted DataFrames and merge them by the sorted key.
@@ -601,7 +601,7 @@ module JoinOps =
         /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys:
         /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
         member this.MergeSorted(other: DataFrame, key: string, ?maintainOrder) : DataFrame =
-            this.Lazy().MergeSorted(other.Lazy(), key, ?maintainOrder = maintainOrder).Collect()
+            this.Lazy().MergeSorted(other.Lazy(), key, ?maintainOrder = maintainOrder).CollectEager()
 
         /// <summary>
         /// Take two sorted DataFrames and merge them by the sorted key.
@@ -611,4 +611,4 @@ module JoinOps =
         /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys:
         /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
         member this.MergeSorted(other: DataFrame, key: string array, ?maintainOrder) : DataFrame =
-            this.Lazy().MergeSorted(other.Lazy(), key, ?maintainOrder = maintainOrder).Collect()
+            this.Lazy().MergeSorted(other.Lazy(), key, ?maintainOrder = maintainOrder).CollectEager()

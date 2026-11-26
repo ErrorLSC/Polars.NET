@@ -255,7 +255,8 @@ public class StreamScanPushdownTests
         using var lf = source.Scan();
         using var ctx = new SqlContext();
         ctx.Register("t", lf);
-        using var q = ctx.Execute("SELECT Id, G FROM t WHERE G IN (SELECT G FROM t WHERE V > 499) LIMIT 5");
+        // ORDER BY: a LIMIT alone may take any rows (the streaming engine's semi join keeps no order).
+        using var q = ctx.Execute("SELECT Id, G FROM t WHERE G IN (SELECT G FROM t WHERE V > 499) ORDER BY Id LIMIT 5");
         using var df = Execute(q, run);
 
         Assert.Equal(["Id", "G"], df.Columns);

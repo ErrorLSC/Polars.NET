@@ -154,11 +154,12 @@ Decimal128, Decimal256 above 38 digits), dates, times, timestamps (UTC-adjusted 
 12-byte carriers too), FLOAT16, INTERVAL (month-day-nanosecond), UUID and other fixed-length bytes, strings (STRING,
 ENUM, JSON), binaries (BSON, GEOMETRY, GEOGRAPHY), UNKNOWN as null. Groups map to structs, lists and maps, with the
 backward-compatibility rules for old list and map layouts. An Arrow schema stored by the writer (`ARROW:schema`)
-refines the mapping where Parquet cannot say it: time zone names of UTC-adjusted timestamps, durations, timestamp units
-Parquet stores in another (seconds, nanoseconds in format 1.0, INT96; rescaled exactly or refused), integers narrower
-than an unannotated INT64 or INT32 (checked), fixed-size lists, dictionary-encoded columns and field metadata. It never
-makes a local timestamp an instant or an instant local, and never changes an annotated integer or decimal type. Parquet
-field ids become `PARQUET:field_id` field metadata.
+refines the mapping where Parquet cannot say it: time zone names of UTC-adjusted timestamps, durations, the unit and
+zone of INT96 timestamps, fixed-size lists, dictionary-encoded columns and field metadata. Where it disagrees with the
+Parquet types, they win, as in pyarrow: a timestamp keeps the unit it is stored in (seconds written as milliseconds
+read as milliseconds, nanoseconds of format 1.0 as microseconds), an unannotated INT64 or INT32 stays a 64- or 32-bit
+signed integer; a local timestamp never becomes an instant nor an instant local. Parquet field ids become
+`PARQUET:field_id` field metadata.
 
 **Reading** (`ParquetFile.OpenReader`, `ParquetReader`, `ParquetReadOptions`): every column, flat or nested, as record
 batches of `BatchSize` rows in native memory, synchronously or asynchronously, in row group order. The unit of work is

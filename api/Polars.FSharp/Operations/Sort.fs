@@ -78,7 +78,7 @@ module SortOps =
             (columns: seq<IColumnExpr>, descending: seq<bool>, nullsLast: seq<bool>, ?maintainOrder: bool)
             : DataFrame =
             let lf = this.Lazy()
-            lf.Sort(columns, descending, nullsLast, ?maintainOrder = maintainOrder).Collect()
+            lf.Sort(columns, descending, nullsLast, ?maintainOrder = maintainOrder).CollectEager()
 
         member this.Sort
             (columns: seq<Expr>, descending: seq<bool>, nullsLast: seq<bool>, ?maintainOrder: bool)

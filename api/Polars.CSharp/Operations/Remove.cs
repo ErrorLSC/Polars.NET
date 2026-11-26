@@ -46,15 +46,15 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// Remove rows that match the predicate.
     /// This is the exact opposite of Filter. Rows where the predicate evaluates to False or Null are kept.
     /// </summary>
-    public DataFrame Remove(Expr predicate) => Lazy().Remove(predicate).Collect();
+    public DataFrame Remove(Expr predicate) => Lazy().Remove(predicate).CollectEager();
 
     /// <summary>
     /// Remove rows based on a boolean series.
     /// </summary>
-    public DataFrame Remove(Series predicate) => Lazy().Remove(predicate).Collect();
+    public DataFrame Remove(Series predicate) => Lazy().Remove(predicate).CollectEager();
 
     /// <summary>
     /// Remove rows based on a boolean array.
     /// </summary>
-    public DataFrame Remove(IEnumerable<bool> mask) => Lazy().Remove(mask).Collect();
+    public DataFrame Remove(IEnumerable<bool> mask) => Lazy().Remove(mask).CollectEager();
 }

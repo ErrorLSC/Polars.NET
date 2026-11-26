@@ -34,9 +34,12 @@ public readonly struct SeriesStrOps
     /// <inheritdoc cref="StringOps.ReplaceAll"/>
     public Series ReplaceAll(string pattern, string value, bool literal = false)
         => Apply(e => e.Str.ReplaceAll(pattern, value, literal));
+    /// <summary>The values of a Series as one list for every row: a List Series' first list, any other Series whole.</summary>
+    private static Expr OneList(Series values) =>
+        values.DataType.Kind == DataTypeKind.List ? Pl.Lit(values).First() : Pl.Lit(values).Implode();
     /// <inheritdoc cref="StringOps.ReplaceMany(IntoExprColumn,IntoExprColumn,bool,bool)"/>
     public Series ReplaceMany(Series patterns, Series replaceWith, bool asciiCaseInsensitive = false, bool leftmost = false)
-        => Apply(e => e.Str.ReplaceMany(patterns, replaceWith, asciiCaseInsensitive, leftmost));
+        => Apply(e => e.Str.ReplaceMany(OneList(patterns), OneList(replaceWith), asciiCaseInsensitive, leftmost));
     /// <inheritdoc cref="StringOps.ReplaceMany(IReadOnlyDictionary{string,string},bool,bool)"/>
     public Series ReplaceMany(IReadOnlyDictionary<string, string> mapping, bool asciiCaseInsensitive = false, bool leftmost = false)
         => Apply(e => e.Str.ReplaceMany(mapping, asciiCaseInsensitive, leftmost));
@@ -66,10 +69,10 @@ public readonly struct SeriesStrOps
         => Apply(e => e.Str.Contains(pattern, literal, strict));
     /// <inheritdoc cref="StringOps.ContainsAny"/>
     public Series ContainsAny(Series patterns, bool asciiCaseInsensitive = false)
-        => Apply(e => e.Str.ContainsAny(Pl.Lit(patterns), asciiCaseInsensitive));
+        => Apply(e => e.Str.ContainsAny(OneList(patterns), asciiCaseInsensitive));
     /// <inheritdoc cref="StringOps.ContainsAny"/>
     public Series ContainsAny(IEnumerable<string> patterns, bool asciiCaseInsensitive = false)
-        => Apply(e => e.Str.ContainsAny(Pl.Lit(patterns), asciiCaseInsensitive));
+        => Apply(e => e.Str.ContainsAny(Pl.Lit(patterns).Implode(), asciiCaseInsensitive));
     /// <inheritdoc cref="StringOps.Split"/>
     public Series Split(StringOrExpr by, bool inclusive = false, bool literal = true, bool strict = true)
         => Apply(e => e.Str.Split(by, inclusive, literal, strict));

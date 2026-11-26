@@ -31,16 +31,6 @@ internal static class LeafReaders
         ValueKind.UInt16 => new FixedLeafReader<ushort, NarrowInt32<ushort>>(pages, leaf, type, valueCount),
         ValueKind.Int64 when type.ArrowType is UInt64Type => new FixedLeafReader<ulong, SameBits<ulong>>(pages, leaf, type, valueCount),
         ValueKind.Int64 => new FixedLeafReader<long, SameBits<long>>(pages, leaf, type, valueCount),
-        ValueKind.RescaledInt64 => new FixedLeafReader<long, RescaledInt64>(pages, leaf, type, valueCount),
-        ValueKind.NarrowInt64 => type.ArrowType switch
-        {
-            Int8Type => new FixedLeafReader<sbyte, NarrowInt64<sbyte>>(pages, leaf, type, valueCount),
-            Int16Type => new FixedLeafReader<short, NarrowInt64<short>>(pages, leaf, type, valueCount),
-            Int32Type => new FixedLeafReader<int, NarrowInt64<int>>(pages, leaf, type, valueCount),
-            UInt8Type => new FixedLeafReader<byte, NarrowInt64<byte>>(pages, leaf, type, valueCount),
-            UInt16Type => new FixedLeafReader<ushort, NarrowInt64<ushort>>(pages, leaf, type, valueCount),
-            _ => new FixedLeafReader<uint, NarrowInt64<uint>>(pages, leaf, type, valueCount),
-        },
         ValueKind.Float => new FixedLeafReader<float, SameBits<float>>(pages, leaf, type, valueCount),
         ValueKind.Double => new FixedLeafReader<double, SameBits<double>>(pages, leaf, type, valueCount),
         ValueKind.Float16 => new FixedLeafReader<Half, SameBits<Half>>(pages, leaf, type, valueCount),

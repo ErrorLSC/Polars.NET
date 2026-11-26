@@ -20,10 +20,9 @@ public class ParquetManagedPipelineTests
     /// <summary>Files Polars' reader refuses while the managed reader reads them (pyarrow and DuckDB agree with it).</summary>
     private static readonly HashSet<string> PolarsRefuses =
     [
-        "apache/data/concatenated_gzip_members.parquet",   // "failed to fill whole buffer": one GZIP member only
         "apache/data/dict-page-offset-zero.parquet",       // SortingColumn.descending missing (an old field id)
+        "apache/data/incorrect_map_schema.parquet",        // since Polars 2.x: a MAP whose key is optional
         "apache/data/int32_with_uuid_logical_type.parquet", // refuses the annotation instead of ignoring it
-        "apache/data/int96_timestamp_order.parquet",       // a ColumnOrder member it does not know
         "apache/data/nation.dict-malformed.parquet",       // PARQUET-816 padding missing
         "apache/data/unknown-logical-type.parquet",        // a LogicalType member it does not know
         // A file with an INTERVAL column cannot be read at all, whatever the columns selected:

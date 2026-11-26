@@ -74,6 +74,12 @@ public class SqlEndToEndTests
     // CAST: text read without its surrounding spaces, numbers rounded halves away from zero (the rounding may carry), a
     // conversion that fails only where it is reached; TRY_CAST gives null where it does not convert.
     [InlineData("SELECT v, CASE WHEN v NOT IN ('x', '2001-02-03') THEN CAST(v AS INTEGER) END AS i, TRY_CAST(v AS INTEGER) AS t, TRY_CAST(v AS DATE) AS dt FROM (VALUES ('1'), ('x'), (' 2 '), ('2001-02-03')) w(v) ORDER BY v")]
+    // Text as a date or a timestamp: the ISO 8601 forms (a T or a space, seconds and their fraction optional), read
+    // without the surrounding spaces; TRY_CAST gives null for other text.
+    // (DuckDB 1.5 reads ' 2001-02-03 ' as no timestamp, and a date-time as a DATE: those are left out.)
+    [InlineData("SELECT v, TRY_CAST(v AS TIMESTAMP) AS ts FROM (VALUES ('2001-02-03 04:05:06'), ('2001-02-03T04:05:06.25'), (' 2001-02-03 04:05:06 '), ('2001-02-03 04:05'), ('2001-02-03'), ('04:05:06.5'), ('x'), (NULL)) w(v) ORDER BY v")]
+    [InlineData("SELECT v, TRY_CAST(v AS DATE) AS dt FROM (VALUES ('2001-02-03'), (' 2001-02-03 '), ('2001-02-30'), ('04:05:06.5'), ('x'), (NULL)) w(v) ORDER BY v")]
+    [InlineData("SELECT v, CAST(v AS TIMESTAMP) AS ts, CAST(d AS DATE) AS dt FROM (VALUES ('2001-02-03 04:05:06', '2001-02-03'), (' 1999-12-31T23:59:59.125 ', ' 1999-12-31 '), (NULL, NULL)) w(v, d) ORDER BY v")]
     [InlineData("SELECT o, CAST(d AS DECIMAL(4,1)) AS r, CAST(d AS INTEGER) AS i, CAST(x AS INTEGER) AS f, CAST(9.5 AS INTEGER) AS c, CAST(-2.5 AS INTEGER) AS n, TRY_CAST(1e10 AS INTEGER) AS w, TRY_CAST(d * 1000 AS DECIMAL(4,1)) AS tc FROM t WHERE x IS NULL OR NOT isnan(x) ORDER BY o, g")]
     // Decimal arithmetic: a product keeps both operands' scales, a sum may need one more digit than its operands.
     [InlineData("SELECT o, d * d AS p, d * 1.5 AS q, d * d * d AS c FROM t ORDER BY o, g")]
@@ -233,6 +239,8 @@ public class SqlEndToEndTests
         var catalog = Data.Value.Catalog;
         var text = Assert.Throws<InvalidCastException>(() => TpcdsSqlResultTests.Run(catalog, "SELECT CAST(v AS INTEGER) AS i FROM (VALUES ('1'), ('x1')) w(v)"));
         Assert.Contains("\"x1\"", text.Message);
+        var date = Assert.Throws<InvalidCastException>(() => TpcdsSqlResultTests.Run(catalog, "SELECT CAST(v AS DATE) AS d FROM (VALUES ('2001-02-03'), ('2001-02-30')) w(v)"));
+        Assert.Contains("\"2001-02-30\"", date.Message);
         Assert.Throws<OverflowException>(() => TpcdsSqlResultTests.Run(catalog, "SELECT CAST(k * 70000 AS SMALLINT) AS i FROM t"));
         var joined = TpcdsSqlResultTests.Run(catalog, "SELECT a.v FROM (VALUES (1, '5'), (2, 'x')) a(k, v) JOIN (VALUES (1)) b(k) ON a.k = b.k WHERE CAST(a.v AS INTEGER) > 0");
         Assert.Equal("5", Assert.Single(Assert.Single(joined)));

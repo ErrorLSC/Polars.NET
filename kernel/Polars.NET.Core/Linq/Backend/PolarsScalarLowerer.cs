@@ -471,7 +471,8 @@ internal static class PolarsScalarLowerer
             AggKind.Tags.FirstNonNull => PolarsWrapper.First(input, true),
             AggKind.Tags.LastNonNull => PolarsWrapper.Last(input, true),
             AggKind.Tags.Median => PolarsWrapper.Median(input),
-            AggKind.Tags.List => PolarsWrapper.Implode(input, false),
+            // IR List keeps the input's order (an order-observing aggregate): the streaming engine reorders otherwise.
+            AggKind.Tags.List => PolarsWrapper.Implode(input, maintainOrder: true),
             AggKind.Tags.Len => PolarsWrapper.Len(),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };

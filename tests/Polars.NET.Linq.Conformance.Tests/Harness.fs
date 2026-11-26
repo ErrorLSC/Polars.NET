@@ -83,9 +83,11 @@ module Conformance =
             $"__sq{n}_{hint}"
         Kaminari.Samidare.IR.Passes.Decorrelation.tryPlan { Fresh = fresh; SupportsAssertions = true } plan
 
+    /// Then the plan's types are resolved (EnumResolution), as every frontend's compilation does: enum columns, .NET
+    /// conversions, and casts of text to temporal types become what engines run.
     let private prepare (plan: LogicalPlan) : LogicalPlan =
         match decorrelate plan with
-        | Ok p -> p
+        | Ok p -> Kaminari.Samidare.PlanOptimizer.ResolveEnums p
         | Error reason -> failwithf "Decorrelation refused the plan: %s\n%s" reason (LogicalPlanOps.formatPlan plan)
 
     /// Integral values compare as int64 and floating values as double: the contract fixes a value's kind

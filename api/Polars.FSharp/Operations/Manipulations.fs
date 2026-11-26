@@ -42,7 +42,7 @@ module ManipulateOps =
     type DataFrame with
         /// <summary> Add or replace columns using expressions. </summary>
         member this.WithColumns(exprs: seq<Expr>) : DataFrame =
-            this.Lazy().WithColumns(exprs).Collect()
+            this.Lazy().WithColumns(exprs).CollectEager()
 
         /// <summary> Add or replace columns using generic column expressions (Expr or Selectors). </summary>
         member this.WithColumns(columns: seq<#IColumnExpr>) =
@@ -224,7 +224,7 @@ module ManipulateOps =
         /// Explode list columns to rows using a Selector.
         /// </summary>
         member this.Explode(selector: Selector, ?emptyAsNull: bool, ?keepNulls: bool) : DataFrame =
-            this.Lazy().Explode(selector, ?emptyAsNull = emptyAsNull, ?keepNulls = keepNulls).Collect()
+            this.Lazy().Explode(selector, ?emptyAsNull = emptyAsNull, ?keepNulls = keepNulls).CollectEager()
 
         /// <summary>
         /// Explode list columns to rows using column names.
@@ -369,13 +369,13 @@ module ManipulateOps =
         /// Fill null values in all columns with a specified value.
         /// </summary>
         member this.FillNull(fillValue) =
-            this.Lazy().FillNull(fillValue).Collect()
+            this.Lazy().FillNull(fillValue).CollectEager()
 
         /// <summary>
         /// Fill NaN values in all floating point columns with a specified value.
         /// </summary>
         member this.FillNan(fillValue) =
-            this.Lazy().FillNan(fillValue).Collect()
+            this.Lazy().FillNan(fillValue).CollectEager()
 
     // ========================
     // Drop
@@ -494,7 +494,7 @@ module ManipulateOps =
             use lf = this.Lazy()
             use droppedLf: LazyFrame = lf.Drop exprs
 
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
         member this.Drop([<ParamArray>] exprs: Expr array) : DataFrame = this.Drop(exprs :> seq<Expr>)
 
@@ -515,7 +515,7 @@ module ManipulateOps =
         member this.DropNulls(?subset: Selector) =
             use lf = this.Lazy()
             let droppedLf: LazyFrame = lf.DropNulls(?subset = subset)
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
         /// <summary>
         /// Drop rows with Nulls in specific columns.
@@ -523,7 +523,7 @@ module ManipulateOps =
         member this.DropNulls([<ParamArray>] subset: string array) =
             use lf = this.Lazy()
             let droppedLf: LazyFrame = lf.DropNulls(subset)
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
         /// <summary>
         /// Drop rows with Nulls by specific Expressions.
@@ -531,7 +531,7 @@ module ManipulateOps =
         member this.DropNulls([<ParamArray>] exprs: Expr array) =
             use lf = this.Lazy()
             let droppedLf: LazyFrame = lf.DropNulls(exprs)
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
         /// <summary>
         /// Drop rows containing one or more NaN values.
@@ -539,7 +539,7 @@ module ManipulateOps =
         member this.DropNans(?subset: Selector) =
             use lf = this.Lazy()
             let droppedLf: LazyFrame = lf.DropNans(?subset = subset)
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
         /// <summary>
         /// Drop rows with NaN in specific columns.
@@ -547,7 +547,7 @@ module ManipulateOps =
         member this.DropNans([<ParamArray>] subset: string array) =
             use lf = this.Lazy()
             let droppedLf: LazyFrame = lf.DropNans subset
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
         /// <summary>
         /// Drop rows with NaN by specific Expressions.
@@ -555,7 +555,7 @@ module ManipulateOps =
         member this.DropNans([<ParamArray>] exprs: Expr array) =
             use lf = this.Lazy()
             let droppedLf: LazyFrame = lf.DropNans exprs
-            droppedLf.Collect()
+            droppedLf.CollectEager()
 
     // ========================
     // Unique
@@ -729,13 +729,13 @@ module ManipulateOps =
         /// <param name="by">Columns to sort by.</param>
         /// <param name="reverse">Sort direction per column. Default is false (no reverse).</param>
         member this.TopK(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) : DataFrame =
-            this.Lazy().TopK(k, by, ?reverse = reverse).Collect()
+            this.Lazy().TopK(k, by, ?reverse = reverse).CollectEager()
 
         /// <summary>
         /// Get the bottom k rows based on the given columns.
         /// </summary>
         member this.BottomK(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) : DataFrame =
-            this.Lazy().BottomK(k, by, ?reverse = reverse).Collect()
+            this.Lazy().BottomK(k, by, ?reverse = reverse).CollectEager()
 
         // [Overload] Sugar for single boolean reversing
         member this.TopK(k: int, by: seq<#IColumnExpr>, reverse: bool) = this.TopK(k, by, [| reverse |])
@@ -756,7 +756,7 @@ module ManipulateOps =
         /// <summary>
         /// Reverse the DataFrame.
         /// </summary>
-        member this.Reverse() : DataFrame = this.Lazy().Reverse().Collect()
+        member this.Reverse() : DataFrame = this.Lazy().Reverse().CollectEager()
 
     // ========================
     // SetSorted
@@ -783,7 +783,7 @@ module ManipulateOps =
 
     type DataFrame with
         member this.SetSorted(columns: Selector, ?descending, ?nullsLast) =
-            this.Lazy().SetSorted(columns, ?descending = descending, ?nullsLast = nullsLast).Collect()
+            this.Lazy().SetSorted(columns, ?descending = descending, ?nullsLast = nullsLast).CollectEager()
 
     // ========================
     // Clear
@@ -862,9 +862,9 @@ module ManipulateOps =
 
     type DataFrame with
         /// <summary> Filter rows based on a boolean expression (predicate). </summary>
-        member this.Filter(expr: Expr) : DataFrame = this.Lazy().Filter(expr).Collect()
+        member this.Filter(expr: Expr) : DataFrame = this.Lazy().Filter(expr).CollectEager()
         /// <summary> Filter rows based on a boolean Series. </summary>
-        member this.Filter(series: Series) : DataFrame = this.Lazy().Filter(series).Collect()
+        member this.Filter(series: Series) : DataFrame = this.Lazy().Filter(series).CollectEager()
 
         member this.Filter(mask: seq<bool>) =
             let ma = Series.create ("___mask", mask)
@@ -976,7 +976,7 @@ module ManipulateOps =
         /// <param name="index">The indices of the rows to select.</param>
         /// <param name="nullOnOutOfBounds">If true when an index is out-of-bounds a null row will be generated instead of raising an error.</param>
         member this.Gather(index, ?nullOnOutOfBounds) : DataFrame =
-            this.Lazy().Gather(index, ?nullOnOutOfBounds = nullOnOutOfBounds).Collect()
+            this.Lazy().Gather(index, ?nullOnOutOfBounds = nullOnOutOfBounds).CollectEager()
 
         /// <summary>
         /// Take every nth row in the Frame and return as a new Frame.

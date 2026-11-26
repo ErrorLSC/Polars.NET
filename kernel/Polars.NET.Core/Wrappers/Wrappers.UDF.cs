@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using Apache.Arrow;
@@ -11,6 +12,38 @@ namespace Polars.NET.Core.Wrappers;
 public readonly partial struct PolarsWrapper
 {
     private static readonly NativeBindings.CleanupCallback s_cleanupDelegate = CleanupTrampoline;
+
+    /// <summary>
+    /// The culture (and UI culture) of the thread that builds a function, in which its calls run: the engine calls it on
+    /// threads of its own (the streaming engine's always), whose culture is the process default.
+    /// </summary>
+    private readonly struct CallerCulture(CultureInfo culture, CultureInfo uiCulture)
+    {
+        public static CallerCulture Capture() => new(CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+
+        /// <summary>Puts the caller's culture on this thread until the scope is disposed.</summary>
+        public Scope Enter() => new(culture, uiCulture);
+
+        public readonly ref struct Scope
+        {
+            private readonly CultureInfo? _savedCulture, _savedUiCulture;
+
+            public Scope(CultureInfo culture, CultureInfo uiCulture)
+            {
+                if (ReferenceEquals(CultureInfo.CurrentCulture, culture) && ReferenceEquals(CultureInfo.CurrentUICulture, uiCulture)) return;
+                (_savedCulture, _savedUiCulture) = (CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+                CultureInfo.CurrentCulture = culture;
+                CultureInfo.CurrentUICulture = uiCulture;
+            }
+
+            public void Dispose()
+            {
+                if (_savedCulture is null) return;
+                CultureInfo.CurrentCulture = _savedCulture;
+                CultureInfo.CurrentUICulture = _savedUiCulture!;
+            }
+        }
+    }
 
     private static void CleanupTrampoline(nint userData)
     {
@@ -59,10 +92,12 @@ public readonly partial struct PolarsWrapper
     {
         unsafe
         {
+            CallerCulture caller = CallerCulture.Capture();
             NativeBindings.UdfCallback callback = (inArr, inSch, outArr, outSch, msgBuf) =>
             {
                 try
                 {
+                    using var culture = caller.Enter();
                     var array = ImportSingle(inArr, inSch);
                     var result = func(array);
                     ExportResult(result, outArr, outSch);
@@ -97,10 +132,12 @@ public readonly partial struct PolarsWrapper
     {
         unsafe
         {
+            CallerCulture caller = CallerCulture.Capture();
             NativeBindings.UdfCallback callback = (inArr, inSch, outArr, outSch, msgBuf) =>
             {
                 try
                 {
+                    using var culture = caller.Enter();
                     var array = ImportSingle(inArr, inSch);
                     var result = func(array);
                     ExportResult(result, outArr, outSch);
@@ -138,10 +175,12 @@ public readonly partial struct PolarsWrapper
     {
         unsafe
         {
+            CallerCulture caller = CallerCulture.Capture();
             NativeBindings.MultiUdfCallback callback = (n, arrs, schs, outArr, outSch, _, errorBuf, errorBufLen) =>
             {
                 try
                 {
+                    using var culture = caller.Enter();
                     var inputs = new List<IArrowArray>((int)n);
                     for (int i = 0; i < n; i++)
                         inputs.Add(ImportSingle(arrs[i], schs[i]));
@@ -187,10 +226,12 @@ public readonly partial struct PolarsWrapper
     {
         unsafe
         {
+            CallerCulture caller = CallerCulture.Capture();
             NativeBindings.MultiUdfCallback callback = (n, arrs, schs, outArr, outSch, _, errorBuf, errorBufLen) =>
             {
                 try
                 {
+                    using var culture = caller.Enter();
                     var inputs = new List<IArrowArray>((int)n);
                     for (int i = 0; i < n; i++)
                         inputs.Add(ImportSingle(arrs[i], schs[i]));

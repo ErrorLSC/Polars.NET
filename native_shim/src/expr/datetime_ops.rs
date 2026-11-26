@@ -27,7 +27,15 @@ gen_namespace_unary!(pl_expr_dt_month_start, dt, month_start);
 gen_namespace_unary!(pl_expr_dt_month_end, dt, month_end);
 gen_namespace_unary!(pl_expr_dt_base_utc_offset, dt, base_utc_offset);
 gen_namespace_unary!(pl_expr_dt_dst_offset, dt, dst_offset);
-gen_namespace_unary!(pl_expr_dt_datetime, dt, datetime);
+/// The local date-time without its time zone: Polars 2.x dropped `dt.datetime()` for `replace_time_zone(None)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dt_datetime(expr_ptr: *mut ExprContext) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let new_expr = ctx.inner.dt().replace_time_zone(None, lit("raise"), NonExistent::Raise);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 gen_namespace_unary!(pl_expr_dt_date, dt, date); // convert to Date
 gen_namespace_unary!(pl_expr_dt_time, dt, time); // convert to Time 
 
@@ -96,7 +104,21 @@ pub extern "C" fn pl_expr_dt_with_time_unit(
     let expr = unsafe { Box::from_raw(expr_ptr)};
     let time_unit = parse_timeunit(tu);
 
-    let new_expr = expr.inner.dt().with_time_unit(time_unit);
+    // Polars 2.x dropped `dt.with_time_unit`: the same integer value, read in the new unit (its recipe: cast to Int64,
+    // then to the type with the new unit).
+    let target = move |dtype: &DataType| -> PolarsResult<DataType> {
+        Ok(match dtype {
+            DataType::Datetime(_, tz) => DataType::Datetime(time_unit, tz.clone()),
+            DataType::Duration(_) => DataType::Duration(time_unit),
+            other => polars_bail!(InvalidOperation: "with_time_unit is for Datetime and Duration columns, not {}", other),
+        })
+    };
+    let function = move |c: Column| {
+        let to = target(c.dtype())?;
+        c.cast(&DataType::Int64)?.cast(&to)
+    };
+    let output_map = move |_schema: &Schema, field: &Field| Ok(Field::new(field.name().clone(), target(field.dtype())?));
+    let new_expr = expr.inner.map(function, output_map);
 
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }

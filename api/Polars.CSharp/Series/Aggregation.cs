@@ -177,7 +177,15 @@ public partial class Series : IDisposable
     /// Get the standard deviation of this Series.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
-    public T? Std<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Std(ddof));
+    /// <remarks>Of a Duration Series, a duration of the same unit (the deviation of its integer values, truncated).</remarks>
+    public T? Std<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(byte ddof = 1) where T : struct
+    {
+        // The engine has no deviation of a duration (Polars 2.x): taken of its integer values, truncated to the unit.
+        Expr std = DataType.Kind == DataTypeKind.Duration
+            ? Pl.Col(Name).Cast(DataType.Int64).Std(ddof).Cast(DataType.Int64).Cast(DataType)
+            : Pl.Col(Name).Std(ddof);
+        return ExtractScalar<T>(std);
+    }
     /// <summary>
     /// Get the variance of this Series.
     /// </summary>

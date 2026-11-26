@@ -47,12 +47,13 @@ module ExprComputaion =
             new Expr(PolarsWrapper.Entropy(this.CloneHandle(), bv, nor))
 
         /// <summary>
-        /// Hash the elements in the selection.The hash value is of type UInt64.
+        /// Hash the elements in the selection. The hash value is of type UInt64. Hash values are not stable across
+        /// Polars versions (they changed with Polars 2.x).
         /// </summary>
-        /// <param name="seed">Random seed parameter. Defaults to 0.</param>
-        /// <param name="seed1">Random seed parameter. Defaults to seed if not set.</param>
-        /// <param name="seed2">Random seed parameter. Defaults to seed if not set.</param>
-        /// <param name="seed3">Random seed parameter. Defaults to seed if not set.</param>
+        /// <param name="seed">The seed of the hash. Defaults to 0.</param>
+        /// <param name="seed1">Not used since Polars 2.x, which hashes with one seed; kept for compatibility.</param>
+        /// <param name="seed2">Not used since Polars 2.x; kept for compatibility.</param>
+        /// <param name="seed3">Not used since Polars 2.x; kept for compatibility.</param>
         member this.Hash(?seed, ?seed1, ?seed2, ?seed3) =
             let s0 = defaultArg seed 0UL
             let s1 = defaultArg seed1 s0

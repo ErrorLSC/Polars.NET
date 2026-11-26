@@ -34,7 +34,7 @@ pub extern "C" fn pl_dataframe_slice(
 ) -> *mut DataFrame {
     ffi_try!({
         let df = unsafe { &*df };
-        let result_df = df.slice(offset, length);
+        let result_df = df.slice((offset, length));
 
         Ok(Box::into_raw(Box::new(result_df)))
     })
@@ -122,7 +122,7 @@ pub extern "C" fn pl_dataframe_estimated_size(
         }
         let ctx = unsafe { &*ptr };
 
-        unsafe { *out_size = ctx.df.estimated_size() };
+        unsafe { *out_size = ctx.df.estimated_size(false) };
 
         Ok(())
     })
@@ -254,9 +254,7 @@ pub extern "C" fn pl_dataframe_rename_many(
             renames.push((old_str, PlSmallStr::from_str(&new_str)));
         }
 
-        let mut new_df = ctx.df.clone();
-
-        new_df.rename_many(renames.iter().map(|(old, new)| (old.as_str(), new.clone())))?;
+        let new_df = ctx.df.clone().rename_many(renames.iter().map(|(old, new)| (old.as_str(), new.clone())))?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
@@ -292,7 +290,7 @@ pub extern "C" fn pl_df_unique(
 
     // 3. Parse Slice
     let slice = if slice_valid != 0 {
-        Some((slice_offset, slice_len))
+        Slice::new(slice_offset, Some(slice_len))
     } else {
         None
     };
@@ -534,8 +532,8 @@ pub extern "C" fn pl_dataframe_pivot(
                 maintain_order,
                 separator,
                 column_naming_input,
-            )
-            .collect()?;
+            );
+        let new_df = crate::lazy::lazy::collect_eager(new_df, false)?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
@@ -1071,7 +1069,7 @@ pub extern "C" fn pl_dataframe_upsample(
         let time_column = ptr_to_str(time_column_ptr).unwrap_or("");
 
         let every_str = ptr_to_str(every_ptr).unwrap_or("1d");
-        let every = polars::time::Duration::parse(every_str);
+        let every = polars::prelude::Duration::parse(every_str);
 
         let by: Vec<PlSmallStr> = if group_by_ptr.is_null() || group_by_len == 0 {
             Vec::new()

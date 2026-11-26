@@ -91,8 +91,8 @@ public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
     /// <returns></returns>
     public DataFrame Last(bool ignoreNulls = false)
         => Agg(Pl.All().Last(ignoreNulls));
-    public DataFrame Head(int n = 10) => _lazyGrouped.Head(n).Collect();
-    public DataFrame Tail(int n = 10) => _lazyGrouped.Tail(n).Collect();
+    public DataFrame Head(int n = 10) => _lazyGrouped.Head(n).CollectEager();
+    public DataFrame Tail(int n = 10) => _lazyGrouped.Tail(n).CollectEager();
     /// <summary>
     /// Return the number of rows in each group.
     /// </summary>
@@ -152,7 +152,7 @@ public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
     /// <param name="aggs">Aggregation expressions</param>
     /// <returns>A new aggregated DataFrame</returns>
     public DataFrame Agg(params Expr[] aggs)
-        => _lazyGrouped.Agg(aggs).Collect();
+        => _lazyGrouped.Agg(aggs).CollectEager();
 
     private (DataFrame GroupsDf, string IndicesColName) BuildGroupsDataFrame()
     {
@@ -192,7 +192,7 @@ public class GroupByBuilder : IEnumerable<(object[] Key, DataFrame Group)>
 
         var groupsDf = newLazyGrouped
             .Agg(Pl.Col(rowIdxCol).Implode().Alias(tempCol))
-            .Collect();
+            .CollectEager();
 
         return (groupsDf, tempCol);
     }

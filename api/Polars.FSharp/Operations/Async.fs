@@ -183,7 +183,7 @@ module AsyncExtensions =
         /// </summary>
         /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
         /// <param name="engine">Execution engine selection.</param>
-        /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+        /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
         /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
         /// <returns>An asynchronous stream of DataFrame batches.</returns>
         member this.CollectBatchesAsync
@@ -192,7 +192,7 @@ module AsyncExtensions =
 
             let chunk = defaultArg chunkSize 0L
             let eng = defaultArg engine Engine.Auto
-            let order = defaultArg maintainOrder false
+            let order = defaultArg maintainOrder true
             let ct = defaultArg cancellationToken CancellationToken.None
 
             ct.ThrowIfCancellationRequested()
@@ -237,7 +237,7 @@ module AsyncExtensions =
         /// <typeparam name="'T">Target F# Record, Tuple, or DTO type.</typeparam>
         /// <param name="chunkSize">Maximum row count per native batch (0 uses Polars default batch size).</param>
         /// <param name="engine">Execution engine selection.</param>
-        /// <param name="maintainOrder">Whether to enforce deterministic row ordering across batches.</param>
+        /// <param name="maintainOrder">Whether the rows come in the query's order (the default, as Polars'); false lets the streaming engine hand out batches as they are done.</param>
         /// <param name="cancellationToken">Optional cooperative cancellation token.</param>
         /// <returns>An asynchronous stream of hydrated F# row items.</returns>
         member this.ToAsyncEnumerable<'T>

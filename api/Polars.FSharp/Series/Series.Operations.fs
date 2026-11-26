@@ -693,15 +693,13 @@ module SeriesOperationExtensions =
             this.ApplyExpr(Expr.Col(this.Name).BackwardFill(?limit = limit))
 
         /// <summary>
-        /// Get the k largest elements.
-        /// Result is sorted descending.
+        /// Get the k largest elements, in no particular order (sort the result to order it).
         /// </summary>
         member this.TopK(k: int) =
             this.ApplyExpr(Expr.Col(this.Name).TopK k)
 
         /// <summary>
-        /// Get the k smallest elements.
-        /// Result is sorted ascending.
+        /// Get the k smallest elements, in no particular order (sort the result to order it).
         /// </summary>
         member this.BottomK(k: int) =
             this.ApplyExpr(Expr.Col(this.Name).BottomK k)

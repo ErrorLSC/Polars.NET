@@ -360,7 +360,7 @@ David,40,80000";
                 Pl.Col("score") >= Pl.Col("pass_mark")  
             ],
             how: JoinType.Inner
-        ).Collect();
+        ).Sort("id").Collect(); // a join keeps no order unless asked (maintainOrder)
         
         // id=1 (50 >= 60) -> Discard
         // id=2 (80 >= 60) -> Keep

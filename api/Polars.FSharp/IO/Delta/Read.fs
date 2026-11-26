@@ -162,4 +162,4 @@ module DeltaRead =
                 ?rowCommitVersionColumn=rowCommitVersionColumn,
                 ?variantAsJson=variantAsJson
             )
-            lf.Collect()
+            lf.CollectEagerRead()

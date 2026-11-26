@@ -36,6 +36,8 @@ module ExprCastExtension =
         member this.Cast<'T>(?strict: bool, ?wrapNumerical: bool) =
             this.CastImpl(Dtype.NetType typeof<'T>, ?strict=strict, ?wrapNumerical=wrapNumerical)
         /// <summary>Cast expression to the polars datatype.</summary>
+        /// <remarks>Text does not cast to a date, a timestamp or a time of day: the engine refuses it (since Polars 2.0).
+        /// Parse the text with <c>Str.ToDate</c>, <c>Str.ToDatetime</c> or <c>Str.ToTime</c> instead, which also take a format.</remarks>
         member this.Cast(dtype:DataType,?strict:bool, ?wrapNumerical:bool) =
             this.CastImpl(Dtype.PlDataType dtype,?strict=strict, ?wrapNumerical=wrapNumerical)
         member this.Cast(dtype:DataTypeExpr,?strict:bool, ?wrapNumerical:bool) =
@@ -49,6 +51,8 @@ module SeriesCastExtension =
         /// <param name="dtype">The target type</param>
         /// <param name="strict">Throws an error if conversion had overflows.</param>
         /// <param name="wrapNumerical">Allows wrapping numerical overflow.</param>
+        /// <remarks>Text does not cast to a date, a timestamp or a time of day: the engine refuses it (since Polars 2.0).
+        /// Parse the text with <c>Str.ToDate</c>, <c>Str.ToDatetime</c> or <c>Str.ToTime</c> instead, which also take a format.</remarks>
         member this.Cast(dtype: DataType,?strict: bool, ?wrapNumerical: bool) : Series =
             use typeHandle = dtype.CreateHandle()
             let st = defaultArg strict true

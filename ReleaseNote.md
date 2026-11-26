@@ -2,6 +2,25 @@
 
 1.3.0 moves file formats off the engine onto Polars.NET's own managed implementations, in a new package, `Kaminari.Seseragi.Files` (referenced by `Polars.NET.Core`, usable on its own): Avro, Excel, Parquet, JSON and CSV, read and written as Apache Arrow record batches in native memory. Polars.NET's Avro, Excel, JSON and CSV functions now run on it; Delta tables write their data files and read their checkpoints with its Parquet reader and writer. The engine keeps computing the rows.
 
+## Engine: Polars 2.2
+
+The native library moves from Polars 0.55 to the Rust code of Python Polars 2.2.
+
+### Changed
+
+* Lazy queries (`LazyFrame.Collect` with `Engine.Auto`, LINQ, SQL) run on the streaming engine, as in Polars 2.x. The row order of an operation that does not promise one (`Join` without `maintainOrder`, `JoinWhere`, the rows `Merge` inserts) is no longer kept by chance: ask for it (`maintainOrder`, a sort). LINQ queries keep the order LINQ to Objects gives, as before.
+* The asynchronous streams of a query (`CollectBatchesAsync`, `ToBatchAsyncEnumerable`, `ToAsyncEnumerable<T>` and their `WithBackpressure` forms; F# alike) give the rows in the query's order by default (`maintainOrder = true`, Polars' default); `false` lets the streaming engine hand out batches as they are done.
+* A function given to `Expr.MapBatches` (one or several columns) is called with batches of the column on the streaming engine, not with the whole column: one whose result depends on the other rows belongs in `MapGroups`. The functions run in the culture (and UI culture) of the thread that built the expression, also on the engine's threads.
+* Expression arguments that are lists of values take a list: `Pl.Lit(values).Implode()` for `List.Gather`, `Str.ContainsAny`, `Str.ReplaceMany` and `Str.FindMany` (the overloads taking arrays, spans, series or dictionaries implode for you).
+* `Str.Zfill` counts characters and `Str.FindMany` gives character positions (both counted bytes).
+* Arithmetic between a number and a string (in `Fold`, for instance) is refused: cast one side first.
+* `Expr.Hash` hashes with one seed: `seed1` to `seed3` are accepted and ignored, and the hash values differ from earlier versions.
+* `Arr.ToStruct(names)` takes one name per element (missing names were filled as `field_{i}`); `Expr.Rechunk()` does nothing (Polars 2.x has no rechunk expression).
+* Eager `DataFrame` and `Series` methods (`Select`, `WithColumns`, `Filter`, `Join`, `GroupBy(...).Agg`, ...) and eager reads (`ReadParquet`, `ReadIpc`, `ReadDelta`) run on the in-memory engine, as Python Polars runs its eager methods; `Merge`, which builds a plan of several steps, runs on the default engine.
+* `ReadParquet` / `ScanParquet` (the engine's reader) take Parquet's own types over a conflicting Arrow schema stored in the file, as pyarrow does: nanoseconds a format 1.0 writer stored as microseconds read as microseconds, an unsigned integer stored as a plain INT64 reads as `Int64`. Seseragi.Files' Parquet reader follows the same rule (also: seconds stored as milliseconds read as milliseconds). The engine now reads files with INT96 timestamp column orders and concatenated gzip members, and refuses maps whose keys are optional.
+* `TopK` and `BottomK` give their values in no particular order, as Polars documents; sort the result to order it.
+* `Expr.Cast` and `Series.Cast` no longer turn text into `Date`, `Datetime` or `Time` (strict or not): the engine refuses it since Polars 2.0, with an error that names the fix. Parse the text with `Str.ToDate()`, `Str.ToDatetime()` or `Str.ToTime()`, which also take a format. LINQ queries and SQL `CAST` keep converting ISO 8601 text.
+
 ## LINQ provider: part of Polars.NET.Core
 
 The LINQ provider, written in F# as the separate package `Polars.NET.Linq`, is now C# inside `Polars.NET.Core`, which `Polars.CSharp` and `Polars.FSharp` already reference. Remove any `Polars.NET.Linq` package reference: the package is no longer published. The public API is unchanged (`AsQueryable` and the F# query support give the same `IQueryable<T>`), queries compile to the same plans and run as fast. The query compiler, `Kaminari.Samidare`, gains a public entry API for C# callers.

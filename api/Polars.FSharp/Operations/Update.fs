@@ -158,4 +158,4 @@ module UpdateOps =
                     ?includeNulls = includeNulls,
                     ?maintainOrder = maintainOrder
                 )
-                .Collect()
+                .CollectEager()

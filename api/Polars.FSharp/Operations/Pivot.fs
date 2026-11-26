@@ -305,7 +305,7 @@ module UnpivotOps =
         /// <param name="variableName">Name for the variable column (default: "variable")</param>
         /// <param name="valueName">Name for the value column (default: "value")</param>
         member this.Unpivot(index: Selector, on: Selector, ?variableName: string, ?valueName: string) : DataFrame =
-            this.Lazy().Unpivot(index, on, ?variableName = variableName, ?valueName = valueName).Collect()
+            this.Lazy().Unpivot(index, on, ?variableName = variableName, ?valueName = valueName).CollectEager()
 
         /// <summary>
         /// Unpivot (Melt) overload for simple string lists.

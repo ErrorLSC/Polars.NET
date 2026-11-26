@@ -508,9 +508,7 @@ module internal StringTemporalTranslator =
 
         | _ -> None
 
-    /// ISO 8601 date-times as .NET formats: a date, then a time after `T` or a space, seconds and their fraction optional.
-    let private isoDateTimeFormats =
-        [ "yyyy-MM-ddTHH:mm:ss.FFFFFFF"; "yyyy-MM-dd HH:mm:ss.FFFFFFF"; "yyyy-MM-ddTHH:mm"; "yyyy-MM-dd HH:mm"; "yyyy-MM-dd" ]
+    let private isoDateTimeFormats = ScalarExprOps.isoDateTimeFormats
 
     /// A Parse of the trimmed text by each ISO 8601 format exactly, else by `inferred` (the engine's parse of a format
     /// inferred from the column's first value). The engine applies an inferred format to every row, so the ISO forms,
@@ -555,7 +553,7 @@ module internal StringTemporalTranslator =
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<DateOnly> ->
             eval ctx strExpr
             |> Option.map (fun strS ->
-                isoParses ScalarFunction.StrToDate LogicalTypes.Date [ "yyyy-MM-dd" ] strS
+                isoParses ScalarFunction.StrToDate LogicalTypes.Date ScalarExprOps.isoDateFormats strS
                     (ScalarExpr.Function(ScalarFunction.StrToDate, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool false) ], LogicalTypes.Date)))
 
         | "ParseExact", strExpr :: formatExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
@@ -568,7 +566,7 @@ module internal StringTemporalTranslator =
         | "Parse", strExpr :: _ when isNull target && m.DeclaringType = typeof<TimeOnly> ->
             eval ctx strExpr
             |> Option.map (fun strS ->
-                isoParses ScalarFunction.StrToTime LogicalTypes.Time [ "HH:mm:ss.FFFFFFF"; "HH:mm" ] strS
+                isoParses ScalarFunction.StrToTime LogicalTypes.Time ScalarExprOps.isoTimeFormats strS
                     (ScalarExpr.Function(ScalarFunction.StrToTime, [ strS; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String); ScalarExpr.Literal(LiteralValue.Bool true) ], LogicalTypes.Time)))
 
         | "IsLeapYear", [ yearExpr ] when isNull target && m.DeclaringType = typeof<DateTime> ->

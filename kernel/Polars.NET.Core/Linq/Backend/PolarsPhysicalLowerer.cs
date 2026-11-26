@@ -301,6 +301,57 @@ internal static class PolarsPhysicalLowerer
     private const string RaisingPredicateColumn = "__polars_net_raising_predicate";
 
     /// <summary>
+    /// A cross join under a filter, which the engine runs as a join on the filter's conditions (an inequality join
+    /// among them, which keeps no order, and which a cross join required to keep its order would not become): the
+    /// pairs come out in LINQ's order, outer row then inner row, by both sides' row positions carried through the join
+    /// and sorted on afterwards.
+    /// </summary>
+    private static LazyFrameHandle LowerFilteredCrossJoin(LazyFrameHandle outer, LazyFrameHandle inner, LogicalPlan.Join cross, ScalarExpr predicate)
+    {
+        const string outerRow = "__cross_outer_row", innerRow = "__cross_inner_row";
+        var joined = PolarsWrapper.Join(
+            PolarsWrapper.LazyFrameWithRowIndex(outer, outerRow, 0),
+            PolarsWrapper.LazyFrameWithRowIndex(inner, innerRow, 0),
+            LowerAll(cross.leftOn),
+            LowerAll(cross.rightOn),
+            PolarsVocabulary.JoinType(cross.how),
+            cross.suffix.OrNull()!,
+            PlJoinValidation.ManyToMany,
+            PolarsVocabulary.JoinCoalesce(cross.coalesce),
+            PlJoinMaintainOrder.None,
+            PlJoinSide.None,
+            cross.nullsEqual,
+            null,
+            0UL);
+        var filtered = PolarsWrapper.LazyFilter(joined, PolarsScalarLowerer.Lower(predicate));
+        var ordered = PolarsWrapper.LazyFrameSort(
+            filtered, [PolarsWrapper.Col(outerRow), PolarsWrapper.Col(innerRow)], [false, false], [false, false], maintainOrder: false);
+        return PolarsWrapper.LazyFrameDrop(ordered, PolarsWrapper.SelectorCols([outerRow, innerRow]));
+    }
+
+    /// <summary>
+    /// An unpivot in the IR's order: one block per unpivoted column, in the order of the columns, each block in the
+    /// input's order. The streaming engine unpivots morsel by morsel (every column of one morsel before the next
+    /// morsel), so the rows are numbered first and sorted by their column's position, then their number.
+    /// </summary>
+    private static LazyFrameHandle LowerUnpivot(LazyFrameHandle input, LogicalPlan.Unpivot u)
+    {
+        const string row = "__unpivot_row";
+        string[] on = u.on.OrNull() is { IsEmpty: false } columns
+            ? [.. columns]
+            : [.. SchemaOfLazyFrame(input).Fields.Select(f => f.Name).Where(n => !u.index.Contains(n))];
+        var numbered = PolarsWrapper.LazyFrameWithRowIndex(input, row, 0);
+        var unpivoted = PolarsWrapper.LazyUnpivot(numbered, PolarsWrapper.SelectorCols([.. u.index, row]), PolarsWrapper.SelectorCols(on), u.variableName, u.valueName);
+        if (on.Length <= 1) return PolarsWrapper.LazyFrameDrop(unpivoted, PolarsWrapper.SelectorCols([row]));
+        // The position of the row's column: its name compared with each column's, the last one by elimination.
+        var position = PolarsWrapper.Lit(on.Length - 1);
+        for (int i = on.Length - 2; i >= 0; i--)
+            position = PolarsWrapper.IfElse(PolarsWrapper.Eq(PolarsWrapper.Col(u.variableName), PolarsWrapper.Lit(on[i])), PolarsWrapper.Lit(i), position);
+        var ordered = PolarsWrapper.LazyFrameSort(unpivoted, [position, PolarsWrapper.Col(row)], [false, false], [false, false], maintainOrder: false);
+        return PolarsWrapper.LazyFrameDrop(ordered, PolarsWrapper.SelectorCols([row]));
+    }
+
+    /// <summary>
     /// A filter whose predicate may fail the query (SEMANTICS.md, Exceptional cases): the engine pushes a predicate
     /// down and merges it with the filters beneath, which would evaluate it on rows they remove. Its conjuncts that
     /// cannot fail filter first, as usual, when the others read only their own row (one reading other rows, a window
@@ -365,6 +416,8 @@ internal static class PolarsPhysicalLowerer
 
             case LogicalPlan.Filter f when ScalarExprOps.raises(f.predicate):
                 return LowerRaisingFilter(Lower(f.input), f.predicate);
+            case LogicalPlan.Filter { input: LogicalPlan.Join { how.IsCross: true } cross } f:
+                return LowerFilteredCrossJoin(Lower(cross.left), Lower(cross.right), cross, f.predicate);
             case LogicalPlan.Filter f:
                 return PolarsWrapper.LazyFilter(Lower(f.input), PolarsScalarLowerer.Lower(f.predicate));
 
@@ -508,12 +561,7 @@ internal static class PolarsPhysicalLowerer
                 return PolarsWrapper.LazyExplode(Lower(e.input), PolarsWrapper.SelectorCols([.. e.columns]), e.emptyAsNull, e.keepNulls);
 
             case LogicalPlan.Unpivot u:
-            {
-                var lf = Lower(u.input);
-                var index = PolarsWrapper.SelectorCols([.. u.index]);
-                var on = u.on.OrNull() is { IsEmpty: false } columns ? PolarsWrapper.SelectorCols([.. columns]) : null;
-                return PolarsWrapper.LazyUnpivot(lf, index, on!, u.variableName, u.valueName);
-            }
+                return LowerUnpivot(Lower(u.input), u);
 
             case LogicalPlan.Union u:
             {

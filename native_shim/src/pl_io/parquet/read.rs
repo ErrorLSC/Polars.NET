@@ -131,6 +131,7 @@ fn table_scan(
         parallel: args.parallel,
         low_memory: args.low_memory,
         use_statistics: args.use_statistics,
+        decryption: None,
     };
     let unified_scan_args = UnifiedScanArgs {
         schema: None,
@@ -167,6 +168,7 @@ fn table_scan(
         deletion_files: None,
         table_statistics: None,
         row_count: None,
+        ..Default::default()
     };
     let mut lf: LazyFrame = DslBuilder::scan_parquet(sources, parquet_options, unified_scan_args)?.build().into();
     if let Some(row_index) = args.row_index {

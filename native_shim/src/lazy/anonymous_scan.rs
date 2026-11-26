@@ -295,13 +295,11 @@ impl Rewriter {
                 options: options.clone(),
                 apply: apply.clone(),
             }),
-            Join { input_left, input_right, left_on, right_on, predicates, options } => {
+            Join { input_left, input_right, condition, options } => {
                 two!(input_left, input_right, |input_left, input_right| Join {
                     input_left,
                     input_right,
-                    left_on: left_on.clone(),
-                    right_on: right_on.clone(),
-                    predicates: predicates.clone(),
+                    condition: condition.clone(),
                     options: options.clone(),
                 })
             },
@@ -340,21 +338,38 @@ impl Rewriter {
                 slice: *slice,
                 sort_options: sort_options.clone(),
             }),
-            Slice { input, offset, len } => one!(input, |input| Slice { input, offset: *offset, len: *len }),
+            Slice { input, slice } => one!(input, |input| Slice { input, slice: *slice }),
             MapFunction { input, function } => one!(input, |input| MapFunction { input, function: function.clone() }),
             Union { inputs, args } => self.vec(inputs)?.map(|inputs| Union { inputs, args: args.clone() }),
             HConcat { inputs, options } => self.vec(inputs)?.map(|inputs| HConcat { inputs, options: options.clone() }),
-            ExtContext { input, contexts } => {
-                let new_input = self.arc(input)?;
-                let new_contexts = self.vec(contexts)?;
-                if new_input.is_none() && new_contexts.is_none() {
-                    None
-                } else {
-                    Some(ExtContext {
-                        input: new_input.unwrap_or_else(|| input.clone()),
-                        contexts: new_contexts.unwrap_or_else(|| contexts.clone()),
-                    })
+            Recursive { anchor, step, id, round_local_caches } => two!(anchor, step, |anchor, step| Recursive {
+                anchor,
+                step,
+                id: *id,
+                round_local_caches: round_local_caches.clone(),
+            }),
+            WorkingTable { .. } => None,
+            // A SQL query resolved later: the relations and catalog tables it may read are plans of their own.
+            SQL { query, relations, catalog_tables, cached_stmt } => {
+                let mut changed = false;
+                let mut new_relations = Vec::with_capacity(relations.len());
+                for (name, relation) in relations {
+                    let rewritten = self.plan(relation)?;
+                    changed |= rewritten.is_some();
+                    new_relations.push((name.clone(), rewritten.unwrap_or_else(|| relation.clone())));
                 }
+                let mut new_tables = Vec::with_capacity(catalog_tables.len());
+                for (written, full, table) in catalog_tables {
+                    let rewritten = self.plan(table)?;
+                    changed |= rewritten.is_some();
+                    new_tables.push((written.clone(), full.clone(), rewritten.unwrap_or_else(|| table.clone())));
+                }
+                changed.then(|| SQL {
+                    query: query.clone(),
+                    relations: new_relations,
+                    catalog_tables: new_tables,
+                    cached_stmt: cached_stmt.clone(),
+                })
             },
             Sink { input, payload } => one!(input, |input| Sink { input, payload: payload.clone() }),
             SinkMultiple { inputs } => self.vec(inputs)?.map(|inputs| SinkMultiple { inputs }),
@@ -369,6 +384,8 @@ impl Rewriter {
             // A plan whose schema was read carries its converted IR; that IR still holds the anonymous scan, so drop
             // it and keep the rewritten DSL.
             IR { dsl, .. } => self.arc(dsl)?.map(|dsl| Arc::unwrap_or_clone(dsl)),
+            // A plan another runtime resolves (Python's): it holds no scan of ours.
+            Resolver { .. } => None,
         })
     }
 }

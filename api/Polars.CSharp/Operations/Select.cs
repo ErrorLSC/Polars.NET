@@ -119,7 +119,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// */
     /// </code>
     /// </example>
-    public DataFrame Select(params IntoExprColumn[] columns) => Lazy().Select(columns).Collect();
+    public DataFrame Select(params IntoExprColumn[] columns) => Lazy().Select(columns).CollectEager();
     /// <summary>
     /// Select columns by name (convenience overload).
     /// <para>
@@ -131,18 +131,18 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// <remarks>
     /// For more advanced selections (renaming, calculations), use <see cref="Select(IntoExprColumn[])"/>.
     /// </remarks>
-    public DataFrame Select(IEnumerable<string> columns) => Lazy().Select(columns).Collect();
+    public DataFrame Select(IEnumerable<string> columns) => Lazy().Select(columns).CollectEager();
     /// <summary>
     /// Select columns by name (convenience overload).
     /// </summary>
-    public DataFrame Select(params string[] columns) => Lazy().Select(columns).Collect();
+    public DataFrame Select(params string[] columns) => Lazy().Select(columns).CollectEager();
     /// <summary>
     /// Select columns by expressions (convenience overload).
     /// </summary>
-    public DataFrame Select(IEnumerable<Expr> exprs) => Lazy().Select(exprs).Collect();
+    public DataFrame Select(IEnumerable<Expr> exprs) => Lazy().Select(exprs).CollectEager();
     /// <summary>
     /// Bridge overload to support IEnumerable IntoExpr exprs.
     /// Usage: lf.Select(["Id", "Name", "Date"])
     /// </summary>
-    public DataFrame Select(params IEnumerable<IntoExprColumn> exprs) => Lazy().Select(exprs).Collect();
+    public DataFrame Select(params IEnumerable<IntoExprColumn> exprs) => Lazy().Select(exprs).CollectEager();
 }

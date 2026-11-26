@@ -314,7 +314,7 @@ module ParquetRead =
                     lf <- lf.Select [sel :> IColumnExpr]
             | None -> ()
 
-            lf.Collect()
+            lf.CollectEagerRead()
 
         // ---------------------------------------------------------
         // Read Parquet (Memory / Bytes)
@@ -376,7 +376,7 @@ module ParquetRead =
                     lf <- lf.Select [sel :> IColumnExpr]
             | None -> ()
 
-            lf.Collect()
+            lf.CollectEagerRead()
 
         // ---------------------------------------------------------
         // Read Parquet (Stream)

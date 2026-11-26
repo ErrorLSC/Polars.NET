@@ -130,48 +130,6 @@ internal readonly struct Int96Timestamp : IValueConverter<long>
     }
 }
 
-/// <summary>INT64 timestamps in another unit than the column's: multiplied (checked) or divided (exactly).</summary>
-internal readonly struct RescaledInt64 : IValueConverter<long>
-{
-    public static int Width(LeafType type) => 8;
-
-    public static void Convert(ReadOnlySpan<byte> plain, Span<long> destination, LeafType type)
-    {
-        ReadOnlySpan<long> values = MemoryMarshal.Cast<byte, long>(plain[..(destination.Length * 8)]);
-        for (int i = 0; i < destination.Length; i++)
-        {
-            long v = values[i];
-            if (type.Multiplier != 1)
-            {
-                long scaled = v * type.Multiplier;
-                if (scaled / type.Multiplier != v) throw new ParquetFormatException($"The timestamp {v} does not fit 64 bits in the column's {type.Unit} unit.");
-                v = scaled;
-            }
-            else if (v % type.Divisor != 0) throw new ParquetFormatException($"The timestamp {v} has a finer part than the column's {type.Unit} unit.");
-            else v /= type.Divisor;
-            destination[i] = v;
-        }
-    }
-}
-
-/// <summary>Unannotated INT64 narrowed to a smaller integer (the file's Arrow schema says so), checked.</summary>
-internal readonly struct NarrowInt64<T> : IValueConverter<T> where T : unmanaged, IBinaryInteger<T>, IMinMaxValue<T>
-{
-    public static int Width(LeafType type) => 8;
-
-    public static void Convert(ReadOnlySpan<byte> plain, Span<T> destination, LeafType type)
-    {
-        ReadOnlySpan<long> values = MemoryMarshal.Cast<byte, long>(plain[..(destination.Length * 8)]);
-        long min = long.CreateTruncating(T.MinValue), max = long.CreateTruncating(T.MaxValue);
-        for (int i = 0; i < destination.Length; i++)
-        {
-            long v = values[i];
-            if (v < min || v > max) throw new ParquetFormatException($"The value {v} does not fit the column's {type.ArrowType.Name} type.");
-            destination[i] = T.CreateTruncating(v);
-        }
-    }
-}
-
 /// <summary>A TIMESTAMP in FIXED_LEN_BYTE_ARRAY(12): a signed 96-bit little-endian count of units, narrowed to 64 bits.</summary>
 internal readonly struct WideTimestamp : IValueConverter<long>
 {

@@ -169,40 +169,40 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// Get the top k rows according to the given expressions.
     /// <para>This selects the largest values.</para>
     /// </summary>
-    public DataFrame TopK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().TopK(k, by, reverse).Collect();
+    public DataFrame TopK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().TopK(k, by, reverse).CollectEager();
 
     /// <summary>
     /// Get the top k rows according to a single expression.
     /// </summary>
-    public DataFrame TopK(int k, IntoExprColumn by, bool reverse = false) => Lazy().TopK(k, by, reverse).Collect();
+    public DataFrame TopK(int k, IntoExprColumn by, bool reverse = false) => Lazy().TopK(k, by, reverse).CollectEager();
     /// <summary>
     /// Master method: Get the top k rows by multiple Expressions with optional parallel boolean arrays.
     /// Usage: df.TopK(10, myColumns.Select(c => Pl.Col(c)))
     /// </summary>
-    public DataFrame TopK(int k, IEnumerable<string> colName, bool reverse = false) => Lazy().TopK(k, colName, reverse).Collect();
+    public DataFrame TopK(int k, IEnumerable<string> colName, bool reverse = false) => Lazy().TopK(k, colName, reverse).CollectEager();
     /// <summary>
     /// Get the top k rows with specific reverse directions using Tuples.
     /// Usage: df.TopK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
     /// </summary>
-    public DataFrame TopK(int k, params (IntoExprColumn By, bool Reverse)[] configs) => Lazy().TopK(k, configs).Collect();
+    public DataFrame TopK(int k, params (IntoExprColumn By, bool Reverse)[] configs) => Lazy().TopK(k, configs).CollectEager();
     /// <summary>
     /// Get the top k rows according to the given expressions.
     /// <para>This selects the largest values.</para>
     /// </summary>
-    public DataFrame BottomK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().BottomK(k, by, reverse).Collect();
+    public DataFrame BottomK(int k, IEnumerable<Expr> by, bool[] reverse) => Lazy().BottomK(k, by, reverse).CollectEager();
 
     /// <summary>
     /// Get the Bottom k rows according to a single expression.
     /// </summary>
-    public DataFrame BottomK(int k, IntoExprColumn by, bool reverse = false) => Lazy().BottomK(k, by, reverse).Collect();
+    public DataFrame BottomK(int k, IntoExprColumn by, bool reverse = false) => Lazy().BottomK(k, by, reverse).CollectEager();
     /// <summary>
     /// Master method: Get the Bottom k rows by multiple Expressions with optional parallel boolean arrays.
     /// Usage: df.BottomK(10, myColumns.Select(c => Pl.Col(c)))
     /// </summary>
-    public DataFrame BottomK(int k, IEnumerable<string> colName, bool reverse = false) => Lazy().BottomK(k, colName, reverse).Collect();
+    public DataFrame BottomK(int k, IEnumerable<string> colName, bool reverse = false) => Lazy().BottomK(k, colName, reverse).CollectEager();
     /// <summary>
     /// Get the Bottom k rows with specific reverse directions using Tuples.
     /// Usage: df.BottomK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
     /// </summary>
-    public DataFrame BottomK(int k, params (IntoExprColumn By, bool Reverse)[] configs) => Lazy().BottomK(k, configs).Collect();
+    public DataFrame BottomK(int k, params (IntoExprColumn By, bool Reverse)[] configs) => Lazy().BottomK(k, configs).CollectEager();
 }

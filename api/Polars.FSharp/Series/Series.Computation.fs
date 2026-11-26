@@ -64,7 +64,8 @@ module SeriesComputationOps =
             let no = defaultArg normalize true
             this.ExtractScalar<double>(fun () -> this.ApplyExpr(Expr.Col(this.Name).Entropy(ba, no)))
 
-        /// <summary> Compute the hash of the given Series. </summary>
+        /// <summary> Compute the hash of the given Series, with `seed` (Polars 2.x hashes with one seed: `seed1` to
+        /// `seed3` are not used, kept for compatibility). </summary>
         member this.Hash(?seed, ?seed1, ?seed2, ?seed3) =
             let s0 = defaultArg seed 0UL
             let s1 = defaultArg seed1 s0

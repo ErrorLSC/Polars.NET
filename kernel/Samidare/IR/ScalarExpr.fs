@@ -61,6 +61,37 @@ module ScalarExprOps =
     let checkedCast (target: LogicalType) (guard: ScalarExpr) (value: ScalarExpr) : ScalarExpr =
         ScalarExpr.Function(ScalarFunction.CheckedCast, [ value; guard ], target)
 
+    /// ISO 8601 date-times as .NET formats: a date, then a time after `T` or a space, seconds and their fraction optional.
+    let isoDateTimeFormats =
+        [ "yyyy-MM-ddTHH:mm:ss.FFFFFFF"; "yyyy-MM-dd HH:mm:ss.FFFFFFF"; "yyyy-MM-ddTHH:mm"; "yyyy-MM-dd HH:mm"; "yyyy-MM-dd" ]
+
+    /// ISO 8601 dates as .NET formats.
+    let isoDateFormats = [ "yyyy-MM-dd" ]
+
+    /// ISO 8601 times of day as .NET formats, seconds and their fraction optional.
+    let isoTimeFormats = [ "HH:mm:ss.FFFFFFF"; "HH:mm" ]
+
+    /// The text as `target` (a date, a timestamp or a time of day), read by the ISO 8601 forms of that type row by row
+    /// after trimming it, null where none matches: a non-strict Cast of text to a temporal type (SEMANTICS.md, Casts).
+    /// A timestamp is read as a naive one, then cast to the target's unit and time zone. None for any other target.
+    let isoTextAs (target: LogicalType) (text: ScalarExpr) : ScalarExpr option =
+        let trimmed = ScalarExpr.Function(ScalarFunction.Strip, [ text; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String) ], LogicalTypes.String)
+        let parses (parse: ScalarFunction) (resultType: LogicalType) (formats: string list) =
+            let exact (format: string) =
+                ScalarExpr.Function(parse, [ trimmed; ScalarExpr.Literal(LiteralValue.String format); ScalarExpr.Literal(LiteralValue.Bool true) ], resultType)
+            match formats with
+            | [ format ] -> exact format
+            | _ -> ScalarExpr.Coalesce(List.map exact formats)
+        match target with
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Date32Type) -> Some(parses ScalarFunction.StrToDate LogicalTypes.Date isoDateFormats)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Time64Type) ->
+            let time = parses ScalarFunction.StrToTime LogicalTypes.Time isoTimeFormats
+            Some(if target = LogicalTypes.Time then time else ScalarExpr.Cast(time, target, false))
+        | LogicalType.Arrow(:? Apache.Arrow.Types.TimestampType) ->
+            let naive = parses ScalarFunction.StrToDatetime LogicalTypes.Datetime isoDateTimeFormats
+            Some(if target = LogicalTypes.Datetime then naive else ScalarExpr.Cast(naive, target, false))
+        | _ -> None
+
     /// Strongly-typed, zero-boxing overloaded literal constructor via SRTP
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))

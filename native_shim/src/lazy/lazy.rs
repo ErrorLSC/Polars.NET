@@ -99,10 +99,9 @@ pub extern "C" fn pl_lazyframe_estimated_rows(
         let lf_ctx = unsafe { &*lf_ptr };
         let rows = match lf_ctx.inner.clone().to_alp() {
             Ok(plan) => match plan.lp_arena.get(plan.lp_top) {
-                polars_plan::plans::IR::Scan { file_info, .. }
-                    if file_info.row_estimation.1 != usize::MAX =>
-                {
-                    file_info.row_estimation.1 as i64
+                polars_plan::plans::IR::Scan { file_info, .. } => match file_info.stats.rows {
+                    polars_plan::plans::Card::Exact(rows) | polars_plan::plans::Card::Approx { value: rows, .. } => rows as i64,
+                    polars_plan::plans::Card::Unknown => -1,
                 },
                 polars_plan::plans::IR::DataFrameScan { df, .. } => df.height() as i64,
                 _ => -1,
@@ -158,10 +157,9 @@ pub extern "C" fn pl_lazyframe_parquet_int_range(
             match plan.lp_arena.get(plan.lp_top) {
                 polars_plan::plans::IR::Scan { sources, scan_type, .. } if sources.len() == 1 => {
                     match scan_type.as_ref() {
-                        polars_plan::dsl::FileScanIR::Parquet {
-                            first_metadata: Some(metadata),
-                            ..
-                        } => parquet_integer_range(metadata, &column),
+                        polars_plan::dsl::FileScanIR::Parquet { metadata_per_source, .. } => metadata_per_source
+                            .first_metadata()
+                            .and_then(|metadata| parquet_integer_range(metadata, &column)),
                         _ => None,
                     }
                 },
@@ -229,7 +227,7 @@ pub extern "C" fn pl_lazyframe_slice(
     ffi_try!({
         let ctx = unsafe { Box::from_raw(lf_ptr) };
         
-        let new_lf = ctx.inner.slice(offset, len);
+        let new_lf = ctx.inner.slice((offset, len as usize));
 
         Ok(Box::into_raw(Box::new(new_lf)))
     })
@@ -628,6 +626,29 @@ pub extern "C" fn pl_lazy_collect(
     })
 }
 
+/// The optimizations of an eager operation, as Python Polars' `QueryOptFlags._eager()`: no multi-node optimization,
+/// the EAGER flag (which keeps `Engine::Auto` in memory).
+const EAGER_OPT_FLAGS: OptFlags = OptFlags::from_bits_truncate(
+    OptFlags::TYPE_COERCION.bits() | OptFlags::TYPE_CHECK.bits() | OptFlags::SIMPLIFY_EXPR.bits() | OptFlags::EAGER.bits(),
+);
+
+/// Collects the plan of an eager operation in memory, as Python Polars' `_collect_eager`: with `optimize` the default
+/// optimizations (an eager read), else none (`EAGER_OPT_FLAGS`, a DataFrame or Series operation).
+pub(crate) fn collect_eager(lf: LazyFrame, optimize: bool) -> PolarsResult<DataFrame> {
+    let lf = if optimize { lf } else { lf.with_optimizations(EAGER_OPT_FLAGS) };
+    Ok(lf.collect_with_engine(Engine::InMemory)?.unwrap_single())
+}
+
+/// The DataFrame of an eager operation's plan (see collect_eager).
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_collect_eager(lf_ptr: *mut LazyFrameContext, optimize: bool) -> *mut DataFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let df = collect_eager(lf_ctx.inner, optimize)?;
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_collect_all(
     lfs_ptr: *const *mut LazyFrameContext, 
@@ -955,7 +976,7 @@ pub extern "C" fn pl_lazyframe_join(
         let slice = if slice_offset_ptr.is_null() {
             None
         } else {
-            Some((unsafe { *slice_offset_ptr }, slice_len))
+            Slice::new(unsafe { *slice_offset_ptr }, Some(slice_len))
         };
 
         // 4. Construct JoinArgs
@@ -972,7 +993,7 @@ pub extern "C" fn pl_lazyframe_join(
         
         let res_lf = left_ctx.inner.join(right_ctx.inner, left_on, right_on, args);
 
-        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: res_lf })))
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: res_lf? })))
     })
 }
 fn exprs_to_names(exprs: &[Expr]) -> PolarsResult<Vec<PlSmallStr>> {
@@ -1078,7 +1099,7 @@ pub extern "C" fn pl_lazyframe_join_asof(
         let slice = if slice_offset_ptr.is_null() {
             None
         } else {
-            Some((unsafe { *slice_offset_ptr }, slice_len))
+            Slice::new(unsafe { *slice_offset_ptr }, Some(slice_len))
         };
 
         let args = JoinArgs {
@@ -1094,7 +1115,7 @@ pub extern "C" fn pl_lazyframe_join_asof(
 
         let new_lf = left_ctx.inner.join(right_ctx.inner, left_on, right_on, args);
 
-        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf? })))
     })
 }
 

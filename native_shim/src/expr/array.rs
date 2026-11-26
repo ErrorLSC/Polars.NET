@@ -190,15 +190,9 @@ pub extern "C" fn pl_expr_array_to_struct(
                 }
             }
             
-        let cb = PlanCallback::new(move |i: usize| {
-                if i < names.len() {
-                    Ok(names[i].clone())
-                } else {
-                    Ok(format!("field_{i}"))
-                }
-            });
-            
-            Some(cb)
+            // Polars 2.x takes the field names themselves.
+            let fields: Vec<PlSmallStr> = names.into_iter().map(PlSmallStr::from).collect();
+            Some(fields.into())
         };
 
         let new_expr = ctx.inner.arr().to_struct(name_generator);

@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core.Exceptions;
@@ -15,7 +16,7 @@ public class PolarsException : Exception
     {
     }
 }
-internal static class ErrorHelper
+internal static partial class ErrorHelper
 {
     // =========================================================================
     // 0.Raw Pointer Check
@@ -180,6 +181,25 @@ internal static class ErrorHelper
         if (ManagedErrorRelay.TryTake(msg) is { } relayed)
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(relayed);
 
-        throw new PolarsException(msg);
+        throw new PolarsException(WithDotNetNames(msg));
     }
+
+    /// <summary>
+    /// The engine's message with the Python names of its hints replaced by the .NET ones. Polars 2.x refuses a cast of
+    /// text to a date, a timestamp or a time of day and names Python's <c>str.to_date()</c> &amp; co. as the fix.
+    /// </summary>
+    internal static string WithDotNetNames(string message) =>
+        message.Contains("`str.to_", StringComparison.Ordinal)
+            ? TextToTemporalHint().Replace(message, static m => m.Groups[2].Success
+                ? $"`Str.ToDatetime(timeZone: \"{m.Groups[2].Value}\")`"
+                : m.Groups[1].Value switch
+                {
+                    "date" => "`Str.ToDate()`",
+                    "time" => "`Str.ToTime()`",
+                    _ => "`Str.ToDatetime()`",
+                })
+            : message;
+
+    [GeneratedRegex("""`str\.to_(date|time|datetime)\((?:\.\.\., "time_zone=([^"]*)")?\)`""")]
+    private static partial Regex TextToTemporalHint();
 }

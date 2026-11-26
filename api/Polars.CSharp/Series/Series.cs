@@ -296,6 +296,11 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// </summary>
     /// <param name="dtype">The target type (can be Polars DataType or .NET Type)</param>
     /// <param name="strict">Throws an error if conversion had overflows.</param>
+    /// <remarks>
+    /// Text does not cast to a date, a timestamp or a time of day: the engine refuses it (since Polars 2.0). Parse the
+    /// text with <see cref="SeriesStrOps.ToDate"/>, <see cref="SeriesStrOps.ToDatetime"/> or <see cref="SeriesStrOps.ToTime"/> instead
+    /// (<c>Str.ToDate()</c> and so on), which also take a format.
+    /// </remarks>
     /// <param name="wrapNumerical">Allows wrapping numerical overflow.</param>
     public Series Cast(DataType dtype, bool strict = true, bool wrapNumerical = false)
     {
@@ -524,12 +529,12 @@ public partial class Series : IDisposable, IEquatable<Series>
     // Top-K & Bottom-K
     // ==========================================
     /// <summary>
-    /// Get the top k values.
+    /// Get the top k values, in no particular order (sort the result to order it).
     /// </summary>
     public Series TopK(int k) => ApplyExpr(Pl.Col(Name).TopK(k));
 
     /// <summary>
-    /// Get the bottom k values.
+    /// Get the bottom k values, in no particular order (sort the result to order it).
     /// </summary>
     public Series BottomK(int k) => ApplyExpr(Pl.Col(Name).BottomK(k));
     /// <summary>

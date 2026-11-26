@@ -65,10 +65,10 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
 {
     /// <inheritdoc cref="LazyFrame.Count"/>
     public DataFrame Count()
-        => Lazy().Count().Collect();
+        => Lazy().Count().CollectEager();
     /// <inheritdoc cref="LazyFrame.Sum"/>
     public DataFrame Sum()
-        => Lazy().Sum().Collect();
+        => Lazy().Sum().CollectEager();
     /// <inheritdoc cref="Pl.SumHorizontal(IntoExprColumn[])"/>
     public Series SumHorizontal(bool ignoreNulls = true) => Select(Pl.SumHorizontal(ignoreNulls, Pl.All()))[0].Rename("sum");
     /// <inheritdoc cref="Pl.MaxHorizontal(IntoExprColumn[])"/>
@@ -76,11 +76,11 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
 
     /// <inheritdoc cref="LazyFrame.Max"/>
     public DataFrame Max()
-        => Lazy().Max().Collect();
+        => Lazy().Max().CollectEager();
 
     /// <inheritdoc cref="LazyFrame.Min"/>
     public DataFrame Min()
-        => Lazy().Min().Collect();
+        => Lazy().Min().CollectEager();
 
 
     /// <inheritdoc cref="Pl.MinHorizontal(IntoExprColumn[])"/>
@@ -88,27 +88,27 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
 
     /// <inheritdoc cref="LazyFrame.Mean"/>
     public DataFrame Mean()
-        => Lazy().Mean().Collect();
+        => Lazy().Mean().CollectEager();
     /// <inheritdoc cref="Pl.MeanHorizontal(IntoExprColumn[])"/>
     public Series MeanHorizontal(bool ignoreNulls = true) => Select(Pl.MeanHorizontal(ignoreNulls, Pl.All()))[0].Rename("mean");
 
     /// <inheritdoc cref="LazyFrame.Median"/>
     public DataFrame Median()
-        => Lazy().Median().Collect();
+        => Lazy().Median().CollectEager();
 
     /// <inheritdoc cref="LazyFrame.NullCount"/>
     public DataFrame NullCount()
-        => Lazy().NullCount().Collect();
+        => Lazy().NullCount().CollectEager();
 
     /// <inheritdoc cref="LazyFrame.Std"/>
     public DataFrame Std(byte ddof = 1)
-        => Lazy().Std(ddof).Collect();
+        => Lazy().Std(ddof).CollectEager();
 
     /// <inheritdoc cref="LazyFrame.Var"/>
     public DataFrame Var(byte ddof = 1)
-        => Lazy().Var(ddof).Collect();
+        => Lazy().Var(ddof).CollectEager();
 
     /// <inheritdoc cref="LazyFrame.Quantile"/>
     public DataFrame Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
-        => Lazy().Quantile(quantile, method).Collect();
+        => Lazy().Quantile(quantile, method).CollectEager();
 }

@@ -81,9 +81,10 @@ public sealed class ParquetWriterTests : IDisposable
         for (int c = 0; c < batch.ColumnCount; c++)
             Assert.True(written[c].SequenceEqual(read[c]), $"seed {seed}: column {batch.Schema.FieldsList[c].Name} differs at row {written[c].Zip(read[c]).TakeWhile(p => p.First == p.Second).Count()}");
         Assert.Equal(batch.Schema.FieldsList.Select(f => f.Name), schema.FieldsList.Select(f => f.Name));
-        // What the stored Arrow schema restores: zone names, seconds, durations, string dictionaries.
+        // What the stored Arrow schema restores: zone names, durations, string dictionaries. Seconds, stored as
+        // milliseconds, read as milliseconds (the stored unit wins, as in pyarrow).
         Assert.Equal("Asia/Tokyo", ((TimestampType)schema.GetFieldByName("ts_us_tokyo").DataType).Timezone);
-        Assert.Equal(TimeUnit.Second, ((TimestampType)schema.GetFieldByName("ts_s").DataType).Unit);
+        Assert.Equal(TimeUnit.Millisecond, ((TimestampType)schema.GetFieldByName("ts_s").DataType).Unit);
         Assert.IsType<DurationType>(schema.GetFieldByName("dur_s").DataType);
         Assert.IsType<DictionaryType>(schema.GetFieldByName("dict_str").DataType);
         Assert.False(schema.GetFieldByName("req_i64").IsNullable);

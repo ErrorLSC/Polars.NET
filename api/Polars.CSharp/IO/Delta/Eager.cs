@@ -57,7 +57,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             variantAsJson
         );
 
-        return lf.Collect();
+        return lf.CollectEagerRead();
     }
 
     /// <summary>

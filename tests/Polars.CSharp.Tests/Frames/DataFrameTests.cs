@@ -2972,12 +2972,13 @@ public class DataFrameTests
     [Trait("DataFrame", "Fold")]
     public void Test_DataFrame_Fold_TypePromotion()
     {
-        // 1. Int8 + String → String
+        // 1. Int8 + String: refused since Polars 2.x (it concatenated the text); cast first.
         using var strDf = DataFrame.FromColumns(
             Series.From("int8", [1, 2]),
             Series.From("str", ["a", "b"])
         );
-        using var strResult = strDf.Fold((acc, col) => acc + col);
+        Assert.Contains("arithmetic on dtypes i32 and str is not allowed", Assert.Throws<PolarsException>(() => strDf.Fold((acc, col) => acc + col)).Message);
+        using var strResult = strDf.Fold((acc, col) => acc.Cast(DataType.String) + col);
 
         Assert.Equal(typeof(string), strResult.DataType);
         Assert.Equal("1a", strResult.GetValue<string>(0));

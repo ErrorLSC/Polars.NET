@@ -6,7 +6,8 @@ open Kaminari.Sazanami.Marshalling
 /// Resolves the expressions whose translation depends on the types of the columns they read: EnumConvert nodes,
 /// the mean of decimals (a decimal Sum / Count, as .NET's Average of decimals), the checked sums of integers
 /// (OverflowException, as .NET's Sum of int / long and Average of long), and the conversions between decimals and
-/// floating values (DecimalToFloating, FloatingToDecimal: .NET 11's, on every runtime).
+/// floating values (DecimalToFloating, FloatingToDecimal: .NET 11's, on every runtime), and the non-strict casts of
+/// text to a temporal type (read by the ISO 8601 forms, ScalarExprOps.isoTextAs).
 ///
 /// A .NET enum is stored as an engine Enum column (categories in underlying-value order), as a column of its member
 /// names (strings or a dictionary of strings: files, JSON, partition values, categoricals) or as an integer column of
@@ -457,6 +458,11 @@ module internal EnumResolution =
             | LogicalType.Arrow(:? Apache.Arrow.Types.FloatType | :? Apache.Arrow.Types.DoubleType),
               LogicalType.Arrow(:? Apache.Arrow.Types.Decimal128Type) ->
                 ScalarExpr.Function(ScalarFunction.FloatingToDecimal, [ inner' ], t)
+            // Text as a date, a timestamp or a time: read by the ISO 8601 forms (engines without a cast of text to a
+            // temporal type parse it).
+            | LogicalType.Arrow(:? Apache.Arrow.Types.StringViewType | :? Apache.Arrow.Types.StringType | :? Apache.Arrow.Types.LargeStringType), _
+                when not strict && (ScalarExprOps.isoTextAs t inner').IsSome ->
+                (ScalarExprOps.isoTextAs t inner').Value
             | _ -> ScalarExpr.Cast(inner', t, strict)
         // A checked sum resolved before (a plan resolved again under a scalar terminal).
         | ScalarExpr.Function(ScalarFunction.AssertCount check, _, _) when check.TooMany = overflow -> expr

@@ -46,7 +46,8 @@ public class SeriesListOpsTests
         using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [[10, 30], [40, 60], [70, 90]]
-        using Series gathered = listSeries.List.Gather(Pl.Lit([0, 2]));
+        // One list of indices for every row: a list literal (a flat column is refused since Polars 2.x).
+        using Series gathered = listSeries.List.Gather(Pl.Lit([0, 2]).Implode());
 
         Assert.Equal(DataType.List(DataType.Int32), gathered.DataType);
         

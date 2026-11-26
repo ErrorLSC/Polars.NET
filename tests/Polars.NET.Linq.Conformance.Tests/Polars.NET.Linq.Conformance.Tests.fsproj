@@ -25,6 +25,7 @@
     <Compile Include="SparkFunctionConformance.fs" />
     <Compile Include="SparkExpressionConformance.fs" />
     <Compile Include="RaisingRowsConformance.fs" />
+    <Compile Include="TextCastConformance.fs" />
   </ItemGroup>
 
   <ItemGroup>

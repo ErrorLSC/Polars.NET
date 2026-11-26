@@ -134,5 +134,5 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
         ExtraColumnsPolicy extraColumns = ExtraColumnsPolicy.Raise,
         MatchSchemaConfig? defaultConfig = null,
         IReadOnlyDictionary<string, MatchSchemaConfig>? columnOverrides = null)
-    => Lazy().MatchToSchema(schema, extraColumns, defaultConfig, columnOverrides).Collect();
+    => Lazy().MatchToSchema(schema, extraColumns, defaultConfig, columnOverrides).CollectEager();
 }

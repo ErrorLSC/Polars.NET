@@ -105,7 +105,8 @@ public sealed record ParquetWriteOptions
 
     /// <summary>
     /// Whether the Arrow schema is stored in the <c>ARROW:schema</c> key, so that Arrow readers restore what Parquet
-    /// cannot say: time zone names, durations, seconds, dictionary columns, large and view types, field metadata.
+    /// cannot say: time zone names, durations, INT96 units, dictionary columns, large and view types, field metadata.
+    /// A timestamp reads back in the unit it is stored in (seconds as milliseconds, see <see cref="TimestampUnit"/>).
     /// </summary>
     public bool StoreArrowSchema { get; init; } = true;
 

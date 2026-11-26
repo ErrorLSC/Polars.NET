@@ -179,7 +179,7 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
         JoinMaintainOrder maintainOrder = JoinMaintainOrder.Left)
     {
         using var right = other.Lazy();
-        return Lazy().Update(right, on, how, leftOn, rightOn, includeNulls, maintainOrder).Collect();
+        return Lazy().Update(right, on, how, leftOn, rightOn, includeNulls, maintainOrder).CollectEager();
     }
 }
 

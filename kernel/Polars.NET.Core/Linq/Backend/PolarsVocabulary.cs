@@ -123,15 +123,15 @@ internal static class PolarsVocabulary
     /// LINQ joins yield rows in outer order, and the matches of one outer row in inner order. A right join reaches the
     /// IR with its sides swapped, so this is also the right join's order. Semi and anti joins filter the left side and
     /// keep its order.
-    /// A cross join is left unconstrained: it is produced in outer-then-inner order anyway, and requiring the order
-    /// would stop Polars from rewriting a cross join filtered by inequalities into an IEJoin. Such a range join is
-    /// therefore the one join whose row order is not guaranteed.
+    /// A cross join keeps outer-then-inner order too (the streaming engine would not); a filtered one is lowered
+    /// unconstrained, so that the engine can run it as a join on the filter's conditions, and ordered afterwards (see
+    /// PolarsPhysicalLowerer.LowerFilteredCrossJoin).
     /// </summary>
     public static PlJoinMaintainOrder JoinMaintainOrder(JoinKind kind) => kind.Tag switch
     {
         JoinKind.Tags.Semi or JoinKind.Tags.Anti => PlJoinMaintainOrder.Left,
         JoinKind.Tags.Inner or JoinKind.Tags.Left or JoinKind.Tags.Full => PlJoinMaintainOrder.LeftRight,
-        JoinKind.Tags.Cross => PlJoinMaintainOrder.None,
+        JoinKind.Tags.Cross => PlJoinMaintainOrder.LeftRight,
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 

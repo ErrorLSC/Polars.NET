@@ -165,6 +165,7 @@ pub(crate) fn build_parquet_write_options(
         key_value_metadata: None, 
         arrow_schema: None,
         compat_level: compat_opt,
+        encryption: None,
     };
 
     Ok(Arc::new(options))

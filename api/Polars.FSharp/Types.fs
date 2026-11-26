@@ -1222,7 +1222,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary> Select columns using expressions. </summary>
     member this.Select(exprs: seq<Expr>) : DataFrame =
         let lf = this.Lazy().Select exprs
-        lf.Collect()
+        lf.CollectEager()
 
     member this.Select(selector: Selector) = this.Select [ selector.ToExpr() ]
 
@@ -1687,6 +1687,15 @@ and LazyFrame(handle: LazyFrameHandle) =
         let eng = defaultArg engine Engine.Auto
         let dfHandle = PolarsWrapper.LazyCollect(this.CloneHandle(), eng.ToNative())
         new DataFrame(dfHandle)
+
+    /// Collects the plan of a single-step eager DataFrame or Series operation in memory, without optimizations, as
+    /// Python Polars collects its eager methods.
+    member internal this.CollectEager() =
+        new DataFrame(PolarsWrapper.LazyCollectEager(this.CloneHandle(), false))
+
+    /// Collects the plan of an eager read in memory, with the optimizations, as Python Polars' eager reads.
+    member internal this.CollectEagerRead() =
+        new DataFrame(PolarsWrapper.LazyCollectEager(this.CloneHandle(), true))
 
     member this.CollectAsync(?engine: Engine, ?cancellationToken: CancellationToken) : Task<DataFrame> =
         let cct = defaultArg cancellationToken CancellationToken.None

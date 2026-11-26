@@ -16,5 +16,5 @@ public partial class DataFrame
     /// <summary>
     /// Reverse the DataFrame.
     /// </summary>
-    public DataFrame Reverse() => Lazy().Reverse().Collect();
+    public DataFrame Reverse() => Lazy().Reverse().CollectEager();
 }

@@ -245,7 +245,7 @@ module IPCRead =
                     lf <- lf.Select [sel :> IColumnExpr]
             | None -> ()
 
-            lf.Collect()
+            lf.CollectEagerRead()
 
         // ---------------------------------------------------------
         // Read IPC (Memory / Bytes)
@@ -299,7 +299,7 @@ module IPCRead =
                     lf <- lf.Select [sel :> IColumnExpr]
             | None -> ()
 
-            lf.Collect()
+            lf.CollectEagerRead()
 
         // ---------------------------------------------------------
         // Read IPC (Stream)

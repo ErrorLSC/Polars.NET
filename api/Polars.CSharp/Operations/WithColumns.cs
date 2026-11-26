@@ -93,19 +93,19 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// */
     /// </code>
     /// </example>
-    public DataFrame WithColumns(params IntoExprColumn[] exprs) => Lazy().WithColumns(exprs).Collect();
+    public DataFrame WithColumns(params IntoExprColumn[] exprs) => Lazy().WithColumns(exprs).CollectEager();
     /// <summary>
     /// Add or overwrite multiple columns from a collection of Expressions.
     /// </summary>
-    public DataFrame WithColumns(IEnumerable<Expr> exprs) => Lazy().WithColumns(exprs).Collect();
+    public DataFrame WithColumns(IEnumerable<Expr> exprs) => Lazy().WithColumns(exprs).CollectEager();
 
     /// <summary>
     /// Add or overwrite multiple columns from a collection of mixed IntoExpr types.
     /// </summary>
-    public DataFrame WithColumns(IEnumerable<IntoExprColumn> exprs) => Lazy().WithColumns(exprs).Collect();
+    public DataFrame WithColumns(IEnumerable<IntoExprColumn> exprs) => Lazy().WithColumns(exprs).CollectEager();
 
     /// <summary>
     /// Add or overwrite multiple columns from a collection of string column names.
     /// </summary>
-    public DataFrame WithColumns(IEnumerable<string> columns) => Lazy().WithColumns(columns).Collect();
+    public DataFrame WithColumns(IEnumerable<string> columns) => Lazy().WithColumns(columns).CollectEager();
 }

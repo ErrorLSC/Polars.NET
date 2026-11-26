@@ -374,11 +374,12 @@ public class SeriesStringOpsTests
 
         using Series findManySensitive = s.Str.FindMany(patterns, asciiCaseInsensitive: false);
 
-        Assert.Equal([7,null,null,0,15,null], findManySensitive.Explode().ToArray<uint?>());
+        // Positions are character offsets (since Polars 2.x; they were byte offsets): "bamboo" is the 10th character.
+        Assert.Equal([7,null,null,0,9,null], findManySensitive.Explode().ToArray<uint?>());
 
         using Series findManyInsensitive = s.Str.FindMany(patterns, asciiCaseInsensitive: true);
 
-        Assert.Equal([7,null,0,0,15,null], findManyInsensitive.Explode().ToArray<uint?>());
+        Assert.Equal([7,null,0,0,9,null], findManyInsensitive.Explode().ToArray<uint?>());
         
         string[] overlapData = ["ababc"];
         using Series sOverlap = Pl.CreateSeries("overlap", overlapData);
@@ -606,7 +607,8 @@ public class SeriesStringOpsTests
 
         using Series zfill = s.Str.Zfill(5);
 
-        Assert.Equal(["00001", "00042", "12345", "波拉熊"], zfill.ToArray<string>());
+        // The length is counted in characters (since Polars 2.x; it was bytes).
+        Assert.Equal(["00001", "00042", "12345", "00波拉熊"], zfill.ToArray<string>());
         Assert.Equal(DataType.String, zfill.DataType); 
 
         using Series padStart = s.Str.PadStart(5, "*");

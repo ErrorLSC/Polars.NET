@@ -1,7 +1,7 @@
 use std::ffi::{CStr, c_char, c_void};
 use polars::frame::UniqueKeepStrategy;
 use polars::prelude::{AsofStrategy, ClosedInterval, Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr, SchemaRef, TimeUnit};
-use polars::time::ClosedWindow;
+use polars::prelude::ClosedWindow;
 use polars_io::ExternalCompression;
 use polars_io::utils::sync_on_close::SyncOnCloseType;
 

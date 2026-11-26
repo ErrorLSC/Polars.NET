@@ -435,6 +435,30 @@ TooShort,1990-05-20,1.60";
         double v2 = floatCol.GetValue(1) ?? 0.0;
         Assert.Equal(20.0, v2);
     }
+
+    [Fact]
+    [Trait("Expr", "Cast")]
+    public void Cast_Text_To_Temporal_Is_Refused_Naming_The_DotNet_Parse_Methods()
+    {
+        using var df = DataFrame.FromSeries(Series.From("T", ["2024-01-02"]));
+
+        string Refusal(Action cast)
+        {
+            var e = Assert.Throws<PolarsException>(cast);
+            Assert.DoesNotContain("str.to_", e.Message);
+            return e.Message;
+        }
+
+        Assert.Contains("`Str.ToDate()`", Refusal(() => df.Select(Pl.Col("T").Cast(DataType.Date)).Dispose()));
+        Assert.Contains("`Str.ToDatetime()`", Refusal(() => df.Select(Pl.Col("T").Cast(DataType.Datetime(TimeUnit.Microseconds))).Dispose()));
+        Assert.Contains("`Str.ToDatetime(timeZone: \"Asia/Tokyo\")`",
+            Refusal(() => df.Select(Pl.Col("T").Cast(DataType.Datetime(TimeUnit.Microseconds, "Asia/Tokyo"), strict: false)).Dispose()));
+        Assert.Contains("`Str.ToTime()`", Refusal(() => df.Column("T").Cast(DataType.Time).Dispose()));
+
+        // The method the message names does the job.
+        using var parsed = df.Select(Pl.Col("T").Str.ToDate());
+        Assert.Equal(new DateOnly(2024, 1, 2), parsed.Column("T").GetValue<DateOnly>(0));
+    }
     // ==========================================
     // Control Flow: Pl.IfElse( (When/Then/Otherwise)
     // ==========================================

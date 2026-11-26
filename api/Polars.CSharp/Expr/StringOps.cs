@@ -145,10 +145,8 @@ public readonly struct StringOps
         string[] keys = [.. mapping.Keys];
         string[] values = [.. mapping.Values];
 
-        using var patSeries = Pl.CreateSeries("patterns", keys).Implode();
-        using var valSeries = Pl.CreateSeries("replacements", values).Implode();
-
-        return ReplaceMany(patSeries, valSeries, asciiCaseInsensitive, leftmost);
+        // Each a list literal: one list of patterns and one of replacements for every row.
+        return ReplaceMany(Pl.Lit(keys).Implode(), Pl.Lit(values).Implode(), asciiCaseInsensitive, leftmost);
     }
     /// <summary>
     /// Extract the first match of a regex pattern.

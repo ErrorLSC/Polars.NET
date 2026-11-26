@@ -183,6 +183,8 @@ unsafe internal partial class NativeBindings
         PlEngine engine
     );
     [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_lazy_collect_eager(LazyFrameHandle lf, [MarshalAs(UnmanagedType.U1)] bool optimize);
+    [LibraryImport(LibName)]
     public static partial int pl_lazy_collect_all(
         nint[] lfsPtr,
         nuint lfsLen,

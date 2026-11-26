@@ -109,18 +109,18 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>
     /// */
     /// </code>
     /// </example>
-    public DataFrame Filter(Expr expr) => Lazy().Filter(expr).Collect();
+    public DataFrame Filter(Expr expr) => Lazy().Filter(expr).CollectEager();
     /// <summary>
     ///  Filter rows based on a boolean series.
     /// </summary>
     /// <param name="series">A boolean series as mask</param>
     /// <returns></returns>
-    public DataFrame Filter(Series series) => Lazy().Filter(series).Collect();
+    public DataFrame Filter(Series series) => Lazy().Filter(series).CollectEager();
     /// <summary>
     /// Filter rows based on a boolean array.
     /// </summary>
     /// <param name="mask">A boolean IEnumerable as mask</param>
     /// <returns></returns>
-    public DataFrame Filter(IEnumerable<bool> mask) => Lazy().Filter(mask).Collect();
+    public DataFrame Filter(IEnumerable<bool> mask) => Lazy().Filter(mask).CollectEager();
 
 }
