@@ -27,9 +27,6 @@ namespace Polars.NET.Core.Delta;
 /// </summary>
 internal static class DeltaConstraintCheck
 {
-    /// <summary>The session time zone constraints read instants in (D2; a write option comes with S7e).</summary>
-    private const string SessionTimeZone = "UTC";
-
     /// <summary>
     /// The rows (table columns, logical names; consumed) filtered by a check of every constraint of the table, which
     /// passes every row and fails the query on the first violating one; the rows themselves when the table has none.
@@ -49,6 +46,24 @@ internal static class DeltaConstraintCheck
         return PolarsWrapper.LazyFilter(rows, passes!);
     }
 
+    /// <summary>
+    /// A new CHECK constraint bound over the table's columns, as a write will bind it: refused when it is not a
+    /// Boolean expression this kernel can enforce.
+    /// </summary>
+    /// <exception cref="PolarsException">The expression cannot be a CHECK constraint of the table.</exception>
+    public static BoundSparkExpression BindNew(DeltaStructType schema, string name, string expression)
+    {
+        (string, LogicalType)[] columns = [.. schema.Fields.Select(f => (f.Name, LogicalTypeOf(f.Type)))];
+        try
+        {
+            return SqlFrontend.BindSparkExpression(expression, [.. columns], SparkExpressionUse.Check, DeltaSession.TimeZone, DateTimeOffset.UtcNow);
+        }
+        catch (SqlException e)
+        {
+            throw new PolarsException($"The CHECK constraint '{name}' ({expression}) cannot be added: {e.Reason}", e);
+        }
+    }
+
     /// <summary>A Boolean expression true on every row, which fails the query on a row violating the constraint.</summary>
     private static ExprHandle Checked(DeltaConstraint constraint, (string, LogicalType)[] columns)
     {
@@ -56,7 +71,7 @@ internal static class DeltaConstraintCheck
         try
         {
             bound = SqlFrontend.BindSparkExpression(
-                constraint.Text, [.. columns], SparkExpressionUse.Check, SessionTimeZone, DateTimeOffset.UtcNow);
+                constraint.Text, [.. columns], SparkExpressionUse.Check, DeltaSession.TimeZone, DateTimeOffset.UtcNow);
         }
         catch (SqlException e)
         {

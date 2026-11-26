@@ -143,15 +143,56 @@ type DeltaIdentityColumn(column: string, ?start: int64, ?step: int64, ?generated
     member _.GeneratedAlways = defaultArg generatedAlways true
 
 /// <summary>
+/// A generated column to declare in Delta.CreateTable: its value is a Spark SQL expression over the row's other
+/// columns (Spark's GENERATED ALWAYS AS (…)). Writes compute it where the rows lack the column and check a value given
+/// for it; updates compute it again from the new values.
+/// </summary>
+/// <param name="column">A top-level column of the schema, not an identity column; it may be a partition column.</param>
+/// <param name="expression">The expression, as Spark writes it (CAST(ts AS DATE), upper(s)): deterministic, reading
+/// neither the column itself nor another generated column, of the column's type exactly.</param>
+type DeltaGeneratedColumn(column: string, expression: string) =
+    /// <summary>The column.</summary>
+    member _.Column = column
+    /// <summary>The generation expression.</summary>
+    member _.Expression = expression
+
+/// <summary>
+/// A column default to declare in Delta.CreateTable (or set with Delta.SetColumnDefault): the value a write gives the
+/// column where its rows lack it (Spark's DEFAULT …). A value given, null included, is kept.
+/// </summary>
+/// <param name="column">A top-level column of the schema, not a generated or an identity column.</param>
+/// <param name="expression">A constant Spark SQL expression (42, 'n/a', current_timestamp()) of a type Spark stores in
+/// the column, whose value fits it.</param>
+type DeltaColumnDefault(column: string, expression: string) =
+    /// <summary>The column.</summary>
+    member _.Column = column
+    /// <summary>The default.</summary>
+    member _.Expression = expression
+
+/// <summary>
 /// Methods for DeltaLake 
 /// </summary>
 type Delta =
 
     /// <summary>
+    /// The session time zone (Spark's spark.sql.session.timeZone): the zone the SQL expressions of check constraints,
+    /// column invariants, generated columns and column defaults read instants in, as Spark reads them in its
+    /// session's zone (CAST(ts AS DATE), hour(ts), current_date()). An IANA name such as America/Los_Angeles; UTC by
+    /// default. Set it to the zone of the Spark sessions that write the same tables, so both compute the same values.
+    /// Process-wide: each write reads it once, when it starts. Fails on a name that is not an IANA time zone this
+    /// machine knows.
+    /// </summary>
+    static member SessionTimeZone
+        with get () = PolarsWrapper.DeltaSessionTimeZone
+        and set (value: string) = PolarsWrapper.DeltaSessionTimeZone <- value
+
+    /// <summary>
     /// Creates an empty Delta table (version 0), as Spark's <c>CREATE TABLE</c>: the schema, partition columns,
-    /// table properties and identity columns given. Writes then append to it; identity columns get their values
-    /// generated (identity columns can only be declared when a table is created). Fails when a table exists at the
-    /// path, or when a declaration is not valid.
+    /// table properties, identity columns, generated columns and column defaults given. Writes then append to it;
+    /// identity columns get their values generated (identity columns can only be declared when a table is created),
+    /// generated columns are computed, columns with a default get it where the rows lack them; the features the
+    /// declarations need come into the protocol. Fails when a table exists at the path, or when a declaration is not
+    /// valid. CHECK constraints are added afterwards with Delta.AddConstraint (a delta.constraints.* property is refused).
     /// </summary>
     /// <param name="path">The table location: a local directory or a cloud URL.</param>
     /// <param name="schema">The columns of the table.</param>
@@ -159,6 +200,8 @@ type Delta =
     /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields, at most four), as Spark's CLUSTER BY: Delta.Optimize clusters the table's data by them. Cannot be combined with partitionBy; the columns must be of a type with statistics and among the columns that get them.</param>
     /// <param name="properties">Table properties, such as DeltaTableProperties.EnableRowTracking; the features they turn on come into the protocol.</param>
     /// <param name="identityColumns">Identity columns.</param>
+    /// <param name="generatedColumns">Generated columns, checked as Spark checks them (see DeltaGeneratedColumn).</param>
+    /// <param name="columnDefaults">Column defaults, checked as Spark checks them (see DeltaColumnDefault).</param>
     /// <param name="cloudOptions">Cloud storage configuration.</param>
     static member CreateTable(
         path: string,
@@ -167,10 +210,14 @@ type Delta =
         ?clusterBy: seq<string>,
         ?properties: seq<string * string>,
         ?identityColumns: seq<DeltaIdentityColumn>,
+        ?generatedColumns: seq<DeltaGeneratedColumn>,
+        ?columnDefaults: seq<DeltaColumnDefault>,
         ?cloudOptions: CloudOptions
     ) =
         let props = defaultArg properties Seq.empty |> Seq.toArray
         let identity = defaultArg identityColumns Seq.empty |> Seq.toArray
+        let generated = defaultArg generatedColumns Seq.empty |> Seq.toArray
+        let defaults = defaultArg columnDefaults Seq.empty |> Seq.toArray
         let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.DeltaCreateTable(
             path,
@@ -190,8 +237,62 @@ type Delta =
             cCache,
             cKeys,
             cVals,
-            (match clusterBy with Some c -> Seq.toArray c | None -> null)
+            (match clusterBy with Some c -> Seq.toArray c | None -> null),
+            (generated |> Array.map (fun c -> c.Column)),
+            (generated |> Array.map (fun c -> c.Expression)),
+            (defaults |> Array.map (fun c -> c.Column)),
+            (defaults |> Array.map (fun c -> c.Expression))
         )
+
+    /// <summary>
+    /// Adds a CHECK constraint, as Spark's ALTER TABLE … ADD CONSTRAINT: every row a write adds must then make the
+    /// expression true (false or null fails the write). The table's rows are checked first: when some violate it, it
+    /// is not added. One metadata commit, on the version checked (a concurrent write makes it check again); the
+    /// checkConstraints feature comes into the protocol. Timestamps are read in Delta.SessionTimeZone.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="name">The constraint's name, any case (kept lower-cased, as Spark keeps it); not one the table has.</param>
+    /// <param name="expression">A Boolean Spark SQL expression over the table's columns (a &gt; 0, length(s) &lt; 10 OR s IS NULL), deterministic, kept as written.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member AddConstraint(path: string, name: string, expression: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaAddConstraint(path, name, expression, cKeys, cVals)
+
+    /// <summary>
+    /// Drops a CHECK constraint, as Spark's ALTER TABLE … DROP CONSTRAINT: one metadata commit. The checkConstraints
+    /// feature stays (drop it with Delta.DropFeature once the table has no constraint).
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="name">The constraint's name, any case.</param>
+    /// <param name="ifExists">Skip a constraint the table does not have instead of failing (nothing is committed then).</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member DropConstraint(path: string, name: string, ?ifExists: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaDropConstraint(path, name, defaultArg ifExists false, cKeys, cVals)
+
+    /// <summary>
+    /// Sets the default of a column, as Spark's ALTER TABLE … ALTER COLUMN … SET DEFAULT: one metadata commit; rows
+    /// already written keep their values. The default is checked as one declared in Delta.CreateTable (see
+    /// DeltaColumnDefault); the allowColumnDefaults feature comes into the protocol when the table has none.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">A top-level column, any case; not a generated or an identity column.</param>
+    /// <param name="expression">A constant Spark SQL expression, kept as written.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member SetColumnDefault(path: string, column: string, expression: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaSetColumnDefault(path, column, expression, cKeys, cVals)
+
+    /// <summary>
+    /// Drops the default of a column, as Spark's ALTER TABLE … ALTER COLUMN … DROP DEFAULT: one metadata commit, none
+    /// when the column has no default.
+    /// </summary>
+    /// <param name="path">The table location: a local directory or a cloud URL.</param>
+    /// <param name="column">A top-level column, any case.</param>
+    /// <param name="cloudOptions">Cloud storage configuration.</param>
+    static member DropColumnDefault(path: string, column: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.DeltaDropColumnDefault(path, column, cKeys, cVals)
 
     /// <summary>
     /// Changes the liquid clustering columns of a table, as Spark's ALTER TABLE … CLUSTER BY (no columns: CLUSTER BY
@@ -1121,6 +1222,45 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     member this.SetCatalogColumnComment(catalogName: string, schemaName: string, tableName: string, column: string, comment: string, ?cloudOptions: CloudOptions) =
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
         PolarsWrapper.CatalogSetColumnComment(this.Handle, catalogName, schemaName, tableName, column, comment, keys, values)
+    /// <summary>Adds a CHECK constraint to a catalog table; see Delta.AddConstraint.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="name">The constraint's name.</param>
+    /// <param name="expression">A Boolean Spark SQL expression over the table's columns.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.AddCatalogConstraint(catalogName: string, schemaName: string, tableName: string, name: string, expression: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogAddConstraint(this.Handle, catalogName, schemaName, tableName, name, expression, keys, values)
+    /// <summary>Drops a CHECK constraint of a catalog table; see Delta.DropConstraint.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="name">The constraint's name.</param>
+    /// <param name="ifExists">Skip a constraint the table does not have instead of failing.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.DropCatalogConstraint(catalogName: string, schemaName: string, tableName: string, name: string, ?ifExists: bool, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogDropConstraint(this.Handle, catalogName, schemaName, tableName, name, defaultArg ifExists false, keys, values)
+    /// <summary>Sets the default of a column of a catalog table; see Delta.SetColumnDefault.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">A top-level column.</param>
+    /// <param name="expression">A constant Spark SQL expression.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.SetCatalogColumnDefault(catalogName: string, schemaName: string, tableName: string, column: string, expression: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogSetColumnDefault(this.Handle, catalogName, schemaName, tableName, column, expression, keys, values)
+    /// <summary>Drops the default of a column of a catalog table; see Delta.DropColumnDefault.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">A top-level column.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    member this.DropCatalogColumnDefault(catalogName: string, schemaName: string, tableName: string, column: string, ?cloudOptions: CloudOptions) =
+        let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
+        PolarsWrapper.CatalogDropColumnDefault(this.Handle, catalogName, schemaName, tableName, column, keys, values)
     /// <summary>Moves a column of a catalog table; see Delta.MoveColumn.</summary>
     /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
@@ -1205,6 +1345,8 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
     /// <param name="clusterBy">Liquid clustering columns of a managed table (see Delta.CreateTable).</param>
     /// <param name="properties">Table properties of a managed table. A property the catalog requires cannot be set to another value.</param>
     /// <param name="identityColumns">Identity columns of a managed table.</param>
+    /// <param name="generatedColumns">Generated columns of a managed table (see Delta.CreateTable).</param>
+    /// <param name="columnDefaults">Column defaults of a managed table (see Delta.CreateTable).</param>
     /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
     member this.CreateCatalogTable(
         catalogName: string,
@@ -1217,11 +1359,15 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         ?clusterBy: seq<string>,
         ?properties: seq<string * string>,
         ?identityColumns: seq<DeltaIdentityColumn>,
+        ?generatedColumns: seq<DeltaGeneratedColumn>,
+        ?columnDefaults: seq<DeltaColumnDefault>,
         ?cloudOptions: CloudOptions) =
 
         let actualTableType = defaultArg tableType CatalogTableType.Managed
         let props = defaultArg properties Seq.empty |> Seq.toArray
         let identity = defaultArg identityColumns Seq.empty |> Seq.toArray
+        let generated = defaultArg generatedColumns Seq.empty |> Seq.toArray
+        let defaults = defaultArg columnDefaults Seq.empty |> Seq.toArray
         let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
 
         PolarsWrapper.CreateCatalogTable(
@@ -1241,7 +1387,11 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             (identity |> Array.map (fun c -> c.Step)),
             (identity |> Array.map (fun c -> c.GeneratedAlways)),
             cKeys,
-            cVals
+            cVals,
+            (generated |> Array.map (fun c -> c.Column)),
+            (generated |> Array.map (fun c -> c.Expression)),
+            (defaults |> Array.map (fun c -> c.Column)),
+            (defaults |> Array.map (fun c -> c.Expression))
         )
 
     /// <summary>

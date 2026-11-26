@@ -482,6 +482,42 @@ public readonly partial struct PolarsWrapper
         DeltaSetColumnComment(access.Location, column, comment, cloudKeys, cloudValues);
     }
 
+    /// <summary>Adds a CHECK constraint to a catalog table.</summary>
+    public static void CatalogAddConstraint(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string name, string expression,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaAddConstraint(access.Location, name, expression, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Drops a CHECK constraint of a catalog table.</summary>
+    public static void CatalogDropConstraint(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string name, bool ifExists,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaDropConstraint(access.Location, name, ifExists, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Sets the default of a column of a catalog table.</summary>
+    public static void CatalogSetColumnDefault(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string expression,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaSetColumnDefault(access.Location, column, expression, cloudKeys, cloudValues);
+    }
+
+    /// <summary>Drops the default of a column of a catalog table.</summary>
+    public static void CatalogDropColumnDefault(
+        CatalogHandle handle, string catalogName, string schemaName, string tableName, string column,
+        string[]? cloudKeys, string[]? cloudValues)
+    {
+        using CatalogTable access = ResolveCatalogTable(handle, catalogName, schemaName, tableName, true, ref cloudKeys, ref cloudValues);
+        DeltaDropColumnDefault(access.Location, column, cloudKeys, cloudValues);
+    }
+
     /// <summary>Moves a column of a catalog table.</summary>
     public static void CatalogMoveColumn(
         CatalogHandle handle, string catalogName, string schemaName, string tableName, string column, string? after,
@@ -515,7 +551,11 @@ public readonly partial struct PolarsWrapper
         long[]? identitySteps = null,
         bool[]? identityGeneratedAlways = null,
         string[]? cloudKeys = null,
-        string[]? cloudValues = null
+        string[]? cloudValues = null,
+        string[]? generatedColumns = null,
+        string[]? generationExpressions = null,
+        string[]? defaultColumns = null,
+        string[]? defaultExpressions = null
     )
     {
         ArgumentNullException.ThrowIfNull(handle);
@@ -529,13 +569,15 @@ public readonly partial struct PolarsWrapper
             CreateManagedTable(
                 handle, catalogName, schemaName, tableName, Delta.DeltaKernelWrite.SchemaOf(empty),
                 partitionBy is { Length: > 0 } ? partitionBy : null, clusterBy is { Length: > 0 } ? clusterBy : null,
-                properties, identity, cloudKeys, cloudValues);
+                properties, identity, GeneratedColumns(generatedColumns, generationExpressions), ColumnDefaults(defaultColumns, defaultExpressions),
+                cloudKeys, cloudValues);
             return;
         }
         if (tableType != PlCatalogTableType.External) throw new PolarsException("Invalid table_type");
-        if (partitionBy is { Length: > 0 } || clusterBy is { Length: > 0 } || propertyKeys is { Length: > 0 } || identityColumns is { Length: > 0 })
+        if (partitionBy is { Length: > 0 } || clusterBy is { Length: > 0 } || propertyKeys is { Length: > 0 } || identityColumns is { Length: > 0 }
+            || generatedColumns is { Length: > 0 } || defaultColumns is { Length: > 0 })
             throw new PolarsException(
-                "Partitioning, clustering, properties and identity columns are declared when a managed table is created; " +
+                "Partitioning, clustering, properties, identity and generated columns and column defaults are declared when a managed table is created; " +
                 "for an external table, create the Delta table at its location (Delta.CreateTable), then register it.");
 
         ulong len = GetSchemaLen(schema);
@@ -575,6 +617,7 @@ public readonly partial struct PolarsWrapper
     private static void CreateManagedTable(
         CatalogHandle handle, string catalogName, string schemaName, string tableName, Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType schema,
         string[]? partitionBy, string[]? clusterBy, Dictionary<string, string>? properties, List<Delta.KernelIdentityColumn> identity,
+        List<Kaminari.Seseragi.Lakehouse.Delta.DeltaGeneratedColumn> generated, List<Kaminari.Seseragi.Lakehouse.Delta.DeltaColumnDefault> defaults,
         string[]? cloudKeys, string[]? cloudValues)
     {
         try
@@ -588,7 +631,7 @@ public readonly partial struct PolarsWrapper
         }
         StagedTable staged = StageManagedTable(handle, catalogName, schemaName, tableName, properties, cloudKeys, cloudValues);
         Delta.DeltaKernelCreate.CreateCatalogManaged(
-            staged.Staging.Location, schema, partitionBy, staged.Configuration, identity, staged.Cloud, clusterBy, staged.Features);
+            staged.Staging.Location, schema, partitionBy, staged.Configuration, identity, staged.Cloud, clusterBy, staged.Features, generated, defaults);
         RegisterManagedTable(handle, catalogName, schemaName, tableName, staged);
     }
 

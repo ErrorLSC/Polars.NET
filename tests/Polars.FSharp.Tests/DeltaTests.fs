@@ -277,6 +277,36 @@ let ``Delta CreateTable declares identity columns and ScanDelta returns row ids`
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Delta declarations: generated columns, defaults and CHECK constraints`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_declare_{Guid.NewGuid()}")
+    try
+        let schema = new PolarsSchema([ "id", DataType.Int32; "a", DataType.Int32; "g", DataType.Int32 ])
+        Delta.CreateTable(
+            path, schema,
+            generatedColumns = [ DeltaGeneratedColumn("g", "a * 2") ],
+            columnDefaults = [ DeltaColumnDefault("a", "5") ])
+        DataFrame.create [| Series.create("id", [ 1 ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+        Delta.AddConstraint(path, "positive", "a > 0")
+        Delta.SetColumnDefault(path, "a", "7")
+        DataFrame.create [| Series.create("id", [ 2 ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+        Assert.ThrowsAny<exn>(fun () ->
+            DataFrame.create [| Series.create("id", [ 3 ]); Series.create("a", [ -1 ]) |] |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append))
+        |> ignore
+        Delta.DropConstraint(path, "POSITIVE")
+        Delta.DropConstraint(path, "positive", ifExists = true)
+        Delta.DropColumnDefault(path, "a")
+
+        let read = DataFrame.ReadDelta(path).Sort("id")
+        Assert.Equal<int list>([ 5; 7 ], read.["a"].ToArray<int>() |> List.ofArray)
+        Assert.Equal<int list>([ 10; 14 ], read.["g"].ToArray<int>() |> List.ofArray)
+        let operations = Delta.History(path).["operation"].ToArray<string>() |> List.ofArray
+        Assert.Equal<string list>(
+            [ "CHANGE COLUMN"; "DROP CONSTRAINT"; "WRITE"; "CHANGE COLUMN"; "ADD CONSTRAINT"; "WRITE"; "CREATE TABLE" ], operations)
+        Assert.Equal("UTC", Delta.SessionTimeZone)
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the data`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_columns_{Guid.NewGuid()}")
     try

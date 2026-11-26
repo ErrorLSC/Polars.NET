@@ -271,6 +271,61 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         PolarsWrapper.CatalogSetColumnComment(Handle, catalogName, schemaName, tableName, column, comment, keys, values);
     }
+    /// <summary>Adds a CHECK constraint to a catalog table; see <see cref="Delta.AddConstraint"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="name">The constraint's name.</param>
+    /// <param name="expression">A Boolean Spark SQL expression over the table's columns.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void AddCatalogConstraint(
+        string catalogName, string schemaName, string tableName, string name, string expression, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(expression);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogAddConstraint(Handle, catalogName, schemaName, tableName, name, expression, keys, values);
+    }
+    /// <summary>Drops a CHECK constraint of a catalog table; see <see cref="Delta.DropConstraint"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="name">The constraint's name.</param>
+    /// <param name="ifExists">Skip a constraint the table does not have instead of failing.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void DropCatalogConstraint(
+        string catalogName, string schemaName, string tableName, string name, bool ifExists = false, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogDropConstraint(Handle, catalogName, schemaName, tableName, name, ifExists, keys, values);
+    }
+    /// <summary>Sets the default of a column of a catalog table; see <see cref="Delta.SetColumnDefault"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">A top-level column.</param>
+    /// <param name="expression">A constant Spark SQL expression.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void SetCatalogColumnDefault(
+        string catalogName, string schemaName, string tableName, string column, string expression, CloudOptions? cloudOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(expression);
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogSetColumnDefault(Handle, catalogName, schemaName, tableName, column, expression, keys, values);
+    }
+    /// <summary>Drops the default of a column of a catalog table; see <see cref="Delta.DropColumnDefault"/>.</summary>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="column">A top-level column.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
+    public void DropCatalogColumnDefault(
+        string catalogName, string schemaName, string tableName, string column, CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        PolarsWrapper.CatalogDropColumnDefault(Handle, catalogName, schemaName, tableName, column, keys, values);
+    }
     /// <summary>Moves a column of a catalog table; see <see cref="Delta.MoveColumn"/>.</summary>
     /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
@@ -308,6 +363,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="properties">Table properties of a managed table. A property the catalog requires cannot be set to
     /// another value.</param>
     /// <param name="identityColumns">Identity columns of a managed table.</param>
+    /// <param name="generatedColumns">Generated columns of a managed table (see <see cref="Delta.CreateTable"/>).</param>
+    /// <param name="columnDefaults">Column defaults of a managed table (see <see cref="Delta.CreateTable"/>).</param>
     /// <param name="cloudOptions">Cloud-specific configurations, laid under the credentials the catalog vends.</param>
     /// <remarks>Fails when the table exists, or when a declaration is not valid.</remarks>
     public void CreateCatalogTable(
@@ -321,9 +378,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         IEnumerable<string>? clusterBy = null,
         Dictionary<string, string>? properties = null,
         IEnumerable<DeltaIdentityColumn>? identityColumns = null,
+        IEnumerable<DeltaGeneratedColumn>? generatedColumns = null,
+        IEnumerable<DeltaColumnDefault>? columnDefaults = null,
         CloudOptions? cloudOptions = null)
     {
         DeltaIdentityColumn[] identity = identityColumns?.ToArray() ?? [];
+        DeltaGeneratedColumn[] generated = generatedColumns?.ToArray() ?? [];
+        DeltaColumnDefault[] defaults = columnDefaults?.ToArray() ?? [];
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
         // The schema is borrowed: only one made from a dictionary, names etc. is disposed afterwards.
         try
@@ -345,7 +406,11 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
                 [.. identity.Select(c => c.Step)],
                 [.. identity.Select(c => c.GeneratedAlways)],
                 keys,
-                values);
+                values,
+                [.. generated.Select(c => c.Column)],
+                [.. generated.Select(c => c.Expression)],
+                [.. defaults.Select(c => c.Column)],
+                [.. defaults.Select(c => c.Expression)]);
         }
         finally
         {

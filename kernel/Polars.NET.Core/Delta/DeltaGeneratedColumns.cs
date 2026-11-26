@@ -16,9 +16,6 @@ namespace Polars.NET.Core.Delta;
 /// </summary>
 internal sealed class DeltaGeneratedColumns
 {
-    /// <summary>The session time zone generation expressions read instants in (D2; a write option comes with S7e).</summary>
-    private const string SessionTimeZone = "UTC";
-
     private readonly (string Column, ScalarExpr Value, DeltaType Type)[] _columns;
 
     private DeltaGeneratedColumns((string, ScalarExpr, DeltaType)[] columns) => _columns = columns;
@@ -30,9 +27,12 @@ internal sealed class DeltaGeneratedColumns
     public IEnumerable<string> Names => _columns.Select(c => c.Column);
 
     /// <summary>The table's generated columns, bound over its columns with Spark's semantics.</summary>
+    /// <param name="schema">The table's columns.</param>
+    /// <param name="declaring">The columns are being declared (a table created with them): a refusal says the
+    /// expression is not valid rather than that this kernel cannot compute it.</param>
     /// <exception cref="DeltaProtocolException">A generation expression is not one this kernel can compute: an
-    /// expression the binder refuses, one reading another generated column, or one whose type is not the column's.</exception>
-    public static DeltaGeneratedColumns Of(StructType schema)
+    /// expression the binder refuses, one reading itself or another generated column, or one whose type is not the column's.</exception>
+    public static DeltaGeneratedColumns Of(StructType schema, bool declaring = false)
     {
         IReadOnlyList<DeltaGeneratedColumn> generated = Constraints.GeneratedColumns(schema);
         if (generated.Count == 0) return new DeltaGeneratedColumns([]);
@@ -41,17 +41,21 @@ internal sealed class DeltaGeneratedColumns
         var bound = new List<(string, ScalarExpr, DeltaType)>(generated.Count);
         foreach (DeltaGeneratedColumn column in generated)
         {
-            string Refused(string why) => $"The generated column {column.Column} ({column.Expression}) cannot be computed by this kernel: {why}";
+            string Refused(string why) => declaring
+                ? $"The generated column {column.Column} ({column.Expression}) is not valid: {why}"
+                : $"The generated column {column.Column} ({column.Expression}) cannot be computed by this kernel: {why}";
             BoundSparkExpression value;
             try
             {
                 value = SqlFrontend.BindSparkExpression(
-                    column.Expression, [.. columns], SparkExpressionUse.Generated, SessionTimeZone, DateTimeOffset.UtcNow);
+                    column.Expression, [.. columns], SparkExpressionUse.Generated, DeltaSession.TimeZone, DateTimeOffset.UtcNow);
             }
             catch (SqlException e)
             {
                 throw new DeltaProtocolException(Refused(e.Reason));
             }
+            if (value.Columns.Contains(column.Column, StringComparer.Ordinal))
+                throw new DeltaProtocolException(Refused("it reads the column itself."));
             if (value.Columns.FirstOrDefault(names.Contains) is { } other)
                 throw new DeltaProtocolException(Refused($"it reads the generated column {other}."));
             DeltaType type = schema.Field(column.Column)!.Type;

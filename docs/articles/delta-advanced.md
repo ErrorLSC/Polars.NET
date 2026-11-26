@@ -1,6 +1,6 @@
 # Delta Lake: Advanced Table Features
 
-The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, column changes, dropping table features, and variant columns. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them (variant tables are read only). What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
+The table features beyond reading, writing and maintaining a table (see [Delta Lake & Modern Lakehouse Storage](/articles/delta)): identity columns and row tracking, liquid clustering, column changes, check constraints, generated columns and column defaults, dropping table features, and variant columns. Each follows delta-spark 4.4 (Spark 4.2), and tables Spark or Databricks created with these features are read and written as Spark reads and writes them (variant tables are read only). What is not supported yet is listed in [Compatibility & Known Limitations](/articles/delta-limitations).
 
 ---
 
@@ -131,7 +131,59 @@ Delta.Vacuum("./lake/orders", retentionHours = 168) |> ignore
 
 :::
 
-## 4. Dropping Table Features
+## 4. Check Constraints, Generated Columns and Column Defaults
+
+Tables hold Spark SQL expressions that every write applies, as Spark applies them: check constraints and column invariants every added row must make true, generated columns computed from the row's other columns, and column defaults for the columns the rows lack. Polars.NET evaluates them with Spark 4's semantics (see [Compatibility & Known Limitations](/articles/delta-limitations) for the functions covered), on appends, merges, updates and optimize, and declares them as Spark does:
+
+* `Delta.AddConstraint` (`ALTER TABLE … ADD CONSTRAINT … CHECK`) checks the table's rows first: when some make the expression false or null, it names how many and adds nothing. The name is kept lower-cased, as Spark keeps it, and the expression as written. `Delta.DropConstraint` drops one (`ifExists` skips a missing one); the `checkConstraints` feature stays until `Delta.DropFeature` drops it. A `delta.constraints.*` table property is refused: constraints are added only this way, so they are always checked.
+* `CreateTable` declares generated columns (`DeltaGeneratedColumn`, Spark's `GENERATED ALWAYS AS`) and column defaults (`DeltaColumnDefault`, Spark's `DEFAULT`). A generation expression must be deterministic, of the column's type, and read neither the column itself nor another generated column (an identity column is fine); a generated column may be a partition column. A default must be a constant (`current_timestamp()` counts: one instant per write) of a type Spark stores in the column, whose value fits it. Writes compute a generated column the rows lack and check one they bring; an update computes it again from the new values.
+* `Delta.SetColumnDefault` / `Delta.DropColumnDefault` (`ALTER COLUMN … SET` / `DROP DEFAULT`) change a column's default; rows already written keep their values. Generated and identity columns take no default.
+* The features the declarations need (`checkConstraints`, `generatedColumns`, `allowColumnDefaults`) come into the protocol by themselves.
+* `Delta.SessionTimeZone` is the zone the expressions read instants in, as Spark's session time zone (`CAST(ts AS DATE)`, `hour(ts)`, `current_date()`): UTC by default. Set it, once for the process, to the zone of the Spark sessions writing the same tables, so both compute the same values.
+* Unity Catalog: `AddCatalogConstraint`, `DropCatalogConstraint`, `SetCatalogColumnDefault`, `DropCatalogColumnDefault`, and the same parameters on `CreateCatalogTable`.
+
+::: code-group
+
+```csharp [C# (Fluent)]
+Delta.CreateTable(
+    "./lake/events",
+    PolarsSchema.From<Event>(),
+    partitionBy: ["Day"],
+    generatedColumns: [new DeltaGeneratedColumn("Day", "CAST(At AS DATE)")],
+    columnDefaults: [new DeltaColumnDefault("Source", "'web'")]);
+
+Delta.AddConstraint("./lake/events", "positive_amount", "Amount > 0");
+
+// Day is computed, Source defaults to 'web'; a row with Amount <= 0 fails the write.
+using var rows = DataFrame.From<NewEvent>([new(1, DateTimeOffset.UtcNow, 9.5m)]);
+rows.WriteDelta("./lake/events", mode: DeltaSaveMode.Append);
+
+Delta.SetColumnDefault("./lake/events", "Source", "'app'");
+Delta.DropConstraint("./lake/events", "positive_amount");
+
+record Event(long Id, DateTimeOffset At, decimal Amount, string Source, DateOnly Day);
+record NewEvent(long Id, DateTimeOffset At, decimal Amount);
+```
+
+```fsharp [F# (Pipeline)]
+Delta.CreateTable(
+    "./lake/events",
+    PolarsSchema([ "id", DataType.Int64; "at", DataType.Datetime(TimeUnit.Microseconds, "UTC"); "amount", DataType.Float64
+                   "source", DataType.String; "day", DataType.Date ]),
+    partitionBy = [ "day" ],
+    generatedColumns = [ DeltaGeneratedColumn("day", "CAST(at AS DATE)") ],
+    columnDefaults = [ DeltaColumnDefault("source", "'web'") ])
+
+Delta.AddConstraint("./lake/events", "positive_amount", "amount > 0")
+Delta.SetColumnDefault("./lake/events", "source", "'app'")
+Delta.DropConstraint("./lake/events", "positive_amount")
+```
+
+:::
+
+---
+
+## 5. Dropping Table Features
 
 `Delta.DropFeature` removes a table feature, as Spark's `ALTER TABLE … DROP FEATURE` does, so readers and writers that lack the feature can use the table again. The feature's traces go first, each step its own commit and each skipped when already done, so a drop that was interrupted is finished by running it again:
 
@@ -194,7 +246,7 @@ Delta.DropFeature("./lake/orders", DeltaTableFeatures.DeletionVectors, truncateH
 
 :::
 
-## 5. Variant Columns
+## 6. Variant Columns
 
 Tables with `VARIANT` columns (Spark 4 and Databricks semi-structured data, the `variantType` feature) are read, at any depth: top-level columns, struct fields, array elements and map values. A variant is read as it is stored, a struct of its `value` and `metadata` binaries (the Parquet Variant encoding), or, with `variantAsJson: true`, as JSON text, exactly as Spark's `to_json` renders it (timestamps in UTC; times and nanosecond timestamps, which Spark does not write, in the same style). Such tables are read only.
 
@@ -218,7 +270,7 @@ let json = DataFrame.ReadDelta("./lake/events", variantAsJson = true) // payload
 
 :::
 
-## 6. Catalog-Managed Tables
+## 7. Catalog-Managed Tables
 
 A catalog-managed table (the `catalogManaged` feature, which Unity Catalog's managed Delta tables use) is committed to through its catalog rather than by writing log files: a writer stages a commit, the catalog ratifies it as the next version, and the commit is then published to `_delta_log`. The catalog is the authority on the table's latest version, which may include commits not published yet.
 

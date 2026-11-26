@@ -11,7 +11,7 @@ namespace Polars.NET.Core.Delta;
 /// Table properties, table features and columns of a Delta table through the managed kernel (see
 /// <see cref="AlterTable"/>). The public Delta API calls it.
 /// </summary>
-internal static class DeltaKernelAlter
+internal static partial class DeltaKernelAlter
 {
     /// <summary>Sets table properties; returns the version committed, or null when nothing changes.</summary>
     /// <param name="tablePath">The table location: a local directory or a cloud URL.</param>

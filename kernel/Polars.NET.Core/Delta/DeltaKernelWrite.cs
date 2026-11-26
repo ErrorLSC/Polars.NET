@@ -321,6 +321,9 @@ internal static class DeltaKernelWrite
     internal static (MetadataAction Metadata, StructType Schema) NewTableMetadata(
         StructType schema, string[] partitions, IReadOnlyDictionary<string, string>? configuration)
     {
+        // A constraint given as a property would not be checked (Spark stores it so); AddConstraint checks it.
+        if (configuration?.Keys.FirstOrDefault(k => k.StartsWith(Constraints.ConfigurationPrefix, StringComparison.OrdinalIgnoreCase)) is { } constraint)
+            throw new PolarsException(AlterTable.ConstraintPropertyRefused(constraint));
         foreach (string column in partitions)
         {
             StructField field = schema.Field(column) ?? throw new PolarsException($"The partition column '{column}' is not in the data.");

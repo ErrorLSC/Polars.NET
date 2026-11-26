@@ -32,11 +32,14 @@ internal static class DeltaKernelCreate
     /// <param name="identity">Identity columns; null for none.</param>
     /// <param name="cloud">Cloud settings for a cloud URL.</param>
     /// <param name="clusterBy">Liquid clustering columns (dotted for nested fields); null for none.</param>
+    /// <param name="generated">Generated columns; null for none.</param>
+    /// <param name="defaults">Column defaults; null for none.</param>
     /// <exception cref="PolarsException">A table exists at the path, or the declaration is not valid.</exception>
     public static long Create(
         string tablePath, StructType schema, string[]? partitionBy = null, IReadOnlyDictionary<string, string>? configuration = null,
-        IReadOnlyList<KernelIdentityColumn>? identity = null, CloudArgs? cloud = null, string[]? clusterBy = null) =>
-        CreateCore(tablePath, schema, partitionBy, configuration, identity, cloud, clusterBy, features: null);
+        IReadOnlyList<KernelIdentityColumn>? identity = null, CloudArgs? cloud = null, string[]? clusterBy = null,
+        IReadOnlyList<DeltaGeneratedColumn>? generated = null, IReadOnlyList<DeltaColumnDefault>? defaults = null) =>
+        CreateCore(tablePath, schema, partitionBy, configuration, identity, cloud, clusterBy, features: null, generated, defaults);
 
     /// <summary>
     /// Creates version 0 of a catalog-managed table at the location its catalog staged, as Delta Spark writes it (a
@@ -52,13 +55,16 @@ internal static class DeltaKernelCreate
     /// <param name="clusterBy">Liquid clustering columns; null for none.</param>
     /// <param name="features">Table features the catalog asks for, on top of those the schema and properties bring
     /// (<see cref="TableFeatures.CatalogManaged"/> among them).</param>
+    /// <param name="generated">Generated columns; null for none.</param>
+    /// <param name="defaults">Column defaults; null for none.</param>
     /// <exception cref="PolarsException">A table exists at the location, or the declaration is not valid.</exception>
     public static CreatedTable CreateCatalogManaged(
         string location, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string> configuration,
-        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string> features)
+        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string> features,
+        IReadOnlyList<DeltaGeneratedColumn>? generated = null, IReadOnlyList<DeltaColumnDefault>? defaults = null)
     {
         ArgumentNullException.ThrowIfNull(features);
-        CreateCore(location, schema, partitionBy, configuration, identity, cloud, clusterBy, features);
+        CreateCore(location, schema, partitionBy, configuration, identity, cloud, clusterBy, features, generated, defaults);
         return Version0(location, cloud);
     }
 
@@ -85,7 +91,8 @@ internal static class DeltaKernelCreate
 
     private static long CreateCore(
         string tablePath, StructType schema, string[]? partitionBy, IReadOnlyDictionary<string, string>? configuration,
-        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string>? features)
+        IReadOnlyList<KernelIdentityColumn>? identity, CloudArgs? cloud, string[]? clusterBy, IReadOnlyList<string>? features,
+        IReadOnlyList<DeltaGeneratedColumn>? generated, IReadOnlyList<DeltaColumnDefault>? defaults)
     {
         ArgumentNullException.ThrowIfNull(schema);
         if (schema.Fields.Count == 0) throw new PolarsException("A table needs at least one column.");
@@ -108,10 +115,13 @@ internal static class DeltaKernelCreate
             var fields = schema.Fields.Select(f => declared.TryGetValue(f.Name, out KernelIdentityColumn? c)
                 ? IdentityColumns.Declare(f, c.Start, c.Step, allowExplicitInsert: !c.GeneratedAlways)
                 : f).ToList();
+            StructType declaredSchema = DeclareExpressions(new StructType(fields), declared.Keys, generated ?? [], defaults ?? []);
 
-            var (metadata, tableSchema) = DeltaKernelWrite.NewTableMetadata(new StructType(fields), partitions, configuration);
+            var (metadata, tableSchema) = DeltaKernelWrite.NewTableMetadata(declaredSchema, partitions, configuration);
             ProtocolAction protocol = DeltaKernelWrite.ProtocolFor(tableSchema, metadata.Configuration);
             if (declared.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.IdentityColumns]);
+            if (generated is { Count: > 0 }) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.GeneratedColumns]);
+            if (defaults is { Count: > 0 }) protocol = TableFeatures.WithFeatures(protocol, [TableFeatures.AllowColumnDefaults]);
             List<StructField[]> clustered = Clustering.Resolve(tableSchema, clusterBy ?? [], partitions, metadata.Configuration);
             if (clustered.Count > 0) protocol = TableFeatures.WithFeatures(protocol, [Clustering.Feature]);
             if (features is not null) protocol = TableFeatures.WithFeatures(protocol, features);
@@ -133,5 +143,56 @@ internal static class DeltaKernelCreate
         {
             (store as IDisposable)?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The schema with the generated columns' expressions and the columns' defaults in their fields' metadata, each
+    /// checked as Spark checks it at <c>CREATE TABLE</c>: a top-level column of the schema, declared once, not an
+    /// identity column, not both generated and defaulted; a generation expression deterministic, reading neither
+    /// itself nor another generated column, of the column's type; a default a constant that can be stored in the column.
+    /// </summary>
+    /// <exception cref="PolarsException">A declaration is not valid.</exception>
+    private static StructType DeclareExpressions(
+        StructType schema, IEnumerable<string> identity, IReadOnlyList<DeltaGeneratedColumn> generated, IReadOnlyList<DeltaColumnDefault> defaults)
+    {
+        if (generated.Count == 0 && defaults.Count == 0) return schema;
+        var identityColumns = identity.ToHashSet(StringComparer.Ordinal);
+        var expressions = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        void Declare(string column, string? expression, string what, string key)
+        {
+            ArgumentNullException.ThrowIfNull(column);
+            if (schema.Field(column) is null)
+                throw new PolarsException(column.Contains('.', StringComparison.Ordinal)
+                    ? $"The {what} '{column}' is not a top-level column of the schema: only top-level columns can be one."
+                    : $"The {what} '{column}' is not in the schema.");
+            if (string.IsNullOrWhiteSpace(expression)) throw new PolarsException($"The {what} '{column}' has no expression.");
+            if (identityColumns.Contains(column)) throw new PolarsException($"The {what} '{column}' is an identity column, which cannot also be one.");
+            Dictionary<string, string> declared = expressions.TryGetValue(column, out var d) ? d : expressions[column] = [];
+            if (declared.ContainsKey(key)) throw new PolarsException($"The {what} '{column}' is declared twice.");
+            declared[key] = expression.Trim();
+            if (declared.Count > 1)
+                throw new PolarsException($"The column '{column}' cannot have both a default value and a generation expression.");
+        }
+        foreach (DeltaGeneratedColumn g in generated) Declare(g.Column, g.Expression, "generated column", Constraints.GenerationExpressionKey);
+        foreach (DeltaColumnDefault d in defaults) Declare(d.Column, d.Expression, "column with a default", Constraints.CurrentDefaultKey);
+
+        var result = new StructType([.. schema.Fields.Select(f => expressions.TryGetValue(f.Name, out var added) ? WithMetadata(f, added) : f)]);
+        try
+        {
+            DeltaGeneratedColumns.Of(result, declaring: true);
+        }
+        catch (DeltaProtocolException e)
+        {
+            throw new PolarsException(e.Message, e);
+        }
+        foreach (var (column, added) in expressions)
+            if (added.TryGetValue(Constraints.CurrentDefaultKey, out string? expression)) DeltaColumnDefaults.Validate(result, column, expression);
+        return result;
+
+        static StructField WithMetadata(StructField f, Dictionary<string, string> added) => new()
+        {
+            Name = f.Name, Type = f.Type, Nullable = f.Nullable, JsonMetadataKeys = f.JsonMetadataKeys,
+            Metadata = new Dictionary<string, string>([.. f.Metadata, .. added], StringComparer.Ordinal),
+        };
     }
 }

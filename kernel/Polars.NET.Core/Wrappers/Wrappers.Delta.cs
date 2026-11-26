@@ -142,6 +142,39 @@ public readonly partial struct PolarsWrapper
     /// <summary>Sets a column's comment (ALTER COLUMN … COMMENT).</summary>
     public static void DeltaSetColumnComment(string path, string column, string comment, string[]? cloudKeys, string[]? cloudValues) =>
         Delta.DeltaKernelAlter.SetComment(path, column, comment, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Adds a CHECK constraint (ALTER TABLE … ADD CONSTRAINT), checked against the table's rows.</summary>
+    public static void DeltaAddConstraint(string path, string name, string expression, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.AddConstraint(path, name, expression, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Drops a CHECK constraint (ALTER TABLE … DROP CONSTRAINT [IF EXISTS]).</summary>
+    public static void DeltaDropConstraint(string path, string name, bool ifExists, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.DropConstraint(path, name, ifExists, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Sets a column's default (ALTER COLUMN … SET DEFAULT).</summary>
+    public static void DeltaSetColumnDefault(string path, string column, string expression, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.SetColumnDefault(path, column, expression, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>Drops a column's default (ALTER COLUMN … DROP DEFAULT).</summary>
+    public static void DeltaDropColumnDefault(string path, string column, string[]? cloudKeys, string[]? cloudValues) =>
+        Delta.DeltaKernelAlter.DropColumnDefault(path, column, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
+    /// <summary>
+    /// The session time zone of the Delta kernel: the zone the SQL expressions of check constraints, generated
+    /// columns and column defaults read instants in (an IANA name; UTC by default). Process-wide.
+    /// </summary>
+    public static string DeltaSessionTimeZone
+    {
+        get => Delta.DeltaSession.TimeZone;
+        set => Delta.DeltaSession.TimeZone = value;
+    }
+    /// <summary>Generated columns from parallel arrays of columns and expressions.</summary>
+    internal static List<Kaminari.Seseragi.Lakehouse.Delta.DeltaGeneratedColumn> GeneratedColumns(string[]? columns, string[]? expressions)
+    {
+        if ((columns?.Length ?? 0) != (expressions?.Length ?? 0)) throw new ArgumentException("Each generated column needs one expression.", nameof(expressions));
+        return [.. (columns ?? []).Select((c, i) => new Kaminari.Seseragi.Lakehouse.Delta.DeltaGeneratedColumn(c, expressions![i]))];
+    }
+    /// <summary>Column defaults from parallel arrays of columns and expressions.</summary>
+    internal static List<Kaminari.Seseragi.Lakehouse.Delta.DeltaColumnDefault> ColumnDefaults(string[]? columns, string[]? expressions)
+    {
+        if ((columns?.Length ?? 0) != (expressions?.Length ?? 0)) throw new ArgumentException("Each column default needs one expression.", nameof(expressions));
+        return [.. (columns ?? []).Select((c, i) => new Kaminari.Seseragi.Lakehouse.Delta.DeltaColumnDefault(c, expressions![i]))];
+    }
     /// <summary>Moves a column (ALTER COLUMN … FIRST / AFTER; after null: first).</summary>
     public static void DeltaMoveColumn(string path, string column, string? after, string[]? cloudKeys, string[]? cloudValues) =>
         Delta.DeltaKernelAlter.MoveColumn(path, column, after, Delta.CloudArgs.ForLocation(path, cloudKeys, cloudValues));
@@ -300,8 +333,8 @@ public readonly partial struct PolarsWrapper
             clusterBy is { Length: > 0 } ? clusterBy : null, catalogFeatures);
     }
     /// <summary>
-    /// Creates an empty Delta table (version 0) with the schema (borrowed), partition columns, table properties and
-    /// identity columns given: the arrays of the identity columns run in parallel.
+    /// Creates an empty Delta table (version 0) with the schema (borrowed), partition columns, table properties,
+    /// identity columns, generated columns and column defaults given: the arrays of each kind run in parallel.
     /// </summary>
     public static void DeltaCreateTable(
         string path,
@@ -321,7 +354,11 @@ public readonly partial struct PolarsWrapper
         ulong cloudCacheTtl,
         string[]? cloudKeys,
         string[]? cloudValues,
-        string[]? clusterBy = null)
+        string[]? clusterBy = null,
+        string[]? generatedColumns = null,
+        string[]? generationExpressions = null,
+        string[]? defaultColumns = null,
+        string[]? defaultExpressions = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
         Dictionary<string, string>? properties = null;
@@ -343,7 +380,8 @@ public readonly partial struct PolarsWrapper
         var cloud = new Delta.CloudArgs(cloudProvider, cloudRetries, cloudRetryTimeoutMs, cloudRetryInitBackoffMs,
             cloudRetryMaxBackoffMs, cloudCacheTtl, cloudKeys, cloudValues).WithProviderFrom(path);
         Delta.DeltaKernelCreate.Create(path, tableSchema, partitionBy is { Length: > 0 } ? partitionBy : null, properties, identity, cloud,
-            clusterBy is { Length: > 0 } ? clusterBy : null);
+            clusterBy is { Length: > 0 } ? clusterBy : null,
+            GeneratedColumns(generatedColumns, generationExpressions), ColumnDefaults(defaultColumns, defaultExpressions));
     }
     public static void DeltaDelete(
         string path,

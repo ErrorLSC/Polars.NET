@@ -185,7 +185,7 @@ public static partial class AlterTable
                 return key.ToLowerInvariant(); // as Spark records it
             }
             if (key.StartsWith(ConstraintPrefix, StringComparison.OrdinalIgnoreCase))
-                throw new DeltaException("Check constraints are added with their own operation, which this kernel does not offer yet.");
+                throw new DeltaException(ConstraintPropertyRefused(key));
             if (key.Equals(MinReaderVersionKey, StringComparison.OrdinalIgnoreCase))
             {
                 _readerVersion = Math.Max(_readerVersion ?? 0, Version(key, value, 1, TableFeatures.MaxReaderVersion));
