@@ -283,12 +283,15 @@ module internal JoinReordering =
             | [] -> defaultSourceRows, defaultSourceRows
             | input :: _ -> recurse input
 
+    /// Whether a filter between the joins may move to another join: it reads only its row, and cannot fail the query
+    /// (placed lower, it would see rows the joins above it remove).
     let private isRowLocal (expr: ScalarExpr) =
         not (
             ScalarExprOps.containsAggregation expr
             || ScalarExprOps.containsWindow expr
             || ScalarExprOps.containsSubquery expr
             || ScalarExprOps.dependsOnOtherRows expr
+            || ScalarExprOps.raises expr
         )
 
     /// A column of a relation, as written in flattened expressions.

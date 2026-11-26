@@ -47,7 +47,7 @@ type PlanOptimizer =
     /// and, with column statistics on, the joins that frees reordered.
     static member PrepareScalarPlan(backend: IQueryBackend, sources: SourceBinding array, plan: LogicalPlan) : LogicalPlan =
         use _scope = CompilationScope.Enter backend
-        let resolved = EnumResolution.resolvePlan plan
+        let resolved = EnumResolution.resolvePlan plan |> RaisingGuards.ofPlan
         if Kaminari.Samidare.Config.SamidareConfig.CollectColumnStatistics then
             // The freed joins can be reordered too, now that nothing observes their order.
             let relaxed, unorderedJoins = GroupOrderRelaxation.applyCollectingUnorderedJoins false true resolved
@@ -130,7 +130,9 @@ type QueryCompiler =
                         Compiled =
                             { compiled with
                                 Plan =
-                                    let resolved = EnumResolution.resolvePlan compiled.Plan
+                                    // Short-circuit evaluation for the nodes that may fail the query, before the
+                                    // optimizer reorders anything (SEMANTICS.md, Guards).
+                                    let resolved = EnumResolution.resolvePlan compiled.Plan |> RaisingGuards.ofPlan
                                     // A grafted plan is optimized with the query it joins: optimized on its own, it would
                                     // no longer equal another reference to the same query in that query.
                                     if mergeDiagnostics then
@@ -157,12 +159,12 @@ type QueryCompiler =
         pipeline
 
     /// A lone LINQ expression (outside a query pipeline: a merge condition, a key selector) as an IR expression over
-    /// `schema` (the columns it reads), its enum conversions resolved, all in `backend`'s compilation scope; null when
-    /// it does not translate.
+    /// `schema` (the columns it reads), its enum conversions resolved and its raising nodes guarded (RaisingGuards), all
+    /// in `backend`'s compilation scope; null when it does not translate.
     static member TryTranslateScalar(backend: IQueryBackend, context: TranslationContext, schema: LogicalSchema, expr: Expression) : ScalarExpr =
         use _scope = CompilationScope.Enter backend
         match tryTranslateToScalar context expr with
-        | Some translated -> EnumResolution.resolveScalar schema translated
+        | Some translated -> EnumResolution.resolveScalar schema translated |> RaisingGuards.ofExpr
         | None -> Unchecked.defaultof<_>
 
     /// Like TryTranslateScalar, for an expression whose value is stored into a column of `columnType` (an enum constant
@@ -172,7 +174,7 @@ type QueryCompiler =
         : ScalarExpr =
         use _scope = CompilationScope.Enter backend
         match tryTranslateToScalar context expr with
-        | Some translated -> EnumResolution.resolveAssignment schema columnType translated
+        | Some translated -> EnumResolution.resolveAssignment schema columnType translated |> RaisingGuards.ofExpr
         | None -> Unchecked.defaultof<_>
 
     /// The value of an expression that reads no query data (a captured variable, a closure), evaluated now.
@@ -252,6 +254,7 @@ type SqlFrontend =
         // shared plan is filtered by what its references read. The rest of the optimization comes after.
         let optimized =
             EnumResolution.resolvePlan sql.Plan
+            |> RaisingGuards.ofPlan
             |> FilterNullSimplification.apply
             |> PredicatePushdown.apply
             |> ConstantFilterFolding.apply

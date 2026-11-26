@@ -297,6 +297,31 @@ internal static class PolarsPhysicalLowerer
         return LogicalPlan.NewProject(grouping, ListModule.OfSeq(columns));
     }
 
+    /// <summary>The column a predicate that may fail the query is computed in before its filter.</summary>
+    private const string RaisingPredicateColumn = "__polars_net_raising_predicate";
+
+    /// <summary>
+    /// A filter whose predicate may fail the query (SEMANTICS.md, Exceptional cases): the engine pushes a predicate
+    /// down and merges it with the filters beneath, which would evaluate it on rows they remove. Its conjuncts that
+    /// cannot fail filter first, as usual, when the others read only their own row (one reading other rows, a window
+    /// or an aggregate, would see fewer of them); the others are computed as a column of the rows left, which the
+    /// engine does not push below where it is computed, and the rows are filtered on that column.
+    /// </summary>
+    private static LazyFrameHandle LowerRaisingFilter(LazyFrameHandle input, ScalarExpr predicate)
+    {
+        var conjuncts = FilterShapes.conjuncts(predicate);
+        var splits = !conjuncts.Any(c => ScalarExprOps.raises(c) && ScalarExprOps.dependsOnOtherRows(c));
+        List<ScalarExpr> plain = splits ? [.. conjuncts.Where(c => !ScalarExprOps.raises(c))] : [];
+        List<ScalarExpr> raising = splits ? [.. conjuncts.Where(ScalarExprOps.raises)] : [.. conjuncts];
+        var lf = plain.Count == 0 ? input : PolarsWrapper.LazyFilter(input, PolarsScalarLowerer.Lower(Conjoined(plain)));
+        var computed = PolarsWrapper.LazyWithColumns(lf, [PolarsWrapper.Alias(PolarsScalarLowerer.Lower(Conjoined(raising)), RaisingPredicateColumn)]);
+        var filtered = PolarsWrapper.LazyFilter(computed, PolarsWrapper.Col(RaisingPredicateColumn));
+        return PolarsWrapper.LazyFrameDrop(filtered, PolarsWrapper.SelectorCols([RaisingPredicateColumn]));
+
+        static ScalarExpr Conjoined(List<ScalarExpr> parts) =>
+            parts.Skip(1).Aggregate(parts[0], (acc, c) => ScalarExpr.NewBinary(BinaryOp.And, acc, c));
+    }
+
     private static ExprHandle[] Aliased(IEnumerable<Tuple<string, ScalarExpr>> items) =>
         [.. items.Select(i => PolarsWrapper.Alias(PolarsScalarLowerer.Lower(i.Item2), i.Item1))];
 
@@ -338,6 +363,8 @@ internal static class PolarsPhysicalLowerer
                         return CreateEmptyLazyFrame();
                 }
 
+            case LogicalPlan.Filter f when ScalarExprOps.raises(f.predicate):
+                return LowerRaisingFilter(Lower(f.input), f.predicate);
             case LogicalPlan.Filter f:
                 return PolarsWrapper.LazyFilter(Lower(f.input), PolarsScalarLowerer.Lower(f.predicate));
 

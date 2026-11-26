@@ -497,8 +497,9 @@ type ScalarFunction =
     /// `[value]` over floating values: an integer whose order is .NET's order of them (Comparer<T>.Default): NaN
     /// before every number, -0.0 equal to 0.0; null for null. A sort by it is a .NET sort by the value.
     | FloatOrderKey
-    /// `[value]`: the value when it is null or one of `values`; otherwise the query fails with `message`, its
-    /// first "{}" replaced by the value. It has an effect, as AssertCount.
+    /// `[value; guard]`: the value when it is null or one of `values`; otherwise the query fails with `message`, its
+    /// first "{}" replaced by the value. Null on every row whose guard is not true (false or null), which never fails;
+    /// see SEMANTICS.md, Guards. It has an effect, as AssertCount.
     | RequireListed of values: LiteralValue list * message: string
     /// `[count; value]`: the value when the count lies in the check's range; otherwise the query fails with
     /// the check's error. It has an effect, so it must be evaluated wherever its value is used, never folded

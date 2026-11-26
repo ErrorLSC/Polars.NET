@@ -106,7 +106,7 @@ module internal EnumResolution =
                 mapping.Values,
                 $"Value '{{}}' is not a defined member of enum {mapping.Name}; an Enum column holds only defined members."
             ),
-            [ value ],
+            [ value; ScalarExprOps.unguarded ],
             mapping.Underlying
         )
 

@@ -79,6 +79,21 @@ public class LinqUdfReturnTypeTests
     }
 
     [Fact]
+    public void Cast_Of_An_Undefined_Value_Is_Not_Evaluated_Where_A_Filter_Removed_It()
+    {
+        // Id 2 is not a member of UrColor, but no row with it reaches the cast: a filter beneath removes it, or the
+        // left of && does.
+        using var df = DataFrame.FromRows(Rows);
+        var q = df.AsQueryable<UrRow>();
+        Assert.Equal([1], q.Where(r => r.Id != 2).Where(r => (UrColor)r.Id == UrColor.Green).Select(r => r.Id).ToList());
+        Assert.Equal([1], q.Where(r => r.Id != 2 && (UrColor)r.Id == UrColor.Green).Select(r => r.Id).ToList());
+        Assert.Equal([1], q.Where(r => r.Id != 2).Select(r => new { r.Id, C = (UrColor)r.Id }).Where(x => x.C == UrColor.Green).Select(x => x.Id).ToList());
+        // Nor where short-circuit evaluation does not reach it.
+        Assert.Equal(Rows.Select(r => r.Id != 2 ? (UrColor)r.Id : UrColor.Red), q.Select(r => r.Id != 2 ? (UrColor)r.Id : UrColor.Red).ToList());
+        Assert.Equal(Rows.Select(r => r.Id == 2 || (UrColor)r.Id == UrColor.Green), q.Select(r => r.Id == 2 || (UrColor)r.Id == UrColor.Green).ToList());
+    }
+
+    [Fact]
     public void Cast_Of_An_Undefined_Value_To_Enum_Is_Rejected()
     {
         // Id 2 is not a member of UrColor; an Enum column cannot hold it.

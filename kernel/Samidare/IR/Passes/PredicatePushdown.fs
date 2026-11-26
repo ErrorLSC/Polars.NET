@@ -59,8 +59,10 @@ module internal PredicatePushdown =
         // Trivial false: no rows, but the plan's columns, which the stages above read.
         | ScalarExpr.Literal(LiteralValue.Bool false) -> LogicalPlan.Limit(plan, 0L, 0u)
 
-        // A predicate reading other rows would see fewer of them beneath this point.
-        | _ when not (isRowLocal pred) -> LogicalPlan.Filter(plan, pred)
+        // A predicate reading other rows would see fewer of them beneath this point; one that may fail the query would
+        // see rows the filters and joins beneath remove (the engine merges a filter into those below it). One that reads
+        // such a projected value or grouping key stops right beneath the projection or grouping, on the same rows.
+        | _ when not (isRowLocal pred) || ScalarExprOps.raises pred -> LogicalPlan.Filter(plan, pred)
 
         | _ ->
             let refCols = ScalarExprOps.collectColumns pred
@@ -200,7 +202,10 @@ module internal PredicatePushdown =
             // A test every branch of a disjunction makes goes down on its own (a common subplan's filter is the
             // disjunction of its consumers' filters, which often share all but one test: TPC-DS Q88).
             let conjuncts = splitConjuncts pred |> FilterShapes.factorDisjunctions
-            conjuncts
+            // A conjunct reading other rows is evaluated on the filter's whole input, so it goes first: it stays here,
+            // and the row-local conjuncts stop above it (case 5) rather than move beneath and change its input.
+            let otherRows, rowLocal = conjuncts |> List.partition (isRowLocal >> not)
+            otherRows @ rowLocal
             |> List.fold (fun currentPlan conjunct -> pushdownConjunct conjunct currentPlan) optimizedInput
 
         | other ->

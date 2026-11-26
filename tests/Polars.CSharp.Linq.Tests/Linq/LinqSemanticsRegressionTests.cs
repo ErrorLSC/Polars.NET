@@ -967,6 +967,21 @@ public partial class LinqSemanticsRegressionTests
     public static string NullFor(int n) => n > 0 ? null : "neg";
 
     [Fact]
+    public void Udfs_Never_See_Rows_A_Filter_Beneath_Removed()
+    {
+        // Hundredth throws for N = 0: the rows with it are filtered out before the UDF's filter or projection.
+        using var df = DataFrame.From(GuardedRows);
+        var q = df.AsQueryable<Guarded>();
+
+        Assert.Equal(
+            GuardedRows.Where(x => x.N != 0).Where(x => Hundredth(x.N) > 10).Select(x => x.Id),
+            q.Where(x => x.N != 0).Where(x => Hundredth(x.N) > 10).Select(x => x.Id).ToList());
+        Assert.Equal(
+            GuardedRows.Where(x => x.N != 0).Select(x => new { x.Id, H = Hundredth(x.N) }).Where(x => x.H > 10).Select(x => x.Id),
+            q.Where(x => x.N != 0).Select(x => new { x.Id, H = Hundredth(x.N) }).Where(x => x.H > 10).Select(x => x.Id).ToList());
+    }
+
+    [Fact]
     public void Udfs_Run_Only_Where_Short_Circuit_Evaluation_Reaches_Them()
     {
         using var df = DataFrame.From(GuardedRows);
@@ -999,14 +1014,19 @@ public partial class LinqSemanticsRegressionTests
     }
 
     [Fact]
-    public void Udfs_Without_Short_Circuit_Still_Run_On_Every_Row()
+    public void Udfs_Without_Short_Circuit_Skip_The_Rows_Another_Conjunct_Removes()
     {
         using var df = DataFrame.From(GuardedRows);
         var q = df.AsQueryable<Guarded>();
 
-        // `&` evaluates both sides in C# too: the function throws on N = 0 either way.
+        // `&` evaluates both sides in C#, so LINQ to Objects throws on N = 0. The IR has one AND, and the conjuncts of a
+        // filter that cannot fail filter first (SEMANTICS.md, Rows a raising expression sees): the function never
+        // sees N = 0, as with `&&`.
         Assert.ThrowsAny<Exception>(() => GuardedRows.Where(x => x.N != 0 & Hundredth(x.N) > 10).ToList());
-        Assert.ThrowsAny<Exception>(() => q.Where(x => x.N != 0 & Hundredth(x.N) > 10).ToList());
+        Assert.Equal(
+            GuardedRows.Where(x => x.N != 0 && Hundredth(x.N) > 10).Select(x => x.Id),
+            q.Where(x => x.N != 0 & Hundredth(x.N) > 10).Select(x => x.Id).ToList());
+        // A projection runs it on every row.
         Assert.Equal(GuardedRows.Select(x => Third(x.S + "___")), q.Select(x => Third(x.S + "___")).ToList());
     }
 

@@ -820,14 +820,15 @@ internal static class PolarsScalarLowerer
                 return PolarsWrapper.Quantile(L(a), q.Item, PolarsVocabulary.QuantileMethod(quantile.method));
             case ({ IsSeriesGet: true }, [var a, var index]): return PolarsWrapper.Get(L(a), L(index), nullOnOob: true);
             case ({ IsFloatOrderKey: true }, [var value]): return PolarsWrapper.DotNetFloatOrderKey(L(value));
-            case (ScalarFunction.RequireListed listed, [var value]):
+            // Off the guard's rows the value is null, which is always listed (SEMANTICS.md, Guards).
+            case (ScalarFunction.RequireListed listed, [var value, var guard]):
             {
                 List<long> asInt64 = [];
                 foreach (var v in listed.values)
                     if (v.BoxedValue is not ulong u || u <= long.MaxValue) asInt64.Add(Convert.ToInt64(v.BoxedValue));
                 // Values beyond Int64 (a UInt64 enum): the engine's own unmapped-value error remains.
                 return asInt64.Count == listed.values.Length
-                    ? PolarsWrapper.RequireListedInts(L(value), [.. asInt64], listed.message)
+                    ? PolarsWrapper.RequireListedInts(Guarded(L(value), guard), [.. asInt64], listed.message)
                     : L(value);
             }
             case (ScalarFunction.AssertCount assert, [var count, var value]):

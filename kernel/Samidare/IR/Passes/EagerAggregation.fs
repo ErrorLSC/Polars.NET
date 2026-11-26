@@ -24,6 +24,7 @@ open Kaminari.Samidare.IR
 /// - The mean of integers read as doubles, from a partial sum and count.
 /// - A sum guarded by a test on dimension columns (see `decompose`).
 /// - Not CheckedSum: a partial total can leave the type's range when the full total does not.
+/// - Nothing that may fail the query (ScalarExprOps.raises): it would see fact rows the joins remove.
 ///
 /// When two dimensions supply the grouping columns, the fact table can still be aggregated before the unfiltered one, on
 /// its join key and the other dimension's column: `GROUP BY c.name, d.year` first groups on `(f.customer, d.year)`, which
@@ -74,7 +75,8 @@ module internal EagerAggregation =
         | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false) ->
             let fact, steps = flatten left
             fact, steps @ [ JoinStep(right, leftKey, rightKey, suffix, coalescing) ]
-        | LogicalPlan.Filter(input, predicate) when not (ScalarExprOps.dependsOnOtherRows predicate) ->
+        // A filter that may fail the query stays where it is: the rewrite moves joins below it.
+        | LogicalPlan.Filter(input, predicate) when not (ScalarExprOps.dependsOnOtherRows predicate || ScalarExprOps.raises predicate) ->
             let fact, steps = flatten input
             fact, steps @ [ FilterStep predicate ]
         | other -> other, []
@@ -258,8 +260,10 @@ module internal EagerAggregation =
                 let name = $"__ea{partials.Count}"
                 partials.Add(name, aggregate)
                 name
+        // An argument that may fail the query is not aggregated early: fact rows the joins remove would reach it.
         let readable (argument: ScalarExpr) =
-            not (ScalarExprOps.dependsOnOtherRows argument) && Set.isSubset (ScalarExprOps.collectColumns argument) columns
+            not (ScalarExprOps.dependsOnOtherRows argument || ScalarExprOps.raises argument)
+            && Set.isSubset (ScalarExprOps.collectColumns argument) columns
         let rec final (node: ScalarExpr) =
             match node with
             | ScalarExpr.Literal _ -> node

@@ -22,6 +22,7 @@
     <Compile Include="FloatConformance.fs" />
     <Compile Include="SubqueryConformance.fs" />
     <Compile Include="CheckedDivisionConformance.fs" />
+    <Compile Include="RaisingRowsConformance.fs" />
   </ItemGroup>
 
   <ItemGroup>

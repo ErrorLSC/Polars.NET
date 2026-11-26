@@ -97,3 +97,16 @@ let ``AssertCount is checked without short-circuit`` () =
     Conformance.raises<InvalidOperationException> t
         (project failing [ "x", bin BinaryOp.And (bool false) (bin BinaryOp.Gt (col "v") (i64 0L)) ])
         "Sequence contains more than one element"
+
+type FK = { K: int64 }
+
+/// Every conjunct of a filter sees the filter's whole input: one reading other rows (here the row count) is not
+/// evaluated on only the rows the other conjuncts keep.
+[<Fact>]
+let ``A filter's conjunct over other rows sees the filter's whole input`` () =
+    let t = Tables()
+    let rows = [| { K = 1L }; { K = 2L }; { K = 3L } |]
+    let keep = bin BinaryOp.NotEq (col "K") (i64 2L)
+    Conformance.rowsInOrder t (filter (t.Scan rows) (bin BinaryOp.And keep (bin BinaryOp.Eq len (i64 3L)))) [ [ 1L ]; [ 3L ] ]
+    let t2 = Tables()
+    Conformance.rowsInOrder t2 (filter (t2.Scan rows) (bin BinaryOp.And (bin BinaryOp.Eq len (i64 3L)) keep)) [ [ 1L ]; [ 3L ] ]

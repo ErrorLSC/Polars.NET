@@ -334,6 +334,21 @@ module ScalarExprOps =
         | ScalarExpr.InList(e, source, negated, nullsEqual) -> ScalarExpr.InList(f e, source, negated, nullsEqual)
         | ScalarExpr.EnumConvert(conversion, e, mapping) -> ScalarExpr.EnumConvert(conversion, f e, mapping)
 
+    /// Whether evaluating the expression may fail the query (SEMANTICS.md, Exceptional cases): a raising function
+    /// (CheckedNarrow, CheckedDivide, RequireListed, AssertCount), a checked sum, or a user function, which may throw.
+    /// Passes never move such an expression to rows its plan position does not reach (below a filter or a join).
+    let rec raises (expr: ScalarExpr) : bool =
+        match expr with
+        | ScalarExpr.Function((ScalarFunction.CheckedNarrow
+                              | ScalarFunction.CheckedDivide _
+                              | ScalarFunction.RequireListed _
+                              | ScalarFunction.AssertCount _),
+                              _,
+                              _)
+        | ScalarExpr.Aggregation(AggKind.CheckedSum, _, _)
+        | ScalarExpr.Udf _ -> true
+        | _ -> children expr |> List.exists raises
+
     /// Checks whether an expression reads an OuterColumn outside any subquery plan it embeds (the plans are not
     /// searched; see LogicalPlanOps.outerColumns).
     let rec containsOuterColumn (expr: ScalarExpr) : bool =

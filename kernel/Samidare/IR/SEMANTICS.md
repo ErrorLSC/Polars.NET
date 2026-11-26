@@ -163,11 +163,12 @@ time and marks the compilation so its plan is not cached.
 
 **No short-circuit.** Expressions are evaluated whole: both sides of `And` / `Or` and both branches of a
 `Conditional`, for every row. An `AssertCount` is therefore checked once whenever its plan runs, even where
-the logic around it (`false AND ...`, an empty outer relation) would never read its value. This is stricter
-than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. Row by row, `CheckedNarrow` and
+the logic around it (`false AND ...`, an empty outer relation) would never read its value. For `AssertCount` this is
+stricter than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. Row by row, `CheckedNarrow` and
 `CheckedDivide` restore short-circuit evaluation with a guard.
 
-**Guards.** `CheckedNarrow` (`[value; guard]`) and `CheckedDivide` (`[dividend; divisor; guard]`) raise only on rows
+**Guards.** `CheckedNarrow` (`[value; guard]`), `RequireListed` (`[value; guard]`) and `CheckedDivide`
+(`[dividend; divisor; guard]`) raise only on rows
 where their guard, a Boolean in the operands' context, is true; elsewhere (false or null) they are null and never
 raise. The guard is the node's whole precondition, so a backend or a pass may evaluate the node on more rows than
 its plan position reaches (split conjuncts, reorder them, push them, merge filters) without raising more. The
@@ -178,11 +179,23 @@ frontend owns the guard: it conjoins every condition under which its language do
 - for each argument of `Coalesce` after the first, that every earlier one `IsNull`.
 
 A guard over aggregates guards a node over aggregates; a node inside an aggregation's or a window's argument is
-guarded by the conditions inside that argument only. Literal true guards nothing (a node over all the rows). A guard
-never covers the rows a lower `Filter` or a `Join` removes: the engine may push and merge a predicate below them, so
-a raising node in a filter predicate may still be evaluated on such rows. So may one in a projection that a
-`Filter` above reads, since the optimizer may inline the projection into the predicate; a projection nothing
-filters on is evaluated on the rows that reach it.
+guarded by the conditions inside that argument only. Literal true guards nothing (a node over all the rows). The frontends run `RaisingGuards`
+right after binding (after enum resolution, which emits `RequireListed`), before the optimizer, on plans and on lone
+expressions alike.
+
+**A filter's input.** Every conjunct of a `Filter` sees the filter's whole input: one that reads other rows (a window,
+an aggregate) is not evaluated on only the rows the other conjuncts keep.
+
+**Rows a raising expression sees.** An expression that may fail the query (`ScalarExprOps.raises`: the raising
+functions, `CheckedSum`, and user functions, which may throw) is evaluated only on rows its plan position reaches,
+never on rows a filter or a join beneath it removes. Passes keep it there: predicate pushdown does not move such a
+predicate below a filter or a join (one that reads such a projected value or grouping key stops right beneath the
+projection or grouping), join reordering does not move such a
+filter between joins, and eager aggregation neither aggregates such an argument early nor moves joins below such a
+filter. A backend must not merge such a predicate into the filters beneath it either (the Polars backend computes it
+as a column first). It may skip rows that a filter above it, or another conjunct of its own filter, removes: a
+predicate that cannot fail may still move below it, and the conjuncts of a filter that cannot fail filter first.
+C#'s `&` is therefore not distinguished from `&&` here (LINQ to Objects evaluates both sides of `&`).
 
 **Checked division.** `CheckedDivide` is ANSI SQL's division (Spark's with `spark.sql.ansi.enabled`), where the
 arithmetic `Divide`, `TruncatedDivide` and `Modulo` give null (see Arithmetic). Its kind (`DivisionKind`) is the
