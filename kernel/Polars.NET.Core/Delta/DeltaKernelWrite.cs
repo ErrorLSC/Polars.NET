@@ -504,17 +504,19 @@ internal static class DeltaKernelWrite
     /// <summary>
     /// Streams the rows of <paramref name="data"/> (consumed) into data files: the engine's partitioned sink splits
     /// them by partition and size and writes each file at a path chosen here; the statistics come from the file
-    /// footers afterwards. Nothing is collected, except to check NOT NULL fields inside structs. Generated columns the
-    /// data lacks are computed (one it has is checked, as every constraint).
+    /// footers afterwards. Nothing is collected, except to check NOT NULL fields inside structs. Columns the data lacks
+    /// take their defaults, then generated columns it lacks are computed (one it has is checked, as every constraint).
     /// </summary>
     private static List<AddAction> StreamFiles(
         TrackingFileSystem fileSystem, string tablePath, LazyFrameHandle data, StructType schema, string[] partitions, long now,
         KernelWriteOptions options, IReadOnlyDictionary<string, string>? tableProperties, CloudArgs? cloud)
     {
+        var defaults = DeltaColumnDefaults.Of(schema, DateTimeOffset.UtcNow);
         var generated = DeltaGeneratedColumns.Of(schema);
-        HashSet<string> missing = generated.Missing(SchemaOf(data).Fields.Select(f => f.Name));
+        string[] present = [.. SchemaOf(data).Fields.Select(f => f.Name)];
+        LazyFrameHandle rows = generated.Compute(defaults.Fill(NormalizeLazy(data, schema), defaults.Missing(present)), generated.Missing(present));
         return DataFiles(
-            fileSystem, RootOf(fileSystem, tablePath), generated.Compute(NormalizeLazy(data, schema), missing), schema, partitions, now, tableProperties,
+            fileSystem, RootOf(fileSystem, tablePath), rows, schema, partitions, now, tableProperties,
             checkNotNull: true, options, options.ApproxBytesPerFile ?? TargetFileSize(tableProperties), materialized: null, cloud);
     }
 

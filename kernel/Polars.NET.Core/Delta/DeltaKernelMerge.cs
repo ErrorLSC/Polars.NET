@@ -369,10 +369,16 @@ internal static class DeltaKernelMerge
             string[] rowIds = table.RowIdColumns;
             LazyFrameHandle newRows = table.Changed(PolarsWrapper.LazySelect(PolarsWrapper.LazyFilter(Rows(), Is(Insert, Update)),
                 [.. NewRowColumns(schema, snapshot.Schema, sourceSchema, generate), .. rowIds.Select(PolarsWrapper.Col), PolarsWrapper.Col(ActionColumn)]));
-            // Generated columns the source lacks are computed from the new rows (an inserted row's, an updated row's
+            // Inserted rows take the defaults of columns the source lacks (Spark refuses such an insert instead); then
+            // generated columns the source lacks are computed from the new rows (an inserted row's, an updated row's
             // new values: Spark's); one the source has is checked.
+            string[] sourceColumns = [.. sourceSchema.Fields.Select(f => f.Name)];
+            var defaults = DeltaColumnDefaults.Of(schema, DateTimeOffset.UtcNow);
+            HashSet<string> defaulted = defaults.Missing(sourceColumns);
+            if (defaulted.Count > 0)
+                newRows = defaults.Fill(newRows, defaulted, () => PolarsWrapper.Eq(PolarsWrapper.Col(ActionColumn), PolarsWrapper.Lit(Insert)));
             var generated = DeltaGeneratedColumns.Of(schema);
-            HashSet<string> missing = generated.Missing(sourceSchema.Fields.Select(f => f.Name));
+            HashSet<string> missing = generated.Missing(sourceColumns);
             if (missing.Count > 0) newRows = generated.Compute(newRows, missing);
             written.Add(Project(PolarsWrapper.LazyClone(newRows), schema, rowIds));
 

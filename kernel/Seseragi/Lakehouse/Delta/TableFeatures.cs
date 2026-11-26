@@ -28,6 +28,7 @@ public static class TableFeatures
     public const string CheckConstraints = "checkConstraints";
     public const string ChangeDataFeed = "changeDataFeed";
     public const string GeneratedColumns = "generatedColumns";
+    public const string AllowColumnDefaults = "allowColumnDefaults";
     public const string IdentityColumns = "identityColumns";
     public const string DomainMetadata = "domainMetadata";
     public const string InCommitTimestamp = "inCommitTimestamp";
@@ -134,7 +135,7 @@ public static class TableFeatures
     /// </summary>
     public static IReadOnlySet<string> SupportedWriterFeatures { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
-        AppendOnly, Invariants, CheckConstraints, ChangeDataFeed, GeneratedColumns, ColumnMapping, IdentityColumns,
+        AppendOnly, Invariants, CheckConstraints, ChangeDataFeed, GeneratedColumns, AllowColumnDefaults, ColumnMapping, IdentityColumns,
         DeletionVectors, TimestampNtz, DomainMetadata, VacuumProtocolCheck, V2Checkpoint, InCommitTimestamp,
         TypeWidening, TypeWideningPreview, RowTracking.Feature, Clustering.Feature, CheckpointProtection,
         // Committed through the managing catalog only (see Transaction.Commit).

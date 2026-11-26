@@ -269,7 +269,6 @@ public class TransactionTests
     }
 
     [Theory]
-    [InlineData("allowColumnDefaults", null, null)]
     [InlineData("identityColumns", "delta.identity.start", null)]
     public void UnsupportedWriterFeatures_AreRefused(string feature, string? fieldKey, string? propertyKey)
     {
@@ -336,6 +335,24 @@ public class TransactionTests
         Transaction.Create(fs, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 4 }, metadata).Commit();
         var generated = Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType.Parse(Snapshot.Load(fs).Metadata.SchemaString).Fields[0];
         Assert.Equal([new DeltaConstraint("Generated Column", $"{generated.Name} <=> id + 1", $"`{generated.Name}` <=> (id + 1)")], Constraints.Of(Snapshot.Load(fs).Metadata));
+    }
+
+    /// <summary>Column defaults are given to the rows a write adds (Core binds them), so a table with the feature can be
+    /// committed to.</summary>
+    [Fact]
+    public void ColumnDefaults_AreWritable()
+    {
+        const string empty = "\"metadata\":{}";
+        int first = Schema.IndexOf(empty, StringComparison.Ordinal);
+        var metadata = new MetadataAction
+        {
+            Id = "t1", PartitionColumns = ["p"],
+            SchemaString = Schema[..first] + "\"metadata\":{\"CURRENT_DEFAULT\":\"42\"}" + Schema[(first + empty.Length)..],
+        };
+        var fs = new MemoryFileSystem();
+        Transaction.Create(fs, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 7, WriterFeatures = ["allowColumnDefaults"] }, metadata).Commit();
+        var schema = Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType.Parse(Snapshot.Load(fs).Metadata.SchemaString);
+        Assert.Equal([new DeltaColumnDefault(schema.Fields[0].Name, "42")], Constraints.ColumnDefaults(schema));
     }
 
     private static JsonDocument CommitInfo(MemoryFileSystem fs, long version)

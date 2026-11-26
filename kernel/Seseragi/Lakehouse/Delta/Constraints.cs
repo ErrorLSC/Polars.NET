@@ -20,6 +20,11 @@ public readonly record struct DeltaConstraint(string Name, string Expression, st
     public string Text => Bound ?? Expression;
 }
 
+/// <summary>A column default: the value a write gives the column where its rows lack it.</summary>
+/// <param name="Column">The column, as the table names it (a top-level column).</param>
+/// <param name="Expression">The default as the table stores it (a constant: <c>42</c>, <c>current_timestamp()</c>).</param>
+public readonly record struct DeltaColumnDefault(string Column, string Expression);
+
 /// <summary>A generated column: its value is the expression over the row's other columns.</summary>
 /// <param name="Column">The column, as the table names it (a top-level column).</param>
 /// <param name="Expression">The generation expression as the table stores it.</param>
@@ -38,6 +43,29 @@ public static class Constraints
     /// <summary>The field metadata key of a generated column's expression.</summary>
     public const string GenerationExpressionKey = "delta.generationExpression";
 
+    /// <summary>The field metadata key of a column default (feature allowColumnDefaults).</summary>
+    public const string CurrentDefaultKey = "CURRENT_DEFAULT";
+
+    /// <summary>The table's column defaults, in schema order.</summary>
+    /// <exception cref="DeltaProtocolException">A nested field has a default (Spark gives top-level columns one).</exception>
+    public static IReadOnlyList<DeltaColumnDefault> ColumnDefaults(StructType schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        foreach (StructField field in schema.Fields)
+            if (HasNested(field.Type, CurrentDefaultKey))
+                throw new DeltaProtocolException($"A field inside '{field.Name}' has a default; Spark gives top-level columns defaults only.");
+        return [.. schema.Fields.Where(f => f.Metadata.ContainsKey(CurrentDefaultKey)).Select(f => new DeltaColumnDefault(f.Name, f.Metadata[CurrentDefaultKey]))];
+    }
+
+    /// <summary>Whether a field inside the type (at any depth) has the metadata key.</summary>
+    private static bool HasNested(DeltaType type, string key) => type switch
+    {
+        StructType s => s.Fields.Any(f => f.Metadata.ContainsKey(key) || HasNested(f.Type, key)),
+        ArrayType a => HasNested(a.ElementType, key),
+        MapType m => HasNested(m.KeyType, key) || HasNested(m.ValueType, key),
+        _ => false,
+    };
+
     /// <summary>The name Spark reports a generated column's check under.</summary>
     public const string GeneratedColumnName = "Generated Column";
 
@@ -47,17 +75,9 @@ public static class Constraints
     {
         ArgumentNullException.ThrowIfNull(schema);
         foreach (StructField field in schema.Fields)
-            if (HasNestedGenerated(field.Type))
+            if (HasNested(field.Type, GenerationExpressionKey))
                 throw new DeltaProtocolException($"A field inside '{field.Name}' is a generated column; Delta generates top-level columns only.");
         return [.. schema.Fields.Where(f => f.Metadata.ContainsKey(GenerationExpressionKey)).Select(f => new DeltaGeneratedColumn(f.Name, f.Metadata[GenerationExpressionKey]))];
-
-        static bool HasNestedGenerated(DeltaType type) => type switch
-        {
-            StructType s => s.Fields.Any(f => f.Metadata.ContainsKey(GenerationExpressionKey) || HasNestedGenerated(f.Type)),
-            ArrayType a => HasNestedGenerated(a.ElementType),
-            MapType m => HasNestedGenerated(m.KeyType) || HasNestedGenerated(m.ValueType),
-            _ => false,
-        };
     }
 
     /// <summary>
