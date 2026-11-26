@@ -330,7 +330,7 @@ module internal Decorrelation =
             None,
             JoinKeyCoalescing.Default,
             false
-        )
+        , true)
 
     /// Attaches a group of subqueries with equal rows and correlation to the outer plan: the outer plan with one
     /// more column per distinct aggregate, and each subquery's replacement over those columns.
@@ -398,19 +398,19 @@ module internal Decorrelation =
             match keys, theta with
             | _, [] ->
                 let grouped = LogicalPlan.GroupBy(keyedRows, keyNames |> List.map ScalarExpr.Column, namedAggregates, None, false)
-                LogicalPlan.Join(outer, grouped, outerKeys, keyNames |> List.map ScalarExpr.Column, JoinKind.Left, None, JoinKeyCoalescing.Default, nullsEqual)
+                LogicalPlan.Join(outer, grouped, outerKeys, keyNames |> List.map ScalarExpr.Column, JoinKind.Left, None, JoinKeyCoalescing.Default, nullsEqual, true)
             | _ ->
                 // Theta conditions: join the rows to each outer row, filter, and aggregate per outer row.
                 let rid = opts.Fresh "rid"
                 let indexed = LogicalPlan.WithRowIndex(outer, rid, Some 0u)
                 let pairs =
                     if keys.IsEmpty then
-                        LogicalPlan.Join(indexed, rows, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false)
+                        LogicalPlan.Join(indexed, rows, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false, true)
                     else
-                        LogicalPlan.Join(indexed, keyedRows, outerKeys, keyNames |> List.map ScalarExpr.Column, JoinKind.Inner, None, JoinKeyCoalescing.Default, nullsEqual)
+                        LogicalPlan.Join(indexed, keyedRows, outerKeys, keyNames |> List.map ScalarExpr.Column, JoinKind.Inner, None, JoinKeyCoalescing.Default, nullsEqual, true)
                 let matched = LogicalPlan.Filter(pairs, (conjoin theta).Value)
                 let grouped = LogicalPlan.GroupBy(matched, [ ScalarExpr.Column rid ], namedAggregates, None, false)
-                LogicalPlan.Join(indexed, grouped, [ ScalarExpr.Column rid ], [ ScalarExpr.Column rid ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+                LogicalPlan.Join(indexed, grouped, [ ScalarExpr.Column rid ], [ ScalarExpr.Column rid ], JoinKind.Left, None, JoinKeyCoalescing.Default, false, true)
 
         let attachedSchema = SchemaInference.inferPlanSchema joined
         let filled (aggregate: ScalarExpr) =
@@ -573,7 +573,7 @@ module internal Decorrelation =
                             None,
                             JoinKeyCoalescing.Default,
                             nullsEqual
-                        )
+                        , true)
                     )
 
     /// A filter conjunct `[Not] Exists` / `[Not] In` whose correlation is equi keys alone, as a semi or anti join.
@@ -621,16 +621,16 @@ module internal Decorrelation =
                         let indexed = LogicalPlan.WithRowIndex(outer, rid, Some 0u)
                         let pairs =
                             if keys.IsEmpty then
-                                LogicalPlan.Join(indexed, rows, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false)
+                                LogicalPlan.Join(indexed, rows, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false, true)
                             else
                                 let keyNames = keys |> List.map (fun _ -> opts.Fresh "key")
                                 let keyed = LogicalPlan.WithColumns(rows, List.zip keyNames (keys |> List.map (fun (i, _, _) -> i)))
-                                LogicalPlan.Join(indexed, keyed, keys |> List.map (fun (_, o, _) -> o), keyNames |> List.map ScalarExpr.Column, JoinKind.Inner, None, JoinKeyCoalescing.Default, nullsEqual)
+                                LogicalPlan.Join(indexed, keyed, keys |> List.map (fun (_, o, _) -> o), keyNames |> List.map ScalarExpr.Column, JoinKind.Inner, None, JoinKeyCoalescing.Default, nullsEqual, true)
                         let theta = correlation.Theta |> List.map (rename >> outerAsColumns scope)
                         let matched =
                             LogicalPlan.Distinct(LogicalPlan.Project(LogicalPlan.Filter(pairs, (conjoin theta).Value), [ (rid, ScalarExpr.Column rid) ]), None, DistinctKeep.Any, false)
                         let joined =
-                            LogicalPlan.Join(indexed, matched, [ ScalarExpr.Column rid ], [ ScalarExpr.Column rid ], (if negated then JoinKind.Anti else JoinKind.Semi), None, JoinKeyCoalescing.Default, false)
+                            LogicalPlan.Join(indexed, matched, [ ScalarExpr.Column rid ], [ ScalarExpr.Column rid ], (if negated then JoinKind.Anti else JoinKind.Semi), None, JoinKeyCoalescing.Default, false, true)
                         Some(keepOnly joined (columnsOf outer))
                     else
                         let outer =
@@ -653,7 +653,7 @@ module internal Decorrelation =
                                 None,
                                 JoinKeyCoalescing.Default,
                                 nullsEqual
-                            )
+                            , true)
                         )
                 | Reduced.RowScalar _ -> None
         | _ -> None

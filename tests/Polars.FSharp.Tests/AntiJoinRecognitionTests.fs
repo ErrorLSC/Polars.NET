@@ -18,7 +18,7 @@ module AntiJoinRecognitionTests =
     let private filtered = LogicalPlan.Filter(dims, ScalarExpr.Binary(BinaryOp.Eq, col "d_a", lit 1))
 
     let private join how nullsEqual left right leftKey rightKey =
-        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], how, None, JoinKeyCoalescing.Default, nullsEqual)
+        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], how, None, JoinKeyCoalescing.Default, nullsEqual, true)
 
     let private left = join JoinKind.Left false facts returns "f_k" "r_k"
     let private anti = join JoinKind.Anti false facts returns "f_k" "r_k"

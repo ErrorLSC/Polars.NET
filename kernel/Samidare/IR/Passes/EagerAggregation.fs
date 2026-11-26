@@ -72,7 +72,7 @@ module internal EagerAggregation =
 
     let rec private flatten (plan: LogicalPlan) : LogicalPlan * Step list =
         match plan with
-        | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false) ->
+        | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false, joinOrdered) ->
             let fact, steps = flatten left
             fact, steps @ [ JoinStep(right, leftKey, rightKey, suffix, coalescing) ]
         // A filter that may fail the query stays where it is: the rewrite moves joins below it.
@@ -87,7 +87,7 @@ module internal EagerAggregation =
             (fun input step ->
                 match step with
                 | JoinStep(right, leftKey, rightKey, suffix, coalescing) ->
-                    LogicalPlan.Join(input, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
+                    LogicalPlan.Join(input, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false, true)
                 | FilterStep predicate -> LogicalPlan.Filter(input, predicate))
             fact
 
@@ -355,9 +355,9 @@ module internal EagerAggregation =
                             let pre = LogicalPlan.GroupBy(rest, preKeys, List.ofSeq partials, None, maintainOrder)
                             let joined =
                                 if dimensionFirst then
-                                    LogicalPlan.Join(dimension, pre, [ ScalarExpr.Column rightKey ], [ ScalarExpr.Column leftKey ], JoinKind.Inner, suffix, coalescing, false)
+                                    LogicalPlan.Join(dimension, pre, [ ScalarExpr.Column rightKey ], [ ScalarExpr.Column leftKey ], JoinKind.Inner, suffix, coalescing, false, true)
                                 else
-                                    LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
+                                    LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false, true)
                             Some(namedKeys, joined, finalAggs)
                     with NotDecomposable ->
                         None))
@@ -400,7 +400,7 @@ module internal EagerAggregation =
                 (if keyColumns.IsEmpty then None else isolateDimension estimate (soleKeyDimension keyColumns) chain)
                 |> Option.map (fun (rest, dimension, leftKey, rightKey, suffix, coalescing, _) ->
                     let pre = LogicalPlan.Distinct(LogicalPlan.Project(rest, [ (leftKey, ScalarExpr.Column leftKey) ]), None, keep, maintainOrder)
-                    let joined = LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false)
+                    let joined = LogicalPlan.Join(pre, dimension, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], JoinKind.Inner, suffix, coalescing, false, true)
                     let names = columnsOf input
                     let projected = LogicalPlan.Project(joined, names |> List.map (fun name -> name, ScalarExpr.Column(source mapping name)))
                     LogicalPlan.Distinct(projected, None, keep, maintainOrder))

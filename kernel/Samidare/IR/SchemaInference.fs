@@ -275,7 +275,7 @@ module internal SchemaInference =
                 Fields = updatedFields @ brandNewFields
             }
 
-        | LogicalPlan.Join(left, right, _, _, how, suffixOpt, _, _) ->
+        | LogicalPlan.Join(left, right, _, _, how, suffixOpt, _, _, joinOrdered) ->
             match how with
             | JoinKind.Semi
             | JoinKind.Anti -> inferPlanSchema left

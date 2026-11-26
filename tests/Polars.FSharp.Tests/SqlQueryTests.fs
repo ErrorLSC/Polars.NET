@@ -33,7 +33,7 @@ module SqlQueryTests =
     let private joinsOf (plan: LogicalPlan) =
         nodes plan
         |> List.choose (function
-            | LogicalPlan.Join(left, right, leftOn, rightOn, kind, _, _, nullsEqual) -> Some(left, right, leftOn, rightOn, kind, nullsEqual)
+            | LogicalPlan.Join(left, right, leftOn, rightOn, kind, _, _, nullsEqual, joinOrdered) -> Some(left, right, leftOn, rightOn, kind, nullsEqual)
             | _ -> None)
 
     let private kinds plan = joinsOf plan |> List.map (fun (_, _, _, _, kind, _) -> kind)
@@ -169,7 +169,7 @@ module SqlQueryTests =
         let semiOfDistincts plan =
             nodes plan
             |> List.choose (function
-                | LogicalPlan.Join(left, right, _, _, kind, _, _, nullsEqual) ->
+                | LogicalPlan.Join(left, right, _, _, kind, _, _, nullsEqual, joinOrdered) ->
                     let isDistinct p = match p with LogicalPlan.Distinct _ -> true | _ -> false
                     Some(kind, nullsEqual, isDistinct left, isDistinct right)
                 | _ -> None)

@@ -84,13 +84,13 @@ module internal JoinKeyPredicateTransfer =
                                 | ScalarExpr.Alias(ScalarExpr.Column source, name) -> Some(source, name)
                                 | _ -> None)
                         renamed mapping (known input)
-                    | LogicalPlan.Join(left, right, _, _, JoinKind.Inner, _, _, _) ->
+                    | LogicalPlan.Join(left, right, _, _, JoinKind.Inner, _, _, _, joinOrdered) ->
                         match known right with
                         | [] -> known left
                         | fromRight ->
                             let leftColumns = Set.ofList (schemaOf left).ColumnNames
                             known left @ (fromRight |> List.filter (fun (column, _) -> not (leftColumns.Contains column)))
-                    | LogicalPlan.Join(left, _, _, _, (JoinKind.Left | JoinKind.Semi | JoinKind.Anti), _, _, _) -> known left
+                    | LogicalPlan.Join(left, _, _, _, (JoinKind.Left | JoinKind.Semi | JoinKind.Anti), _, _, _, joinOrdered) -> known left
                     | LogicalPlan.Distinct(input, _, _, _)
                     | LogicalPlan.Sort(input, _)
                     | LogicalPlan.Limit(input, _, _)
@@ -117,13 +117,13 @@ module internal JoinKeyPredicateTransfer =
                 renamed pairs tests |> List.map snd |> List.distinct |> List.filter (fun test -> not (List.contains test held))
         let rec rewrite (p: LogicalPlan) : LogicalPlan =
             match LogicalPlanOps.mapInputs rewrite p with
-            | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Left | JoinKind.Semi | JoinKind.Anti as kind), suffix, coalescing, nullsEqual) as join ->
+            | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Left | JoinKind.Semi | JoinKind.Anti as kind), suffix, coalescing, nullsEqual, joinOrdered) as join ->
                 let toRight = moved left leftOn right rightOn
                 let toLeft = if kind = JoinKind.Inner then moved right rightOn left leftOn else []
                 if toRight.IsEmpty && toLeft.IsEmpty then
                     join
                 else
                     let push tests side = tests |> List.fold (fun acc test -> PredicatePushdown.pushdownConjunct test acc) side
-                    LogicalPlan.Join(push toLeft left, push toRight right, leftOn, rightOn, kind, suffix, coalescing, nullsEqual)
+                    LogicalPlan.Join(push toLeft left, push toRight right, leftOn, rightOn, kind, suffix, coalescing, nullsEqual, joinOrdered)
             | other -> other
         rewrite plan

@@ -416,7 +416,9 @@ internal static class PolarsPhysicalLowerer
 
             case LogicalPlan.Filter f when ScalarExprOps.raises(f.predicate):
                 return LowerRaisingFilter(Lower(f.input), f.predicate);
-            case LogicalPlan.Filter { input: LogicalPlan.Join { how.IsCross: true } cross } f:
+            // A filtered cross join whose order is observed; one whose order nothing observes is a plain filter over the
+            // unordered join (the engine runs both as a join on the filter's conditions).
+            case LogicalPlan.Filter { input: LogicalPlan.Join { how.IsCross: true, maintainOrder: true } cross } f:
                 return LowerFilteredCrossJoin(Lower(cross.left), Lower(cross.right), cross, f.predicate);
             case LogicalPlan.Filter f:
                 return PolarsWrapper.LazyFilter(Lower(f.input), PolarsScalarLowerer.Lower(f.predicate));
@@ -454,7 +456,7 @@ internal static class PolarsPhysicalLowerer
                     j.suffix.OrNull()!,
                     PlJoinValidation.ManyToMany,
                     PolarsVocabulary.JoinCoalesce(j.coalesce),
-                    PolarsVocabulary.JoinMaintainOrder(j.how),
+                    j.maintainOrder ? PolarsVocabulary.JoinMaintainOrder(j.how) : PlJoinMaintainOrder.None,
                     PlJoinSide.None,
                     j.nullsEqual,
                     null,

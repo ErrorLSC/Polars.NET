@@ -17,7 +17,7 @@ module OuterJoinSimplificationTests =
     let private dims = LogicalPlan.Scan(LogicalPlanSource.Slot 2, dimSchema)
 
     let private join how nullsEqual left right leftKey rightKey =
-        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], how, None, JoinKeyCoalescing.KeepBoth, nullsEqual)
+        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], how, None, JoinKeyCoalescing.KeepBoth, nullsEqual, true)
 
     let private left = join JoinKind.Left false facts returns "f_k" "r_k"
     let private inner = join JoinKind.Inner false facts returns "f_k" "r_k"

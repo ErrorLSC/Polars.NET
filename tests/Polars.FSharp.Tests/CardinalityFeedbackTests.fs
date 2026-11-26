@@ -20,7 +20,7 @@ module CardinalityFeedbackTests =
     let private scan slot layout = LogicalPlan.Scan(LogicalPlanSource.Slot slot, layout)
     let private file name layout = SourceBinding.Table(File(Some name, layout))
     let private join left right =
-        LogicalPlan.Join(left, right, [ col "k" ], [ col "j" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(left, right, [ col "k" ], [ col "j" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
 
     [<Fact>]
     let ``A subplan has the same key whichever slots its scans use`` () =

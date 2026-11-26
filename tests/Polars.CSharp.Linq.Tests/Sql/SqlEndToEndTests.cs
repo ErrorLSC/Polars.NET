@@ -76,7 +76,10 @@ public class SqlEndToEndTests
     [InlineData("SELECT v, CASE WHEN v NOT IN ('x', '2001-02-03') THEN CAST(v AS INTEGER) END AS i, TRY_CAST(v AS INTEGER) AS t, TRY_CAST(v AS DATE) AS dt FROM (VALUES ('1'), ('x'), (' 2 '), ('2001-02-03')) w(v) ORDER BY v")]
     // Text as a date or a timestamp: the ISO 8601 forms (a T or a space, seconds and their fraction optional), read
     // without the surrounding spaces; TRY_CAST gives null for other text.
-    // (DuckDB 1.5 reads ' 2001-02-03 ' as no timestamp, and a date-time as a DATE: those are left out.)
+    // A date-time as a DATE is its date; a literal that is no date is NULL for TRY_CAST. (DuckDB 1.5 reads
+    // ' 2001-02-03 ' as no timestamp, and text after a date as a DATE too: those are left out.)
+    [InlineData("SELECT v, TRY_CAST(v AS DATE) AS t, CAST(v AS DATE) AS c FROM (VALUES ('2001-02-03 04:05:06'), ('2001-02-03T04:05'), (' 2001-02-03 04:05 '), ('2001-02-03 04:05:06.25'), ('2001-02-03')) w(v) ORDER BY v")]
+    [InlineData("SELECT TRY_CAST('x' AS DATE) AS a, TRY_CAST('2001-02-03 04:05' AS DATE) AS b, CAST('2001-02-03T04:05' AS DATE) AS c, CAST('2001-02-03 04:05' AS TIMESTAMP) AS d, TRY_CAST('2001-02-30' AS TIMESTAMP) AS e")]
     [InlineData("SELECT v, TRY_CAST(v AS TIMESTAMP) AS ts FROM (VALUES ('2001-02-03 04:05:06'), ('2001-02-03T04:05:06.25'), (' 2001-02-03 04:05:06 '), ('2001-02-03 04:05'), ('2001-02-03'), ('04:05:06.5'), ('x'), (NULL)) w(v) ORDER BY v")]
     [InlineData("SELECT v, TRY_CAST(v AS DATE) AS dt FROM (VALUES ('2001-02-03'), (' 2001-02-03 '), ('2001-02-30'), ('04:05:06.5'), ('x'), (NULL)) w(v) ORDER BY v")]
     [InlineData("SELECT v, CAST(v AS TIMESTAMP) AS ts, CAST(d AS DATE) AS dt FROM (VALUES ('2001-02-03 04:05:06', '2001-02-03'), (' 1999-12-31T23:59:59.125 ', ' 1999-12-31 '), (NULL, NULL)) w(v, d) ORDER BY v")]

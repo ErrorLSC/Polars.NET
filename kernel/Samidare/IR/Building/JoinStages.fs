@@ -196,11 +196,11 @@ module internal JoinStages =
                         let rightColSet = Set.ofList rightCols
                         foldUnmatchedValueSides rightPlan state.Plan innerDefaults outerDefaults
                             (fun c -> if rightColSet.Contains c then c + uniqueSuffix else c)
-                            (fun l r -> LogicalPlan.Join(l, r, rightKeys, leftKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false))
+                            (fun l r -> LogicalPlan.Join(l, r, rightKeys, leftKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false, true))
                     else
                         foldUnmatchedValueSides state.Plan rightPlan outerDefaults innerDefaults
                             (fun c -> if leftColSet.Contains c then c + uniqueSuffix else c)
-                            (fun l r -> LogicalPlan.Join(l, r, leftKeys, rightKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false))
+                            (fun l r -> LogicalPlan.Join(l, r, leftKeys, rightKeys, how, Some uniqueSuffix, JoinKeyCoalescing.KeepBoth, false, true))
 
                 let leftScope = outerKey.Parameters.[0].Name
                 let rightScope =
@@ -422,7 +422,7 @@ module internal JoinStages =
             // Three or more single-value sequences joined in a row each bring a column of the same name (`LongCount`):
             // the suffix must make the right's names new on the left built so far (TPC-DS Q88).
             let uniqueSuffix = uniqueJoinSuffix LinqConstants.DefaultRightSuffix leftColSet rightCols
-            let joinPlan = LogicalPlan.Join(state.Plan, rightPlan, [], [], JoinKind.Cross, Some uniqueSuffix, JoinKeyCoalescing.Default, false)
+            let joinPlan = LogicalPlan.Join(state.Plan, rightPlan, [], [], JoinKind.Cross, Some uniqueSuffix, JoinKeyCoalescing.Default, false, true)
 
             let leftScope = "outer"
             let rightScope = "inner"

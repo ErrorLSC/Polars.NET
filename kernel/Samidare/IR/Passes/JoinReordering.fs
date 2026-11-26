@@ -265,7 +265,7 @@ module internal JoinReordering =
         | LogicalPlan.GroupingSets(input, _) ->
             let rows, tableRows = recurse input
             max 1.0 (rows * 0.1), tableRows
-        | LogicalPlan.Join(left, right, _, _, how, _, _, _) ->
+        | LogicalPlan.Join(left, right, _, _, how, _, _, _, joinOrdered) ->
             let leftRows, leftTable = recurse left
             let rightRows, rightTable = recurse right
             match how with
@@ -376,7 +376,8 @@ module internal JoinReordering =
 
         let isFlattenableJoin (node: LogicalPlan) =
             match node with
-            | LogicalPlan.Join(_, _, _, _, JoinKind.Inner, _, _, false) -> unorderedJoins.Contains node
+            // GroupOrderRelaxation cleared the order of the joins nothing observes.
+            | LogicalPlan.Join(_, _, _, _, JoinKind.Inner, _, _, false, joinOrdered) -> not joinOrdered && unorderedJoins.Contains node
             | _ -> false
 
         let isPlainColumn (expr: ScalarExpr) =
@@ -416,7 +417,7 @@ module internal JoinReordering =
                         expr
 
                 match node with
-                | LogicalPlan.Join(left, right, leftOn, rightOn, _, suffix, coalesce, _) when isFlattenableJoin node ->
+                | LogicalPlan.Join(left, right, leftOn, rightOn, _, suffix, coalesce, _, joinOrdered) when isFlattenableJoin node ->
                     let leftScope = flatten left
                     let rightScope = flatten right
                     for leftKey, rightKey in List.zip leftOn rightOn do
@@ -600,7 +601,7 @@ module internal JoinReordering =
                                 |> List.ofSeq
                                 |> List.unzip
                             built <-
-                                LogicalPlan.Join(built, relationPlan next, leftKeys, rightKeys, JoinKind.Inner, None, JoinKeyCoalescing.KeepBoth, false)
+                                LogicalPlan.Join(built, relationPlan next, leftKeys, rightKeys, JoinKind.Inner, None, JoinKeyCoalescing.KeepBoth, false, false)
                             placed.Add next |> ignore
                             built <- applyResiduals built
 

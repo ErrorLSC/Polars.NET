@@ -73,7 +73,8 @@ module ScalarExprOps =
 
     /// The text as `target` (a date, a timestamp or a time of day), read by the ISO 8601 forms of that type row by row
     /// after trimming it, null where none matches: a non-strict Cast of text to a temporal type (SEMANTICS.md, Casts).
-    /// A timestamp is read as a naive one, then cast to the target's unit and time zone. None for any other target.
+    /// A timestamp is read as a naive one, then cast to the target's unit and time zone; a date is the date of a
+    /// timestamp's text (a date alone, or with a time). None for any other target.
     let isoTextAs (target: LogicalType) (text: ScalarExpr) : ScalarExpr option =
         let trimmed = ScalarExpr.Function(ScalarFunction.Strip, [ text; ScalarExpr.Literal(LiteralValue.Null LogicalTypes.String) ], LogicalTypes.String)
         let parses (parse: ScalarFunction) (resultType: LogicalType) (formats: string list) =
@@ -83,7 +84,8 @@ module ScalarExprOps =
             | [ format ] -> exact format
             | _ -> ScalarExpr.Coalesce(List.map exact formats)
         match target with
-        | LogicalType.Arrow(:? Apache.Arrow.Types.Date32Type) -> Some(parses ScalarFunction.StrToDate LogicalTypes.Date isoDateFormats)
+        | LogicalType.Arrow(:? Apache.Arrow.Types.Date32Type) ->
+            Some(ScalarExpr.Cast(parses ScalarFunction.StrToDatetime LogicalTypes.Datetime isoDateTimeFormats, LogicalTypes.Date, false))
         | LogicalType.Arrow(:? Apache.Arrow.Types.Time64Type) ->
             let time = parses ScalarFunction.StrToTime LogicalTypes.Time isoTimeFormats
             Some(if target = LogicalTypes.Time then time else ScalarExpr.Cast(time, target, false))

@@ -31,7 +31,7 @@ module internal LogicalPlanOps =
         | LogicalPlan.SkipLast(input, _)
         | LogicalPlan.Shared(_, input) -> [ input ]
         | LogicalPlan.HorizontalConcat inputs -> inputs
-        | LogicalPlan.Join(left, right, _, _, _, _, _, _)
+        | LogicalPlan.Join(left, right, _, _, _, _, _, _, _)
         | LogicalPlan.JoinAsOf(left, right, _)
         | LogicalPlan.Union(left, right, _) -> [ left; right ]
 
@@ -46,10 +46,10 @@ module internal LogicalPlanOps =
         | LogicalPlan.Filter(input, pred) -> let i = f input in if same i input then plan else LogicalPlan.Filter(i, pred)
         | LogicalPlan.Project(input, projs) -> let i = f input in if same i input then plan else LogicalPlan.Project(i, projs)
         | LogicalPlan.WithColumns(input, cols) -> let i = f input in if same i input then plan else LogicalPlan.WithColumns(i, cols)
-        | LogicalPlan.Join(left, right, lOn, rOn, how, sfx, coal, nullEq) ->
+        | LogicalPlan.Join(left, right, lOn, rOn, how, sfx, coal, nullEq, joinOrdered) ->
             let l = f left
             let r = f right
-            if same l left && same r right then plan else LogicalPlan.Join(l, r, lOn, rOn, how, sfx, coal, nullEq)
+            if same l left && same r right then plan else LogicalPlan.Join(l, r, lOn, rOn, how, sfx, coal, nullEq, joinOrdered)
         | LogicalPlan.JoinAsOf(left, right, spec) ->
             let l = f left
             let r = f right
@@ -88,8 +88,8 @@ module internal LogicalPlanOps =
             LogicalPlan.Project(input, projs |> List.map (fun (name, e) -> name, f e))
         | LogicalPlan.WithColumns(input, cols) ->
             LogicalPlan.WithColumns(input, cols |> List.map (fun (name, e) -> name, f e))
-        | LogicalPlan.Join(left, right, lOn, rOn, how, sfx, coal, nullEq) ->
-            LogicalPlan.Join(left, right, lOn |> List.map f, rOn |> List.map f, how, sfx, coal, nullEq)
+        | LogicalPlan.Join(left, right, lOn, rOn, how, sfx, coal, nullEq, joinOrdered) ->
+            LogicalPlan.Join(left, right, lOn |> List.map f, rOn |> List.map f, how, sfx, coal, nullEq, joinOrdered)
         | LogicalPlan.JoinAsOf(left, right, spec) ->
             LogicalPlan.JoinAsOf(
                 left,
@@ -162,7 +162,7 @@ module internal LogicalPlanOps =
                 projs |> List.map (snd >> ScalarExprOps.collectColumns) |> Set.unionMany
             | LogicalPlan.WithColumns(_, cols) ->
                 cols |> List.map (snd >> ScalarExprOps.collectColumns) |> Set.unionMany
-            | LogicalPlan.Join(_, _, lOn, rOn, _, _, _, _) ->
+            | LogicalPlan.Join(_, _, lOn, rOn, _, _, _, _, joinOrdered) ->
                 let lCols = lOn |> List.map ScalarExprOps.collectColumns |> Set.unionMany
                 let rCols = rOn |> List.map ScalarExprOps.collectColumns |> Set.unionMany
                 Set.union lCols rCols
@@ -211,7 +211,7 @@ module internal LogicalPlanOps =
         | LogicalPlan.Filter(_, pred) -> [ pred ]
         | LogicalPlan.Project(_, projs)
         | LogicalPlan.WithColumns(_, projs) -> projs |> List.map snd
-        | LogicalPlan.Join(_, _, lOn, rOn, _, _, _, _) -> lOn @ rOn
+        | LogicalPlan.Join(_, _, lOn, rOn, _, _, _, _, joinOrdered) -> lOn @ rOn
         | LogicalPlan.JoinAsOf(_, _, spec) -> [ spec.LeftOn; spec.RightOn ] @ spec.LeftBy @ spec.RightBy
         | LogicalPlan.GroupBy(_, keys, aggs, having, _) -> keys @ (aggs |> List.map snd) @ Option.toList having
         | LogicalPlan.GroupingSets(_, spec) ->
@@ -419,11 +419,12 @@ module internal LogicalPlanOps =
                     projs |> List.map (fun (n, e) -> sprintf "%s=%s" n (formatScalar e)) |> String.concat ", " |> sprintf "Project: [%s]"
                 | LogicalPlan.WithColumns(_, cols) ->
                     cols |> List.map (fun (n, e) -> sprintf "%s=%s" n (formatScalar e)) |> String.concat ", " |> sprintf "WithColumns: [%s]"
-                | LogicalPlan.Join(_, _, lOn, rOn, how, sfx, _, nullsEqual) ->
+                | LogicalPlan.Join(_, _, lOn, rOn, how, sfx, _, nullsEqual, joinOrdered) ->
                     let lStr = lOn |> List.map formatScalar |> String.concat ", "
                     let rStr = rOn |> List.map formatScalar |> String.concat ", "
                     let nullsStr = if nullsEqual then " nullsEqual" else ""
-                    sprintf "Join: how=%A suffix=%A leftOn=[%s] rightOn=[%s]%s" how sfx lStr rStr nullsStr
+                    let orderStr = if joinOrdered then "" else " unordered"
+                    sprintf "Join: how=%A suffix=%A leftOn=[%s] rightOn=[%s]%s%s" how sfx lStr rStr nullsStr orderStr
                 | LogicalPlan.JoinAsOf(_, _, spec) ->
                     sprintf "JoinAsOf: strategy=%A leftOn=%s rightOn=%s" spec.Strategy (formatScalar spec.LeftOn) (formatScalar spec.RightOn)
                 | LogicalPlan.GroupBy(_, keys, aggs, having, ord) ->

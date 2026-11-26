@@ -4,7 +4,8 @@ namespace Polars.CSharp.Tests;
 
 /// <summary>
 /// A list built from a group (<c>ToList</c> over a group, a correlated subquery or a group join) holds its elements in
-/// the input's order, also when the engine streams the input in several morsels and the groups' own order is free.
+/// the input's order, also when the engine streams the input in several morsels and the groups' own order is free;
+/// MaxBy and MinBy take the first of the tied rows, as LINQ's do.
 /// </summary>
 public class LinqListOrderTests
 {
@@ -53,7 +54,25 @@ public class LinqListOrderTests
 
         Assert.Equal(Expected(Customers.Select(c => c.Id)), Text(query.ToList()));
     }
+
+    [Fact]
+    public void MaxBy_And_MinBy_Take_The_First_Of_Tied_Rows()
+    {
+        // Every group holds many rows of each key (OrderId % 3), over several morsels: the first of the tied ones wins.
+        using var dfO = DataFrame.FromRows(Orders);
+        var query = dfO.AsQueryable(Orders)
+            .GroupBy(o => o.CustomerId)
+            .Select(g => new LoTie(g.Key, g.MaxBy(o => o.OrderId % 3)!.OrderId, g.MinBy(o => o.OrderId % 3)!.OrderId))
+            .OrderBy(r => r.Key);
+        List<LoTie> expected = [.. Orders.GroupBy(o => o.CustomerId)
+            .Select(g => new LoTie(g.Key, g.MaxBy(o => o.OrderId % 3)!.OrderId, g.MinBy(o => o.OrderId % 3)!.OrderId))
+            .OrderBy(r => r.Key)];
+        for (int run = 0; run < 3; run++)
+            Assert.Equal(expected, query.ToList());
+    }
 }
+
+public record LoTie(int Key, int Max, int Min);
 
 public record LoCustomer(int Id);
 

@@ -44,7 +44,7 @@ module internal EntityPacking =
             leftNames, rightNames, nullExtendedColumns left, nullExtendedColumns right |> Set.map rename
 
         match plan with
-        | LogicalPlan.Join(left, right, _, _, how, suffixOpt, _, _) ->
+        | LogicalPlan.Join(left, right, _, _, how, suffixOpt, _, _, joinOrdered) ->
             let leftNames, rightNames, leftExt, rightExt =
                 joined left right (defaultArg suffixOpt LinqConstants.DefaultRightSuffix)
 

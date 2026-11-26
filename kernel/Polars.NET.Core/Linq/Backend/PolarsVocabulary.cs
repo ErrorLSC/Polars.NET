@@ -120,6 +120,7 @@ internal static class PolarsVocabulary
     };
 
     /// <summary>
+    /// The order a join whose order is observed keeps (IR Join maintainOrder; one nothing observes keeps none).
     /// LINQ joins yield rows in outer order, and the matches of one outer row in inner order. A right join reaches the
     /// IR with its sides swapped, so this is also the right join's order. Semi and anti joins filter the left side and
     /// keep its order.

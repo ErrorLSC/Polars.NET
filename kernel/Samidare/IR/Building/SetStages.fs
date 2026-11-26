@@ -115,7 +115,7 @@ module internal SetStages =
             | Some(leftOn, rightOn) ->
                 match dedupSubset leftOn with
                 | Some subset ->
-                    let joined = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true)
+                    let joined = LogicalPlan.Join(state.Plan, rightPlan, leftOn, rightOn, how, None, JoinKeyCoalescing.Default, true, true)
                     continueWith { state with Plan = LogicalPlan.Distinct(joined, subset, DistinctKeep.First, true) } rowShape tail
                 | None ->
                     continueWith (fallback state) rowShape tail

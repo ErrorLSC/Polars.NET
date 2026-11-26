@@ -111,7 +111,7 @@ module internal PredicatePushdown =
                         LogicalPlan.Filter(plan, pred)
 
             // 4. Pushdown through Join
-            | LogicalPlan.Join(left, right, lOn, rOn, how, suffix, coalesce, nullEq) ->
+            | LogicalPlan.Join(left, right, lOn, rOn, how, suffix, coalesce, nullEq, joinOrdered) ->
                 let leftSchema = SchemaInference.inferPlanSchema left
                 let leftCols = leftSchema.ColumnNames |> Set.ofList
                 let rightSchema = SchemaInference.inferPlanSchema right
@@ -122,10 +122,10 @@ module internal PredicatePushdown =
                 | JoinKind.Cross ->
                     if not refCols.IsEmpty && Set.isSubset refCols leftCols then
                         let pushedLeft = pushdownConjunct pred left
-                        LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq)
+                        LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq, joinOrdered)
                     elif not refCols.IsEmpty && Set.isSubset refCols rightCols && (Set.intersect refCols leftCols).IsEmpty then
                         let pushedRight = pushdownConjunct pred right
-                        LogicalPlan.Join(left, pushedRight, lOn, rOn, how, suffix, coalesce, nullEq)
+                        LogicalPlan.Join(left, pushedRight, lOn, rOn, how, suffix, coalesce, nullEq, joinOrdered)
                     else
                         LogicalPlan.Filter(plan, pred)
 
@@ -135,7 +135,7 @@ module internal PredicatePushdown =
                 | JoinKind.Anti ->
                     if not refCols.IsEmpty && Set.isSubset refCols leftCols then
                         let pushedLeft = pushdownConjunct pred left
-                        LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq)
+                        LogicalPlan.Join(pushedLeft, right, lOn, rOn, how, suffix, coalesce, nullEq, joinOrdered)
                     else
                         LogicalPlan.Filter(plan, pred)
 

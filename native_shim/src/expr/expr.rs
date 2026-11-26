@@ -3115,8 +3115,9 @@ const DOTNET_INVALID_CAST: &str = "[[polars-net-invalid-cast]]";
 
 /// The values as `target` where each converts (null stays null); otherwise a ComputeError naming the first value
 /// that does not (text that is no number or date, a value beyond the target's range) after DOTNET_INVALID_CAST.
-/// Text as a date, a timestamp or a time of day, read by the ISO 8601 forms row by row after trimming it, null where
-/// none matches (Samidare's ScalarExprOps.isoTextAs, the same forms); None for any other target. Polars 2.x has no cast
+/// Text as a date, a timestamp or a time of day, read by the ISO 8601 forms row by row after trimming it (a date being
+/// the date of a timestamp's text), null where none matches (Samidare's ScalarExprOps.isoTextAs, the same forms); None
+/// for any other target. Polars 2.x has no cast
 /// of text to these types.
 fn iso_text_as(s: &Series, target: &DataType) -> PolarsResult<Option<Series>> {
     use polars_core::chunked_array::temporal::string::StringMethods;
@@ -3132,16 +3133,19 @@ fn iso_text_as(s: &Series, target: &DataType) -> PolarsResult<Option<Series>> {
         Ok(out)
     }
     let raise = StringChunked::from_slice(PlSmallStr::EMPTY, &["raise"]);
+    // A date alone, or a date and a time after T or a space (seconds and their fraction optional), as a naive timestamp.
+    let naive = || -> PolarsResult<Series> {
+        let forms = ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"];
+        let parsed: PolarsResult<Vec<Series>> = forms
+            .iter()
+            .map(|f| Ok(trimmed.as_datetime(Some(f), TimeUnit::Microseconds, false, false, None, &raise)?.into_series()))
+            .collect();
+        first(parsed?)
+    };
     Ok(Some(match target {
-        DataType::Date => trimmed.as_date(Some("%Y-%m-%d"), false)?.into_series(),
-        DataType::Datetime(unit, zone) => {
-            let forms = ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"];
-            let naive: PolarsResult<Vec<Series>> = forms
-                .iter()
-                .map(|f| Ok(trimmed.as_datetime(Some(f), TimeUnit::Microseconds, false, false, None, &raise)?.into_series()))
-                .collect();
-            first(naive?)?.cast(&DataType::Datetime(*unit, zone.clone()))?
-        },
+        // The date of a timestamp's text.
+        DataType::Date => naive()?.cast(&DataType::Date)?,
+        DataType::Datetime(unit, zone) => naive()?.cast(&DataType::Datetime(*unit, zone.clone()))?,
         DataType::Time => {
             let forms = ["%H:%M:%S%.f", "%H:%M"];
             let times: PolarsResult<Vec<Series>> = forms.iter().map(|f| Ok(trimmed.as_time(Some(f), false)?.into_series())).collect();

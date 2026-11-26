@@ -15,7 +15,7 @@ module PredicatePushdownTests =
 
     let private gt name (value: int) = ScalarExpr.Binary(BinaryOp.Gt, col name, ScalarExpr.Literal(LiteralValue.Int32 value))
     let private join how l r =
-        LogicalPlan.Join(l, r, [ col "k" ], [ col "rk" ], how, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(l, r, [ col "k" ], [ col "rk" ], how, None, JoinKeyCoalescing.Default, false, true)
     let private sum = ScalarExpr.Aggregation(AggKind.Sum, Some(col "v"), false)
     let private windowed = ScalarExpr.Window(sum, [ col "k" ], [])
 

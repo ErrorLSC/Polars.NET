@@ -118,7 +118,10 @@ A decimal sum is not checked.
 enum's name), so passes treat it as any pure expression. A conversion that may fail is `CheckedCast` (`[value;
 guard]`): on a guarded row a value that does not convert (text that is no number or date, a value beyond the target's
 range) fails the query with `QueryErrorKind.InvalidCast`, its message naming the value; elsewhere it is null (see
-Guards). A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
+Guards). Text converts to a temporal type by the ISO 8601 forms of that type, after trimming it: a timestamp is a
+date, or a date and a time after `T` or a space (seconds and their fraction optional); a date is the date of such
+text (`'2001-02-03 04:05'` is 2001-02-03); a time of day is `HH:mm`, seconds and their fraction optional. Other text
+does not convert (a non-strict `Cast` gives null). A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
 `(byte)300` is 44, where the engine would give null. A floating value converted to an integer truncates and
 saturates to the target's range for every integer type, as .NET 11 does: NaN is 0, and values beyond the
 range give MinValue / MaxValue, so `(byte)-2.7` is 0 and `(byte)300.5` is 255. On .NET 10 and earlier,

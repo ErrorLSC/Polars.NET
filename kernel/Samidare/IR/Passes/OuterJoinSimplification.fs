@@ -14,14 +14,14 @@ module internal OuterJoinSimplification =
     let rec private rewrite (node: LogicalPlan) : LogicalPlan =
         match LogicalPlanOps.mapInputs rewrite node with
         | LogicalPlan.Join(
-            (LogicalPlan.Join(left, right, innerLeftOn, innerRightOn, JoinKind.Left, innerSuffix, innerCoalesce, false) as outer),
+            (LogicalPlan.Join(left, right, innerLeftOn, innerRightOn, JoinKind.Left, innerSuffix, innerCoalesce, false, innerOrdered) as outer),
             other,
             leftOn,
             rightOn,
             JoinKind.Inner,
             suffix,
             coalesce,
-            false) as join ->
+            false, joinOrdered) as join ->
             let added = Set.difference (columnsOf outer) (columnsOf left)
             let rejectsUnmatched =
                 leftOn
@@ -29,8 +29,8 @@ module internal OuterJoinSimplification =
                     | ScalarExpr.Column name -> added.Contains name
                     | _ -> false)
             if rejectsUnmatched then
-                let inner = LogicalPlan.Join(left, right, innerLeftOn, innerRightOn, JoinKind.Inner, innerSuffix, innerCoalesce, false)
-                LogicalPlan.Join(inner, other, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, false)
+                let inner = LogicalPlan.Join(left, right, innerLeftOn, innerRightOn, JoinKind.Inner, innerSuffix, innerCoalesce, false, innerOrdered)
+                LogicalPlan.Join(inner, other, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, false, joinOrdered)
             else
                 join
         | other -> other

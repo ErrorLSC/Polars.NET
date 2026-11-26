@@ -109,7 +109,7 @@ module internal SemiJoinReduction =
             match columns |> List.tryFind (fst >> (=) column) with
             | Some(_, ScalarExpr.Column source) -> sourceOfColumn source input
             | _ -> None
-        | LogicalPlan.Join(left, right, _, _, (JoinKind.Inner | JoinKind.Left | JoinKind.Semi | JoinKind.Anti), _, _, _) ->
+        | LogicalPlan.Join(left, right, _, _, (JoinKind.Inner | JoinKind.Left | JoinKind.Semi | JoinKind.Anti), _, _, _, joinOrdered) ->
             if (columnsOf left).Contains column then sourceOfColumn column left else sourceOfColumn column right
         | LogicalPlan.GroupBy(input, keys, _, _, _) ->
             keys
@@ -137,7 +137,7 @@ module internal SemiJoinReduction =
             columns |> List.forall (fun (name, expr) -> name <> key && not (ScalarExprOps.dependsOnOtherRows expr))
             ->
             keySource key input
-        | LogicalPlan.Join(left, right, leftOn, rightOn, how, _, _, false) ->
+        | LogicalPlan.Join(left, right, leftOn, rightOn, how, _, _, false, joinOrdered) ->
             let leftColumns, rightColumns = columnsOf left, columnsOf right
             match how with
             | JoinKind.Inner when rightColumns.Contains key && not (leftColumns.Contains key) && (tableRead right).IsSome ->
@@ -160,7 +160,7 @@ module internal SemiJoinReduction =
                             None,
                             JoinKeyCoalescing.Default,
                             false
-                        )
+                        , joinOrdered)
                     Some(joined, key)
                 | _ -> if isFilteredTable right then Some(right, key) else None
             | JoinKind.Inner
@@ -210,7 +210,7 @@ module internal SemiJoinReduction =
         /// Whether the semi join `existing` keeps fewer rows than `selective`, so that it should run first.
         let keepsMoreThan (selective: LogicalPlan) (selectiveKey: string) (key: string) (existing: LogicalPlan) =
             match existing with
-            | LogicalPlan.Join(facts, filter, [ ScalarExpr.Column factKey ], [ ScalarExpr.Column filterKey ], JoinKind.Semi, _, _, _) ->
+            | LogicalPlan.Join(facts, filter, [ ScalarExpr.Column factKey ], [ ScalarExpr.Column filterKey ], JoinKind.Semi, _, _, _, joinOrdered) ->
                 keepsNoMore facts factKey filter filterKey key selective selectiveKey
             | _ -> false
 
@@ -227,8 +227,8 @@ module internal SemiJoinReduction =
                     JoinKind.Semi,
                     None,
                     JoinKeyCoalescing.Default,
-                    false
-                )
+                    false,
+                    true)
             match node with
             | LogicalPlan.Scan _
             | LogicalPlan.Filter(LogicalPlan.Scan _, _) -> Some(filtered ())
@@ -243,7 +243,7 @@ module internal SemiJoinReduction =
                 let keyRows = fst (estimate selective)
                 let rec filtersLargeTablesOnly (plan: LogicalPlan) =
                     match plan with
-                    | LogicalPlan.Join(table, filter, _, _, JoinKind.Semi, _, _, _) when obj.ReferenceEquals(filter, selective) ->
+                    | LogicalPlan.Join(table, filter, _, _, JoinKind.Semi, _, _, _, joinOrdered) when obj.ReferenceEquals(filter, selective) ->
                         snd (estimate table) >= minKeySetReduction * keyRows
                     | _ -> LogicalPlanOps.getInputs plan |> List.forall filtersLargeTablesOnly
                 match reduce fromLeft needsLargeJoin selective selectiveKey copyWorthIt key input with
@@ -301,8 +301,8 @@ module internal SemiJoinReduction =
                     if not fromLeft then worthIt.Value <- true
                     LogicalPlan.GroupBy(reduced, keys, aggregations, having, maintainOrder))
 
-            | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual) ->
-                let rebuild l r = LogicalPlan.Join(l, r, leftOn, rightOn, how, suffix, coalescing, nullsEqual)
+            | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual, joinOrdered) ->
+                let rebuild l r = LogicalPlan.Join(l, r, leftOn, rightOn, how, suffix, coalescing, nullsEqual, joinOrdered)
                 let leftHas = (SchemaInference.inferPlanSchema left).ColumnNames |> List.contains key
                 match how with
                 | JoinKind.Inner ->
@@ -351,7 +351,7 @@ module internal SemiJoinReduction =
 
         let rec rewrite (node: LogicalPlan) : LogicalPlan =
             match LogicalPlanOps.mapInputs rewrite node with
-            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
+            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false, joinOrdered) as join when
                 isFilteredTable right
                 ->
                 let rows, tableRows = estimate right
@@ -367,9 +367,9 @@ module internal SemiJoinReduction =
                          None)
                 with
                 | Some reduced when worthIt.Value ->
-                    LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false)
+                    LogicalPlan.Join(reduced, right, [ ScalarExpr.Column leftKey ], [ ScalarExpr.Column rightKey ], how, suffix, coalescing, false, joinOrdered)
                 | _ -> join
-            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], ([ ScalarExpr.Column rightKey ] as rightOn), (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
+            | LogicalPlan.Join(left, right, [ ScalarExpr.Column leftKey ], ([ ScalarExpr.Column rightKey ] as rightOn), (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false, joinOrdered) as join when
                 (tableRead right).IsNone && snd (estimate right) >= minKeySetReduction * fst (estimate left)
                 ->
                 let shared, reservedId =
@@ -381,9 +381,9 @@ module internal SemiJoinReduction =
                 match reduce true false keys leftKey worthIt rightKey right with
                 | Some reduced when worthIt.Value ->
                     reservedId |> Option.iter (fun id -> nextSharedId <- id + 1)
-                    LogicalPlan.Join(shared, reduced, [ ScalarExpr.Column leftKey ], rightOn, how, suffix, coalescing, false)
+                    LogicalPlan.Join(shared, reduced, [ ScalarExpr.Column leftKey ], rightOn, how, suffix, coalescing, false, joinOrdered)
                 | _ -> join
-            | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false) as join when
+            | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Inner | JoinKind.Semi as how), suffix, coalescing, false, joinOrdered) as join when
                 leftOn.Length >= 2 && (tableRead right).IsSome
                 ->
                 let tableRows = fst (estimate right)
@@ -409,8 +409,8 @@ module internal SemiJoinReduction =
                             None,
                             JoinKeyCoalescing.Default,
                             false
-                        )
-                    LogicalPlan.Join(left, reduced, leftOn, rightOn, how, suffix, coalescing, false)
+                        , true)
+                    LogicalPlan.Join(left, reduced, leftOn, rightOn, how, suffix, coalescing, false, joinOrdered)
             | other -> other
 
         rewrite plan

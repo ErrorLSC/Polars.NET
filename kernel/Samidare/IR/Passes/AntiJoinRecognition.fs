@@ -24,16 +24,16 @@ module internal AntiJoinRecognition =
     let private sinkFilteringJoin (join: LogicalPlan) =
         match join with
         | LogicalPlan.Join(
-            LogicalPlan.Join(left, excluded, antiLeft, antiRight, JoinKind.Anti, antiSuffix, antiCoalesce, antiNullsEqual),
+            LogicalPlan.Join(left, excluded, antiLeft, antiRight, JoinKind.Anti, antiSuffix, antiCoalesce, antiNullsEqual, antiOrdered),
             dimension,
             ([ ScalarExpr.Column leftKey ] as leftOn),
             rightOn,
             JoinKind.Inner,
             suffix,
             coalesce,
-            nullsEqual) when isFilteredDimension dimension && (columnsOf left).Contains leftKey ->
-            let inner = LogicalPlan.Join(left, dimension, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, nullsEqual)
-            LogicalPlan.Join(inner, excluded, antiLeft, antiRight, JoinKind.Anti, antiSuffix, antiCoalesce, antiNullsEqual)
+            nullsEqual, joinOrdered) when isFilteredDimension dimension && (columnsOf left).Contains leftKey ->
+            let inner = LogicalPlan.Join(left, dimension, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, nullsEqual, joinOrdered)
+            LogicalPlan.Join(inner, excluded, antiLeft, antiRight, JoinKind.Anti, antiSuffix, antiCoalesce, antiNullsEqual, antiOrdered)
         | other -> other
 
     /// Rewrites the first left join kept for its unmatched rows along the plan's left spine of filters and inner joins.
@@ -41,22 +41,22 @@ module internal AntiJoinRecognition =
     let rec private recognize (read: Set<string>) (node: LogicalPlan) : LogicalPlan option =
         match node with
         | LogicalPlan.Filter(
-            (LogicalPlan.Join(left, right, leftOn, rightOn, JoinKind.Left, _, _, false) as join),
+            (LogicalPlan.Join(left, right, leftOn, rightOn, JoinKind.Left, _, _, false, joinOrdered) as join),
             ScalarExpr.Unary(UnaryOp.IsNull, ScalarExpr.Column tested)) ->
             let leftColumns = columnsOf left
             let added = Set.difference (columnsOf join) leftColumns
             if rightOn |> List.contains (ScalarExpr.Column tested) && added.Contains tested && Set.isEmpty (Set.intersect added read) then
-                Some(LogicalPlan.Join(left, right, leftOn, rightOn, JoinKind.Anti, None, JoinKeyCoalescing.Default, false))
+                Some(LogicalPlan.Join(left, right, leftOn, rightOn, JoinKind.Anti, None, JoinKeyCoalescing.Default, false, joinOrdered))
             else
                 None
         | LogicalPlan.Filter(input, predicate) when not (ScalarExprOps.containsSubquery predicate) ->
             recognize (Set.union read (ScalarExprOps.collectColumns predicate)) input
             |> Option.map (fun rewritten -> LogicalPlan.Filter(rewritten, predicate))
-        | LogicalPlan.Join(left, right, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, nullsEqual) ->
+        | LogicalPlan.Join(left, right, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, nullsEqual, joinOrdered) ->
             let usedHere = leftOn |> List.map ScalarExprOps.collectColumns |> Set.unionMany
             recognize (Set.union read usedHere) left
             |> Option.map (fun rewritten ->
-                sinkFilteringJoin (LogicalPlan.Join(rewritten, right, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, nullsEqual)))
+                sinkFilteringJoin (LogicalPlan.Join(rewritten, right, leftOn, rightOn, JoinKind.Inner, suffix, coalesce, nullsEqual, joinOrdered)))
         | _ -> None
 
     /// A subquery's outer references are not visible as columns, so an expression holding one blocks the rewrite.

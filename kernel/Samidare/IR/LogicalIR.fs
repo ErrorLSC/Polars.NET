@@ -1015,8 +1015,9 @@ and [<RequireQualifiedAccess>] LogicalPlan =
     | Project of input: LogicalPlan * projections: (string * ScalarExpr) list
     /// The input columns plus (or replaced by) the listed ones, evaluated as in Project.
     | WithColumns of input: LogicalPlan * columns: (string * ScalarExpr) list
-    /// Inner / Left: left order, then right order among a row's matches. Semi / Anti: left order. Cross: no
-    /// order. A null key matches a null key exactly when `nullsEqual`.
+    /// With `maintainOrder`, Inner / Left / Full: left order, then right order among a row's matches; Semi / Anti:
+    /// left order; Cross: left order, then right order. Without it the rows come in no order (nothing observes it:
+    /// GroupOrderRelaxation clears it). A null key matches a null key exactly when `nullsEqual`.
     | Join of
         left: LogicalPlan *
         right: LogicalPlan *
@@ -1025,7 +1026,8 @@ and [<RequireQualifiedAccess>] LogicalPlan =
         how: JoinKind *
         suffix: string option *
         coalesce: JoinKeyCoalescing *
-        nullsEqual: bool
+        nullsEqual: bool *
+        maintainOrder: bool
     | JoinAsOf of left: LogicalPlan * right: LogicalPlan * spec: LogicalAsOfJoinSpec
     /// One row per distinct key; `having` (an aggregate predicate over a group's rows) keeps the groups for
     /// which it is true. With `maintainOrder` groups appear in the order their keys first appear, otherwise

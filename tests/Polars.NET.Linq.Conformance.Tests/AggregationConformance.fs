@@ -279,14 +279,14 @@ let ``SumOrNull is aggregated before the join of its dimension`` () =
     let dims = [| { DK = 1L; DA = "a"; DT = 1L }; { DK = 2L; DA = "a"; DT = 0L }; { DK = 3L; DA = "b"; DT = 1L }; { DK = 4L; DA = "c"; DT = 0L } |]
     let factScan = t.Scan fact
     let dimScan = t.Scan dims
-    let joined = LogicalPlan.Join(factScan, dimScan, [ col "FK" ], [ col "DK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+    let joined = LogicalPlan.Join(factScan, dimScan, [ col "FK" ], [ col "DK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
     let guarded =
         ScalarExpr.Conditional(bin BinaryOp.Eq (col "DT") (i64 1L), col "FV", ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Int64))
     let plan =
         LogicalPlan.GroupBy(joined, [ col "DA" ], [ "s", agg AggKind.SumOrNull (col "FV"); "g", agg AggKind.SumOrNull guarded ], None, true)
     let eager = Kaminari.Samidare.IR.Passes.EagerAggregation.apply t.Sources plan
     match eager with
-    | LogicalPlan.GroupBy(LogicalPlan.Join(LogicalPlan.GroupBy _, _, _, _, _, _, _, _), _, _, _, _) -> ()
+    | LogicalPlan.GroupBy(LogicalPlan.Join(LogicalPlan.GroupBy _, _, _, _, _, _, _, _, _), _, _, _, _) -> ()
     | other -> failwithf "not aggregated eagerly: %s" (LogicalPlanOps.formatPlan other)
     for p in [ plan; eager ] do
         Conformance.rowsInOrder t p [ [ "a"; 8L; 3L ]; [ "b"; null; null ]; [ "c"; 28L; null ] ]

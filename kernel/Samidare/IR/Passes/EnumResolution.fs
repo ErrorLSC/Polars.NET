@@ -607,7 +607,7 @@ module internal EnumResolution =
         let schemaOf = SchemaInference.inferPlanSchema
 
         match plan' with
-        | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalesce, nullsEqual) ->
+        | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalesce, nullsEqual, joinOrdered) ->
             LogicalPlan.Join(
                 left,
                 right,
@@ -617,7 +617,7 @@ module internal EnumResolution =
                 suffix,
                 coalesce,
                 nullsEqual
-            )
+            , joinOrdered)
         | LogicalPlan.JoinAsOf(left, right, spec) ->
             let leftSchema = schemaOf left
             let rightSchema = schemaOf right

@@ -30,7 +30,7 @@ let private kinds: (string * ScalarExpr) list =
 
 let private keep = bin BinaryOp.NotEq (col "K") (i64 2L)
 let private positive e = bin BinaryOp.Gt e (i64 0L)
-let private join left right = LogicalPlan.Join(left, right, [ col "K" ], [ col "RK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+let private join left right = LogicalPlan.Join(left, right, [ col "K" ], [ col "RK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
 
 /// The plan shapes whose lower filter or join removes row 2 before the raising expression `e` is reached.
 let private shapes (e: ScalarExpr) : (string * (Tables -> LogicalPlan)) list =
@@ -111,7 +111,7 @@ let private vDivZ = ScalarExprOps.checkedDivide DivisionKind.IntegerDivide Logic
 [<Fact>]
 let ``Eager aggregation does not aggregate a raising argument before the join`` () =
     let t = Tables()
-    let j = LogicalPlan.Join(t.Scan fact, t.Scan dims, [ col "K" ], [ col "RK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+    let j = LogicalPlan.Join(t.Scan fact, t.Scan dims, [ col "K" ], [ col "RK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
     rowsAfterComplete t (LogicalPlan.GroupBy(j, [ col "G" ], [ "s", agg AggKind.Sum vDivZ ], None, true)) [ [ "b"; 400L ]; [ "a"; 380L ] ]
 
 /// Row 40 matches the last joined table but not the dimension: a filter between the joins must stay above the
@@ -122,7 +122,7 @@ let ``Join reordering keeps a raising filter above the joins beneath it`` () =
     let others: RE array = [| { RK2 = 1L; H = "x" }; { RK2 = 2L; H = "y" }; { RK2 = 9L; H = "z" } |]
     // A dimension larger than the other table, so the other table is joined first once the joins are reordered.
     let bigDims: RD array = [| yield! dims; for k in 10L .. 30L -> { RK = k; G = "-" } |]
-    let inner = LogicalPlan.Join(t.Scan fact, t.Scan bigDims, [ col "K" ], [ col "RK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
-    let outer = LogicalPlan.Join(filter inner (positive vDivZ), t.Scan others, [ col "K" ], [ col "RK2" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+    let inner = LogicalPlan.Join(t.Scan fact, t.Scan bigDims, [ col "K" ], [ col "RK" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
+    let outer = LogicalPlan.Join(filter inner (positive vDivZ), t.Scan others, [ col "K" ], [ col "RK2" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
     rowsAfterComplete t (LogicalPlan.GroupBy(outer, [ col "G" ], [ "c", len ], None, false)) [ [ "a"; 19L ]; [ "b"; 20L ] ]
 

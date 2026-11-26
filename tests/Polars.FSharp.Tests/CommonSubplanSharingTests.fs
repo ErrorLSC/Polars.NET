@@ -35,7 +35,7 @@ module CommonSubplanSharingTests =
     /// facts ⋈ dims grouped by name, reading the given slots.
     let private aggregate factSlot dimSlot =
         let joined =
-            LogicalPlan.Join(scan factSlot factSchema, scan dimSlot dimSchema, [ col "k" ], [ col "dk" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+            LogicalPlan.Join(scan factSlot factSchema, scan dimSlot dimSchema, [ col "k" ], [ col "dk" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
         LogicalPlan.GroupBy(joined, [ col "name" ], [ "total", sum ], None, true)
 
     let private gt name (value: int) = ScalarExpr.Binary(BinaryOp.Gt, col name, ScalarExpr.Literal(LiteralValue.Int32 value))

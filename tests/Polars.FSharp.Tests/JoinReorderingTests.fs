@@ -33,7 +33,7 @@ module JoinReorderingTests =
     let private withStats = star [ Some 5_000_000L; Some 10_000L; Some 10_000L; Some 10_000L ]
 
     let private eq name (value: int) = ScalarExpr.Binary(BinaryOp.Eq, col name, ScalarExpr.Literal(LiteralValue.Int32 value))
-    let private join l r lk rk = LogicalPlan.Join(l, r, [ col lk ], [ col rk ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+    let private join l r lk rk = LogicalPlan.Join(l, r, [ col lk ], [ col rk ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
     let private sum name = ScalarExpr.Aggregation(AggKind.Sum, Some(col name), false)
     /// One row of order-free aggregates: nothing observes its input's order.
     let private total name input = LogicalPlan.Project(input, [ ("total", sum name) ])
@@ -148,7 +148,7 @@ module JoinReorderingTests =
         let dim2 = scan 2 aSchema
         let selfJoin =
             let first = join fact (LogicalPlan.Filter(a, eq "a_v" 1)) "a_key" "a"
-            LogicalPlan.Join(first, dim2, [ col "b_key" ], [ col "a" ], JoinKind.Inner, Some "_right", JoinKeyCoalescing.Default, false)
+            LogicalPlan.Join(first, dim2, [ col "b_key" ], [ col "a" ], JoinKind.Inner, Some "_right", JoinKeyCoalescing.Default, false, true)
         let withC = join selfJoin c "c_key" "c"
         let plan = total "a_v_right" withC
         let schemas = sources [ Some 5_000_000L; Some 10_000L; Some 10_000L; Some 100L ] [ factSchema; aSchema; aSchema; cSchema ]
@@ -167,14 +167,14 @@ module JoinReorderingTests =
 
     [<Fact>]
     let ``Outer joins are opaque, and two relations are left alone`` () =
-        let leftJoin = LogicalPlan.Join(join fact a "a_key" "a", b, [ col "b_key" ], [ col "b" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+        let leftJoin = LogicalPlan.Join(join fact a "a_key" "a", b, [ col "b_key" ], [ col "b" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false, true)
         let plan = total "v" leftJoin
         Assert.Equal<int list>([ 0; 1; 2 ], slots (LogicalOptimizer.optimizeComplete false false withStats plan))
 
     [<Fact>]
     let ``A disconnected join graph keeps its written order`` () =
         // The last join's key belongs to no relation joined before it through an edge between the first two groups.
-        let cross = LogicalPlan.Join(join fact a "a_key" "a", b, [], [], JoinKind.Cross, None, JoinKeyCoalescing.Default, false)
+        let cross = LogicalPlan.Join(join fact a "a_key" "a", b, [], [], JoinKind.Cross, None, JoinKeyCoalescing.Default, false, true)
         let plan = total "v" (join cross c "c_key" "c")
         Assert.Equal<int list>([ 0; 1; 2; 3 ], slots (LogicalOptimizer.optimizeComplete false false withStats plan))
 

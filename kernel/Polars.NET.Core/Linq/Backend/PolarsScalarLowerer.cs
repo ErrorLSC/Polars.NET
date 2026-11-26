@@ -834,8 +834,12 @@ internal static class PolarsScalarLowerer
             case ({ IsImplode: true }, [var a, ScalarExpr.Literal { value: LiteralValue.Bool maintainOrder }]): return PolarsWrapper.Implode(L(a), maintainOrder: maintainOrder.Item);
             case ({ IsNUnique: true }, [var a]): return PolarsWrapper.NUnique(L(a));
             case ({ IsUnique: true }, [var a]): return PolarsWrapper.ExprUnique(L(a));
-            case ({ IsMinBy: true }, [var a, var by]): return PolarsWrapper.MinBy(L(a), L(by));
-            case ({ IsMaxBy: true }, [var a, var by]): return PolarsWrapper.MaxBy(L(a), L(by));
+            // The first of the values whose key is the least (greatest), as LINQ's MinBy / MaxBy: the engine's min_by /
+            // max_by leave ties undefined (the streaming engine picks any). Null and NaN keys are passed over, as there.
+            case ({ IsMinBy: true }, [var a, var by]):
+                return PolarsWrapper.First(PolarsWrapper.Filter(L(a), PolarsWrapper.Eq(L(by), PolarsWrapper.Min(L(by)))), ignoreNulls: false);
+            case ({ IsMaxBy: true }, [var a, var by]):
+                return PolarsWrapper.First(PolarsWrapper.Filter(L(a), PolarsWrapper.Eq(L(by), PolarsWrapper.Max(L(by)))), ignoreNulls: false);
             case ({ IsFilter: true }, [var a, var predicate]): return PolarsWrapper.Filter(L(a), L(predicate));
             case (ScalarFunction.Quantile quantile, [var a, ScalarExpr.Literal { value: LiteralValue.Float64 q }]):
                 return PolarsWrapper.Quantile(L(a), q.Item, PolarsVocabulary.QuantileMethod(quantile.method));

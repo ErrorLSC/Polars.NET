@@ -54,7 +54,7 @@ let ``Limit takes count rows after offset`` () =
 let private right: RK array = [| { RK = n 2L; RV = "a" }; { RK = nul; RV = "n" }; { RK = n 2L; RV = "b" }; { RK = n 9L; RV = "z" } |]
 
 let private join how nullsEqual (t: Tables) =
-    LogicalPlan.Join(t.Scan left, t.Scan right, [ col "K" ], [ col "RK" ], how, None, JoinKeyCoalescing.Default, nullsEqual)
+    LogicalPlan.Join(t.Scan left, t.Scan right, [ col "K" ], [ col "RK" ], how, None, JoinKeyCoalescing.Default, nullsEqual, true)
 
 [<Fact>]
 let ``Left join keeps left order and right order among matches`` () =

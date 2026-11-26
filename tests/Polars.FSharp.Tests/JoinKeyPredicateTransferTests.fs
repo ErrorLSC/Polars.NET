@@ -18,7 +18,7 @@ module JoinKeyPredicateTransferTests =
     let private lit (value: int) = ScalarExpr.Literal(LiteralValue.Int32 value)
     let private eq name (value: int) = ScalarExpr.Binary(BinaryOp.Eq, col name, lit value)
     let private join how l r leftKey rightKey =
-        LogicalPlan.Join(l, r, [ col leftKey ], [ col rightKey ], how, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(l, r, [ col leftKey ], [ col rightKey ], how, None, JoinKeyCoalescing.Default, false, true)
     let private transfer = JoinKeyPredicateTransfer.apply
 
     [<Fact>]

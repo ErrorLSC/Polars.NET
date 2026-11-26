@@ -36,10 +36,10 @@ module SemiJoinReductionTests =
     let private selective = LogicalPlan.Filter(LogicalPlan.Filter(dims, eq "d_a" 1), eq "d_b" 2)
 
     let private inner left right leftKey rightKey =
-        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
 
     let private semi input key =
-        LogicalPlan.Join(input, selective, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(input, selective, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
 
     [<Fact>]
     let ``An expensive join is reduced on both sides through its key equality`` () =
@@ -93,7 +93,7 @@ module SemiJoinReductionTests =
 
     let private reducedBy (filter: LogicalPlan) =
         let plan = inner (inner facts returns "f_t" "r_t") filter "f_k" "d_k"
-        let semiFacts = LogicalPlan.Join(facts, filter, [ col "f_k" ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let semiFacts = LogicalPlan.Join(facts, filter, [ col "f_k" ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
         Assert.Equal(inner (inner semiFacts returns "f_t" "r_t") filter "f_k" "d_k", SemiJoinReduction.apply sources plan)
 
     let private notReducedBy (filter: LogicalPlan) =
@@ -159,7 +159,7 @@ module SemiJoinReductionTests =
     let private measured = LogicalPlan.Filter(dims, eq "d_a" 1)
 
     let private semiByMeasured input key =
-        LogicalPlan.Join(input, measured, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(input, measured, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
 
     [<Fact>]
     let ``A table selective by its statistics reduces past a large join`` () =
@@ -199,7 +199,7 @@ module SemiJoinReductionTests =
         Assert.Equal(expected, SemiJoinReduction.apply [| sources.[0]; measuredReturns 10.0; measuredDims |] passingFilter)
 
     let private semiByStrong =
-        LogicalPlan.Join(facts, strongFilter, [ col "f_t" ], [ col "r_t" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(facts, strongFilter, [ col "f_t" ], [ col "r_t" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
 
     let private overExistingSemi = inner (inner semiByStrong returns "f_t" "r_t") measured "f_k" "d_k"
 
@@ -210,7 +210,7 @@ module SemiJoinReductionTests =
 
     [<Fact>]
     let ``A stronger reduction goes beneath a weaker one`` () =
-        let deeper = LogicalPlan.Join(semiByMeasured facts "f_k", strongFilter, [ col "f_t" ], [ col "r_t" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let deeper = LogicalPlan.Join(semiByMeasured facts "f_k", strongFilter, [ col "f_t" ], [ col "r_t" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
         let expected = inner (inner deeper returns "f_t" "r_t") measured "f_k" "d_k"
         Assert.Equal(expected, SemiJoinReduction.apply [| sources.[0]; measuredReturns 10.0; measuredDims |] overExistingSemi)
 
@@ -234,7 +234,7 @@ module SemiJoinReductionTests =
 
     [<Fact>]
     let ``A left join alone is worth reducing`` () =
-        let leftJoin input = LogicalPlan.Join(input, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)
+        let leftJoin input = LogicalPlan.Join(input, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false, true)
 
         Assert.Equal(inner (leftJoin (semi facts "f_k")) selective "f_k" "d_k", SemiJoinReduction.apply sources (inner (leftJoin facts) selective "f_k" "d_k"))
 
@@ -242,7 +242,7 @@ module SemiJoinReductionTests =
     let private joinOnKey left right = inner left right "d_k" "key"
 
     let private semiByKeys (keys: LogicalPlan) input key =
-        LogicalPlan.Join(input, keys, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(input, keys, [ col key ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
 
     [<Fact>]
     let ``A small left input filters an expensive right input`` () =
@@ -265,7 +265,7 @@ module SemiJoinReductionTests =
 
     [<Fact>]
     let ``A semi join's small left input filters an expensive right input`` () =
-        let semiOnKey left right = LogicalPlan.Join(left, right, [ col "d_k" ], [ col "key" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let semiOnKey left right = LogicalPlan.Join(left, right, [ col "d_k" ], [ col "key" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
         let plan = semiOnKey selective (distinctKeys (inner facts returns "f_k" "r_k"))
 
         let shared = LogicalPlan.Shared(0, selective)
@@ -307,12 +307,12 @@ module SemiJoinReductionTests =
 
     [<Fact>]
     let ``A left join reduces its left side only`` () =
-        let leftJoin = LogicalPlan.Join(inner facts returns "f_t" "r_t", returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)
+        let leftJoin = LogicalPlan.Join(inner facts returns "f_t" "r_t", returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false, true)
         let plan = inner leftJoin selective "f_k" "d_k"
 
         let reducedLeft = inner (semi facts "f_k") returns "f_t" "r_t"
         let expected =
-            inner (LogicalPlan.Join(reducedLeft, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false)) selective "f_k" "d_k"
+            inner (LogicalPlan.Join(reducedLeft, returns, [ col "f_k" ], [ col "r_k" ], JoinKind.Left, Some "_right", JoinKeyCoalescing.Default, false, true)) selective "f_k" "d_k"
         Assert.Equal(expected, SemiJoinReduction.apply sources plan)
 
     // A join on two columns, against a large table.
@@ -337,10 +337,10 @@ module SemiJoinReductionTests =
     let private oneYear = LogicalPlan.Filter(years, eq "y_y" 1999)
 
     let private composite left right leftKeys rightKeys =
-        LogicalPlan.Join(left, right, leftKeys |> List.map col, rightKeys |> List.map col, JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(left, right, leftKeys |> List.map col, rightKeys |> List.map col, JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
 
     let private semiOn table key relation column =
-        LogicalPlan.Join(table, relation, [ col key ], [ col column ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(table, relation, [ col key ], [ col column ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
 
     let private applyComposite = SemiJoinReduction.apply compositeSources
 
@@ -397,7 +397,7 @@ module SemiJoinReductionTests =
 
     [<Fact>]
     let ``A key on the outer side of a left join does not reduce`` () =
-        let outer = LogicalPlan.Join(sales, oneYear, [ col "s_d" ], [ col "y_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+        let outer = LogicalPlan.Join(sales, oneYear, [ col "s_d" ], [ col "y_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false, true)
         let plan = composite outer stock [ "s_i"; "y_y" ] [ "t_i"; "t_d" ]
 
         Assert.Equal(plan, applyComposite plan)
@@ -420,7 +420,7 @@ module SemiJoinReductionTests =
     let ``A shared plan reached by a selective table's keys is copied for the consumer and reduced`` () =
         let plan = inner (LogicalPlan.Shared(4, totalsByKey facts)) dimRange "f_k" "d_k"
 
-        let reduced = LogicalPlan.Join(facts, dimRange, [ col "f_k" ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false)
+        let reduced = LogicalPlan.Join(facts, dimRange, [ col "f_k" ], [ col "d_k" ], JoinKind.Semi, None, JoinKeyCoalescing.Default, false, true)
         let expected = inner (totalsByKey reduced) dimRange "f_k" "d_k"
         Assert.Equal(expected, SemiJoinReduction.apply [| factsWithKeyRange 1000.0; sources.[1]; dimsWithKeyRange |] plan)
 

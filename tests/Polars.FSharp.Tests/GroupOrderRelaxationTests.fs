@@ -82,3 +82,29 @@ module GroupOrderRelaxationTests =
 
         Assert.Equal<bool list>([ true ], groupFlags (GroupOrderRelaxation.applyCollectingUnorderedJoins false false plan |> fst))
         Assert.Equal<bool list>([ false ], groupFlags (GroupOrderRelaxation.applyCollectingUnorderedJoins false true plan |> fst))
+
+    let private rightSchema = LogicalSchema.OfFields [ ("rk", LogicalTypes.Int32); ("w", LogicalTypes.Int32) ]
+    let private rightScan = LogicalPlan.Scan(LogicalPlanSource.Empty, rightSchema)
+    let private joinOf how = LogicalPlan.Join(scan, rightScan, [ col "k" ], [ col "rk" ], how, None, JoinKeyCoalescing.Default, false, true)
+
+    /// The maintainOrder flags of the plan's joins, outermost first.
+    let rec private joinFlags (plan: LogicalPlan) : bool list =
+        let own =
+            match plan with
+            | LogicalPlan.Join(_, _, _, _, _, _, _, _, maintain) -> [ maintain ]
+            | _ -> []
+        own @ (LogicalPlanOps.getInputs plan |> List.collect joinFlags)
+
+    [<Fact>]
+    let ``A join keeps its order only where it is observed`` () =
+        for how in [ JoinKind.Inner; JoinKind.Left; JoinKind.Semi; JoinKind.Anti ] do
+            // The rows themselves: observed.
+            Assert.Equal<bool list>([ true ], joinFlags (GroupOrderRelaxation.apply (joinOf how)))
+            // Grouped in no order (a sort over the key): nothing observes the join's order.
+            let byKey = LogicalPlan.Sort(groupBy (joinOf how) [ "s", sum ], [ asc "k" ])
+            Assert.Equal<bool list>([ false ], joinFlags (GroupOrderRelaxation.apply byKey))
+            // Groups in their order of first appearance: the join's order decides it.
+            Assert.Equal<bool list>([ true ], joinFlags (GroupOrderRelaxation.apply (groupBy (joinOf how) [ "s", sum ])))
+        // A join a relaxation freed keeps its order again where a later plan observes it.
+        let freed = LogicalPlan.Join(scan, rightScan, [ col "k" ], [ col "rk" ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, false)
+        Assert.Equal<bool list>([ true ], joinFlags (GroupOrderRelaxation.apply freed))

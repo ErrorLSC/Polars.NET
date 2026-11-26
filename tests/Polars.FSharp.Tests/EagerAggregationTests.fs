@@ -32,7 +32,7 @@ module EagerAggregationTests =
     let private dates = LogicalPlan.Scan(LogicalPlanSource.Slot 2, dateSchema)
 
     let private inner left right leftKey rightKey =
-        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false)
+        LogicalPlan.Join(left, right, [ col leftKey ], [ col rightKey ], JoinKind.Inner, None, JoinKeyCoalescing.Default, false, true)
 
     let private agg kind column = ScalarExpr.Aggregation(kind, Some(col column), false)
     let private len = ScalarExpr.Aggregation(AggKind.Len, None, false)
@@ -71,7 +71,7 @@ module EagerAggregationTests =
         let plan = LogicalPlan.GroupBy(inner facts dims "f_k" "d_k", [ col "d_a" ], [ "total", agg AggKind.Sum "f_v"; "ratio", ratio ], None, true)
 
         match apply plan with
-        | LogicalPlan.GroupBy(LogicalPlan.Join(LogicalPlan.GroupBy(_, _, partials, _, _), _, _, _, _, _, _, _), _, _, _, _) ->
+        | LogicalPlan.GroupBy(LogicalPlan.Join(LogicalPlan.GroupBy(_, _, partials, _, _), _, _, _, _, _, _, _, _), _, _, _, _) ->
             Assert.Single(partials) |> ignore
         | other -> failwithf "unexpected plan %s" (LogicalPlanOps.formatPlan other)
 
@@ -249,7 +249,7 @@ module EagerAggregationTests =
 
     [<Fact>]
     let ``A left join is left alone`` () =
-        let joined = LogicalPlan.Join(facts, dims, [ col "f_k" ], [ col "d_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false)
+        let joined = LogicalPlan.Join(facts, dims, [ col "f_k" ], [ col "d_k" ], JoinKind.Left, None, JoinKeyCoalescing.Default, false, true)
         assertUnchanged (LogicalPlan.GroupBy(joined, [ col "d_a" ], [ "total", agg AggKind.Sum "f_v" ], None, true))
 
     [<Fact>]

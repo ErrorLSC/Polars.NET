@@ -146,7 +146,7 @@ module internal SqlQueries =
         conjuncts |> List.reduce (fun a b -> ScalarExpr.Binary(BinaryOp.And, a, b))
 
     let private join left right (keys: (ScalarExpr * ScalarExpr) list) kind =
-        LogicalPlan.Join(left, right, keys |> List.map fst, keys |> List.map snd, kind, None, JoinKeyCoalescing.KeepBoth, false)
+        LogicalPlan.Join(left, right, keys |> List.map fst, keys |> List.map snd, kind, None, JoinKeyCoalescing.KeepBoth, false, true)
 
     /// Rewrites the column names an expression holds (not inside subqueries): SELECT aliases in ORDER BY.
     let rec private substitute (f: SqlName -> SqlExpr option) (e: SqlExpr) : SqlExpr =
@@ -511,7 +511,7 @@ module internal SqlQueries =
                         JoinKind.Left,
                         None,
                         JoinKeyCoalescing.KeepBoth,
-                        true))
+                        true, true))
                 shared
 
     let rec bindQuery (t: SqlTranslation) (env: SqlEnvironment) (q: SqlQuery) : SqlBound =
@@ -594,12 +594,12 @@ module internal SqlQueries =
                     // A side that is itself a set operation's result is distinct already.
                     let distinct (b: SqlBound) (plan: LogicalPlan) =
                         match b.Plan with
-                        | LogicalPlan.Join(_, _, _, _, (JoinKind.Semi | JoinKind.Anti), _, _, true)
+                        | LogicalPlan.Join(_, _, _, _, (JoinKind.Semi | JoinKind.Anti), _, _, true, _)
                         | LogicalPlan.Union(_, _, false) -> plan
                         | _ -> LogicalPlan.Distinct(plan, None, DistinctKeep.Any, false)
                     let keys = outputs |> List.map (fun o -> col o.Internal, col o.Internal)
                     let kind = if op = SqlSetOp.Intersect then JoinKind.Semi else JoinKind.Anti
-                    LogicalPlan.Join(distinct l lp, distinct r rp, keys |> List.map fst, keys |> List.map snd, kind, None, JoinKeyCoalescing.Default, true)
+                    LogicalPlan.Join(distinct l lp, distinct r rp, keys |> List.map fst, keys |> List.map snd, kind, None, JoinKeyCoalescing.Default, true, true)
                 | _ -> fail t span $"{op.ToString().ToUpperInvariant()} ALL is not supported" None
             { Plan = plan; Columns = outputs }
 
@@ -757,7 +757,7 @@ module internal SqlQueries =
             let relations = lr @ rr
             let lCols, rCols = relationColumns lr, relationColumns rr
             match kind, condition with
-            | SqlJoinKind.Cross, _ -> LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false), relations
+            | SqlJoinKind.Cross, _ -> LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false, true), relations
             | _, SqlJoinCondition.Using names ->
                 let scope (rs: SqlRelation list) = { Relations = rs; Outer = None }
                 let find (rs: SqlRelation list) (n: SqlIdentifier) side =
@@ -839,7 +839,7 @@ module internal SqlQueries =
         match kind with
         | SqlJoinKind.Inner
         | SqlJoinKind.Cross ->
-            let joined = if keys.IsEmpty then LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false) else join lp rp keys JoinKind.Inner
+            let joined = if keys.IsEmpty then LogicalPlan.Join(lp, rp, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false, true) else join lp rp keys JoinKind.Inner
             if rest.IsEmpty then joined else LogicalPlan.Filter(joined, conjoin rest)
         | SqlJoinKind.Left
         | SqlJoinKind.Right ->
@@ -965,7 +965,7 @@ module internal SqlQueries =
                     remaining <- remaining |> List.filter (fun (q, _) -> not (obj.ReferenceEquals(q, p)))
                 | None ->
                     let p, rs = remaining.Head
-                    plan <- LogicalPlan.Join(plan, p, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false)
+                    plan <- LogicalPlan.Join(plan, p, [], [], JoinKind.Cross, None, JoinKeyCoalescing.KeepBoth, false, true)
                     columns <- Set.union columns (relationColumns rs)
                     remaining <- remaining.Tail
             plan, pending

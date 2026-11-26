@@ -224,9 +224,10 @@ module internal GroupOrderRelaxation =
                 | other -> other
             LogicalPlan.Rename(relax inputNeed input, existing, renamed)
 
-        // The result is the left rows in their order; the right side only decides which of them survive.
-        | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Semi | JoinKind.Anti as how), suffix, coalescing, nullsEqual) ->
-            LogicalPlan.Join(relax need left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual)
+        // The result is the left rows in their order; the right side only decides which of them survive. The left order
+        // is kept unless nothing observes it.
+        | LogicalPlan.Join(left, right, leftOn, rightOn, (JoinKind.Semi | JoinKind.Anti as how), suffix, coalescing, nullsEqual, _) ->
+            LogicalPlan.Join(relax need left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual, need <> OrderNeed.Unordered)
 
         | LogicalPlan.Union(left, right, isAll) when need = OrderNeed.Unordered ->
             LogicalPlan.Union(relax OrderNeed.Unordered left, relax OrderNeed.Unordered right, isAll)
@@ -245,10 +246,10 @@ module internal GroupOrderRelaxation =
             let bodyNeed = if run.FreeShared.Contains id then OrderNeed.Unordered else OrderNeed.Ordered
             LogicalPlan.Shared(id, relax bodyNeed input)
 
-        // Nothing observes the join's order, so neither its inputs' order.
-        | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual) when need = OrderNeed.Unordered ->
+        // Nothing observes the join's order, so neither its inputs' order: the join keeps none.
+        | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual, _) when need = OrderNeed.Unordered ->
             let join =
-                LogicalPlan.Join(relax OrderNeed.Unordered left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual)
+                LogicalPlan.Join(relax OrderNeed.Unordered left, relax OrderNeed.Unordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual, false)
             run.UnorderedJoins.Add join |> ignore
             join
 
@@ -262,6 +263,10 @@ module internal GroupOrderRelaxation =
                     | DistinctKeep.Last -> false)
             let inputNeed = if keptRowIgnoresOrder then OrderNeed.Unordered else OrderNeed.Ordered
             LogicalPlan.Distinct(relax inputNeed input, subset, keep, false)
+
+        // The join's order is observed: it keeps it (a pass may have cleared it on a plan where it was not).
+        | LogicalPlan.Join(left, right, leftOn, rightOn, how, suffix, coalescing, nullsEqual, _) ->
+            LogicalPlan.Join(relax OrderNeed.Ordered left, relax OrderNeed.Ordered right, leftOn, rightOn, how, suffix, coalescing, nullsEqual, true)
 
         | other -> LogicalPlanOps.mapInputs (relax OrderNeed.Ordered) other
 

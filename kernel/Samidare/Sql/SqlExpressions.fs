@@ -142,17 +142,20 @@ module internal SqlExpressions =
     // ----------------------------------------------------------------------------------------------------------
 
     /// A string literal read as a date or a timestamp, for an implicit cast (`d_date > '2000-01-01'`).
+    /// A date or a timestamp literal read by the ISO 8601 forms, as a cast of text reads it (ScalarExprOps.isoTextAs):
+    /// a date, or a date and a time after `T` or a space, seconds and their fraction optional; a date is the date of
+    /// such text. None when the text is neither.
+    let private tryParseTemporal (text: string) (target: LogicalType) : LiteralValue option =
+        match DateTime.TryParseExact(text.Trim(), Array.ofList ScalarExprOps.isoDateTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+        | true, d when SqlTypes.classify target = SqlTypeClass.Date -> Some(LiteralValue.Date(DateOnly.FromDateTime d))
+        | true, d -> Some(LiteralValue.DateTime d)
+        | _ -> None
+
     let private parseTemporal (binder: SqlBinder) (span: SqlSpan) (text: string) (target: LogicalType) : LiteralValue =
-        match SqlTypes.classify target with
-        | SqlTypeClass.Date ->
-            match DateOnly.TryParseExact(text.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None) with
-            | true, d -> LiteralValue.Date d
-            | _ -> fail binder span $"'{text}' is not a date" (Some "Write dates as 'YYYY-MM-DD'.")
-        | _ ->
-            let formats = [| "yyyy-MM-dd HH:mm:ss"; "yyyy-MM-dd HH:mm:ss.FFFFFFF"; "yyyy-MM-ddTHH:mm:ss.FFFFFFF"; "yyyy-MM-dd" |]
-            match DateTime.TryParseExact(text.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-            | true, d -> LiteralValue.DateTime d
-            | _ -> fail binder span $"'{text}' is not a timestamp" (Some "Write timestamps as 'YYYY-MM-DD HH:MM:SS'.")
+        match tryParseTemporal text target, SqlTypes.classify target with
+        | Some value, _ -> value
+        | None, SqlTypeClass.Date -> fail binder span $"'{text}' is not a date" (Some "Write dates as 'YYYY-MM-DD' (a time after it is dropped).")
+        | None, _ -> fail binder span $"'{text}' is not a timestamp" (Some "Write timestamps as 'YYYY-MM-DD HH:MM:SS'.")
 
     /// Text without its leading and trailing white space, as SQL reads a number or a date from it.
     let private trimmed (text: ScalarExpr) =
@@ -494,6 +497,8 @@ module internal SqlExpressions =
                 else value (ScalarExprOps.checkedNarrow target ScalarExprOps.unguarded whole) target
             let converted (e: ScalarExpr) = if isTry then lenient e else value (ScalarExprOps.checkedCast target ScalarExprOps.unguarded e) target
             match v.Expr, SqlTypes.classify v.Type, SqlTypes.classify target with
+            | ScalarExpr.Literal(LiteralValue.String text), _, (SqlTypeClass.Date | SqlTypeClass.Timestamp) when isTry ->
+                value (lit (tryParseTemporal text target |> Option.defaultValue (LiteralValue.Null target))) target
             | ScalarExpr.Literal(LiteralValue.String text), _, (SqlTypeClass.Date | SqlTypeClass.Timestamp) ->
                 value (lit (parseTemporal binder operand.Span text target)) target
             | _ when v.Type.Display = target.Display -> v
