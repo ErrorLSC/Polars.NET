@@ -599,8 +599,10 @@ module internal SqlExpressions =
             let b = safeDivisor b zero
             value (ScalarExpr.Binary(irOp, a.Expr, b.Expr)) common
         | _ ->
-            // Decimals: the result type as Spark computes it (Q4); the operands meet in their common decimal, a dividend
-            // widened to the quotient's scale, and the result is cast to its type.
+            // Decimals: the result type as Spark computes it (Q4), the result cast to it. The engine's decimal result
+            // has the larger operand scale (rounded), so a product's operands are at the product's scale where that is
+            // finer than their common one (2.25 * 2.25 is 5.0625, not 5.06); a dividend is widened to the quotient's
+            // scale; other operands meet in their common decimal.
             let d1, d2 = (SqlTypes.asDecimal l.Type).Value, (SqlTypes.asDecimal r.Type).Value
             let p, s = SqlTypes.decimalResult op d1 d2
             let result = SqlTypes.decimal (p, s)
@@ -609,6 +611,10 @@ module internal SqlExpressions =
                 | SqlBinaryOp.Divide ->
                     let integral = max (fst d1 - snd d1) (fst d2 - snd d2)
                     SqlTypes.decimal (SqlTypes.fitDecimal (integral + s) s)
+                | SqlBinaryOp.Multiply ->
+                    match SqlTypes.classify common with
+                    | SqlTypeClass.Decimal(_, commonScale) -> SqlTypes.decimal (SqlTypes.maxPrecision, max commonScale s)
+                    | _ -> common
                 | _ -> common
             let a, b = convert binder lSpan l operandType, convert binder rSpan r operandType
             let b = safeDivisor b (LiteralValue.Decimal 0m)

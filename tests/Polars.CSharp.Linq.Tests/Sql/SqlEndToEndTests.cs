@@ -71,6 +71,9 @@ public class SqlEndToEndTests
     [InlineData("SELECT g, o, rank() OVER (PARTITION BY g ORDER BY k DESC, s) AS r, dense_rank() OVER (ORDER BY k) AS dr, row_number() OVER (ORDER BY g DESC, o) AS rn FROM t ORDER BY g, o")]
     [InlineData("SELECT g, o, avg(sum(d)) OVER (PARTITION BY g) AS a FROM t GROUP BY g, o ORDER BY g, o")]
     // Set operations: NULL equals NULL, duplicates removed.
+    // Decimal arithmetic: a product keeps both operands' scales, a sum may need one more digit than its operands.
+    [InlineData("SELECT o, d * d AS p, d * 1.5 AS q, d * d * d AS c FROM t ORDER BY o, g")]
+    [InlineData("SELECT o, CAST(d AS DECIMAL(3,2)) + CAST(9.99 AS DECIMAL(3,2)) AS s, CAST(d AS DECIMAL(3,2)) - CAST(-9.99 AS DECIMAL(3,2)) AS m, CAST(d AS DECIMAL(3,2)) * 99 AS n FROM t ORDER BY o, g")]
     [InlineData("SELECT k FROM t UNION SELECT k FROM u ORDER BY k")]
     [InlineData("SELECT k FROM t INTERSECT SELECT k FROM u ORDER BY k")]
     [InlineData("SELECT k FROM u EXCEPT SELECT k FROM t ORDER BY k")]
