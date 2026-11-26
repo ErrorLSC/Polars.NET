@@ -104,6 +104,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_checked_div(ExprHandle left, ExprHandle right, int kind, int precision, int scale);
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_checked_cast(ExprHandle expr, DataTypeHandle target);
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dotnet_checked_narrow(ExprHandle expr, int code, [MarshalAs(UnmanagedType.U1)] bool nullOnOverflow);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dotnet_decimal_to_float(ExprHandle expr, int code);

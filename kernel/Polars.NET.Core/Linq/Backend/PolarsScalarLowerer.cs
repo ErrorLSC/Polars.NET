@@ -169,6 +169,8 @@ internal static class PolarsScalarLowerer
                 QueryErrorKind.Tags.Overflow => new OverflowException(error.Message),
                 QueryErrorKind.Tags.DivideByZero when string.IsNullOrEmpty(error.Message) => new DivideByZeroException(),
                 QueryErrorKind.Tags.DivideByZero => new DivideByZeroException(error.Message),
+                QueryErrorKind.Tags.InvalidCast when string.IsNullOrEmpty(error.Message) => new InvalidCastException(),
+                QueryErrorKind.Tags.InvalidCast => new InvalidCastException(error.Message),
                 _ => throw new ArgumentOutOfRangeException(nameof(error)),
             };
             return ManagedErrorRelay.Capture(exception);
@@ -335,6 +337,12 @@ internal static class PolarsScalarLowerer
                 using var one = PolarsVocabulary.ToDataTypeHandle(LogicalTypes.decimalOf(1, 0));
                 var divisor = PolarsWrapper.ExprCast(PolarsWrapper.Lit(1), PolarsWrapper.DataTypeExprFromDataType(one), strict: true, wrapNumerical: false);
                 return PolarsWrapper.CheckedDiv(Guarded(Lower(value), guard), divisor, PlCheckedDivision.Divide, target.Precision, target.Scale);
+            }
+            // A conversion that may fail: only guarded rows reach the kernel with a value.
+            case ScalarExpr.Function { func.IsCheckedCast: true, args: [var value, var guard] } f:
+            {
+                using var target = PolarsVocabulary.ToDataTypeHandle(f.returnType);
+                return PolarsWrapper.CheckedCast(Guarded(Lower(value), guard), target);
             }
             case ScalarExpr.Function { func.IsNarrowOrNull: true, args: [var value] } f:
                 return LowerNarrowing(value, f.returnType, nullOnOverflow: true);

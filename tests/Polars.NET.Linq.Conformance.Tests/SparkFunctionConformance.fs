@@ -1,6 +1,7 @@
-/// Contract (SEMANTICS.md, Checked rescale; Date and time): the nodes the Spark expression profile binds to.
+/// Contract (SEMANTICS.md, Casts, Checked rescale; Date and time): the nodes the SQL frontends bind conversions to.
 /// CheckedRescale is ANSI SQL's CAST to a decimal: rounded half away from zero at the target's scale, failing with
-/// Overflow beyond its precision on a guarded row, null elsewhere. DtInZone reads an instant as a zone's wall clock.
+/// Overflow beyond its precision on a guarded row, null elsewhere. CheckedCast fails with InvalidCast, naming the
+/// value, on a guarded row that does not convert. DtInZone reads an instant as a zone's wall clock.
 module Polars.NET.Linq.Conformance.Tests.SparkFunctionConformance
 
 open System
@@ -71,3 +72,21 @@ let ``DtInZone reads an instant as the zone's wall clock`` () =
             "utc", ScalarExpr.Function(ScalarFunction.DtHour, [ inZone "UTC" ], LogicalTypes.Int32)
         ]
     Conformance.rowsInOrder t plan [ [ 4; 20; 4 ]; [ 30; 23; 6 ]; [ null; null; null ] ]
+
+type CT = { K: int64; S: string }
+
+let private invalidCast = ScalarExprOps.checkedCast LogicalTypes.Int32
+
+[<Fact>]
+let ``CheckedCast converts, and fails naming the value that does not convert`` () =
+    let t = Tables()
+    let texts: CT array = [| { K = 1L; S = "12" }; { K = 2L; S = null }; { K = 3L; S = "-7" } |]
+    Conformance.rowsInOrder t (project (t.Scan texts) [ "v", invalidCast ScalarExprOps.unguarded (col "S") ]) [ [ 12L ]; [ null ]; [ -7L ] ]
+    let bad: CT array = [| { K = 1L; S = "12" }; { K = 2L; S = "x1" } |]
+    for plan in [ (fun (t: Tables) -> project (t.Scan bad) [ "v", invalidCast ScalarExprOps.unguarded (col "S") ]); (fun t -> LogicalOptimizer.optimize (project (t.Scan bad) [ "v", invalidCast ScalarExprOps.unguarded (col "S") ])) ] do
+        let t = Tables()
+        Conformance.raises<InvalidCastException> t (plan t) "The value \"x1\" of type str cannot be converted to i32."
+    // Off its guard a value is never converted.
+    let t2 = Tables()
+    let guarded = RaisingGuards.ofExpr (ScalarExpr.Conditional(bin BinaryOp.Eq (col "K") (i64 1L), invalidCast ScalarExprOps.unguarded (col "S"), ScalarExpr.Literal(LiteralValue.Null LogicalTypes.Int32)))
+    Conformance.rowsInOrder t2 (project (t2.Scan bad) [ "v", guarded ]) [ [ 12L ]; [ null ] ]

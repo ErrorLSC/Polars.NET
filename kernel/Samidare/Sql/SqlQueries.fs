@@ -221,11 +221,12 @@ module internal SqlQueries =
         |> List.fold (fun acc (scope, plan, _) -> Set.union acc (LogicalPlanOps.outerColumns scope plan)) (ScalarExprOps.collectColumns conjunct)
 
     /// Whether a conjunct can filter rows holding these columns before they are joined: it reads some of them and
-    /// nothing else, and no column of the query around (a correlation stays on top, where the Decorrelation pass pulls
-    /// it up from; it does not pull through joins).
+    /// nothing else, no column of the query around (a correlation stays on top, where the Decorrelation pass pulls
+    /// it up from; it does not pull through joins), and it cannot fail (one that may, a conversion, is evaluated only
+    /// on the rows the joins keep: SEMANTICS.md, Rows a raising expression sees).
     let private within (columns: Set<string>) (conjunct: ScalarExpr) =
         let r = reads conjunct
-        not r.IsEmpty && Set.isSubset r columns && not (ScalarExprOps.containsOuterColumn conjunct)
+        not r.IsEmpty && Set.isSubset r columns && not (ScalarExprOps.containsOuterColumn conjunct) && not (ScalarExprOps.raises conjunct)
 
     /// The plan with copies of a common table expression's plan for the references whose filters select branches of
     /// a UNION ALL in it.

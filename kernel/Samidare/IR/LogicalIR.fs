@@ -272,6 +272,8 @@ type QueryErrorKind =
     | Overflow
     /// .NET's DivideByZeroException (ScalarFunction.CheckedDivide by zero).
     | DivideByZero
+    /// .NET's InvalidCastException (ScalarFunction.CheckedCast of a value that does not convert).
+    | InvalidCast
 
 /// An error a query raises when a check fails while it runs. An empty message stands for the error kind's
 /// default message.
@@ -528,6 +530,12 @@ type ScalarFunction =
     /// leaves the type's precision on a row where the guard is true. Null stays null, and so does every row whose guard
     /// is not true (false or null), which never fails. See SEMANTICS.md, Guards. It has an effect, as AssertCount.
     | CheckedRescale
+    /// `[value; guard]`: the value as the function's type, as a strict Cast converts it, failing the query with
+    /// `QueryErrorKind.InvalidCast` on a guarded row whose value does not convert (text that is no number or date, a
+    /// value beyond the target's range). Null stays null, and so does every row whose guard is not true. A frontend
+    /// emits it for a conversion that may fail, and a strict Cast only where it cannot. See SEMANTICS.md, Casts and
+    /// Guards. It has an effect, as AssertCount.
+    | CheckedCast
     /// `[value]` over integers, decimals or floating values (both truncated toward zero): the value as the function's
     /// integer type, its result type, or null when it leaves that type's range (or is NaN). A row conversion that
     /// .NET checks (checked((int)x), (int)decimal, Convert.ToInt32): an engine evaluates both sides of `&&` and `?:`
@@ -697,6 +705,7 @@ type ScalarFunction =
         | ScalarFunction.CheckedNarrow -> "checked_narrow"
         | ScalarFunction.CheckedDivide _ -> "checked_divide"
         | ScalarFunction.CheckedRescale -> "checked_rescale"
+        | ScalarFunction.CheckedCast -> "checked_cast"
         | ScalarFunction.NarrowOrNull -> "narrow_or_null"
         | ScalarFunction.DecimalToFloating -> "decimal_to_floating"
         | ScalarFunction.FloatingToDecimal -> "floating_to_decimal"

@@ -3103,9 +3103,55 @@ pub extern "C" fn pl_expr_dotnet_checked_narrow(expr_ptr: *mut ExprContext, code
     })
 }
 
+/// The marker of .NET's InvalidCastException (a checked cast of a value that does not convert), relayed by
+/// Core's ManagedErrorRelay with the text after it.
+const DOTNET_INVALID_CAST: &str = "[[polars-net-invalid-cast]]";
+
+/// The values as `target` where each converts (null stays null); otherwise a ComputeError naming the first value
+/// that does not (text that is no number or date, a value beyond the target's range) after DOTNET_INVALID_CAST.
+fn checked_cast(c: Column, target: &DataType) -> PolarsResult<Column> {
+    let s = c.as_materialized_series();
+    let out = s.cast_with_options(target, CastOptions::NonStrict)?;
+    if out.null_count() > s.null_count() {
+        let failed = &s.is_not_null() & &out.is_null();
+        if let Some(i) = (0..failed.len()).find(|&i| failed.get(i) == Some(true)) {
+            let value = s.get(i)?;
+            polars_bail!(ComputeError: "{} The value {} of type {} cannot be converted to {}.", DOTNET_INVALID_CAST, value, s.dtype(), target);
+        }
+    }
+    Ok(out.into_column())
+}
+
+/// A cast that fails the query on a value it cannot convert, with a message naming the value (see checked_cast). The
+/// data type is borrowed.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_checked_cast(expr_ptr: *mut ExprContext, dtype_ptr: *mut DataTypeContext) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let target = unsafe { (*dtype_ptr).dtype.clone() };
+        let output = target.clone();
+        let function = move |c: Column| checked_cast(c, &target);
+        let output_map = move |_input_schema: &Schema, input_field: &Field| Ok(Field::new(input_field.name().clone(), output.clone()));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: ctx.inner.map(function, output_map) })))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_cast_names_the_first_value_that_does_not_convert() {
+        let text = Series::new("a".into(), &[Some("12"), None, Some("7"), Some("x"), Some("y")]);
+        let e = checked_cast(text.clone().into_column(), &DataType::Int32).unwrap_err().to_string();
+        assert!(e.contains(DOTNET_INVALID_CAST) && e.contains("\"x\"") && !e.contains("\"y\""), "{e}");
+        let fine = Series::new("a".into(), &[Some("12"), None, Some("-3")]);
+        let out = checked_cast(fine.into_column(), &DataType::Int32).unwrap();
+        assert_eq!((0..3).map(|i| out.as_materialized_series().i32().unwrap().get(i)).collect::<Vec<_>>(), [Some(12), None, Some(-3)]);
+        // Beyond the target's range: the same failure.
+        let wide = Series::new("a".into(), &[1i64, 300]);
+        assert!(checked_cast(wide.into_column(), &DataType::Int8).unwrap_err().to_string().contains("300"));
+    }
 
     fn narrow(values: Series, target: DataType) -> PolarsResult<Series> {
         dotnet_checked_narrow(values.into_column(), &target, false).map(|c| c.as_materialized_series().clone())

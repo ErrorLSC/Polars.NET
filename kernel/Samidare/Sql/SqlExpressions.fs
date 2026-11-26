@@ -154,6 +154,18 @@ module internal SqlExpressions =
             | true, d -> LiteralValue.DateTime d
             | _ -> fail binder span $"'{text}' is not a timestamp" (Some "Write timestamps as 'YYYY-MM-DD HH:MM:SS'.")
 
+    /// Text without its leading and trailing white space, as SQL reads a number or a date from it.
+    let private trimmed (text: ScalarExpr) =
+        ScalarExpr.Function(ScalarFunction.Strip, [ text; lit (LiteralValue.Null LogicalTypes.String) ], LogicalTypes.String)
+
+    /// Whether every value of the integer type `from` is one of `target`.
+    let private holds (target: int * bool) (from: int * bool) =
+        match target, from with
+        | (bits, true), (b, true) -> bits >= b
+        | (bits, true), (b, false) -> bits > b
+        | (bits, false), (b, false) -> bits >= b
+        | _ -> false
+
     /// A numeric literal as a literal of a wider type (an integer literal compared with a BIGINT column is a BIGINT, so
     /// an IN list stays a list of literals), or None.
     let private widenLiteral (expr: ScalarExpr) (target: LogicalType) : ScalarExpr option =
@@ -188,7 +200,7 @@ module internal SqlExpressions =
             | ScalarExpr.Literal(LiteralValue.String text), (SqlTypeClass.Date | SqlTypeClass.Timestamp) ->
                 value (lit (parseTemporal binder span text target)) target
             | _, (SqlTypeClass.Date | SqlTypeClass.Timestamp) when SqlTypes.classify v.Type = SqlTypeClass.String ->
-                value (ScalarExpr.Cast(v.Expr, target, true)) target
+                value (ScalarExprOps.checkedCast target ScalarExprOps.unguarded (trimmed v.Expr)) target
             | _ -> value (ScalarExpr.Cast(v.Expr, target, false)) target
 
     /// Two values in the type they meet in, or a failure naming both types.
@@ -473,15 +485,40 @@ module internal SqlExpressions =
                 | Some t -> t
                 | None -> fail binder typeName.Span $"Unknown type {typeName.Name}" (Some "Types: BOOLEAN, SMALLINT, INTEGER, BIGINT, DECIMAL(p, s), REAL, DOUBLE, VARCHAR, DATE, TIMESTAMP.")
             let v = bind binder operand
+            // A conversion that cannot fail is a strict Cast; one that may is checked (CheckedNarrow, CheckedRescale,
+            // CheckedCast: it fails only on rows the expression reaches), or null where TRY_CAST does not convert.
+            let exact = value (ScalarExpr.Cast(v.Expr, target, true)) target
+            let lenient (e: ScalarExpr) = value (ScalarExpr.Cast(e, target, false)) target
+            let narrowed (whole: ScalarExpr) =
+                if isTry then value (ScalarExpr.Function(ScalarFunction.NarrowOrNull, [ whole ], target)) target
+                else value (ScalarExprOps.checkedNarrow target ScalarExprOps.unguarded whole) target
+            let converted (e: ScalarExpr) = if isTry then lenient e else value (ScalarExprOps.checkedCast target ScalarExprOps.unguarded e) target
             match v.Expr, SqlTypes.classify v.Type, SqlTypes.classify target with
             | ScalarExpr.Literal(LiteralValue.String text), _, (SqlTypeClass.Date | SqlTypeClass.Timestamp) ->
                 value (lit (parseTemporal binder operand.Span text target)) target
-            | _, (SqlTypeClass.Floating _ | SqlTypeClass.Decimal _), SqlTypeClass.Integer _ ->
-                // SQL rounds to the nearest integer, halves away from zero (the IR's cast truncates).
-                let rounded = ScalarExpr.Function(ScalarFunction.Round RoundMode.HalfAwayFromZero, [ v.Expr; lit (LiteralValue.Int32 0) ], v.Type)
-                value (ScalarExpr.Cast(rounded, target, not isTry)) target
             | _ when v.Type.Display = target.Display -> v
-            | _ -> value (ScalarExpr.Cast(v.Expr, target, not isTry)) target
+            | _, SqlTypeClass.Null, _ -> exact
+            // SQL rounds to the nearest integer, halves away from zero (the IR's cast truncates); beyond the type fails.
+            | _, SqlTypeClass.Floating _, SqlTypeClass.Integer _ ->
+                narrowed (ScalarExpr.Function(ScalarFunction.Round RoundMode.HalfAwayFromZero, [ v.Expr; lit (LiteralValue.Int32 0) ], v.Type))
+            | _, SqlTypeClass.Decimal(p, s), SqlTypeClass.Integer _ ->
+                // Rounded as a decimal one digit wider (the rounding may carry), then narrowed.
+                let whole = if s = 0 then v.Expr else ScalarExprOps.checkedRescale (SqlTypes.decimal (min SqlTypes.maxPrecision (p - s + 1), 0)) ScalarExprOps.unguarded v.Expr
+                narrowed whole
+            | _, SqlTypeClass.Integer(fromBits, fromSigned), SqlTypeClass.Integer(bits, signed) ->
+                if holds (bits, signed) (fromBits, fromSigned) then exact else narrowed v.Expr
+            | _, (SqlTypeClass.Integer _ | SqlTypeClass.Decimal _), SqlTypeClass.Decimal(p, s) ->
+                let p1, s1 = (SqlTypes.asDecimal v.Type).Value
+                if p1 - s1 <= p - s && s1 <= s then exact
+                elif isTry then lenient v.Expr
+                else value (ScalarExprOps.checkedRescale target ScalarExprOps.unguarded (ScalarExpr.Cast(v.Expr, SqlTypes.decimal (p1, s1), true))) target
+            | _, SqlTypeClass.String, _ -> converted (trimmed v.Expr)
+            | _, _, SqlTypeClass.String
+            | _, (SqlTypeClass.Integer _ | SqlTypeClass.Decimal _ | SqlTypeClass.Floating _ | SqlTypeClass.Boolean), SqlTypeClass.Floating _
+            | _, (SqlTypeClass.Integer _ | SqlTypeClass.Floating _), SqlTypeClass.Boolean
+            | _, SqlTypeClass.Boolean, (SqlTypeClass.Integer _ | SqlTypeClass.Decimal _)
+            | _, (SqlTypeClass.Date | SqlTypeClass.Timestamp), (SqlTypeClass.Date | SqlTypeClass.Timestamp) -> exact
+            | _ -> converted v.Expr
 
         | SqlExprKind.Extract(field, operand) ->
             let v = bind binder operand

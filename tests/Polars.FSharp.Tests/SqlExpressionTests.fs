@@ -159,8 +159,18 @@ module SqlExpressionTests =
 
     [<Fact>]
     let ``Casts round to integers and read string literals as dates`` () =
+        // A conversion that may fail is checked (it fails only where it is reached); one that cannot is a strict Cast.
         match (bound "CAST(ratio AS INTEGER)").Expr with
-        | ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.Round RoundMode.HalfAwayFromZero, _, _), _, true) -> ()
+        | ScalarExpr.Function(ScalarFunction.CheckedNarrow, [ ScalarExpr.Function(ScalarFunction.Round RoundMode.HalfAwayFromZero, _, _); _ ], _) -> ()
+        | other -> failwithf "unexpected %A" other
+        match (bound "CAST(name AS BIGINT)").Expr with
+        | ScalarExpr.Function(ScalarFunction.CheckedCast, [ ScalarExpr.Function(ScalarFunction.Strip, _, _); _ ], _) -> ()
+        | other -> failwithf "unexpected %A" other
+        match (bound "name > DATE '2000-01-01'").Expr with
+        | ScalarExpr.Binary(BinaryOp.Gt, ScalarExpr.Function(ScalarFunction.CheckedCast, _, _), _) -> ()
+        | other -> failwithf "unexpected %A" other
+        match (bound "CAST(item AS BIGINT)").Expr with
+        | ScalarExpr.Cast(_, _, true) -> ()
         | other -> failwithf "unexpected %A" other
         match (bound "TRY_CAST(name AS BIGINT)").Expr with
         | ScalarExpr.Cast(_, _, false) -> ()

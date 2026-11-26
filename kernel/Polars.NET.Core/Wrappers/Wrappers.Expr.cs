@@ -475,6 +475,18 @@ public readonly partial struct PolarsWrapper
     /// Decimal(<paramref name="precision"/>, <paramref name="scale"/>) (pass a negative precision for other types).
     /// Null the dividend on the rows that must not be checked.
     /// </summary>
+    /// <summary>
+    /// The expression as <paramref name="target"/>, failing with .NET's InvalidCastException, which names the value,
+    /// on the first value that does not convert (text that is no number or date, a value beyond the target's range);
+    /// null stays null. The data type is borrowed.
+    /// </summary>
+    public static ExprHandle CheckedCast(ExprHandle expr, DataTypeHandle target)
+    {
+        var h = NativeBindings.pl_expr_checked_cast(expr, target);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
     public static ExprHandle CheckedDiv(ExprHandle left, ExprHandle right, PlCheckedDivision kind, int precision = -1, int scale = 0)
     {
         var h = NativeBindings.pl_expr_checked_div(left, right, (int)kind, precision, scale);

@@ -18,6 +18,7 @@ let private others: RU array = [| { RK = 1L; W = 10L }; { RK = 3L; W = 30L } |]
 let private kinds: (string * ScalarExpr) list =
     [
         "CheckedNarrow", ScalarExprOps.checkedNarrow LogicalTypes.Int32 ScalarExprOps.unguarded (col "V")
+        "CheckedCast", ScalarExprOps.checkedCast LogicalTypes.Int32 ScalarExprOps.unguarded (col "V")
         "CheckedDivide", ScalarExprOps.checkedDivide DivisionKind.IntegerDivide LogicalTypes.Int64 ScalarExprOps.unguarded (col "V") (col "Z")
         "RequireListed",
         ScalarExpr.Function(

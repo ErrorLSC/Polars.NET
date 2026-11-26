@@ -114,7 +114,11 @@ check is on the total, not on each partial sum, so `[int.MaxValue, 1, -1]` sums 
 to Objects throws. Without assertions, a grouped sum is narrowed with a strict cast instead (the engine's error).
 A decimal sum is not checked.
 
-**Casts.** A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
+**Casts.** A strict `Cast` is one its frontend knows cannot fail (a widening, a decimal result its type holds, an
+enum's name), so passes treat it as any pure expression. A conversion that may fail is `CheckedCast` (`[value;
+guard]`): on a guarded row a value that does not convert (text that is no number or date, a value beyond the target's
+range) fails the query with `QueryErrorKind.InvalidCast`, its message naming the value; elsewhere it is null (see
+Guards). A non-strict `Cast` between numeric types wraps on overflow, as .NET's unchecked conversion does:
 `(byte)300` is 44, where the engine would give null. A floating value converted to an integer truncates and
 saturates to the target's range for every integer type, as .NET 11 does: NaN is 0, and values beyond the
 range give MinValue / MaxValue, so `(byte)-2.7` is 0 and `(byte)300.5` is 255. On .NET 10 and earlier,
@@ -158,7 +162,8 @@ The flag is always explicit. A backend never chooses it.
 Strict materialization then reports a null that reaches a non-nullable member.
 
 **`AssertCount`.** The nodes that raise are `ScalarFunction.AssertCount` (`[count; value]`), `RequireListed`,
-`CheckedNarrow`, `CheckedRescale`, `CheckedDivide` (see Checked division) and `AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
+`CheckedNarrow`, `CheckedRescale`, `CheckedCast` (see Casts), `CheckedDivide` (see Checked division) and
+`AggKind.CheckedSum` (see Checked sums). `AssertCount` yields the value when the count (any 64-bit integer: a
 row count, an overflow flag) lies in range. Otherwise the query fails with the check's `QueryError`, which the
 backend surfaces as the matching .NET exception. It has an effect, so it must be evaluated wherever its
 value is used, and never constant-folded. A backend that cannot raise answers
@@ -169,9 +174,9 @@ time and marks the compilation so its plan is not cached.
 `Conditional`, for every row. An `AssertCount` is therefore checked once whenever its plan runs, even where
 the logic around it (`false AND ...`, an empty outer relation) would never read its value. For `AssertCount` this is
 stricter than LINQ to Objects, never laxer: whenever LINQ raises, so does the query. Row by row, `CheckedNarrow`,
-`CheckedRescale` and `CheckedDivide` restore short-circuit evaluation with a guard.
+`CheckedRescale`, `CheckedCast` and `CheckedDivide` restore short-circuit evaluation with a guard.
 
-**Guards.** `CheckedNarrow`, `CheckedRescale`, `RequireListed` (each `[value; guard]`) and `CheckedDivide`
+**Guards.** `CheckedNarrow`, `CheckedRescale`, `CheckedCast`, `RequireListed` (each `[value; guard]`) and `CheckedDivide`
 (`[dividend; divisor; guard]`) raise only on rows
 where their guard, a Boolean in the operands' context, is true; elsewhere (false or null) they are null and never
 raise. The guard is the node's whole precondition, so a backend or a pass may evaluate the node on more rows than

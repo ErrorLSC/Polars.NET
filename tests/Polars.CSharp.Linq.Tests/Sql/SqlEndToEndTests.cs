@@ -71,6 +71,10 @@ public class SqlEndToEndTests
     [InlineData("SELECT g, o, rank() OVER (PARTITION BY g ORDER BY k DESC, s) AS r, dense_rank() OVER (ORDER BY k) AS dr, row_number() OVER (ORDER BY g DESC, o) AS rn FROM t ORDER BY g, o")]
     [InlineData("SELECT g, o, avg(sum(d)) OVER (PARTITION BY g) AS a FROM t GROUP BY g, o ORDER BY g, o")]
     // Set operations: NULL equals NULL, duplicates removed.
+    // CAST: text read without its surrounding spaces, numbers rounded halves away from zero (the rounding may carry), a
+    // conversion that fails only where it is reached; TRY_CAST gives null where it does not convert.
+    [InlineData("SELECT v, CASE WHEN v NOT IN ('x', '2001-02-03') THEN CAST(v AS INTEGER) END AS i, TRY_CAST(v AS INTEGER) AS t, TRY_CAST(v AS DATE) AS dt FROM (VALUES ('1'), ('x'), (' 2 '), ('2001-02-03')) w(v) ORDER BY v")]
+    [InlineData("SELECT o, CAST(d AS DECIMAL(4,1)) AS r, CAST(d AS INTEGER) AS i, CAST(x AS INTEGER) AS f, CAST(9.5 AS INTEGER) AS c, CAST(-2.5 AS INTEGER) AS n, TRY_CAST(1e10 AS INTEGER) AS w, TRY_CAST(d * 1000 AS DECIMAL(4,1)) AS tc FROM t WHERE x IS NULL OR NOT isnan(x) ORDER BY o, g")]
     // Decimal arithmetic: a product keeps both operands' scales, a sum may need one more digit than its operands.
     [InlineData("SELECT o, d * d AS p, d * 1.5 AS q, d * d * d AS c FROM t ORDER BY o, g")]
     [InlineData("SELECT o, CAST(d AS DECIMAL(3,2)) + CAST(9.99 AS DECIMAL(3,2)) AS s, CAST(d AS DECIMAL(3,2)) - CAST(-9.99 AS DECIMAL(3,2)) AS m, CAST(d AS DECIMAL(3,2)) * 99 AS n FROM t ORDER BY o, g")]
@@ -219,6 +223,21 @@ public class SqlEndToEndTests
         var actual = TpcdsSqlResultTests.Run(catalog, sql);
         var difference = TpcdsSqlResultTests.Difference(expected, actual);
         Assert.True(difference is null, $"{difference}; {expected.Count} rows expected, {actual.Count} given");
+    }
+
+    /// A conversion that fails fails the query, naming the value (InvalidCastException; a number beyond the type:
+    /// OverflowException); rows a join or a filter beneath removed are never converted.
+    [Fact]
+    public void A_failing_cast_fails_where_it_is_reached()
+    {
+        var catalog = Data.Value.Catalog;
+        var text = Assert.Throws<InvalidCastException>(() => TpcdsSqlResultTests.Run(catalog, "SELECT CAST(v AS INTEGER) AS i FROM (VALUES ('1'), ('x1')) w(v)"));
+        Assert.Contains("\"x1\"", text.Message);
+        Assert.Throws<OverflowException>(() => TpcdsSqlResultTests.Run(catalog, "SELECT CAST(k * 70000 AS SMALLINT) AS i FROM t"));
+        var joined = TpcdsSqlResultTests.Run(catalog, "SELECT a.v FROM (VALUES (1, '5'), (2, 'x')) a(k, v) JOIN (VALUES (1)) b(k) ON a.k = b.k WHERE CAST(a.v AS INTEGER) > 0");
+        Assert.Equal("5", Assert.Single(Assert.Single(joined)));
+        var filtered = TpcdsSqlResultTests.Run(catalog, "SELECT v FROM (SELECT v FROM (VALUES ('5'), ('x')) w(v) WHERE v <> 'x') f WHERE CAST(v AS INTEGER) > 0");
+        Assert.Equal("5", Assert.Single(Assert.Single(filtered)));
     }
 
     /// IGNORE NULLS after the parentheses (ISO, Oracle, SQL Server, Spark) means what it means inside them; DuckDB reads

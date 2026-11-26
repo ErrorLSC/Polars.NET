@@ -8,8 +8,9 @@ namespace Polars.NET.Core.Exceptions;
 /// <see cref="PolarsException"/> holding its text. The callback throws the token <see cref="Capture"/> returns;
 /// the native error that comes back names the token, and the error check rethrows the captured exception.
 /// A native kernel that implements .NET checked arithmetic names <see cref="OverflowMarker"/> instead, which is
-/// raised as an <see cref="OverflowException"/>, or <see cref="DivideByZeroMarker"/>, raised as a
-/// <see cref="DivideByZeroException"/>.
+/// raised as an <see cref="OverflowException"/>, <see cref="DivideByZeroMarker"/>, raised as a
+/// <see cref="DivideByZeroException"/>, or <see cref="InvalidCastMarker"/>, raised as an
+/// <see cref="InvalidCastException"/> with the text that follows it.
 /// </summary>
 internal static class ManagedErrorRelay
 {
@@ -18,6 +19,8 @@ internal static class ManagedErrorRelay
     private const string OverflowMarker = "[[polars-net-overflow]]";
     /// <summary>The marker a native kernel raises for .NET's DivideByZeroException (checked division).</summary>
     private const string DivideByZeroMarker = "[[polars-net-divide-by-zero]]";
+    /// <summary>The marker a native kernel raises for .NET's InvalidCastException (a checked cast), its text after it.</summary>
+    private const string InvalidCastMarker = "[[polars-net-invalid-cast]]";
     private const string Suffix = "]]";
     private const int MaxPending = 1024;
 
@@ -44,6 +47,12 @@ internal static class ManagedErrorRelay
             return new OverflowException();
         if (message.Contains(DivideByZeroMarker, StringComparison.Ordinal))
             return new DivideByZeroException();
+        if (message.IndexOf(InvalidCastMarker, StringComparison.Ordinal) is var cast and >= 0)
+        {
+            var text = message.AsSpan(cast + InvalidCastMarker.Length);
+            if (text.IndexOfAny('\r', '\n') is var lineEnd and >= 0) text = text[..lineEnd];
+            return new InvalidCastException(text.Trim().ToString());
+        }
 
         int start = message.IndexOf(Prefix, StringComparison.Ordinal);
         if (start < 0)

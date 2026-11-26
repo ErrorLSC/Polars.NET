@@ -57,6 +57,10 @@ module ScalarExprOps =
     let checkedRescale (target: LogicalType) (guard: ScalarExpr) (value: ScalarExpr) : ScalarExpr =
         ScalarExpr.Function(ScalarFunction.CheckedRescale, [ value; guard ], target)
 
+    /// ScalarFunction.CheckedCast of `value` to `target`, raising only where `guard` is true.
+    let checkedCast (target: LogicalType) (guard: ScalarExpr) (value: ScalarExpr) : ScalarExpr =
+        ScalarExpr.Function(ScalarFunction.CheckedCast, [ value; guard ], target)
+
     /// Strongly-typed, zero-boxing overloaded literal constructor via SRTP
     let inline lit (v: ^T) : ScalarExpr =
         ((^T or ScalarLitMechanism): (static member ($): ScalarLitMechanism * ^T -> ScalarExpr) (ScalarLitMechanism, v))
@@ -339,12 +343,13 @@ module ScalarExprOps =
         | ScalarExpr.EnumConvert(conversion, e, mapping) -> ScalarExpr.EnumConvert(conversion, f e, mapping)
 
     /// Whether evaluating the expression may fail the query (SEMANTICS.md, Exceptional cases): a raising function
-    /// (CheckedNarrow, CheckedRescale, CheckedDivide, RequireListed, AssertCount), a checked sum, or a user function, which
+    /// (CheckedNarrow, CheckedRescale, CheckedCast, CheckedDivide, RequireListed, AssertCount), a checked sum, or a user function, which
     /// may throw. Passes never move such an expression to rows its plan position does not reach (below a filter or a join).
     let rec raises (expr: ScalarExpr) : bool =
         match expr with
         | ScalarExpr.Function((ScalarFunction.CheckedNarrow
                               | ScalarFunction.CheckedRescale
+                              | ScalarFunction.CheckedCast
                               | ScalarFunction.CheckedDivide _
                               | ScalarFunction.RequireListed _
                               | ScalarFunction.AssertCount _),
