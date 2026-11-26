@@ -157,8 +157,8 @@ public static class TableFeatures
 
     /// <summary>
     /// Throws when writing to the table needs something this kernel does not do: an unknown writer feature, or a
-    /// supported one the table actually uses in a way the kernel cannot enforce (column invariants, check
-    /// constraints, generated columns: they need SQL expressions). Identity columns are checked here to be
+    /// supported one the table actually uses in a way the kernel cannot enforce (generated columns). CHECK constraints
+    /// and column invariants are enforced on the rows a write adds (Core binds their expressions). Identity columns are checked here to be
     /// well-formed; generating their values is up to the writer (see <see cref="IdentityColumns"/>).
     /// </summary>
     /// <exception cref="DeltaProtocolException">The table cannot be written by this kernel.</exception>
@@ -178,8 +178,6 @@ public static class TableFeatures
                 throw new DeltaProtocolException($"The table uses the writer feature '{feature}', which this kernel does not implement.");
             string? used = feature switch
             {
-                Invariants when AnyField(schema, f => f.Metadata.ContainsKey("delta.invariants")) => "column invariants",
-                CheckConstraints when metadata.Configuration.Keys.Any(k => k.StartsWith("delta.constraints.", StringComparison.Ordinal)) => "check constraints",
                 GeneratedColumns when AnyField(schema, f => f.Metadata.ContainsKey("delta.generationExpression")) => "generated columns",
                 _ => null,
             };

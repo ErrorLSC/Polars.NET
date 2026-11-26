@@ -529,17 +529,19 @@ internal static class DeltaKernelWrite
     /// a partition column would but without directories or partition values (clustering's buckets); null for none.</param>
     /// <param name="properties">The table's properties as of the commit, when the commit changes them (where files go,
     /// which statistics they get); null for the table's current ones.</param>
+    /// <param name="checkConstraints">Check the table's CHECK constraints and column invariants on the rows (all but
+    /// the rows a DELETE keeps).</param>
     internal static List<AddAction> WriteFiles(
         DmlTable table, LazyFrameHandle rows, StructType schema, long now, bool checkNotNull,
         ulong maxRowsPerFile = 0, ulong? approxBytesPerFile = null, string? bucketColumn = null,
-        IReadOnlyDictionary<string, string>? properties = null)
+        IReadOnlyDictionary<string, string>? properties = null, bool checkConstraints = true)
     {
         properties ??= table.Snapshot.Metadata.Configuration;
         string[] extra = bucketColumn is null ? table.RowIdColumns : [.. table.RowIdColumns, bucketColumn];
         return DataFiles(
             table.FileSystem, table.Root, NormalizeLazy(rows, schema, extra), schema, table.PartitionColumns, now, properties, checkNotNull,
             KernelWriteOptions.Default with { MaxRowsPerFile = maxRowsPerFile }, approxBytesPerFile ?? TargetFileSize(properties),
-            table.MaterializedRowColumns, table.Cloud, bucketColumn);
+            table.MaterializedRowColumns, table.Cloud, bucketColumn, checkConstraints);
     }
 
     /// <summary>
@@ -565,12 +567,17 @@ internal static class DeltaKernelWrite
         }
     }
 
-    /// <summary>Data files of normalized rows (consumed), with statistics and NOT NULL checks from their footers.</summary>
+    /// <summary>
+    /// Data files of normalized rows (consumed), with statistics and NOT NULL checks from their footers, and, with
+    /// <paramref name="checkConstraints"/>, the table's CHECK constraints and column invariants checked on every row
+    /// as it streams (Spark checks every row it writes, a rewrite's too, except the rows a DELETE keeps).
+    /// </summary>
     private static List<AddAction> DataFiles(
         TrackingFileSystem fileSystem, string root, LazyFrameHandle rows, StructType schema, string[] partitions, long now,
         IReadOnlyDictionary<string, string>? tableProperties, bool checkNotNull, KernelWriteOptions options, ulong approxBytesPerFile,
-        (string RowId, string CommitVersion)? materialized, CloudArgs? cloud, string? bucketColumn = null)
+        (string RowId, string CommitVersion)? materialized, CloudArgs? cloud, string? bucketColumn = null, bool checkConstraints = true)
     {
+        if (checkConstraints) rows = DeltaConstraintCheck.Apply(rows, schema, tableProperties);
         if (checkNotNull && schema.Fields.Any(f => (f.Type is StructType s && HasNotNullInside(s)) || (!f.Nullable && f.Type is StructType or ArrayType or MapType)))
         {
             // Footers count nulls of primitive columns only (and a null inside a null struct is fine, which they

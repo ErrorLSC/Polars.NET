@@ -270,10 +270,8 @@ public class TransactionTests
 
     [Theory]
     [InlineData("allowColumnDefaults", null, null)]
-    [InlineData("invariants", "delta.invariants", null)]
     [InlineData("generatedColumns", "delta.generationExpression", null)]
     [InlineData("identityColumns", "delta.identity.start", null)]
-    [InlineData("checkConstraints", null, "delta.constraints.positive")]
     public void UnsupportedWriterFeatures_AreRefused(string feature, string? fieldKey, string? propertyKey)
     {
         string schema = fieldKey is null
@@ -296,6 +294,31 @@ public class TransactionTests
             var legacy = new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 6 };
             Assert.Throws<DeltaProtocolException>(() => Transaction.Create(fs, legacy, metadata).Commit());
         }
+    }
+
+    /// <summary>CHECK constraints and column invariants are enforced on the rows a write adds (Core binds them), so a
+    /// table using them can be committed to, at writer version 7 and at the older versions that imply them.</summary>
+    [Theory]
+    [InlineData("invariants", "delta.invariants", null, 2)]
+    [InlineData("checkConstraints", null, "delta.constraints.positive", 3)]
+    public void ConstraintFeatures_AreWritable(string feature, string? fieldKey, string? propertyKey, int legacyVersion)
+    {
+        // The first field's metadata holds the invariant.
+        const string empty = "\"metadata\":{}";
+        int first = Schema.IndexOf(empty, StringComparison.Ordinal);
+        string schema = fieldKey is null
+            ? Schema
+            : Schema[..first] + $"\"metadata\":{{\"{fieldKey}\":\"{{\\\"expression\\\": {{\\\"expression\\\": \\\"id > 0\\\"}}}}\"}}" + Schema[(first + empty.Length)..];
+        var metadata = new MetadataAction
+        {
+            Id = "t1", SchemaString = schema, PartitionColumns = ["p"],
+            Configuration = propertyKey is null ? [] : new Dictionary<string, string> { [propertyKey] = "id > 0" },
+        };
+        var fs = new MemoryFileSystem();
+        Transaction.Create(fs, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 7, WriterFeatures = [feature] }, metadata).Commit();
+        var legacy = new MemoryFileSystem();
+        Transaction.Create(legacy, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = legacyVersion }, metadata).Commit();
+        Assert.Equal([new DeltaConstraint(fieldKey is null ? "positive" : "EXPRESSION(('id > 0))", "id > 0")], Constraints.Of(Snapshot.Load(legacy).Metadata));
     }
 
     private static JsonDocument CommitInfo(MemoryFileSystem fs, long version)

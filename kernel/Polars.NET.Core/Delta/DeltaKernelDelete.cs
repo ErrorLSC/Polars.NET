@@ -137,7 +137,8 @@ internal static class DeltaKernelDelete
             // The rows the rewritten files keep, streamed into new files (rows unchanged: no NOT NULL check).
             LazyFrameHandle? kept = DmlTable.Concat(keptFrames);
             if (kept is not null)
-                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table, kept, snapshot.Schema, plan.Now, checkNotNull: false));
+                // The rows a DELETE keeps are not checked against the constraints (as Spark).
+                plan.Adds.AddRange(DeltaKernelWrite.WriteFiles(table, kept, snapshot.Schema, plan.Now, checkNotNull: false, checkConstraints: false));
 
             // On a table with the change data feed, every deleted row is written as change data.
             LazyFrameHandle? all = DmlTable.Concat(deletedFrames);
