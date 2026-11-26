@@ -1,0 +1,7 @@
+_change_data/PStr= a b 
+_change_data/PStr=50%25
+_change_data/PStr=__HIVE_DEFAULT_PARTITION__
+_change_data/PStr=a%3Ab%23c
+_change_data/PStr=plain
+_change_data/PStr=x%3Dy%2Fz
+_change_data/PStr=日本語

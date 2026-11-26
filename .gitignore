@@ -71,3 +71,5 @@ __pycache__/
 
 # dotnet test results (blame dumps, trx)
 **/TestResults/
+# Golden files of the tests are part of the source.
+!tests/Polars.Config.Tests/Golden/**/*.txt

@@ -1,0 +1,10 @@
+Id Int64 Optional children= logical= converted= id= len= p= s=
+PStr ByteArray Optional children= logical=String converted=Utf8 id= len= p= s=
+PInt Int32 Optional children= logical= converted= id= len= p= s=
+PLong Int64 Optional children= logical= converted= id= len= p= s=
+PDate Int32 Optional children= logical=Date converted=Date id= len= p= s=
+PBool Boolean Optional children= logical= converted= id= len= p= s=
+PDec Int64 Optional children= logical=Decimal converted=Decimal id= len= p=10 s=2
+Text ByteArray Optional children= logical=String converted=Utf8 id= len= p= s=
+PFloat Double Optional children= logical= converted= id= len= p= s=
+PCat ByteArray Optional children= logical=String converted=Utf8 id= len= p= s=
