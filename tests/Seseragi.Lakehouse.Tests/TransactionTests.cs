@@ -270,7 +270,6 @@ public class TransactionTests
 
     [Theory]
     [InlineData("allowColumnDefaults", null, null)]
-    [InlineData("generatedColumns", "delta.generationExpression", null)]
     [InlineData("identityColumns", "delta.identity.start", null)]
     public void UnsupportedWriterFeatures_AreRefused(string feature, string? fieldKey, string? propertyKey)
     {
@@ -319,6 +318,24 @@ public class TransactionTests
         var legacy = new MemoryFileSystem();
         Transaction.Create(legacy, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = legacyVersion }, metadata).Commit();
         Assert.Equal([new DeltaConstraint(fieldKey is null ? "positive" : "EXPRESSION(('id > 0))", "id > 0")], Constraints.Of(Snapshot.Load(legacy).Metadata));
+    }
+
+    /// <summary>Generated columns are computed and checked on the rows a write adds (Core binds them), so a table with
+    /// one can be committed to; its check is Spark's <c>Generated Column</c>.</summary>
+    [Fact]
+    public void GeneratedColumns_AreWritable()
+    {
+        const string empty = "\"metadata\":{}";
+        int first = Schema.IndexOf(empty, StringComparison.Ordinal);
+        var metadata = new MetadataAction
+        {
+            Id = "t1", PartitionColumns = ["p"],
+            SchemaString = Schema[..first] + "\"metadata\":{\"delta.generationExpression\":\"id + 1\"}" + Schema[(first + empty.Length)..],
+        };
+        var fs = new MemoryFileSystem();
+        Transaction.Create(fs, new ProtocolAction { MinReaderVersion = 1, MinWriterVersion = 4 }, metadata).Commit();
+        var generated = Kaminari.Seseragi.Lakehouse.Delta.Schema.StructType.Parse(Snapshot.Load(fs).Metadata.SchemaString).Fields[0];
+        Assert.Equal([new DeltaConstraint("Generated Column", $"{generated.Name} <=> id + 1", $"`{generated.Name}` <=> (id + 1)")], Constraints.Of(Snapshot.Load(fs).Metadata));
     }
 
     private static JsonDocument CommitInfo(MemoryFileSystem fs, long version)

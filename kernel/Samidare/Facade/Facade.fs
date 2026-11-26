@@ -291,5 +291,8 @@ type SqlFrontend =
         let v, read = Kaminari.Samidare.Sql.SparkExpressions.bind' text columns ``use`` zone now
         BoundSparkExpression(v.Expr, v.Type, Array.ofList read)
 
+    /// A type's name as Spark writes it (INT, DECIMAL(4,2), TIMESTAMP_NTZ), for messages.
+    static member SparkTypeName(t: LogicalType) : string = Kaminari.Samidare.Sql.SparkExpressions.display t
+
     /// Schemas inferred once per plan node until the returned scope is disposed (wrap a lowering that infers them).
     static member EnterSchemaCache() : IDisposable = PlanSchemaCache.Enter()

@@ -369,6 +369,11 @@ internal static class DeltaKernelMerge
             string[] rowIds = table.RowIdColumns;
             LazyFrameHandle newRows = table.Changed(PolarsWrapper.LazySelect(PolarsWrapper.LazyFilter(Rows(), Is(Insert, Update)),
                 [.. NewRowColumns(schema, snapshot.Schema, sourceSchema, generate), .. rowIds.Select(PolarsWrapper.Col), PolarsWrapper.Col(ActionColumn)]));
+            // Generated columns the source lacks are computed from the new rows (an inserted row's, an updated row's
+            // new values: Spark's); one the source has is checked.
+            var generated = DeltaGeneratedColumns.Of(schema);
+            HashSet<string> missing = generated.Missing(sourceSchema.Fields.Select(f => f.Name));
+            if (missing.Count > 0) newRows = generated.Compute(newRows, missing);
             written.Add(Project(PolarsWrapper.LazyClone(newRows), schema, rowIds));
 
             if (table.ChangeFeedEnabled)

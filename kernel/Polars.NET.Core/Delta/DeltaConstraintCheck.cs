@@ -56,7 +56,7 @@ internal static class DeltaConstraintCheck
         try
         {
             bound = SqlFrontend.BindSparkExpression(
-                constraint.Expression, [.. columns], SparkExpressionUse.Check, SessionTimeZone, DateTimeOffset.UtcNow);
+                constraint.Text, [.. columns], SparkExpressionUse.Check, SessionTimeZone, DateTimeOffset.UtcNow);
         }
         catch (SqlException e)
         {

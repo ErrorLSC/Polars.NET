@@ -157,8 +157,8 @@ public static class TableFeatures
 
     /// <summary>
     /// Throws when writing to the table needs something this kernel does not do: an unknown writer feature, or a
-    /// supported one the table actually uses in a way the kernel cannot enforce (generated columns). CHECK constraints
-    /// and column invariants are enforced on the rows a write adds (Core binds their expressions). Identity columns are checked here to be
+    /// supported one the table actually uses in a way the kernel cannot enforce. CHECK constraints, column invariants
+    /// and generated columns are enforced on the rows a write adds (Core binds their expressions). Identity columns are checked here to be
     /// well-formed; generating their values is up to the writer (see <see cref="IdentityColumns"/>).
     /// </summary>
     /// <exception cref="DeltaProtocolException">The table cannot be written by this kernel.</exception>
@@ -176,14 +176,8 @@ public static class TableFeatures
         {
             if (!SupportedWriterFeatures.Contains(feature))
                 throw new DeltaProtocolException($"The table uses the writer feature '{feature}', which this kernel does not implement.");
-            string? used = feature switch
-            {
-                GeneratedColumns when AnyField(schema, f => f.Metadata.ContainsKey("delta.generationExpression")) => "generated columns",
-                _ => null,
-            };
-            if (used is not null)
-                throw new DeltaProtocolException($"The table has {used}, which this kernel cannot enforce on write.");
         }
+        Constraints.GeneratedColumns(schema); // generated nested fields are refused here
         Kaminari.Seseragi.Lakehouse.Delta.IdentityColumns.Of(schema); // malformed identity metadata is refused here
         if (RowTracking.IsEnabled(protocol, metadata) && RowTracking.MaterializedColumns(metadata) is null)
             throw new DeltaProtocolException("The table has row tracking on but names no materialized row id columns.");
@@ -337,26 +331,5 @@ public static class TableFeatures
         // Features b lists; for legacy versions, the versions above carry what they imply.
         IEnumerable<string> features = b.MinWriterVersion >= 7 ? WriterFeaturesOf(b).Concat(ReaderFeaturesOf(b)) : [];
         return WithFeatures(raised, features);
-    }
-
-    private static bool AnyField(StructType schema, Func<StructField, bool> test)
-    {
-        foreach (StructField field in schema.Fields)
-        {
-            if (test(field)) return true;
-            foreach (StructType nested in Nested(field.Type))
-            {
-                if (AnyField(nested, test)) return true;
-            }
-        }
-        return false;
-
-        static IEnumerable<StructType> Nested(DeltaType type) => type switch
-        {
-            StructType s => [s],
-            ArrayType a => Nested(a.ElementType),
-            MapType m => Nested(m.KeyType).Concat(Nested(m.ValueType)),
-            _ => [],
-        };
     }
 }

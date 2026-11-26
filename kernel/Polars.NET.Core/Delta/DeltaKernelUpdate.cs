@@ -184,7 +184,12 @@ internal static class DeltaKernelUpdate
         DmlTable table, LazyFrameHandle rows, IReadOnlyList<(string Column, ExprHandle Value)> assignments, RoaringBitmap64? onlyListed)
     {
         StructType schema = table.Snapshot.Schema;
-        string[] extra = table.RowIdColumns;
+        // Generated columns the update does not set are computed again on the changed rows, from their new values
+        // (Spark's); the row index is kept until then.
+        var generated = DeltaGeneratedColumns.Of(schema);
+        HashSet<string> assigned = [.. assignments.Select(a => a.Column)];
+        bool regenerate = generated.Names.Any(n => !assigned.Contains(n));
+        string[] extra = regenerate && onlyListed is not null ? [.. table.RowIdColumns, DeltaKernelScan.RowIndexColumn] : table.RowIdColumns;
         var exprs = new ExprHandle[schema.Fields.Count + extra.Length];
         for (int k = 0; k < extra.Length; k++)
         {
@@ -210,7 +215,12 @@ internal static class DeltaKernelUpdate
                 value = PolarsWrapper.IfElse(DmlTable.RowIsListed(onlyListed), value, PolarsWrapper.Col(field.Name));
             exprs[i] = PolarsWrapper.Alias(value, field.Name);
         }
-        return PolarsWrapper.LazySelect(rows, exprs);
+        LazyFrameHandle updated = PolarsWrapper.LazySelect(rows, exprs);
+        if (!regenerate) return updated;
+        updated = generated.Recompute(updated, assigned, () => onlyListed is null ? PolarsWrapper.Lit(true) : DmlTable.RowIsListed(onlyListed));
+        return onlyListed is null
+            ? updated
+            : PolarsWrapper.LazySelect(updated, [.. schema.Fields.Select(f => PolarsWrapper.Col(f.Name)), .. table.RowIdColumns.Select(PolarsWrapper.Col)]);
 
         static int Index(IReadOnlyList<(string Column, ExprHandle Value)> list, string name)
         {
