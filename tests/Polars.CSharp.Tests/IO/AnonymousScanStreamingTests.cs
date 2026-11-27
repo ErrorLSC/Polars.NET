@@ -7,8 +7,9 @@ using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
 /// <summary>
-/// C# stream sources (ScanDatabase, ScanEnumerable, ScanRecordBatches) on the streaming engine: sinks spool the
-/// stream to a temporary IPC file, streaming collects read it into memory first (#38).
+/// C# stream sources (ScanDatabase, ScanEnumerable, ScanRecordBatches) on every engine path, read through the I/O
+/// plugin bridge: streamed to sinks and streaming collects batch by batch; a single-use source (a DataReader, a batch
+/// stream) read once.
 /// </summary>
 public class AnonymousScanStreamingTests
 {
@@ -148,10 +149,17 @@ public class AnonymousScanStreamingTests
     [MemberData(nameof(Sources))]
     public void CollectAll_Streaming_Reads_A_Shared_Source_Once(string kind)
     {
-        // Both plans scan the same source: a single-use reader must be read once for both.
+        // Plans that filter one source differently read it once each: a single-use source refuses the second read
+        // with an error saying so (it is never read twice silently).
         using var lf = Source(kind);
         using var a = Query(lf);
         using var b = lf.Filter(Pl.Col("Id") < 10);
+        if (kind is "reader" or "batches")
+        {
+            var error = Assert.Throws<InvalidOperationException>(() => Pl.CollectAll([a, b], Engine.Streaming));
+            Assert.Contains("can be read only once", error.Message);
+            return;
+        }
         var dfs = Pl.CollectAll([a, b], Engine.Streaming);
         try
         {

@@ -64,19 +64,15 @@ public partial class LazyFrame : IDisposable
     }
 
     /// <summary>
-    /// Scan RecordBatch Stream
-    /// If schema is provied, first batch won't be consumed for getting schema.
+    /// A lazy scan of a stream of record batches of <paramref name="schema"/>'s columns and types. A stream is read once:
+    /// the first run of the query reads it (each batch is released once handed to the engine), a later run fails
+    /// with an error saying so; to run a query again, collect it once and reuse the frame, or scan a source that can be
+    /// opened again (<see cref="ScanDatabase(Func{System.Data.IDataReader}, int)"/>, <see cref="ScanEnumerable"/>).
     /// </summary>
     public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema)
     {
-        // ArgumentNullException.ThrowIfNull(nameof(schema));
-
-        // The batches may use any standard Arrow layout, so the engine converts every column.
-        var handle = ArrowStreamInterop.ScanStream(
-            () => EnsureStreamSafety(stream),
-            schema,
-            strict: true
-        );
-        return new LazyFrame(handle);
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(schema);
+        return new LazyFrame(ArrowStreamInterop.ScanStreamOnce(() => stream, schema));
     }
 }

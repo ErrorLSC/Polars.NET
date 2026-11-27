@@ -36,14 +36,19 @@ internal static class ManagedScans
     /// <param name="appliesExactly">Whether the reader, given a filter, delivers exactly the rows it holds for (asked
     /// while planning: open a reader, read nothing).</param>
     /// <param name="owner">What the reads read from.</param>
+    /// <param name="filters">Whether the reader takes filters (else every filter stays the engine's).</param>
+    /// <param name="singlePass">Whether the input can be read only once (a DataReader): the first read (or count)
+    /// consumes it, a later one fails with an error saying so.</param>
     public static LazyFrameHandle Open(string name, ulong fingerprint, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, IDisposable owner)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, IDisposable owner,
+        bool filters = true, bool singlePass = false)
     {
         var shared = new SharedOwner(owner);
         ManagedScanResolver resolver;
         try
         {
-            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, appliesExactly, shared);
+            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, filters ? appliesExactly : null,
+                singlePass ? new Consumable(name) : null, shared);
         }
         catch
         {
@@ -138,8 +143,21 @@ internal static class ManagedScans
         }
     }
 
+    /// <summary>An input read once: the first read takes it.</summary>
+    private sealed class Consumable(string name)
+    {
+        private int _taken;
+
+        public void Take()
+        {
+            if (Interlocked.Exchange(ref _taken, 1) != 0)
+                throw new InvalidOperationException(
+                    $"The {name} scan reads a source that can be read only once (a DataReader), and an earlier run of the query read it: scan a factory that opens a new reader instead (ScanDatabase(Func<IDataReader>)), or collect the frame once and reuse it.");
+        }
+    }
+
     private sealed class ManagedScanResolver(string name, ulong fingerprint, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, SharedOwner owner)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool>? appliesExactly, Consumable? consumable, SharedOwner owner)
         : ScanResolver(name, fingerprint, scan.Schema)
     {
         public override ScanPlan Resolve(ResolveRequest request)
@@ -147,14 +165,14 @@ internal static class ManagedScans
             Schema schema = request.Projection is { } projection
                 ? new Schema([.. projection.Select(c => Schema.GetFieldByName(c) ?? throw new InvalidOperationException($"The scan has no column \"{c}\"."))], Schema.Metadata)
                 : Schema;
-            var (filter, applied) = ReadFilter(request.Filters, Schema, rowIndex, appliesExactly);
+            var (filter, applied) = appliesExactly is null ? (null, []) : ReadFilter(request.Filters, Schema, rowIndex, appliesExactly);
             ulong print = new FingerprintBuilder()
                 .Add(Fingerprint)
                 .Add(request.Projection)
                 .Add(filter is null ? null : request.Filters.Select(f => f.Document).ToList())
                 .Add(request.Limit ?? -1)
                 .Value;
-            var builder = new ManagedScanBuilder($"{Name} reader", print, schema, scan, rowIndex, read, owner.Acquire(), request.Limit, filter);
+            var builder = new ManagedScanBuilder($"{Name} reader", print, schema, scan, rowIndex, read, consumable, owner.Acquire(), request.Limit, filter);
             return new ScanPlan([Name], builder, applied);
         }
 
@@ -162,7 +180,7 @@ internal static class ManagedScans
     }
 
     private sealed class ManagedScanBuilder(string name, ulong fingerprint, Schema schema, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, SharedOwner owner, long? limit, ScalarExpr? filter)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Consumable? consumable, SharedOwner owner, long? limit, ScalarExpr? filter)
         : ScanReaderBuilder(name, fingerprint, schema)
     {
         public override IReadOnlyList<KeyValuePair<string, string>> Explain =>
@@ -181,6 +199,8 @@ internal static class ManagedScans
 
         private IEnumerable<RecordBatch> Batches(ScanRun run) => read(run);
 
+        private Consumable? Consumable => consumable;
+
         private ScanRun Run(string[] columns, bool indexed) => new(columns, indexed, limit, filter);
 
         private sealed class Execution(ManagedScanBuilder builder) : ScanExecution
@@ -194,7 +214,8 @@ internal static class ManagedScans
 
             public override long CountRows()
             {
-                // One column of the input is enough to count the rows a read delivers.
+                // One column of the input is enough to count the rows a read delivers (a single-pass input is
+                // consumed by the count: the engine asks for the count when it reads no column).
                 Field? first = Schema.FieldsList.FirstOrDefault(f => f.Name != builder.RowIndex);
                 long rows = 0;
                 foreach (RecordBatch batch in Read(first is null ? [builder.RowIndex!] : [first.Name], CancellationToken.None))
@@ -207,6 +228,7 @@ internal static class ManagedScans
 
             public override IEnumerable<RecordBatch> Read(IReadOnlyList<string> columns, CancellationToken cancellation)
             {
+                builder.Consumable?.Take();
                 bool indexed = builder.RowIndex is { } index && columns.Contains(index);
                 string[] reading = [.. columns.Where(c => c != builder.RowIndex)];
                 return Delivered(builder.Batches(builder.Run(reading, indexed)), indexed, cancellation);

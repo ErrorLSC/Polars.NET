@@ -129,6 +129,8 @@ public static unsafe class IoPluginBridge
         if (schema.FieldsList is { Count: > 0 })
         {
             CArrowSchemaExporter.ExportSchema(schema, destination);
+            // 128-bit integers in the engine's own formats (the engine takes the schema and releases it).
+            Polars.NET.Core.Arrow.WideIntegerFormats.PatchOwnedSchema(schema, destination);
             return;
         }
         // A struct of no fields, written by hand: its strings are static data, its release only marks it released.
@@ -379,7 +381,11 @@ public static unsafe class IoPluginBridge
             Schema schema = Select(slot.Reader.Schema, columns);
             var names = new string[schema.FieldsList.Count];
             for (int i = 0; i < names.Length; i++) names[i] = schema.FieldsList[i].Name;
-            var exporter = new ArrowStreamExporter(slot.Read(names), schema) { SelectByName = true };
+            var exporter = new ArrowStreamExporter(slot.Read(names, schema), schema)
+            {
+                SelectByName = true,
+                SchemaExported = static (exported, c) => Polars.NET.Core.Arrow.WideIntegerFormats.PatchOwnedSchema(exported, (CArrowSchema*)c),
+            };
             FfiResultStream result = new() { Tag = FfiTag.Ok };
             exporter.Export((CArrowArrayStream*)&result.Ok);
             return result;
@@ -659,7 +665,7 @@ public static unsafe class IoPluginBridge
             }
         }
 
-        public IEnumerator<RecordBatch> Read(string[] columns)
+        public IEnumerator<RecordBatch> Read(string[] columns, Schema exported)
         {
             CancellationToken token;
             lock (_lock)
@@ -672,7 +678,7 @@ public static unsafe class IoPluginBridge
             {
                 // A cancelled reader starts no work: its stream ends at once.
                 IEnumerable<RecordBatch> batches = token.IsCancellationRequested ? [] : Reader.Read(columns, token);
-                return new Batches(this, batches, token);
+                return new Batches(this, batches, exported, token);
             }
             catch
             {
@@ -722,10 +728,11 @@ public static unsafe class IoPluginBridge
         }
 
         /// <summary>The reader's batches as the exported stream pulls them.</summary>
-        private sealed class Batches(ReaderSlot slot, IEnumerable<RecordBatch> source, CancellationToken token) : IEnumerator<RecordBatch>
+        private sealed class Batches(ReaderSlot slot, IEnumerable<RecordBatch> source, Schema exported, CancellationToken token) : IEnumerator<RecordBatch>
         {
             private IEnumerator<RecordBatch>? _inner;
             private bool _closed;
+            private Schema? _checked; // the last batch schema found to agree with the exported one
 
             public RecordBatch Current => _inner!.Current;
 
@@ -738,7 +745,9 @@ public static unsafe class IoPluginBridge
                 try
                 {
                     _inner ??= source.GetEnumerator();
-                    return _inner.MoveNext();
+                    if (!_inner.MoveNext()) return false;
+                    Check(_inner.Current);
+                    return true;
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -752,6 +761,27 @@ public static unsafe class IoPluginBridge
             }
 
             public void Reset() => throw new NotSupportedException();
+
+            /// <summary>
+            /// The batch's columns hold the types the stream declares: the engine reads each array as its declared
+            /// type, so a batch of another layout is refused here (it would be misread there).
+            /// </summary>
+            private void Check(RecordBatch batch)
+            {
+                if (ReferenceEquals(batch.Schema, _checked)) return;
+                foreach (Field field in exported.FieldsList)
+                {
+                    Field? actual = batch.Schema.GetFieldByName(field.Name);
+                    if (actual is null)
+                        throw new InvalidOperationException($"A batch of the scan has no column \"{field.Name}\" (its columns: {string.Join(", ", batch.Schema.FieldsList.Select(static f => f.Name))}).");
+                    string declared = Kaminari.Samidare.IR.LogicalType.NewArrow(field.DataType).Display;
+                    string held = Kaminari.Samidare.IR.LogicalType.NewArrow(actual.DataType).Display;
+                    if (declared != held)
+                        throw new InvalidOperationException(
+                            $"Column \"{field.Name}\" of a batch is {held}, but the scan's schema says {declared}: give the schema the batches' types (or build the batches with the schema's).");
+                }
+                _checked = batch.Schema;
+            }
 
             public void Dispose()
             {

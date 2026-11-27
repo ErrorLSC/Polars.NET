@@ -230,6 +230,13 @@ public static unsafe class ArrowStreamInterop
         => Scan(streamFactory, schema, buffered: false, strict, owner);
 
     /// <summary>
+    /// A lazy scan of a source that can be read only once (a DataReader): the first run of the query reads it (a run
+    /// that counts the rows first reads it once too), a later run fails with an error saying so.
+    /// </summary>
+    public static LazyFrameHandle ScanStreamOnce(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema)
+        => Scan(_ => streamFactory(), schema, buffered: false, strict: true, singlePass: true);
+
+    /// <summary>
     /// Reads the stream now into an anonymous temporary Arrow IPC file and scans that file. The engine owns the file:
     /// it is removed when the last frame that scans it is released. The whole stream is read: the query is not
     /// known yet.
@@ -241,7 +248,7 @@ public static unsafe class ArrowStreamInterop
         => Scan(_ => streamFactory(), schema, buffered: true, strict);
 
     private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict,
-        IDisposable? owner = null)
+        IDisposable? owner = null, bool singlePass = false)
     {
         if (schema.FieldsList.Count == 0)
         {
@@ -250,6 +257,20 @@ public static unsafe class ArrowStreamInterop
             owner?.Dispose();
             using DataFrameHandle empty = PolarsWrapper.DataFrameNew([]);
             return PolarsWrapper.DataFrameToLazy(empty);
+        }
+        if (!buffered)
+        {
+            // The engine's I/O plugin: the stream opened for the columns and leading rows the query needs, each run.
+            var scan = new IO.ManagedFrames.Scan(schema, null, 0, null);
+            return IO.Plugins.ManagedScans.Open("stream", IO.Plugins.ManagedScans.Identity(), scan, null,
+                run => streamFactory(new StreamScanRequest(Asked(run.Columns), run.Limit)), static _ => false, owner ?? NoOwner.Instance,
+                filters: false, singlePass: singlePass);
+
+            // Every column: null (a source gives all); else the columns in the schema's order.
+            string[]? Asked(string[]? columns) =>
+                columns is null || columns.Length == schema.FieldsList.Count && columns.All(c => schema.GetFieldIndex(c) >= 0)
+                    ? null
+                    : [.. schema.FieldsList.Select(static f => f.Name).Where(columns.Contains)];
         }
         var cSchema = CArrowSchema.Create();
         try
@@ -273,6 +294,14 @@ public static unsafe class ArrowStreamInterop
         {
             CArrowSchema.Free(cSchema);
         }
+    }
+
+    /// <summary>Nothing to release.</summary>
+    private sealed class NoOwner : IDisposable
+    {
+        public static readonly NoOwner Instance = new();
+
+        public void Dispose() { }
     }
 
     private static int _streamByteOffset = -1;

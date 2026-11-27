@@ -16,18 +16,16 @@ namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable
 {
     /// <summary>
-    /// Scan Database to LazyFrame
+    /// A lazy scan of an open <see cref="IDataReader"/>. A reader is read once: the first run of the query reads it (a
+    /// run that counts the rows first, as <c>Tail</c> does, reads it once too), a later run fails with an error saying
+    /// so. To run the query again, scan a factory that opens a new reader (<see cref="ScanDatabase(Func{IDataReader}, int)"/>).
     /// </summary>
-    /// <param name="reader"></param>
-    /// <param name="batchSize"></param>
-    /// <returns></returns>
+    /// <param name="reader">The open reader (left open).</param>
+    /// <param name="batchSize">Rows per Arrow batch.</param>
     public static LazyFrame ScanDatabase(IDataReader reader, int batchSize = 50_000)
     {
         var schema = reader.GetArrowSchema();
-
-        var stream = reader.ToArrowBatches(batchSize).Prefetch();
-
-        return ScanRecordBatches(stream, schema);
+        return new LazyFrame(ArrowStreamInterop.ScanStreamOnce(() => reader.ToArrowBatches(batchSize).Prefetch(), schema));
     }
     /// <summary>
     /// Create a LazyFrame from a database query using a reader factory.

@@ -121,18 +121,14 @@ module DataReaderRead =
                 let handle = ArrowStreamInterop.ScanStream(factory, schema)
                 new LazyFrame(handle)
         /// <summary>
-        /// [Lazy][Streaming] Scan a database DataReader directly.
+        /// [Lazy][Streaming] Scan a database DataReader directly. A reader is read once: the first run of the query
+        /// reads it, a later run fails (scan a factory, <c>ScanDb(unit -> IDataReader)</c>, to run the query again).
         /// </summary>
         static member ScanDb(reader: IDataReader, ?batchSize: int) : LazyFrame =
             let size = defaultArg batchSize 50_000
             let schema = reader.GetArrowSchema()
-            
-            let stream = reader.ToArrowBatches(size).Prefetch() 
-            
-            let factory = Func<IEnumerable<RecordBatch>>(fun () -> stream)
-            let handle = ArrowStreamInterop.ScanStream(factory, schema)
-            
-            new LazyFrame(handle)
+            let factory = Func<IEnumerable<RecordBatch>>(fun () -> reader.ToArrowBatches(size).Prefetch())
+            new LazyFrame(ArrowStreamInterop.ScanStreamOnce(factory, schema))
     type DataFrame with
         /// <summary>
         /// [Eager] Create a DataFrame from an IDataReader (e.g. SqlDataReader).
