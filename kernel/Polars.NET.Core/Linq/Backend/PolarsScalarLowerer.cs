@@ -251,6 +251,15 @@ internal static class PolarsScalarLowerer
             case ScalarExpr.Cast c:
             {
                 var inner = Lower(c.expr);
+                // The engine casts a map's values but never its keys: a map is cast through its entries (a list of
+                // key / value structs, cast field by field), then made a map again.
+                if (c.targetType is LogicalType.Arrow { arrowType: Apache.Arrow.Types.MapType map })
+                {
+                    var entries = new Apache.Arrow.Types.ListType(new Apache.Arrow.Field("item", new Apache.Arrow.Types.StructType(
+                        [new Apache.Arrow.Field("key", map.KeyField.DataType, false), new Apache.Arrow.Field("value", map.ValueField.DataType, true)]), true));
+                    using var entriesType = PolarsVocabulary.ToDataTypeHandle(LogicalType.NewArrow(entries));
+                    inner = PolarsWrapper.ExprCast(inner, PolarsWrapper.DataTypeExprFromDataType(entriesType), strict: c.isStrict, wrapNumerical: false);
+                }
                 using var dt = PolarsVocabulary.ToDataTypeHandle(c.targetType);
                 var dtExpr = PolarsWrapper.DataTypeExprFromDataType(dt);
                 // A non-strict numeric cast wraps on overflow, as .NET's unchecked conversion (the engine would give null).
@@ -752,6 +761,18 @@ internal static class PolarsScalarLowerer
             case ({ IsListGet: true }, [var a, var index]): return PolarsWrapper.ListGet(L(a), L(index), nullOnOob: true);
             case (ScalarFunction.ListContains c, [var a, var item]): return PolarsWrapper.ListContains(L(a), L(item), nullsEqual: c.nullsEqual);
             case ({ IsListLen: true }, [var a]): return PolarsWrapper.ListLen(L(a));
+            case ({ IsMapGet: true }, [var map, var key]): return PolarsWrapper.MapGet(L(map), L(key));
+            case ({ IsMapContainsKey: true }, [var map, var key]): return PolarsWrapper.MapContainsKey(L(map), L(key));
+            case ({ IsMapLen: true }, [var map]): return PolarsWrapper.MapLen(L(map));
+            case ({ IsMapKeys: true }, [var map]): return PolarsWrapper.MapKeys(L(map));
+            case ({ IsMapValues: true }, [var map]): return PolarsWrapper.MapValues(L(map));
+            case ({ IsMapOf: true }, var entries) when entries.Length % 2 == 0 && entries.Length > 0:
+            {
+                var items = new ExprHandle[entries.Length / 2];
+                for (int i = 0; i < items.Length; i++)
+                    items[i] = PolarsWrapper.AsStruct([PolarsWrapper.Alias(L(entries[2 * i]), "key"), PolarsWrapper.Alias(L(entries[2 * i + 1]), "value")]);
+                return PolarsWrapper.ListToMap(PolarsWrapper.ConcatList(items));
+            }
             case (ScalarFunction.IsIn i, [var a, var b]): return PolarsWrapper.IsIn(L(a), L(b), nullsEqual: i.nullsEqual);
             case ({ IsListSum: true }, [var a]): return PolarsWrapper.ListSum(L(a));
             case ({ IsListMean: true }, [var a]): return PolarsWrapper.ListMean(L(a));

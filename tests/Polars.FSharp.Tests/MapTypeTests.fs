@@ -3,9 +3,11 @@ namespace Polars.FSharp.Tests
 open System.Collections.Generic
 open Xunit
 open Polars.FSharp
+open Polars.FSharp.Query
 
 type MapRow = { Id: int; Tags: Map<string, int64> }
 type OptionalMapRow = { Id: int; Tags: Map<string, int64> option }
+type ScoreRow = { Id: int; Marks: Map<string, int> }
 
 /// The Polars 2.2 Map type from F#: DataType.Map, F# Map values in and out, map literals, selectors.
 type MapTypeTests() =
@@ -125,3 +127,33 @@ type MapTypeTests() =
         Assert.Equal(DataType.Struct [ { Name = "a"; DataType = DataType.Int64 }; { Name = "b"; DataType = DataType.String } ], df.["r"].DataType)
         Assert.Equal(DataType.Map(DataType.String, DataType.Int64), df.["t"].DataType)
         Assert.Equal<Map<string, int64>[]>([| Map [ "k", 2L ]; Map.empty |], df.["t"].ToArray<Map<string, int64>>())
+
+
+    [<Fact>]
+    member _.``F# Map members run in queries as over a list`` () =
+        let rows =
+            [| { Id = 1; Marks = Map [ "math", 90; "art", 70 ] }
+               { Id = 2; Marks = Map [ "music", 80 ] }
+               { Id = 3; Marks = Map.empty } |]
+        use df = DataFrame.ofRecords rows
+        let source = df.AsQueryable rows
+
+        let filtered =
+            query {
+                for r in source do
+                where (r.Marks.ContainsKey "math" && r.Marks.["math"] > 50)
+                select r.Id
+            }
+        // Run in the engine, not in .NET.
+        let plan = filtered.Explain()
+        Assert.Contains("map.contains_key", plan)
+        Assert.Contains("map.get", plan)
+        Assert.Equal<int list>([ 1 ], filtered |> Seq.toList)
+
+        let counts = query { for r in source do select r.Marks.Count } |> Seq.toList
+        Assert.Equal<int list>([ 2; 1; 0 ], counts)
+
+        // TryFind: Some value, None for a missing key.
+        let tried = query { for r in source do select (r.Marks.TryFind "music") }
+        Assert.Contains("map.get", tried.Explain())
+        Assert.Equal<int option list>([ None; Some 80; None ], tried |> Seq.toList)

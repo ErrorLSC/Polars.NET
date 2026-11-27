@@ -15,6 +15,8 @@ type internal SqlTypeClass =
     | String
     | Date
     | Timestamp
+    /// A map of these key and value types.
+    | Map of key: LogicalType * value: LogicalType
     | Other
 
 /// SQL's type rules over IR types (sql-frontend design, Q4): numeric promotion, decimal results as Spark computes them,
@@ -49,6 +51,7 @@ module internal SqlTypes =
             | :? Date32Type
             | :? Date64Type -> SqlTypeClass.Date
             | :? TimestampType -> SqlTypeClass.Timestamp
+            | :? MapType as m -> SqlTypeClass.Map(LogicalType.Arrow m.KeyField.DataType, LogicalType.Arrow m.ValueField.DataType)
             | _ -> SqlTypeClass.Other
         | _ -> SqlTypeClass.Other
 
@@ -67,7 +70,7 @@ module internal SqlTypes =
     let isNull (t: LogicalType) = classify t = SqlTypeClass.Null
 
     /// The SQL name of a type, for messages.
-    let display (t: LogicalType) =
+    let rec display (t: LogicalType) =
         match classify t with
         | SqlTypeClass.Null -> "NULL"
         | SqlTypeClass.Boolean -> "BOOLEAN"
@@ -83,7 +86,14 @@ module internal SqlTypes =
         | SqlTypeClass.String -> "VARCHAR"
         | SqlTypeClass.Date -> "DATE"
         | SqlTypeClass.Timestamp -> "TIMESTAMP"
+        | SqlTypeClass.Map(key, value) -> $"MAP({display key}, {display value})"
         | SqlTypeClass.Other -> t.Display
+
+    /// The map type of these key and value types (keys never null).
+    let mapOf (key: LogicalType) (value: LogicalType) : LogicalType option =
+        match key, value with
+        | LogicalType.Arrow k, LogicalType.Arrow v -> Some(LogicalType.Arrow(MapType(Apache.Arrow.Field("key", k, false), Apache.Arrow.Field("value", v, true))))
+        | _ -> None
 
     /// The decimal holding every value of an integer type.
     let integerDecimal (bits: int) (signed: bool) =
@@ -150,6 +160,8 @@ module internal SqlTypes =
         | SqlTypeClass.Timestamp, SqlTypeClass.Date -> Some LogicalTypes.Datetime
         | SqlTypeClass.String, (SqlTypeClass.Date | SqlTypeClass.Timestamp) -> Some b
         | (SqlTypeClass.Date | SqlTypeClass.Timestamp), SqlTypeClass.String -> Some a
+        // Maps meet only maps of the same types (compared entry by entry, in entry order).
+        | SqlTypeClass.Map _, SqlTypeClass.Map _ -> if display a = display b then Some a else None
         | _ -> commonNumeric a b
 
     /// The result of `a op b` over two decimals (integers taken as decimals), as Spark types it.
@@ -169,8 +181,12 @@ module internal SqlTypes =
         | _ -> invalidOp $"No decimal rule for {op}"
 
     /// The type `CAST(x AS name(parameters))` names, or None for a name SQL does not know.
-    let ofTypeName (t: SqlTypeName) : LogicalType option =
+    let rec ofTypeName (t: SqlTypeName) : LogicalType option =
         match t.Name, t.Parameters with
+        | "MAP", [] ->
+            match t.Arguments |> List.map ofTypeName with
+            | [ Some key; Some value ] -> mapOf key value
+            | _ -> None
         | ("BOOLEAN" | "BOOL"), [] -> Some LogicalTypes.Boolean
         | "TINYINT", [] -> Some LogicalTypes.Int8
         | ("SMALLINT" | "INT2"), [] -> Some LogicalTypes.Int16

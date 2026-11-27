@@ -599,7 +599,18 @@ module internal SqlParser =
                 let op = if this.Advance().Text = "-" then SqlUnaryOp.Negate else SqlUnaryOp.Plus
                 let operand = this.Binary 8
                 this.Node(SqlExprKind.Unary(op, operand), start)
-            else this.Primary()
+            else this.Postfix()
+
+        /// A primary expression and its subscripts: `m['k']`, `m['k']['j']`.
+        member this.Postfix() : SqlExpr =
+            let start = this.Peek.Span.Start
+            let mutable e = this.Primary()
+            while this.IsSymbol "[" do
+                this.Advance() |> ignore
+                let key = this.Expression()
+                if not (this.AcceptSymbol "]") then this.Expected("']'", "to close the subscript")
+                e <- this.Node(SqlExprKind.Subscript(e, key), start)
+            e
 
         member this.Primary() : SqlExpr =
             let t = this.Peek
@@ -651,6 +662,19 @@ module internal SqlParser =
                 let unit = this.Advance().Text.ToUpperInvariant()
                 this.Node(SqlExprKind.Literal(SqlLiteral.Interval(value, unit)), start)
             | SqlTokenKind.Word when this.IsWord "CASE" -> this.Case()
+            // DuckDB's map literal: MAP {k: v, ...}.
+            | SqlTokenKind.Word when not dialect.IsSpark && this.IsWord "MAP" && this.IsSymbol("{", 1) ->
+                this.Advance() |> ignore
+                this.Advance() |> ignore
+                let entries =
+                    if this.IsSymbol "}" then []
+                    else
+                        this.CommaList(fun () ->
+                            let key = this.Expression()
+                            if not (this.AcceptSymbol ":") then this.Expected("':'", "between a map key and its value")
+                            key, this.Expression())
+                if not (this.AcceptSymbol "}") then this.Expected("'}'", "to close the map")
+                this.Node(SqlExprKind.MapLiteral entries, start)
             | SqlTokenKind.Word when (this.IsWord "CAST" || this.IsWord "TRY_CAST") && this.IsSymbol("(", 1) ->
                 let isTry = this.Advance().Text.Length > 4
                 let expr, typeName =
@@ -825,6 +849,14 @@ module internal SqlParser =
             let continuation = [ "PRECISION"; "VARYING"; "WITH"; "WITHOUT"; "TIME"; "ZONE" ]
             while continuation |> List.exists (fun w -> this.IsWord w) do
                 words.Add(this.Advance().Text.ToUpperInvariant())
+            // Type arguments: MAP(K, V) as DuckDB writes it, MAP<K, V> as Spark does.
+            if words.Count = 1 && words.[0] = "MAP" && (this.IsSymbol "(" || this.IsSymbol "<") then
+                let angled = this.Advance().Text = "<"
+                let arguments = this.CommaList(fun () -> this.TypeName())
+                let close = if angled then ">" else ")"
+                if not (this.AcceptSymbol close) then this.Expected($"'{close}'", "to close the map type")
+                { Name = "MAP"; Parameters = []; Arguments = arguments; Span = this.SpanFrom start }
+            else
             let parameters =
                 if this.IsSymbol "(" then
                     this.Parenthesized(fun () ->
@@ -836,7 +868,7 @@ module internal SqlParser =
                             | true, v -> v
                             | _ -> this.Fail($"The type parameter {t.Text} is too large", t.Span)))
                 else []
-            { Name = String.Join(" ", words); Parameters = parameters; Span = this.SpanFrom start }
+            { Name = String.Join(" ", words); Parameters = parameters; Arguments = []; Span = this.SpanFrom start }
 
         // ------------------------------------------------------------------------------------------------------
         // Statements

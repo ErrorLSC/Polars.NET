@@ -133,6 +133,20 @@ module internal SchemaInference =
                         | LogicalType.ListOf element -> element
                         | _ -> LogicalType.Unknown
                     | [] -> LogicalType.Unknown
+                // A map's value, keys and values take its declared types.
+                | ScalarFunction.MapGet
+                | ScalarFunction.MapKeys
+                | ScalarFunction.MapValues ->
+                    match args with
+                    | map :: _ ->
+                        match inferScalarType schema map with
+                        | LogicalType.Arrow(:? Apache.Arrow.Types.MapType as m) ->
+                            match fn with
+                            | ScalarFunction.MapGet -> LogicalType.Arrow m.ValueField.DataType
+                            | ScalarFunction.MapKeys -> LogicalType.ListOf(LogicalType.Arrow m.KeyField.DataType)
+                            | _ -> LogicalType.ListOf(LogicalType.Arrow m.ValueField.DataType)
+                        | _ -> LogicalType.Unknown
+                    | [] -> LogicalType.Unknown
                 | _ -> returnType
 
         | ScalarExpr.Aggregation(kind, innerOpt, _) ->

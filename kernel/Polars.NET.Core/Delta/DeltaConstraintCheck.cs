@@ -178,12 +178,14 @@ internal static class DeltaConstraintCheck
         DeltaStructType s when s.Fields.Select(f => ArrowTypeOf(f.Type)).ToArray() is var fields && fields.All(f => f is not null) =>
             new StructType([.. s.Fields.Select((f, i) => new Field(f.Name, fields[i]!, f.Nullable))]),
         DeltaArrayType a when ArrowTypeOf(a.ElementType) is { } element => new ListType(new Field("element", element, a.ContainsNull)),
-        DeltaMapType => null,
+        DeltaMapType m when ArrowTypeOf(m.KeyType) is { } key && ArrowTypeOf(m.ValueType) is { } value =>
+            new MapType(new Field("key", key, false), new Field("value", value, m.ValueContainsNull)),
         _ => null,
     };
 
     /// <summary>A value as Spark writes it in a violation: dates as days and timestamps as microseconds since the
-    /// epoch, floating values as Java does, <c>null</c> for null.</summary>
+    /// epoch, floating values as Java does, <c>null</c> for null; a map as Spark shows one, <c>{k -> v, ...}</c> (Spark's
+    /// own violation message names the map's Java object instead).</summary>
     internal static string SparkText(IArrowArray array, int i)
     {
         if (array.IsNull(i)) return "null";
@@ -201,6 +203,8 @@ internal static class DeltaConstraintCheck
             TimestampArray a => a.GetValue(i)!.Value.ToString(CultureInfo.InvariantCulture),
             StringViewArray a => a.GetString(i),
             StringArray a => a.GetString(i),
+            MapArray m => "{" + string.Join(", ", Enumerable.Range(m.ValueOffsets[i], m.ValueOffsets[i + 1] - m.ValueOffsets[i])
+                .Select(e => SparkText(m.Keys, e) + " -> " + SparkText(m.Values, e))) + "}",
             _ => array.Data.DataType.Name,
         };
     }

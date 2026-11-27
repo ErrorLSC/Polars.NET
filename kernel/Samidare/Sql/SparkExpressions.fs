@@ -74,8 +74,9 @@ module internal SparkExpressions =
         | _ -> false
 
     /// A type's name as Spark writes it, for messages.
-    let display (t: LogicalType) =
+    let rec display (t: LogicalType) =
         match classify t with
+        | SqlTypeClass.Map(key, value) -> $"MAP<{display key}, {display value}>"
         | SqlTypeClass.Null -> "VOID"
         | SqlTypeClass.Integer(32, true) -> "INT"
         | SqlTypeClass.Floating 32 -> "FLOAT"
@@ -481,8 +482,15 @@ module internal SparkExpressions =
     // ----------------------------------------------------------------------------------------------------------
 
     /// The type `CAST(x AS name)` names in Spark.
-    let private typeOf (cx: SparkContext) (t: SqlTypeName) : LogicalType =
+    let rec private typeOf (cx: SparkContext) (t: SqlTypeName) : LogicalType =
         match t.Name, t.Parameters with
+        | "MAP", [] ->
+            match t.Arguments |> List.map (typeOf cx) with
+            | [ key; value ] ->
+                match SqlTypes.mapOf key value with
+                | Some m -> m
+                | None -> fail cx t.Span "This map type is not supported" None
+            | _ -> fail cx t.Span "A map type takes a key and a value type: MAP<STRING, INT>" None
         | "BOOLEAN", [] -> LogicalTypes.Boolean
         | ("TINYINT" | "BYTE"), [] -> LogicalTypes.Int8
         | ("SMALLINT" | "SHORT"), [] -> LogicalTypes.Int16
@@ -498,7 +506,7 @@ module internal SparkExpressions =
         | ("TIMESTAMP" | "TIMESTAMP_LTZ"), [] -> LogicalTypes.DatetimeUtc
         | "TIMESTAMP_NTZ", [] -> LogicalTypes.Datetime
         | ("CHAR" | "VARCHAR"), _ -> fail cx t.Span $"CAST to {t.Name} is not supported" (Some "Cast to STRING.")
-        | _ -> fail cx t.Span $"Unknown or unsupported type {t.Name}" (Some "Types: BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, FLOAT, DOUBLE, DECIMAL(p,s), STRING, DATE, TIMESTAMP, TIMESTAMP_NTZ.")
+        | _ -> fail cx t.Span $"Unknown or unsupported type {t.Name}" (Some "Types: BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, FLOAT, DOUBLE, DECIMAL(p,s), STRING, DATE, TIMESTAMP, TIMESTAMP_NTZ, MAP<key, value>.")
 
     /// An instant's or a TIMESTAMP_NTZ's text as Spark writes it: `yyyy-MM-dd HH:mm:ss`, then the fraction of a second
     /// without its trailing zeros, if any.
@@ -529,6 +537,10 @@ module internal SparkExpressions =
         else
             match classify v.Type, classify target with
             | SqlTypeClass.Null, _ -> nullOf target
+            // A map casts to a map: its keys and values converted (Spark fails the write where one does not convert).
+            | SqlTypeClass.Map _, SqlTypeClass.Map _ -> value (ScalarExpr.Cast(v.Expr, target, true)) target
+            | SqlTypeClass.Map _, _
+            | _, SqlTypeClass.Map _ -> refuse ": a map casts only to a map"
             | SqlTypeClass.String, SqlTypeClass.String -> v
             | SqlTypeClass.String, _ ->
                 match stringLiteral v with
@@ -846,7 +858,7 @@ module internal SparkExpressions =
             value (bin (if op = SqlBinaryOp.And then BinaryOp.And else BinaryOp.Or) l.Expr r.Expr) LogicalTypes.Boolean
 
         | SqlExprKind.Binary((SqlBinaryOp.Eq | SqlBinaryOp.NotEq | SqlBinaryOp.Lt | SqlBinaryOp.LtEq | SqlBinaryOp.Gt | SqlBinaryOp.GtEq) as op, left, right) ->
-            let l, r, _ = meet cx span "compare" true (bind cx left) (bind cx right)
+            let l, r, _ = meet cx span "compare" true (unordered cx left.Span (bind cx left)) (unordered cx right.Span (bind cx right))
             let irOp =
                 match op with
                 | SqlBinaryOp.Eq -> BinaryOp.Eq
@@ -866,17 +878,17 @@ module internal SparkExpressions =
             value (ScalarExpr.Unary((if negated then UnaryOp.IsNotNull else UnaryOp.IsNull), v.Expr)) LogicalTypes.Boolean
 
         | SqlExprKind.IsDistinctFrom(left, right, negated) ->
-            let l, r, _ = meet cx span "compare" true (bind cx left) (bind cx right)
+            let l, r, _ = meet cx span "compare" true (unordered cx left.Span (bind cx left)) (unordered cx right.Span (bind cx right))
             value (bin (if negated then BinaryOp.EqMissing else BinaryOp.NotEqMissing) l.Expr r.Expr) LogicalTypes.Boolean
 
         | SqlExprKind.Between(operand, low, high, negated) ->
-            let values, _ = meetAll cx span "compare" true [ bind cx operand; bind cx low; bind cx high ]
+            let values, _ = meetAll cx span "compare" true ([ operand; low; high ] |> List.map (fun e -> unordered cx e.Span (bind cx e)))
             let x, lo, hi = values.[0], values.[1], values.[2]
             let between = bin BinaryOp.And (bin BinaryOp.GtEq x.Expr lo.Expr) (bin BinaryOp.LtEq x.Expr hi.Expr)
             value (if negated then ScalarExpr.Unary(UnaryOp.Not, between) else between) LogicalTypes.Boolean
 
         | SqlExprKind.InList(operand, items, negated) ->
-            let values, _ = meetAll cx span "compare" true (bind cx operand :: (items |> List.map (bind cx)))
+            let values, _ = meetAll cx span "compare" true ((operand :: items) |> List.map (fun e -> unordered cx e.Span (bind cx e)))
             let x, items = values.Head, values.Tail
             let isNullLiteral (v: SqlValue) = match v.Expr with ScalarExpr.Literal(LiteralValue.Null _) -> true | _ -> false
             let present = items |> List.filter (isNullLiteral >> not)
@@ -947,6 +959,14 @@ module internal SparkExpressions =
             | _ -> fail cx span $"EXTRACT({field} ...) is not supported" (Some "Fields: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND.")
 
         | SqlExprKind.Function call -> callFunction cx span call
+
+        | SqlExprKind.Subscript(target, key) ->
+            // Delta refuses a map's subscript in a generated column (element_at is allowed).
+            if cx.Use = SparkExpressionUse.Generated then
+                fail cx span "A subscript cannot be used in a generated column (Delta refuses it)" (Some "Write element_at(map, key).")
+            mapLookup cx span (bind cx target) key.Span (bind cx key)
+
+        | SqlExprKind.MapLiteral _ -> fail cx span "MAP {...} is not Spark SQL" (Some "Write map(key, value, ...).")
 
     and private column (cx: SparkContext) (span: SqlSpan) (name: SqlName) : SqlValue =
         let first = name.Head
@@ -1031,6 +1051,24 @@ module internal SparkExpressions =
         | SqlTypeClass.String, Some s -> timePart cx span name f (literalAs cx span s LogicalTypes.Datetime)
         | _ -> fail cx span $"{name}() takes a TIMESTAMP, not {display v.Type}" None
 
+    /// A value compared or ordered: Spark compares no maps (INVALID_ORDERING_TYPE).
+    and private unordered (cx: SparkContext) (span: SqlSpan) (v: SqlValue) : SqlValue =
+        match classify v.Type with
+        | SqlTypeClass.Map _ -> fail cx span $"{display v.Type} values cannot be compared (Spark compares no maps)" None
+        | _ -> v
+
+    /// The value of a key in a map, null where the map lacks it: `m[k]`, `element_at(m, k)`.
+    and private mapLookup (cx: SparkContext) (span: SqlSpan) (m: SqlValue) (keySpan: SqlSpan) (key: SqlValue) : SqlValue =
+        match classify m.Type with
+        | SqlTypeClass.Map(keyType, valueType) -> value (SqlMaps.get m.Expr (mapKey cx keySpan keyType key).Expr valueType) valueType
+        | SqlTypeClass.Null -> nullOf LogicalTypes.Null
+        | _ -> fail cx span $"A subscript or element_at() reads a map's value; {display m.Type} is no map" None
+
+    /// A key as a map's key type, or a refusal.
+    and private mapKey (cx: SparkContext) (span: SqlSpan) (keyType: LogicalType) (key: SqlValue) : SqlValue =
+        let t = common cx span "look up a map key of" true (nullOf keyType) key
+        coerce cx span key t |> fun k -> if t.Display = keyType.Display then k else coerce cx span k keyType
+
     and private callFunction (cx: SparkContext) (span: SqlSpan) (call: SqlFunctionCall) : SqlValue =
         let name =
             match call.Name with
@@ -1063,7 +1101,54 @@ module internal SparkExpressions =
             v
         let combine (what: string) (values: SqlValue list) = meetAll cx span what false values
         let str' (e: ScalarExpr) = value e LogicalTypes.String
+        let mapArg (i: int) =
+            match classify args.[i].Type with
+            | SqlTypeClass.Map(keyType, valueType) -> Some(args.[i].Expr, keyType, valueType)
+            | SqlTypeClass.Null -> None
+            | _ -> fail cx (argSpan i) $"{name}() takes a map, not {display args.[i].Type}" None
         match name with
+        | "map" ->
+            if args.IsEmpty || args.Length % 2 <> 0 then fail cx span "map() takes keys and values in pairs: map(k1, v1, k2, v2, ...)" None
+            let keys = args |> List.chunkBySize 2 |> List.map List.head
+            let values = args |> List.chunkBySize 2 |> List.map (fun pair -> pair.[1])
+            keys |> List.iteri (fun i k -> if SqlTypes.isNull k.Type then fail cx (argSpan (2 * i)) "A map key cannot be NULL (Spark: NULL_MAP_KEY)" None)
+            let keys, keyType = combine "combine map keys of" keys
+            let values, valueType = combine "combine map values of" values
+            match SqlMaps.repeatedLiteralKey (keys |> List.map (fun k -> k.Expr)) with
+            | Some repeated -> fail cx span $"The map repeats the key {SqlMaps.keyText repeated} (Spark: DUPLICATED_MAP_KEY)" None
+            | None -> ()
+            // Computed keys may be equal in some row, where Spark fails the write (DUPLICATED_MAP_KEY): not reproduced.
+            if keys.Length > 1 && keys |> List.exists (fun k -> match k.Expr with ScalarExpr.Literal _ -> false | _ -> true) then
+                fail cx span "map() with more than one entry takes literal keys: Spark fails the write where two computed keys are equal (DUPLICATED_MAP_KEY), which is not supported" None
+            match SqlTypes.mapOf keyType valueType with
+            | Some mapType -> value (SqlMaps.construct (List.zip (keys |> List.map (fun k -> k.Expr)) (values |> List.map (fun v -> v.Expr))) mapType) mapType
+            | None -> fail cx span $"A map of {display keyType} keys and {display valueType} values is not supported" None
+        | "element_at"
+        | "try_element_at" ->
+            arity [ 2 ]
+            mapLookup cx span args.[0] (argSpan 1) args.[1]
+        | "map_contains_key" ->
+            arity [ 2 ]
+            match mapArg 0 with
+            | Some(m, keyType, _) ->
+                let key = mapKey cx (argSpan 1) keyType args.[1]
+                value (fn ScalarFunction.MapContainsKey [ m; key.Expr ] LogicalTypes.Boolean) LogicalTypes.Boolean
+            | None -> nullOf LogicalTypes.Boolean
+        // size and cardinality of a NULL map are NULL (ANSI; the legacy -1 is not reproduced).
+        | "size"
+        | "cardinality" ->
+            arity [ 1 ]
+            match mapArg 0 with
+            | Some(m, _, _) -> value (cast (fn ScalarFunction.MapLen [ m ] LogicalTypes.UInt32) LogicalTypes.Int32) LogicalTypes.Int32
+            | None -> nullOf LogicalTypes.Int32
+        | "map_keys"
+        | "map_values" ->
+            arity [ 1 ]
+            match mapArg 0 with
+            | Some(m, keyType, valueType) ->
+                let t = LogicalType.ListOf(if name = "map_keys" then keyType else valueType)
+                value (fn (if name = "map_keys" then ScalarFunction.MapKeys else ScalarFunction.MapValues) [ m ] t) t
+            | None -> nullOf LogicalTypes.Null
         | "current_date"
         | "current_timestamp"
         | "now"

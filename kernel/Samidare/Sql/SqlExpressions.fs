@@ -78,7 +78,8 @@ module internal SqlExpressions =
     let private runningKinds =
         set [ AggKind.Len; AggKind.Count; AggKind.Sum; AggKind.SumOrNull; AggKind.Mean; AggKind.Min; AggKind.Max; AggKind.MinNanLargest; AggKind.MaxNanLargest ]
     let private scalarNames =
-        set [ "abs"; "round"; "upper"; "lower"; "substr"; "substring"; "left"; "right"; "concat"; "coalesce"; "nullif"; "length"; "char_length"; "isnan"; "grouping" ]
+        set [ "abs"; "round"; "upper"; "lower"; "substr"; "substring"; "left"; "right"; "concat"; "coalesce"; "nullif"; "length"; "char_length"; "isnan"; "grouping"
+              "map"; "element_at"; "map_contains_key"; "map_contains"; "cardinality"; "map_keys"; "map_values" ]
 
     let private functionName (call: SqlFunctionCall) =
         match call.Name with
@@ -114,7 +115,9 @@ module internal SqlExpressions =
         | SqlExprKind.InSubquery(a, _, _)
         | SqlExprKind.Quantified(a, _, _, _) -> [ a ]
         | SqlExprKind.Binary(_, a, b)
+        | SqlExprKind.Subscript(a, b)
         | SqlExprKind.IsDistinctFrom(a, b, _) -> [ a; b ]
+        | SqlExprKind.MapLiteral entries -> entries |> List.collect (fun (k, v) -> [ k; v ])
         | SqlExprKind.Between(a, b, c, _) -> [ a; b; c ]
         | SqlExprKind.InList(a, items, _) -> a :: items
         | SqlExprKind.Like(a, b, escape, _)
@@ -486,7 +489,7 @@ module internal SqlExpressions =
             let target =
                 match SqlTypes.ofTypeName typeName with
                 | Some t -> t
-                | None -> fail binder typeName.Span $"Unknown type {typeName.Name}" (Some "Types: BOOLEAN, SMALLINT, INTEGER, BIGINT, DECIMAL(p, s), REAL, DOUBLE, VARCHAR, DATE, TIMESTAMP.")
+                | None -> fail binder typeName.Span $"Unknown type {typeName.Name}" (Some "Types: BOOLEAN, SMALLINT, INTEGER, BIGINT, DECIMAL(p, s), REAL, DOUBLE, VARCHAR, DATE, TIMESTAMP, MAP(key, value).")
             let v = bind binder operand
             // A conversion that cannot fail is a strict Cast; one that may is checked (CheckedNarrow, CheckedRescale,
             // CheckedCast: it fails only on rows the expression reaches), or null where TRY_CAST does not convert.
@@ -503,6 +506,11 @@ module internal SqlExpressions =
                 value (lit (parseTemporal binder operand.Span text target)) target
             | _ when v.Type.Display = target.Display -> v
             | _, SqlTypeClass.Null, _ -> exact
+            // A map casts to a map (keys and values converted; TRY_CAST: null where a value does not convert).
+            | _, SqlTypeClass.Map _, SqlTypeClass.Map _ -> if isTry then lenient v.Expr else exact
+            | _, SqlTypeClass.Map _, _
+            | _, _, SqlTypeClass.Map _ ->
+                fail binder span $"Cannot cast {SqlTypes.display v.Type} to {SqlTypes.display target}: a map casts only to a map" None
             // SQL rounds to the nearest integer, halves away from zero (the IR's cast truncates); beyond the type fails.
             | _, SqlTypeClass.Floating _, SqlTypeClass.Integer _ ->
                 narrowed (ScalarExpr.Function(ScalarFunction.Round RoundMode.HalfAwayFromZero, [ v.Expr; lit (LiteralValue.Int32 0) ], v.Type))
@@ -545,6 +553,11 @@ module internal SqlExpressions =
             | _ -> fail binder operand.Span $"EXTRACT needs a date or a timestamp, not {SqlTypes.display v.Type}" None
 
         | SqlExprKind.Function call -> bindCall binder span call
+        | SqlExprKind.Subscript(target, key) -> mapLookup binder span (bind binder target) key.Span (bind binder key)
+        | SqlExprKind.MapLiteral [] ->
+            fail binder span "MAP {} has no key and value types" (Some "Give the map entries (MAP {'k': 1}), or read empty maps from a table.")
+        | SqlExprKind.MapLiteral entries ->
+            mapValue binder span (entries |> List.map (fun (k, v) -> (k.Span, bind binder k), (v.Span, bind binder v)))
 
     and private bindColumn (binder: SqlBinder) (span: SqlSpan) (name: SqlName) : SqlValue =
         let shown = name |> List.map (fun p -> p.Text) |> String.concat "."
@@ -1248,6 +1261,33 @@ module internal SqlExpressions =
             value result over.Type
         else fail binder span $"{name}() is not a window function" None
 
+    /// The value of a key in a map (null where the map lacks it): `m[k]`, `element_at(m, k)`.
+    and private mapLookup (binder: SqlBinder) (span: SqlSpan) (m: SqlValue) (keySpan: SqlSpan) (key: SqlValue) : SqlValue =
+        match SqlTypes.classify m.Type with
+        | SqlTypeClass.Map(keyType, valueType) -> value (SqlMaps.get m.Expr (mapKey binder keySpan keyType key).Expr valueType) valueType
+        | SqlTypeClass.Null -> nullOf LogicalTypes.Null
+        | _ -> fail binder span $"A subscript or element_at() reads a map's value; {SqlTypes.display m.Type} is no map" None
+
+    /// A key converted to a map's key type, or a refusal.
+    and private mapKey (binder: SqlBinder) (span: SqlSpan) (keyType: LogicalType) (key: SqlValue) : SqlValue =
+        match SqlTypes.common keyType key.Type with
+        | Some _ -> convert binder span key keyType
+        | None -> fail binder span $"The map's keys are {SqlTypes.display keyType}, not {SqlTypes.display key.Type}" None
+
+    /// A map of the entries (`MAP {k: v}`, `map(k, v, ...)`): keys of one type and values of one type, no NULL key, no
+    /// literal key twice.
+    and private mapValue (binder: SqlBinder) (span: SqlSpan) (entries: ((SqlSpan * SqlValue) * (SqlSpan * SqlValue)) list) : SqlValue =
+        let keys, values = List.unzip entries
+        keys |> List.iter (fun (keySpan, k) -> if SqlTypes.isNull k.Type then fail binder keySpan "A map key cannot be NULL" None)
+        let keyValues, keyType = unifyAll binder (List.map fst keys) "combine map keys of" (List.map snd keys)
+        let valueValues, valueType = unifyAll binder (List.map fst values) "combine map values of" (List.map snd values)
+        match SqlMaps.repeatedLiteralKey (keyValues |> List.map (fun k -> k.Expr)) with
+        | Some repeated -> fail binder span $"The map repeats the key {SqlMaps.keyText repeated}" (Some "Each key may appear once.")
+        | None -> ()
+        match SqlTypes.mapOf keyType valueType with
+        | Some mapType -> value (SqlMaps.construct (List.zip (keyValues |> List.map (fun k -> k.Expr)) (valueValues |> List.map (fun v -> v.Expr))) mapType) mapType
+        | None -> fail binder span $"A map of {SqlTypes.display keyType} keys and {SqlTypes.display valueType} values is not supported" None
+
     and private scalarFunction (binder: SqlBinder) (span: SqlSpan) (name: string) (call: SqlFunctionCall) : SqlValue =
         if call.Distinct then fail binder span $"DISTINCT is for aggregates, not {name}()" None
         if call.Star then fail binder span $"{name}(*) is not a function call; only count(*) is" None
@@ -1323,6 +1363,33 @@ module internal SqlExpressions =
             arity [ 2 ]
             let a, b, t = unify binder span "compare" args.[0] args.[1]
             value (ScalarExpr.Conditional(ScalarExpr.Binary(BinaryOp.Eq, a.Expr, b.Expr), lit (LiteralValue.Null t), a.Expr)) t
+        | "map" ->
+            if args.IsEmpty || args.Length % 2 <> 0 then fail binder span "map() takes keys and values in pairs: map(k1, v1, k2, v2, ...)" None
+            let spanned = List.zip (call.Arguments |> List.map (fun a -> a.Span)) args
+            mapValue binder span (spanned |> List.chunkBySize 2 |> List.map (fun pair -> pair.[0], pair.[1]))
+        | "element_at" ->
+            arity [ 2 ]
+            mapLookup binder span args.[0] call.Arguments.[1].Span args.[1]
+        | "map_contains_key"
+        | "map_contains"
+        | "cardinality"
+        | "map_keys"
+        | "map_values" ->
+            let name = if name = "map_contains" then "map_contains_key" else name // DuckDB's name
+            arity (if name = "map_contains_key" then [ 2 ] else [ 1 ])
+            match SqlTypes.classify args.[0].Type with
+            | SqlTypeClass.Map(keyType, valueType) ->
+                let m = args.[0].Expr
+                match name with
+                | "map_contains_key" ->
+                    let key = mapKey binder call.Arguments.[1].Span keyType args.[1]
+                    value (ScalarExpr.Function(ScalarFunction.MapContainsKey, [ m; key.Expr ], LogicalTypes.Boolean)) LogicalTypes.Boolean
+                | "cardinality" ->
+                    value (ScalarExpr.Cast(ScalarExpr.Function(ScalarFunction.MapLen, [ m ], LogicalTypes.UInt32), LogicalTypes.Int64, false)) LogicalTypes.Int64
+                | "map_keys" -> value (ScalarExpr.Function(ScalarFunction.MapKeys, [ m ], LogicalType.ListOf keyType)) (LogicalType.ListOf keyType)
+                | _ -> value (ScalarExpr.Function(ScalarFunction.MapValues, [ m ], LogicalType.ListOf valueType)) (LogicalType.ListOf valueType)
+            | SqlTypeClass.Null -> nullOf (if name = "map_contains_key" then LogicalTypes.Boolean elif name = "cardinality" then LogicalTypes.Int64 else LogicalTypes.Null)
+            | _ -> fail binder call.Arguments.[0].Span $"{name}() takes a map, not {SqlTypes.display args.[0].Type}" None
         | "grouping" ->
             match binder.Aggregates with
             | SqlAggregates.Grouped grouping ->

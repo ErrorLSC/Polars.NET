@@ -160,7 +160,14 @@ The flag is always explicit. A backend never chooses it.
 
 - a member or method called on a null string;
 - an index out of range (`ListGet`, `SeriesGet`);
+- a key a map lacks (`MapGet`), and every map function of a null map (`MapGet`, `MapContainsKey`, `MapLen`, `MapKeys`,
+  `MapValues`);
 - a failed parse (`StrToDate`, `StrToInteger`).
+
+**Maps.** A map value holds entries in order; a key is never null and a null key is never found. `MapGet` finds a
+key's first entry (data from Arrow may hold a key twice); `MapOf` builds a map of its `[key; value; ...]` arguments,
+a key repeated keeping its first position and its last value. Maps compare, sort, group and join entry by entry, in
+entry order: `{a: 1, b: 2}` and `{b: 2, a: 1}` are two values.
 
 Strict materialization then reports a null that reaches a non-nullable member.
 

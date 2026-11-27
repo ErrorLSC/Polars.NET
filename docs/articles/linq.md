@@ -714,6 +714,8 @@ Polars does not raise per-row exceptions, so a few operations that throw in .NET
 does):
 
 * indexing past the end of a list or array, `Substring` beyond the string's length;
+* a key a dictionary lacks (`d[k]` on a map column; `GetValueOrDefault` gives the default as in .NET), and any member
+  of a null dictionary (`ContainsKey`, `Count`, `Keys`, ...);
 * a member or method called on a null value (`x.Name.Length` with `Name` null);
 * a failed `Parse` (`int.Parse`, `DateTime.Parse`, `Enum.Parse` of text that is neither a member's name nor a number;
   a comma-separated list of names is not combined);

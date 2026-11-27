@@ -395,7 +395,7 @@ The normative source is `kernel/Samidare/IR/SEMANTICS.md`, published as [LINQ Se
 - **Decimals** have fixed scale: division keeps 18 fractional digits, and `ToString()` shows the column's scale.
 - **Strings sort ordinally**, by code point, not by culture. An operator overload that takes a comparer is not translated: it follows the client evaluation policy.
 - **Concat, Format and Join read null as `""`.**
-- **Where .NET would throw, the query gives null** (index out of range, failed parse, member on null, as in EF Core). A null that reaches a non-nullable result member throws `InvalidOperationException` naming the member and column. Declare the member nullable (`int?`, or `option` in F#) to accept it.
+- **Where .NET would throw, the query gives null** (index out of range, failed parse, member on null, a key a dictionary (map column) lacks in `d[k]`, as in EF Core). Dictionary members of map columns run in the engine: `d[k]`, `GetValueOrDefault`, `ContainsKey`, `Count`, `Keys`, `Values` (F# `m.[k]`, `TryFind`); `TryGetValue` cannot appear in an expression tree. A null that reaches a non-nullable result member throws `InvalidOperationException` naming the member and column. Declare the member nullable (`int?`, or `option` in F#) to accept it.
 - **`First`, `Single`, `ElementAt` over a subquery** raise the same exceptions as LINQ.
 - **Order**: `Sort` is stable unless `AllowUnstableOrdering` is set. `Filter`, `Project`, `Union` keep order. Inner and left joins keep left order, and cross joins have none.
 - **Outer joins**: an unmatched class side is `null`, and an unmatched struct side is `default(T)`.

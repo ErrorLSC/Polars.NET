@@ -429,6 +429,19 @@ type ScalarFunction =
     | StructFieldByName
     | AsStruct
     | ListGet
+    /// The value of a key in a map: null when the map lacks it (or is null); a key repeated: its first entry.
+    | MapGet
+    /// Whether a map holds a key (null for a null map; a null key is never held).
+    | MapContainsKey
+    /// The number of entries of a map (UInt32).
+    | MapLen
+    /// The keys of a map as a list, in entry order.
+    | MapKeys
+    /// The values of a map as a list, in entry order.
+    | MapValues
+    /// A map of the entries given as arguments (key, value, key, value, ...): a key repeated keeps its first position
+    /// and its last value; a null key fails.
+    | MapOf
     /// Whether a list holds an item; `nullsEqual` decides whether a null item matches a null element.
     | ListContains of nullsEqual: bool
     | ListLen
@@ -651,6 +664,12 @@ type ScalarFunction =
         | ScalarFunction.StructFieldByName -> "struct_field_by_name"
         | ScalarFunction.AsStruct -> "as_struct"
         | ScalarFunction.ListGet -> "list_get"
+        | ScalarFunction.MapGet -> "map_get"
+        | ScalarFunction.MapContainsKey -> "map_contains_key"
+        | ScalarFunction.MapLen -> "map_len"
+        | ScalarFunction.MapKeys -> "map_keys"
+        | ScalarFunction.MapValues -> "map_values"
+        | ScalarFunction.MapOf -> "map_of"
         | ScalarFunction.ListContains _ -> "list_contains"
         | ScalarFunction.ListLen -> "list_len"
         | ScalarFunction.IsIn _ -> "is_in"
@@ -807,6 +826,12 @@ type ScalarFunction =
         | "struct_field_by_name" -> ScalarFunction.StructFieldByName
         | "as_struct" -> ScalarFunction.AsStruct
         | "list_get" -> ScalarFunction.ListGet
+        | "map_get" -> ScalarFunction.MapGet
+        | "map_contains_key" -> ScalarFunction.MapContainsKey
+        | "map_len" -> ScalarFunction.MapLen
+        | "map_keys" -> ScalarFunction.MapKeys
+        | "map_values" -> ScalarFunction.MapValues
+        | "map_of" -> ScalarFunction.MapOf
         | "list_contains" -> ScalarFunction.ListContains true
         | "list_len" -> ScalarFunction.ListLen
         | "is_in" -> ScalarFunction.IsIn false

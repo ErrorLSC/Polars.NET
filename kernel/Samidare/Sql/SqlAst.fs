@@ -2,6 +2,13 @@ namespace Kaminari.Samidare.Sql
 
 /// The SQL a text is read as. `Standard` is ISO SQL with the documented extensions; `SparkExpression` reads the
 /// scalar expressions Delta stores in its log (CHECK constraints, generated columns, defaults) as Spark writes them.
+///
+/// The extensions of `Standard`: LIMIT; derived tables without an alias; a date plus or minus a number of days; maps:
+/// `m[k]` (null where the map lacks the key), `MAP {k: v, ...}` and `map(k, v, ...)` (a literal key once; computed
+/// keys equal in a row keep the first position and the last value), `CAST(x AS MAP(K, V))` / `MAP<K, V>` (a map to a
+/// map), `element_at(m, k)` (the value, as Spark and Trino give it; DuckDB gives a list of it), `map_contains_key`
+/// (DuckDB's `map_contains`), `cardinality` (BIGINT), `map_keys` and `map_values` (lists, selected as they are); maps
+/// compare, sort, group and join entry by entry, in entry order (as DuckDB).
 [<RequireQualifiedAccess>]
 type internal SqlDialect =
     | Standard
@@ -43,8 +50,9 @@ type internal SqlLiteral =
     /// `INTERVAL '5' DAY`: the quoted value and the unit (upper case).
     | Interval of value: string * unit: string
 
-/// A type as written in CAST: its words upper case (`DOUBLE PRECISION`) and its parameters (`DECIMAL(7, 2)`).
-type internal SqlTypeName = { Name: string; Parameters: int list; Span: SqlSpan }
+/// A type as written in CAST: its words upper case (`DOUBLE PRECISION`), its parameters (`DECIMAL(7, 2)`) and its type
+/// arguments (`MAP(VARCHAR, BIGINT)`, `MAP<STRING, BIGINT>`).
+type internal SqlTypeName = { Name: string; Parameters: int list; Arguments: SqlTypeName list; Span: SqlSpan }
 
 [<RequireQualifiedAccess>]
 type internal SqlUnaryOp =
@@ -124,6 +132,10 @@ and [<RequireQualifiedAccess>] internal SqlExprKind =
     /// `EXTRACT(field FROM x)`, the field upper case.
     | Extract of field: string * SqlExpr
     | Function of SqlFunctionCall
+    /// `x[key]`: a map's value of a key.
+    | Subscript of SqlExpr * key: SqlExpr
+    /// `MAP {k: v, ...}`: a map of the entries, in order (DuckDB's literal; not in SparkExpression).
+    | MapLiteral of entries: (SqlExpr * SqlExpr) list
 
 /// A function call: `f(a, b)`, `count(DISTINCT x)`, `count(*)`, with OVER for a window function.
 and internal SqlFunctionCall =

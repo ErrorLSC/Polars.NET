@@ -41,6 +41,7 @@
     <Compile Include="Sql/SqlFormat.fs" />
     <Compile Include="Sql/SqlTypes.fs" />
     <Compile Include="Sql/SqlScope.fs" />
+    <Compile Include="Sql/SqlMaps.fs" />
     <Compile Include="Sql/SqlExpressions.fs" />
     <Compile Include="Sql/SparkExpressions.fs" />
     <Compile Include="Sql/SqlQueries.fs" />
@@ -59,6 +60,7 @@
     <Compile Include="Translators/RegexTranslator.fs" />
     <Compile Include="Translators/WindowAndMethodTranslator.fs" />
     <Compile Include="Translators/ListTranslator.fs" />
+    <Compile Include="Translators/MapTranslator.fs" />
     <Compile Include="Translators/JsonTranslator.fs" />
     <Compile Include="Translators/OperatorAndUdfTranslator.fs" />
     <Compile Include="Translators/SubqueryTranslator.fs" />

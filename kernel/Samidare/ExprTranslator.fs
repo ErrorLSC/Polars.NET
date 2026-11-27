@@ -36,6 +36,9 @@ module internal ExprTranslator =
                     Some(ScalarExpr.Function(ScalarFunction.StructFieldByIndex, [ splitS; ScalarExpr.Literal(LiteralValue.Int32 idx) ], LogicalTypes.String))
                 | _ -> None
 
+            // 0. Dictionary members on a map column (before the indexer of a list)
+            | MapInvocation invocation -> MapTranslator.translateMapInvocation eval ctx invocation
+
             // 1. Row-level List / Array operations
             | ArrayIndexOp(target, indexExpr) ->
                 match eval ctx target, eval ctx indexExpr with

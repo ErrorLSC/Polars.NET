@@ -174,6 +174,8 @@ module internal SqlQueries =
             | SqlExprKind.Case(o, whens, otherwise) -> SqlExprKind.Case(Option.map s o, whens |> List.map (fun (w, v) -> s w, s v), Option.map s otherwise)
             | SqlExprKind.Cast(a, t, isTry) -> SqlExprKind.Cast(s a, t, isTry)
             | SqlExprKind.Extract(field, a) -> SqlExprKind.Extract(field, s a)
+            | SqlExprKind.Subscript(a, k) -> SqlExprKind.Subscript(s a, s k)
+            | SqlExprKind.MapLiteral entries -> SqlExprKind.MapLiteral(entries |> List.map (fun (k, v) -> s k, s v))
             | SqlExprKind.Function call ->
                 SqlExprKind.Function
                     { call with

@@ -196,6 +196,11 @@ IDataView predictions = model.Transform(dataView);
 using DataFrame resultDf = predictions.ToDataFrame();
 ```
 
+Map columns (`map[key, value]`): a map of numbers is one fixed-size sparse vector over the column's sorted keys (slot
+names = keys; pass the training keys with `df.AsDataView(mapKeys)` when predicting); a map of text or booleans is
+`{name}.Keys` and `{name}.Values` (variable-length vectors); other maps are refused (convert them first, e.g.
+`Col("m").MapOps.Get("k")`).
+
 ---
 
 ## 7. AI & Deep Learning: Tensors (`System.Numerics.Tensors`)

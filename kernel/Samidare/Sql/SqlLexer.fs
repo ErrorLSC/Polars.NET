@@ -42,7 +42,7 @@ module internal SqlLexer =
     let private isWordStart (c: char) = Char.IsLetter c || c = '_'
     let private isWordPart (c: char) = Char.IsLetterOrDigit c || c = '_' || c = '$'
 
-    let private singles = "(),.;*+-/%=<>"
+    let private singles = "(),.;*+-/%=<>[]{}:"
     let private commentMarks = SearchValues.Create("*/")
 
     /// The two-character operator at `i`, or null.
@@ -228,13 +228,13 @@ module internal SqlLexer =
                 add kind (text.Substring(start, i - start)) start i
             else
                 match pairAt dialect text i with
+                | null when dialect.IsSpark && c = ':' && i + 1 < text.Length && text.[i + 1] = ':' ->
+                    fail "The :: cast is not supported" i 2 (Some "Write CAST(value AS type).")
                 | null when singles.Contains c || (c = '!' && dialect.IsSpark) ->
                     add SqlTokenKind.Symbol (string c) i (i + 1)
                     i <- i + 1
                 | null when dialect.IsSpark && (c = '&' || c = '|' || c = '^' || c = '~') ->
                     fail $"Bitwise operators are not supported: '{c}'" i 1 None
-                | null when dialect.IsSpark && c = ':' && i + 1 < text.Length && text.[i + 1] = ':' ->
-                    fail "The :: cast is not supported" i 2 (Some "Write CAST(value AS type).")
                 | null ->
                     let hint = if c = '`' then Some "Quote names with double quotes: \"name\"." else None
                     fail $"Unexpected character '{c}'" i 1 hint

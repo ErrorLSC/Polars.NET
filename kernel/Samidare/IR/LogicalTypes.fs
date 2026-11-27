@@ -129,14 +129,13 @@ module LogicalTypes =
             None
 
     /// Maps a CLR type to its IR logical type, using the same Arrow mapping as DataFrame ingestion.
-    /// Returns None for types without a logical counterpart: dictionaries / maps, and types (or nested
-    /// element / member types) without an Arrow representation, such as object, enums or member-less classes.
+    /// Returns None for types without a logical counterpart: types (or nested element / member types) without an
+    /// Arrow representation, such as object, enums or member-less classes. Dictionaries are maps.
     let tryOfClrType (t: Type) : LogicalType option =
         if isNull t then
             None
         else
             match ArrowTypeResolver.TryGetArrowTypeFromNetType t with
-            | null
-            | :? MapType -> None
+            | null -> None
             | arrowType -> Some(LogicalType.Arrow arrowType)
 

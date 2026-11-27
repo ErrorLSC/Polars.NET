@@ -15,6 +15,7 @@
     <Compile Include="Harness.fs" />
     <Compile Include="NullLogicConformance.fs" />
     <Compile Include="StringAndMembershipConformance.fs" />
+    <Compile Include="MapConformance.fs" />
     <Compile Include="AggregationConformance.fs" />
     <Compile Include="OrderingAndJoinConformance.fs" />
     <Compile Include="FrameAndAssertionConformance.fs" />

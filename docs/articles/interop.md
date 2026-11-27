@@ -441,6 +441,34 @@ IDataView predictions = model.Transform(dataView);
 using DataFrame resultDf = predictions.ToDataFrame();
 ```
 
+### Map columns
+
+A map column (`map[key, value]`, from .NET dictionaries) becomes vectors a pipeline can take:
+
+* **A map of numbers** is one fixed-size, sparse vector: one slot per key of the column (all the frame's keys, sorted;
+  the slot names are the keys), a key a row lacks is 0, a null value is NaN for floating values (0 for integers), a
+  null map is all zero. The slots must match between training and prediction: give the training keys when
+  predicting, `df.AsDataView(mapKeys)`, reading them from the training view's `SlotNames`.
+* **A map of text or booleans** is two variable-length vectors, `{name}.Keys` and `{name}.Values`.
+* **Other maps** (dates, nested values) are refused. Many trainers need fixed-size vectors of numbers: convert such
+  maps in Polars first, for instance one column per key you need (`Col("m").MapOps.Get("k")`) or values cast to numbers.
+
+```csharp
+using var df = DataFrame.From<Row>([new(1, new() { ["math"] = 90, ["art"] = 70 }), new(2, new() { ["music"] = 80 })]);
+
+IDataView training = df.AsDataView();             // Marks: Vector<Double, 3>, slots art, math, music
+VBuffer<ReadOnlyMemory<char>> slots = default;
+training.Schema["Marks"].GetSlotNames(ref slots);
+
+using var newData = DataFrame.From<Row>([new(3, new() { ["math"] = 50, ["drama"] = 1 })]);
+IDataView predicting = newData.AsDataView(new Dictionary<string, IReadOnlyList<string>>
+{
+    ["Marks"] = [.. slots.DenseValues().Select(s => s.ToString())],   // the training slots; "drama" is left out
+});
+
+record Row(int Id, Dictionary<string, double> Marks);
+```
+
 ---
 
 ## 7. AI & Deep Learning: Tensors (`System.Numerics.Tensors`)

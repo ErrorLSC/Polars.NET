@@ -45,8 +45,9 @@ module internal SqlFormat =
         | SqlBinaryOp.IntegerDivide -> "DIV"
         | SqlBinaryOp.Concat -> "||"
 
-    let private typeName (t: SqlTypeName) =
-        if t.Parameters.IsEmpty then t.Name
+    let rec private typeName (t: SqlTypeName) =
+        if not t.Arguments.IsEmpty then t.Name + "(" + (t.Arguments |> List.map typeName |> String.concat ", ") + ")"
+        elif t.Parameters.IsEmpty then t.Name
         else t.Name + "(" + (t.Parameters |> List.map string |> String.concat ", ") + ")"
 
     let private join (separator: string) (items: string list) = String.Join(separator, items)
@@ -90,6 +91,9 @@ module internal SqlFormat =
             builder.Append(" END)").ToString()
         | SqlExprKind.Cast(operand, t, isTry) -> $"""{(if isTry then "TRY_CAST" else "CAST")}({expression operand} AS {typeName t})"""
         | SqlExprKind.Extract(field, operand) -> $"EXTRACT({field} FROM {expression operand})"
+        | SqlExprKind.Subscript(target, key) -> $"({expression target}[{expression key}])"
+        | SqlExprKind.MapLiteral entries ->
+            entries |> List.map (fun (k, v) -> $"{expression k}: {expression v}") |> String.concat ", " |> sprintf "MAP {%s}"
         | SqlExprKind.Function call ->
             let arguments =
                 if call.Star then "*"

@@ -21,6 +21,32 @@ The native library moves from Polars 0.55 to the Rust code of Python Polars 2.2.
 * `TopK` and `BottomK` give their values in no particular order, as Polars documents; sort the result to order it.
 * `Expr.Cast` and `Series.Cast` no longer turn text into `Date`, `Datetime` or `Time` (strict or not): the engine refuses it since Polars 2.0, with an error that names the fix. Parse the text with `Str.ToDate()`, `Str.ToDatetime()` or `Str.ToTime()`, which also take a format. LINQ queries and SQL `CAST` / `TRY_CAST` keep converting ISO 8601 text: a date, or a date and a time after `T` or a space (seconds optional); as a `DATE`, a date-time gives its date, as PostgreSQL and Spark do. `TRY_CAST` of a literal that is no date is NULL (it failed the query's translation).
 
+## Map type
+
+Polars 2.2's `map[key, value]` type in both APIs: a column of key-value entries, its keys never null.
+
+### New
+
+* `DataType.Map(key, value)`, `DataTypeKind.Map` (F#: `DataTypeKind.Map of DataType * DataType`, `pl.map`), `MapKeyType` and `MapValueType`; shown as `map[str, i64]`. Selectors `Cs.Map()` / `pl.cs.map()`.
+* The `MapOps` namespace on `Expr` and `Series` (C# and F#): `Entries()`, `Keys()`, `Values()`, `Len()`, `ContainsKey(key)`, `Get(key)` (null where the map lacks the key; a key given as text is a literal, not a column name), and `List.ToMap()` from a list of `{key, value}` structs. (`Map` itself names the released UDF methods.)
+* `Pl.Lit(IReadOnlyDictionary<K, V>)` and F# `pl.litMap`: one map value.
+* Map columns read back as `Dictionary<K, V>`, `IReadOnlyDictionary<K, V>`, `IDictionary<K, V>` and F# `Map` (`GetValue`, `ToArray`, `Rows<T>`, the indexer, `ToDicts`); a key repeated in a map keeps its first value, as a lookup finds it. Maps keyed by lists, structs or maps are refused as .NET dictionaries.
+* LINQ: dictionary members of map columns run in the engine (in `Where` too): `d[k]`, `GetValueOrDefault(k)` and `GetValueOrDefault(k, value)`, `ContainsKey`, `Count`, `Keys`, `Values`; F# `m.[k]`, `ContainsKey`, `Count`, `TryFind`. Where .NET throws on a missing key, the query reads null (as Polars, DuckDB and Spark do); a null dictionary gives null.
+* Delta: map columns are created, written, read and widened (a key or value widened in older files is read and cast); CHECK constraints and generated columns read maps with Spark's functions (`m[k]`, `element_at`, `try_element_at`, `map_contains_key`, `map_keys`, `map_values`, `size`, `cardinality`, `map(k, v, ...)` with literal keys when it has several entries), as Spark 4.2 and Delta 4.4 allow them; a violation shows a map as `{k -> v, ...}`. Unity Catalog columns of Map type are `MAP`.
+* ML.NET (`AsDataView`): a map of numbers is a fixed-size sparse vector over the column's keys (sorted, as slot names; or given, `AsDataView(mapKeys)`, so prediction data has the training slots); a map of text or booleans is two variable-length vectors, `{name}.Keys` and `{name}.Values`.
+* Formats: Parquet, IPC and Avro read and write maps; JSON writes maps keyed by text as objects (read back with a schema); CSV, Excel and tensors refuse them, naming the column.
+
+### Changed
+
+* .NET dictionaries are Map columns: `DataFrame.From` / `FromRows`, `Series.From`, `PolarsSchema.From<T>()` and `Pl.Lit` gave a list of `{Key, Value}` structs (`list[struct[Key, Value]]`). `DataType.FromArrowType` of an Arrow map is a Map (it was a list of `{key, value}` structs), and Arrow, Parquet and IPC maps from the engine come as Map.
+* `DataFrame.FromDicts`: a nested dictionary of object values (`Dictionary<string, object?>`) is a record, a struct of its keys, as Python Polars' `from_dicts` makes it (it was a map of the values' text); a typed dictionary (`Dictionary<string, long>`) is a Map; a column the schema (or `schemaOverrides`) makes a Map is built from the dictionaries' values in their own types. F# `DataFrame.ofMaps` alike.
+* LINQ: a projection reading a dictionary member ran in .NET and threw `KeyNotFoundException` on a missing key; it runs in the engine and reads null (a member that cannot hold null fails to materialize, saying so).
+
+### Fixed
+
+* `DataType.Struct(fields)` (C#) took over the fields' types: a field's `DataType` could not be used again. It copies them.
+* F#: a naive `Datetime` nested in a list, a struct or a map read back as a time zone named "" (`datetime[μs, ]`).
+
 ## LINQ provider: part of Polars.NET.Core
 
 The LINQ provider, written in F# as the separate package `Polars.NET.Linq`, is now C# inside `Polars.NET.Core`, which `Polars.CSharp` and `Polars.FSharp` already reference. Remove any `Polars.NET.Linq` package reference: the package is no longer published. The public API is unchanged (`AsQueryable` and the F# query support give the same `IQueryable<T>`), queries compile to the same plans and run as fast. The query compiler, `Kaminari.Samidare`, gains a public entry API for C# callers.
@@ -36,7 +62,7 @@ Avro now runs on Seseragi.Files, a managed implementation of the Avro 1.12 objec
 * `ReadAvro` and `ScanAvro` decode the file's blocks on several threads, keeping row order (`parallel`, default `true`; F#: `paralleling`). The five `ReadAvro` overloads get it as a new trailing optional parameter: recompile code built against an earlier version.
 * `AvroCompression.Zstandard`, for reading and writing.
 * `ReadAvro(Stream)` reads the stream block by block instead of copying it whole into memory first; `ReadAvro(byte[])` and `ReadAvro(ReadOnlySpan<byte>)` read the bytes in place.
-* More of Avro reads: unions as Apache Spark reads them (`[int, long]` as `Int64`, `[float, double]` as `Float64`, other unions as a struct of `member0`, `member1`, ...), maps (as a list of key/value structs), `null` columns, `timestamp-nanos` and `local-timestamp-*`, `duration` (as a struct of months, days and nanoseconds), files whose schema is not a record (one column named `value`), records with a recursive field when that field is not read, and the `zstandard` codec. Strings are checked to be valid UTF-8.
+* More of Avro reads: unions as Apache Spark reads them (`[int, long]` as `Int64`, `[float, double]` as `Float64`, other unions as a struct of `member0`, `member1`, ...), maps (as Map columns), `null` columns, `timestamp-nanos` and `local-timestamp-*`, `duration` (as a struct of months, days and nanoseconds), files whose schema is not a record (one column named `value`), records with a recursive field when that field is not read, and the `zstandard` codec. Strings are checked to be valid UTF-8.
 * More types write: integers of every width (`UInt64` above `Int64.MaxValue` is refused), `Float16`, `Time`, `Duration` (as Spark's day-time interval), `Datetime` with a time zone (as `timestamp-*`, the zone kept in the schema attribute `kaminari.timezone` and restored on reading; other readers see the UTC instant), `Categorical` / `Enum` (as their strings), `Array`. Values Avro cannot hold exactly are refused with an error instead of being changed.
 
 ### Changed

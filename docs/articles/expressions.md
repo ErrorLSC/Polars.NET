@@ -181,6 +181,7 @@ Polars organizes domain-specific operators into dedicated namespaces hanging off
 | **`.List`** | Dynamic variable-length lists | `Len`, `Get`, `Slice`, `Eval`, `Explode`, `Join`, `Contains`, `Unique`, `Sum`, `Mean` |
 | **`.Array`** | Fixed-size homogeneous arrays | `Width`, `Sum`, `Max`, `ToList`, `Get`, `Min` |
 | **`.Struct`** | Multi-field composite records | `Field`, `RenameFields`, `JsonEncode`, `Unnest` |
+| **`.MapOps`** | Key-value maps (`map[key, value]`) | `Get`, `ContainsKey`, `Len`, `Keys`, `Values`, `Entries` |
 | **`.Name`** | Dynamic column renaming | `Prefix`, `Suffix`, `ToLowercase`, `ToUppercase`, `Keep` |
 | **`.Meta`** | AST reflection & introspection | `FormatTree`, `OutputName`, `RootNames`, `Eq` |
 
@@ -214,6 +215,50 @@ df
 
     // 3. Batch column prefixing
     (pl.col("Score").Name.Prefix "Metric_")
+]
+```
+
+:::
+
+### Maps
+
+A `map[key, value]` column holds key-value entries per row; .NET dictionaries (and F# `Map`) become map columns and
+read back as dictionaries. `MapOps.Get` gives null where a row's map lacks the key; a map can hold a key only once from
+.NET, and where Arrow data holds one twice, lookups find its first entry. (The namespace is `MapOps` because `Map` names
+the UDF methods.)
+
+::: code-group
+
+```csharp [C#]
+using var df = DataFrame.From<Order>([
+    new(1, new() { ["apple"] = 3, ["pear"] = 1 }),
+    new(2, new() { ["kiwi"] = 5 }),
+]);
+
+df.Select(
+    Col("Id"),
+    Col("Items").MapOps.Get("apple").Alias("apples"),       // 3, null
+    Col("Items").MapOps.ContainsKey("kiwi").Alias("kiwi"),  // false, true
+    Col("Items").MapOps.Len().Alias("kinds")                // 2, 1
+).Show();
+
+record Order(int Id, Dictionary<string, int> Items);
+```
+
+```fsharp [F#]
+type Order = { Id: int; Items: Map<string, int> }
+
+let df =
+    DataFrame.ofRecords
+        [ { Id = 1; Items = Map [ "apple", 3; "pear", 1 ] }
+          { Id = 2; Items = Map [ ("kiwi", 5) ] } ]
+
+df
+|> DataFrame.select [
+    pl.col "Id"
+    (pl.col "Items").MapOps.Get("apple").Alias "apples"
+    (pl.col "Items").MapOps.ContainsKey("kiwi").Alias "kiwi"
+    (pl.col "Items").MapOps.Len().Alias "kinds"
 ]
 ```
 
