@@ -8,8 +8,8 @@ using Polars.NET.Core.Wrappers;
 namespace Polars.Integration.Tests;
 
 /// <summary>
-/// Tables with map columns, written by Spark and rewritten here: the engine holds a map as a list of key/value structs,
-/// the managed sink writes it back as a Parquet map, which Spark reads as the table's map.
+/// Tables with map columns, written by Spark and rewritten here: the engine reads them as maps, the managed sink writes
+/// them back as Parquet maps, which Spark reads as the table's maps.
 /// </summary>
 public class SparkMapColumnTests
 {
@@ -55,7 +55,7 @@ public class SparkMapColumnTests
             [
                 (() => DeltaKernelUpdate.Update(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(1)), [("id", PolarsWrapper.Lit(100))]), [2, 3, 4, 100]),
                 (() => DeltaKernelDelete.Delete(table, PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(2))), [3, 4, 100]),
-                // The source's maps come as the engine holds them (lists of key/value structs): taken as the table's maps.
+                // The source's maps come as the engine reads them: the table's maps.
                 (() => DeltaKernelMerge.Merge(table, DeltaKernelScan.Scan(table), ["id"], [new(MergeClauseKind.MatchedUpdate, PolarsWrapper.Lit(true))]), [3, 4, 100]),
                 (() => DeltaKernelOptimize.Optimize(table), [3, 4, 100]),
                 (() => DeltaKernelWrite.Write(table, PolarsWrapper.LazyFilter(DeltaKernelScan.Scan(table), PolarsWrapper.Eq(PolarsWrapper.Col("id"), PolarsWrapper.Lit(3))),
@@ -68,7 +68,7 @@ public class SparkMapColumnTests
                 version = Version(table);
                 Assert.Equal([.. ids.Select(Row)], Rows(table));
             }
-            // Read back here too: the maps as the engine holds them, every row's the same as Spark's first.
+            // Read back here too: the maps as the engine reads them, every row's the same as Spark's first.
             using Polars.NET.Core.DataFrameHandle read = PolarsWrapper.LazyCollect(DeltaKernelScan.Scan(table), Polars.NET.Core.Enums.PlEngine.Auto);
             Assert.Equal(4L, PolarsWrapper.DataFrameHeight(read));
         });

@@ -20,6 +20,12 @@ public interface IColumnSink<TColumn> where TColumn : class
 
     /// <summary>Builds a column of any supported element type.</summary>
     TColumn CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data);
+
+    /// <summary>
+    /// Builds a struct column of <paramref name="fields"/> (columns of one length, in order), null where
+    /// <paramref name="isNull"/> says so. The fields stay the caller's.
+    /// </summary>
+    TColumn CreateStruct(string name, (string Name, TColumn Column)[] fields, ReadOnlySpan<bool> isNull);
 }
 
 /// <summary>
@@ -307,13 +313,19 @@ public static class DictSchemaTransposer
     /// <param name="targetKeys">Optional fixed column keys to extract (e.g. from an explicit schema).</param>
     /// <param name="strict">Whether to throw on type mismatches or coerce to null.</param>
     /// <param name="inferSchemaLength">Maximum number of rows to sample for schema inference.</param>
+    /// <param name="mapColumns">
+    /// Columns of nested dictionaries (string keys, object values) to build as maps, their values' type inferred from
+    /// the values; elsewhere such dictionaries are records, a struct column of their keys (as JSON objects are).
+    /// Dictionaries of typed values are maps either way.
+    /// </param>
     /// <returns>An array of column names and corresponding columns.</returns>
     public static (string Name, TColumn Column)[] Transpose<TColumn>(
         IReadOnlyList<IDictionary<string, object?>> records,
         IColumnSink<TColumn> sink,
         IReadOnlyList<string>? targetKeys = null,
         bool strict = true,
-        int? inferSchemaLength = 100) where TColumn : class
+        int? inferSchemaLength = 100,
+        IReadOnlySet<string>? mapColumns = null) where TColumn : class
     {
         int recordCount = records.Count;
         if (recordCount == 0) return [];
@@ -389,13 +401,14 @@ public static class DictSchemaTransposer
         var orderedKeys = targetKeys ?? columnTypeMap.Keys.ToArray();
         int numCols = orderedKeys.Count;
 
-        var buffers = new IColumnBuffer[numCols];
-        var appenders = new Action<IColumnBuffer, object?, bool>[numCols];
+        var buffers = new IColumnBuffer?[numCols];
+        var appenders = new Action<IColumnBuffer, object?, bool>?[numCols];
 
         for (int i = 0; i < numCols; i++)
         {
             string key = orderedKeys[i];
             Type resolvedType = columnTypeMap.TryGetValue(key, out var t) && t != null ? t : typeof(string);
+            if (IsObjectRecord(resolvedType)) continue; // built from the rows' records below
             buffers[i] = ColumnBufferFactory.Create(resolvedType, recordCount);
             appenders[i] = DictBufferAppenderFactory.GetAppender(resolvedType);
         }
@@ -408,6 +421,7 @@ public static class DictSchemaTransposer
             var row = records[rowIdx];
             for (int colIdx = 0; colIdx < numCols; colIdx++)
             {
+                if (buffers[colIdx] is null) continue;
                 string colName = orderedKeys[colIdx];
 
                 // Explicitly guard against missing key leaving 'val' undefined
@@ -418,7 +432,7 @@ public static class DictSchemaTransposer
 
                 try
                 {
-                    appenders[colIdx](buffers[colIdx], val, strict);
+                    appenders[colIdx]!(buffers[colIdx]!, val, strict);
                 }
                 catch (Exception ex) when (strict && ex is not InvalidCastException)
                 {
@@ -433,9 +447,110 @@ public static class DictSchemaTransposer
         var results = new (string Name, TColumn Column)[numCols];
         for (int i = 0; i < numCols; i++)
         {
-            results[i] = (orderedKeys[i], buffers[i].ToColumn(orderedKeys[i], sink));
+            string name = orderedKeys[i];
+            results[i] = (name, buffers[i] is { } buffer
+                ? buffer.ToColumn(name, sink)
+                : mapColumns?.Contains(name) == true
+                    ? MapColumn(records, name, sink, strict, rowsToInfer)
+                    : StructColumn(records, name, sink, strict, inferSchemaLength));
         }
 
         return results;
+    }
+
+    /// <summary>Whether values of <paramref name="type"/> are records: dictionaries of string keys and object values.</summary>
+    private static bool IsObjectRecord(Type type) =>
+        type != typeof(string) && (type.IsGenericType ? [type, .. type.GetInterfaces()] : type.GetInterfaces()).Any(static i => i.IsGenericType
+            && (i.GetGenericTypeDefinition() == typeof(IDictionary<,>) || i.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>))
+            && i.GetGenericArguments() is [var key, var value] && key == typeof(string) && value == typeof(object));
+
+    private static object? Value(IDictionary<string, object?> row, string column) => row.TryGetValue(column, out object? value) ? value : null;
+
+    /// <summary>A record's entries (an IDictionary or an IReadOnlyDictionary of string keys and object values).</summary>
+    private static IDictionary<string, object?> Entries(object record) => record switch
+    {
+        IDictionary<string, object?> dictionary => dictionary,
+        IReadOnlyDictionary<string, object?> readOnly => readOnly.ToDictionary(StringComparer.Ordinal),
+        _ => throw new InvalidCastException($"A {record.GetType().Name} is no dictionary of string keys and object values."),
+    };
+
+    /// <summary>A column of records as a struct column: their keys transposed as its fields, recursively; null rows null.</summary>
+    private static TColumn StructColumn<TColumn>(IReadOnlyList<IDictionary<string, object?>> records, string name, IColumnSink<TColumn> sink,
+        bool strict, int? inferSchemaLength) where TColumn : class
+    {
+        var nested = new IDictionary<string, object?>[records.Count];
+        var isNull = new bool[records.Count];
+        IDictionary<string, object?> empty = new Dictionary<string, object?>(0);
+        for (int i = 0; i < nested.Length; i++)
+        {
+            object? value = Value(records[i], name);
+            isNull[i] = value is null;
+            nested[i] = value is null ? empty : Entries(value);
+        }
+        (string Name, TColumn Column)[] fields = Transpose(nested, sink, null, strict, inferSchemaLength);
+        try
+        {
+            return sink.CreateStruct(name, fields, isNull);
+        }
+        finally
+        {
+            foreach (var (_, column) in fields) (column as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A column of records as a map column: string keys, the values' type promoted over the values the inference rows
+    /// hold (text when there are none); a value of another type is converted (strict: or refused).
+    /// </summary>
+    private static TColumn MapColumn<TColumn>(IReadOnlyList<IDictionary<string, object?>> records, string name, IColumnSink<TColumn> sink,
+        bool strict, int rowsToInfer) where TColumn : class
+    {
+        Type? valueType = null;
+        for (int i = 0; i < rowsToInfer; i++)
+        {
+            if (Value(records[i], name) is not { } record) continue;
+            foreach (var (_, value) in Entries(record))
+                if (value is not null) valueType = valueType is null ? value.GetType() : ClrTypeHelper.PromoteType(valueType, value.GetType());
+        }
+        Type core = ClrTypeHelper.UnwrapCoreType(valueType ?? typeof(string));
+        if (IsObjectRecord(core))
+            throw new NotSupportedException(
+                $"The map column '{name}' holds dictionaries as values: build its rows from typed dictionaries (e.g. Dictionary<string, Dictionary<string, long>>), or leave the column a struct.");
+        Type stored = core.IsValueType ? typeof(Nullable<>).MakeGenericType(core) : core;
+        Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), stored);
+        Array maps = Array.CreateInstance(dictionaryType, records.Count);
+        for (int i = 0; i < records.Count; i++)
+        {
+            if (Value(records[i], name) is not { } record) continue;
+            var map = (System.Collections.IDictionary)Activator.CreateInstance(dictionaryType)!;
+            foreach (var (key, value) in Entries(record)) map.Add(key, Converted(value, core, strict, name));
+            maps.SetValue(map, i);
+        }
+        MethodInfo create = typeof(IColumnSink<TColumn>).GetMethod(nameof(IColumnSink<TColumn>.CreateGeneric))!.MakeGenericMethod(dictionaryType);
+        try
+        {
+            return (TColumn)create.Invoke(sink, [name, maps])!;
+        }
+        catch (TargetInvocationException e) when (e.InnerException is { } inner)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(inner);
+            throw;
+        }
+
+        static object? Converted(object? value, Type core, bool strict, string column)
+        {
+            if (value is null || value.GetType() == core) return value;
+            try
+            {
+                return core == typeof(string)
+                    ? value is IFormattable formattable ? formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture) : value.ToString()
+                    : Convert.ChangeType(value, core, System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch (Exception e) when (e is InvalidCastException or FormatException or OverflowException)
+            {
+                if (!strict) return null;
+                throw new InvalidCastException($"Strict mode error on map column '{column}': the value '{value}' is no {core.Name}.", e);
+            }
+        }
     }
 }

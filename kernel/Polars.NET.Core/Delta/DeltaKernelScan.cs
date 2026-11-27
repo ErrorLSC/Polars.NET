@@ -637,19 +637,12 @@ public static class DeltaKernelScan
                 using DataTypeHandle inner = PolarsWrapper.GetInnerType(file);
                 return OldType(a.ElementType, inner) is { } old ? new ArrayType(old, a.ContainsNull) : null;
             }
-            case MapType m when kind is PlDataType.List:
+            case MapType m when kind is PlDataType.Map:
             {
-                // A map is read as a list of key/value structs.
-                using DataTypeHandle entry = PolarsWrapper.GetInnerType(file);
-                if (PolarsWrapper.GetDataTypeKind(entry) != PlDataType.Struct || PolarsWrapper.GetStructLen(entry) != 2) return null;
-                PolarsWrapper.GetStructField(entry, 0, out _, out DataTypeHandle keyType);
-                PolarsWrapper.GetStructField(entry, 1, out _, out DataTypeHandle valueType);
-                using (keyType)
-                using (valueType)
-                {
-                    DeltaType? key = OldType(m.KeyType, keyType), value = OldType(m.ValueType, valueType);
-                    return key is null && value is null ? null : new MapType(key ?? m.KeyType, value ?? m.ValueType, m.ValueContainsNull);
-                }
+                using DataTypeHandle keyType = PolarsWrapper.GetMapKeyType(file);
+                using DataTypeHandle valueType = PolarsWrapper.GetMapValueType(file);
+                DeltaType? key = OldType(m.KeyType, keyType), value = OldType(m.ValueType, valueType);
+                return key is null && value is null ? null : new MapType(key ?? m.KeyType, value ?? m.ValueType, m.ValueContainsNull);
             }
             case StructType or ArrayType or MapType:
                 return null;
@@ -940,8 +933,7 @@ public static class DeltaKernelScan
                         // A file from before the column was widened: its values in the older type, cast up
                         // (a date becomes midnight of that day).
                         // Cast under the physical names (the file's), then renamed.
-                        using DataTypeHandle target = ToEngineType(field.Type, physicalNames: true);
-                        column = PolarsWrapper.ExprCast(column, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false);
+                        column = CastTo(column, field.Type, physicalNames: true);
                     }
                     exprs.Add(PolarsWrapper.Alias(ToLogical(column, field.Type), field.Name));
                     continue;
@@ -1085,10 +1077,11 @@ public static class DeltaKernelScan
 
             case MapType m:
             {
-                // A map is a list of key/value structs; the entry names are fixed, their contents may be renamed.
+                // Renamed through its entries (key / value structs; the entry names are fixed, their contents may be
+                // renamed), then a map again: the entries keep their order, null maps stay null.
                 ExprHandle key = PolarsWrapper.Alias(Renamed(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["key"]), m.KeyType, toPhysical), "key");
                 ExprHandle value = PolarsWrapper.Alias(Renamed(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["value"]), m.ValueType, toPhysical), "value");
-                return PolarsWrapper.ListEval(column, PolarsWrapper.AsStruct([key, value]));
+                return PolarsWrapper.ListToMap(PolarsWrapper.ListEval(PolarsWrapper.MapEntries(column), PolarsWrapper.AsStruct([key, value])));
             }
 
             default:
@@ -1143,7 +1136,30 @@ public static class DeltaKernelScan
         return handle;
     }
 
-    /// <summary>The engine type of a Delta type. Timestamps are microseconds; a map is a list of key/value structs.</summary>
+    /// <summary>
+    /// A column strictly cast to the engine type of a table type (an older file's values, or data written). The engine
+    /// casts a map's values but never its keys, so a type holding maps is cast through their entries (lists of key /
+    /// value structs), then made maps again.
+    /// </summary>
+    internal static ExprHandle CastTo(ExprHandle column, DeltaType type, bool physicalNames)
+    {
+        using DataTypeHandle target = ToEngineType(type, physicalNames);
+        if (HasMap(type))
+        {
+            using DataTypeHandle entries = ToEngineType(type, physicalNames, mapsAsEntries: true);
+            column = PolarsWrapper.ExprCast(column, PolarsWrapper.DataTypeExprFromDataType(entries), strict: true, wrapNumerical: false);
+        }
+        return PolarsWrapper.ExprCast(column, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false);
+
+        static bool HasMap(DeltaType t) => t switch
+        {
+            MapType => true,
+            ArrayType a => HasMap(a.ElementType),
+            StructType s => s.Fields.Any(f => HasMap(f.Type)),
+            _ => false,
+        };
+    }
+
     /// <summary>The engine type a table column is read as (logical field names).</summary>
     internal static DataTypeHandle EngineType(DeltaType type) => ToEngineType(type, physicalNames: false);
 
@@ -1164,7 +1180,11 @@ public static class DeltaKernelScan
         return PolarsWrapper.NewStructType(VariantFields, [value, metadata]);
     }
 
-    private static DataTypeHandle ToEngineType(DeltaType type, bool physicalNames, bool variantAsJson = false)
+    /// <summary>
+    /// The engine type of a Delta type (timestamps in microseconds); with <paramref name="mapsAsEntries"/>, maps as
+    /// their entries: lists of key / value structs.
+    /// </summary>
+    private static DataTypeHandle ToEngineType(DeltaType type, bool physicalNames, bool variantAsJson = false, bool mapsAsEntries = false)
     {
         switch (type)
         {
@@ -1192,15 +1212,16 @@ public static class DeltaKernelScan
 
             case ArrayType a:
             {
-                using DataTypeHandle element = ToEngineType(a.ElementType, physicalNames, variantAsJson);
+                using DataTypeHandle element = ToEngineType(a.ElementType, physicalNames, variantAsJson, mapsAsEntries);
                 return PolarsWrapper.NewListType(element);
             }
 
             case MapType m:
             {
-                using DataTypeHandle key = ToEngineType(m.KeyType, physicalNames, variantAsJson);
-                using DataTypeHandle value = ToEngineType(m.ValueType, physicalNames, variantAsJson);
-                using DataTypeHandle entry = PolarsWrapper.NewStructType(["key", "value"], [key, value]);
+                using DataTypeHandle key = ToEngineType(m.KeyType, physicalNames, variantAsJson, mapsAsEntries);
+                using DataTypeHandle value = ToEngineType(m.ValueType, physicalNames, variantAsJson, mapsAsEntries);
+                if (!mapsAsEntries) return PolarsWrapper.NewMapType(key, value);
+                using DataTypeHandle entry = PolarsWrapper.NewStructType(["key", "value"], [PolarsWrapper.CloneHandle(key), PolarsWrapper.CloneHandle(value)]);
                 return PolarsWrapper.NewListType(entry);
             }
 
@@ -1213,7 +1234,7 @@ public static class DeltaKernelScan
                     for (int i = 0; i < names.Length; i++)
                     {
                         names[i] = physicalNames ? s.Fields[i].PhysicalName : s.Fields[i].Name;
-                        types[i] = ToEngineType(s.Fields[i].Type, physicalNames, variantAsJson);
+                        types[i] = ToEngineType(s.Fields[i].Type, physicalNames, variantAsJson, mapsAsEntries);
                     }
                     return PolarsWrapper.NewStructType(names, types);
                 }

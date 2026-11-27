@@ -59,8 +59,10 @@ internal static class ArrowDataViewMapper
             DictionaryType => throw new NotSupportedException(
                 "Nested Categorical/Enum (Dictionary) values are not supported in ML.NET DataView mapping. Cast them to String in Polars first."),
 
+            // Top-level maps are laid out by PolarsDataView; reaching here means a map nested inside another type.
             MapType => throw new NotSupportedException(
-                "Dynamic Map types cannot be directly consumed by ML.NET pipelines. Please unnest, explode, or convert to Struct/List features using Polars before creating the IDataView."),
+                "A map nested in a list or struct has no ML.NET form. Make it a column of its own first (Struct.Field), "
+                + "or take what you need from it in Polars (MapOps.Get(key), MapOps.Values())."),
             Decimal128Type or Decimal256Type => throw new NotSupportedException(
                 "ML.NET trainers operate on float/double. Please cast your Decimal column to Float64 in Polars (e.g., df.Select(Col(\"Price\").Cast(DataType.Float64))) before exporting to IDataView."),
 

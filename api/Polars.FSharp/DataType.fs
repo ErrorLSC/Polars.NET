@@ -501,7 +501,12 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
 
         | PlDataType.Datetime ->
             let unit = PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
-            let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
+            // No time zone reads as an empty string: naive, not a zone named "".
+            let tz =
+                match PolarsWrapper.GetTimeZone handle with
+                | null
+                | "" -> None
+                | zone -> Some zone
             DataType.Datetime(unit, ?tz = tz)
 
         | PlDataType.Time -> DataType.Time

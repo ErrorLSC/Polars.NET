@@ -55,11 +55,7 @@ internal static class VariantColumns
             (PrimitiveType, StructArray variant) => Json(variant),
             (DeltaStructType s, StructArray structs) => Struct(structs, s),
             (DeltaArrayType a, LargeListArray list) => List(list, a.ElementType),
-            (DeltaMapType m, LargeListArray list) => List(list, new DeltaStructType(
-            [
-                new StructField { Name = "key", Type = m.KeyType },
-                new StructField { Name = "value", Type = m.ValueType },
-            ])),
+            (DeltaMapType m, MapArray map) => Map(map, m),
             _ => throw new PolarsException($"A variant column came back from the engine as {array.Data.DataType.Name}, not as a struct of binaries."),
         };
 
@@ -107,6 +103,24 @@ internal static class VariantColumns
             }
             var (validity, nulls) = Validity(structs);
             return new StructArray(new ArrowStructType(fields), structs.Length, children, validity, nulls);
+        }
+
+        // A map's entries converted as a struct of its key and value (all of them, as for a list), its offsets kept.
+        static MapArray Map(MapArray map, DeltaMapType type)
+        {
+            StructArray entries = Struct(map.KeyValues, new DeltaStructType(
+            [
+                new StructField { Name = "key", Type = type.KeyType },
+                new StructField { Name = "value", Type = type.ValueType },
+            ]));
+            var offsets = new ArrowBuffer.Builder<int>(map.Length + 1);
+            offsets.Append(map.ValueOffsets);
+            var (validity, nulls) = Validity(map);
+            var source = (Apache.Arrow.Types.MapType)map.Data.DataType;
+            var entryFields = ((ArrowStructType)entries.Data.DataType).Fields;
+            var mapType = new Apache.Arrow.Types.MapType(new Field(source.KeyField.Name, entryFields[0].DataType, false),
+                new Field(source.ValueField.Name, entryFields[1].DataType, true), source.KeySorted);
+            return new MapArray(mapType, map.Length, offsets.Build(PooledArrowAllocator.Instance), entries, validity, nulls);
         }
 
         // A list's offsets point into its whole values array (not sliced): all of it is converted, the offsets kept.

@@ -272,13 +272,16 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             var overrides = schemaOverrides?.Consume();
 
             IReadOnlyList<string>? targetKeys = actualSchema?.Keys.ToList();
+            // Nested dictionaries of object values are records (structs) unless the schema makes their column a map.
+            HashSet<string> mapColumns = [.. MapColumns(actualSchema), .. MapColumns(overrides)];
 
             // 1. Single-call ingestion into native DataFrameHandle via Core
             var handle = DataFrameBuilder.FromDicts(
                 data,
                 targetKeys,
                 strict,
-                (int?)inferSchemaLength
+                (int?)inferSchemaLength,
+                mapColumns.Count > 0 ? mapColumns : null
             );
 
             var df = new DataFrame(handle);
@@ -311,6 +314,9 @@ public partial class DataFrame : IDisposable, IEnumerable<Series>, IPolarsDataFr
             }
 
             return df;
+
+            static IEnumerable<string> MapColumns(IReadOnlyDictionary<string, DataType>? columns) =>
+                columns is null ? [] : columns.Where(static c => c.Value.Kind == DataTypeKind.Map).Select(static c => c.Key);
         }
         finally
         {

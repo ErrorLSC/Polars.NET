@@ -204,8 +204,8 @@ public class SparkVariantTests
                 Assert.Equal(spark[i].A0, a0[i]);
             }
             Assert.Equal("7", flat["a1"].ToArray<string?>()[0]);
-            // The map's values too: a list of key/value structs.
-            using DataFrame map = read.Select(Polars.CSharp.Polars.Col("m").List.Get(0).Struct.Field("value").Alias("mk"));
+            // The map's values too.
+            using DataFrame map = read.Select(Polars.CSharp.Polars.Col("m").MapOps.Get("k").Alias("mk"));
             Assert.Equal(spark.Select(r => r.Mk), map["mk"].ToArray<string?>());
         });
     }

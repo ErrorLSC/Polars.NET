@@ -15,7 +15,7 @@ namespace Polars.NET.ML.DataView;
 /// null bitmap are bound once per batch, so a getter call is a null-bit test plus a raw load. Each getter
 /// closure captures the concrete sealed accessor type, letting the JIT devirtualize and inline the read.
 /// </remarks>
-internal sealed class PolarsRowCursor : DataViewRowCursor
+internal sealed partial class PolarsRowCursor : DataViewRowCursor
 {
     private readonly IEnumerator<RecordBatch> _batchEnumerator;
 
@@ -30,6 +30,9 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     // Per schema column (null for inactive or unsupported columns); rebound on every batch switch.
     private readonly ColumnAccessor?[] _accessors;
     private readonly VectorColumn?[] _vectors;
+    // Per schema column: the part of its frame column it reads, and that column's position in the batches.
+    private readonly ViewColumn[] _views;
+    private readonly int[] _positions;
 
     // ==========================================
     // Metadata & State Properties
@@ -52,11 +55,15 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         DataViewSchema schema,
         IEnumerable<RecordBatch> batches,
         IEnumerable<DataViewSchema.Column>? columnsNeeded,
-        DictionaryKeyColumn?[]? keyColumns = null,
+        DictionaryKeyColumn?[]? keyColumns,
+        ViewColumn[] views,
+        int[] frameColumns,
         IDisposable? resourceToDispose = null,
         long baseRowOffset = 0)
     {
         Schema = schema;
+        _views = views;
+        _positions = [.. views.Select(v => System.Array.IndexOf(frameColumns, v.FrameColumn))];
         _batchEnumerator = batches.GetEnumerator();
         _resourceToDispose = resourceToDispose;
         _baseRowOffset = baseRowOffset;
@@ -89,7 +96,11 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         foreach (int idx in _neededOriginalIndices)
         {
             DataViewType type = schema[idx].Type;
-            if (type is VectorDataViewType vt)
+            if (views[idx] is { Vocabulary: { } vocabulary })
+                _vectors[idx] ??= VectorColumn.ForMap((VectorDataViewType)type, vocabulary);
+            else if (views[idx].Part is not ColumnPart.Whole)
+                _vectors[idx] ??= VectorColumn.ForMapPart(((VectorDataViewType)type).ItemType);
+            else if (type is VectorDataViewType vt)
                 _vectors[idx] ??= VectorColumn.Create(vt.ItemType.RawType);
             else if (type is KeyDataViewType && keyColumns?[idx] is { } keyColumn)
                 _accessors[idx] ??= new DictionaryKeyAccessor(keyColumn);
@@ -172,10 +183,9 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
                 continue;
             }
 
-            for (int i = 0; i < _neededOriginalIndices.Length; i++)
+            foreach (int originalIdx in _neededOriginalIndices)
             {
-                int originalIdx = _neededOriginalIndices[i];
-                IArrowArray array = _currentBatch.Column(i);
+                IArrowArray array = Part(_currentBatch.Column(_positions[originalIdx]), _views[originalIdx].Part);
                 _accessors[originalIdx]?.SetBatch(array);
                 _vectors[originalIdx]?.SetBatch(array);
             }
@@ -286,7 +296,7 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     // Vector / Tensor
     // ==========================================
 
-    private abstract class VectorColumn
+    private abstract partial class VectorColumn
     {
         public abstract void SetBatch(IArrowArray array);
         public abstract ValueGetter<TValue> CreateGetter<TValue>(PolarsRowCursor cursor);

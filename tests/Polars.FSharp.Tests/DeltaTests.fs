@@ -365,6 +365,43 @@ let ``Column changes: RenameColumn, DropColumns and ChangeColumnType keep the da
         if Directory.Exists path then Directory.Delete(path, true)
 
 [<Fact>]
+let ``Map columns are created, written, widened and read back`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"delta_map_{Guid.NewGuid()}")
+    try
+        let props = [ "delta.columnMapping.mode", "name"; "delta.enableTypeWidening", "true" ]
+        let day = DateOnly(2024, 3, 1)
+        Delta.CreateTable(
+            path,
+            new PolarsSchema([ "id", DataType.Int32; "m", DataType.Map(DataType.String, DataType.Date); "k", DataType.Map(DataType.Int32, DataType.String) ]),
+            properties = props)
+        DataFrame.create [| Series.create("id", [ 1; 2 ]); Series.create("m", [ Map [ "a", day ]; Map.empty ]); Series.create("k", [ Map [ 7, "seven" ]; Map.empty ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+        Assert.Equal(DataType.Map(DataType.String, DataType.Date), DataFrame.ReadDelta(path).["m"].DataType)
+
+        // The old file keeps map<string, date>; the table's values become timestamps without time zone, a widening
+        // the engine's scan does not do by itself: the old file is read in its own type, then cast.
+        let ntz = DataType.Datetime(TimeUnit.Microseconds)
+        Delta.SetTableProperties(path, [ "delta.feature.timestampNtz", "supported" ]) // as Spark: enabled by hand
+        Delta.ChangeColumnType(path, "m.value", ntz)
+        // A key widened too: the engine casts no map keys, the scan casts the old file's through its entries.
+        Delta.ChangeColumnType(path, "k.key", DataType.Int64)
+        let later = DateTime(2024, 3, 2, 10, 30, 0)
+        DataFrame.create [| Series.create("id", [ 3 ]); Series.create("m", [ Map [ "c", later ] ]); Series.create("k", [ Map [ 10000000000L, "big" ] ]) |]
+        |> fun df -> df.WriteDelta(path, mode = DeltaSaveMode.Append)
+
+        let read = DataFrame.ReadDelta(path).Sort("id")
+        Assert.Equal(DataType.Map(DataType.String, ntz), read.["m"].DataType)
+        Assert.Equal<Map<string, DateTime>[]>(
+            [| Map [ "a", day.ToDateTime(TimeOnly.MinValue) ]; Map.empty; Map [ "c", later ] |],
+            read.["m"].ToArray<Map<string, DateTime>>())
+        Assert.Equal(DataType.Map(DataType.Int64, DataType.String), read.["k"].DataType)
+        Assert.Equal<Map<int64, string>[]>(
+            [| Map [ 7L, "seven" ]; Map.empty; Map [ 10000000000L, "big" ] |],
+            read.["k"].ToArray<Map<int64, string>>())
+    finally
+        if Directory.Exists path then Directory.Delete(path, true)
+
+[<Fact>]
 let ``Column changes: DropColumnNotNull, SetColumnComment and MoveColumn change the schema only`` () =
     let path = Path.Combine(Path.GetTempPath(), $"delta_columns2_{Guid.NewGuid()}")
     try

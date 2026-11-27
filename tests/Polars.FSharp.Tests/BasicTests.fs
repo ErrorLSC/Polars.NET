@@ -471,7 +471,8 @@ type ``Basic Functionality Tests`` () =
 
         Assert.Equal(int64 count, df.Height)
         Assert.Equal("Val_99999", df.Column("Value").ToSeqOption<string>() |> Seq.last |> Option.get)
-        let expectedType = DataType.Datetime(TimeUnit.Microseconds, "")
+        // Naive (System.DateTime): no time zone, not a zone named "".
+        let expectedType = DataType.Datetime(TimeUnit.Microseconds)
 
         Assert.Equal(expectedType, df.Schema.["Timestamp"])
 

@@ -797,7 +797,7 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
-    /// Maps a column type to its Unity Catalog type. A list of a two-field struct named key and value is a map.
+    /// Maps a column type to its Unity Catalog type.
     /// </summary>
     private static UnityDataType ToUnityType(DataTypeHandle dtype)
     {
@@ -830,20 +830,14 @@ public readonly partial struct PolarsWrapper
             case PlDataType.List:
             {
                 using DataTypeHandle inner = GetInnerType(dtype);
-                if (GetDataTypeKind(inner) == PlDataType.Struct && GetStructLen(inner) == 2)
-                {
-                    GetStructField(inner, 0, out string keyName, out DataTypeHandle keyType);
-                    GetStructField(inner, 1, out string valueName, out DataTypeHandle valueType);
-                    using (keyType)
-                    using (valueType)
-                    {
-                        if (keyName == "key" && valueName == "value")
-                        {
-                            return UnityDataType.Map(ToUnityType(keyType), ToUnityType(valueType));
-                        }
-                    }
-                }
                 return UnityDataType.Array(ToUnityType(inner));
+            }
+
+            case PlDataType.Map:
+            {
+                using DataTypeHandle keyType = GetMapKeyType(dtype);
+                using DataTypeHandle valueType = GetMapValueType(dtype);
+                return UnityDataType.Map(ToUnityType(keyType), ToUnityType(valueType));
             }
 
             case PlDataType.Struct:

@@ -220,8 +220,8 @@ internal static class ManagedSink
 
     /// <summary>
     /// The schema the files are written with: the engine's, the table's field ids on the data columns' struct fields
-    /// at any depth (as Spark writes them), and the paths of the map columns (lists of key/value structs to the
-    /// engine) to be written as Parquet maps.
+    /// at any depth (as Spark writes them), and the paths of the map columns that come as lists of key/value structs,
+    /// to be written as Parquet maps (Arrow maps are written as maps anyway).
     /// </summary>
     internal static (Schema Schema, IReadOnlySet<string>? Maps) WriterSchema(Schema exported, StructField[] dataFields)
     {
@@ -240,6 +240,8 @@ internal static class ManagedSink
                     [.. st.Fields.Select((child, i) => i < s.Fields.Count ? With(child, s.Fields[i].Type, s.Fields[i].FieldId, $"{where}.{child.Name}") : child)]),
                 (DeltaArray a, ArrowTypes.ListType l) => new ArrowTypes.ListType(With(l.ValueField, a.ElementType, null, where + "[]")),
                 (DeltaArray a, ArrowTypes.LargeListType l) => new ArrowTypes.LargeListType(With(l.ValueField, a.ElementType, null, where + "[]")),
+                (DeltaMap m, ArrowTypes.MapType map) => new ArrowTypes.MapType(
+                    With(map.KeyField, m.KeyType, null, where + ".key"), With(map.ValueField, m.ValueType, null, where + ".value"), map.KeySorted),
                 (DeltaMap m, ArrowTypes.ListType { ValueDataType: ArrowTypes.StructType { Fields.Count: 2 } entry } l) =>
                     new ArrowTypes.ListType(new Field(l.ValueField.Name, Entries(entry, m, where), l.ValueField.IsNullable)),
                 (DeltaMap m, ArrowTypes.LargeListType { ValueDataType: ArrowTypes.StructType { Fields.Count: 2 } entry } l) =>

@@ -137,6 +137,10 @@ public static partial class ArrowTensorInterop
 
         while (true)
         {
+            if (current is MapArray)
+                throw new NotSupportedException(
+                    "A map column has no tensor form: its values are key / value entries. Take the values as a list first "
+                    + "(MapOps.Values()), or turn the keys you need into columns (MapOps.Get(key)).");
             if (current is FixedSizeListArray fsList)
             {
                 int listSize = ((FixedSizeListType)fsList.Data.DataType).ListSize;

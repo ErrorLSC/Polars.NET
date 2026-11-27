@@ -24,7 +24,7 @@ public class AvroManagedTests
     {
         using var df = DataFrame.ReadAvro(Fixture("complex"));
         Assert.Equal(3, df.Height);
-        Assert.Equal("list[struct[key: str, value: i64]]", Dtype(df, "m"));
+        Assert.Equal("map[str, i64]", Dtype(df, "m"));
         Assert.Equal("cat", Dtype(df, "e"));
         Assert.Equal("binary", Dtype(df, "fx"));
         Assert.Equal("i64", Dtype(df, "il"));
@@ -77,7 +77,7 @@ public class AvroManagedTests
     public void Maps_with_integer_keys_round_trip_through_the_engine()
     {
         // Written as an Avro array of key/value records (logicalType map), read back as an Arrow map, which the
-        // engine imports as a list of key/value structs (as for string-key maps).
+        // engine imports as a Map (as for string-key maps).
         var type = new ArrowTypes.MapType(new ArrowField("key", ArrowTypes.Int32Type.Default, false),
             new ArrowField("value", ArrowTypes.StringType.Default, true));
         var m = new MapArray.Builder(type);
@@ -91,8 +91,8 @@ public class AvroManagedTests
         {
             AvroWriter.Write(path, schema, [batch]);
             using var df = DataFrame.ReadAvro(path);
-            Assert.Equal("list[struct[key: i32, value: str]]", Dtype(df, "m"));
-            using var keys = df.Select(Col("m").List.Eval(Element().Struct.Field("key")).Alias("k"));
+            Assert.Equal("map[i32, str]", Dtype(df, "m"));
+            using var keys = df.Select(Col("m").MapOps.Keys().Alias("k"));
             Assert.Equal([1, 2], keys.GetValue<List<int>>(0, "k"));
             Assert.Null(keys.GetValue<List<int>>(1, "k"));
             using var scanned = LazyFrame.ScanAvro(path).Collect();

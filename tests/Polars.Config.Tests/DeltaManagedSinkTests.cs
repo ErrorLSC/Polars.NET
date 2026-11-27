@@ -714,7 +714,8 @@ public sealed class DeltaManagedSinkTests : IDisposable
         using DataFrame read = DataFrame.ReadDelta(url).Sort("Id");
         Assert.Equal(200_000, read.Height);
         // The entries, named Key and Value in the data, are the map's keys and values.
-        using DataFrame first = read.Head(2).Select(Col("Tags").List.First().Struct.Field("key").Alias("K"), Col("Tags").List.First().Struct.Field("value").Alias("V"));
+        using DataFrame first = read.Head(2).Select(
+            Col("Tags").MapOps.Keys().List.First().Alias("K"), Col("Tags").MapOps.Values().List.First().Alias("V"));
         Assert.Equal(["k0", "k1"], first["K"].ToArray<string>());
         Assert.Equal([0L, 1L], first["V"].ToArray<long>());
     }
@@ -756,6 +757,46 @@ public sealed class DeltaManagedSinkTests : IDisposable
     {
         using Apache.Arrow.RecordBatch batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame(keys);
         return (int)((Apache.Arrow.Int64Array)batch.Column(batch.Schema.GetFieldIndex("Key"))).GetValue(0)!.Value;
+    }
+
+    [Fact]
+    public void TheWriterSchema_CarriesTheFieldIds_IntoArrowMaps()
+    {
+        // As Polars 2.2 exports a table's columns: maps as Arrow maps, written as maps as they come (none to name),
+        // the table's ids reaching the struct fields of their values at any depth.
+        static ArrowTypes.MapType Map(ArrowTypes.IArrowType value) =>
+            new(new ArrowField("key", ArrowTypes.StringType.Default, false), new ArrowField("value", value, true));
+        static ArrowTypes.StructType Struct(string name) => new([new ArrowField(name, ArrowTypes.Int32Type.Default, true)]);
+        var exported = new Apache.Arrow.Schema(
+        [
+            new ArrowField("col-m", Map(Struct("col-v")), true),
+            new ArrowField("col-s", new ArrowTypes.StructType([new ArrowField("col-sm", Map(ArrowTypes.Int32Type.Default), true)]), true),
+            new ArrowField("col-mm", Map(Map(Struct("col-w"))), true),
+        ], null);
+        static DeltaSchema.MapType DeltaMap(DeltaSchema.DeltaType value) => new(new DeltaSchema.PrimitiveType("string"), value, true);
+        static DeltaSchema.StructField Field(string name, string physical, int id, DeltaSchema.DeltaType type) => new()
+        {
+            Name = name, Type = type,
+            Metadata = new Dictionary<string, string> { [DeltaSchema.StructField.PhysicalNameKey] = physical, [DeltaSchema.StructField.ColumnIdKey] = $"{id}" },
+        };
+        var integer = new DeltaSchema.PrimitiveType("integer");
+        DeltaSchema.StructField[] fields =
+        [
+            Field("m", "col-m", 1, DeltaMap(new DeltaSchema.StructType([Field("v", "col-v", 7, integer)]))),
+            Field("s", "col-s", 2, new DeltaSchema.StructType([Field("sm", "col-sm", 3, DeltaMap(integer))])),
+            Field("mm", "col-mm", 6, DeltaMap(DeltaMap(new DeltaSchema.StructType([Field("w", "col-w", 9, integer)])))),
+        ];
+        var (schema, maps) = ManagedSink.WriterSchema(exported, fields);
+        Assert.Null(maps);
+
+        using var stream = new MemoryStream();
+        using (var writer = ParquetWriter.Create(stream, schema, new ParquetWriteOptions { LeaveOpen = true })) writer.Complete();
+        stream.Position = 0;
+        using ParquetFile file = ParquetFile.Open(stream);
+        var elements = file.Metadata.Thrift!.Schema;
+        Assert.Equal(4, elements.Count(e => e.LogicalType?.Kind == Kaminari.Seseragi.Files.Parquet.Metadata.LogicalTypeKind.Map));
+        Assert.Equal((1, 3, 6), (elements.Single(e => e.Name == "col-m").FieldId, elements.Single(e => e.Name == "col-sm").FieldId, elements.Single(e => e.Name == "col-mm").FieldId));
+        Assert.Equal((7, 9), (elements.Single(e => e.Name == "col-v").FieldId, elements.Single(e => e.Name == "col-w").FieldId));
     }
 
     [Fact]

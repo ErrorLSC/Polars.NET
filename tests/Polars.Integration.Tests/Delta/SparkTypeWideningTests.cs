@@ -70,8 +70,8 @@ public class SparkTypeWideningTests
             string withMaps = Path.Combine(root, "maps"), copy = Path.Combine(root, "copy");
             CreateWidened(withMaps, mapping);
 
-            // What the kernel reads, written to a new table: Spark reads the same values from it. Rows only: a table
-            // the kernel creates holds maps as lists of key/value structs (no map type in the engine).
+            // What the kernel reads, written to a new table: Spark reads the same values from it (rows only: the copy
+            // has no type-change history).
             DeltaKernelWrite.Write(copy, DeltaKernelScan.Scan(withMaps), KernelWriteMode.ErrorIfExists);
             Assert.Equal(Spark(withMaps).Rows, Spark(copy).Rows);
 

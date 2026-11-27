@@ -26,6 +26,27 @@ public sealed class SeriesHandleSink : IColumnSink<SeriesHandle>
 
     public SeriesHandle CreateGeneric<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string name, IEnumerable<T> data) =>
         SeriesFactory.CreateGenericType(name, data);
+
+    public SeriesHandle CreateStruct(string name, (string Name, SeriesHandle Column)[] fields, ReadOnlySpan<bool> isNull)
+    {
+        // Not a field's name: a field named so would be refused by the frame (duplicate column) rather than misread.
+        const string NullMask = "__polars_net_struct_is_null__";
+        using SeriesHandle mask = SeriesFactory.CreateSpan(NullMask, isNull)!;
+        using DataFrameHandle frame = PolarsWrapper.DataFrameNew([.. fields.Select(static f => f.Column), mask]);
+        ExprHandle value = fields.Length > 0
+            ? PolarsWrapper.AsStruct([.. fields.Select(static f => PolarsWrapper.Col(f.Name))])
+            : EmptyStruct();
+        ExprHandle column = PolarsWrapper.Alias(PolarsWrapper.IfElse(PolarsWrapper.Col(NullMask), PolarsWrapper.LitNull(), value), name);
+        using DataFrameHandle result = PolarsWrapper.LazyCollectEager(PolarsWrapper.LazySelect(PolarsWrapper.DataFrameToLazy(frame), [column]), optimize: false);
+        return PolarsWrapper.DataFrameGetColumnAt(result, 0);
+
+        // Records without a key anywhere: a struct of no fields (the engine builds none from no expressions); its rows null.
+        static ExprHandle EmptyStruct()
+        {
+            using DataTypeHandle type = PolarsWrapper.NewStructType([], []);
+            return PolarsWrapper.ExprCast(PolarsWrapper.LitNull(), PolarsWrapper.DataTypeExprFromDataType(type), strict: true, wrapNumerical: false);
+        }
+    }
 }
 
 /// <summary>
@@ -78,16 +99,18 @@ public static class DataFrameBuilder
     /// <param name="targetKeys">Optional fixed column names to extract.</param>
     /// <param name="strict">Whether to throw on invalid type casting or coerce into nulls.</param>
     /// <param name="inferSchemaLength">The sampling rows limit for dynamic schema inference.</param>
+    /// <param name="mapColumns">Columns of nested object dictionaries built as maps (elsewhere: structs).</param>
     /// <returns>A native <see cref="DataFrameHandle"/> wrapping the ingested columnar DataFrame.</returns>
     public static DataFrameHandle FromDicts(
         IReadOnlyList<IDictionary<string, object?>> records,
         IReadOnlyList<string>? targetKeys = null,
         bool strict = true,
-        int? inferSchemaLength = 100)
+        int? inferSchemaLength = 100,
+        IReadOnlySet<string>? mapColumns = null)
     {
         ArgumentNullException.ThrowIfNull(records);
 
-        var colTuples = DictSchemaTransposer.Transpose(records, SeriesHandleSink.Instance, targetKeys, strict, inferSchemaLength);
+        var colTuples = DictSchemaTransposer.Transpose(records, SeriesHandleSink.Instance, targetKeys, strict, inferSchemaLength, mapColumns);
         if (colTuples.Length == 0)
         {
             return PolarsWrapper.DataFrameNew([]);
@@ -109,12 +132,14 @@ public static class DataFrameBuilder
     /// <param name="targetKeys">Optional target column keys to project.</param>
     /// <param name="strict">Whether to throw on type conversion errors or coerce to null.</param>
     /// <param name="inferSchemaLength">Max number of rows to sample for schema inference.</param>
+    /// <param name="mapColumns">Columns of nested object dictionaries built as maps (elsewhere: structs).</param>
     /// <returns>A native <see cref="DataFrameHandle"/> containing transposed columns.</returns>
     public static DataFrameHandle FromDicts(
         IEnumerable<IDictionary<string, object?>> data,
         IReadOnlyList<string>? targetKeys = null,
         bool strict = true,
-        int? inferSchemaLength = 100)
+        int? inferSchemaLength = 100,
+        IReadOnlySet<string>? mapColumns = null)
     {
         ArgumentNullException.ThrowIfNull(data);
 
@@ -124,7 +149,7 @@ public static class DataFrameBuilder
             return PolarsWrapper.DataFrameNew([]);
         }
 
-        var colTuples = DictSchemaTransposer.Transpose(records, SeriesHandleSink.Instance, targetKeys, strict, inferSchemaLength);
+        var colTuples = DictSchemaTransposer.Transpose(records, SeriesHandleSink.Instance, targetKeys, strict, inferSchemaLength, mapColumns);
         if (colTuples.Length == 0)
         {
             return PolarsWrapper.DataFrameNew([]);

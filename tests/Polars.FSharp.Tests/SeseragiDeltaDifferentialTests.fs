@@ -601,14 +601,14 @@ let ``Nested column mapping gets logical names back at every depth`` () =
         let oneElementList e = Polars.NET.Core.Wrappers.PolarsWrapper.ConcatList [| e |]
 
         // The data file, under physical names: col-s = struct{col-x, col-l: list<struct{col-z}>}, null in row 3;
-        // col-m = map<string, struct{col-v}> (a list of key/value entries).
+        // col-m = map<string, struct{col-v}> (a Parquet MAP, as Spark writes one).
         use source = DataFrame.create [| Series.create("id", [ 1; 2; 3 ]); Series.create("x", [ 10; 20; 30 ]); Series.create("z", [ "a"; "b"; "c" ]) |]
         let s =
             Polars.NET.Core.Wrappers.PolarsWrapper.IfElse(
                 Polars.NET.Core.Wrappers.PolarsWrapper.Eq(col "id", Polars.NET.Core.Wrappers.PolarsWrapper.Lit 3),
                 Polars.NET.Core.Wrappers.PolarsWrapper.LitNull(),
                 asStruct [ W(col "x", "col-x"); W(oneElementList (asStruct [ W(col "z", "col-z") ]), "col-l") ])
-        let m = oneElementList (asStruct [ W(col "z", "key"); W(asStruct [ W(col "x", "col-v") ], "value") ])
+        let m = Polars.NET.Core.Wrappers.PolarsWrapper.ListToMap(oneElementList (asStruct [ W(col "z", "key"); W(asStruct [ W(col "x", "col-v") ], "value") ]))
         let lf = Polars.NET.Core.Wrappers.PolarsWrapper.LazySelect(source.Lazy().CloneHandle(), [| W(col "id", "col-id"); W(s, "col-s"); W(m, "col-m") |])
         use physical = new DataFrame(Polars.NET.Core.Wrappers.PolarsWrapper.LazyCollect(lf, Polars.NET.Core.Enums.PlEngine.Auto))
         let dataFile = Path.Combine(path, "part-0.parquet")
@@ -645,9 +645,9 @@ let ``Nested column mapping gets logical names back at every depth`` () =
         use json = Polars.NET.Core.Json.ManagedJson.WriteJsonNativeMemory(sorted.Handle, Polars.NET.Core.Enums.PlJsonFormat.JsonLines)
         let lines = Text.Encoding.UTF8.GetString(json.Memory.Span).Split('\n', StringSplitOptions.RemoveEmptyEntries)
         Assert.Equal<string[]>(
-            [| """{"id":1,"s":{"x":10,"l":[{"z":"a"}]},"m":[{"key":"a","value":{"v":10}}]}"""
-               """{"id":2,"s":{"x":20,"l":[{"z":"b"}]},"m":[{"key":"b","value":{"v":20}}]}"""
-               """{"id":3,"s":null,"m":[{"key":"c","value":{"v":30}}]}""" |],
+            [| """{"id":1,"s":{"x":10,"l":[{"z":"a"}]},"m":{"a":{"v":10}}}"""
+               """{"id":2,"s":{"x":20,"l":[{"z":"b"}]},"m":{"b":{"v":20}}}"""
+               """{"id":3,"s":null,"m":{"c":{"v":30}}}""" |],
             lines))
 
 // ---------------------------------------------------------------------------------------------------------------

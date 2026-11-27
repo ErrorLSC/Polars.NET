@@ -68,7 +68,9 @@ internal abstract unsafe class JsonCell
                 break;
             case MapType m:
                 if (m.KeyField.DataType is not (StringType or LargeStringType or StringViewType))
-                    throw new NotSupportedException($"Column '{path}': the keys of a map written as JSON are strings, not {m.KeyField.DataType.Name}.");
+                    throw new NotSupportedException(
+                        $"Column '{path}': the keys of a map written as JSON are strings, not {m.KeyField.DataType.Name}. Cast the keys to text "
+                        + "(through the map's entries: MapOps.Entries(), cast, List.ToMap()), or write the entries themselves (MapOps.Entries()).");
                 Check(m.ValueField, path + "{}");
                 break;
             case DictionaryType d:

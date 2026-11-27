@@ -435,6 +435,12 @@ internal static class DeltaKernelWrite
                 using DataTypeHandle inner = PolarsWrapper.GetInnerType(type);
                 return new ArrayType(DeltaTypeOf(inner, column), containsNull: true);
             }
+            case PlDataType.Map:
+            {
+                using DataTypeHandle key = PolarsWrapper.GetMapKeyType(type);
+                using DataTypeHandle value = PolarsWrapper.GetMapValueType(type);
+                return new MapType(DeltaTypeOf(key, $"{column}.key"), DeltaTypeOf(value, $"{column}.value"), valueContainsNull: true);
+            }
             case PlDataType.Struct:
             {
                 var fields = new List<StructField>();
@@ -507,11 +513,10 @@ internal static class DeltaKernelWrite
         for (int i = 0; i < exprs.Length; i++)
         {
             StructField field = schema.Fields[i];
-            using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
             // A column the data lacks is null (the schema check allowed it).
             ExprHandle value = data.Field(field.Name) is { } given ? Conformed(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
-                PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
+                DeltaKernelScan.CastTo(value, field.Type, physicalNames: false),
                 field.Name);
         }
         LazyFrameHandle lf = PolarsWrapper.DataFrameToLazy(PolarsWrapper.CloneDataFrame(df));
@@ -742,9 +747,9 @@ internal static class DeltaKernelWrite
     }
 
     /// <summary>
-    /// The data's schema with maps where the table has them: the engine has no map type and holds a map as a list of
-    /// key/value structs, so where the table has a map (at any depth) and the data a list of two-field structs, the
-    /// data's is taken as a map of the fields' types (by position, whatever their names). Other types are left as they
+    /// The data's schema with maps where the table has them: where the table has a map (at any depth) and the data a
+    /// list of two-field structs (how data without a map type holds one), the data's is taken as a map of the fields'
+    /// types (by position, whatever their names); the data's own maps are looked into. Other types are left as they
     /// are, for the schema check to judge.
     /// </summary>
     internal static StructType WithTableMaps(StructType data, StructType table) => (StructType)Shaped(data, table);
@@ -753,6 +758,8 @@ internal static class DeltaKernelWrite
     {
         (ArrayType { ElementType: StructType { Fields.Count: 2 } entry }, MapType map) =>
             new MapType(Shaped(entry.Fields[0].Type, map.KeyType), Shaped(entry.Fields[1].Type, map.ValueType), map.ValueContainsNull),
+        (MapType dataMap, MapType map) =>
+            new MapType(Shaped(dataMap.KeyType, map.KeyType), Shaped(dataMap.ValueType, map.ValueType), dataMap.ValueContainsNull),
         (ArrayType array, ArrayType tableArray) => new ArrayType(Shaped(array.ElementType, tableArray.ElementType), array.ContainsNull),
         (StructType fields, StructType tableFields) => new StructType([.. fields.Fields.Select(f => tableFields.Field(f.Name) is { } t
             ? new StructField { Name = f.Name, Type = Shaped(f.Type, t.Type), Nullable = f.Nullable, Metadata = f.Metadata, JsonMetadataKeys = f.JsonMetadataKeys }
@@ -761,9 +768,11 @@ internal static class DeltaKernelWrite
     };
 
     /// <summary>
-    /// A column's data in the shape of the table's type, for the strict cast to it: the entries of the table's maps
-    /// named <c>key</c> and <c>value</c> by position (a write takes a list of two-field structs as a map, whatever the
-    /// fields' names, while the cast matches struct fields by name), and each struct rebuilt in the table's fields and
+    /// A column's data in the shape of the table's type, for the strict cast to it: a list of two-field structs where
+    /// the table has a map becomes a map of entries named <c>key</c> and <c>value</c> by position (a write takes it as a
+    /// map, whatever the fields' names, while the cast matches struct fields by name; a key repeated in a list keeps
+    /// its last value, as Polars builds maps), maps are rebuilt through their entries where their contents need it,
+    /// and each struct rebuilt in the table's fields and
     /// their order, a field the data lacks null (schema evolution added it; the engine's strict cast takes only the same
     /// fields in the same order). At any depth: array elements, map values, struct fields.
     /// </summary>
@@ -778,6 +787,12 @@ internal static class DeltaKernelWrite
                 ExprHandle key = PolarsWrapper.Alias(Conformed(PolarsWrapper.StructFieldByName(PolarsWrapper.CloneExpr(entry), ["key"]), m.KeyType, k.Type), "key");
                 ExprHandle value = PolarsWrapper.Alias(Conformed(PolarsWrapper.StructFieldByName(entry, ["value"]), m.ValueType, v.Type), "value");
                 return PolarsWrapper.ListEval(column, PolarsWrapper.AsStruct([key, value]));
+            }
+            case (MapType m, MapType d):
+            {
+                ExprHandle key = PolarsWrapper.Alias(Conformed(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["key"]), m.KeyType, d.KeyType), "key");
+                ExprHandle value = PolarsWrapper.Alias(Conformed(PolarsWrapper.StructFieldByName(PolarsWrapper.Col(""), ["value"]), m.ValueType, d.ValueType), "value");
+                return PolarsWrapper.ListToMap(PolarsWrapper.ListEval(PolarsWrapper.MapEntries(column), PolarsWrapper.AsStruct([key, value])));
             }
             case (ArrayType a, ArrayType d):
                 return PolarsWrapper.ListEval(column, Conformed(PolarsWrapper.Col(""), a.ElementType, d.ElementType));
@@ -811,6 +826,7 @@ internal static class DeltaKernelWrite
     /// </summary>
     private static bool Reshaped(DeltaType table, DeltaType data) => (table, data) switch
     {
+        (MapType m, MapType d) => Reshaped(m.KeyType, d.KeyType) || Reshaped(m.ValueType, d.ValueType),
         (MapType, _) => true,
         (ArrayType a, ArrayType d) => Reshaped(a.ElementType, d.ElementType),
         (StructType s, StructType d) =>
@@ -876,11 +892,10 @@ internal static class DeltaKernelWrite
         for (int i = 0; i < schema.Fields.Count; i++)
         {
             StructField field = schema.Fields[i];
-            using DataTypeHandle target = DeltaKernelScan.EngineType(field.Type);
             // A column the data lacks is null (the schema check allowed it).
             ExprHandle value = data.Field(field.Name) is { } given ? Conformed(PolarsWrapper.Col(field.Name), field.Type, given.Type) : PolarsWrapper.LitNull();
             exprs[i] = PolarsWrapper.Alias(
-                PolarsWrapper.ExprCast(value, PolarsWrapper.DataTypeExprFromDataType(target), strict: true, wrapNumerical: false),
+                DeltaKernelScan.CastTo(value, field.Type, physicalNames: false),
                 field.Name);
         }
         for (int i = 0; i < (extraColumns?.Length ?? 0); i++) exprs[schema.Fields.Count + i] = PolarsWrapper.Col(extraColumns![i]);

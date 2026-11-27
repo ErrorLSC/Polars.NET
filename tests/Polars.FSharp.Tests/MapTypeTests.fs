@@ -105,3 +105,23 @@ type MapTypeTests() =
         use s = Series.create ("m", [ Map [ 1, "one"; 2, "two" ] ])
         Assert.Equal("two", s.MapOps.Get(2).GetValue<string> 0)
         Assert.True(s.MapOps.ContainsKey(1).GetValue<bool> 0)
+
+    [<Fact>]
+    member _.``Nested naive datetimes keep no time zone`` () =
+        // The native side reads "no time zone" as an empty string, which is not a zone named "".
+        use s = Series.create ("l", [ [| System.DateTime(2024, 1, 2) |] ])
+        Assert.Equal(DataType.List(DataType.Datetime TimeUnit.Microseconds), s.DataType)
+        Assert.Equal("list[datetime[μs]]", s.DataType.ToString())
+        use m = Series.create ("m", [ Map [ "a", System.DateTime(2024, 1, 2) ] ])
+        Assert.Equal(DataType.Map(DataType.String, DataType.Datetime TimeUnit.Microseconds), m.DataType)
+
+    [<Fact>]
+    member _.``ofMaps takes nested maps of objects as records and typed maps as maps`` () =
+        let rows: Map<string, obj> list =
+            [ Map [ "id", box 1L; "r", box (Map [ "a", box 1L ]); "t", box (Map [ "k", 2L ]) ]
+              Map [ "id", box 2L; "r", box (Map [ "b", box "x" ]); "t", box (Map.empty<string, int64>) ] ]
+        use df = DataFrame.ofMaps rows
+
+        Assert.Equal(DataType.Struct [ { Name = "a"; DataType = DataType.Int64 }; { Name = "b"; DataType = DataType.String } ], df.["r"].DataType)
+        Assert.Equal(DataType.Map(DataType.String, DataType.Int64), df.["t"].DataType)
+        Assert.Equal<Map<string, int64>[]>([| Map [ "k", 2L ]; Map.empty |], df.["t"].ToArray<Map<string, int64>>())
