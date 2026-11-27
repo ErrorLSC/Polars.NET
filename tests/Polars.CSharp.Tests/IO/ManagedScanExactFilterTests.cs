@@ -56,9 +56,21 @@ public class ManagedScanExactFilterTests(ITestOutputHelper output) : IDisposable
         static string Json(string? f) => f is null or "NaN" or "inf" or "-inf" ? "null" : f;
     }
 
-    private static LazyFrame Scan(string format, string path) => format == "csv"
-        ? LazyFrame.ScanCsv(path, dtypeOverride: new Dictionary<string, DataType> { ["d"] = DataType.Date })
-        : LazyFrame.ScanNdjson(path, schemaOverrides: new Dictionary<string, DataType> { ["d"] = DataType.Date });
+    private static LazyFrame Scan(string format, string path) => format switch
+    {
+        "csv" => LazyFrame.ScanCsv(path, dtypeOverride: new Dictionary<string, DataType> { ["d"] = DataType.Date }),
+        "parquet" => new LazyFrame(global::Polars.NET.Core.IO.ManagedParquet.ScanParquet(path)),
+        _ => LazyFrame.ScanNdjson(path, schemaOverrides: new Dictionary<string, DataType> { ["d"] = DataType.Date }),
+    };
+
+    /// <summary>The CSV's rows as a Parquet file (written by the engine).</summary>
+    private string Parquet()
+    {
+        string path = Path.Combine(_dir, "data.parquet");
+        using (LazyFrame csv = Scan("csv", Csv()))
+        using (DataFrame df = csv.Collect()) df.WriteParquet(path);
+        return path;
+    }
 
     /// <summary>The filters, by name (made anew for each use: an expression is consumed by the query).</summary>
     private static readonly (string Name, Func<Expr> Make)[] Filters =
@@ -108,13 +120,13 @@ public class ManagedScanExactFilterTests(ITestOutputHelper output) : IDisposable
         ("s as i64 (non-strict) is null", () => Pl.Col("s").Cast(DataType.Int64, strict: false).IsNull()),
     ];
 
-    public static TheoryData<string> Formats => ["csv", "ndjson"];
+    public static TheoryData<string> Formats => ["csv", "ndjson", "parquet"];
 
     [Theory]
     [MemberData(nameof(Formats))]
     public void Every_Filter_Keeps_The_Engines_Rows(string format)
     {
-        string path = format == "csv" ? Csv() : Ndjson();
+        string path = format switch { "csv" => Csv(), "parquet" => Parquet(), _ => Ndjson() };
         using DataFrame all = Scan(format, path).Collect();
         List<string> differing = [], claimed = [];
         foreach (var (name, make) in Filters)
