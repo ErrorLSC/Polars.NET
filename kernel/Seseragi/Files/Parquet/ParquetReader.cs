@@ -15,6 +15,7 @@ using Kaminari.Seseragi.Files.Parquet.Schema;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Filters;
 using Microsoft.FSharp.Core;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -52,6 +53,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private readonly ReadOnlyMemory<byte>? _memory;           // the source's bytes, when it lives in memory
     private readonly bool _fetch;                             // whether chunks are fetched before decoding (not a local source)
     private readonly ConcurrentExclusiveSchedulerPair _schedulers;
+    private readonly WorkBudget _work; // the threads busy: column decodes running, helpers reading pages ahead
     private readonly ReadBudget? _shared;                     // the dataset's threads and buffers, when this reader is one of its files'
 
     /// <summary>
@@ -94,6 +96,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         };
         _shared = shared;
         _schedulers = shared?.Schedulers ?? new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, Math.Max(1, options.MaxDegreeOfParallelism));
+        _work = shared?.Work ?? new WorkBudget(Math.Max(1, options.MaxDegreeOfParallelism));
         int[] rowGroups = options.RowGroups is { } groups ? [.. groups] : [.. Enumerable.Range(0, file.Thrift.RowGroups.Length)];
         foreach (int g in rowGroups)
         {
@@ -296,7 +299,10 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// <summary>The rows read of each row group read (null: all of them), in its own numbering (for tests).</summary>
     internal IReadOnlyList<RowRanges?> RowsRead => [.. Units().Select(u => u.Rows)];
 
-    private int _pagesSkipped, _pagesRead;
+    private int _pagesSkipped, _pagesRead, _pagesReadAhead;
+
+    /// <summary>Pages read ahead of their decode, by helpers or by the decode itself (for tests and measurements).</summary>
+    internal int PagesReadAhead => Volatile.Read(ref _pagesReadAhead);
 
     /// <summary>Data pages read and decompressed (for tests and measurements).</summary>
     internal int PagesRead => Volatile.Read(ref _pagesRead);
@@ -1050,8 +1056,18 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                             ? Mapped(map.Range(mapStart + at[l].Start, (int)at[l].Length), meta)
                             : new PageReader(_file.Source, at[l].Start, at[l].Length, meta.Codec, _options.VerifyChecksums, _buffers);
                 if (index is not null) pages.UseIndex(index, at[l].Start, Needed(index, ranges!));
+                bool encrypted = false;
                 if (_file.Decryptor?.ForChunk(group.Columns[leaf.Leaf.LeafIndex], group.Ordinal ?? g, leaf.Leaf.LeafIndex, string.Join('.', leaf.Leaf.Path)) is { } crypto)
+                {
                     pages.UseDecryption(crypto);
+                    encrypted = true;
+                }
+                // A chunk read whole whose pages take work besides decoding (decompressing, decrypting, checksums):
+                // helpers do it ahead, on threads the decodes leave. Not when the row group has a column for every
+                // thread: each thread decodes then, and reading ahead only moves pages between caches (measured:
+                // 200 columns 1-3 % slower).
+                if (ranges is null && set.Leaves.Length < _work.Max
+                    && (meta.Codec != CompressionCodec.Uncompressed || encrypted || _options.VerifyChecksums)) pages.UseReadAhead(_work);
                 readers[l] = LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
                 readers[l].UncompressedBytes = meta.TotalUncompressedSize;
                 readers[l].LevelsAsBits = _options.LevelsAsBits;
@@ -1078,12 +1094,14 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                         () =>
                         {
                             _shared?.DecodeStarts();
+                            _work.Enter();
                             try
                             {
                                 return DecodeColumn(set, column, readers, builders[column], byNode, plan, rows, ranges is null, filtered[column] ? keeping : null, cancellationToken);
                             }
                             finally
                             {
+                                _work.Exit();
                                 _shared?.DecodeEnds();
                             }
                         },
@@ -1108,6 +1126,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             else
             {
                 _shared?.DecodeStarts();
+                _work.Enter();
                 try
                 {
                     for (int c = 0; c < set.Columns.Length; c++)
@@ -1115,6 +1134,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 }
                 finally
                 {
+                    _work.Exit();
                     _shared?.DecodeEnds();
                 }
             }
@@ -1152,6 +1172,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 if (r is null) continue;
                 Interlocked.Add(ref _pagesSkipped, r.SkippedPages);
                 Interlocked.Add(ref _pagesRead, r.DataPagesRead);
+                Interlocked.Add(ref _pagesReadAhead, r.PagesReadAhead);
                 r.Dispose();
             }
             // A flat column's builder is its reader's: disposing twice is harmless.

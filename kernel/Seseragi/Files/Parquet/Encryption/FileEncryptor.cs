@@ -91,10 +91,6 @@ internal sealed class FileEncryptor
     /// <summary>Whether a column is encrypted: every one under uniform encryption, else those with a key.</summary>
     public bool Encrypts(string path) => _columnKeys is null || _columnKeys.ContainsKey(path);
 
-    /// <summary>Whether <paramref name="options"/> encrypt a column (as <see cref="Encrypts(string)"/> of the file they make).</summary>
-    public static bool Encrypts(ParquetEncryptionOptions options, string path) =>
-        options.ColumnKeys is not { Count: > 0 } keys || keys.ContainsKey(path);
-
     /// <summary>The <c>crypto_metadata</c> of a column's chunks; null for a column written in plain.</summary>
     public ColumnCryptoMetaData? CryptoMetaData(string path, string[] pathInSchema) =>
         _columnKeys is null ? new ColumnCryptoMetaData { WithFooterKey = true }
@@ -167,7 +163,10 @@ internal sealed class ColumnEncryptor : IDisposable
     /// <summary>The bytes the module of <paramref name="plainLength"/> plaintext bytes takes (its length prefix included).</summary>
     public int ModuleLength(ParquetModule type, int plainLength) => IsCtr(type) ? ModuleSeal.CtrLength(plainLength) : ModuleSeal.GcmLength(plainLength);
 
-    /// <summary>Encrypts <paramref name="plain"/> as a module into <paramref name="module"/> (<see cref="ModuleLength"/> bytes).</summary>
+    /// <summary>
+    /// Encrypts <paramref name="plain"/> as a module into <paramref name="module"/> (<see cref="ModuleLength"/> bytes);
+    /// in place when <paramref name="plain"/> is the module's ciphertext, <see cref="ModuleSeal.Prefix"/> bytes in.
+    /// </summary>
     /// <param name="page">The data page's ordinal in the chunk (data pages and their headers), else negative.</param>
     public void Encrypt(ParquetModule type, int page, ReadOnlySpan<byte> plain, Span<byte> module)
     {
@@ -200,6 +199,12 @@ internal sealed class ColumnEncryptor : IDisposable
 /// <summary>Writes encrypted modules: a 4-byte little-endian length, a random nonce, the ciphertext and (GCM) the tag.</summary>
 internal static class ModuleSeal
 {
+    /// <summary>The bytes before a module's ciphertext: its length and nonce (a page sealed in place is compressed after them).</summary>
+    public const int Prefix = 4 + FileDecryptor.NonceLength;
+
+    /// <summary>The bytes after an AES-GCM module's ciphertext at most: its tag.</summary>
+    public const int Suffix = FileDecryptor.TagLength;
+
     public static int GcmLength(int plain) => 4 + FileDecryptor.NonceLength + plain + FileDecryptor.TagLength;
 
     public static int CtrLength(int plain) => 4 + FileDecryptor.NonceLength + plain;

@@ -15,6 +15,7 @@ using Kaminari.Seseragi.Files.Parquet.Encryption;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Files.Parquet.Writing;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -40,7 +41,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private readonly KeyValue[]? _keyValues;
     private readonly FileEncryptor? _encryptor; // Parquet modular encryption: this file's id, keys and AAD
     private readonly string[] _paths;          // the leaves' dot-separated paths (an encrypted file names its columns by them)
-    private int _groupsStarted;                // row groups flushed or opened: the next one's ordinal (an encrypted file seals its chunks with it)
+    private int _groupsStarted;                // row groups flushed or opened: the next one's ordinal (an encrypted column's pages are sealed for it)
     private readonly WorkBudget _budget;
     private readonly PageSettings[] _columnSettings;
     private Task _writing = Task.CompletedTask; // the last row group's bytes, written while the next one is encoded
@@ -114,21 +115,14 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             Elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
             Columns = plans;
             ParquetColumnOptions?[] columns = ColumnSettings.Resolve(plans, options.Columns);
-            Settings = [.. columns.Select((column, c) => Chosen(column, string.Join('.', plans[c].Path)))];
+            Settings = [.. columns.Select(column => column is not null
+                ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
+                : settings)];
             List<KeyValue> keyValues = [];
             if (options.StoreArrowSchema)
                 keyValues.Add(new KeyValue(Parquet.Schema.ArrowMapping.ArrowSchemaKey, Convert.ToBase64String(ArrowSchemaMessage(StoredSchema(schema, options.MapColumns)))));
             if (options.Metadata is { } metadata) keyValues.AddRange(metadata.Select(kv => new KeyValue(kv.Key, kv.Value)));
             KeyValues = keyValues.Count > 0 ? [.. keyValues] : null;
-
-            PageSettings Chosen(ParquetColumnOptions? column, string path)
-            {
-                PageSettings chosen = column is not null
-                    ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
-                    : settings;
-                // The pages of an encrypted column are checksummed once sealed (the checksum covers the module), not before.
-                return options.Encryption is { } encryption && FileEncryptor.Encrypts(encryption, path) ? chosen with { Checksums = false } : chosen;
-            }
         }
 
         /// <summary>The plan of files of <paramref name="schema"/> written with <paramref name="options"/>.</summary>
@@ -155,6 +149,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private (ColumnWriter[] Columns, Shredder?[] Shredders) NewColumns()
     {
         ColumnWriter[] columns = [.. _plans.Select((p, c) => p.Leaf.CreateWriter(_columnSettings[c]))];
+        if (_encryptor is { } encryptor)
+        {
+            for (int c = 0; c < columns.Length; c++)
+            {
+                if (encryptor.Encrypts(_paths[c])) columns[c].UseEncryption(encryptor, _paths[c], c);
+            }
+        }
         Shredder?[] shredders = [.. _plans.Select(p => p.Steps is null ? null : new Shredder(p.Steps))];
         lock (_allColumns)
         {
@@ -859,6 +860,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         while (_encoding.Count + 1 > MaxRowGroupsInFlight || _encoding.Count > 1 && _encodingBytes + _lastGroupBytes > _options.InFlightBytes)
             await WriteEncodedAsync(useAsync, ct).ConfigureAwait(false);
         var group = new OpenGroup(_spares.TryPop(out var spare) ? spare : NewColumns(), _groupsStarted++);
+        Fills(group.Set.Columns, group.Ordinal);
         group.Encoding = Task.Run(() => EncodeAsync(group));
         _openGroup = group;
         PeakRowGroupsInFlight = Math.Max(PeakRowGroupsInFlight, _encoding.Count + 1);
@@ -919,7 +921,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         if (group.Abandoned) return [];
         try
         {
-            await ForEachColumnAsync(c => finished[c] = Sealed(columns[c].Finish(), c, group.Ordinal), parallel: true).ConfigureAwait(false);
+            await ForEachColumnAsync(c => finished[c] = columns[c].Finish(), parallel: true).ConfigureAwait(false);
             foreach (ColumnWriter column in columns) column.Reset();
             reusable = true;
             return finished;
@@ -1134,7 +1136,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     {
         if (_rowGroupRows == 0) return;
         long rows = _rowGroupRows;
-        int ordinal = _groupsStarted++; // laid out in the order flushed
+        _groupsStarted++; // the row group flushed; the set filled next fills the next one
         _openBytes = 0; // the rows' logical bytes, counted when the writer owns the batches
         // Writers sharing a budget (one per partition, many open) do not seal: a second set of column writers each would
         // double what they hold.
@@ -1145,28 +1147,30 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             while (_encoding.Count >= MaxSealedRowGroups) await WriteEncodedAsync(useAsync, ct).ConfigureAwait(false);
             var set = (_columns, _shredders);
             (_columns, _shredders) = _spares.TryPop(out var spare) ? spare : NewColumns();
+            Fills(_columns, _groupsStarted);
             _rowGroupRows = 0;
             // Its bytes as far as known without waiting (the pages in flight at their largest), for PendingBytesBound.
-            _encoding.Enqueue((Task.Run(() => Finish(set, ordinal, spare: true)), rows, set.Item1.Sum(c => c.BufferedBytesBound)));
+            _encoding.Enqueue((Task.Run(() => Finish(set, spare: true)), rows, set.Item1.Sum(c => c.BufferedBytesBound)));
             PeakRowGroupsInFlight = Math.Max(PeakRowGroupsInFlight, _encoding.Count);
             return;
         }
-        FinishedChunk[] finished = Finish((_columns, _shredders), ordinal, spare: false);
+        FinishedChunk[] finished = Finish((_columns, _shredders), spare: false);
+        Fills(_columns, _groupsStarted);
         _rowGroupRows = 0;
         await LayOutAsync(finished, rows, useAsync, ct).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Finishes every chunk of a set of column writers (last pages, dictionary pages, statistics, indexes; an encrypted
-    /// file's chunks sealed for row group <paramref name="ordinal"/>) in parallel and readies the set for another row
-    /// group (a sealed set goes back to the spares); on a failure the chunks finished are let go and the set is not used again.
+    /// Finishes every chunk of a set of column writers (last pages, dictionary pages, statistics, indexes) in parallel
+    /// and readies the set for another row group (a sealed set goes back to the spares); on a failure the chunks
+    /// finished are let go and the set is not used again.
     /// </summary>
-    private FinishedChunk[] Finish((ColumnWriter[] Columns, Shredder?[] Shredders) set, int ordinal, bool spare)
+    private FinishedChunk[] Finish((ColumnWriter[] Columns, Shredder?[] Shredders) set, bool spare)
     {
         var finished = new FinishedChunk[set.Columns.Length];
         try
         {
-            ForEachColumn(c => finished[c] = Sealed(set.Columns[c].Finish(), c, ordinal), parallel: true);
+            ForEachColumn(c => finished[c] = set.Columns[c].Finish(), parallel: true);
             foreach (ColumnWriter column in set.Columns) column.Reset();
         }
         catch
@@ -1258,96 +1262,13 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// A finished chunk as an encrypted file stores it (Parquet modular encryption), sealed on its column's thread for
-    /// row group <paramref name="rowGroup"/>: each page body becomes a module, then its header (with the module's size,
-    /// and its checksum when the page had one) a module before it, all in one native buffer the chunk owns; the plain
-    /// pages are let go at once, and the offset index takes the sealed sizes. A chunk written in plain comes back as it is.
+    /// Tells a set of column writers the ordinal of the row group they fill next: an encrypted column seals its pages
+    /// for it as they are compressed (row groups are laid out in the order they are flushed or opened).
     /// </summary>
-    private FinishedChunk Sealed(FinishedChunk chunk, int column, int rowGroup)
+    private static void Fills(ColumnWriter[] columns, int ordinal)
     {
-        if (_encryptor is null) return chunk;
-        NativeByteBuffer? buffer = null;
-        try
-        {
-            using ColumnEncryptor? encryptor = _encryptor.ForChunk(_paths[column], rowGroup, column);
-            if (encryptor is null) return chunk;
-            // Room for every piece's module, with some to spare for a header's checksum: the buffer never grows, so the
-            // pieces taken from it stay where they are.
-            long bound = chunk.DictionaryPage.Length + 2L * Overhead;
-            foreach (ReadOnlyMemory<byte> piece in chunk.DataPages) bound += piece.Length + Overhead;
-            if (bound > System.Array.MaxLength) throw new InvalidOperationException("An encrypted column chunk cannot exceed 2 GB.");
-            buffer = new NativeByteBuffer((int)bound, pooled: true);
-            int at = 0;
-            if (!chunk.DictionaryPage.IsEmpty)
-            {
-                PageHeader header = PageHeader.Parse(chunk.DictionaryPage.Span, out int headerLength);
-                var (headerAt, sealedHeader, bodyAt, body) = Seal(header, chunk.DictionaryPage[headerLength..], ParquetModule.DictionaryPageHeader, ParquetModule.DictionaryPage, -1);
-                // The dictionary page is one piece, its header first: the body was sealed first (the header holds its
-                // checksum), so the header module (a few dozen bytes) is held aside while the body moves behind it.
-                Span<byte> span = buffer.Span, held = stackalloc byte[256];
-                if (sealedHeader > held.Length) throw new InvalidOperationException($"A dictionary page header of {sealedHeader} bytes was sealed.");
-                span.Slice(headerAt, sealedHeader).CopyTo(held);
-                span.Slice(bodyAt, body).CopyTo(span[sealedHeader..]);
-                held[..sealedHeader].CopyTo(span);
-            }
-            int dictionary = at;
-            OffsetIndex? index = chunk.OffsetIndex;
-            PageLocation[]? locations = index is null ? null : new PageLocation[index.PageLocations.Length];
-            List<ReadOnlyMemory<byte>> pieces = new(chunk.DataPages.Count);
-            for (int i = 0, page = 0; i + 1 < chunk.DataPages.Count; i += 2, page++)
-            {
-                PageHeader header = PageHeader.Parse(chunk.DataPages[i].Span, out _);
-                int offset = at - dictionary;
-                var (headerAt, headerLength, bodyAt, bodyLength) = Seal(header, chunk.DataPages[i + 1], ParquetModule.DataPageHeader, ParquetModule.DataPage, page);
-                pieces.Add(buffer.Memory.Slice(headerAt, headerLength));
-                pieces.Add(buffer.Memory.Slice(bodyAt, bodyLength));
-                if (locations is not null) locations[page] = new PageLocation(offset, headerLength + bodyLength, index!.PageLocations[page].FirstRowIndex);
-            }
-            OffsetIndex? offsets = index is null ? null : new OffsetIndex { PageLocations = locations!, UnencodedByteArrayDataBytes = index.UnencodedByteArrayDataBytes };
-            chunk.ReleasePages();
-            return chunk with
-            {
-                DictionaryPage = buffer.Memory[..dictionary], DictionaryOwner = null, DataPages = pieces, DataPagesLength = at - dictionary,
-                OffsetIndex = offsets, Pages = [], SealedOwner = buffer, SealedGroup = rowGroup,
-            };
-
-            // Seals a body then its header after it, at the end of what is sealed; where each went.
-            (int HeaderAt, int HeaderLength, int BodyAt, int BodyLength) Seal(PageHeader header, ReadOnlyMemory<byte> body, ParquetModule headerType, ParquetModule bodyType, int ordinal)
-            {
-                Span<byte> span = buffer.Span;
-                int bodyAt = at, bodyLength = encryptor.ModuleLength(bodyType, body.Length);
-                encryptor.Encrypt(bodyType, ordinal, body.Span, span.Slice(bodyAt, bodyLength));
-                at += bodyLength;
-                var sealedHeader = new PageHeader
-                {
-                    Type = header.Type,
-                    UncompressedPageSize = header.UncompressedPageSize,
-                    CompressedPageSize = bodyLength,
-                    // The checksum of an encrypted page covers its module, as parquet-mr and Arrow write it (the plain
-                    // page was not checksummed).
-                    Crc = _options.WriteChecksums ? (int)System.IO.Hashing.Crc32.HashToUInt32(span.Slice(bodyAt, bodyLength)) : null,
-                    DataPageHeader = header.DataPageHeader,
-                    DictionaryPageHeader = header.DictionaryPageHeader,
-                    DataPageHeaderV2 = header.DataPageHeaderV2,
-                };
-                ThriftCompactWriter thrift = ThriftCompactWriter.ThreadScratch();
-                sealedHeader.Write(thrift);
-                int headerAt = at, headerLength = encryptor.ModuleLength(headerType, thrift.WrittenSpan.Length);
-                encryptor.Encrypt(headerType, ordinal, thrift.WrittenSpan, span.Slice(headerAt, headerLength));
-                at += headerLength;
-                return (headerAt, headerLength, bodyAt, bodyLength);
-            }
-        }
-        catch
-        {
-            buffer?.Release();
-            chunk.Release();
-            throw;
-        }
+        foreach (ColumnWriter column in columns) column.RowGroup = ordinal;
     }
-
-    /// <summary>The bytes a module adds to a piece at most: its length, nonce and tag, and a checksum a header gains.</summary>
-    private const int Overhead = 64;
 
     /// <summary>
     /// Writes the Bloom filters after the row groups (each a header and its bitset, as pyarrow places them: together,

@@ -231,11 +231,12 @@ internal sealed class ColumnDecryptor : IDisposable
 {
     private readonly AesGcm _gcm;
     private readonly AesCtr? _ctr;
-    private readonly byte[] _fileAad;
+    private readonly byte[] _key, _fileAad;
     private readonly int _rowGroup, _column;
 
     public ColumnDecryptor(byte[] key, bool ctr, byte[] fileAad, int rowGroup, int column, string name)
     {
+        _key = key;
         if (rowGroup > short.MaxValue || column > short.MaxValue)
             throw new ParquetFormatException($"Column '{name}': encrypted modules beyond row group or column {short.MaxValue} cannot be named in an AAD.");
         _gcm = new AesGcm(key, FileDecryptor.TagLength);
@@ -248,6 +249,9 @@ internal sealed class ColumnDecryptor : IDisposable
 
     /// <summary>The column's dot-separated path, for errors.</summary>
     public string Name { get; }
+
+    /// <summary>A decryptor of the same chunk for another thread (an AES instance is used by one thread at a time).</summary>
+    public ColumnDecryptor Fork() => new(_key, _ctr is not null, _fileAad, _rowGroup, _column, Name);
 
     /// <summary>Whether the module is a page body encrypted with AES-CTR.</summary>
     private bool IsCtr(ParquetModule type) => _ctr is not null && type is ParquetModule.DataPage or ParquetModule.DictionaryPage;
@@ -296,6 +300,9 @@ internal sealed class ColumnDecryptor : IDisposable
 internal static class ModuleCipher
 {
     private const int GcmOverhead = FileDecryptor.NonceLength + FileDecryptor.TagLength;
+
+    /// <summary>Where a module's ciphertext starts (after its length and nonce): a module decrypts in place there.</summary>
+    public const int PlainOffset = 4 + FileDecryptor.NonceLength;
 
     /// <summary>The bytes a module takes in the file (its length included), from its first 4 bytes; checked against <paramref name="available"/>.</summary>
     public static int StoredLength(ReadOnlySpan<byte> start, long available, string what)

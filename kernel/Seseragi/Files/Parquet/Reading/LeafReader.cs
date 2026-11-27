@@ -278,6 +278,9 @@ internal abstract class LeafReader : IDisposable
     /// <summary>The data pages read and decompressed (for tests and measurements).</summary>
     public int DataPagesRead => _pages.DataPagesRead;
 
+    /// <summary>Pages read ahead (see <see cref="PageReader.UseReadAhead"/>).</summary>
+    public int PagesReadAhead => _pages.PagesReadAhead;
+
     /// <summary>
     /// Passes over data pages that lie wholly within a skip of <paramref name="records"/> records by their headers alone,
     /// their bodies neither read nor decompressed: pages whose rows the header gives (a flat column holds one value per

@@ -7,6 +7,7 @@ using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Kernels;
 using Kaminari.Sazanami.Filters;
 using Kaminari.Sazanami.Ordering;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
 

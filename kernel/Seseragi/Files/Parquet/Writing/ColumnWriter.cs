@@ -9,8 +9,10 @@ using Kaminari.Sazanami.Filters;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Encodings;
+using Kaminari.Seseragi.Files.Parquet.Encryption;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
 
@@ -24,15 +26,13 @@ internal sealed record PageSettings(
 /// A column chunk ready to be written: its pages (the dictionary page first; the data pages as header and body
 /// pieces, <see cref="DataPagesLength"/> bytes in all) and what its metadata needs. The offset index's page offsets
 /// count from the start of the data pages. The chunk owns its native buffers: the pages and the dictionary page until
-/// written (<see cref="ReleasePages"/>), the Bloom filter's bitset until the writer takes it, at layout. A chunk of an
-/// encrypted file is sealed once finished: its pages are then modules in <see cref="SealedOwner"/>, sealed for the row
-/// group of ordinal <see cref="SealedGroup"/> (-1: not sealed).
+/// written (<see cref="ReleasePages"/>), the Bloom filter's bitset until the writer takes it, at layout. The pages of
+/// an encrypted column are sealed (modules), for the row group of ordinal <see cref="SealedGroup"/> (-1: not sealed).
 /// </summary>
 internal readonly record struct FinishedChunk(
     ReadOnlyMemory<byte> DictionaryPage, NativeBufferWriter? DictionaryOwner, IReadOnlyList<ReadOnlyMemory<byte>> DataPages, long DataPagesLength, long UncompressedSize,
     ParquetEncoding[] Encodings, PageEncodingStats[] EncodingStats, Statistics? Statistics, long Values, ColumnIndex? ColumnIndex,
-    OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, NativeBufferWriter? BloomFilter, PageJob[] Pages,
-    NativeByteBuffer? SealedOwner = null, int SealedGroup = -1)
+    OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, NativeBufferWriter? BloomFilter, PageJob[] Pages, int SealedGroup)
 {
     public long CompressedSize => DictionaryPage.Length + DataPagesLength;
 
@@ -41,7 +41,6 @@ internal readonly record struct FinishedChunk(
     {
         foreach (PageJob page in Pages) page.Release();
         DictionaryOwner?.Dispose();
-        SealedOwner?.Release();
     }
 
     /// <summary>Returns every buffer to the pool, the Bloom filter's too: a chunk that is never laid out.</summary>
@@ -102,6 +101,15 @@ internal abstract class ColumnWriter : IDisposable
     private int _defHistogramLength, _repHistogramLength;
     private long _chunkRows, _chunkUnencoded;
     private bool _indexable = true; // every page so far has bounds a column index can hold
+    private FileEncryptor? _encryptor; // an encrypted column: its pages are sealed as they are compressed
+    private string _path = "";
+    private int _column;
+
+    /// <summary>The ordinal of the row group this writer fills (an encrypted column's modules name it).</summary>
+    public int RowGroup { get; set; }
+
+    /// <summary>Seals this column's pages from now on with <paramref name="encryptor"/>, as column <paramref name="column"/> (<paramref name="path"/>).</summary>
+    public void UseEncryption(FileEncryptor encryptor, string path, int column) => (_encryptor, _path, _column) = (encryptor, path, column);
 
     /// <summary>The highest definition or repetition level a column may have (levels are kept a byte each).</summary>
     internal const int MaxLevel = byte.MaxValue;
@@ -313,7 +321,7 @@ internal abstract class ColumnWriter : IDisposable
             _dictionaryPage = new NativeBufferWriter(256);
         }
         return new FinishedChunk(dictionary?.WrittenMemory ?? default, dictionary, pages, _committedBytes, _uncompressed, [.. encodings], [.. stats], statistics, _chunkLevels,
-            columnIndex, offsetIndex, sizeStatistics, Bloom?.Finish(), owned);
+            columnIndex, offsetIndex, sizeStatistics, Bloom?.Finish(), owned, _encryptor is null ? -1 : RowGroup);
 
         static bool Listed(List<PageEncodingStats> stats, PageType type, ParquetEncoding encoding)
         {
@@ -558,6 +566,8 @@ internal abstract class ColumnWriter : IDisposable
         var job = new PageJob(_settings)
         {
             Record = new PageRecord(0, 0, _chunkRows, _pageNulls, count == 0, bounds, pageMin?.Length ?? -1, pageMax?.Length ?? -1, unencoded),
+            Seal = _encryptor?.ForChunk(_path, RowGroup, _column),
+            Ordinal = _pages.Count, // the chunk's data pages so far
         };
         NativeBufferWriter raw = job.Raw;
         raw.Reserve((int)Math.Min(Array.MaxLength / 2, PagePlainBytes + 2L * RleBitPackedEncoder.MaxBytes(_pageLevels, Math.Max(_defWidth, _repWidth)) + 16));
@@ -627,23 +637,10 @@ internal abstract class ColumnWriter : IDisposable
     /// <summary>Queues an encoded page for compression (a helper takes it when the budget allows) and keeps the queue short.</summary>
     private void Submit(PageJob job)
     {
-        job.Bound = 64 + PageCodecs.MaxCompressedLength(_settings.Codec, job.Raw.WrittenCount);
+        job.Bound = (job.Seal is null ? 64 : 128) + PageCodecs.MaxCompressedLength(_settings.Codec, job.Raw.WrittenCount); // header (and modules)
         _pages.Add(job);
         _inFlightBound += job.Bound;
-        if (_settings.Budget is { Max: > 1 } budget && budget.TryEnter())
-        {
-            ThreadPool.UnsafeQueueUserWorkItem(static state =>
-            {
-                try
-                {
-                    if (state.Job.TryClaim()) state.Job.Run();
-                }
-                finally
-                {
-                    state.Budget.Exit();
-                }
-            }, (Job: job, Budget: budget), preferLocal: false);
-        }
+        if (_settings.Budget is { Max: > 1 } budget && budget.TryEnter()) job.Help(budget);
         int keep = _settings.Budget is { Max: > 1 } ? MaxInFlight : 0;
         while (_pages.Count - _committed > keep) CommitOldest();
     }
@@ -735,22 +732,42 @@ internal abstract class ColumnWriter : IDisposable
         WritePage(header, _dictionaryPage);
     }
 
-    /// <summary>Writes the header (with the body's checksum) and the body.</summary>
+    /// <summary>
+    /// Writes the header (with the body's checksum) and the body; an encrypted column's dictionary page as two modules
+    /// (the body sealed into scratch first: the header holds its size and checksum).
+    /// </summary>
     private void WritePage(PageHeader header, NativeBufferWriter output)
     {
-        if (_settings.Checksums) header = WithCrc(header, (int)Crc32.HashToUInt32(_body.WrittenSpan));
+        using ColumnEncryptor? seal = _encryptor?.ForChunk(_path, RowGroup, _column);
+        ReadOnlySpan<byte> body = _body.WrittenSpan;
+        if (seal is not null)
+        {
+            int length = seal.ModuleLength(ParquetModule.DictionaryPage, body.Length);
+            _values.ResetWrittenCount(); // the dictionary's plain values, compressed by now
+            seal.Encrypt(ParquetModule.DictionaryPage, -1, body, _values.GetSpan(length)[..length]);
+            _values.Advance(length);
+            body = _values.WrittenSpan;
+        }
+        header = With(header, body.Length, _settings.Checksums ? (int)Crc32.HashToUInt32(body) : null);
         ThriftCompactWriter thrift = ThriftCompactWriter.ThreadScratch(); // a writer of its own per column would live as long as the column
         header.Write(thrift);
-        output.Write(thrift.WrittenSpan);
-        output.Write(_body.WrittenSpan);
-        _uncompressed += thrift.WrittenSpan.Length + header.UncompressedPageSize;
+        int headerLength = thrift.WrittenSpan.Length;
+        if (seal is null) output.Write(thrift.WrittenSpan);
+        else
+        {
+            byte[] module = seal.Encrypt(ParquetModule.DictionaryPageHeader, -1, thrift.WrittenSpan);
+            output.Write(module);
+            headerLength = module.Length;
+        }
+        output.Write(body);
+        _uncompressed += headerLength + header.UncompressedPageSize;
     }
 
-    private static PageHeader WithCrc(PageHeader h, int crc) => new()
+    private static PageHeader With(PageHeader h, int compressed, int? crc) => new()
     {
         Type = h.Type,
         UncompressedPageSize = h.UncompressedPageSize,
-        CompressedPageSize = h.CompressedPageSize,
+        CompressedPageSize = compressed,
         Crc = crc,
         DataPageHeader = h.DataPageHeader,
         DictionaryPageHeader = h.DictionaryPageHeader,

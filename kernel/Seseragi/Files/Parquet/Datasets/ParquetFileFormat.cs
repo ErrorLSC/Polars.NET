@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Kaminari.Seseragi.Files.Parquet.Writing;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 

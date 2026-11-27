@@ -1,4 +1,5 @@
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Concurrency;
 using Kaminari.Sazanami.Network;
 
 namespace Kaminari.Seseragi.Files.Parquet;
@@ -16,6 +17,9 @@ internal sealed class ReadBudget(int parallelism, long bytes, int buffers, bool 
 
     /// <summary>The scheduler of the column decodes.</summary>
     public ConcurrentExclusiveSchedulerPair Schedulers { get; } = new(TaskScheduler.Default, Math.Max(1, parallelism));
+
+    /// <summary>The threads busy: the column decodes running, and the helpers reading their pages ahead.</summary>
+    public WorkBudget Work { get; } = new(Math.Max(1, parallelism));
 
     /// <summary>The scratch buffers (chunks fetched, pages decompressed) kept between units.</summary>
     public NativeBufferPool Buffers { get; } = new(buffers);

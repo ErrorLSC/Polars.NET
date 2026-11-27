@@ -1,5 +1,7 @@
 using System.IO.Hashing;
+using System.Runtime.ExceptionServices;
 using Kaminari.Sazanami.Buffers;
+using Kaminari.Sazanami.Concurrency;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
 using Kaminari.Seseragi.Files.Parquet.Encryption;
@@ -10,15 +12,29 @@ namespace Kaminari.Seseragi.Files.Parquet.Reading;
 /// <summary>A page of a column chunk, uncompressed: for a data page v2, its levels followed by its values.</summary>
 internal readonly record struct Page(PageHeader Header, ReadOnlyMemory<byte> Body);
 
+/// <summary>Memory for a page's decompressed body, valid until the next page.</summary>
+internal interface IPageMemory
+{
+    Memory<byte> Take(int bytes);
+}
+
 /// <summary>
 /// Walks the pages of one column chunk: parses each header, checks sizes and, when asked, the CRC, and decompresses
 /// the page into a scratch buffer that the next page reuses. The chunk is either in memory (fetched, or a slice of a
 /// source that lives in memory) or read from a local file as it goes, through a window of about a megabyte that the
 /// pages reuse: each page is then read once from the page cache into memory the caches still hold when it is decoded,
 /// instead of the whole row group going through main memory twice. A page's body is valid until the next page.
+/// <para>
+/// A chunk read whole, in order, may read ahead (<see cref="UseReadAhead"/>): the next pages' headers are parsed as
+/// before, and their bodies read, checked, decrypted and decompressed by helpers on threads the budget leaves, while
+/// the column decodes the page before; the pages are taken in order, and a failure surfaces at the page it concerns.
+/// </para>
 /// </summary>
-internal sealed class PageReader : IDisposable
+internal sealed class PageReader : IDisposable, IPageMemory
 {
+    /// <summary>The pages read ahead at most (each one's stored and decompressed bytes held until taken).</summary>
+    internal const int AheadPages = 4;
+
     /// <summary>The bytes read ahead from a file at once (more when a page is larger).</summary>
     internal const int ReadAhead = 1 << 20;
 
@@ -44,6 +60,30 @@ internal sealed class PageReader : IDisposable
     private int _dataOrdinal;           // read in order: the ordinal of the next data page (in the AAD of its modules)
     private int _headerOrdinal;         // the ordinal of the page whose header was parsed last
     private NativeByteBuffer? _plainHeader, _plainPage; // decrypted header and page body
+    private WorkBudget? _aheadBudget;   // reading ahead: the threads helpers may take
+    private Queue<Ahead>? _ahead;       // the pages read ahead, in order
+    private readonly Stack<Ahead> _spareAhead = [];
+    private Ahead? _current;            // the page read ahead that TryNext returned last (its body is valid until the next call)
+    private bool _aheadStopped;         // a header could not be parsed ahead: its failure waits in the last page queued
+    private bool _headerAhead;          // parsing the header of a page read ahead (the window then holds no more)
+
+    /// <summary>
+    /// Reads ahead from now on, with helpers on the thread pool holding threads of <paramref name="budget"/> (shared
+    /// with the decodes: never more busy than it allows): for a chunk read whole and in order (never by the offset
+    /// index, nor skipping pages); not while fuzzing (pages then end at guard pages).
+    /// </summary>
+    public void UseReadAhead(WorkBudget budget)
+    {
+        if (_index is not null || GuardedMemory.Enabled || budget.Max <= 1) return;
+        _aheadBudget = budget;
+        _ahead = new Queue<Ahead>(AheadPages);
+    }
+
+    /// <summary>Whether pages are read ahead (for tests).</summary>
+    internal bool ReadsAhead => _ahead is not null;
+
+    /// <summary>The pages read ahead by helpers or by the reader itself (for tests).</summary>
+    internal int PagesReadAhead { get; private set; }
 
     /// <summary>
     /// Decrypts the chunk's headers and pages with <paramref name="crypto"/> from now on (Parquet modular encryption);
@@ -152,7 +192,7 @@ internal sealed class PageReader : IDisposable
     }
 
     /// <summary>Whether bytes remain after the pages read so far.</summary>
-    public bool HasMore => _position < _length;
+    public bool HasMore => _ahead?.Count > 0 || _position < _length;
 
     /// <summary>
     /// Chunk bytes [<paramref name="from"/>, + <paramref name="count"/>), clipped to the chunk: a slice of the chunk
@@ -166,7 +206,8 @@ internal sealed class PageReader : IDisposable
         if (_source is null) return _chunk.Slice((int)from, (int)count);
         if (from < _windowStart || from + count > _windowEnd)
         {
-            long length = Math.Min(Math.Max(count, ReadAhead), Math.Max(ReadLimit(from), from + count) - from);
+            // A header parsed for a page read ahead: its helper reads the body itself, so only the header is read.
+            long length = Math.Min(Math.Max(count, _headerAhead ? 0 : ReadAhead), Math.Max(ReadLimit(from), from + count) - from);
             _window ??= _pool?.Rent(length) ?? new NativeByteBuffer(0, pooled: true);
             _window.EnsureCapacity(length);
             if (_source.ReadAt(_sourceStart + from, _window.Span[..(int)length]) != length)
@@ -190,6 +231,13 @@ internal sealed class PageReader : IDisposable
     /// <exception cref="ParquetFormatException">The header is damaged.</exception>
     public bool TryPeek(out PageHeader header)
     {
+        if (_ahead is not null)
+        {
+            // Skipping pages reads in order from here on: pages already read ahead cannot be peeked at.
+            if (_ahead.Count > 0) throw new InvalidOperationException("Pages read ahead are taken in order, not peeked at.");
+            Recycle();
+            _ahead = null;
+        }
         if (_peeked is null)
         {
             if (_position >= _length)
@@ -256,7 +304,7 @@ internal sealed class PageReader : IDisposable
         if (_crypto is not null) return ParseEncryptedHeader(out headerLength, within);
         // From a file, the header is parsed from the first 64 KiB, then (headers with large statistics) from more,
         // up to the rest of the chunk, which is what a chunk in memory offers at once.
-        long rest = Math.Min(_length - _position, within), offered = _source is null ? rest : Math.Min(rest, 64 * 1024);
+        long rest = Math.Min(_length - _position, within), offered = _source is null ? rest : Math.Min(rest, _headerAhead ? 1024 : 64 * 1024);
         while (true)
         {
             try
@@ -336,6 +384,19 @@ internal sealed class PageReader : IDisposable
     /// <exception cref="ParquetFormatException">A header or size is damaged, a CRC does not match, or decompression fails.</exception>
     public bool TryNext(out Page page)
     {
+        if (_ahead is not null && _peeked is null)
+        {
+            Recycle();
+            TopUp();
+            if (_ahead.TryDequeue(out Ahead? next))
+            {
+                _current = next; // its body is the page's until the next call
+                next.Complete();
+                if (next.Header.Type is PageType.DataPage or PageType.DataPageV2) DataPagesRead++;
+                page = new Page(next.Header, next.Body);
+                return true;
+            }
+        }
         page = default;
         PageHeader header;
         int headerLength;
@@ -366,33 +427,34 @@ internal sealed class PageReader : IDisposable
         }
 
         if (header.Type is PageType.DataPage or PageType.DataPageV2) DataPagesRead++;
-        page = new Page(header, header.Type switch
-        {
-            PageType.DataPageV2 => BodyV2(header, stored),
-            PageType.DataPage or PageType.DictionaryPage => Decompress(stored, uncompressed),
-            _ => ReadOnlyMemory<byte>.Empty, // index pages and page types from the future: skipped by the caller
-        });
+        page = new Page(header, BodyOf(header, stored, _codec, this));
         return true;
     }
 
-    private ReadOnlyMemory<byte> Decompress(ReadOnlyMemory<byte> stored, int uncompressed)
+    /// <summary>The scratch buffer; while fuzzing, a block ending at a guard page.</summary>
+    Memory<byte> IPageMemory.Take(int bytes) =>
+        GuardedMemory.Enabled ? Guard(ref _guardedBody, new GuardedMemory.Block(bytes)).Memory : Scratch(bytes).Memory[..bytes];
+
+    /// <summary>A page's body as decoders take it (decompressed, a v2 page's levels first) from its stored bytes.</summary>
+    private static ReadOnlyMemory<byte> BodyOf(PageHeader header, ReadOnlyMemory<byte> stored, CompressionCodec codec, IPageMemory memory) => header.Type switch
+    {
+        PageType.DataPageV2 => BodyV2(header, stored, codec, memory),
+        PageType.DataPage or PageType.DictionaryPage => Decompress(stored, header.UncompressedPageSize, codec, memory),
+        _ => ReadOnlyMemory<byte>.Empty, // index pages and page types from the future: skipped by the caller
+    };
+
+    private static ReadOnlyMemory<byte> Decompress(ReadOnlyMemory<byte> stored, int uncompressed, CompressionCodec codec, IPageMemory memory)
     {
         if (stored.IsEmpty && uncompressed == 0) return ReadOnlyMemory<byte>.Empty; // an empty page: nothing to decompress
-        if (_codec == CompressionCodec.Uncompressed)
+        if (codec == CompressionCodec.Uncompressed)
         {
             if (stored.Length != uncompressed)
                 throw new ParquetFormatException($"An uncompressed page holds {stored.Length} bytes; its header says {uncompressed}.");
             return stored;
         }
-        if (GuardedMemory.Enabled)
-        {
-            GuardedMemory.Block body = Guard(ref _guardedBody, new GuardedMemory.Block(uncompressed));
-            PageCodecs.Decompress(_codec, stored.Span, body.GetSpan());
-            return body.Memory;
-        }
-        NativeByteBuffer scratch = Scratch(uncompressed);
-        PageCodecs.Decompress(_codec, stored.Span, scratch.Span[..uncompressed]);
-        return scratch.Memory[..uncompressed];
+        Memory<byte> body = memory.Take(uncompressed);
+        PageCodecs.Decompress(codec, stored.Span, body.Span);
+        return body;
     }
 
     /// <summary>Puts <paramref name="block"/> in <paramref name="slot"/>, unmapping the block it held.</summary>
@@ -404,7 +466,7 @@ internal sealed class PageReader : IDisposable
     }
 
     /// <summary>A data page v2: levels are never compressed; values are unless <c>is_compressed</c> is false or there are none.</summary>
-    private ReadOnlyMemory<byte> BodyV2(PageHeader header, ReadOnlyMemory<byte> stored)
+    private static ReadOnlyMemory<byte> BodyV2(PageHeader header, ReadOnlyMemory<byte> stored, CompressionCodec codec, IPageMemory memory)
     {
         DataPageHeaderV2 v2 = header.DataPageHeaderV2 ?? throw new ParquetFormatException("A DATA_PAGE_V2 has no data_page_header_v2.");
         int levels = v2.RepetitionLevelsByteLength + v2.DefinitionLevelsByteLength;
@@ -412,29 +474,148 @@ internal sealed class PageReader : IDisposable
             throw new ParquetFormatException("A DATA_PAGE_V2 gives level lengths beyond the page.");
         int values = header.UncompressedPageSize - levels;
         ReadOnlyMemory<byte> storedValues = stored[levels..];
-        if (_codec == CompressionCodec.Uncompressed || !v2.IsCompressed || (storedValues.IsEmpty && values == 0))
+        if (codec == CompressionCodec.Uncompressed || !v2.IsCompressed || (storedValues.IsEmpty && values == 0))
         {
             // Some writers flag compression on pages without value bytes; there is nothing to decompress then.
             if (storedValues.Length != values)
                 throw new ParquetFormatException($"A DATA_PAGE_V2 holds {storedValues.Length} value bytes; its header says {values}.");
             return stored;
         }
-        if (GuardedMemory.Enabled)
+        Memory<byte> body = memory.Take(header.UncompressedPageSize);
+        stored.Span[..levels].CopyTo(body.Span);
+        PageCodecs.Decompress(codec, storedValues.Span, body.Span[levels..]);
+        return body;
+    }
+
+    /// <summary>The page read ahead that was returned last goes back to the spares (its body is no longer the caller's).</summary>
+    private void Recycle()
+    {
+        if (_current is null) return;
+        _spareAhead.Push(_current);
+        _current = null;
+    }
+
+    /// <summary>
+    /// Queues the next pages, up to <see cref="AheadPages"/>, each with a helper while the budget leaves threads: its
+    /// header parsed here (the next one's position depends on it), the rest by the helper (or by the reader, when it
+    /// needs the page before a helper took it).
+    /// </summary>
+    private void TopUp()
+    {
+        Queue<Ahead> ahead = _ahead!;
+        WorkBudget budget = _aheadBudget!;
+        while (ahead.Count < AheadPages && !_aheadStopped && _position < _length && budget.TryEnter())
         {
-            GuardedMemory.Block guarded = Guard(ref _guardedBody, new GuardedMemory.Block(header.UncompressedPageSize));
-            stored.Span[..levels].CopyTo(guarded.GetSpan());
-            PageCodecs.Decompress(_codec, storedValues.Span, guarded.GetSpan()[levels..]);
-            return guarded.Memory;
+            Ahead next = _spareAhead.TryPop(out Ahead? spare) ? spare : new Ahead(this);
+            ahead.Enqueue(next);
+            PagesReadAhead++;
+            try
+            {
+                _headerAhead = true;
+                PageHeader header = ParseHeader(out int headerLength);
+                _headerAhead = false;
+                int compressed = CompressedSize(header, headerLength);
+                long start = _position + headerLength;
+                next.Prepare(header, _headerOrdinal, start, compressed, _source is null ? Bytes(start, compressed) : default);
+                _position = start + compressed;
+                if (_crypto is not null) Passed(header);
+            }
+            catch (Exception e)
+            {
+                _headerAhead = false;
+                // Thrown where the page is taken, as reading in order would: a chunk read to its last value never
+                // reaches what lies past it.
+                next.Prepare(null!, 0, 0, 0, default, e);
+                _aheadStopped = true;
+                budget.Exit();
+                return;
+            }
+            next.Help(budget);
         }
-        NativeByteBuffer scratch = Scratch(header.UncompressedPageSize);
-        Span<byte> body = scratch.Span[..header.UncompressedPageSize];
-        stored.Span[..levels].CopyTo(body);
-        PageCodecs.Decompress(_codec, storedValues.Span, body[levels..]);
-        return scratch.Memory[..header.UncompressedPageSize];
+    }
+
+    /// <summary>
+    /// A page read ahead: its stored bytes (in memory, or read from the file by whoever runs it), checked against the
+    /// CRC, decrypted (with a decryptor of its own: helpers run side by side) and decompressed into buffers of its own,
+    /// reused by the next page it holds.
+    /// </summary>
+    private sealed class Ahead(PageReader reader) : ClaimedWork, IPageMemory
+    {
+        private long _start;
+        private int _length, _ordinal;
+        private ReadOnlyMemory<byte> _stored; // in memory; empty: read from the file
+        private Exception? _failure;
+        private NativeByteBuffer? _input, _plain, _output;
+        private ColumnDecryptor? _crypto;
+
+        public PageHeader Header { get; private set; } = null!;
+
+        /// <summary>The page's body, once done.</summary>
+        public ReadOnlyMemory<byte> Body { get; private set; }
+
+        /// <summary>The page to read next (or, with <paramref name="failure"/>, one that failed before its header was known: taking it throws).</summary>
+        public void Prepare(PageHeader header, int ordinal, long start, int length, ReadOnlyMemory<byte> stored, Exception? failure = null)
+        {
+            (Header, _ordinal, _start, _length, _stored, _failure, Body) = (header, ordinal, start, length, stored, failure, default);
+            Reset(); // last: from here on a helper may run it
+        }
+
+        protected override void Execute()
+        {
+            if (_failure is { } failure) ExceptionDispatchInfo.Throw(failure);
+            ReadOnlyMemory<byte> stored = _stored;
+            bool own = false;
+            if (reader._source is { } source)
+            {
+                _input = Buffer(_input, _length);
+                if (source.ReadAt(reader._sourceStart + _start, _input.Span[.._length]) != _length)
+                    throw new ParquetFormatException("The file ends inside a column chunk.");
+                stored = _input.Memory[.._length];
+                own = true;
+            }
+            if (reader._verifyChecksums && Header.Crc is int crc && Crc32.HashToUInt32(stored.Span) != unchecked((uint)crc))
+                throw new ParquetFormatException($"A {Header.Type} page fails its CRC check.");
+            if (reader._crypto is { } shared && Header.Type is PageType.DataPage or PageType.DataPageV2 or PageType.DictionaryPage)
+            {
+                _crypto ??= shared.Fork();
+                ParquetModule type = Header.Type == PageType.DictionaryPage ? ParquetModule.DictionaryPage : ParquetModule.DataPage;
+                int length = _crypto.PlainLength(type, stored.Span);
+                // Decrypted in place in a buffer of its own (the plaintext where the ciphertext lies), else into another.
+                Memory<byte> plain = own ? _input!.Memory.Slice(ModuleCipher.PlainOffset, length) : (_plain = Buffer(_plain, length)).Memory[..length];
+                if (!_crypto.TryDecrypt(type, _ordinal, stored.Span, plain.Span)) throw _crypto.WrongKey();
+                stored = plain;
+            }
+            Body = BodyOf(Header, stored, reader._codec, this);
+        }
+
+        Memory<byte> IPageMemory.Take(int bytes) => (_output = Buffer(_output, bytes)).Memory[..bytes];
+
+        private NativeByteBuffer Buffer(NativeByteBuffer? buffer, int bytes)
+        {
+            buffer ??= reader._pool?.Rent(bytes) ?? new NativeByteBuffer(0, pooled: true);
+            buffer.EnsureCapacity(Math.Max(bytes, 1));
+            return buffer;
+        }
+
+        /// <summary>Lets the page go (never run when no helper took it, else waited for), then its buffers.</summary>
+        public void Release()
+        {
+            Drop();
+            reader.Return(ref _input);
+            reader.Return(ref _plain);
+            reader.Return(ref _output);
+            _crypto?.Dispose();
+            _crypto = null;
+        }
     }
 
     public void Dispose()
     {
+        // The pages read ahead first: helpers may still be reading into their buffers.
+        while (_ahead?.TryDequeue(out Ahead? ahead) == true) ahead.Release();
+        _current?.Release();
+        _current = null;
+        while (_spareAhead.TryPop(out Ahead? spare)) spare.Release();
         Return(ref _scratch);
         Return(ref _window);
         Return(ref _plainHeader);

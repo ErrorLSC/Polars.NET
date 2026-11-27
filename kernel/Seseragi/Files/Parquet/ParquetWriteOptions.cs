@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Apache.Arrow.Types;
 
 using Kaminari.Seseragi.Files.Parquet.Writing;
+using Kaminari.Sazanami.Concurrency;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
