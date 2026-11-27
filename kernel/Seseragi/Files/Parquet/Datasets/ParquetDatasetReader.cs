@@ -310,6 +310,89 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>Reads the batches as an Arrow stream (each batch disposed when the next is read).</summary>
     public Apache.Arrow.Ipc.IArrowArrayStream ReadArrowStream() => new ParquetReader.OwningBatchStream(Schema, ReadBatches());
 
+    /// <summary>
+    /// The number of rows <see cref="ReadBatches"/> delivers. Without a filter over the files' columns (one over
+    /// partition columns only decides which files are read) it comes from the footers (the row groups' counts, or the
+    /// rows <see cref="ParquetDatasetFile.Rows"/> selects), up to <see cref="ParquetReadOptions.MaxRows"/>: no data is
+    /// read. Otherwise the rows are read and counted, the filter's columns only.
+    /// </summary>
+    /// <exception cref="ParquetFormatException">A file is damaged or is not a Parquet file (the message names it).</exception>
+    /// <exception cref="FileNotFoundException">A file named does not exist.</exception>
+    public long CountRows() => CountRowsAsync(useAsync: false, default).AsTask().GetAwaiter().GetResult();
+
+    /// <inheritdoc cref="CountRows"/>
+    public ValueTask<long> CountRowsAsync(CancellationToken cancellationToken = default) => CountRowsAsync(useAsync: true, cancellationToken);
+
+    private async ValueTask<long> CountRowsAsync(bool useAsync, CancellationToken cancellationToken)
+    {
+        if (_shape.RowFilter is { } filter) return await CountReadAsync(filter, useAsync, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<ParquetDatasetFile> files = _dataset.Files;
+        ParquetDatasetFile[] all = [.. files];
+        var footers = new ParquetMetadata?[files.Count];
+        long rows = 0;
+        // Without a limit, every footer at once (FootersAtOnce in flight); with one, in file order a window at a time:
+        // a limit reached reads no footer of the files after it.
+        int window = _options.MaxRows is null ? Math.Max(1, files.Count) : ParquetDataset.FootersAtOnce;
+        for (int start = 0; start < files.Count && !(rows >= _options.MaxRows); start += window)
+        {
+            int end = Math.Min(files.Count, start + window);
+            bool[] needed = new bool[files.Count];
+            for (int i = start; i < end; i++)
+            {
+                if (_read[i] && (footers[i] = _dataset.Footer(i)) is null) needed[i] = true;
+            }
+            if (needed.Contains(true))
+            {
+                ValueTask reading = ParquetDataset.ReadFootersAsync(_dataset.Store, all, footers, _dataset.Footers, _dataset.Interner, _dataset.Options.Decryption,
+                    cancellationToken, needed);
+                if (useAsync) await reading.ConfigureAwait(false);
+                else reading.AsTask().GetAwaiter().GetResult();
+            }
+            for (int i = start; i < end; i++)
+            {
+                if (!_read[i]) continue;
+                long total = RowCount(footers[i]!);
+                if (files[i].Rows is { } selected)
+                {
+                    if (selected.End > total)
+                        throw new ArgumentOutOfRangeException("options", $"{PathOf(i)}: the rows selected reach row {selected.End - 1}; the file has {total} rows.");
+                    total = selected.RowCount;
+                }
+                rows += total;
+            }
+        }
+        return _options.MaxRows is long most ? Math.Min(rows, most) : rows;
+
+        // As a file's reader numbers rows (its row groups' counts).
+        static long RowCount(ParquetMetadata footer) =>
+            footer.Thrift is { } thrift ? thrift.RowGroups.Sum(g => Math.Max(0, g.NumRows)) : footer.RowGroups.Sum(g => Math.Max(0, g.RowCount));
+    }
+
+    /// <summary>The rows a read delivers, counted by reading one column the filter reads (late materialization reads no other).</summary>
+    private async ValueTask<long> CountReadAsync(ScalarExpr filter, bool useAsync, CancellationToken cancellationToken)
+    {
+        string? column = ScalarExprOps.collectColumns(filter).FirstOrDefault(FromFiles)
+            ?? _dataset.FileSchema.FieldsList.Select(f => f.Name).FirstOrDefault(FromFiles);
+        var reader = new ParquetDatasetReader(_dataset, _options with { Columns = column is null ? null : [column], ColumnPaths = null, RowIndexColumn = null });
+        long rows = 0;
+        if (useAsync)
+        {
+            await foreach (RecordBatch batch in reader.ReadBatchesAsync(cancellationToken).ConfigureAwait(false)) rows += Counted(batch);
+        }
+        else
+        {
+            foreach (RecordBatch batch in reader.ReadBatches()) rows += Counted(batch);
+        }
+        return rows;
+
+        bool FromFiles(string name) => _shape.Columns.ContainsKey(name) && !(_dataset.Partitions?.IndexOf(name) >= 0);
+
+        static long Counted(RecordBatch batch)
+        {
+            using (batch) return batch.Length;
+        }
+    }
+
     /// <summary>Nothing is held between reads.</summary>
     public void Dispose() { }
 

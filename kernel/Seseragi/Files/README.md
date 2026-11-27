@@ -76,6 +76,9 @@ values numbered as first seen, indices of the type the given `Schema` declares (
 it reaches are an error), each batch carrying the dictionary as it then is (row groups' and files' dictionaries alike). Filters prune each file on its own types; columns it
 lacks become nulls folded into the filter; conjuncts over lossily converted columns do not prune; where a file's own
 filtering cannot be exact the dataset filters its rows after converting, so `FiltersExactly` holds across files.
+`CountRows` / `CountRowsAsync` give the rows a read delivers: from the footers (row groups' counts, rows selected,
+`MaxRows`, footers read only until it is reached) when no filter over the files' columns is given, else by reading
+the rows and counting them.
 Files are read in order with the reader options; with several threads the row groups of several files decode side
 by side ahead of the consumer, on one scheduler and within one reader's in-flight memory (the row group waited for
 always starts), files opened and planned ahead (`MaxFilesInFlight`; by default enough to keep the threads busy,

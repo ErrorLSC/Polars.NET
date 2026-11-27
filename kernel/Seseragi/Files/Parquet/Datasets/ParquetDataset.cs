@@ -315,14 +315,17 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         return new ParquetDataset(store, options, files, kept, interner, firstFooter, schema, partitions);
     }
 
-    /// <summary>Reads the footers of the files (those not given or already there), <see cref="FootersAtOnce"/> at a time.</summary>
-    private static async ValueTask ReadFootersAsync(IFileStore store, ParquetDatasetFile[] files, ParquetMetadata?[] footers, KeptFooters kept, FooterInterner interner,
-        ParquetDecryptionOptions? decryption, CancellationToken ct)
+    /// <summary>
+    /// Reads the footers of the files (those not given or already there; of those <paramref name="needed"/> marks when
+    /// given), <see cref="FootersAtOnce"/> at a time.
+    /// </summary>
+    internal static async ValueTask ReadFootersAsync(IFileStore store, ParquetDatasetFile[] files, ParquetMetadata?[] footers, KeptFooters kept, FooterInterner interner,
+        ParquetDecryptionOptions? decryption, CancellationToken ct, IReadOnlyList<bool>? needed = null)
     {
         await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = FootersAtOnce, CancellationToken = ct },
             async (i, token) =>
             {
-                if (footers[i] is not null) return;
+                if (footers[i] is not null || needed?[i] == false) return;
                 if (files[i].Metadata is { } known)
                 {
                     footers[i] = known;

@@ -241,6 +241,12 @@ internal sealed class DatasetShape
     /// </summary>
     public bool FiltersExactly { get; }
 
+    /// <summary>
+    /// The conjuncts of the filter not decided per file (null when none): those that prune row groups and pages, and
+    /// with rows filtered leave rows out, so that the rows delivered are not the files' counts.
+    /// </summary>
+    public ScalarExpr? RowFilter => _rowFilter;
+
     /// <summary>Whether the dataset filters some files' rows after converting them (where their own filtering is not exact).</summary>
     public bool FiltersAfter => _program is not null;
 

@@ -41,15 +41,17 @@ internal static class ManagedScans
     /// consumes it, a later one fails with an error saying so.</param>
     /// <param name="engineOnly">Columns the reader takes no filter over (a row index it numbers itself, as an input
     /// column).</param>
+    /// <param name="count">The rows a run delivers, counted without reading what need not be read (a footer's row
+    /// counts); null counts the rows of a read of one column.</param>
     public static LazyFrameHandle Open(string name, ulong fingerprint, Scan scan, string? rowIndex,
         Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, IDisposable owner,
-        bool filters = true, bool singlePass = false, IReadOnlyList<string>? engineOnly = null)
+        bool filters = true, bool singlePass = false, IReadOnlyList<string>? engineOnly = null, Func<ScanRun, long>? count = null)
     {
         var shared = new SharedOwner(owner);
         ManagedScanResolver resolver;
         try
         {
-            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, filters ? appliesExactly : null,
+            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, count, filters ? appliesExactly : null,
                 singlePass ? new Consumable(name) : null, shared, engineOnly ?? []);
         }
         catch
@@ -160,7 +162,8 @@ internal static class ManagedScans
     }
 
     private sealed class ManagedScanResolver(string name, ulong fingerprint, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool>? appliesExactly, Consumable? consumable, SharedOwner owner,
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScanRun, long>? count, Func<ScalarExpr, bool>? appliesExactly, Consumable? consumable,
+        SharedOwner owner,
         IReadOnlyList<string> engineOnly)
         : ScanResolver(name, fingerprint, scan.Schema)
     {
@@ -176,7 +179,8 @@ internal static class ManagedScans
                 .Add(filter is null ? null : request.Filters.Select(f => f.Document).ToList())
                 .Add(request.Limit ?? -1)
                 .Value;
-            var builder = new ManagedScanBuilder($"{Name} reader", print, schema, scan, rowIndex, read, consumable, owner.Acquire(), request.Limit, filter);
+            var builder = new ManagedScanBuilder($"{Name} reader", print, schema, scan, rowIndex, read, count, consumable, owner.Acquire(), request.Limit,
+                filter);
             return new ScanPlan([Name], builder, applied);
         }
 
@@ -184,7 +188,8 @@ internal static class ManagedScans
     }
 
     private sealed class ManagedScanBuilder(string name, ulong fingerprint, Schema schema, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, Consumable? consumable, SharedOwner owner, long? limit, ScalarExpr? filter)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScanRun, long>? count, Consumable? consumable, SharedOwner owner, long? limit,
+        ScalarExpr? filter)
         : ScanReaderBuilder(name, fingerprint, schema)
     {
         public override IReadOnlyList<KeyValuePair<string, string>> Explain =>
@@ -205,7 +210,9 @@ internal static class ManagedScans
 
         private Consumable? Consumable => consumable;
 
-        private ScanRun Run(string[] columns, bool indexed) => new(columns, indexed, limit, filter);
+        private Func<ScanRun, long>? Count => count;
+
+        private ScanRun Run(string[]? columns, bool indexed) => new(columns, indexed, limit, filter);
 
         private sealed class Execution(ManagedScanBuilder builder) : ScanExecution
         {
@@ -218,6 +225,7 @@ internal static class ManagedScans
 
             public override long CountRows()
             {
+                if (builder.Count is { } count && builder.Consumable is null) return count(builder.Run(null, indexed: false));
                 // One column of the input is enough to count the rows a read delivers (a single-pass input is
                 // consumed by the count: the engine asks for the count when it reads no column).
                 Field? first = Schema.FieldsList.FirstOrDefault(f => f.Name != builder.RowIndex);

@@ -67,7 +67,8 @@ public static class ManagedParquet
             .Add("parquet").Add(path).Add(settings).Add(scan.Schema).Add(rowIndexName).Add((long)rowIndexOffset).Add(includePathColumn)
             .Add((long)hivePartitioning)
             .Value;
-        return ManagedScans.Open($"parquet[{ManagedScans.Shown(path)}]", fingerprint, scan, rowIndexName, Batches, Exactly, new Owners(dataset, owner));
+        return ManagedScans.Open($"parquet[{ManagedScans.Shown(path)}]", fingerprint, scan, rowIndexName, Batches, Exactly, new Owners(dataset, owner),
+            count: Count);
 
         IEnumerable<RecordBatch> Batches(ScanRun run)
         {
@@ -81,6 +82,19 @@ public static class ManagedParquet
                 FilterRows = run.Filter is not null,
             });
             foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+        }
+
+        // From the footers when no row is filtered (a count reads no column).
+        long Count(ScanRun run)
+        {
+            using ParquetDatasetReader reader = dataset.OpenReader(new ParquetReadOptions
+            {
+                MaxRows = run.Limit,
+                MaxDegreeOfParallelism = threads,
+                Filter = run.Filter,
+                FilterRows = run.Filter is not null,
+            });
+            return reader.CountRows();
         }
 
         bool Exactly(ScalarExpr filter)
