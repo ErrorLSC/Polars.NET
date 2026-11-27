@@ -1,4 +1,3 @@
-use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans};
 use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::pl_io::ffi_buffer::FfiBuffer;
@@ -44,7 +43,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet(
 ) {
     ffi_try_void!({
         let ctx = unsafe { Box::from_raw(lf_ptr) };
-        let lf = resolve_anonymous_scans(ctx.inner, AnonymousScanMode::Spool)?;
+        let lf = ctx.inner;
 
         let path_str = ptr_to_str(path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
 
@@ -170,7 +169,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet_partitioned(
             )
         };
 
-        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
+        let _ = lf_ctx.inner
             .sink(destination, file_format, unified_args)?
             .collect()?;
 
@@ -210,7 +209,7 @@ fn sink_parquet_to(
         sinked_paths_callback:None
     };
 
-    let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
+    let _ = lf_ctx.inner
         .sink(destination, file_format, unified_args)?
         .collect()?;
     Ok(())

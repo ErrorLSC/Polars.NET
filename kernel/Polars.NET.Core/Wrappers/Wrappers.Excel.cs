@@ -110,7 +110,7 @@ public readonly partial struct PolarsWrapper
         Schema arrowSchema;
         using (var probe = ExcelReader.Open(path, options)) arrowSchema = probe.Schema;
         if (arrowSchema.FieldsList.Count == 0) { using var empty = DataFrameNew([]); return DataFrameToLazy(empty); }
-        return ArrowStreamInterop.ScanStream(Batches, arrowSchema, strict: true, name: $"excel[{IO.Plugins.ManagedScans.Shown(path)}]");
+        return ArrowStreamInterop.ScanStream(Batches, arrowSchema, name: $"excel[{IO.Plugins.ManagedScans.Shown(path)}]");
 
         // A query keeping leading rows gets them in a first batch of that size: the engine stops reading after it, so
         // the rest of the sheet is never parsed. The columns are all read (the engine keeps the requested ones): a

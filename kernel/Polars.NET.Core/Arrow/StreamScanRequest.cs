@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace Polars.NET.Core.Arrow;
 
 /// <summary>
@@ -13,16 +11,4 @@ public readonly record struct StreamScanRequest(string[]? Columns, long? RowLimi
 {
     /// <summary>Every column and every row.</summary>
     public static StreamScanRequest All => default;
-
-    /// <summary>The request from the engine's callback arguments (column count and row limit -1 mean all).</summary>
-    internal static unsafe StreamScanRequest FromNative(byte** columns, nint columnCount, long rowLimit)
-    {
-        string[]? names = null;
-        if (columnCount >= 0)
-        {
-            names = new string[columnCount];
-            for (int i = 0; i < names.Length; i++) names[i] = Marshal.PtrToStringUTF8((nint)columns[i])!;
-        }
-        return new(names, rowLimit >= 0 ? rowLimit : null);
-    }
 }

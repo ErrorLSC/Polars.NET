@@ -133,4 +133,17 @@ public class StreamScanSourceTests
     private sealed record Row(int Id, string G);
 
     private sealed record Wide(int Id, Int128 Signed, UInt128 Unsigned);
+
+    [Fact]
+    public void A_Buffered_Scan_Applies_Filters_Exactly()
+    {
+        using var lf = LazyFrame.ScanDatabaseBuffered(Table().CreateDataReader(), batchSize: 100);
+        using var q = lf.Filter((Pl.Col("Id") < 10) & (Pl.Col("G") == "b")).Select(Pl.Col("Id"));
+        string plan = q.Explain();
+        Assert.Contains("filters rows by", plan);
+        Assert.DoesNotContain("SELECTION:", plan);
+        Assert.DoesNotContain("FILTER", plan);
+        using var df = q.Collect();
+        Assert.Equal([1, 3, 5, 7, 9], Ids(df));
+    }
 }

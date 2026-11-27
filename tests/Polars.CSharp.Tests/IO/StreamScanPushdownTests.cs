@@ -39,7 +39,7 @@ public class StreamScanPushdownTests
         {
             using var reader = Table().CreateDataReader();
             Schema schema = reader.GetArrowSchema();
-            return new LazyFrame(ArrowStreamInterop.ScanStream(Open, schema, strict: true));
+            return new LazyFrame(ArrowStreamInterop.ScanStream(Open, schema));
         }
 
         private IEnumerable<RecordBatch> Open(StreamScanRequest request)

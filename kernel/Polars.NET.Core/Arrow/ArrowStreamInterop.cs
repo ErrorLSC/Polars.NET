@@ -18,124 +18,6 @@ namespace Polars.NET.Core.Arrow;
 /// </summary>
 public static unsafe class ArrowStreamInterop
 {
-    // Context Object
-    private class ScanContext
-    {
-        public Func<StreamScanRequest, IEnumerable<RecordBatch>> Factory = default!;
-        public Schema Schema = default!;
-        public List<IntPtr> AllocatedStreams = [];
-        /// <summary>What the scan's streams read from (a copy of the input, pinned memory, a store), released with the scan.</summary>
-        public IDisposable? Owner;
-    }
-
-    /// <summary>
-    /// Perpare lazy scan context，then return GCHandle pointed to context.
-    /// </summary>
-    public static void* CreateScanContext<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(IEnumerable<T> data, int batchSize, Schema schema)
-    {
-        var context = new ScanContext
-        {
-            Factory = _ => data.ToArrowBatches(batchSize),
-            Schema = schema
-        };
-
-        var gcHandle = GCHandle.Alloc(context);
-        return (void*)GCHandle.ToIntPtr(gcHandle);
-    }
-
-    // ---------------------------------------------------------
-    // Static Callback Delegate (for Rust callback)
-    // ---------------------------------------------------------
-
-    // Get steramfactory callback function pointer
-    public static delegate* unmanaged[Cdecl]<void*, byte**, nint, long, CArrowArrayStream*> GetFactoryCallback()
-    {
-        return &StreamFactoryCallbackStatic;
-    }
-
-    // Get destroy context callback function pointer
-    public static delegate* unmanaged[Cdecl]<void*, void> GetDestroyCallback()
-    {
-        return &DestroyScanContextStatic;
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static CArrowArrayStream* StreamFactoryCallbackStatic(void* userData, byte** columns, nint columnCount, long rowLimit)
-    {
-        try
-        {
-            // Resume Context
-            var handle = GCHandle.FromIntPtr((IntPtr)userData);
-            var context = (ScanContext)handle.Target!;
-
-            // Create: the engine says which columns and how many leading rows the query needs. The stream has
-            // exactly the requested columns, whatever the source gives.
-            var request = StreamScanRequest.FromNative(columns, columnCount, rowLimit);
-            var schema = request.Columns is { } names ? ArrowProjection.Select(context.Schema, names) : context.Schema;
-            var enumerable = context.Factory(request);
-            var rawEnumerator = enumerable.GetEnumerator();
-            var safeEnumerator = new SafeEnumerator<RecordBatch>(rawEnumerator);
-
-            // Alloc C Struct at Heap
-            var ptr = (CArrowArrayStream*)Marshal.AllocHGlobal(sizeof(CArrowArrayStream));
-
-            lock(context.AllocatedStreams)
-            {
-                context.AllocatedStreams.Add((IntPtr)ptr);
-            }
-
-            // Init Exporter and export
-            var exporter = new ArrowStreamExporter(safeEnumerator, schema)
-            {
-                SchemaExported = PatchWideIntegers,
-                SelectByName = request.Columns is not null,
-            };
-            exporter.Export(ptr);
-
-            return ptr;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Polars.NET Critical] Error in Stream Factory Callback: {ex}");
-            return null;
-        }
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void DestroyScanContextStatic(void* userData)
-    {
-        try
-        {
-            var ptr = (IntPtr)userData;
-            if (ptr == IntPtr.Zero) return;
-
-            var handle = GCHandle.FromIntPtr(ptr);
-            if (handle.IsAllocated)
-            {
-                var context = (ScanContext)handle.Target!;
-
-                if (context.AllocatedStreams != null)
-                {
-                    lock(context.AllocatedStreams)
-                    {
-                        foreach (var streamPtr in context.AllocatedStreams)
-                        {
-                            Marshal.FreeHGlobal(streamPtr);
-                        }
-                        context.AllocatedStreams.Clear();
-                    }
-                }
-
-                handle.Free();
-                context.Owner?.Dispose();
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Polars.NET Critical] Error in Destroy Callback: {ex}");
-        }
-    }
-
     // ---------------------------------------------------------
     // Eager Mode
     // ---------------------------------------------------------
@@ -174,34 +56,14 @@ public static unsafe class ArrowStreamInterop
         return ErrorHelper.Check(NativeBindings.pl_dataframe_new_from_stream_strict_type(&cStream));
     }
 
-    public static void* CreateDirectScanContext(
-        Func<StreamScanRequest, IEnumerable<RecordBatch>> factory,
-        Schema schema,
-        IDisposable? owner = null)
-    {
-        var context = new ScanContext
-        {
-            Factory = factory,
-            Schema = schema,
-            Owner = owner,
-        };
-
-        var gcHandle = GCHandle.Alloc(context);
-        return (void*)GCHandle.ToIntPtr(gcHandle);
-    }
-
     /// <summary>
-    /// Logic For Lazy Scan
+    /// A lazy scan of a stream opened each time the plan runs (any standard Arrow layout: the engine converts what it
+    /// takes), through the engine's I/O plugin bridge.
     /// </summary>
     /// <param name="streamFactory">Opens the stream each time the plan runs.</param>
     /// <param name="schema">The stream's schema.</param>
-    /// <param name="strict">True when the batches may use any standard Arrow layout (foreign data): every column is
-    /// converted by the engine. False only for batches already in the engine's physical layout (Sazanami's ArrowRowBuilder).</param>
-    public static LazyFrameHandle ScanStream(
-        Func<IEnumerable<RecordBatch>> streamFactory,
-        Schema schema,
-        bool strict = false)
-        => Scan(_ => streamFactory(), schema, buffered: false, strict);
+    public static LazyFrameHandle ScanStream(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema)
+        => Scan(_ => streamFactory(), schema);
 
     /// <summary>
     /// A lazy scan whose stream is opened for what the query needs: the columns it reads and the leading rows it
@@ -210,92 +72,62 @@ public static unsafe class ArrowStreamInterop
     /// </summary>
     /// <param name="streamFactory">Opens the stream for a request each time the plan runs.</param>
     /// <param name="schema">The stream's full schema.</param>
-    /// <param name="strict">As for <see cref="ScanStream(Func{IEnumerable{RecordBatch}}, Schema, bool)"/>.</param>
     /// <param name="name">Shown by explain (e.g. <c>excel[path]</c>; no secrets): <c>stream</c> when null.</param>
-    public static LazyFrameHandle ScanStream(
-        Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory,
-        Schema schema,
-        bool strict = false,
-        string? name = null)
-        => Scan(streamFactory, schema, buffered: false, strict, name: name);
+    public static LazyFrameHandle ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, string? name = null)
+        => Scan(streamFactory, schema, name: name);
 
     /// <summary>
-    /// As <see cref="ScanStream(Func{StreamScanRequest, IEnumerable{RecordBatch}}, Schema, bool)"/>, with what the streams
-    /// read from: <paramref name="owner"/> is disposed once the engine releases the scan (the last frame reading it, and
-    /// any query still running on it, done), or now when the scan cannot be made.
+    /// As <see cref="ScanStream(Func{StreamScanRequest, IEnumerable{RecordBatch}}, Schema, string)"/>, with what the
+    /// streams read from: <paramref name="owner"/> is disposed once the engine releases the scan (the last frame reading
+    /// it, and any query still running on it, done), or now when the scan cannot be made.
     /// </summary>
-    public static LazyFrameHandle ScanStream(
-        Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory,
-        Schema schema,
-        bool strict,
-        IDisposable owner)
-        => Scan(streamFactory, schema, buffered: false, strict, owner);
+    public static LazyFrameHandle ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, IDisposable owner)
+        => Scan(streamFactory, schema, owner);
 
     /// <summary>
-    /// A lazy scan of a source that can be read only once (a DataReader): the first run of the query reads it (a run
-    /// that counts the rows first reads it once too), a later run fails with an error saying so.
+    /// A lazy scan of a source that can be read only once (a DataReader): the first run of the query reads it (or
+    /// counts its rows), a later run fails with an error saying so.
     /// </summary>
     public static LazyFrameHandle ScanStreamOnce(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema)
-        => Scan(_ => streamFactory(), schema, buffered: false, strict: true, singlePass: true);
+        => Scan(_ => streamFactory(), schema, singlePass: true);
 
     /// <summary>
-    /// Reads the stream now into an anonymous temporary Arrow IPC file and scans that file. The engine owns the file:
-    /// it is removed when the last frame that scans it is released. The whole stream is read: the query is not
-    /// known yet.
+    /// Reads the stream now into an anonymous temporary Arrow IPC file in the engine's temporary directory and scans
+    /// that file (<see cref="IO.Plugins.SpooledScans"/>): any number of runs, the file removed when the last frame that
+    /// scans it is released. The whole stream is read: the query is not known yet.
     /// </summary>
-    public static LazyFrameHandle ScanStreamBuffered(
-        Func<IEnumerable<RecordBatch>> streamFactory,
-        Schema schema,
-        bool strict = false)
-        => Scan(_ => streamFactory(), schema, buffered: true, strict);
+    public static LazyFrameHandle ScanStreamBuffered(Func<IEnumerable<RecordBatch>> streamFactory, Schema schema)
+    {
+        if (schema.FieldsList.Count == 0) return Empty();
+        return IO.Plugins.SpooledScans.Open(streamFactory(), schema);
+    }
 
-    private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict,
+    private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema,
         IDisposable? owner = null, bool singlePass = false, string? name = null)
     {
         if (schema.FieldsList.Count == 0)
         {
-            // No columns (an empty input read as an empty frame): no rows either. Apache.Arrow cannot export a schema
-            // without fields, and nothing is left to read.
             owner?.Dispose();
-            using DataFrameHandle empty = PolarsWrapper.DataFrameNew([]);
-            return PolarsWrapper.DataFrameToLazy(empty);
+            return Empty();
         }
-        if (!buffered)
-        {
-            // The engine's I/O plugin: the stream opened for the columns and leading rows the query needs, each run.
-            var scan = new IO.ManagedFrames.Scan(schema, null, 0, null);
-            return IO.Plugins.ManagedScans.Open(name ?? "stream", IO.Plugins.ManagedScans.Identity(), scan, null,
-                run => streamFactory(new StreamScanRequest(Asked(run.Columns), run.Limit)), static _ => false, owner ?? NoOwner.Instance,
-                filters: false, singlePass: singlePass);
+        // The engine's I/O plugin: the stream opened for the columns and leading rows the query needs, each run.
+        var scan = new IO.ManagedFrames.Scan(schema, null, 0, null);
+        return IO.Plugins.ManagedScans.Open(name ?? "stream", IO.Plugins.ManagedScans.Identity(), scan, null,
+            run => streamFactory(new StreamScanRequest(Asked(run.Columns), run.Limit)), static _ => false, owner ?? NoOwner.Instance,
+            filters: false, singlePass: singlePass);
 
-            // Every column: null (a source gives all); else the columns in the schema's order.
-            string[]? Asked(string[]? columns) =>
-                columns is null || columns.Length == schema.FieldsList.Count && columns.All(c => schema.GetFieldIndex(c) >= 0)
-                    ? null
-                    : [.. schema.FieldsList.Select(static f => f.Name).Where(columns.Contains)];
-        }
-        var cSchema = CArrowSchema.Create();
-        try
-        {
-            try
-            {
-                CArrowSchemaExporter.ExportSchema(schema, cSchema);
-            }
-            catch
-            {
-                owner?.Dispose();
-                throw;
-            }
-            // The engine owns userData from here on and releases it through the destroy callback.
-            var userData = CreateDirectScanContext(streamFactory, schema, owner);
-            return buffered
-                ? PolarsWrapper.LazyFrameScanStreamBuffered(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData, strict)
-                : PolarsWrapper.LazyFrameScanStream(cSchema, GetFactoryCallback(), GetDestroyCallback(), userData, strict);
-        }
-        finally
-        {
-            CArrowSchema.Free(cSchema);
-        }
+        // Every column: null (a source gives all); else the columns in the schema's order.
+        string[]? Asked(string[]? columns) =>
+            columns is null || columns.Length == schema.FieldsList.Count && columns.All(c => schema.GetFieldIndex(c) >= 0)
+                ? null
+                : [.. schema.FieldsList.Select(static f => f.Name).Where(columns.Contains)];
+    }
+
+    // No columns (an empty input read as an empty frame): no rows either.
+    private static LazyFrameHandle Empty()
+    {
+        using DataFrameHandle empty = PolarsWrapper.DataFrameNew([]);
+        return PolarsWrapper.DataFrameToLazy(empty);
     }
 
     /// <summary>Nothing to release.</summary>
@@ -632,25 +464,6 @@ public static unsafe class ArrowStreamInterop
         }
 
         return (ctx.KeepAliveCallback, cleanup, userDataPtr);
-    }
-
-    private class SafeEnumerator<T>(IEnumerator<T> inner) : IEnumerator<T>
-    {
-        private readonly IEnumerator<T> _inner = inner;
-
-        public T Current => _inner.Current;
-        object System.Collections.IEnumerator.Current => _inner.Current!;
-
-        public void Dispose()
-        {
-            try { _inner.Dispose(); } catch { /* Ignore dispose errors */ }
-        }
-
-        // A source's failure goes to the engine as the stream's error (the exporter reports it), never as its end:
-        // ending the stream would return a truncated result.
-        public bool MoveNext() => _inner.MoveNext();
-
-        public void Reset() => _inner.Reset();
     }
 }
 

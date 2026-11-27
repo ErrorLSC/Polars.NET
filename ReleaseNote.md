@@ -174,7 +174,7 @@ A CSV reader and writer of their own. Polars.NET's CSV functions (`ReadCsv`, `Re
 * Writes: a null float written with `decimalComma` is an empty field (not `""`), `Float32` values are written from their own shortest digits, durations as ISO 8601 (`PT1.5S`) instead of being refused.
 * Partitioned writes produce Hive directories of files named `part-{index:D5}-{write id}.csv` (`.gz`, `.zst` when compressed), each with its header and published whole, the key columns kept in the files (`includeKeys`), and refuse files already under the path unless `existingData` says otherwise.
 * `lowMemory`, `cache`, `chunkSize` and `batchSize` are accepted and change nothing; `nThreads` sets the reader's threads.
-* Scans run as .NET sources of the engine (see Streaming over .NET sources): a query's filter runs on the batches read, not in the reader; an in-memory collect reads the columns the query uses whole first (filter a projection, not the whole file, when memory matters); a sink spools the rows to a temporary file first, so scan → sink of a file that parses fast is up to 1.4× slower than the engine's native CSV, and the spool goes to `POLARS_TEMP_DIR` (RAM on a tmpfs `/tmp`: point it at a disk for large files).
+* Scans are sources of the engine's own (see Managed scans as Polars I/O plugins): the query's columns, leading rows and filters are pushed into the reader, which skips the rows the filters reject (decoding only the columns they test), leaves out the Hive partitions they rule out and applies exactly the filters it can (the engine applies the others); every engine path streams the batches (no temporary file, no whole read first).
 
 ### New in Seseragi.Files
 
@@ -346,33 +346,33 @@ Delta Lake now runs on Seseragi.Lakehouse, a managed implementation of the Delta
 
 ---
 
-## Streaming over .NET sources
+## Managed scans as Polars I/O plugins
 
-Scans over .NET data (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) now work on the streaming engine. Polars's streaming engine cannot run these scans, so the source is replaced just before the query runs.
+Every scan Polars.NET runs itself (CSV, NDJSON, Excel, Avro, Delta tables with variant columns, and .NET sources: `ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) is a source of the engine's own, through the I/O plugin contracts of Polars 2.2 (`lazyframe_resolver.v1`, `file_reader.v1`) under the plugin package `seseragi` (explain shows `seseragi: csv[...]`). The anonymous scan, its temporary spool files and the whole reads before streaming collects are gone. Polars.NET builds Polars from its fork (`github.com/ErrorLSC/polars`: py-2.2.0 and one fix that lets the I/O plugin host compile without Python).
 
 ### New
 
-* A scan over .NET data reads only the columns and the leading rows the query uses, on every engine (in memory, `Collect(Engine.Streaming)`, sinks): the engine's optimizer finds them (`Select`, `Head` / `Limit`, also through joins and `CollectAll`) and the source is asked for them. `ScanAvro` decodes only those columns and stops after those rows, `ScanExcel` stops parsing the sheet after those rows; the temporary file of a sink holds only those columns. Your own sources get the request through `ArrowStreamInterop.ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>>, schema, strict)` (Polars.NET.Core); a source may ignore it.
-
-### Fixed
-
-* `SinkCsv`, `SinkIpc`, `SinkNdJson`, the partitioned sinks and `Collect(Engine.Streaming)` over a .NET source failed with `not yet implemented: AnonymousScan`.
-* `SinkParquet` over a .NET source no longer prints a Rust panic to stderr and no longer falls back to an eager write that held the whole table in memory (#38).
-* Sinks, `SinkBatches` / `SinkTo` and `CollectBatchesAsync(engine: Engine.Streaming)` write the source batch by batch to a temporary Arrow IPC file and stream from it, so memory stays bounded by a batch. On 40M rows, `SinkParquet` peaks at about 215 MB of anonymous memory, where it used to hold the whole table (about 1 GB). A source used twice in one query (a self-join, `CollectAll`) is read once, so a single-use `IDataReader` works too.
-* `Collect(Engine.Streaming)` reads the source into memory first, then runs the rest of the query on the streaming engine.
-* `SinkBatches` / `SinkTo` run on the streaming engine and hand batches over as they are produced. They used to collect the whole frame first: `Engine.Auto` is the in-memory engine in this Polars version.
-* `SinkBatches` / `SinkTo` hand over logical Arrow types (`Decimal128`, dictionaries) instead of the engine's physical arrays. `decimal` columns used to fail with `Data type is not yet supported in import` on the streaming path.
-* `CollectBatchesAsync` / `RowsAsync` (and LINQ async enumeration) no longer end silently when the engine fails mid-stream: the error is thrown.
-* `CollectBatchesAsync` starts the query off the caller's thread.
-* The engine releases a .NET source's stream when it stops reading, which disposes the source's enumerator, also when a query needs only the first rows. The stream's handle used to stay allocated after every read.
-* A .NET source that fails while it is read fails the query with its error. Its stream used to end there instead: the query returned the rows read so far, and the error went only to the console.
+* The engine's optimizer pushes the columns, the leading rows (also of an offset slice: offset + length) and the filters into the reader, on every engine path (in memory, `Collect(Engine.Streaming)`, sinks, `CollectAll`), and streams the batches the reader produces.
+* Filters reach the managed readers (CSV, NDJSON, the Parquet reader of Delta variant tables, buffered .NET sources) as the query compiler's IR: rows they reject are skipped (CSV decodes the other columns only for the rows kept; Parquet prunes row groups and pages), Hive partitions they rule out are not read, and a filter the reader applies exactly leaves the engine's plan. Filters with casts, and filters on a row index, stay the engine's.
+* Errors of a scan reach the caller as the reader's own exception (`CsvValueException`, `JsonValueException`, ...), whatever engine runs the query.
+* Your own sources get the request through `ArrowStreamInterop.ScanStream(Func<StreamScanRequest, IEnumerable<RecordBatch>>, schema)` (Polars.NET.Core; the `strict` parameter is gone: every layout is converted). `Polars.NET.Core.IO.Plugins` (`ScanResolver`, `ScanReaderBuilder`, `SourceReader`, `IoPluginBridge.Scan`) lets a source take the filters too.
+* Scan → sink peak memory: CSV 4M rows to Parquet 199 → 137 MB, NDJSON 134 → 94 MB, at the same speed; filtered scans 1.4–2× faster.
 
 ### Behaviour changes
 
-* The temporary file goes in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and disappears when the query ends. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk to keep large sinks out of RAM.
-* `ScanDatabaseBuffered` and `ScanEnumerable(useBuffered: true)` / `ScanSeq(useBuffered = true)` buffer through the native engine. The file lives until the last frame that scans it is released, so there is nothing extra to dispose. `ScanDatabaseBuffered` now returns `LazyFrame`; `ScopedLazyFrame` was removed, and `LazyFrame` is sealed.
-* `CollectBatchesAsync` on the default `Engine.Auto` still reads a .NET source into memory. Pass `Engine.Streaming` for bounded memory.
+* A source that can be read once (`ScanDatabase(IDataReader)`, `ScanDb(reader)`, `ScanRecordBatches`) is read by the first run of a query; a later run, or a second plan of a `CollectAll` that filters it differently, fails with an error saying so (it used to return no rows, or rows of disposed batches). Scan a factory (`ScanDatabase(Func<IDataReader>)`) to run a query again.
+* Batches of a type other than the schema's are refused with an error naming the column (they used to be misread).
+* `ScanDatabaseBuffered` and `ScanEnumerable(useBuffered: true)` / `ScanSeq(useBuffered = true)` read the source now into an Arrow IPC file in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory), written and read by Seseragi.Files: it has no name in the directory and goes away with the last frame that scans it; queries over it get their filters applied by the IPC reader. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk for large sources. `ScanDatabaseBuffered` returns `LazyFrame`; `ScopedLazyFrame` was removed, and `LazyFrame` is sealed.
+* A query over a managed scan starts the streaming engine (about 60 µs per query), which the anonymous scan's in-memory path did not.
+* `CollectAll` over plans of one re-readable source reads it once, every column and row (the plans' scans merge before their columns and limits are pushed down).
 * The eager fallback of `SinkParquet` was removed: streaming sink errors on local paths are thrown, as on cloud paths.
+
+### Fixed
+
+* `SinkCsv`, `SinkIpc`, `SinkNdJson`, the partitioned sinks and `Collect(Engine.Streaming)` over a .NET source failed with `not yet implemented: AnonymousScan`; `SinkParquet` printed a Rust panic and fell back to an eager write that held the whole table (#38).
+* `SinkBatches` / `SinkTo` run on the streaming engine and hand batches over as they are produced, as logical Arrow types (`Decimal128`, dictionaries).
+* `CollectBatchesAsync` / `RowsAsync` (and LINQ async enumeration) no longer end silently when the engine fails mid-stream: the error is thrown. `CollectBatchesAsync` starts the query off the caller's thread.
+* The engine releases a source's reader when it stops reading (a query needing only the first rows stops it, also mid-read), and a source failing mid-read fails the query with its error.
 
 ---
 

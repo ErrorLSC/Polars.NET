@@ -262,12 +262,11 @@ use result =
 :::
 
 > [!NOTE] Memory and the streaming engine
-> A scan over a .NET source (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) is read when the query runs:
-> * `Sink*` (Parquet, CSV, IPC, NDJSON, partitioned), `SinkBatches` / `SinkTo` and `CollectBatchesAsync(engine: Engine.Streaming)` write the source batch by batch to a temporary Arrow IPC file and stream from it, so memory stays bounded by a batch. Pass the same frame twice (a self-join, `CollectAll`) and the source is still read once.
-> * `Collect()`, and `CollectBatchesAsync` on the default engine, read the whole source into memory first: `Engine.Auto` runs in memory.
-> * Only the columns and leading rows the query uses are kept (`Select`, `Head`): the rest of a batch is dropped as it arrives, and reading stops once the rows are there. `ScanAvro` and `ScanNdjson` go further and decode only those columns; `ScanExcel` stops parsing the sheet once the rows are there. `ScanDatabaseBuffered` and `useBuffered: true` read every column, since the query is not known when they read.
+> A scan over a .NET source (`ScanDatabase` / `ScanDb`, `ScanEnumerable` / `ScanSeq`, `ScanRecordBatches`) is read when the query runs, batch by batch, on every engine (`Collect`, `Collect(Engine.Streaming)`, `Sink*`, `SinkBatches` / `SinkTo`, `CollectBatchesAsync`): memory stays bounded by a few batches.
+> * Only the columns and leading rows the query uses are asked for (`Select`, `Head`, `Slice`), and reading stops once the rows are there. `ScanAvro` and `ScanNdjson` decode only those columns; `ScanExcel` stops parsing the sheet once the rows are there.
+> * A factory (`ScanDatabase(Func<IDataReader>)`) or an enumerable is read again by every run of a query. A source that can be read once (`ScanDatabase(IDataReader)`, `ScanDb(reader)`, `ScanRecordBatches`) is read by the first run; a later run fails with an error saying so.
 >
-> The temporary file goes in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and disappears when the query ends. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk to keep large sinks out of RAM. `ScanDatabaseBuffered` and `useBuffered: true` use the same kind of file, but read the source as soon as the frame is created. The file then lives until the last frame that scans it is released.
+> `ScanDatabaseBuffered` and `useBuffered: true` read the source as soon as the frame is created, into an Arrow IPC file in Polars's temporary directory (`POLARS_TEMP_DIR`, by default under the system temp directory). It has no name in the directory and lives until the last frame that scans it is released; queries over it read only the columns and rows they use, filtered by the reader. Where `/tmp` is a RAM-backed tmpfs (Fedora, Arch), point `POLARS_TEMP_DIR` at a disk for large sources.
 
 ---
 

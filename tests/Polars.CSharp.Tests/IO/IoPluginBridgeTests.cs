@@ -57,6 +57,7 @@ public class IoPluginBridgeTests(ITestOutputHelper output)
         public bool BlocksUntilCancelled { get; init; }
 
         public int CancelsSeen;
+        public int Blocked;
 
         /// <summary>The source strings handed to the engine, one per part.</summary>
         public string[] Sources { get; init; } = [.. Enumerable.Range(0, Parts).Select(p => p.ToString())];
@@ -167,6 +168,7 @@ public class IoPluginBridgeTests(ITestOutputHelper output)
                         {
                             batch.Dispose();
                             // Blocks as a reader waiting for a slow store does; only the engine's cancel ends it.
+                            Interlocked.Increment(ref table.Blocked);
                             if (!cancellation.WaitHandle.WaitOne(TimeSpan.FromSeconds(30))) throw new TimeoutException("never cancelled");
                             Interlocked.Increment(ref table.CancelsSeen);
                             cancellation.ThrowIfCancellationRequested();
@@ -390,8 +392,9 @@ public class IoPluginBridgeTests(ITestOutputHelper output)
         using (var q = lf.Select(Pl.Col("Id")).Head(3))
         using (var df = Execute(q, run))
             Assert.Equal([0, 1, 2], Ids(df));
-        // The engine waits for its cancels before the query returns: every blocked reader was woken by one.
-        Assert.True(table.CancelsSeen > 0, "no reader saw a cancel");
+        // The engine waits for its cancels before the query returns: every reader blocked in the source was woken by
+        // one (a reader the engine stops before it asks for more never blocks).
+        Assert.Equal(table.Blocked, table.CancelsSeen);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"took {clock.Elapsed}");
         Assert.Equal(table.ReadersOpened, table.ReadersDisposed);
     }

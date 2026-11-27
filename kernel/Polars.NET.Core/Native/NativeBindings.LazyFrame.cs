@@ -9,22 +9,6 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial void pl_lazy_frame_free(IntPtr ptr);
 
     [LibraryImport(LibName)]
-    public static partial LazyFrameHandle pl_lazy_frame_scan_stream(
-        CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, byte**, nint, long, Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*> callback,
-        delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData,
-        [MarshalAs(UnmanagedType.U1)] bool strict
-    );
-    [LibraryImport(LibName)]
-    public static partial LazyFrameHandle pl_lazy_frame_scan_stream_buffered(
-        CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, byte**, nint, long, Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*> callback,
-        delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData,
-        [MarshalAs(UnmanagedType.U1)] bool strict
-    );
-    [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazyframe_slice(LazyFrameHandle lf, long offset, UIntPtr length);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

@@ -960,26 +960,6 @@ public readonly partial struct PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
-    public static unsafe LazyFrameHandle LazyFrameScanStream(
-        CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, byte**, nint, long, Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*> callback,
-        delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData,
-        bool strict = false)
-    {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback, destroyCallback, userData, strict);
-        return ErrorHelper.Check(handle);
-    }
-    public static unsafe LazyFrameHandle LazyFrameScanStreamBuffered(
-        CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, byte**, nint, long, Kaminari.Sazanami.Arrow.Interop.CArrowArrayStream*> callback,
-        delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
-        void* userData,
-        bool strict = false)
-    {
-        var handle = NativeBindings.pl_lazy_frame_scan_stream_buffered(schema, callback, destroyCallback, userData, strict);
-        return ErrorHelper.Check(handle);
-    }
     public static void ExportBatches(DataFrameHandle dfHandle, Action<RecordBatch> onBatchReceived)
     {
         var (callback, cleanup, userData) = ArrowStreamInterop.PrepareSink(onBatchReceived);

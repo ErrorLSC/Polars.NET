@@ -1,4 +1,3 @@
-use crate::lazy::anonymous_scan::{AnonymousScanMode, resolve_anonymous_scans};
 use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::pl_io::ffi_buffer::FfiBuffer;
@@ -72,7 +71,7 @@ pub extern "C" fn pl_lazyframe_sink_ipc(
         let destination = SinkDestination::File { target };
 
         // 6. Execute via Unified Sink Pipeline
-        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
+        let _ = lf_ctx.inner
             .sink(destination, file_format, unified_args)?
             .collect()?;
         
@@ -149,7 +148,7 @@ pub extern "C" fn pl_sink_ipc_partitioned(
             )?
         };
 
-        let _ = resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?.sink(destination, file_format, unified_args)?
+        let _ = lf_ctx.inner.sink(destination, file_format, unified_args)?
                 .collect()?;
         Ok(())
     })
@@ -181,7 +180,7 @@ fn sink_ipc_to(
         sinked_paths_callback: None
     };
 
-    resolve_anonymous_scans(lf_ctx.inner, AnonymousScanMode::Spool)?
+    lf_ctx.inner
         .sink(destination, file_format, unified_args)?
         .collect()?;
     Ok(())
