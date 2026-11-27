@@ -14,8 +14,14 @@ public sealed record SeenRequest(string Method, string PathAndQuery, IReadOnlyDi
     public byte[] Content { get; init; } = [];
 }
 
-/// <summary>An answer of the fake server: a status, a body and headers of its own (<c>Name: value</c> lines).</summary>
-public sealed record FakeAnswer(int Status, string Body = "", IReadOnlyList<string>? Headers = null);
+/// <summary>
+/// An answer of the fake server: a status, a body and headers of its own (<c>Name: value</c> lines). <see cref="Bytes"/>,
+/// when set, is the body instead (a binary one); a <c>Content-Length</c> among the headers replaces the body's (a HEAD's).
+/// </summary>
+public sealed record FakeAnswer(int Status, string Body = "", IReadOnlyList<string>? Headers = null)
+{
+    public byte[]? Bytes { get; init; }
+}
 
 /// <summary>
 /// A loopback HTTP/1.1 server answering with <c>respond</c> (status and body), for metadata services and token
@@ -129,10 +135,13 @@ public sealed class FakeHttpServer : IDisposable
             Serve(ssl);
             return;
         }
-        var (status, body, own) = _respond(seen);
-        byte[] bytes = Encoding.UTF8.GetBytes(body);
+        FakeAnswer answer = _respond(seen);
+        var (status, body, own) = answer;
+        byte[] bytes = answer.Bytes ?? Encoding.UTF8.GetBytes(body);
         string extra = string.Concat(ResponseHeaders.Concat(own ?? []).Select(h => h + "\r\n"));
-        string response = $"HTTP/1.1 {status} {(HttpStatusCode)status}\r\nContent-Length: {bytes.Length}\r\n{extra}Connection: close\r\n\r\n";
+        bool ownLength = own?.Any(h => h.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) == true;
+        string contentLength = ownLength ? "" : $"Content-Length: {bytes.Length}\r\n";
+        string response = $"HTTP/1.1 {status} {(HttpStatusCode)status}\r\n{contentLength}{extra}Connection: close\r\n\r\n";
         stream.Write(Encoding.ASCII.GetBytes(response));
         stream.Write(bytes);
         stream.Flush();

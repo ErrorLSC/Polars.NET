@@ -168,7 +168,11 @@ internal static class Parent
         : IsCsv(dir) ? new CsvCases([.. Directory.EnumerateFiles(dir, "*.*sv", SearchOption.AllDirectories).Order(StringComparer.Ordinal)])
         : IsJson(dir) ? new JsonCases([.. Directory.EnumerateFiles(dir, "*.*json", SearchOption.AllDirectories)
             .Where(f => !f.EndsWith(".expected.json", StringComparison.Ordinal)).Order(StringComparer.Ordinal)])
+        : IsEncrypted(dir) ? new EncryptedCases([.. Directory.EnumerateFiles(dir, "*.parquet").Order(StringComparer.Ordinal)])
         : new Cases(CorpusFilesOf(dir));
+
+    /// <summary>The Parquet modular encryption fixtures (TestData/parquet/encrypted): their keys are known.</summary>
+    public static bool IsEncrypted(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "encrypted";
 
     public static bool IsCsvDataset(string dir) => Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)) == "csv-dataset";
 

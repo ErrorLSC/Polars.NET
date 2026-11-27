@@ -80,6 +80,17 @@ Other modes:
 Fixed findings go to `tests/Seseragi.Files.Tests/TestData/parquet-fuzz/` with a test in
 `ParquetFuzzRegressionTests`.
 
+## Encrypted Parquet cases
+
+With `tests/Seseragi.Files.Tests/TestData/parquet/encrypted` as the corpus (`EncryptedCases.cs`): three in four take a
+fixture of Parquet modular encryption (pyarrow and Polars, every mode; the keys are known), damage it as above (aimed in
+part at its modules: lengths, nonces, tags, ciphertext, crypto metadata, footer module) and read it with its keys (one
+in eight with wrong ones) and random options (threads: pages read ahead, columns, rows, filters, checksums). AES-GCM
+modules refuse any damage; AES-CTR pages are not authenticated, so their damage reaches the decoders as garbage. The
+fourth writes the plain twin's rows with random encryption (algorithm, key size, column keys, plaintext footer, AAD
+stored or supplied) and write options, reads them back with the keys (every row compared) and with a wrong footer key
+(refused). Contract as above, with `ParquetFormatException`.
+
 ## JSON cases
 
 With `tests/Seseragi.Files.Tests/TestData/json` as the corpus directory, each case takes a JSON file of it
