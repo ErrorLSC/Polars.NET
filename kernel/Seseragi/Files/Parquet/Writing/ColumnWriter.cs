@@ -24,12 +24,15 @@ internal sealed record PageSettings(
 /// A column chunk ready to be written: its pages (the dictionary page first; the data pages as header and body
 /// pieces, <see cref="DataPagesLength"/> bytes in all) and what its metadata needs. The offset index's page offsets
 /// count from the start of the data pages. The chunk owns its native buffers: the pages and the dictionary page until
-/// written (<see cref="ReleasePages"/>), the Bloom filter's bitset until the writer takes it, at layout.
+/// written (<see cref="ReleasePages"/>), the Bloom filter's bitset until the writer takes it, at layout. A chunk of an
+/// encrypted file is sealed once finished: its pages are then modules in <see cref="SealedOwner"/>, sealed for the row
+/// group of ordinal <see cref="SealedGroup"/> (-1: not sealed).
 /// </summary>
 internal readonly record struct FinishedChunk(
     ReadOnlyMemory<byte> DictionaryPage, NativeBufferWriter? DictionaryOwner, IReadOnlyList<ReadOnlyMemory<byte>> DataPages, long DataPagesLength, long UncompressedSize,
     ParquetEncoding[] Encodings, PageEncodingStats[] EncodingStats, Statistics? Statistics, long Values, ColumnIndex? ColumnIndex,
-    OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, NativeBufferWriter? BloomFilter, PageJob[] Pages)
+    OffsetIndex? OffsetIndex, SizeStatistics? SizeStatistics, NativeBufferWriter? BloomFilter, PageJob[] Pages,
+    NativeByteBuffer? SealedOwner = null, int SealedGroup = -1)
 {
     public long CompressedSize => DictionaryPage.Length + DataPagesLength;
 
@@ -38,6 +41,7 @@ internal readonly record struct FinishedChunk(
     {
         foreach (PageJob page in Pages) page.Release();
         DictionaryOwner?.Dispose();
+        SealedOwner?.Release();
     }
 
     /// <summary>Returns every buffer to the pool, the Bloom filter's too: a chunk that is never laid out.</summary>

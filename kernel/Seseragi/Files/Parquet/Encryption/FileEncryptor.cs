@@ -91,6 +91,10 @@ internal sealed class FileEncryptor
     /// <summary>Whether a column is encrypted: every one under uniform encryption, else those with a key.</summary>
     public bool Encrypts(string path) => _columnKeys is null || _columnKeys.ContainsKey(path);
 
+    /// <summary>Whether <paramref name="options"/> encrypt a column (as <see cref="Encrypts(string)"/> of the file they make).</summary>
+    public static bool Encrypts(ParquetEncryptionOptions options, string path) =>
+        options.ColumnKeys is not { Count: > 0 } keys || keys.ContainsKey(path);
+
     /// <summary>The <c>crypto_metadata</c> of a column's chunks; null for a column written in plain.</summary>
     public ColumnCryptoMetaData? CryptoMetaData(string path, string[] pathInSchema) =>
         _columnKeys is null ? new ColumnCryptoMetaData { WithFooterKey = true }

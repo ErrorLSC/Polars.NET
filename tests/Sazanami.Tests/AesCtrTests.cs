@@ -6,7 +6,8 @@ namespace Sazanami.Tests;
 
 /// <summary>
 /// <see cref="AesCtr"/>: the NIST SP 800-38A known answers (F.5.1, F.5.5), inputs spanning several key-stream batches
-/// and of every tail length against a block-by-block reference, and the counter carrying across bytes and words.
+/// and of every tail length against a block-by-block reference, the counter carrying across bytes and words, and the
+/// AES-GCM key stream of counters nonce ‖ 0..2 (every key size, in place) against the same reference.
 /// </summary>
 public sealed class AesCtrTests
 {
@@ -50,6 +51,37 @@ public sealed class AesCtrTests
         byte[] output = new byte[length];
         ctr.Transform(counter, input, output);
         Assert.Equal(Reference(key, counter, input), output);
+    }
+
+    public static TheoryData<uint, int, int> FastPathCases()
+    {
+        TheoryData<uint, int, int> cases = [];
+        // Counters nonce ‖ 0, 1, 2 take AES-GCM's key stream (after 2, 1 or no blocks of their own); 3 does not.
+        foreach (uint start in (uint[])[0, 1, 2, 3])
+        foreach (int length in (int[])[0, 1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 4097, 100_003])
+        foreach (int keyLength in (int[])[16, 24, 32])
+            cases.Add(start, length, keyLength);
+        return cases;
+    }
+
+    [Theory]
+    [MemberData(nameof(FastPathCases))]
+    public void Counters_Of_A_Nonce_And_A_Small_Start_Match_Block_By_Block(uint start, int length, int keyLength)
+    {
+        byte[] key = [.. Enumerable.Range(0, keyLength).Select(i => (byte)(i * 13 + 5))];
+        byte[] counter = [.. Enumerable.Range(0, 12).Select(i => (byte)(0x31 + i * 3)), 0, 0, 0, 0];
+        BinaryPrimitives.WriteUInt32BigEndian(counter.AsSpan(12), start);
+        byte[] input = new byte[length];
+        new Random(length + (int)start).NextBytes(input);
+        byte[] expected = Reference(key, counter, input);
+        using var ctr = new AesCtr(key);
+        byte[] output = new byte[length + 3]; // a longer output: the bytes past the input stay
+        ctr.Transform(counter, input, output);
+        Assert.Equal(expected, output[..length]);
+        Assert.Equal(new byte[3], output[length..]);
+        byte[] inPlace = [.. input];
+        ctr.Transform(counter, inPlace, inPlace);
+        Assert.Equal(expected, inPlace);
     }
 
     [Fact]

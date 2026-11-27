@@ -1,8 +1,10 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text.Json;
 using Apache.Arrow;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Rows;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.Parquet;
 using static Seseragi.Files.Tests.Parquet.ParquetPruningTests;
 
@@ -92,6 +94,15 @@ public sealed class ParquetEncryptionWriterTests : IDisposable
         return ArrowRender.Rows(reader.ReadBatches());
     }
 
+    private static int PagesSkipped(byte[] file, ParquetDecryptionOptions? keys, ParquetReadOptions options)
+    {
+        using var parquet = ParquetFile.Open(file, keys);
+        using var reader = parquet.OpenReader(options);
+        foreach (RecordBatch batch in reader.ReadBatches()) batch.Dispose();
+        Assert.True(reader.PagesSkipped > 0);
+        return reader.PagesSkipped;
+    }
+
     [Theory]
     [MemberData(nameof(Modes))]
     public void Every_Mode_Reads_Back_As_Written(Mode mode)
@@ -107,6 +118,9 @@ public sealed class ParquetEncryptionWriterTests : IDisposable
             // Rows by the offset index, filters by statistics and rows, Bloom filters.
             var ranges = new ParquetReadOptions { Rows = RowRanges.Of([(3, 70), (500, 150), (1190, 10)]) };
             Assert.Equal(Read(plain, null, ranges), Read(file, mode.Decryption, ranges));
+            // The offset index points at the sealed pages: they are skipped as the plain file's are (an index that does
+            // not fit its chunk would be dropped, and every page read).
+            Assert.Equal(PagesSkipped(plain, null, ranges), PagesSkipped(file, mode.Decryption, ranges));
             var filtered = new ParquetReadOptions { Filter = Bin(BinaryOp.Lt, Col("i32"), Lit(LiteralValue.NewInt32(-1450))), FilterRows = true };
             Assert.Equal(Read(plain, null, filtered), Read(file, mode.Decryption, filtered));
             using var parquet = ParquetFile.Open(file, mode.Decryption);
@@ -115,6 +129,47 @@ public sealed class ParquetEncryptionWriterTests : IDisposable
             using (var reader = parquet.OpenReader(new ParquetReadOptions { Filter = absent })) Assert.Empty(reader.RowGroupsRead);
             using (var reader = parquet.OpenReader(new ParquetReadOptions { Filter = absent, BloomFilters = false })) Assert.Equal([0, 1, 2], reader.RowGroupsRead);
         }
+    }
+
+    /// <summary>
+    /// Row groups encoded side by side from batches the writer owns are sealed in parallel for their own ordinals (in
+    /// every module's AAD): a row group sealed as another's does not authenticate.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Modes))]
+    public void Row_Groups_Encoded_Side_By_Side_Are_Sealed_For_Their_Ordinals(Mode mode)
+    {
+        List<string> expected = Read(Write(Options(null)), null);
+        foreach (int threads in (int[])[1, 4])
+        {
+            List<RecordBatch> batches = PlainBatches(out Apache.Arrow.Schema schema);
+            using var stream = new MemoryStream();
+            using (var writer = ParquetWriter.Create(stream, schema, Options(mode.Encryption, threads, mode.PagesV2) with { BatchOwnership = BatchOwnership.Writer }))
+            {
+                foreach (RecordBatch batch in batches) writer.Write(batch); // the writer disposes them
+                writer.Complete();
+            }
+            byte[] file = stream.ToArray();
+            using (var parquet = ParquetFile.Open(file, mode.Decryption)) Assert.Equal(3, parquet.Metadata.RowGroups.Count);
+            Assert.Equal(expected, Read(file, mode.Decryption, new ParquetReadOptions { VerifyChecksums = true }));
+        }
+    }
+
+    /// <summary>
+    /// The checksum of an encrypted page covers its module (as parquet-mr and Arrow write it): a damaged page fails its
+    /// checksum before it is decrypted; written without checksums, AES-GCM catches the damage instead.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Encrypted_Pages_Are_Checksummed_Over_Their_Modules(bool checksums)
+    {
+        byte[] file = Write(Options(new(K16)) with { WriteChecksums = checksums, Dictionary = false });
+        // The first chunk follows the magic: its first data page's header module, then its body module.
+        int header = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(4));
+        file[4 + 4 + header + 4 + 12 + 3] ^= 0x10; // a byte of the body's ciphertext
+        var error = Assert.Throws<ParquetFormatException>(() => Read(file, new(K16), new ParquetReadOptions { VerifyChecksums = true }));
+        Assert.Contains(checksums ? "fails its CRC check" : "does not open its data", error.Message);
     }
 
     [Fact]
