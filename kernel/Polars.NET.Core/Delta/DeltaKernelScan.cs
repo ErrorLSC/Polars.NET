@@ -726,13 +726,29 @@ public static class DeltaKernelScan
         string? pathColumn = options?.IncludePathColumn;
         int parallelism = options?.Parallel == PlParallelStrategy.None ? 1 : Environment.ProcessorCount;
 
-        // The stream's schema: the reader's (row index first, then the columns, then the path column).
+        // The stream's schema: the reader's (row index first, then the columns, then the path column). The store and
+        // dataset it is read from stay with the scan, to tell which filters the reader applies exactly.
+        var probeStorage = ManagedStorage.Open(paths, cloud);
+        ParquetDataset? probeDataset = null;
         Apache.Arrow.Schema streamSchema;
-        using (var storage = ManagedStorage.Open(paths, cloud))
-        using (var dataset = ParquetDataset.Open(files, DatasetOptionsFor(storage.Store)))
-        using (var reader = dataset.OpenReader(new ParquetReadOptions { RowIndexColumn = rowIndexName, Int96Timezone = "UTC" }))
+        try
+        {
+            probeDataset = ParquetDataset.Open(files, DatasetOptionsFor(probeStorage.Store));
+            using var reader = probeDataset.OpenReader(new ParquetReadOptions { RowIndexColumn = rowIndexName, Int96Timezone = "UTC" });
             streamSchema = reader.Schema;
-        return ArrowStreamInterop.ScanStream(Batches, streamSchema, strict: true);
+        }
+        catch
+        {
+            probeDataset?.Dispose();
+            probeStorage.Dispose();
+            throw;
+        }
+        ParquetDataset probe = probeDataset;
+        // The row index keeps the reader's numbering (each file's rows when one file is read): no filter over it.
+        var scan = new IO.ManagedFrames.Scan(streamSchema, null, 0, null);
+        return IO.Plugins.ManagedScans.Open($"delta[{IO.Plugins.ManagedScans.Shown(paths.Length == 1 ? paths[0] : $"{paths.Length} files")}]",
+            IO.Plugins.ManagedScans.Identity(), scan, null, Batches, Exactly, new ProbeOwner(probe, probeStorage),
+            engineOnly: rowIndexName is null ? [] : [rowIndexName]);
 
         ParquetDatasetOptions DatasetOptionsFor(IFileStore? store) => new()
         {
@@ -745,26 +761,57 @@ public static class DeltaKernelScan
             FilePathColumn = pathColumn,
         };
 
-        IEnumerable<Apache.Arrow.RecordBatch> Batches(StreamScanRequest request)
+        // The query compiler's filter (rows it keeps; it still filters) and the engine's (those reported applied are
+        // applied exactly).
+        ScalarExpr? Both(ScalarExpr? engine) => (filter, engine) switch
+        {
+            ({ } a, { } b) => ScalarExpr.NewBinary(BinaryOp.And, a, b),
+            var (a, b) => a ?? b,
+        };
+
+        bool Exactly(ScalarExpr engine)
+        {
+            using var reader = probe.OpenReader(new ParquetReadOptions { Int96Timezone = "UTC", Filter = Both(engine), FilterRows = true });
+            return reader.FiltersExactly;
+        }
+
+        IEnumerable<Apache.Arrow.RecordBatch> Batches(IO.Plugins.ScanRun run)
         {
             using var storage = ManagedStorage.Open(paths, cloud);
             using var dataset = ParquetDataset.Open(files, DatasetOptionsFor(storage.Store));
-            string[]? columns = request.Columns is { } asked
+            string[]? columns = run.Columns is { } asked
                 ? [.. asked.Where(c => c != rowIndexName && c != pathColumn)]
                 : null;
             // Some column is read to count the rows (the row index or the path alone hold none of their own).
             if (columns is []) columns = [dataset.Schema.FieldsList[0].Name];
+            ScalarExpr? rows = Both(run.Filter);
             using var reader = dataset.OpenReader(new ParquetReadOptions
             {
                 Columns = columns,
-                MaxRows = request.RowLimit,
+                MaxRows = run.Limit,
                 RowIndexColumn = rowIndexName,
                 MaxDegreeOfParallelism = parallelism,
                 Int96Timezone = "UTC", // a Spark TIMESTAMP: the instants the table's type says
-                Filter = filter,
-                FilterRows = filter is not null,
+                Filter = rows,
+                FilterRows = rows is not null,
             });
             foreach (var batch in reader.ReadBatches()) yield return batch;
+        }
+    }
+
+    /// <summary>The dataset a managed scan tells exact filters by, and its store: released with the scan.</summary>
+    private sealed class ProbeOwner(ParquetDataset dataset, ManagedStorage storage) : IDisposable
+    {
+        public void Dispose()
+        {
+            try
+            {
+                dataset.Dispose();
+            }
+            finally
+            {
+                storage.Dispose();
+            }
         }
     }
 

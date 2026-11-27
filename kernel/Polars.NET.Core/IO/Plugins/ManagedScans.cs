@@ -39,16 +39,18 @@ internal static class ManagedScans
     /// <param name="filters">Whether the reader takes filters (else every filter stays the engine's).</param>
     /// <param name="singlePass">Whether the input can be read only once (a DataReader): the first read (or count)
     /// consumes it, a later one fails with an error saying so.</param>
+    /// <param name="engineOnly">Columns the reader takes no filter over (a row index it numbers itself, as an input
+    /// column).</param>
     public static LazyFrameHandle Open(string name, ulong fingerprint, Scan scan, string? rowIndex,
         Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, IDisposable owner,
-        bool filters = true, bool singlePass = false)
+        bool filters = true, bool singlePass = false, IReadOnlyList<string>? engineOnly = null)
     {
         var shared = new SharedOwner(owner);
         ManagedScanResolver resolver;
         try
         {
             resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, filters ? appliesExactly : null,
-                singlePass ? new Consumable(name) : null, shared);
+                singlePass ? new Consumable(name) : null, shared, engineOnly ?? []);
         }
         catch
         {
@@ -81,7 +83,7 @@ internal static class ManagedScans
     /// make the filter inexact.
     /// </summary>
     internal static (ScalarExpr? Filter, int[] Applied) ReadFilter(IReadOnlyList<PushedFilter> filters, Schema scan, string? rowIndex,
-        Func<ScalarExpr, bool> appliesExactly)
+        Func<ScalarExpr, bool> appliesExactly, IReadOnlyList<string>? engineOnly = null)
     {
         List<PushedFilter> exact = [];
         List<ScalarExpr> skipping = [];
@@ -109,7 +111,8 @@ internal static class ManagedScans
             }
         }
 
-        bool OverInput(ScalarExpr expr) => ScalarExprOps.collectColumns(expr).All(c => c != rowIndex && scan.GetFieldIndex(c) >= 0);
+        bool OverInput(ScalarExpr expr) =>
+            ScalarExprOps.collectColumns(expr).All(c => c != rowIndex && engineOnly?.Contains(c) != true && scan.GetFieldIndex(c) >= 0);
 
         static ScalarExpr? And(ScalarExpr[] parts) =>
             parts.Length == 0 ? null : parts.Skip(1).Aggregate(parts[0], static (a, b) => ScalarExpr.NewBinary(BinaryOp.And, a, b));
@@ -157,7 +160,8 @@ internal static class ManagedScans
     }
 
     private sealed class ManagedScanResolver(string name, ulong fingerprint, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool>? appliesExactly, Consumable? consumable, SharedOwner owner)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool>? appliesExactly, Consumable? consumable, SharedOwner owner,
+        IReadOnlyList<string> engineOnly)
         : ScanResolver(name, fingerprint, scan.Schema)
     {
         public override ScanPlan Resolve(ResolveRequest request)
@@ -165,7 +169,7 @@ internal static class ManagedScans
             Schema schema = request.Projection is { } projection
                 ? new Schema([.. projection.Select(c => Schema.GetFieldByName(c) ?? throw new InvalidOperationException($"The scan has no column \"{c}\"."))], Schema.Metadata)
                 : Schema;
-            var (filter, applied) = appliesExactly is null ? (null, []) : ReadFilter(request.Filters, Schema, rowIndex, appliesExactly);
+            var (filter, applied) = appliesExactly is null ? (null, []) : ReadFilter(request.Filters, Schema, rowIndex, appliesExactly, engineOnly);
             ulong print = new FingerprintBuilder()
                 .Add(Fingerprint)
                 .Add(request.Projection)

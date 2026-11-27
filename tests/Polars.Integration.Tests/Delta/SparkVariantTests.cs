@@ -444,6 +444,50 @@ public class SparkVariantTests
         });
     }
 
+    /// <summary>
+    /// The engine's own filters over a variant table reach the managed reader as LINQ's do (through the I/O plugin
+    /// bridge): the files ruled out are left unread, and the reader applies the filter exactly (the plan keeps no
+    /// filter of the engine's above or in the scan).
+    /// </summary>
+    [SparkFact]
+    [Trait("DeltaKernel", "Spark")]
+    public void EngineFilters_OverAVariantTable_PruneInTheReader()
+    {
+        InTable(table =>
+        {
+            LocalSpark.Run("sql", table,
+                "CREATE TABLE {table} (id BIGINT, pad STRING, v VARIANT) USING delta TBLPROPERTIES ('delta.dataSkippingNumIndexedCols'='0')");
+            LocalSpark.Run("sql", table, """
+                INSERT INTO {table} SELECT /*+ REPARTITION_BY_RANGE(4, id) */ id, repeat(md5(CAST(id AS STRING)), 4), parse_json('1')
+                FROM range(40000)
+                """);
+
+            var counter = new ReadCounter();
+            DeltaKernelScan.ManagedStorage.WrapForTests = store => new CountingStore(store, counter, table);
+            try
+            {
+                using var lf = LazyFrame.ScanDelta(table);
+                long before = counter.Bytes;
+                using (var all = lf.Select(Polars.CSharp.Polars.Col("id"), Polars.CSharp.Polars.Col("pad")).Collect()) Assert.Equal(40_000, all.Height);
+                long whole = counter.Bytes - before;
+
+                using var q = lf.Filter(Polars.CSharp.Polars.Col("id") < 10).Select(Polars.CSharp.Polars.Col("id"), Polars.CSharp.Polars.Col("pad"));
+                string plan = q.Explain();
+                Assert.Contains("filters rows by", plan);
+                Assert.DoesNotContain("SELECTION:", plan);
+                Assert.DoesNotContain("FILTER", plan);
+                before = counter.Bytes;
+                using var df = q.Collect();
+                Assert.Equal(10, df.Height);
+                Assert.InRange(counter.Bytes - before, 1, whole / 2);
+            }
+            finally
+            {
+                DeltaKernelScan.ManagedStorage.WrapForTests = null;
+            }
+        });
+    }
+
     /// <summary>The bytes read from files below a table.</summary>
     private sealed class ReadCounter
     {

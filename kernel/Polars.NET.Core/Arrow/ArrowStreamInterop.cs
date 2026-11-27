@@ -211,11 +211,13 @@ public static unsafe class ArrowStreamInterop
     /// <param name="streamFactory">Opens the stream for a request each time the plan runs.</param>
     /// <param name="schema">The stream's full schema.</param>
     /// <param name="strict">As for <see cref="ScanStream(Func{IEnumerable{RecordBatch}}, Schema, bool)"/>.</param>
+    /// <param name="name">Shown by explain (e.g. <c>excel[path]</c>; no secrets): <c>stream</c> when null.</param>
     public static LazyFrameHandle ScanStream(
         Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory,
         Schema schema,
-        bool strict = false)
-        => Scan(streamFactory, schema, buffered: false, strict);
+        bool strict = false,
+        string? name = null)
+        => Scan(streamFactory, schema, buffered: false, strict, name: name);
 
     /// <summary>
     /// As <see cref="ScanStream(Func{StreamScanRequest, IEnumerable{RecordBatch}}, Schema, bool)"/>, with what the streams
@@ -248,7 +250,7 @@ public static unsafe class ArrowStreamInterop
         => Scan(_ => streamFactory(), schema, buffered: true, strict);
 
     private static LazyFrameHandle Scan(Func<StreamScanRequest, IEnumerable<RecordBatch>> streamFactory, Schema schema, bool buffered, bool strict,
-        IDisposable? owner = null, bool singlePass = false)
+        IDisposable? owner = null, bool singlePass = false, string? name = null)
     {
         if (schema.FieldsList.Count == 0)
         {
@@ -262,7 +264,7 @@ public static unsafe class ArrowStreamInterop
         {
             // The engine's I/O plugin: the stream opened for the columns and leading rows the query needs, each run.
             var scan = new IO.ManagedFrames.Scan(schema, null, 0, null);
-            return IO.Plugins.ManagedScans.Open("stream", IO.Plugins.ManagedScans.Identity(), scan, null,
+            return IO.Plugins.ManagedScans.Open(name ?? "stream", IO.Plugins.ManagedScans.Identity(), scan, null,
                 run => streamFactory(new StreamScanRequest(Asked(run.Columns), run.Limit)), static _ => false, owner ?? NoOwner.Instance,
                 filters: false, singlePass: singlePass);
 

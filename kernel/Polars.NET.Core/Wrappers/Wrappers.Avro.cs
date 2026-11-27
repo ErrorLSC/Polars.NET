@@ -88,7 +88,7 @@ public readonly partial struct PolarsWrapper
         Schema arrowSchema;
         using (var probe = AvroReader.Open(path, options)) arrowSchema = probe.Schema;
         var schema = PolarsArrowCompat.Adapt(arrowSchema, out _);
-        return ArrowStreamInterop.ScanStream(Batches, schema, strict: true);
+        return ArrowStreamInterop.ScanStream(Batches, schema, strict: true, name: $"avro[{IO.Plugins.ManagedScans.Shown(path)}]");
 
         // Decodes only the columns and leading rows the query needs.
         IEnumerable<RecordBatch> Batches(StreamScanRequest request)
